@@ -131,15 +131,17 @@ impl Fixture {
             endpoints: &endpoints,
             activity: &activity,
         };
-        let (caller, streaming) = super::super::super::authenticate_upload(
-            &self.state.auth,
-            &self.state.catalog,
-            request.method(),
-            request.uri(),
-            request.headers(),
-            self.state.clock.as_ref(),
-        )
-        .await?;
+        let (caller, streaming) =
+            crate::xml::authenticate_upload_target(crate::xml::Authentication {
+                auth: &self.state.auth,
+                catalog: &self.state.catalog,
+                method: request.method(),
+                uri: request.uri(),
+                headers: request.headers(),
+                clock: self.state.clock.as_ref(),
+                resource: &crate::auth::signature::Resource::PathStyle,
+            })
+            .await?;
         let operation = super::super::super::route(
             request.method(),
             &config,

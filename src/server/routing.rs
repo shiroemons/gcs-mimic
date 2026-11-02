@@ -6,8 +6,8 @@
 use super::RequestBody as Incoming;
 use super::{
     DeadlineWatch, RequestCtx, ResponseBody, State, acl, anonymous_error, boxed, buckets,
-    notifications, objects, probe_or_unknown, project_resources, resumable, rewrite, unsupported,
-    xml_read,
+    empty_response, notifications, objects, probe_or_unknown, project_resources, resumable,
+    rewrite, unsupported, xml_read,
 };
 use crate::{
     auth::Caller,
@@ -214,7 +214,7 @@ async fn respond_json_cors(
                 .into_response(),
             )
         } else {
-            boxed(Response::new(Full::new(Bytes::new())))
+            boxed(empty_response(StatusCode::OK))
         }
     } else {
         respond_routed(request, ctx, None).await
@@ -298,7 +298,7 @@ async fn respond_xml_cors(
     let varies_by_origin = has_rules || config.cors_fallback != CorsFallback::None;
     let (mut response, vary) = match kind {
         CorsRequest::Preflight => (
-            boxed(Response::new(Full::new(Bytes::new()))),
+            boxed(empty_response(StatusCode::OK)),
             "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
         ),
         CorsRequest::Actual => (respond_routed(request, ctx, selected).await, "Origin"),
@@ -534,29 +534,21 @@ async fn respond_xml_object(
         .filter(|_| head || delete || request.method() == Method::GET)
         .map(|read| (read.bucket.clone(), read.name.clone()));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
+    let auth_inputs = xml::Authentication {
+        auth: &ctx.state.auth,
+        catalog: &ctx.state.catalog,
+        method: request.method(),
+        uri: request.uri(),
+        headers: request.headers(),
+        clock: ctx.state.clock.as_ref(),
+        resource: &resource,
+    };
     let authentication = if put && !multipart {
-        xml::authenticate_upload_target(
-            &ctx.state.auth,
-            &ctx.state.catalog,
-            request.method(),
-            request.uri(),
-            request.headers(),
-            ctx.state.clock.as_ref(),
-            &resource,
-        )
-        .await
+        xml::authenticate_upload_target(auth_inputs).await
     } else {
-        xml::authenticate_target(
-            &ctx.state.auth,
-            &ctx.state.catalog,
-            request.method(),
-            request.uri(),
-            request.headers(),
-            ctx.state.clock.as_ref(),
-            &resource,
-        )
-        .await
-        .map(|caller| (caller, None))
+        xml::authenticate_target(auth_inputs)
+            .await
+            .map(|caller| (caller, None))
     };
     let result = match authentication {
         Ok((caller, streaming)) => {
@@ -602,15 +594,15 @@ async fn respond_xml_resumable(
             xml::resumable::session(request, object, ctx.object(None, deadline)).await
         }
         xml::resumable::Route::Start => {
-            match xml::authenticate_target(
-                &ctx.state.auth,
-                &ctx.state.catalog,
-                request.method(),
-                request.uri(),
-                request.headers(),
-                ctx.state.clock.as_ref(),
+            match xml::authenticate_target(xml::Authentication {
+                auth: &ctx.state.auth,
+                catalog: &ctx.state.catalog,
+                method: request.method(),
+                uri: request.uri(),
+                headers: request.headers(),
+                clock: ctx.state.clock.as_ref(),
                 resource,
-            )
+            })
             .await
             {
                 Ok(caller) => match xml::normalize_legacy_headers(request.headers_mut()) {

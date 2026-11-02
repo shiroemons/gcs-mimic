@@ -1,6 +1,6 @@
 //! Form policy versions have distinct credential fields and condition exemptions.
 
-use super::{Error, invalid};
+use super::Error;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -21,11 +21,11 @@ impl Version {
         let has_v2 = v2.iter().any(|name| fields.contains_key(*name));
         let has_v4 = v4.iter().any(|name| fields.contains_key(*name));
         if has_v2 && has_v4 {
-            return Err(invalid("Use exactly one policy signing version."));
+            return Err(Error::invalid("Use exactly one policy signing version."));
         }
         if !fields.contains_key("policy") {
             if has_v2 || has_v4 {
-                return Err(invalid("Policy credentials require a policy field."));
+                return Err(Error::invalid("Policy credentials require a policy field."));
             }
             return Ok(None);
         }
@@ -36,7 +36,7 @@ impl Version {
         };
         for name in required {
             if fields.get(*name).is_none_or(String::is_empty) {
-                return Err(invalid(format!(
+                return Err(Error::invalid(format!(
                     "Form field {name} is required with policy."
                 )));
             }

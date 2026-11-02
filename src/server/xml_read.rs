@@ -158,9 +158,7 @@ async fn read(
     if let Some((offset, length)) = range {
         if !head {
             reader.set_range(offset, length).await.map_err(|_| {
-                xml::Error::from(json::JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
+                xml::Error::from(json::JsonError::service_unavailable(
                     "Cannot seek object data",
                 ))
             })?;
@@ -214,18 +212,7 @@ async fn gunzipped(
     }
     gzip::insert_transcoded_headers(&mut headers);
     headers.extend(overrides);
-    let mut response = if head {
-        boxed(empty_response(StatusCode::OK))
-    } else {
-        Response::new(gzip::body(
-            reader,
-            record.size,
-            ctx.config.max_object_bytes,
-            ctx.activity,
-        ))
-    };
-    *response.headers_mut() = headers;
-    Ok(response)
+    Ok(gzip::response(ctx, record, reader, headers, method))
 }
 
 /// A refused Range keeps the object's validators, generation, hashes and `accept-ranges`, with

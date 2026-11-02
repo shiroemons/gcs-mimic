@@ -116,10 +116,9 @@ fn parse_lock_retention_policy(
     profile: CompatProfile,
 ) -> Result<BucketRequest, JsonError> {
     if *method != Method::POST {
-        return Err(JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        return Err(JsonError::method_not_allowed(
             "Use POST to lock a retention policy",
+            None,
         ));
     }
     let bucket = decode(segment, Decoding::Path)?;
@@ -130,9 +129,7 @@ fn parse_lock_retention_policy(
     let metageneration = query
         .remove("ifMetagenerationMatch")
         .ok_or_else(|| {
-            JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "required",
+            JsonError::required(
                 "ifMetagenerationMatch is required; read the bucket metageneration first",
             )
         })?
@@ -153,13 +150,10 @@ fn parse_restore(
     profile: CompatProfile,
 ) -> Result<BucketRequest, JsonError> {
     if *method != Method::POST {
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        return Err(JsonError::method_not_allowed(
             "Use POST to restore a soft-deleted bucket",
-        );
-        error.allow = Some("POST");
-        return Err(error);
+            Some("POST"),
+        ));
     }
     let bucket = decode(segment, Decoding::Path)?;
     validate_bucket_name_for_profile(&bucket, profile)?;
@@ -191,11 +185,7 @@ fn bucket_generation(query: &mut BTreeMap<String, String>) -> Result<Option<i64>
 
 /// Matches the observed Cloud Storage message for a soft-deleted read without a generation.
 fn generation_required() -> JsonError {
-    JsonError::new(
-        StatusCode::BAD_REQUEST,
-        "required",
-        "Bucket generation is required.",
-    )
+    JsonError::required("Bucket generation is required.")
 }
 
 /// `GET /storage/v1/b?softDeleted=true`; called after the shared list parameters are parsed.
@@ -234,9 +224,7 @@ fn soft_deleted_get(
         (true, Some(generation)) => generation,
         (true, None) => return Err(generation_required()),
         (false, Some(_)) => {
-            return Err(JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "required",
+            return Err(JsonError::required(
                 "generation selects a soft-deleted bucket; add softDeleted=true",
             ));
         }
@@ -266,13 +254,10 @@ fn parse_storage_layout(
     profile: CompatProfile,
 ) -> Result<BucketRequest, JsonError> {
     if *method != Method::GET {
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        return Err(JsonError::method_not_allowed(
             "Use GET to read a bucket storage layout",
-        );
-        error.allow = Some("GET");
-        return Err(error);
+            Some("GET"),
+        ));
     }
     let bucket = decode(segment, Decoding::Path)?;
     validate_bucket_name_for_profile(&bucket, profile)?;
@@ -299,13 +284,10 @@ fn parse_iam(
         validate_bucket_name_for_profile(&bucket, profile)?;
     }
     if !matches!(*method, Method::GET | Method::PUT) {
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        return Err(JsonError::method_not_allowed(
             "HTTP method is not supported for this IAM endpoint",
-        );
-        error.allow = Some("GET, PUT");
-        return Err(error);
+            Some("GET, PUT"),
+        ));
     }
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, "Policy")?;
@@ -403,16 +385,14 @@ pub(crate) fn route_with_profile(
             )
     );
     if !allowed {
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        let error = JsonError::method_not_allowed(
             "HTTP method is not supported for this bucket endpoint",
+            Some(if bucket.is_some() {
+                "GET, DELETE, PATCH, PUT"
+            } else {
+                "GET, POST"
+            }),
         );
-        error.allow = Some(if bucket.is_some() {
-            "GET, DELETE, PATCH, PUT"
-        } else {
-            "GET, POST"
-        });
         return Some(Err(error));
     }
     Some(parse(
@@ -627,12 +607,7 @@ fn list_page_size(query: &mut BTreeMap<String, String>, page_cap: u32) -> Result
 
 fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
     let project = query.remove("project").ok_or_else(|| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "required",
-            "Required parameter: project",
-        )
-        .at_parameter("project")
+        JsonError::required("Required parameter: project").at_parameter("project")
     })?;
     validate_project(&project)?;
     Ok(project)

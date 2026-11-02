@@ -45,11 +45,7 @@ fn acl_error(error: AclError, access: AclAccess) -> JsonError {
             entity,
             project_number,
         } => entity_not_found(&entity, &project_number),
-        AclError::RoleRequired => JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "required",
-            "Access control must contain a role",
-        ),
+        AclError::RoleRequired => JsonError::required("Access control must contain a role"),
         AclError::TooManyEntries => JsonError::invalid(format!(
             "An ACL can hold at most {} entries; delete an entry before adding another",
             crate::acl::MAX_ENTRIES
@@ -222,13 +218,8 @@ pub(super) async fn respond(
                 .await
                 .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
             // The catalog returns the entry that every upsert writes.
-            let entry = entry.ok_or_else(|| {
-                JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "ACL change returned no entry",
-                )
-            })?;
+            let entry = entry
+                .ok_or_else(|| JsonError::service_unavailable("ACL change returned no entry"))?;
             json::acl::acl_entry_resource(base, owner(&target, &acl), &entry)
         }
     };

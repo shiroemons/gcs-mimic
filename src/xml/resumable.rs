@@ -7,15 +7,13 @@ use crate::server::RequestBody as Incoming;
 use crate::{
     auth, json,
     server::{
-        ObjectCtx, ResponseBody, anonymous_error, boxed,
+        ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response,
         resumable::{self, SessionTarget, Transfer},
     },
     storage::{ResumableError, ResumableOptions},
 };
-use http_body_util::Full;
 use hyper::{
     HeaderMap, Method, Request, Response, StatusCode, Uri,
-    body::Bytes,
     header::{HeaderValue, LOCATION},
 };
 
@@ -51,10 +49,6 @@ fn target(object: &ObjectPath, ctx: ObjectCtx<'_>) -> Result<String, Error> {
     Ok(name)
 }
 
-fn invalid(message: &str) -> Error {
-    Error::new(StatusCode::BAD_REQUEST, "InvalidArgument", message)
-}
-
 /// Whether the initiation authenticated through a signature, which admits its signing headers.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Signing {
@@ -69,33 +63,17 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
         let name = key.as_str();
         let goog = name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
-            && !crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
+            && !super::is_common_object_header(name)
             && !(signing == Signing::Signed && auth::signature::authentication_header(name))
-            && !matches!(
-                name,
-                "x-goog-resumable"
-                    | "x-goog-if-generation-match"
-                    | "x-goog-if-metageneration-match"
-                    | "x-goog-api-client"
-                    | "x-goog-gcs-idempotency-token"
-                    | "x-goog-storage-class"
-            );
+            && !matches!(name, "x-goog-resumable" | "x-goog-storage-class");
         let amz = name.starts_with("x-amz-")
             && !(signing == Signing::Signed && auth::signature::authentication_header(name));
         if goog
             || amz
+            || super::HTTP_PRECONDITION_HEADERS.contains(&name)
             || matches!(
                 name,
-                "x-goog-hash"
-                    | "content-md5"
-                    | "content-range"
-                    | "range"
-                    | "if-match"
-                    | "if-none-match"
-                    | "if-modified-since"
-                    | "if-unmodified-since"
-                    | "if-range"
-                    | "trailer"
+                "x-goog-hash" | "content-md5" | "content-range" | "range" | "trailer"
             )
         {
             return Err(Error::unsupported(name));
@@ -113,7 +91,7 @@ fn options(
 ) -> Result<ResumableOptions, Error> {
     reject_unsupported_headers(headers, signing)?;
     if auth::signature::resumable_start(headers) != Ok(true) {
-        return Err(invalid("x-goog-resumable must be start."));
+        return Err(Error::invalid("x-goog-resumable must be start."));
     }
     let conditions = put::conditions(headers)?;
     let (content_type, expected) = put::content_type_and_hashes(headers, conditions)?;
@@ -153,7 +131,7 @@ pub(crate) async fn start(
     let options = options(request.headers(), signing, access)?;
     json::read_body(request.into_body(), 0)
         .await
-        .map_err(|_| invalid("Resumable upload initiation carries no body."))?;
+        .map_err(|_| Error::invalid("Resumable upload initiation carries no body."))?;
     let id = resumable::create_session(ctx, &object.bucket, &name, options, None)
         .await
         .map_err(|error| Error::from(anonymous_error(error, caller)))?;
@@ -166,9 +144,8 @@ pub(crate) async fn start(
         object.name()
     );
     let location =
-        HeaderValue::try_from(location).map_err(|_| invalid("Invalid session endpoint."))?;
-    let mut response = Response::new(Full::new(Bytes::new()));
-    *response.status_mut() = StatusCode::CREATED;
+        HeaderValue::try_from(location).map_err(|_| Error::invalid("Invalid session endpoint."))?;
+    let mut response = empty_response(StatusCode::CREATED);
     let headers = response.headers_mut();
     headers.insert(LOCATION, location);
     headers.insert("cache-control", HeaderValue::from_static("no-store"));
@@ -187,7 +164,7 @@ pub(crate) async fn session(
     let mut query = json::parse_query(request.uri().query().unwrap_or_default())?;
     let id = query
         .remove("upload_id")
-        .ok_or_else(|| invalid("Missing upload_id."))?;
+        .ok_or_else(|| Error::invalid("Missing upload_id."))?;
     if let Some(key) = query.keys().next() {
         return Err(Error::unsupported(key));
     }
@@ -241,8 +218,7 @@ async fn cancel(
 }
 
 fn no_content() -> Response<ResponseBody> {
-    let mut response = Response::new(Full::new(Bytes::new()));
-    *response.status_mut() = StatusCode::NO_CONTENT;
+    let mut response = empty_response(StatusCode::NO_CONTENT);
     response
         .headers_mut()
         .insert("cache-control", HeaderValue::from_static("no-store"));
@@ -282,7 +258,7 @@ fn completed(value: &serde_json::Value) -> Result<Response<ResponseBody>, Error>
         || format!("crc32c={crc32c}"),
         |md5| format!("crc32c={crc32c},md5={md5}"),
     );
-    let mut response = Response::new(Full::new(Bytes::new()));
+    let mut response = empty_response(StatusCode::OK);
     let headers = response.headers_mut();
     for (name, value) in [
         ("etag", etag.as_str()),

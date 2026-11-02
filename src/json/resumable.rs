@@ -7,7 +7,7 @@ use crate::{
     object::{ExpectedHashes, ObjectError},
     storage::ResumableOptions,
 };
-use hyper::{HeaderMap, Method, StatusCode, Uri};
+use hyper::{HeaderMap, Method, Uri};
 
 pub(crate) fn session_route(
     method: &Method,
@@ -26,10 +26,9 @@ pub(crate) fn session_route(
     }
     Some((|| {
         if !matches!(*method, Method::PUT | Method::POST | Method::DELETE) {
-            return Err(JsonError::new(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "methodNotAllowed",
+            return Err(JsonError::method_not_allowed(
                 "Session requires PUT, POST or DELETE",
+                None,
             ));
         }
         let bucket = super::decode(bucket, super::Decoding::Path)?;

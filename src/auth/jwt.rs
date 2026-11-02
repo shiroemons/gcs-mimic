@@ -75,29 +75,14 @@ pub(super) fn authenticate<'a>(
 }
 
 fn decode(raw: &str) -> Option<Vec<u8>> {
-    if raw.is_empty() || raw.len() % 4 == 1 {
+    if raw.is_empty() {
         return None;
     }
-    let mut output = Vec::with_capacity(raw.len() * 3 / 4);
-    let mut bits = 0u32;
-    let mut count = 0;
-    for byte in raw.bytes() {
-        let digit = match byte {
-            b'A'..=b'Z' => byte - b'A',
-            b'a'..=b'z' => byte - b'a' + 26,
-            b'0'..=b'9' => byte - b'0' + 52,
-            b'-' => 62,
-            b'_' => 63,
-            _ => return None,
-        };
-        bits = (bits << 6) | u32::from(digit);
-        count += 6;
-        if count >= 8 {
-            count -= 8;
-            output.push((bits >> count) as u8);
-        }
-    }
-    (bits & ((1 << count) - 1) == 0).then_some(output)
+    crate::base64::decode(
+        raw,
+        crate::base64::Alphabet::UrlSafe,
+        crate::base64::Padding::Forbidden,
+    )
 }
 
 #[cfg(test)]

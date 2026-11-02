@@ -2,7 +2,6 @@ use crate::{
     json::{JsonError, WriteMode, parse_object_metadata, validate_object_name},
     object::{ComposeSource, ObjectMetadataUpdate},
 };
-use hyper::StatusCode;
 use serde_json::{Map, Value};
 
 pub(crate) fn route(
@@ -18,13 +17,10 @@ pub(crate) fn route(
     }
     Some((|| {
         if method != hyper::Method::POST {
-            let mut error = JsonError::new(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "methodNotAllowed",
+            return Err(JsonError::method_not_allowed(
                 "Compose requires POST",
-            );
-            error.allow = Some("POST");
-            return Err(error);
+                Some("POST"),
+            ));
         }
         let bucket = crate::json::decode(bucket, crate::json::Decoding::Path)?;
         crate::json::validate_bucket_name_for_profile(&bucket, profile)?;
@@ -130,9 +126,7 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
         .get("sourceObjects")
         .is_none_or(|sources| sources.as_array().is_some_and(Vec::is_empty))
     {
-        return Err(JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "required",
+        return Err(JsonError::required(
             "You must provide at least one source component.",
         ));
     }

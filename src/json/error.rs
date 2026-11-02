@@ -236,9 +236,7 @@ impl ErrorLocation {
 
 impl JsonError {
     fn storage_capacity() -> Self {
-        Self::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "backendError",
+        Self::service_unavailable(
             "Storage capacity exhausted; for backend=memory release objects/readers or restart with larger memory_max_bytes and memory_catalog_max_bytes (restart loses RAM data), and for backend=disk free disk space; data kept by soft delete also uses capacity, so lower default_soft_delete_retention_seconds to 0 or set softDeletePolicy.retentionDurationSeconds to 0 on the bucket to free deleted data at once; retry with generation preconditions after capacity is available",
         )
     }
@@ -282,7 +280,7 @@ impl JsonError {
                 "Object storage is unavailable: internal storage failure (private backend details withheld)"
             }
         };
-        Self::new(StatusCode::SERVICE_UNAVAILABLE, "backendError", message)
+        Self::service_unavailable(message)
     }
 
     pub(crate) fn new(
@@ -318,6 +316,27 @@ impl JsonError {
 
     pub(crate) fn invalid_parameter(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalidParameter", message)
+    }
+
+    pub(crate) fn required(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "required", message)
+    }
+
+    pub(crate) fn method_not_allowed(
+        message: impl Into<String>,
+        allow: Option<&'static str>,
+    ) -> Self {
+        let mut error = Self::new(StatusCode::METHOD_NOT_ALLOWED, "methodNotAllowed", message);
+        error.allow = allow;
+        error
+    }
+
+    pub(crate) fn service_unavailable(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, "backendError", message)
+    }
+
+    pub(crate) fn invalid_stored_header() -> Self {
+        Self::service_unavailable("Invalid stored object response header")
     }
 
     /// A numeric query parameter Cloud Storage could not parse as a signed 64-bit integer.
@@ -382,12 +401,7 @@ impl JsonError {
 
     /// An upload that names no object.
     pub(crate) fn missing_object_name() -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "required",
-            "You must specify an object name.",
-        )
-        .html_typed()
+        Self::required("You must specify an object name.").html_typed()
     }
 
     /// A rejected value in the request body or a bucket setting. Cloud Storage reports these as
@@ -634,11 +648,9 @@ impl From<CatalogError> for JsonError {
             | CatalogError::AuthenticationAlreadyConfigured
             | CatalogError::Io(_)
             | CatalogError::Corrupt(_)
-            | CatalogError::NewerSchema { .. } => Self::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
-                "Bucket catalog is unavailable",
-            ),
+            | CatalogError::NewerSchema { .. } => {
+                Self::service_unavailable("Bucket catalog is unavailable")
+            }
         }
     }
 }
@@ -715,10 +727,6 @@ impl From<Box<crate::object::ComponentFailure>> for JsonError {
 }
 
 impl From<ObjectError> for JsonError {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "a single dispatch match over every object error"
-    )]
     fn from(error: ObjectError) -> Self {
         match error {
             ObjectError::BucketNotFound => {
@@ -738,11 +746,9 @@ impl From<ObjectError> for JsonError {
             ObjectError::DerivedTransferExpired => {
                 Self::new(StatusCode::GONE, "gone", "Derived transfer expired")
             }
-            ObjectError::DerivedTransferBusy => Self::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
-                "Derived transfer is already in use",
-            ),
+            ObjectError::DerivedTransferBusy => {
+                Self::service_unavailable("Derived transfer is already in use")
+            }
             ObjectError::UnsupportedMetadata(field) => Self::unsupported_object(&field),
             ObjectError::CustomerEncryption(error) => error.into(),
             ObjectError::NotModified => {
@@ -833,16 +839,10 @@ impl From<ObjectError> for JsonError {
             ObjectError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
                 Self::storage_capacity()
             }
-            ObjectError::Io(kind) => Self::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
-                format!(
-                    "Object storage is unavailable: storage I/O error ({kind}); check data directory permissions and available disk space"
-                ),
-            ),
-            ObjectError::Corrupt(_) => Self::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
+            ObjectError::Io(kind) => Self::service_unavailable(format!(
+                "Object storage is unavailable: storage I/O error ({kind}); check data directory permissions and available disk space"
+            )),
+            ObjectError::Corrupt(_) => Self::service_unavailable(
                 "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
             ),
         }

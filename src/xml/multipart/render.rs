@@ -48,7 +48,7 @@ pub(super) async fn list(
             let marker = numeric(&mut query, "part-number-marker", 0, 10000)? as u16;
             let limit = numeric(&mut query, "max-parts", 1000, u32::MAX)?.min(1000) as usize;
             if limit == 0 {
-                return Err(invalid("max-parts must be positive"));
+                return Err(Error::invalid("max-parts must be positive"));
             }
             remaining(&query)?;
             let target = storage::Target {
@@ -72,7 +72,7 @@ pub(super) async fn list(
         Operation::Uploads => {
             let limit = numeric(&mut query, "max-uploads", 1000, u32::MAX)?.min(1000) as usize;
             if limit == 0 {
-                return Err(invalid("max-uploads must be positive"));
+                return Err(Error::invalid("max-uploads must be positive"));
             }
             let prefix = query.remove("prefix").unwrap_or_default();
             let delimiter = query.remove("delimiter").unwrap_or_default();
@@ -93,7 +93,7 @@ pub(super) async fn list(
                     .as_ref()
                     .is_some_and(|value| value.len() > 1024 || marker.is_empty())
             {
-                return Err(invalid("Invalid multipart listing marker or filter"));
+                return Err(Error::invalid("Invalid multipart listing marker or filter"));
             }
             remaining(&query)?;
             let page = ctx
@@ -143,7 +143,7 @@ pub(super) async fn list(
             body.push_str("</ListMultipartUploadsResult>");
             Ok(response(body))
         }
-        _ => Err(invalid("Invalid multipart listing operation")),
+        _ => Err(Error::invalid("Invalid multipart listing operation")),
     }
 }
 

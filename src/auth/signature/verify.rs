@@ -83,19 +83,6 @@ pub(crate) fn has_header(headers: &HeaderMap) -> bool {
 }
 
 impl Auth {
-    #[cfg(test)]
-    pub(crate) async fn authenticate_xml<'a>(
-        &'a self,
-        catalog: &Catalog,
-        method: &Method,
-        uri: &Uri,
-        headers: &HeaderMap,
-        clock: &dyn Clock,
-    ) -> Result<Option<Caller<'a>>, VerificationError> {
-        self.authenticate_xml_resource(catalog, method, uri, headers, clock, &Resource::PathStyle)
-            .await
-    }
-
     pub(crate) async fn authenticate_xml_resource<'a>(
         &'a self,
         catalog: &Catalog,
@@ -266,15 +253,15 @@ mod tests {
                 .unwrap_err();
             assert!(matches!(failure, VerificationError::Catalog(_)));
             assert!(failure.source().is_some());
-            let xml = crate::xml::authenticate_target(
-                &auth,
-                &catalog,
-                &Method::GET,
-                &uri,
-                &headers,
-                &clock,
-                &Resource::PathStyle,
-            )
+            let xml = crate::xml::authenticate_target(crate::xml::Authentication {
+                auth: &auth,
+                catalog: &catalog,
+                method: &Method::GET,
+                uri: &uri,
+                headers: &headers,
+                clock: &clock,
+                resource: &Resource::PathStyle,
+            })
             .await
             .unwrap_err();
             assert_eq!(xml.status, hyper::StatusCode::SERVICE_UNAVAILABLE);
@@ -431,14 +418,29 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("host", "localhost".parse().unwrap());
         let error = auth
-            .authenticate_xml(&catalog, &Method::GET, &uri, &headers, &clock)
+            .authenticate_xml_resource(
+                &catalog,
+                &Method::GET,
+                &uri,
+                &headers,
+                &clock,
+                &Resource::PathStyle,
+            )
             .await
             .unwrap_err();
         assert!(matches!(error, VerificationError::Catalog(_)));
         assert!(error.source().is_some());
-        let error = crate::xml::authenticate(&auth, &catalog, &Method::GET, &uri, &headers, &clock)
-            .await
-            .unwrap_err();
+        let error = crate::xml::authenticate_target(crate::xml::Authentication {
+            auth: &auth,
+            catalog: &catalog,
+            method: &Method::GET,
+            uri: &uri,
+            headers: &headers,
+            clock: &clock,
+            resource: &Resource::PathStyle,
+        })
+        .await
+        .unwrap_err();
         assert_eq!(
             error.response(crate::xml::ErrorBody::Include).status(),
             hyper::StatusCode::SERVICE_UNAVAILABLE

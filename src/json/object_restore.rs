@@ -4,7 +4,7 @@ use super::{
     query::{Decoding, decode, finish, parse_query, projection},
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
-use hyper::{Method, StatusCode, Uri};
+use hyper::{Method, Uri};
 
 pub(super) fn route(
     method: &Method,
@@ -18,13 +18,10 @@ pub(super) fn route(
     let (bucket, name) = path.split_once("/o/")?;
     Some((|| {
         if method != Method::POST {
-            let mut error = JsonError::new(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "methodNotAllowed",
+            return Err(JsonError::method_not_allowed(
                 "Object restore requires POST",
-            );
-            error.allow = Some("POST");
-            return Err(error);
+                Some("POST"),
+            ));
         }
         if bucket.len() > 222 * 3
             || name.len() > 1024 * 3
@@ -65,9 +62,7 @@ pub(super) fn route(
         // full, so the value is validated and then has no effect on the rendered resource.
         projection(&mut query)?;
         let generation = integer(&mut query, "generation")?.ok_or_else(|| {
-            JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "required",
+            JsonError::required(
                 "Missing required generation; select a generation from softDeleted=true listing",
             )
         })?;

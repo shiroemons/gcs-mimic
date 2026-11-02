@@ -59,7 +59,7 @@ impl Part {
             }
             Scope::Part => {
                 if parts.len() == storage::MAX_PARTS {
-                    return Err(invalid(
+                    return Err(Error::invalid(
                         "A multipart manifest may contain at most 10000 parts",
                     ));
                 }

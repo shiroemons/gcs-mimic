@@ -82,15 +82,12 @@ pub(crate) fn route(
                 notification: query::decode(item, query::Decoding::Path)?,
             },
             _ => {
-                let mut error = JsonError::new(
-                    StatusCode::METHOD_NOT_ALLOWED,
-                    "methodNotAllowed",
+                return Err(JsonError::method_not_allowed(
                     format!(
                         "HTTP method is not supported for this notification endpoint; use {allowed}"
                     ),
-                );
-                error.allow = Some(allowed);
-                return Err(error);
+                    Some(allowed),
+                ));
             }
         };
         let mut query = query::parse_query(uri.query().unwrap_or_default())?;
@@ -120,9 +117,7 @@ impl From<notification::NotificationError> for JsonError {
             notification::NotificationError::InvalidTopic(_) => invalid(
                 "Invalid Google Cloud Pub/Sub topic. It should look like '//pubsub.googleapis.com/projects/*/topics/*.'",
             ),
-            notification::NotificationError::InvalidPayloadFormat(_) => JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "required",
+            notification::NotificationError::InvalidPayloadFormat(_) => JsonError::required(
                 "You must specify a payload format in the 'payload_format' field.",
             ),
             error => invalid(error.to_string()),
@@ -184,11 +179,7 @@ pub(crate) fn parse_notification_head(bytes: &[u8]) -> Result<PendingNotificatio
         return Err(invalid("kind must be storage#notification"));
     }
     let topic = string("topic")?.ok_or_else(|| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "required",
-            "You must specify a Cloud Pub/Sub topic in the 'topic' field.",
-        )
+        JsonError::required("You must specify a Cloud Pub/Sub topic in the 'topic' field.")
     })?;
     let topic = notification::normalize_topic(topic)?;
     let payload_format = string("payload_format")?
@@ -331,9 +322,7 @@ pub(crate) fn topic_unverifiable(error: &notification::TopicCheckError) -> JsonE
         "notification_topic_check_failed",
         json!({"cause": error_chain(error)}),
     );
-    JsonError::new(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "backendError",
+    JsonError::service_unavailable(
         "Could not confirm that the Cloud Pub/Sub topic exists: the configured local Pub/Sub emulator is unreachable or gave an unexpected answer; start or repair the emulator (pubsub_emulator_host), then retry",
     )
 }

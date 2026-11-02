@@ -12,8 +12,7 @@ use crate::{
     },
     storage::DerivedDestination,
 };
-use http_body_util::Full;
-use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
+use hyper::{HeaderMap, Request, Response, StatusCode};
 
 const SOURCE_FIELDS: &[&str] = &[
     "x-goog-copy-source",
@@ -38,15 +37,11 @@ enum MetadataDirective {
     Replace,
 }
 
-fn invalid(message: &str) -> Error {
-    Error::new(StatusCode::BAD_REQUEST, "InvalidArgument", message)
-}
-
 fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
     let value = put::single(headers, "x-goog-copy-source")?
-        .ok_or_else(|| invalid("x-goog-copy-source is required"))?;
+        .ok_or_else(|| Error::invalid("x-goog-copy-source is required"))?;
     if value.contains(['?', '#']) {
-        return Err(invalid(
+        return Err(Error::invalid(
             "Percent-encode copy source names; select a generation with x-goog-copy-source-generation",
         ));
     }
@@ -54,7 +49,7 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
         .strip_prefix('/')
         .unwrap_or(value)
         .split_once('/')
-        .ok_or_else(|| invalid("x-goog-copy-source must be /BUCKET/OBJECT"))?;
+        .ok_or_else(|| Error::invalid("x-goog-copy-source must be /BUCKET/OBJECT"))?;
     let bucket = json::decode(bucket, json::Decoding::Path)?;
     let name = json::decode(name, json::Decoding::Path)?;
     json::validate_bucket_name_for_profile(&bucket, ctx.config.compat_profile)?;
@@ -72,7 +67,7 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
         && generation.is_none()
         && conditions.if_generation_match.is_none()
     {
-        return Err(invalid(
+        return Err(Error::invalid(
             "A source metageneration condition requires a source generation or generation condition",
         ));
     }
@@ -98,7 +93,7 @@ fn validate_source_etags(headers: &HeaderMap, record: &ObjectRecord) -> Result<(
     ] {
         if let Some(value) = put::single(headers, name)? {
             if value.is_empty() || value.contains(',') || value.starts_with("W/") || value == "*" {
-                return Err(invalid(
+                return Err(Error::invalid(
                     "Copy source ETag conditions require one strong ETag",
                 ));
             }
@@ -108,11 +103,7 @@ fn validate_source_etags(headers: &HeaderMap, record: &ObjectRecord) -> Result<(
                 // shaped like an MD5, with 400 InvalidArgument (recorded). A well-formed ETag that
                 // merely differs, and `if-none-match`, were not recorded; they are assumed to fail
                 // the same way.
-                return Err(Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "InvalidArgument",
-                    "Invalid argument.",
-                ));
+                return Err(Error::invalid("Invalid argument."));
             }
         }
     }
@@ -165,7 +156,11 @@ pub(super) async fn respond(
     let directive = match put::single(request.headers(), "x-goog-metadata-directive")? {
         None | Some("COPY") => MetadataDirective::Copy,
         Some("REPLACE") => MetadataDirective::Replace,
-        Some(_) => return Err(invalid("x-goog-metadata-directive must be COPY or REPLACE")),
+        Some(_) => {
+            return Err(Error::invalid(
+                "x-goog-metadata-directive must be COPY or REPLACE",
+            ));
+        }
     };
     if source.bucket == operation.bucket && source.name == operation.name {
         return Err(Error::unsupported(
@@ -287,7 +282,7 @@ fn response(
     element(&mut body, "LastModified", &json::timestamp(modified)?);
     element(&mut body, "ETag", &super::object_etag(record));
     body.push_str("</CopyObjectResult>");
-    let mut response = Response::new(Full::new(Bytes::from(body)));
+    let mut response = super::document_response(body);
     let mut headers = super::media_headers(record, super::CacheScope::Private)?;
     super::move_headers(
         &mut headers,
@@ -303,9 +298,5 @@ fn response(
         ],
     );
     json::insert_response_headers(record, response.headers_mut());
-    response.headers_mut().insert(
-        "content-type",
-        HeaderValue::from_static("application/xml; charset=UTF-8"),
-    );
     Ok(boxed(response))
 }

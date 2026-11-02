@@ -73,22 +73,7 @@ fn v2_signed(
         &mut bytes,
     )
     .unwrap();
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut encoded = String::new();
-    for chunk in bytes.chunks(3) {
-        let value = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for shift in [18, 12, 6, 0] {
-            encoded.push(
-                if (shift == 0 && chunk.len() < 3) || (shift == 6 && chunk.len() < 2) {
-                    '='
-                } else {
-                    alphabet[((value >> shift) & 63) as usize] as char
-                },
-            );
-        }
-    }
+    let encoded = crate::base64::encode(&bytes);
     let separator = if path.contains('?') { '&' } else { '?' };
     format!(
         "http://localhost:4443{path}{separator}GoogleAccessId={}&Expires={expires}&Signature={}",
@@ -359,14 +344,15 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
     let auth = auth();
     let dir = crate::test_support::TestDir::new();
     let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
-    let error = crate::xml::authenticate(
-        &auth,
-        &catalog,
-        &Method::GET,
-        &expired.parse().unwrap(),
-        &HeaderMap::new(),
-        &Fixed(now),
-    )
+    let error = crate::xml::authenticate_target(crate::xml::Authentication {
+        auth: &auth,
+        catalog: &catalog,
+        method: &Method::GET,
+        uri: &expired.parse().unwrap(),
+        headers: &HeaderMap::new(),
+        clock: &Fixed(now),
+        resource: &Resource::PathStyle,
+    })
     .await
     .err()
     .unwrap();

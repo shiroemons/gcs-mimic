@@ -24,36 +24,30 @@ pub(crate) mod post;
 pub(crate) mod put;
 pub(crate) mod resumable;
 
-#[cfg(test)]
-pub(crate) async fn authenticate<'a>(
-    auth: &'a crate::auth::Auth,
-    catalog: &crate::storage::Catalog,
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    clock: &dyn crate::clock::Clock,
+/// Inputs to XML authentication. The returned Caller borrows only auth, so the request
+/// can be mutated or consumed afterwards.
+pub(crate) struct Authentication<'auth, 'request> {
+    pub(crate) auth: &'auth crate::auth::Auth,
+    pub(crate) catalog: &'request crate::storage::Catalog,
+    pub(crate) method: &'request Method,
+    pub(crate) uri: &'request Uri,
+    pub(crate) headers: &'request HeaderMap,
+    pub(crate) clock: &'request dyn crate::clock::Clock,
+    pub(crate) resource: &'request crate::auth::signature::Resource,
+}
+
+pub(crate) async fn authenticate_target<'a>(
+    authentication: Authentication<'a, '_>,
 ) -> Result<Option<crate::auth::Caller<'a>>, Error> {
-    authenticate_target(
+    let Authentication {
         auth,
         catalog,
         method,
         uri,
         headers,
         clock,
-        &crate::auth::signature::Resource::PathStyle,
-    )
-    .await
-}
-
-pub(crate) async fn authenticate_target<'a>(
-    auth: &'a crate::auth::Auth,
-    catalog: &crate::storage::Catalog,
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    clock: &dyn crate::clock::Clock,
-    resource: &crate::auth::signature::Resource,
-) -> Result<Option<crate::auth::Caller<'a>>, Error> {
+        resource,
+    } = authentication;
     if crate::auth::signature::is_signed(uri.query()) || crate::auth::signature::has_header(headers)
     {
         auth.authenticate_xml_resource(catalog, method, uri, headers, clock, resource)
@@ -130,14 +124,8 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
     Error::new(status, code, message)
 }
 
-#[cfg(test)]
-pub(crate) async fn authenticate_upload<'a>(
-    auth: &'a crate::auth::Auth,
-    catalog: &crate::storage::Catalog,
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    clock: &dyn crate::clock::Clock,
+pub(crate) async fn authenticate_upload_target<'a>(
+    authentication: Authentication<'a, '_>,
 ) -> Result<
     (
         Option<crate::auth::Caller<'a>>,
@@ -145,33 +133,15 @@ pub(crate) async fn authenticate_upload<'a>(
     ),
     Error,
 > {
-    authenticate_upload_target(
+    let Authentication {
         auth,
         catalog,
         method,
         uri,
         headers,
         clock,
-        &crate::auth::signature::Resource::PathStyle,
-    )
-    .await
-}
-
-pub(crate) async fn authenticate_upload_target<'a>(
-    auth: &'a crate::auth::Auth,
-    catalog: &crate::storage::Catalog,
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    clock: &dyn crate::clock::Clock,
-    resource: &crate::auth::signature::Resource,
-) -> Result<
-    (
-        Option<crate::auth::Caller<'a>>,
-        Option<crate::auth::signature::Streaming>,
-    ),
-    Error,
-> {
+        ..
+    } = authentication;
     if headers
         .get("x-amz-content-sha256")
         .is_some_and(|value| value == crate::auth::signature::STREAMING_PAYLOAD)
@@ -182,7 +152,7 @@ pub(crate) async fn authenticate_upload_target<'a>(
             .map_err(signature_error)?;
         Ok((Some(caller), Some(streaming)))
     } else {
-        authenticate_target(auth, catalog, method, uri, headers, clock, resource)
+        authenticate_target(authentication)
             .await
             .map(|caller| (caller, None))
     }
@@ -202,11 +172,7 @@ pub(crate) fn normalize_legacy_headers(headers: &mut HeaderMap) -> Result<(), Er
             let target = HeaderName::from_bytes(format!("x-goog-{suffix}").as_bytes())
                 .map_err(|_| Error::unsupported(name.as_str()))?;
             if headers.contains_key(&target) {
-                return Err(Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "InvalidArgument",
-                    "Ambiguous legacy extension headers.",
-                ));
+                return Err(Error::invalid("Ambiguous legacy extension headers."));
             }
             replacements.push((
                 name.clone(),
@@ -268,6 +234,10 @@ impl ErrorBody {
 }
 
 impl Error {
+    fn invalid(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "InvalidArgument", message)
+    }
+
     fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
         Self {
             status,
@@ -300,11 +270,7 @@ impl Error {
     /// The 400 for a Range header with several ranges; `Details` echoes the header as
     /// Cloud Storage does (observed 2026-10-31).
     pub(crate) fn multiple_ranges(requested: &str) -> Self {
-        let mut error = Self::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
-            "Invalid argument.",
-        );
+        let mut error = Self::invalid("Invalid argument.");
         error.details = Some(format!(
             "Multiple ranges are not supported; Range:{requested}"
         ));
@@ -312,13 +278,9 @@ impl Error {
     }
 
     pub(crate) fn unsupported(name: &str) -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
-            format!(
-                "gcs-mimic does not support XML API {name}; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
-            ),
-        )
+        Self::invalid(format!(
+            "gcs-mimic does not support XML API {name}; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
+        ))
     }
 
     pub(crate) fn response(self, body_mode: ErrorBody) -> Response<Full<Bytes>> {
@@ -330,16 +292,12 @@ impl Error {
         }
         body.push_str("</Error>");
         let content_length = HeaderValue::from(body.len());
-        let mut response = Response::new(Full::new(match body_mode {
+        let mut response = document_response(match body_mode {
             ErrorBody::Omit => Bytes::new(),
             ErrorBody::Include => Bytes::from(body),
-        }));
+        });
         *response.status_mut() = self.status;
         let headers = response.headers_mut();
-        headers.insert(
-            "content-type",
-            HeaderValue::from_static("application/xml; charset=UTF-8"),
-        );
         headers.insert("content-length", content_length);
         headers.insert(
             "cache-control",
@@ -347,6 +305,15 @@ impl Error {
         );
         response
     }
+}
+
+fn document_response(body: impl Into<Bytes>) -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(body.into()));
+    response.headers_mut().insert(
+        "content-type",
+        HeaderValue::from_static("application/xml; charset=UTF-8"),
+    );
+    response
 }
 
 /// The `Cache-Control` Cloud Storage sends with XML API lists, errors and private objects.
@@ -544,13 +511,10 @@ pub(crate) fn select_object_with_endpoints(
 ) -> Result<Option<ObjectPath>, Error> {
     let public = legacy_public_authority(config, endpoints);
     let legacy_authority = if public.is_some() {
-        Some(request_authority(headers).ok_or_else(|| {
-            Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
-                "Require one valid Host authority.",
-            )
-        })?)
+        Some(
+            request_authority(headers)
+                .ok_or_else(|| Error::invalid("Require one valid Host authority."))?,
+        )
     } else {
         None
     };
@@ -580,11 +544,7 @@ pub(crate) fn select_object_with_endpoints(
                     "The request authority does not match Host.",
                 )
             } else {
-                Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "InvalidArgument",
-                    "The request authority does not match Host.",
-                )
+                Error::invalid("The request authority does not match Host.")
             });
         }
     }
@@ -704,11 +664,7 @@ pub(crate) fn route(
                         .bytes()
                         .any(|byte| byte.is_ascii_control() && byte != b'\t')
                 {
-                    return Err(Error::new(
-                        StatusCode::BAD_REQUEST,
-                        "InvalidArgument",
-                        "Invalid response header override.",
-                    ));
+                    return Err(Error::invalid("Invalid response header override."));
                 }
                 let value = HeaderValue::from_str(&value)
                     .ok()
@@ -792,13 +748,7 @@ fn number(raw: &str, min: MinValue) -> Result<i64, Error> {
         .ok()
         .filter(|n| *n >= floor)
         .filter(|_| !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()))
-        .ok_or_else(|| {
-            Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
-                "Invalid generation or metageneration.",
-            )
-        })
+        .ok_or_else(|| Error::invalid("Invalid generation or metageneration."))
 }
 
 /// `x-goog-` headers with defined meaning that this adapter does not implement. An object read
@@ -815,6 +765,27 @@ const RECOGNIZED_UNSUPPORTED_GOOG_HEADERS: &[&str] = &[
 pub(crate) enum UnknownGoogHeaders {
     Reject,
     Ignore,
+}
+
+// Ignoring these HTTP conditions would serve an object without checking its preconditions.
+const HTTP_PRECONDITION_HEADERS: &[&str] = &[
+    "if-match",
+    "if-none-match",
+    "if-modified-since",
+    "if-unmodified-since",
+    "if-range",
+];
+
+// These headers have the same meaning on XML reads, PUT and resumable initiation.
+fn is_common_object_header(name: &str) -> bool {
+    crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
+        || matches!(
+            name,
+            "x-goog-if-generation-match"
+                | "x-goog-if-metageneration-match"
+                | "x-goog-api-client"
+                | "x-goog-gcs-idempotency-token"
+        )
 }
 
 pub(crate) fn headers(
@@ -846,9 +817,7 @@ pub(crate) fn headers(
             ));
         }
         if token.as_bytes().trim_ascii().is_empty() {
-            return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
+            return Err(Error::invalid(
                 "Expected a non-empty x-goog-gcs-idempotency-token header.",
             ));
         }
@@ -869,25 +838,11 @@ pub(crate) fn headers(
             && RECOGNIZED_UNSUPPORTED_GOOG_HEADERS.contains(&key))
             || (key.starts_with("x-goog-")
                 && unknown == UnknownGoogHeaders::Reject
-                && !crate::csek::is_key_header(key, crate::csek::DESTINATION_PREFIX)
+                && !is_common_object_header(key)
                 && !crate::auth::signature::authentication_header(key)
-                && !matches!(
-                    key,
-                    "x-goog-if-generation-match"
-                        | "x-goog-if-metageneration-match"
-                        | "x-goog-api-client"
-                        | "x-goog-gcs-idempotency-token"
-                        | "x-goog-content-sha256"
-                ))
+                && key != "x-goog-content-sha256")
             || (key.starts_with("x-amz-") && !crate::auth::signature::authentication_header(key))
-            || matches!(
-                key,
-                "if-match"
-                    | "if-none-match"
-                    | "if-modified-since"
-                    | "if-unmodified-since"
-                    | "if-range"
-            )
+            || HTTP_PRECONDITION_HEADERS.contains(&key)
         {
             return Err(Error::unsupported(key));
         }
@@ -914,13 +869,9 @@ pub(crate) fn headers(
                 ));
             }
             *target = Some(number(
-                value.to_str().map_err(|_| {
-                    Error::new(
-                        StatusCode::BAD_REQUEST,
-                        "InvalidArgument",
-                        "Invalid precondition header.",
-                    )
-                })?,
+                value
+                    .to_str()
+                    .map_err(|_| Error::invalid("Invalid precondition header."))?,
                 min,
             )?);
         }
@@ -943,13 +894,7 @@ where
         return Err(unexpected());
     }
     while let Some(frame) = body.frame().await {
-        let frame = frame.map_err(|_| {
-            Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
-                "Could not read request body.",
-            )
-        })?;
+        let frame = frame.map_err(|_| Error::invalid("Could not read request body."))?;
         let data = frame
             .into_data()
             .map_err(|_| Error::unsupported("request trailers"))?;

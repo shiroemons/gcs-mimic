@@ -36,16 +36,11 @@ pub(super) async fn insert(
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let admin = super::authority(&request, ctx)?;
     if request.method() != Method::POST {
-        let mut response = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        return Ok(JsonError::method_not_allowed(
             "Use POST /_internal/objects with multipart/related",
+            Some("POST"),
         )
-        .into_response();
-        response
-            .headers_mut()
-            .insert("allow", hyper::header::HeaderValue::from_static("POST"));
-        return Ok(response);
+        .into_response());
     }
     if request.uri().query().is_some() {
         return Err(JsonError::invalid_argument(

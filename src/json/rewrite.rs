@@ -3,7 +3,7 @@ use super::{
     validate_object_name,
 };
 use crate::{config::CompatProfile, object::ObjectConditions, storage::rewrite::RewriteProgress};
-use hyper::{Method, StatusCode, Uri};
+use hyper::{Method, Uri};
 use serde_json::{Map, Value, json};
 
 /// Which object a rewrite precondition applies to: `ifSource*` parameters guard the source and
@@ -69,13 +69,10 @@ pub(crate) fn route(
     }
     Some((|| {
         if *method != Method::POST {
-            let mut error = JsonError::new(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "methodNotAllowed",
+            return Err(JsonError::method_not_allowed(
                 "Rewrite requires POST",
-            );
-            error.allow = Some("POST");
-            return Err(error);
+                Some("POST"),
+            ));
         }
         let path = [
             decode(segments[0], Decoding::Path)?,
@@ -182,6 +179,7 @@ pub(crate) fn response(progress: RewriteProgress) -> Result<Value, JsonError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hyper::StatusCode;
     #[test]
     fn rewrite_route_decodes_once_and_bounds_byte_budgets() {
         let base = "/storage/v1/b/source-bucket/o/a%2Fb%25/rewriteTo/b/destination-bucket/o/c%2Fd";

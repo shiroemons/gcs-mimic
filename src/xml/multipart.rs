@@ -7,8 +7,7 @@ use crate::{
     server::{ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, stream_upload},
     storage::xml_multipart as storage,
 };
-use http_body_util::Full;
-use hyper::{Method, Request, Response, StatusCode, Uri, body::Bytes, header::HeaderValue};
+use hyper::{Method, Request, Response, StatusCode, Uri, header::HeaderValue};
 use std::{collections::BTreeMap, io};
 use tokio::sync::mpsc;
 
@@ -29,10 +28,6 @@ pub(crate) fn matches(uri: &Uri) -> bool {
     })
 }
 
-fn invalid(message: &str) -> Error {
-    Error::new(StatusCode::BAD_REQUEST, "InvalidArgument", message)
-}
-
 fn xml_text(value: &str) -> Result<(), Error> {
     if value.chars().all(|ch| {
         matches!(ch, '\t' | '\n' | '\r')
@@ -40,7 +35,7 @@ fn xml_text(value: &str) -> Result<(), Error> {
     }) {
         Ok(())
     } else {
-        Err(invalid(
+        Err(Error::invalid(
             "This multipart value cannot be represented in XML 1.0",
         ))
     }
@@ -67,7 +62,7 @@ fn operation(
     if uploads.as_ref().is_some_and(|value| !value.is_empty())
         || (uploads.is_some() && id.is_some())
     {
-        return Err(invalid(
+        return Err(Error::invalid(
             "Use uploads or uploadId, with an empty uploads value",
         ));
     }
@@ -86,13 +81,17 @@ fn operation(
         (&Method::PUT, false, false, true, Some(number)) => {
             Operation::Put(integer(number, 1, 10000)? as u16)
         }
-        _ => return Err(invalid("Invalid multipart method or query combination")),
+        _ => {
+            return Err(Error::invalid(
+                "Invalid multipart method or query combination",
+            ));
+        }
     };
     if id
         .as_ref()
         .is_some_and(|value| value.is_empty() || value.len() > 1024)
     {
-        return Err(invalid("Invalid uploadId"));
+        return Err(Error::invalid("Invalid uploadId"));
     }
     Ok((operation, id.unwrap_or_default()))
 }
@@ -106,7 +105,7 @@ fn integer(raw: &str, min: u32, max: u32) -> Result<u32, Error> {
                 && !raw.is_empty()
                 && raw.bytes().all(|byte| byte.is_ascii_digit())
         })
-        .ok_or_else(|| invalid("Multipart number is out of range"))
+        .ok_or_else(|| Error::invalid("Multipart number is out of range"))
 }
 
 fn numeric(
@@ -186,12 +185,7 @@ fn storage_error(error: storage::Error, ctx: ObjectCtx<'_>) -> Error {
 }
 
 fn response(body: String) -> Response<ResponseBody> {
-    let mut response = Response::new(Full::new(Bytes::from(body)));
-    response.headers_mut().insert(
-        "content-type",
-        HeaderValue::from_static("application/xml; charset=UTF-8"),
-    );
-    boxed(response)
+    boxed(super::document_response(body))
 }
 
 pub(crate) async fn respond(
@@ -279,7 +273,7 @@ pub(crate) async fn respond(
             *response.status_mut() = StatusCode::NO_CONTENT;
             Ok(response)
         }
-        _ => Err(invalid("Invalid multipart operation")),
+        _ => Err(Error::invalid("Invalid multipart operation")),
     }
 }
 
@@ -336,7 +330,8 @@ async fn upload_part(
     let mut response = response(String::new());
     response.headers_mut().insert(
         "etag",
-        HeaderValue::from_str(&part.etag).map_err(|_| invalid("Invalid stored part ETag"))?,
+        HeaderValue::from_str(&part.etag)
+            .map_err(|_| Error::invalid("Invalid stored part ETag"))?,
     );
     Ok(response)
 }

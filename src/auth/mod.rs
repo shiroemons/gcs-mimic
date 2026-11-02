@@ -22,120 +22,69 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     path::Path,
-    str::FromStr,
     sync::atomic::{AtomicBool, Ordering},
 };
 
 /// The documented 401 body cannot explain JWT setup failures, so log guidance once.
 static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);
 
-pub(crate) const BUCKETS_CREATE: &str = "storage.buckets.create";
-pub(crate) const BUCKETS_DELETE: &str = "storage.buckets.delete";
-pub(crate) const BUCKETS_GET: &str = "storage.buckets.get";
-pub(crate) const BUCKETS_UPDATE: &str = "storage.buckets.update";
-pub(crate) const BUCKETS_LIST: &str = "storage.buckets.list";
-pub(crate) const BUCKETS_RESTORE: &str = "storage.buckets.restore";
-pub(crate) const BUCKETS_GET_IAM: &str = "storage.buckets.getIamPolicy";
-pub(crate) const BUCKETS_SET_IAM: &str = "storage.buckets.setIamPolicy";
-pub(crate) const OBJECTS_CREATE: &str = "storage.objects.create";
-pub(crate) const OBJECTS_DELETE: &str = "storage.objects.delete";
-pub(crate) const OBJECTS_GET: &str = "storage.objects.get";
-pub(crate) const OBJECTS_LIST: &str = "storage.objects.list";
-pub(crate) const OBJECTS_UPDATE: &str = "storage.objects.update";
-pub(crate) const OBJECTS_RESTORE: &str = "storage.objects.restore";
+// Keeping this outside Permission preserves testIamPermissions and IAM-policy acceptance.
 pub(crate) const BUCKETS_ENABLE_OBJECT_RETENTION: &str = "storage.buckets.enableObjectRetention";
-pub(crate) const OBJECTS_SET_RETENTION: &str = "storage.objects.setRetention";
-pub(crate) const OBJECTS_OVERRIDE_UNLOCKED_RETENTION: &str =
-    "storage.objects.overrideUnlockedRetention";
-pub(crate) const OBJECTS_GET_IAM: &str = "storage.objects.getIamPolicy";
-pub(crate) const OBJECTS_SET_IAM: &str = "storage.objects.setIamPolicy";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Permission {
-    BucketsCreate,
-    BucketsDelete,
-    BucketsGet,
-    BucketsUpdate,
-    BucketsList,
-    BucketsRestore,
-    BucketsGetIam,
-    BucketsSetIam,
-    ObjectsCreate,
-    ObjectsDelete,
-    ObjectsGet,
-    ObjectsList,
-    ObjectsUpdate,
-    ObjectsRestore,
-    ObjectsSetRetention,
-    ObjectsOverrideUnlockedRetention,
-    ObjectsGetIam,
-    ObjectsSetIam,
-    MultipartCreate,
-    MultipartAbort,
-    MultipartList,
-    MultipartListParts,
-}
+// Optional constants serve call sites that authorize by permission name.
+macro_rules! permissions {
+    ($($variant:ident $(($constant:ident))? => $name:literal),+ $(,)?) => {
+        $($(pub(crate) const $constant: &str = $name;)?)+
 
-impl Permission {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::BucketsCreate => BUCKETS_CREATE,
-            Self::BucketsDelete => BUCKETS_DELETE,
-            Self::BucketsGet => BUCKETS_GET,
-            Self::BucketsUpdate => BUCKETS_UPDATE,
-            Self::BucketsList => BUCKETS_LIST,
-            Self::BucketsRestore => BUCKETS_RESTORE,
-            Self::BucketsGetIam => BUCKETS_GET_IAM,
-            Self::BucketsSetIam => BUCKETS_SET_IAM,
-            Self::ObjectsCreate => OBJECTS_CREATE,
-            Self::ObjectsDelete => OBJECTS_DELETE,
-            Self::ObjectsGet => OBJECTS_GET,
-            Self::ObjectsList => OBJECTS_LIST,
-            Self::ObjectsUpdate => OBJECTS_UPDATE,
-            Self::ObjectsRestore => OBJECTS_RESTORE,
-            Self::ObjectsSetRetention => OBJECTS_SET_RETENTION,
-            Self::ObjectsOverrideUnlockedRetention => OBJECTS_OVERRIDE_UNLOCKED_RETENTION,
-            Self::ObjectsGetIam => OBJECTS_GET_IAM,
-            Self::ObjectsSetIam => OBJECTS_SET_IAM,
-            Self::MultipartCreate => "storage.multipartUploads.create",
-            Self::MultipartAbort => "storage.multipartUploads.abort",
-            Self::MultipartList => "storage.multipartUploads.list",
-            Self::MultipartListParts => "storage.multipartUploads.listParts",
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub(crate) enum Permission {
+            $($variant),+
         }
-    }
+
+        impl Permission {
+            pub(crate) fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name),+
+                }
+            }
+        }
+
+        impl TryFrom<&str> for Permission {
+            type Error = &'static str;
+
+            fn try_from(value: &str) -> Result<Self, Self::Error> {
+                match value {
+                    $($name => Ok(Self::$variant),)+
+                    _ => Err("unsupported permission"),
+                }
+            }
+        }
+    };
 }
 
-impl TryFrom<&str> for Permission {
-    type Error = &'static str;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        [
-            Self::BucketsCreate,
-            Self::BucketsDelete,
-            Self::BucketsGet,
-            Self::BucketsUpdate,
-            Self::BucketsList,
-            Self::BucketsRestore,
-            Self::BucketsGetIam,
-            Self::BucketsSetIam,
-            Self::ObjectsCreate,
-            Self::ObjectsDelete,
-            Self::ObjectsGet,
-            Self::ObjectsList,
-            Self::ObjectsUpdate,
-            Self::ObjectsRestore,
-            Self::ObjectsSetRetention,
-            Self::ObjectsOverrideUnlockedRetention,
-            Self::ObjectsGetIam,
-            Self::ObjectsSetIam,
-            Self::MultipartCreate,
-            Self::MultipartAbort,
-            Self::MultipartList,
-            Self::MultipartListParts,
-        ]
-        .into_iter()
-        .find(|permission| permission.as_str() == value)
-        .ok_or("unsupported permission")
-    }
+permissions! {
+    BucketsCreate(BUCKETS_CREATE) => "storage.buckets.create",
+    BucketsDelete(BUCKETS_DELETE) => "storage.buckets.delete",
+    BucketsGet(BUCKETS_GET) => "storage.buckets.get",
+    BucketsUpdate(BUCKETS_UPDATE) => "storage.buckets.update",
+    BucketsList(BUCKETS_LIST) => "storage.buckets.list",
+    BucketsRestore(BUCKETS_RESTORE) => "storage.buckets.restore",
+    BucketsGetIam(BUCKETS_GET_IAM) => "storage.buckets.getIamPolicy",
+    BucketsSetIam(BUCKETS_SET_IAM) => "storage.buckets.setIamPolicy",
+    ObjectsCreate(OBJECTS_CREATE) => "storage.objects.create",
+    ObjectsDelete(OBJECTS_DELETE) => "storage.objects.delete",
+    ObjectsGet(OBJECTS_GET) => "storage.objects.get",
+    ObjectsList(OBJECTS_LIST) => "storage.objects.list",
+    ObjectsUpdate(OBJECTS_UPDATE) => "storage.objects.update",
+    ObjectsRestore(OBJECTS_RESTORE) => "storage.objects.restore",
+    ObjectsSetRetention(OBJECTS_SET_RETENTION) => "storage.objects.setRetention",
+    ObjectsOverrideUnlockedRetention(OBJECTS_OVERRIDE_UNLOCKED_RETENTION) => "storage.objects.overrideUnlockedRetention",
+    ObjectsGetIam(OBJECTS_GET_IAM) => "storage.objects.getIamPolicy",
+    ObjectsSetIam(OBJECTS_SET_IAM) => "storage.objects.setIamPolicy",
+    MultipartCreate => "storage.multipartUploads.create",
+    MultipartAbort => "storage.multipartUploads.abort",
+    MultipartList => "storage.multipartUploads.list",
+    MultipartListParts => "storage.multipartUploads.listParts",
 }
 
 const MAX_REGISTRY_BYTES: u64 = 64 * 1024;
@@ -168,32 +117,13 @@ const CREDENTIAL_QUERY_PARAMETERS: &[&str] = &[
     "X-Amz-Signature",
 ];
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum AuthMode {
-    #[default]
-    Permissive,
-    Strict,
-}
-
-impl AuthMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Permissive => "permissive",
-            Self::Strict => "strict",
-        }
+crate::config::string_enum! {
+    pub enum AuthMode {
+        #[default]
+        Permissive => "permissive",
+        Strict => "strict",
     }
-}
-
-impl FromStr for AuthMode {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "permissive" => Ok(Self::Permissive),
-            "strict" => Ok(Self::Strict),
-            _ => Err("auth_mode must be permissive or strict".into()),
-        }
-    }
+    "auth_mode must be permissive or strict"
 }
 
 /// Transport-independent authentication or authorization failure; adapters render it.

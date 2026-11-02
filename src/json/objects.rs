@@ -147,20 +147,18 @@ pub(crate) fn route_object_with_profile(
             error.plain = Some(&super::error::NOT_FOUND_HTML);
             return Some(Err(error));
         }
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        let error = JsonError::method_not_allowed(
             "HTTP method is not supported for this object endpoint",
+            Some(if upload {
+                "POST"
+            } else if object.is_none() {
+                "GET"
+            } else if download {
+                "GET, HEAD"
+            } else {
+                "GET, HEAD, DELETE, PATCH, PUT"
+            }),
         );
-        error.allow = Some(if upload {
-            "POST"
-        } else if object.is_none() {
-            "GET"
-        } else if download {
-            "GET, HEAD"
-        } else {
-            "GET, HEAD, DELETE, PATCH, PUT"
-        });
         return Some(Err(error));
     }
     Some((|| {
@@ -907,13 +905,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
     ] {
         headers.insert(
             key,
-            HeaderValue::from_str(&value).map_err(|_| {
-                JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Invalid stored object response header",
-                )
-            })?,
+            HeaderValue::from_str(&value).map_err(|_| JsonError::invalid_stored_header())?,
         );
     }
     for (key, value) in [
@@ -924,13 +916,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
         if let Some(value) = value {
             headers.insert(
                 key,
-                HeaderValue::from_str(value).map_err(|_| {
-                    JsonError::new(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "backendError",
-                        "Invalid stored object response header",
-                    )
-                })?,
+                HeaderValue::from_str(value).map_err(|_| JsonError::invalid_stored_header())?,
             );
         }
     }
@@ -1044,68 +1030,18 @@ pub(crate) fn revision_etag(generation: Option<i64>, metageneration: i64) -> Str
     base64(&bytes)
 }
 
-pub(crate) fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let a = chunk[0];
-        let b = chunk.get(1).copied().unwrap_or(0);
-        let c = chunk.get(2).copied().unwrap_or(0);
-        result.push(ALPHABET[(a >> 2) as usize] as char);
-        result.push(ALPHABET[((a & 3) << 4 | b >> 4) as usize] as char);
-        result.push(if chunk.len() > 1 {
-            ALPHABET[((b & 15) << 2 | c >> 6) as usize] as char
-        } else {
-            '='
-        });
-        result.push(if chunk.len() > 2 {
-            ALPHABET[(c & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    result
-}
+pub(crate) use crate::base64::encode as base64;
 
 pub(crate) fn decode_hash<const N: usize>(raw: &str) -> Result<[u8; N], JsonError> {
     let invalid = || JsonError::invalid_parameter("Invalid base64 checksum");
     if raw.len() != N.div_ceil(3) * 4 {
         return Err(invalid());
     }
-    let digit = |byte: u8| match byte {
-        b'A'..=b'Z' => Some(byte - b'A'),
-        b'a'..=b'z' => Some(byte - b'a' + 26),
-        b'0'..=b'9' => Some(byte - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    };
-    let mut result = [0; N];
-    for (index, chunk) in raw.as_bytes().as_chunks::<4>().0.iter().enumerate() {
-        let a = digit(chunk[0]).ok_or_else(invalid)?;
-        let b = digit(chunk[1]).ok_or_else(invalid)?;
-        let c = if chunk[2] == b'=' {
-            0
-        } else {
-            digit(chunk[2]).ok_or_else(invalid)?
-        };
-        let d = if chunk[3] == b'=' {
-            0
-        } else {
-            digit(chunk[3]).ok_or_else(invalid)?
-        };
-        for (offset, byte) in [a << 2 | b >> 4, b << 4 | c >> 2, c << 6 | d]
-            .into_iter()
-            .enumerate()
-        {
-            if let Some(output) = result.get_mut(index * 3 + offset) {
-                *output = byte;
-            }
-        }
-    }
-    // Canonical re-encoding checks padding position and unused trailing bits as well.
-    if base64(&result) != raw {
-        return Err(invalid());
-    }
-    Ok(result)
+    crate::base64::decode(
+        raw,
+        crate::base64::Alphabet::Standard,
+        crate::base64::Padding::Required,
+    )
+    .and_then(|bytes| bytes.try_into().ok())
+    .ok_or_else(invalid)
 }

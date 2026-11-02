@@ -172,13 +172,9 @@ fn insert_string(
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| JsonError::invalid(format!("{field} must be a string"))),
-        None => default.map(str::to_owned).ok_or_else(|| {
-            JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "required",
-                format!("Missing required {field}"),
-            )
-        }),
+        None => default
+            .map(str::to_owned)
+            .ok_or_else(|| JsonError::required(format!("Missing required {field}"))),
     }
 }
 
@@ -1105,22 +1101,6 @@ pub(crate) fn bucket_etag(bucket: &BucketRecord) -> String {
 }
 
 /// Render one already bounded, sorted catalog page; the caller decides whether a token is due.
-#[cfg(test)]
-pub(crate) fn bucket_list(
-    buckets: &[BucketRecord],
-    next_page_token: Option<&str>,
-    base_url: &str,
-    projection: Projection,
-) -> Result<Value, JsonError> {
-    bucket_list_with_profile(
-        buckets,
-        next_page_token,
-        base_url,
-        projection,
-        CompatProfile::Native,
-    )
-}
-
 pub(crate) fn bucket_list_with_profile(
     buckets: &[BucketRecord],
     next_page_token: Option<&str>,
@@ -1178,27 +1158,10 @@ pub(crate) fn soft_deleted_bucket_list(
     Ok(value)
 }
 
-pub(super) fn encode_segment(segment: &str) -> String {
-    let mut encoded = String::with_capacity(segment.len());
-    for byte in segment.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            const HEX: &[u8; 16] = b"0123456789ABCDEF";
-            encoded.push('%');
-            encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-            encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-        }
-    }
-    encoded
-}
+pub(super) use crate::url::encode_unreserved as encode_segment;
 
 fn timestamp_error() -> JsonError {
-    JsonError::new(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "backendError",
-        "Bucket timestamp is outside the supported RFC 3339 range",
-    )
+    JsonError::service_unavailable("Bucket timestamp is outside the supported RFC 3339 range")
 }
 
 /// The RFC 9110 date of a stored timestamp, as `Last-Modified` carries it. The weekday and month

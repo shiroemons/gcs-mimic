@@ -7,9 +7,8 @@ use crate::{
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed},
     storage::{ObjectListCursor, ObjectListPage, ObjectListQuery},
 };
-use http_body_util::Full;
 use hyper::header::HeaderValue;
-use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes};
+use hyper::{HeaderMap, Request, Response};
 use std::collections::BTreeMap;
 
 struct Params {
@@ -26,16 +25,12 @@ struct Params {
     start_after: Option<String>,
 }
 
-fn invalid(message: &str) -> Error {
-    Error::new(StatusCode::BAD_REQUEST, "InvalidArgument", message)
-}
-
 fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error> {
     let mut values = crate::auth::signature::xml_query(raw, headers)?;
     let v2 = match values.remove("list-type").as_deref() {
         None | Some("1") => false,
         Some("2") => true,
-        _ => return Err(invalid("list-type must be 1 or 2")),
+        _ => return Err(Error::invalid("list-type must be 1 or 2")),
     };
     // Cloud Storage answered `max-keys=-1` with the whole listing, as if the parameter were
     // absent, and echoed no `MaxKeys` (recorded). Other values that are not an unsigned
@@ -49,7 +44,8 @@ fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error
                 .parse::<u32>()
                 .ok()
                 .filter(|value| *value > 0)
-                .ok_or_else(|| invalid("max-keys must be a positive uint32"))? as usize,
+                .ok_or_else(|| Error::invalid("max-keys must be a positive uint32"))?
+                as usize,
         ),
         Some(_) => None,
     };
@@ -57,7 +53,7 @@ fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error
     let encoded = match values.remove("encoding-type").as_deref() {
         None => false,
         Some("url") => true,
-        _ => return Err(invalid("encoding-type must be url")),
+        _ => return Err(Error::invalid("encoding-type must be url")),
     };
     let mut query = ObjectListQuery {
         bucket,
@@ -71,7 +67,7 @@ fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error
         Some(value) if value == "disabled" => false,
         Some(value) if value == "enabled" => true,
         Some(_) => {
-            return Err(invalid(
+            return Err(Error::invalid(
                 "x-goog-interop-list-objects-format must be enabled or disabled",
             ));
         }
@@ -80,14 +76,14 @@ fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error
         match values.remove("fetch-owner").as_deref() {
             None | Some("false") => {}
             Some("true") => return Err(Error::unsupported("fetch-owner=true")),
-            Some(_) => return Err(invalid("fetch-owner must be true or false")),
+            Some(_) => return Err(Error::invalid("fetch-owner must be true or false")),
         }
         let continuation = values.remove("continuation-token");
         let start_after = values.remove("start-after");
         if let Some(token) = &continuation {
             let token = token
                 .strip_prefix("xml2.")
-                .ok_or_else(|| invalid("Invalid XML continuation-token"))?;
+                .ok_or_else(|| Error::invalid("Invalid XML continuation-token"))?;
             query.cursor = Some(json::decode_object_page_token(
                 token,
                 &query,
@@ -103,7 +99,7 @@ fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error
             .map(|value| number(&value, MinValue::One))
             .transpose()?;
         if generation.is_some() && (marker.is_empty() || !query.versions) {
-            return Err(invalid(
+            return Err(Error::invalid(
                 "A generation marker requires versions and a non-empty name marker",
             ));
         }
@@ -135,7 +131,9 @@ fn take_alias(
     let value = values.remove(name);
     let other = values.remove(alias);
     if value.is_some() && other.is_some() {
-        return Err(invalid("Use only one name or generation marker spelling"));
+        return Err(Error::invalid(
+            "Use only one name or generation marker spelling",
+        ));
     }
     Ok(value.or(other))
 }
@@ -184,7 +182,7 @@ pub(crate) async fn respond(
         .count()
         > 1
     {
-        return Err(invalid(
+        return Err(Error::invalid(
             "Require one x-goog-interop-list-objects-format header",
         ));
     }
@@ -209,7 +207,7 @@ pub(crate) async fn respond(
         .await
         .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
     let body = render(&params, &page)?;
-    let mut response = Response::new(Full::new(Bytes::from(body)));
+    let mut response = super::document_response(body);
     // The catalog read that produced the page also reports the bucket's metageneration, so the
     // header and the listing describe one moment of the bucket.
     if let Some(metageneration) = page.bucket_metageneration {
@@ -217,10 +215,6 @@ pub(crate) async fn respond(
             .headers_mut()
             .insert("x-goog-metageneration", HeaderValue::from(metageneration));
     }
-    response.headers_mut().insert(
-        "content-type",
-        HeaderValue::from_static("application/xml; charset=UTF-8"),
-    );
     response.headers_mut().insert(
         "cache-control",
         HeaderValue::from_static(super::PRIVATE_CACHE_CONTROL),

@@ -25,13 +25,10 @@ pub(super) fn route_test_permissions(
         let bucket = query::decode(segment, query::Decoding::Path)?;
         super::buckets::validate_bucket_name_for_profile(&bucket, profile)?;
         if *method != Method::GET {
-            let mut error = JsonError::new(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "methodNotAllowed",
+            return Err(JsonError::method_not_allowed(
                 "Use GET for bucket testIamPermissions",
-            );
-            error.allow = Some("GET");
-            return Err(error);
+                Some("GET"),
+            ));
         }
         let (permissions, _) = test_permissions_query(uri.query())?;
         Ok(BucketRequest::TestIam {
@@ -81,12 +78,9 @@ pub(crate) fn test_permissions_query(
         }
     }
     if permissions.is_empty() {
-        return Err(JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "required",
-            "Required parameter: permissions",
-        )
-        .at_parameter("permissions"));
+        return Err(
+            JsonError::required("Required parameter: permissions").at_parameter("permissions")
+        );
     }
     let mut query = query::parse_query(&rest.join("&"))?;
     if query.get("userProject").is_some_and(String::is_empty) {
@@ -201,36 +195,12 @@ fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {
         return Ok(None);
     }
     let invalid = || invalid("etag must be valid base64");
-    let data = raw.trim_end_matches('=');
-    let padding = raw.len() - data.len();
-    if data.len() % 4 == 1
-        || padding > 2
-        || (padding > 0 && (!raw.len().is_multiple_of(4) || padding != (4 - data.len() % 4) % 4))
-    {
-        return Err(invalid());
-    }
-    let mut decoded = Vec::with_capacity(data.len() * 3 / 4);
-    let mut bits = 0u32;
-    let mut count = 0;
-    for byte in data.bytes() {
-        let value = match byte {
-            b'A'..=b'Z' => byte - b'A',
-            b'a'..=b'z' => byte - b'a' + 26,
-            b'0'..=b'9' => byte - b'0' + 52,
-            b'+' | b'-' => 62,
-            b'/' | b'_' => 63,
-            _ => return Err(invalid()),
-        };
-        bits = (bits << 6) | u32::from(value);
-        count += 6;
-        if count >= 8 {
-            count -= 8;
-            decoded.push((bits >> count) as u8);
-        }
-    }
-    if bits & ((1 << count) - 1) != 0 {
-        return Err(invalid());
-    }
+    let decoded = crate::base64::decode(
+        raw,
+        crate::base64::Alphabet::Either,
+        crate::base64::Padding::Optional,
+    )
+    .ok_or_else(invalid)?;
     Ok(Some(base64(&decoded)))
 }
 

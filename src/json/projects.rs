@@ -77,12 +77,10 @@ pub(crate) fn route_project(
         _ => return None,
     };
     if !allowed.split(", ").any(|name| name == method.as_str()) {
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        let error = JsonError::method_not_allowed(
             "HTTP method is not supported for this project endpoint",
+            Some(allowed),
         );
-        error.allow = Some(allowed);
         return Some(Err(error));
     }
     Some(parse(
@@ -138,12 +136,8 @@ fn parse(
     let request = match (kind, method, access_id) {
         (Kind::HmacKeys, &Method::POST, _) => {
             let email = query.remove("serviceAccountEmail").ok_or_else(|| {
-                JsonError::new(
-                    StatusCode::BAD_REQUEST,
-                    "required",
-                    "Required parameter: serviceAccountEmail",
-                )
-                .at_parameter("serviceAccountEmail")
+                JsonError::required("Required parameter: serviceAccountEmail")
+                    .at_parameter("serviceAccountEmail")
             })?;
             validate_service_account_email(&email)?;
             ProjectRequest::CreateHmacKey {
@@ -246,11 +240,7 @@ pub(crate) fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonE
             .transpose()
     };
     let state = string("state")?.ok_or_else(|| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "required",
-            "Missing required state; set it to ACTIVE or INACTIVE",
-        )
+        JsonError::required("Missing required state; set it to ACTIVE or INACTIVE")
     })?;
     let state = match HmacKeyState::parse(&state) {
         Some(HmacKeyState::Deleted) => {
@@ -386,11 +376,7 @@ impl From<HmacKeyError> for JsonError {
             ),
             HmacKeyError::Catalog(error) => match error {
                 crate::bucket::CatalogError::InvalidMetadata(reason) => Self::invalid(reason),
-                _ => Self::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "HMAC key catalog is unavailable",
-                ),
+                _ => Self::service_unavailable("HMAC key catalog is unavailable"),
             },
         }
     }

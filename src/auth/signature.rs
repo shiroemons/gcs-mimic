@@ -1,7 +1,12 @@
 //! Bounded, local V2/V4 XML signature verification and RSA signing. No Google IAM calls.
 
 use super::{Auth, Caller};
-use crate::{clock::Clock, hashing::encode_lower, json, url::push_percent_encoded};
+use crate::{
+    clock::Clock,
+    hashing::encode_lower,
+    json,
+    url::{is_unreserved, push_percent_encoded},
+};
 use hyper::{HeaderMap, Method, Uri};
 use ring::{digest, rand::SystemRandom, signature};
 use std::{
@@ -480,7 +485,7 @@ fn canonical_path(raw: &str) -> Result<String, Failure> {
             result.push('%');
             result.push(a as char);
             result.push(b as char);
-        } else if byte == b'/' || unreserved(byte) {
+        } else if byte == b'/' || is_unreserved(byte) {
             result.push(byte as char);
         } else {
             push_percent_encoded(&mut result, byte);
@@ -489,21 +494,9 @@ fn canonical_path(raw: &str) -> Result<String, Failure> {
     Ok(result)
 }
 
-fn unreserved(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
-}
-
 /// Encode a literal query name or value using RFC 3986 unreserved bytes.
 pub fn encode_query_component(raw: &str) -> String {
-    let mut result = String::new();
-    for byte in raw.bytes() {
-        if unreserved(byte) {
-            result.push(byte as char);
-        } else {
-            push_percent_encoded(&mut result, byte);
-        }
-    }
-    result
+    crate::url::encode_unreserved(raw)
 }
 
 fn canonical_query(query: &BTreeMap<String, String>) -> String {

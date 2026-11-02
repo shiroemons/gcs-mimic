@@ -7,10 +7,9 @@ use crate::{
         ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectMetadataUpdate,
         UploadChunk,
     },
-    server::{ObjectCtx, ResponseBody, anonymous_error, boxed, stream_upload},
+    server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
 };
-use http_body_util::Full;
 use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes};
 use std::{collections::BTreeMap, io};
 use tokio::sync::mpsc;
@@ -38,13 +37,10 @@ pub(super) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'
             "Expected one header value.",
         ));
     }
-    value.to_str().map(Some).map_err(|_| {
-        Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
-            "Header must be representable as ASCII.",
-        )
-    })
+    value
+        .to_str()
+        .map(Some)
+        .map_err(|_| Error::invalid("Header must be representable as ASCII."))
 }
 
 /// Signature-specific headers are validated before the operation adapter sees them.
@@ -97,32 +93,15 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
         let name = key.as_str();
         if (name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
-            && !crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
+            && !super::is_common_object_header(name)
             && !(signing != Signing::Header && auth::signature::authentication_header(name))
-            && !matches!(
-                name,
-                "x-goog-hash"
-                    | "x-goog-if-generation-match"
-                    | "x-goog-if-metageneration-match"
-                    | "x-goog-api-client"
-                    | "x-goog-gcs-idempotency-token"
-                    | "x-goog-storage-class"
-            ))
+            && !matches!(name, "x-goog-hash" | "x-goog-storage-class"))
             || (name.starts_with("x-amz-")
                 && !(signing != Signing::Header
                     && (auth::signature::authentication_header(name)
                         || name == "x-amz-decoded-content-length")))
-            || matches!(
-                name,
-                "content-range"
-                    | "range"
-                    | "if-match"
-                    | "if-none-match"
-                    | "if-modified-since"
-                    | "if-unmodified-since"
-                    | "if-range"
-                    | "trailer"
-            )
+            || super::HTTP_PRECONDITION_HEADERS.contains(&name)
+            || matches!(name, "content-range" | "range" | "trailer")
         {
             return Err(Error::unsupported(name));
         }
@@ -150,11 +129,7 @@ pub(super) fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error>
     }
     if let Some(token) = single(headers, "x-goog-gcs-idempotency-token")? {
         if token.trim().is_empty() {
-            return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
-                "Expected a non-empty retry token.",
-            ));
+            return Err(Error::invalid("Expected a non-empty retry token."));
         }
         if conditions.if_generation_match.is_none() {
             return Err(Error::unsupported(
@@ -171,13 +146,7 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
             raw.parse::<u64>()
                 .ok()
                 .filter(|_| !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()))
-                .ok_or_else(|| {
-                    Error::new(
-                        StatusCode::BAD_REQUEST,
-                        "InvalidArgument",
-                        "Invalid Content-Length.",
-                    )
-                })
+                .ok_or_else(|| Error::invalid("Invalid Content-Length."))
         })
         .transpose()?;
     let chunked = single(headers, "transfer-encoding")?;
@@ -187,11 +156,7 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
         ));
     }
     if chunked.is_some() && length.is_some() {
-        return Err(Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
-            "Ambiguous body framing.",
-        ));
+        return Err(Error::invalid("Ambiguous body framing."));
     }
     if length.is_none() && chunked.is_none() {
         return Err(Error::new(
@@ -279,9 +244,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     if let Some(class) = single(headers, "x-goog-storage-class")? {
         crate::object::validate_object_storage_class(class).map_err(|error| match error {
             ObjectError::UnsupportedMetadata(reason) => Error::unsupported(&reason),
-            _ => Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
+            _ => Error::invalid(
                 "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
             ),
         })?;
@@ -292,11 +255,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     for name in headers.keys() {
         if let Some(key) = name.as_str().strip_prefix("x-goog-meta-") {
             if key.is_empty() {
-                return Err(Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "InvalidArgument",
-                    "Custom metadata requires a key.",
-                ));
+                return Err(Error::invalid("Custom metadata requires a key."));
             }
             // `name` comes from this map, so the header is present.
             if let Some(value) = single(headers, name.as_str())? {
@@ -470,7 +429,7 @@ pub(crate) async fn respond(
     }
     .map_err(|error| upload_error(error, caller, &operation, &expected))?;
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
-    let mut response = boxed(Response::new(Full::new(Bytes::new())));
+    let mut response = boxed(empty_response(StatusCode::OK));
     json::insert_response_headers(&record, response.headers_mut());
     super::move_headers(
         &mut headers,

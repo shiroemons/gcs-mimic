@@ -18,9 +18,7 @@ pub(super) async fn respond(
         None | Some("false") => false,
         Some("true") => true,
         Some(_) => {
-            return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
+            return Err(Error::invalid(
                 "x-goog-bucket-object-lock-enabled must be true or false",
             ));
         }
@@ -96,7 +94,7 @@ pub(super) async fn respond(
         .insert_bucket(record)
         .await
         .map_err(|error| catalog_error(error, caller))?;
-    Ok(boxed(Response::new(Full::new(Bytes::new()))))
+    Ok(boxed(empty_response(StatusCode::OK)))
 }
 
 fn parse(

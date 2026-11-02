@@ -99,13 +99,10 @@ async fn control(
         }
     };
     if request.method() != method {
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        return Err(JsonError::method_not_allowed(
             "Use the method documented for this synchronization control",
-        );
-        error.allow = Some(if method == Method::GET { "GET" } else { "POST" });
-        return Err(error);
+            Some(if method == Method::GET { "GET" } else { "POST" }),
+        ));
     }
     match path {
         "/_internal/sync/conflicts" => {
@@ -499,9 +496,7 @@ fn stale() -> JsonError {
     )
 }
 fn busy() -> JsonError {
-    JsonError::new(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "backendError",
+    JsonError::service_unavailable(
         "Synchronization control is busy or closed; retry after the active operation finishes",
     )
 }
