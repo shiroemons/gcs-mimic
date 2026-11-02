@@ -172,13 +172,13 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
             .unwrap(),
         old
     );
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 410);
+    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
     assert_eq!(
         catalog
             .resumable_session(&session.id, "bucket")
             .await
             .unwrap_err(),
-        ResumableError::Gone
+        ResumableError::Cancelled
     );
     assert_eq!(cancel_wire(&catalog, &"f".repeat(64), b"").await, 404);
     *clock.0.lock().unwrap() = session.deadline;
@@ -262,7 +262,7 @@ async fn cancel_reloads_terminal_state_when_transition_no_longer_matches() {
             if expire {
                 ResumableError::NotFound
             } else {
-                ResumableError::Gone
+                ResumableError::Cancelled
             }
         );
         assert!(dir.0.join("staging").join(&session.blob_id).exists());
@@ -420,7 +420,7 @@ async fn cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slo
     std::fs::create_dir(&stage).unwrap();
     assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
     assert!(stage.is_dir());
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 410);
+    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
     assert!(catalog.resumable_maintenance_error().is_some());
     *clock.0.lock().unwrap() = session.deadline;
     assert!(catalog.maintain_resumable_sessions().await.is_err());

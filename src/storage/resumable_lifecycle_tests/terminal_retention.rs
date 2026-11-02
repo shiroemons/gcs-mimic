@@ -100,7 +100,7 @@ async fn completed_sessions_do_not_block_new_uploads_and_retained_results_stay_b
     // A cancelled session releases its active slot once its staged bytes are reclaimed.
     assert_eq!(cancel_wire(&catalog, &active[0].id, b"").await, 499);
     let replacement = create(&catalog, &clock).await.unwrap();
-    assert_eq!(cancel_wire(&catalog, &active[0].id, b"").await, 410);
+    assert_eq!(cancel_wire(&catalog, &active[0].id, b"").await, 499);
     catalog.close().await.unwrap();
 
     // The doubled bound is a valid catalog state across restart.
@@ -149,7 +149,7 @@ async fn cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap(
     ));
     assert_eq!(session_counts(&dir), (0, 129));
     for id in &cancelled {
-        assert_eq!(cancel_wire(&catalog, id, b"").await, 410);
+        assert_eq!(cancel_wire(&catalog, id, b"").await, 499);
     }
     catalog.close().await.unwrap();
 }

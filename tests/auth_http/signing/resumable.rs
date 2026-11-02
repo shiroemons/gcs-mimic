@@ -272,6 +272,14 @@ fn signed_resumable_sessions_cancel_with_no_content() {
     );
     let reply = put::request(&server, "POST", &url, &wire(&[START]), b"");
     let path = session_path(&reply, "/iam-bucket/cancelled");
+    let small = chunk(&server, &path, "bytes 0-2/*", b"abc");
+    assert_eq!(small.status, 400);
+    assert!(
+        String::from_utf8_lossy(&small.body)
+            .contains("Nonfinal chunk must be a multiple of 256 KiB")
+    );
+    assert_eq!(chunk(&server, &path, "invalid", b"").status, 400);
+    assert_eq!(chunk(&server, &path, "bytes */*", b"").status, 308);
     let cancelled = server.request("DELETE", &path, "", b"");
     assert_eq!(cancelled.status, 204);
     // Google answers later requests to a cancelled XML session with 204 as well.

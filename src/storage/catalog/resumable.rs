@@ -50,6 +50,8 @@ pub(crate) enum SessionState {
     Active,
     Complete,
     Cancelled,
+    Aborted,
+    InvalidContentRange,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,6 +101,8 @@ pub(crate) struct ResumableSession {
 pub(crate) enum ResumableError {
     NotFound,
     Gone,
+    Cancelled,
+    InvalidContentRange,
     Invalid(String),
     Object(ObjectError),
 }
@@ -108,6 +112,8 @@ impl fmt::Display for ResumableError {
         match self {
             Self::NotFound => f.write_str("upload session not found"),
             Self::Gone => f.write_str("upload session is no longer active"),
+            Self::Cancelled => f.write_str("clientClosedRequest"),
+            Self::InvalidContentRange => f.write_str("Failed to parse Content-Range header."),
             Self::Invalid(message) => f.write_str(message),
             Self::Object(error) => error.fmt(f),
         }
@@ -382,8 +388,11 @@ impl Catalog {
         if self.0.clock.now() >= session.deadline {
             return Err(ResumableError::NotFound);
         }
-        if session.state == SessionState::Cancelled {
-            return Err(ResumableError::Gone);
+        match session.state {
+            SessionState::Cancelled => return Err(ResumableError::Cancelled),
+            SessionState::Aborted => return Err(ResumableError::Gone),
+            SessionState::InvalidContentRange => return Err(ResumableError::InvalidContentRange),
+            SessionState::Active | SessionState::Complete => {}
         }
         Ok(session)
     }
@@ -720,10 +729,19 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
     {
         return Err(invalid("invalid upload opaque ID"));
     }
-    let state = match row.get::<_, String>(10)?.as_str() {
-        "ACTIVE" => SessionState::Active,
-        "COMPLETE" => SessionState::Complete,
-        "CANCELLED" => SessionState::Cancelled,
+    let options = serde_json::from_str::<Value>(&row.get::<_, String>(5)?).map_err(invalid)?;
+    // Keep terminal reasons in the versioned options document so existing catalogs need no migration.
+    let state = match (
+        row.get::<_, String>(10)?.as_str(),
+        options.get("terminal_error"),
+    ) {
+        ("ACTIVE", None) => SessionState::Active,
+        ("COMPLETE", None) => SessionState::Complete,
+        ("CANCELLED", None) => SessionState::Cancelled,
+        ("CANCELLED", Some(Value::String(reason))) if reason == "aborted" => SessionState::Aborted,
+        ("CANCELLED", Some(Value::String(reason))) if reason == "content-range" => {
+            SessionState::InvalidContentRange
+        }
         _ => return Err(invalid("invalid upload state")),
     };
     let completion: Option<String> = row.get(11)?;
@@ -733,10 +751,7 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
         bucket: row.get(2)?,
         name: row.get(3)?,
         incarnation: row.get(4)?,
-        options: decode_options(
-            &serde_json::from_str::<Value>(&row.get::<_, String>(5)?).map_err(invalid)?,
-        )
-        .map_err(invalid)?,
+        options: decode_options(&options).map_err(invalid)?,
         total: row
             .get::<_, Option<i64>>(6)?
             .map(|n| u64::try_from(n).map_err(invalid))

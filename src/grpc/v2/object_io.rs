@@ -43,10 +43,11 @@ pub(super) fn access_status(error: json::JsonError, caller: Option<Caller<'_>>) 
 
 fn session_status(error: ResumableError) -> Status {
     match error {
-        ResumableError::NotFound | ResumableError::Gone => {
+        ResumableError::NotFound | ResumableError::Gone | ResumableError::Cancelled => {
             Status::not_found("Upload session not found; start a new resumable write")
         }
         ResumableError::Invalid(message) => Status::invalid_argument(message),
+        ResumableError::InvalidContentRange => Status::invalid_argument(error.to_string()),
         ResumableError::Object(error) => object_status(error),
     }
 }

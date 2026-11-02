@@ -1171,10 +1171,6 @@ async fn single_empty_and_exact_multiple_uploads_replay_original_completion_afte
 #[tokio::test]
 async fn malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix() {
     let h = Harness::start(1024 * 1024, false, None).await;
-    let init = h
-        .initiate("name=object", "X-Upload-Content-Length: 524288\r\n", b"")
-        .await;
-    let path = h.path(&init);
     for headers in [
         "Content-Range: bytes 1-262144/524288\r\n",
         "Content-Range: bytes 9-1/524288\r\n",
@@ -1183,12 +1179,30 @@ async fn malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix() {
         "Content-Range: bytes 0-262143/524288\r\nContent-Range: bytes 0-262143/524288\r\n",
         "Content-Range: bytes 0-2/524288\r\n",
     ] {
+        let init = h
+            .initiate("name=object", "X-Upload-Content-Length: 524288\r\n", b"")
+            .await;
+        let path = h.path(&init);
         assert_eq!(
             h.request("PUT", &path, headers, b"abc").await.status,
             400,
             "{headers}"
         );
+        let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT sum(offset) FROM resumable_sessions", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
     }
+    let init = h
+        .initiate("name=object", "X-Upload-Content-Length: 524288\r\n", b"")
+        .await;
+    let path = h.path(&init);
     let short = h
         .request(
             "PUT",
@@ -1985,20 +1999,22 @@ async fn strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadl
         308
     );
     let cancelled = h.request("DELETE", &path, "", b"").await;
-    assert_eq!(cancelled.status, 499);
-    assert!(cancelled.body.is_empty());
+    cancelled.error(499, "clientClosedRequest");
     assert_eq!(
         cancelled.headers["content-type"],
-        "text/plain; charset=utf-8"
+        "application/json; charset=UTF-8"
     );
-    assert!(!cancelled.headers.contains_key("cache-control"));
+    assert_eq!(
+        cancelled.headers["cache-control"],
+        crate::json::NO_STORE_CACHE_CONTROL
+    );
     assert!(!h.dir.0.join("staging").join(session.blob_id).exists());
     for method in ["PUT", "POST", "DELETE"] {
         assert_eq!(
             h.request(method, &path, "Content-Range: bytes */*\r\n", b"")
                 .await
                 .status,
-            410
+            499
         );
     }
     *h.clock.0.lock().unwrap() = session.deadline;
@@ -2054,7 +2070,7 @@ async fn cancellation_racing_append_respects_writer_and_prevents_later_publicati
         )
         .await
         .status,
-        410
+        499
     );
     assert!(!stage.exists());
     assert_eq!(
@@ -2083,7 +2099,7 @@ async fn cancellation_racing_finalization_has_one_terminal_winner_and_preserves_
             assert_eq!(h.request("DELETE", &path, "", b"").await.status, 410);
         } else {
             assert_eq!(cancelled.status, 499);
-            assert!(matches!(finalized.status, 410 | 503));
+            assert!(matches!(finalized.status, 499 | 503));
         }
         let id = path.split("upload_id=").nth(1).unwrap();
         // Expiring a completed capability must not delete the published object.
@@ -2156,7 +2172,7 @@ async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() 
         loop {
             let status = h.request("DELETE", &path, "", b"").await.status;
             if status != 503 {
-                assert_eq!(status, 410);
+                assert_eq!(status, if cancel { 499 } else { 410 });
                 break;
             }
             assert!(tokio::time::Instant::now() < deadline);

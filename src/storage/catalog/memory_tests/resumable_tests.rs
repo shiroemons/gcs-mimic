@@ -217,7 +217,7 @@ async fn ram_resumable_cancel_expiry_reset_and_close_release_session_leases() {
         .unwrap();
     assert_eq!(
         catalog.resumable_session(&active.id, "test-bucket").await,
-        Err(ResumableError::Gone)
+        Err(ResumableError::Cancelled)
     );
     let expired = session(&catalog).await;
     let id = expired.id.clone();

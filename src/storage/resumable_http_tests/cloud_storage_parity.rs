@@ -5,6 +5,77 @@ use super::*;
 const MEDIA: &str = "/upload/storage/v1/b/bucket/o?uploadType=media&name=object";
 
 #[tokio::test]
+async fn cancelled_sessions_repeat_the_json_499_envelope() {
+    let h = Harness::start(1000, false, None).await;
+    let init = h.initiate("name=cancelled", "", b"").await;
+    let path = h.path(&init);
+    for (method, headers) in [
+        ("DELETE", ""),
+        ("PUT", "Content-Range: bytes */*\r\n"),
+        ("DELETE", ""),
+    ] {
+        let reply = h.request(method, &path, headers, b"").await;
+        reply.error(499, "clientClosedRequest");
+        assert_eq!(reply.json()["error"]["message"], "clientClosedRequest");
+        assert_eq!(
+            reply.headers["content-type"],
+            "application/json; charset=UTF-8"
+        );
+        assert_eq!(
+            reply.headers["cache-control"],
+            crate::json::NO_STORE_CACHE_CONTROL
+        );
+        assert_eq!(reply.headers["expires"], "Mon, 01 Jan 1990 00:00:00 GMT");
+        assert_eq!(reply.headers["pragma"], "no-cache");
+        // Reply retains the last Vary line; differential replay compares the combined field.
+        assert_eq!(reply.headers["vary"], "X-Origin");
+    }
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn bad_ranges_poison_sessions_but_small_nonfinal_chunks_remain_retryable() {
+    let h = Harness::start(1024 * 1024, false, None).await;
+    let init = h.initiate("name=small", "", b"").await;
+    let path = h.path(&init);
+    let small = h
+        .request("PUT", &path, "Content-Range: bytes 0-4/*\r\n", b"hello")
+        .await;
+    assert_eq!(small.status, 400);
+    assert_eq!(
+        String::from_utf8(small.body).unwrap(),
+        "Invalid request.  The number of bytes uploaded is required to be equal or greater than 262144, except for the final request (it's recommended to be the exact multiple of 262144).  The received request contained 5 bytes, which does not meet this requirement."
+    );
+    assert_eq!(
+        h.request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+            .await
+            .status,
+        308
+    );
+    assert_eq!(
+        h.request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"hello")
+            .await
+            .status,
+        200
+    );
+    for range in ["invalid", "bytes 0-4/4"] {
+        let init = h.initiate("name=bad-range", "", b"").await;
+        let path = h.path(&init);
+        for header in [
+            format!("Content-Range: {range}\r\n"),
+            "Content-Range: bytes */*\r\n".into(),
+        ] {
+            let reply = h.request("PUT", &path, &header, b"").await;
+            assert_eq!(reply.status, 400);
+            assert_eq!(reply.body, b"Failed to parse Content-Range header.");
+            assert!(!reply.headers.contains_key("cache-control"));
+            assert!(!reply.headers.contains_key("vary"));
+        }
+    }
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn media_upload_ignores_declared_hashes_and_stores_the_computed_ones() {
     let h = Harness::start(1000, false, None).await;
     for headers in [

@@ -228,7 +228,7 @@ async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired
             .checkpoint_resumable_session(&mut lease, 2, Some(4))
             .await
             .unwrap_err(),
-        ResumableError::Gone
+        ResumableError::Cancelled
     );
     *clock.0.lock().unwrap() = session.deadline;
     assert_eq!(

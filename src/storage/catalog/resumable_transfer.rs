@@ -285,15 +285,36 @@ impl Catalog {
         &self,
         lease: &SessionLease,
     ) -> Result<(), ResumableError> {
+        self.fail_resumable_session(lease, "aborted").await
+    }
+
+    pub(crate) async fn reject_resumable_content_range(
+        &self,
+        lease: &SessionLease,
+    ) -> Result<(), ResumableError> {
+        self.fail_resumable_session(lease, "content-range").await
+    }
+
+    async fn fail_resumable_session(
+        &self,
+        lease: &SessionLease,
+        reason: &'static str,
+    ) -> Result<(), ResumableError> {
         let id = lease.session.id.clone();
         let blob_id = lease.session.blob_id.clone();
+        #[cfg(test)]
+        let data_dir = self.0.data_dir.clone();
         let changed = self.run_upload(move |connection| {
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unavailable)?;
-            let changed = transaction.prepare_cached("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE'").and_then(|mut statement| statement.execute([id])).map_err(object_unavailable)?;
+            let changed = transaction.prepare_cached("UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', ?2) WHERE id = ?1 AND state = 'ACTIVE'").and_then(|mut statement| statement.execute(params![id, reason])).map_err(object_unavailable)?;
             if changed == 1 {
                 transaction.prepare_cached("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)").and_then(|mut statement| statement.execute([&blob_id])).map_err(object_unavailable)?;
             }
+            #[cfg(test)]
+            fault::hit(&data_dir, Step::SessionFailureCommit).map_err(object_unavailable)?;
             transaction.commit().map_err(object_unavailable)?;
+            #[cfg(test)]
+            fault::hit(&data_dir, Step::SessionFailureCommitted).map_err(object_unavailable)?;
             Ok(changed)
         }).await?;
         if changed == 1 {

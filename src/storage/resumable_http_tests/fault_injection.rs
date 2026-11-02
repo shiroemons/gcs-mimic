@@ -387,6 +387,78 @@ async fn assert_prefix(h: &Harness, path: &str, length: usize, case: &str) {
 }
 
 #[tokio::test]
+async fn resumable_terminal_commit_failure_preserves_the_acknowledged_prefix() {
+    let h = Harness::start(1024 * 1024, false, None).await;
+    let chunk = vec![b'a'; 256 * 1024];
+    let path = resumable_prefix(&h, "poison", &chunk).await;
+    h.inject(Step::SessionFailureCommit, 0, Fault::Io(ErrorKind::Other));
+    let reply = h
+        .request("PUT", &path, "Content-Range: invalid\r\n", b"")
+        .await;
+    assert_backend_failure(
+        &reply,
+        &Expect::Message(io_message(ErrorKind::Other)),
+        "terminal commit",
+    );
+    h.assert_fired("terminal commit");
+    assert_prefix(&h, &path, chunk.len(), "terminal commit").await;
+    h.stop().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn resumable_terminal_error_survives_crash_and_power_loss() {
+    let crashes = TestDir::new();
+    let h = Harness::start(1024 * 1024, false, None).await;
+    let chunk = vec![b'a'; 256 * 1024];
+    for power_loss in [false, true] {
+        for (step, committed) in [
+            (Step::SessionFailureCommit, false),
+            (Step::SessionFailureCommitted, true),
+        ] {
+            let path = resumable_prefix(&h, "poison", &chunk).await;
+            let id = path.split("upload_id=").nth(1).unwrap();
+            let blob = session_blob(&h, &path).await;
+            let snapshot = crashes.0.join(format!("{step:?}-{power_loss}"));
+            let fault = if power_loss {
+                Fault::PowerLoss(snapshot.clone())
+            } else {
+                Fault::Snapshot(snapshot.clone())
+            };
+            h.inject(step, 0, fault);
+            assert_eq!(
+                h.request("PUT", &path, "Content-Range: invalid\r\n", b"")
+                    .await
+                    .status,
+                400
+            );
+            h.assert_fired("terminal snapshot");
+            let recovered = Catalog::open_with_clock(&snapshot, h.clock.clone())
+                .await
+                .unwrap();
+            let session = recovered.resumable_session(id, "bucket").await;
+            if committed {
+                assert_eq!(
+                    session.unwrap_err(),
+                    crate::storage::ResumableError::InvalidContentRange
+                );
+                assert!(!snapshot.join("staging").join(&blob).exists());
+                assert_eq!(
+                    count(&snapshot, "SELECT count(*) FROM pending_blob_deletions"),
+                    0
+                );
+            } else {
+                assert_eq!(session.unwrap().offset, chunk.len() as u64);
+                assert_resumable_prefix(&snapshot, &blob, &chunk, "terminal snapshot");
+            }
+            assert_eq!(read_all(&recovered, "poison").await, None);
+            recovered.close().await.unwrap();
+        }
+    }
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn resumable_chunk_and_finalization_failures_keep_the_acknowledged_prefix() {
     let h = Harness::start(4 * 1024 * 1024, false, None).await;
     let chunk = vec![b'a'; 256 * 1024];

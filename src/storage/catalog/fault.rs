@@ -98,6 +98,10 @@ pub(crate) enum Step {
     BodySync,
     /// After a resumable chunk is durable, before the transaction that records its offset.
     Checkpoint,
+    /// Before committing a terminal resumable error and its cleanup journal together.
+    SessionFailureCommit,
+    /// After committing a terminal resumable error, before reclaiming staged bytes.
+    SessionFailureCommitted,
     /// After the staged file is durable, before it is renamed into `blobs/`.
     BeforePublish,
     /// After the rename and shard sync, before the catalog transaction.

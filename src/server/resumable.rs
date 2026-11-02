@@ -290,6 +290,7 @@ fn plan_chunk(
     length: Option<u64>,
     session: &SessionPosition,
     max_bytes: u64,
+    target: &SessionTarget<'_>,
 ) -> Result<ChunkPlan, JsonError> {
     let mut open_end = false;
     let (start, length, total, kind) = match range {
@@ -338,9 +339,14 @@ fn plan_chunk(
         ChunkKind::Data => open_end || total == Some(end),
     };
     if kind == ChunkKind::Data && !finalize && !length.is_multiple_of(256 * 1024) {
-        return Err(JsonError::session_protocol(
-            "Nonfinal chunk must be a multiple of 256 KiB",
-        ));
+        let message = if target.name.is_some() {
+            "Nonfinal chunk must be a multiple of 256 KiB".into()
+        } else {
+            format!(
+                "Invalid request.  The number of bytes uploaded is required to be equal or greater than 262144, except for the final request (it's recommended to be the exact multiple of 262144).  The received request contained {length} bytes, which does not meet this requirement."
+            )
+        };
+        return Err(JsonError::session_protocol(message));
     }
     Ok(ChunkPlan {
         start,
@@ -396,6 +402,29 @@ pub(crate) enum Transfer {
     Complete(serde_json::Value),
 }
 
+async fn session_framing(
+    headers: &hyper::HeaderMap,
+    target: &SessionTarget<'_>,
+    ctx: ObjectCtx<'_>,
+) -> Result<(Option<Range>, Option<u64>), JsonError> {
+    let framing = chunk_framing(headers, ctx.config.max_object_bytes);
+    // Only the JSON front end records an unparsable range as a terminal session failure.
+    if target.name.is_none() && framing.is_err() && resumable::range(headers).is_err() {
+        let lease = ctx
+            .await_catalog(
+                ctx.state
+                    .catalog
+                    .lock_resumable_session(target.id, target.bucket),
+            )
+            .await?;
+        if lease.session.state == SessionState::Active {
+            ctx.await_catalog(ctx.state.catalog.reject_resumable_content_range(&lease))
+                .await?;
+        }
+    }
+    framing
+}
+
 /// Writes or queries one session: the shared engine behind every session URI.
 pub(crate) async fn transfer(
     request: Request<Incoming>,
@@ -405,7 +434,7 @@ pub(crate) async fn transfer(
     let ObjectCtx { state, config, .. } = ctx;
     let SessionTarget { bucket, id, name } = target;
     let headers = request.headers().clone();
-    let (range, length) = chunk_framing(&headers, config.max_object_bytes)?;
+    let (range, length) = session_framing(&headers, &target, ctx).await?;
     let mut lease = ctx
         .await_catalog(state.catalog.lock_resumable_session(id, bucket))
         .await?;
@@ -423,7 +452,14 @@ pub(crate) async fn transfer(
         total: session.total,
         state: session.state,
     };
-    let plan = plan_chunk(&headers, range, length, &position, config.max_object_bytes)?;
+    let plan = plan_chunk(
+        &headers,
+        range,
+        length,
+        &position,
+        config.max_object_bytes,
+        &target,
+    )?;
     let status_only = plan.kind == ChunkKind::Status && !plan.finalize;
     // Validate the override before any bytes can be acknowledged.
     resumable::single(&headers, "x-guploader-no-308")?;

@@ -864,7 +864,7 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
         server
             .request("PUT", &cancelled, "Content-Range: bytes */*\r\n", b"")
             .status,
-        410
+        499
     );
     assert!(!data.exists());
     server.stop();

@@ -2,7 +2,8 @@
 
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-Contract checked: **2026-10-22**. Delivery: `resumable-upload`, order 4.
+Contract checked: **2026-10-22**; recorded JSON edge responses refreshed
+**2026-11-02**. Delivery: `resumable-upload`, order 4.
 Scope: BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 and DESIGN-057, with
 contributions to JSON-OBJECTS-007 and DESIGN-082. This is an acceptance contract,
 not execution evidence. Only `compatibility/features.json` owns implementation
@@ -28,6 +29,13 @@ are a separate protocol state machine. No real-cloud request is authorized here.
 Fetched and read on **2026-10-22**. Exact fetched-byte SHA-256 values, the
 Discovery revision and immutable upstream identities are in
 [Sources](../sources.md#resumable-upload-source-pins).
+
+The performing guide was rechecked on **2026-11-02** against the isolated-session
+`obj-resumable` live recording in
+`compatibility/differential/reference/gcs.json`. That recording confirms the
+small nonfinal chunk's 400 text, JSON cancellation and subsequent status 499
+envelopes, and persistent plain 400 after an unparsable Content-Range. It does
+not establish every invalid-range, terminal-retention or lifetime boundary.
 
 | Source | Contract used |
 | --- | --- |
@@ -130,7 +138,11 @@ already persisted prefix using bounded buffers, append only the unseen tail,
 and never overwrite acknowledged bytes, even when resent bytes differ.
 A future offset with a gap, malformed/duplicate ranges, reversed/overflowing
 offsets, conflicting totals, wrong body length or an invalid nonfinal chunk
-return local 400 without publication. Serializing writers per session gives
+return 400 without publication. An unparsable JSON Content-Range terminalizes
+the session: later requests repeat the recorded plain 400. That terminal error
+and its cleanup journal commit together and survive restart; an undersized
+nonfinal chunk alone leaves the session retryable. Other exact error choices
+remain local. Serializing writers per session gives
 one ordered append; a competing writer returns retryable local 503 rather
 than racing on a file offset. Exact malformed/concurrent error parity remains
 SPEC-RSM-EDGES. Different sessions may progress concurrently.
@@ -191,9 +203,10 @@ failed sessions is SPEC-RSM-EDGES.
 ## Cancellation, expiry and maintenance
 
 `DELETE SESSION_URI` with an empty body cancels an incomplete session and
-returns JSON-upload **499**. Do not borrow XML cancellation's 204. Further
-status/write/cancel requests for a terminal invalid session return local
-**410** before seven days from initiation and **404** at or after that deadline;
+returns JSON-upload **499** with a `clientClosedRequest` JSON error envelope.
+Further status/write/cancel requests for that cancelled session repeat 499.
+Unrecorded terminal validation failures retain local **410** before seven days
+from initiation; terminal sessions return **404** at or after that deadline;
 an unknown token returns 404. Cancellation changes no live object. Serialize
 cancel/finalize races: exactly one terminal transition wins, and cancel cannot
 delete a completed object. Completed-session DELETE returns local 410.
@@ -201,7 +214,8 @@ delete a completed object. Completed-session DELETE returns local 410.
 Lifetime is **604800 seconds from initiation**, never sliding on activity.
 Use `Clock::now()` and a persisted absolute deadline. At now >= deadline the
 session is unusable even if physical cleanup has not run. This exact-boundary
-choice and cancellation/completion error bodies remain SPEC-RSM-EDGES.
+choice, cancellation-repeat DELETE and completion error bodies remain
+SPEC-RSM-EDGES; the recorded cancellation and subsequent PUT body are matched.
 
 Provide an explicit maintenance entry point driven by the injected clock and
 one next-deadline scheduler. Wake on earlier inserted deadlines or shutdown;
@@ -211,11 +225,11 @@ waiting a week. Expire in bounded indexed batches, remove staged bytes, and
 reclaim terminal records at their original deadline. A failed unlink is
 journaled/retried and surfaced, never silently marked physically reclaimed.
 Committed cancellation still returns 499 when physical cleanup fails; later
-requests return 410 before the original deadline while maintenance retries cleanup.
+requests return 499 before the original deadline while maintenance retries cleanup.
 Likewise, a committed terminal validation failure preserves its original error
 response if cleanup fails; diagnostics and the deletion journal retain that
 cleanup failure for maintenance retry. Successfully cleaned cancelled sessions
-retain their 410 tombstone without repeating physical cleanup before expiry.
+retain their 499 tombstone without repeating physical cleanup before expiry.
 Restart runs due cleanup before readiness and rearms the next deadline.
 
 ## Client-reachable Location

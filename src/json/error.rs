@@ -656,9 +656,7 @@ impl From<crate::storage::ResumableError> for JsonError {
                 error.plain = Some(&NOT_FOUND_TEXT);
                 error
             }
-            // Not recorded: a finished or cancelled session is answered like the recorded unknown
-            // session (404), as a bare text page, because the front end decides both from the
-            // session state alone.
+            // Unrecorded terminal validation failures keep the existing local 410 response.
             ResumableError::Gone => {
                 let mut error = Self::new(
                     StatusCode::GONE,
@@ -669,8 +667,28 @@ impl From<crate::storage::ResumableError> for JsonError {
                 error
             }
             ResumableError::Invalid(message) => Self::invalid_parameter(message),
+            ResumableError::Cancelled => Self::cancelled_upload(),
+            ResumableError::InvalidContentRange => {
+                let mut error = Self::invalid_parameter("Failed to parse Content-Range header.");
+                error.plain = Some(&CONTENT_RANGE_TEXT);
+                error
+            }
             ResumableError::Object(error) => error.into(),
         }
+    }
+}
+
+impl JsonError {
+    #[expect(
+        clippy::expect_used,
+        reason = "499 lies within the 100..=999 range StatusCode accepts, and from_u16 is not const"
+    )]
+    fn cancelled_upload() -> Self {
+        Self::new(
+            StatusCode::from_u16(499).expect("499 is a valid status code"),
+            "clientClosedRequest",
+            "clientClosedRequest",
+        )
     }
 }
 
