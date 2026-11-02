@@ -56,6 +56,16 @@ fn pinned_source_export_imports_selected_bodies_and_metadata_after_restart() {
                         .unwrap();
                     assert_eq!(settings.time_created, source_time);
                     assert_eq!(settings.updated, source_time);
+                    let resource = crate::json::bucket_resource(
+                        &settings,
+                        "http://localhost",
+                        crate::json::Projection::NoAcl,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        resource["versioning"]["enabled"],
+                        row["attributes"]["VersioningEnabled"]
+                    );
                 }
             }
             assert!(

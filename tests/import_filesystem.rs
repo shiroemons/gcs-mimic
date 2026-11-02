@@ -509,6 +509,50 @@ fn request(address: &str, path: &str, token: bool) -> (u16, Vec<u8>) {
 }
 
 #[test]
+fn imported_bucket_responses_preserve_absent_and_explicit_false_versioning() {
+    let (_dir, options) = fixture();
+    fs::create_dir(options.source.join("disabled-bucket")).unwrap();
+    fs::write(
+        options.source.join("disabled-bucket.bucketMetadata"),
+        br#"{"VersioningEnabled":false}"#,
+    )
+    .unwrap();
+    execute(options.clone()).unwrap();
+    let mut child = common::server_command()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+        ])
+        .arg(&options.destination)
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    let ready: Value = serde_json::from_str(&line).unwrap();
+    let address = ready["listen"].as_str().unwrap();
+    for (bucket, configured) in [
+        ("bucket-one", false),
+        ("empty-bucket", false),
+        ("disabled-bucket", true),
+    ] {
+        let (status, body) = request(address, &format!("/storage/v1/b/{bucket}"), false);
+        assert_eq!(status, 200);
+        let resource: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            resource.get("versioning"),
+            configured.then(|| json!({"enabled":false})).as_ref()
+        );
+    }
+    common::stop_server(&mut child, &mut stdout);
+}
+
+#[test]
 fn filesystem_import_generation_urls_conditions_and_strict_permissions() {
     for strict in [false, true] {
         let (_dir, options) = fixture();

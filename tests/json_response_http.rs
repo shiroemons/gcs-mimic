@@ -183,6 +183,61 @@ fn missing_move_source_names_the_local_or_authenticated_principal() {
 }
 
 #[test]
+fn missing_move_source_uses_an_email_or_the_generic_permission_message() {
+    for (id, alias, email) in [
+        (
+            "local:aliased",
+            Some("user-alias@example.test"),
+            Some("alias@example.test"),
+        ),
+        (
+            "known@example.test",
+            Some("user-123456"),
+            Some("known@example.test"),
+        ),
+        ("local:aliasless", None, None),
+        ("opaqueprincipal", None, None),
+        ("local:numeric-alias", Some("user-123456"), None),
+    ] {
+        let dir = TestDir::new();
+        let registry_path = dir.0.join("identities.json");
+        let mut identity =
+            json!({"id":id,"tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}});
+        if let Some(alias) = alias {
+            identity["acl_entity"] = alias.into();
+        }
+        std::fs::write(&registry_path, json!({"identities":[identity]}).to_string()).unwrap();
+        let server = Server::start_with_args(
+            &dir,
+            &[
+                "--auth-mode",
+                "strict",
+                "--identity-file",
+                registry_path.to_str().unwrap(),
+            ],
+        );
+        server.bucket();
+        let failed = server.request(
+            "POST",
+            &format!("{BUCKET}/o/missing/moveTo/o/target"),
+            ADMIN,
+            b"",
+        );
+        failed.error(403, "forbidden");
+        let error: Value = serde_json::from_slice(&failed.body).unwrap();
+        let message = error["error"]["message"].as_str().unwrap();
+        if let Some(email) = email {
+            assert!(message.starts_with(&format!(
+                "{email} does not have storage.objects.move access"
+            )));
+        } else {
+            assert_eq!(message, "Forbidden");
+            assert!(!message.contains(id));
+        }
+    }
+}
+
+#[test]
 fn upload_front_end_errors_preserve_content_type_without_nosniff() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);

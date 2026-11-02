@@ -51,6 +51,7 @@ across restart; buckets without a versioning setting omit it. A null versioning
 member or a native PUT that omits versioning clears the configuration. Catalog
 schema 49 records presence for live and soft-deleted buckets; older disabled rows
 remain unset because their previous boolean storage cannot establish presence.
+Migration of soft-deleted buckets' versioning state has no test coverage.
 
 `versions=true` includes all retained generations and the live generation, ordered
 by binary object name then increasing generation. Tokens include the generation

@@ -610,7 +610,11 @@ async fn publish(
             enable_object_retention,
             ..
         } => {
-            let input = serde_json::json!({"name":name,"defaultEventBasedHold":attributes.default_event_based_hold,"versioning":{"enabled":attributes.versioning_enabled}}).to_string();
+            let mut input = serde_json::json!({"name":name,"defaultEventBasedHold":attributes.default_event_based_hold});
+            if let Some(enabled) = attributes.versioning_enabled {
+                input["versioning"] = serde_json::json!({"enabled":enabled});
+            }
+            let input = input.to_string();
             let mut bucket =
                 crate::json::parse_insert(input.as_bytes(), "local-project", SystemTime::now())
                     .map_err(|error| invalid(error.message))?;
@@ -717,7 +721,8 @@ async fn verify_committed(
                 .map_err(invalid)?;
             if target.default_event_based_hold != attributes.default_event_based_hold
                 || target.project != "local-project"
-                || target.versioning_enabled != attributes.versioning_enabled
+                || target.versioning_enabled != attributes.versioning_enabled.unwrap_or_default()
+                || target.versioning_configured != attributes.versioning_enabled.is_some()
                 || target.object_retention_enabled != *enable_object_retention
                 || created.is_some_and(|created| {
                     created != target.time_created || created != target.updated

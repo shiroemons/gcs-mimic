@@ -74,9 +74,19 @@ pub(super) fn retention(
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
 pub(crate) struct BucketAttrs {
     pub default_event_based_hold: bool,
-    pub versioning_enabled: bool,
+    #[serde(
+        deserialize_with = "present_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub versioning_enabled: Option<bool>,
     #[serde(rename = "ACL")]
     pub acl: Option<Vec<SourceAcl>>,
+}
+
+fn present_bool<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -323,6 +333,23 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use proptest::prelude::*;
+    #[test]
+    fn bucket_versioning_distinguishes_absent_and_false_without_accepting_null() {
+        for (input, expected) in [
+            (r#"{}"#, None),
+            (r#"{"VersioningEnabled":false}"#, Some(false)),
+            (r#"{"VersioningEnabled":true}"#, Some(true)),
+        ] {
+            let attrs: BucketAttrs = serde_json::from_str(input).unwrap();
+            assert_eq!(attrs.versioning_enabled, expected);
+        }
+        for invalid in [
+            r#"{"VersioningEnabled":null}"#,
+            r#"{"VersioningEnabled":"false"}"#,
+        ] {
+            assert!(serde_json::from_str::<BucketAttrs>(invalid).is_err());
+        }
+    }
     #[test]
     fn source_acl_duplicate_identity_fields_are_not_silently_overwritten() {
         assert!(serde_json::from_slice::<ObjectAttrs>(

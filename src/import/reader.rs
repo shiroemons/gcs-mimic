@@ -1090,7 +1090,7 @@ impl Scan<'_> {
         };
         let attrs: BucketAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("BucketAttrs", format!("invalid bucket metadata JSON: {e}"), "Restore known, unique BucketAttrs fields with the pinned JSON types; an absent sidecar alone means defaults."))?;
         let before = report.summary.blocking_findings;
-        if attrs.versioning_enabled {
+        if attrs.versioning_enabled == Some(true) {
             report.finding(relative, "VersioningEnabled", "unsupported persisted bucket semantics", "The pinned filesystem backend cannot store history; provide a complete memory export for versioned buckets.", Severity::Blocking, None)?;
         }
         if let Err(error) = codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Bucket) {
