@@ -117,6 +117,8 @@ Markdownファイルと`docs/`だけを変えた場合は、Foundation checksを
 両方のワークフローで実行されるよう、このスクリプトに加えます。ほかのファイルも変えた場合は通常どおりFoundation checksを実行し、
 リリースのワークフローは常にすべての検査を実行します。ドキュメントだけのコミットでFoundation checksを実行したいときは、手動実行を使います。
 
+Markdownの段落は途中で改行せず、1つの段落またはリスト項目を1行に書きます。そのため、ルートの`.markdownlint-cli2.jsonc`はMD013（行の長さ）を無効にしています。
+
 `just check`は、Windows MSVC・Linux musl・macOS ARM64のリリースターゲットと、
 CIのRustジョブが使うLinux glibcのターゲットも、`scripts/check-cross.sh`で型検査します。Foundation CIはこのスクリプトを`rust`ジョブと並行する`cross`ジョブで実行し、
 `rust`ジョブは`GCSM_CHECK_CROSS=0`を指定して`scripts/check.sh`からの実行を省きます。

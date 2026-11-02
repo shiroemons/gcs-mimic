@@ -1,6 +1,10 @@
 # gcs-mimic
 
-<!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
+<!-- markdownlint-configure-file {"MD033": {"allowed_elements": ["p", "img"]}} -->
+
+<p align="center"><img src="docs/assets/micket.png" alt="Micket, the gcs-mimic mascot" width="120"></p>
+
+<p align="center">The mascot is Micket (ミケット), from the "mi" of mimic and the "cket" of bucket.</p>
 
 [![Foundation checks](https://github.com/shiroemons/gcs-mimic/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/shiroemons/gcs-mimic/actions/workflows/ci.yaml)
 [![Release](https://img.shields.io/github/v/release/shiroemons/gcs-mimic)](https://github.com/shiroemons/gcs-mimic/releases/latest)
@@ -95,11 +99,9 @@ names; other objects are kept. See [loading local files](docs/en/container-usage
 
 ## Connect your SDK
 
-The examples connect from the host. From a Compose service, use
-`http://SERVICE:4443` with the emulator's service name, such as
-`http://gcs:4443`. Clients are anonymous and never contact Google.
-[SDK setup](docs/en/sdk-setup.md) has the tested versions, gRPC, signed URLs
-and strict authentication.
+The examples connect from the host. From a Compose service, use `http://SERVICE:4443` with the emulator's service name, such as `http://gcs:4443`. Clients are anonymous and never contact Google. [SDK setup](docs/en/sdk-setup.md) has the tested versions, gRPC, signed URLs and strict authentication.
+
+Runnable programs for every client below are in [examples/](examples/README.md).
 
 **Go**: set `STORAGE_EMULATOR_HOST=localhost:4443`; a plain client then skips
 authentication. A fake-gcs-server setup works unchanged.
@@ -146,6 +148,51 @@ $storage = new StorageClient(['projectId' => 'local-project',
     'credentialsFetcher' => new AnonymousCredentials()]);
 ```
 
+**Java**:
+
+```java
+Storage storage = HttpStorageOptions.newBuilder()
+    .setHost("http://localhost:4443")
+    .setProjectId("local-project")
+    .setCredentials(NoCredentials.getInstance())
+    .build()
+    .getService();
+```
+
+**.NET**:
+
+```csharp
+var storage = new StorageClientBuilder
+{
+    BaseUri = "http://localhost:4443/storage/v1/",
+    UnauthenticatedAccess = true,
+}.Build();
+```
+
+**Rust**: `Storage` reads and writes objects over HTTP on 4443, while `StorageControl` manages buckets over gRPC on 4444, so also set `GCS_MIMIC_GRPC_LISTEN=0.0.0.0:4444` and publish that port.
+
+```rust
+let storage = Storage::builder()
+    .with_endpoint("http://localhost:4443")
+    .with_credentials(anonymous::Builder::new().build())
+    .build()
+    .await?;
+let control = StorageControl::builder()
+    .with_endpoint("http://localhost:4444")
+    .with_credentials(anonymous::Builder::new().build())
+    .build()
+    .await?;
+```
+
+**gcloud**: a throwaway `CLOUDSDK_CONFIG` keeps your own configuration untouched.
+
+```sh
+export CLOUDSDK_CONFIG="$(mktemp -d)"
+export CLOUDSDK_CORE_PROJECT=local-project
+export CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE=http://localhost:4443/
+export CLOUDSDK_AUTH_DISABLE_CREDENTIALS=True
+```
+
 **Rails Active Storage**: add one `config/storage.yml` entry for development
 and test; production keeps its own. A non-Google `universe_domain` keeps
 googleauth from contacting Google OAuth:
@@ -160,51 +207,6 @@ gcs_emulator:
 
 [Rails Active Storage](docs/en/rails-active-storage.md) has the full entry,
 bucket and CORS setup, Rails in containers and CI.
-
-## Migrating from fake-gcs-server
-
-For the scoped container workflow, change the image and mount a separate data
-volume. Most `command:` flags, `FAKE_GCS_*` variables and the `./data:/data`
-mount keep working. This is not a blanket drop-in replacement claim:
-
-```diff
- gcs:
--  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.8.0
-   command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
-   volumes:
-     - ./data:/data
--    - gcs-storage:/storage
-+    - gcs-data:/var/lib/gcs-mimic
-```
-
-Each old setting is logged as a warning with its `GCS_MIMIC_*` name; rename
-them when convenient. The **0.8.0** example has these differences:
-
-| fake-gcs-server | gcs-mimic |
-| --- | --- |
-| Data in `/storage` | Kept in `/var/lib/gcs-mimic` instead; `-filesystem-root` is ignored. Convert old data with [`gcs-mimic import fake-gcs-server`](docs/en/slices/import-filesystem.md). |
-| `-backend memory` | Selects the bounded RAM backend (`--backend memory`): data is lost at exit and the data directory is never opened. |
-| `-event.*` (Pub/Sub notifications) | Delivered to a local Pub/Sub emulator named by `PUBSUB_EMULATOR_HOST`. Without one, startup fails, so tests that wait for notifications do not hang. |
-| Deleting or overwriting objects | New buckets keep deleted and replaced objects soft-deleted for seven days, as Cloud Storage does. Set `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0` to delete permanently. |
-| `-public-host` | Accepted; matching the Host header as before also needs `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. |
-| `GET /storage/v1/b` without `?project=` | Returns 400, as in Google Cloud Storage. SDKs send the project already. |
-| Cancelling a resumable upload | Returns 499, which Google documents for a successful cancel; it is not an error. |
-
-See the [migration guide](docs/en/fake-gcs-server-migration.md) and the
-[setting mapping](docs/en/fake-gcs-server-configuration.md).
-
-Since 0.8.0, gcs-mimic also has scoped RAM storage, local Pub/Sub delivery,
-HTTP batch/method override, XML list/copy/multipart, opt-in fixture
-administration/reset/reseed, strict local JWTs, client adapters and a watched
-sync directory with `gcs-mimic sync` controls; 0.7.0 and earlier lack them. See
-the [scope and verification map](docs/en/evidence/migration-integration.md).
-Broader rows stay partial until all their acceptance cases pass.
-
-Go embedding uses a Rust subprocess facade, with Unix HTTP for `NoListener`.
-Wrappers that hard-code the `fake-gcs-server` executable need an explicit
-adapter; changing their image alone is insufficient. The migration guide maps
-[observed GitHub uses to these boundaries](docs/en/fake-gcs-server-migration.md#observed-github-uses-and-migration-boundaries).
 
 ## Common settings
 
@@ -271,6 +273,22 @@ Recorded on 2026-10-31 at commit `35de4e1`
 ([results](sdk-scorecard/results/2026-10-31-2/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
+
+## Migrating from fake-gcs-server
+
+For the scoped container workflow, change the image (for example from `fsouza/fake-gcs-server:1.56.1`) and mount a separate data volume at `/var/lib/gcs-mimic` instead of `/storage`; most `command:` flags, `FAKE_GCS_*` variables and the `./data:/data` mount keep working, and each old setting is logged as a warning with its `GCS_MIMIC_*` name. This is not a blanket drop-in replacement claim. The **0.8.0** image has these differences:
+
+| fake-gcs-server | gcs-mimic |
+| --- | --- |
+| Data in `/storage` | Kept in `/var/lib/gcs-mimic` instead; `-filesystem-root` is ignored. Convert old data with [`gcs-mimic import fake-gcs-server`](docs/en/slices/import-filesystem.md). |
+| `-backend memory` | Selects the bounded RAM backend (`--backend memory`): data is lost at exit and the data directory is never opened. |
+| `-event.*` (Pub/Sub notifications) | Delivered to a local Pub/Sub emulator named by `PUBSUB_EMULATOR_HOST`. Without one, startup fails, so tests that wait for notifications do not hang. |
+| Deleting or overwriting objects | New buckets keep deleted and replaced objects soft-deleted for seven days, as Cloud Storage does. Set `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0` to delete permanently. |
+| `-public-host` | Accepted; matching the Host header as before also needs `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. |
+| `GET /storage/v1/b` without `?project=` | Returns 400, as in Google Cloud Storage. SDKs send the project already. |
+| Cancelling a resumable upload | Returns 499, which Google documents for a successful cancel; it is not an error. |
+
+Since 0.8.0, gcs-mimic also has scoped RAM storage, local Pub/Sub delivery, HTTP batch/method override, XML list/copy/multipart, opt-in fixture administration/reset/reseed, strict local JWTs, client adapters and a watched sync directory with `gcs-mimic sync` controls; 0.7.0 and earlier lack them, and broader rows stay partial until all their acceptance cases pass ([scope and verification map](docs/en/evidence/migration-integration.md)). Go embedding uses a Rust subprocess facade, with Unix HTTP for `NoListener`; wrappers that hard-code the `fake-gcs-server` executable need an explicit adapter, so changing their image alone is insufficient. The [migration guide](docs/en/fake-gcs-server-migration.md) covers the full workflow, the [setting mapping](docs/en/fake-gcs-server-configuration.md) and [observed GitHub uses](docs/en/fake-gcs-server-migration.md#observed-github-uses-and-migration-boundaries).
 
 ## More information
 

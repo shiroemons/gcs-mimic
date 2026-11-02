@@ -188,6 +188,8 @@ run it. A change that also touches other files runs Foundation checks as usual,
 and release workflows always run the full checks. Use manual dispatch to run
 Foundation checks for a documentation-only commit.
 
+Markdown paragraphs are not hard-wrapped: write one paragraph or list item per line, which is why the root `.markdownlint-cli2.jsonc` disables MD013 (line length).
+
 Run the separate online freshness check at slice start and before release:
 
 ```sh

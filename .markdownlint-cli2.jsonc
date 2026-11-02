@@ -1,0 +1,6 @@
+{
+  // Markdown paragraphs are not hard-wrapped, so line length is not checked.
+  "config": {
+    "MD013": false
+  }
+}
