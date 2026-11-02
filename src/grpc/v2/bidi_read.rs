@@ -9,7 +9,7 @@ use crate::{
     bucket::BucketAccess,
     json::JsonError,
     object::{ObjectConditions, ObjectRecord},
-    server::{State, anonymous_error, authorize_bucket},
+    server::{State, anonymous_error},
     storage::ObjectReader,
 };
 use prost::Message;
@@ -179,9 +179,7 @@ impl Storage {
         })?;
         validate_spec(&spec)?;
         let (bucket, object) = names::object_name(&spec.bucket, &spec.object)?;
-        let access = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, bucket)
-            .await
-            .map_err(|e| error(e, caller))?;
+        let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let resumed = spec.read_handle.is_some();
         let (selected, token) = if resumed {
             self.resume_read_handle(&spec, &access, caller).await?

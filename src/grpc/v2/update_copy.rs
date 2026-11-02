@@ -1,8 +1,8 @@
-use super::{Storage, convert, iam, names, pb, status::unsupported};
-use crate::grpc::validate::{request_conditions, strict_conditions as conditions};
+use super::{Storage, access_status, convert, iam, names, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::{BucketAccess, BucketMetadataUpdate},
+    grpc::validate::{self, request_conditions, strict_conditions},
     json::{self, JsonError},
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError},
     server::authorize_bucket,
@@ -18,11 +18,6 @@ fn error(error: impl Into<JsonError>) -> Status {
     super::status::from_json(error.into())
 }
 
-/// Anonymous denials ask for credentials, matching bucket RPCs, BidiReadObject and JSON.
-fn access_error(error: JsonError, caller: Option<Caller<'_>>) -> Status {
-    super::status::from_json(crate::server::anonymous_error(error, caller))
-}
-
 fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
     mask.filter(|m| !m.paths.is_empty())
         .map(|m| m.paths.as_slice())
@@ -34,7 +29,7 @@ fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
 }
 
 fn common(params: &Option<pb::CommonObjectRequestParams>) -> Result<(), Status> {
-    crate::grpc::validate::common(
+    validate::common(
         params.as_ref(),
         "customer-supplied encryption; omit common_object_request_params",
     )
@@ -425,8 +420,8 @@ impl Storage {
     ) -> Result<Response<pb::RewriteResponse>, Status> {
         let r = request.into_inner();
         check_rewrite_request(&r)?;
-        let sc = request_conditions!(source r)?;
-        let dc = request_conditions!(r)?;
+        let sc = request_conditions!(strict_conditions, source r)?;
+        let dc = request_conditions!(strict_conditions, r)?;
         let body = r.destination.as_ref().map(derived_fields).transpose()?;
         if r.destination
             .as_ref()
@@ -450,17 +445,12 @@ impl Storage {
         };
         let binding = session.as_ref().map(|s| &s.binding);
         let target = RewriteTarget::resolve(&r, binding)?;
-        let read = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, target.source_bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let create = authorize_bucket(
-            &self.state,
-            caller,
-            auth::OBJECTS_CREATE,
-            target.destination_bucket,
-        )
-        .await
-        .map_err(|e| access_error(e, caller))?;
+        let read = self
+            .access(caller, target.source_bucket, auth::OBJECTS_GET)
+            .await?;
+        let create = self
+            .access(caller, target.destination_bucket, auth::OBJECTS_CREATE)
+            .await?;
         let mut owner = None;
         let token = if let Some(binding) = binding {
             if !target.matches(binding)
@@ -631,10 +621,8 @@ impl Storage {
     ) -> Result<Response<pb::Bucket>, Status> {
         let r = request.into_inner();
         let bucket = names::bucket_name(&r.bucket)?;
-        conditions(None, None, Some(r.if_metageneration_match), None)?;
-        let access = authorize_bucket(&self.state, caller, auth::BUCKETS_UPDATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        strict_conditions(None, None, Some(r.if_metageneration_match), None)?;
+        let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
         let record = self
             .state
             .catalog
@@ -668,9 +656,7 @@ impl Storage {
                 "requested_policy_version must be 0, 1 or 3",
             ));
         }
-        let access = authorize_bucket(&self.state, caller, auth::BUCKETS_GET_IAM, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        let access = self.access(caller, bucket, auth::BUCKETS_GET_IAM).await?;
         Ok(Response::new(policy(
             self.state
                 .catalog
@@ -696,9 +682,7 @@ impl Storage {
                 "SetIamPolicy update_mask; omit the mask to replace bindings and etag",
             ));
         }
-        let access = authorize_bucket(&self.state, caller, auth::BUCKETS_SET_IAM, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        let access = self.access(caller, bucket, auth::BUCKETS_SET_IAM).await?;
         let p = r.policy.ok_or_else(|| {
             Status::invalid_argument(
                 "policy is required; supply bindings, for example an empty list",
@@ -781,7 +765,7 @@ impl Storage {
         if !r.predefined_acl.is_empty() || !r.predefined_default_object_acl.is_empty() {
             return Err(unsupported("predefined bucket ACLs; omit predefined_acl"));
         }
-        conditions(
+        strict_conditions(
             None,
             None,
             r.if_metageneration_match,
@@ -789,9 +773,7 @@ impl Storage {
         )?;
         let paths = mask(r.update_mask.as_ref())?;
         let mut body = bucket_patch(&b, paths)?;
-        let access = authorize_bucket(&self.state, caller, auth::BUCKETS_UPDATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
         let mut mm = r.if_metageneration_match;
         if paths.iter().any(|p| p == "labels") && !b.labels.is_empty() {
             let current = self
@@ -849,10 +831,8 @@ impl Storage {
         }
         let paths = mask(r.update_mask.as_ref())?;
         let mut body = object_patch(&o, paths)?;
-        let access = authorize_bucket(&self.state, caller, auth::OBJECTS_UPDATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let mut c = request_conditions!(r)?;
+        let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
+        let mut c = request_conditions!(strict_conditions, r)?;
         if paths.iter().any(|p| p == "metadata") && !o.metadata.is_empty() {
             let current = self
                 .state
@@ -893,7 +873,7 @@ impl Storage {
             retention_override,
         )
         .await
-        .map_err(|e| access_error(e, caller))?;
+        .map_err(|e| access_status(e, caller))?;
         let record = self
             .state
             .catalog
@@ -936,9 +916,7 @@ impl Storage {
             Status::invalid_argument("destination is required; supply bucket and name")
         })?;
         let (bucket, name) = names::object_name(&o.bucket, &o.name)?;
-        let access = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        let access = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         let body = derived_fields(&o)?;
         let sources = r
             .source_objects
@@ -954,7 +932,7 @@ impl Storage {
                     .object_preconditions
                     .as_ref()
                     .and_then(|p| p.if_generation_match);
-                conditions(gm, None, None, None)?;
+                strict_conditions(gm, None, None, None)?;
                 Ok(ComposeSource {
                     name: s.name.clone(),
                     generation: (s.generation != 0).then_some(s.generation),
@@ -982,7 +960,12 @@ impl Storage {
             metadata: parsed.update,
             storage_class: None,
             expected: ExpectedHashes::default(),
-            conditions: conditions(r.if_generation_match, None, r.if_metageneration_match, None)?,
+            conditions: strict_conditions(
+                r.if_generation_match,
+                None,
+                r.if_metageneration_match,
+                None,
+            )?,
             access,
             component_count: None,
         };
@@ -1011,17 +994,11 @@ impl Storage {
         let r = request.into_inner();
         let (bucket, source) = names::object_name(&r.bucket, &r.source_object)?;
         names::object_name(&r.bucket, &r.destination_object)?;
-        let read = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let delete = authorize_bucket(&self.state, caller, auth::OBJECTS_DELETE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let sc = request_conditions!(source r)?;
-        let dc = request_conditions!(r)?;
+        let read = self.access(caller, bucket, auth::OBJECTS_GET).await?;
+        let delete = self.access(caller, bucket, auth::OBJECTS_DELETE).await?;
+        let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
+        let sc = request_conditions!(strict_conditions, source r)?;
+        let dc = request_conditions!(strict_conditions, r)?;
         let record = self
             .state
             .catalog
@@ -1059,13 +1036,9 @@ impl Storage {
             ));
         }
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
-        let restore = authorize_bucket(&self.state, caller, auth::OBJECTS_RESTORE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let c = request_conditions!(r)?;
+        let restore = self.access(caller, bucket, auth::OBJECTS_RESTORE).await?;
+        let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
+        let c = request_conditions!(strict_conditions, r)?;
         let record = self
             .state
             .catalog
@@ -1214,11 +1187,15 @@ mod tests {
         );
         assert!(common(&Some(pb::CommonObjectRequestParams::default())).is_ok());
         assert_eq!(
-            conditions(Some(-1), None, None, None).unwrap_err().code(),
+            strict_conditions(Some(-1), None, None, None)
+                .unwrap_err()
+                .code(),
             Code::InvalidArgument
         );
         assert_eq!(
-            conditions(None, None, Some(0), None).unwrap_err().code(),
+            strict_conditions(None, None, Some(0), None)
+                .unwrap_err()
+                .code(),
             Code::InvalidArgument
         );
         let b = pb::Bucket {

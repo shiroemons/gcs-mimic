@@ -1,5 +1,5 @@
 use super::status::from_json as json_error;
-use super::{Storage, pb, status::unsupported_for as unsupported};
+use super::{Storage, pb, status::unsupported_for};
 use super::{convert, names};
 use crate::auth::Caller;
 use crate::{bucket::CatalogError, json};
@@ -357,10 +357,7 @@ impl Storage {
         let request = request.into_inner();
         let name = names::bucket_name(&request.name)?;
         json::validate_bucket_name(name).map_err(json_error)?;
-        let access =
-            crate::server::authorize_bucket(&self.state, caller, "storage.buckets.delete", name)
-                .await
-                .map_err(|error| json_error(crate::server::anonymous_error(error, caller)))?;
+        let access = self.access(caller, name, "storage.buckets.delete").await?;
         self.state
             .catalog
             .delete_bucket_authorized(
@@ -383,10 +380,7 @@ impl Storage {
         let name = names::bucket_name(&request.name)?;
         json::validate_bucket_name(name).map_err(json_error)?;
         bucket_mask(pb::Bucket::default(), request.read_mask.as_ref())?;
-        let access =
-            crate::server::authorize_bucket(&self.state, caller, "storage.buckets.get", name)
-                .await
-                .map_err(|error| json_error(crate::server::anonymous_error(error, caller)))?;
+        let access = self.access(caller, name, "storage.buckets.get").await?;
         let record = self
             .state
             .catalog
@@ -433,7 +427,7 @@ impl Storage {
             ));
         }
         if !request.predefined_acl.is_empty() || !request.predefined_default_object_acl.is_empty() {
-            return Err(unsupported("CreateBucket predefined ACLs", caller));
+            return Err(unsupported_for("CreateBucket predefined ACLs", caller));
         }
         let mut bucket = request.bucket.unwrap_or_default();
         // The Java SDK repeats the new resource name here, and Cloud Storage accepts it. A
@@ -496,7 +490,10 @@ impl Storage {
                 .map_err(|e| json_error(e.into()))?;
         }
         if request.return_partial_success {
-            return Err(unsupported("ListBuckets return_partial_success", caller));
+            return Err(unsupported_for(
+                "ListBuckets return_partial_success",
+                caller,
+            ));
         }
         if request.page_size < 0 || request.prefix.len() > 222 {
             return Err(Status::invalid_argument(

@@ -1,5 +1,4 @@
 //! Retired Storage v1 migration adapter; shared catalog operations enforce state and permissions.
-use crate::grpc::validate::request_conditions;
 mod convert;
 #[cfg(test)]
 mod tests;
@@ -24,7 +23,10 @@ pub mod pb {
 use crate::{
     auth::{BUCKETS_LIST, Caller},
     bucket::{BucketAccess, CatalogError},
-    grpc::v2::status::{from_json, unsupported},
+    grpc::{
+        v2::status::{from_json, unsupported},
+        validate::{self, request_conditions},
+    },
     json,
     object::{ObjectConditions, ObjectError, ObjectMetadataUpdate},
     server::State,
@@ -97,8 +99,8 @@ fn common(
 ) -> Result<(), Status> {
     const MESSAGE: &str =
         "legacy common request parameters; omit billing, quota, field selection and encryption";
-    crate::grpc::validate::common(params, MESSAGE)?;
-    crate::grpc::validate::common(object, MESSAGE)
+    validate::common(params, MESSAGE)?;
+    validate::common(object, MESSAGE)
 }
 
 fn projection(value: i32) -> Result<(), Status> {
@@ -117,7 +119,7 @@ fn conditions(
     m: Option<i64>,
     nm: Option<i64>,
 ) -> Result<ObjectConditions, Status> {
-    crate::grpc::validate::lenient_conditions(
+    validate::lenient_conditions(
         g,
         ng,
         m,
@@ -127,7 +129,7 @@ fn conditions(
 }
 
 fn generation(value: i64) -> Result<Option<i64>, Status> {
-    crate::grpc::validate::generation(
+    validate::generation(
         value,
         "generation must be positive or 0 for the live object",
     )
@@ -564,7 +566,7 @@ impl pb::storage_server::Storage for Storage {
                 &r.bucket,
                 &r.object,
                 generation(r.generation)?,
-                request_conditions!(r)?,
+                request_conditions!(conditions, r)?,
                 &access,
             )
             .await
@@ -592,7 +594,7 @@ impl pb::storage_server::Storage for Storage {
                 &r.bucket,
                 &r.object,
                 generation(r.generation)?,
-                request_conditions!(r)?,
+                request_conditions!(conditions, r)?,
                 &access,
             )
             .await
@@ -618,7 +620,7 @@ impl pb::storage_server::Storage for Storage {
             bucket: &r.bucket,
             name: &r.object,
             selected: r.generation,
-            conditions: request_conditions!(r)?,
+            conditions: request_conditions!(conditions, r)?,
             object: r.metadata.unwrap_or_default(),
             write: json::WriteMode::Replace,
         };
@@ -645,7 +647,7 @@ impl pb::storage_server::Storage for Storage {
             bucket: &r.bucket,
             name: &r.object,
             selected: r.generation,
-            conditions: request_conditions!(r)?,
+            conditions: request_conditions!(conditions, r)?,
             object: r.metadata.unwrap_or_default(),
             write: json::WriteMode::Patch,
         };

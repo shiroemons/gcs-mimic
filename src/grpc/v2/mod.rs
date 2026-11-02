@@ -73,6 +73,17 @@ pub(crate) async fn dispatch(
 }
 
 impl Storage {
+    async fn access(
+        &self,
+        caller: Option<Caller<'_>>,
+        bucket: &str,
+        permission: &str,
+    ) -> Result<crate::bucket::BucketAccess, Status> {
+        crate::server::authorize_bucket(&self.state, caller, permission, bucket)
+            .await
+            .map_err(|error| access_status(error, caller))
+    }
+
     pub(crate) fn authenticate<T>(
         &self,
         request: &Request<T>,
@@ -87,14 +98,20 @@ impl Storage {
     }
 }
 
+/// Anonymous denials ask for credentials, matching the shared JSON authorization rules.
+fn access_status(error: crate::json::JsonError, caller: Option<Caller<'_>>) -> Status {
+    status::from_json(crate::server::anonymous_error(error, caller))
+}
+
 fn auth_error(_: AuthFailure) -> Status {
     Status::unauthenticated(
         "gcs-mimic strict authentication requires a registered local Bearer token; supply authorization: Bearer local-admin-token with a matching identity_file",
     )
 }
 
+// Keep dispatch and forwarding in sync; a misspelled wire name rejects that RPC as unsupported.
 macro_rules! storage_methods {
-    ($($wire:ident => $method:ident($request:ty) -> $response:ty;)*) => {
+    ($($wire:ident => $method:ident($request:ty $(,)?) -> $response:ty;)*) => {
         pub(crate) fn known_method(path: &str) -> bool {
             path.strip_prefix("/google.storage.v2.Storage/")
                 .is_some_and(|method| matches!(method, $(stringify!($wire))|*))
@@ -126,24 +143,38 @@ storage_methods! {
     GetBucket => get_bucket(pb::GetBucketRequest) -> pb::Bucket;
     CreateBucket => create_bucket(pb::CreateBucketRequest) -> pb::Bucket;
     ListBuckets => list_buckets(pb::ListBucketsRequest) -> pb::ListBucketsResponse;
-    LockBucketRetentionPolicy => lock_bucket_retention_policy(pb::LockBucketRetentionPolicyRequest) -> pb::Bucket;
+    LockBucketRetentionPolicy => lock_bucket_retention_policy(
+        pb::LockBucketRetentionPolicyRequest,
+    ) -> pb::Bucket;
     GetIamPolicy => get_iam_policy(iam::GetIamPolicyRequest) -> iam::Policy;
     SetIamPolicy => set_iam_policy(iam::SetIamPolicyRequest) -> iam::Policy;
-    TestIamPermissions => test_iam_permissions(iam::TestIamPermissionsRequest) -> iam::TestIamPermissionsResponse;
+    TestIamPermissions => test_iam_permissions(
+        iam::TestIamPermissionsRequest,
+    ) -> iam::TestIamPermissionsResponse;
     UpdateBucket => update_bucket(pb::UpdateBucketRequest) -> pb::Bucket;
     ComposeObject => compose_object(pb::ComposeObjectRequest) -> pb::Object;
     DeleteObject => delete_object(pb::DeleteObjectRequest) -> ();
     RestoreObject => restore_object(pb::RestoreObjectRequest) -> pb::Object;
-    CancelResumableWrite => cancel_resumable_write(pb::CancelResumableWriteRequest) -> pb::CancelResumableWriteResponse;
+    CancelResumableWrite => cancel_resumable_write(
+        pb::CancelResumableWriteRequest,
+    ) -> pb::CancelResumableWriteResponse;
     GetObject => get_object(pb::GetObjectRequest) -> pb::Object;
     ReadObject => read_object(pb::ReadObjectRequest) -> Self::ReadObjectStream;
-    BidiReadObject => bidi_read_object(Streaming<pb::BidiReadObjectRequest>) -> Self::BidiReadObjectStream;
+    BidiReadObject => bidi_read_object(
+        Streaming<pb::BidiReadObjectRequest>,
+    ) -> Self::BidiReadObjectStream;
     UpdateObject => update_object(pb::UpdateObjectRequest) -> pb::Object;
     WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse;
-    BidiWriteObject => bidi_write_object(Streaming<pb::BidiWriteObjectRequest>) -> Self::BidiWriteObjectStream;
+    BidiWriteObject => bidi_write_object(
+        Streaming<pb::BidiWriteObjectRequest>,
+    ) -> Self::BidiWriteObjectStream;
     ListObjects => list_objects(pb::ListObjectsRequest) -> pb::ListObjectsResponse;
     RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse;
-    StartResumableWrite => start_resumable_write(pb::StartResumableWriteRequest) -> pb::StartResumableWriteResponse;
-    QueryWriteStatus => query_write_status(pb::QueryWriteStatusRequest) -> pb::QueryWriteStatusResponse;
+    StartResumableWrite => start_resumable_write(
+        pb::StartResumableWriteRequest,
+    ) -> pb::StartResumableWriteResponse;
+    QueryWriteStatus => query_write_status(
+        pb::QueryWriteStatusRequest,
+    ) -> pb::QueryWriteStatusResponse;
     MoveObject => move_object(pb::MoveObjectRequest) -> pb::Object;
 }

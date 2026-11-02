@@ -2,16 +2,16 @@ use crate::object::ObjectConditions;
 use tonic::Status;
 
 macro_rules! request_conditions {
-    ($request:ident) => {
-        conditions(
+    ($validate:path, $request:ident) => {
+        $validate(
             $request.if_generation_match,
             $request.if_generation_not_match,
             $request.if_metageneration_match,
             $request.if_metageneration_not_match,
         )
     };
-    (source $request:ident) => {
-        conditions(
+    ($validate:path, source $request:ident) => {
+        $validate(
             $request.if_source_generation_match,
             $request.if_source_generation_not_match,
             $request.if_source_metageneration_match,

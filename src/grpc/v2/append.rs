@@ -3,7 +3,7 @@
 
 use super::{
     Storage, convert, names,
-    object_io::{access_status, common, conditions, hashes, object_status, verify_crc32c},
+    object_io::{common, conditions, hashes, object_status, verify_crc32c},
     pb,
     status::unsupported_for,
 };
@@ -154,10 +154,7 @@ impl Storage {
                         "append_object_spec.generation is required; use the generation returned when the appendable object was created",
                     ));
                 }
-                let access =
-                    crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
-                        .await
-                        .map_err(|e| access_status(e, caller))?;
+                let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
                 let conditions = conditions(
                     None,
                     None,

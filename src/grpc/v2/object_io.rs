@@ -1,12 +1,12 @@
 use super::{
-    ResponseStream, Storage,
+    ResponseStream, Storage, access_status,
     append::Finality,
     convert, names, pb,
     status::{from_json as json_status, unsupported_for},
 };
-use crate::grpc::validate::request_conditions;
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
+    grpc::validate::{self, request_conditions},
     json,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk},
     storage::{ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState},
@@ -37,11 +37,6 @@ pub(super) fn named_object_status<'a>(
     }
 }
 
-/// Anonymous denials ask for credentials, matching bucket RPCs, BidiReadObject and JSON.
-pub(super) fn access_status(error: json::JsonError, caller: Option<Caller<'_>>) -> Status {
-    json_status(crate::server::anonymous_error(error, caller))
-}
-
 fn session_status(error: ResumableError) -> Status {
     match error {
         ResumableError::NotFound | ResumableError::Gone | ResumableError::Cancelled => {
@@ -54,7 +49,7 @@ fn session_status(error: ResumableError) -> Status {
 }
 
 pub(super) fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> {
-    crate::grpc::validate::common(
+    validate::common(
         params,
         "customer encryption; omit common_object_request_params",
     )
@@ -66,7 +61,7 @@ pub(super) fn conditions(
     m: Option<i64>,
     nm: Option<i64>,
 ) -> Result<ObjectConditions, Status> {
-    crate::grpc::validate::lenient_conditions(
+    validate::lenient_conditions(
         g,
         ng,
         m,
@@ -76,7 +71,7 @@ pub(super) fn conditions(
 }
 
 fn generation(value: i64) -> Result<Option<i64>, Status> {
-    crate::grpc::validate::generation(
+    validate::generation(
         value,
         "generation must be positive, or 0 to select the live object",
     )
@@ -320,14 +315,12 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_DELETE, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_DELETE).await?;
         self.delete_including_appendable(
             bucket,
             name,
             generation(r.generation)?,
-            request_conditions!(r)?,
+            request_conditions!(conditions, r)?,
             &access,
         )
         .await
@@ -344,9 +337,7 @@ impl Storage {
         let (bucket, id) = parse_upload_id(&r.upload_id)?;
         // gRPC upload IDs are not bearer capabilities, so cancellation requires the
         // same permission as QueryWriteStatus and resumed writes.
-        crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        self.access(caller, bucket, OBJECTS_CREATE).await?;
         match self
             .state
             .catalog
@@ -388,15 +379,13 @@ impl Storage {
             ));
         }
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let (record, finality) = self
             .get_readable(
                 bucket,
                 name,
                 generation(r.generation)?,
-                request_conditions!(r)?,
+                request_conditions!(conditions, r)?,
                 &access,
             )
             .await
@@ -497,15 +486,13 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let (record, mut reader, finality) = self
             .open_readable(
                 bucket,
                 name,
                 generation(r.generation)?,
-                request_conditions!(r)?,
+                request_conditions!(conditions, r)?,
                 &access,
             )
             .await
@@ -745,9 +732,7 @@ impl Storage {
                 "Invalid listing query or page_token; reuse the token with the original prefix and delimiter",
             ));
         };
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_LIST, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_LIST).await?;
         let page = self
             .state
             .catalog
@@ -812,9 +797,7 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         let (bucket, id) = parse_upload_id(&r.upload_id)?;
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
         let session = self
             .state
             .catalog
@@ -883,9 +866,7 @@ impl Storage {
         let (bucket, name) = names::object_name(&resource.bucket, &resource.name)?;
         let bucket = bucket.to_owned();
         let name = name.to_owned();
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, &bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, &bucket, OBJECTS_CREATE).await?;
         let content_type = if resource.content_type.is_empty() {
             "application/octet-stream".to_owned()
         } else {
@@ -930,7 +911,7 @@ impl Storage {
         }
         metadata.content_type = Some(Some(content_type.clone()));
         metadata.validate().map_err(object_status)?;
-        let conditions = request_conditions!(spec)?;
+        let conditions = request_conditions!(conditions, spec)?;
         let total = spec
             .object_size
             .map(|n| {
@@ -1010,10 +991,7 @@ impl Storage {
         let mut result;
         loop {
             check_resumable_message(&message, caller)?;
-            let access =
-                crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
-                    .await
-                    .map_err(|e| access_status(e, caller))?;
+            let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
             let lease = self
                 .state
                 .catalog
