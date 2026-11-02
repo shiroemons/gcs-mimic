@@ -3,8 +3,6 @@ use super::{
     query::{Decoding, decode, finish, parse_query, projection},
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
-#[cfg(test)]
-use hyper::StatusCode;
 use hyper::{Method, Uri};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,6 +124,7 @@ pub(super) fn route(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hyper::StatusCode;
 
     #[test]
     fn move_route_decodes_names_once_and_keeps_conditions_separate() {

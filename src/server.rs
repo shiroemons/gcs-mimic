@@ -163,9 +163,7 @@ impl DeadlineReply {
                 "The upload timed out; retry the request, or raise connection_timeout_ms for slow clients or object_request_timeout_ms for large uploads.",
             )
         } else {
-            JsonError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
+            JsonError::service_unavailable(
                 "The request timed out before a response was ready; retry the request, or raise connection_timeout_ms.",
             )
         };
@@ -764,9 +762,7 @@ impl ConnectionService {
             Ok(endpoints) => endpoints,
             Err(_) => {
                 return Ok(boxed(
-                    JsonError::new(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "backendError",
+                    JsonError::service_unavailable(
                         "Runtime endpoint state is unavailable; restart the emulator",
                     )
                     .into_response(),

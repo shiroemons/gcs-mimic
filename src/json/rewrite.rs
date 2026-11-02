@@ -3,8 +3,6 @@ use super::{
     validate_object_name,
 };
 use crate::{config::CompatProfile, object::ObjectConditions, storage::rewrite::RewriteProgress};
-#[cfg(test)]
-use hyper::StatusCode;
 use hyper::{Method, Uri};
 use serde_json::{Map, Value, json};
 
@@ -181,6 +179,7 @@ pub(crate) fn response(progress: RewriteProgress) -> Result<Value, JsonError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hyper::StatusCode;
     #[test]
     fn rewrite_route_decodes_once_and_bounds_byte_budgets() {
         let base = "/storage/v1/b/source-bucket/o/a%2Fb%25/rewriteTo/b/destination-bucket/o/c%2Fd";
