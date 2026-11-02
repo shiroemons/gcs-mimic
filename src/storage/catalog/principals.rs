@@ -1,6 +1,6 @@
 //! Startup-only principal data excludes every bearer token and signing key.
 
-use super::{Catalog, CatalogError, acl, unavailable, unix_micros};
+use super::{Catalog, CatalogError, acl, unix_micros};
 use crate::auth::{Auth, Identity};
 use crate::storage::catalog::sql;
 use std::collections::BTreeMap;
@@ -50,8 +50,7 @@ impl Catalog {
                 )
                 .and_then(|mut statement| {
                     statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
-                })
-                .map_err(unavailable)?;
+                })?;
             if !buckets {
                 if objects {
                     return Err(CatalogError::Corrupt(
@@ -62,15 +61,13 @@ impl Catalog {
             }
             let mut after: Option<String> = None;
             loop {
-                let transaction = sql::immediate(connection)
-                    .map_err(unavailable)?;
+                let transaction = sql::immediate(connection)?;
                 let query = if after.is_some() {
                     "SELECT name FROM buckets WHERE name>?1 ORDER BY name LIMIT 1"
                 } else {
                     "SELECT name FROM buckets WHERE ?1 IS NULL ORDER BY name LIMIT 1"
                 };
-                let bucket: Option<String> = sql::optional_scalar(&transaction, query, [&after])
-                    .map_err(unavailable)?;
+                let bucket: Option<String> = sql::optional_scalar(&transaction, query, [&after])?;
                 let Some(bucket) = bucket else { break };
                 acl::reconcile_bucket_policy(
                     &transaction,
@@ -78,7 +75,7 @@ impl Catalog {
                     &profile,
                     unix_micros(clock.now())?,
                 )?;
-                transaction.commit().map_err(unavailable)?;
+                transaction.commit()?;
                 after = Some(bucket);
             }
             super::object_owner::reconcile(connection, &profile)

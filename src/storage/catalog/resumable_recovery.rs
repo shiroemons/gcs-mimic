@@ -7,9 +7,9 @@ use std::{fs, io, path::Path};
 pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
     let mut after = String::new();
     loop {
-        let rows = connection.prepare_cached("SELECT id, blob_id, offset FROM resumable_sessions WHERE id > ?1 AND state = 'ACTIVE' ORDER BY id LIMIT 16").map_err(unavailable)?
-            .query_map([&after], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))).map_err(unavailable)?
-            .collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)?;
+        let rows = connection.prepare_cached("SELECT id, blob_id, offset FROM resumable_sessions WHERE id > ?1 AND state = 'ACTIVE' ORDER BY id LIMIT 16")?
+            .query_map([&after], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         if rows.is_empty() {
             return Ok(());
         }
@@ -40,8 +40,7 @@ pub(super) fn recover_prefix(
         connection,
         "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
         [blob_id],
-    )
-    .map_err(unavailable)?;
+    )?;
     if live {
         return Err(unavailable(format!(
             "active upload blob {blob_id} is already published"
@@ -53,7 +52,7 @@ pub(super) fn recover_prefix(
         Err(error) => return Err(unavailable(error)),
     };
     let metadata = if let Some(metadata) = staged {
-        if blob.try_exists().map_err(unavailable)? {
+        if blob.try_exists()? {
             return Err(unavailable(format!(
                 "active upload blob {blob_id} has ambiguous staging and published files"
             )));
@@ -67,12 +66,12 @@ pub(super) fn recover_prefix(
         })?;
         validate_prefix(&metadata, blob_id, offset)?;
         // An ACTIVE row resolves a rename-before-commit crash; COMPLETE rows never enter here.
-        fs::rename(&blob, &stage).map_err(unavailable)?;
+        fs::rename(&blob, &stage)?;
         #[cfg(unix)]
         {
-            let shard = super::objects::blob_shard(&blob).map_err(unavailable)?;
-            super::objects::sync_dir(shard).map_err(unavailable)?;
-            super::objects::sync_dir(&data_dir.join("staging")).map_err(unavailable)?;
+            let shard = super::objects::blob_shard(&blob)?;
+            super::objects::sync_dir(shard)?;
+            super::objects::sync_dir(&data_dir.join("staging"))?;
         }
         metadata
     };
@@ -82,10 +81,10 @@ pub(super) fn recover_prefix(
             .write(true)
             .open(&stage)
             .map_err(unavailable)?;
-        file.set_len(offset).map_err(unavailable)?;
+        file.set_len(offset)?;
         #[cfg(test)]
-        super::fault::truncated(data_dir, &file.metadata().map_err(unavailable)?);
-        file.sync_all().map_err(unavailable)?;
+        super::fault::truncated(data_dir, &file.metadata()?);
+        file.sync_all()?;
     }
     Ok(())
 }

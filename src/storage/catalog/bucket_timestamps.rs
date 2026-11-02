@@ -42,7 +42,7 @@ pub(super) fn store_imported(
             "imported bucket timestamp is outside RFC3339 UTC range".into(),
         ));
     }
-    let base = system_time_micros(micros).map_err(unavailable)?;
+    let base = system_time_micros(micros)?;
     let nanos = created
         .duration_since(base)
         .map_err(unavailable)?
@@ -51,7 +51,11 @@ pub(super) fn store_imported(
     if nanos > 999 {
         return Err(unavailable("invalid imported bucket timestamp remainder"));
     }
-    sql::exec(connection, "UPDATE buckets SET time_created=?2, updated=?2, time_created_nanos=?3, updated_nanos=?3 WHERE name=?1", params![record.name,micros,nanos]).map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "UPDATE buckets SET time_created=?2, updated=?2, time_created_nanos=?3, updated_nanos=?3 WHERE name=?1",
+        params![record.name, micros, nanos],
+    )?;
     record.time_created = created;
     record.updated = created;
     Ok(())

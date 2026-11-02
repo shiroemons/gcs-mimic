@@ -171,8 +171,7 @@ impl Catalog {
                 .compose_detached(destination, sources, disposal, max_bytes)
                 .await
         })
-        .await
-        .map_err(object_unavailable)?
+        .await?
     }
 
     async fn compose_detached(
@@ -248,7 +247,7 @@ impl Catalog {
     ) -> Result<String, ObjectError> {
         let clock = self.0.clock.clone();
         self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
+            let transaction = connection.transaction()?;
             let (_, destination_delete) =
                 objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
             if disposal == SourceDisposal::Delete {

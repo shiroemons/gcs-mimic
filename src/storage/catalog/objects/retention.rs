@@ -1,6 +1,5 @@
 //! Catalog persistence for bucket object-retention enablement and per-object retention.
 
-use super::object_unavailable;
 use crate::storage::catalog::resumable::InvalidOptions;
 use crate::storage::catalog::sql;
 use crate::{
@@ -28,8 +27,8 @@ pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), Cat
     let unavailable = |error: rusqlite::Error| {
         CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
     };
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(SCHEMA)?;
     transaction.commit().map_err(unavailable)
 }
 
@@ -153,8 +152,7 @@ pub(super) fn bucket_enabled(
         transaction,
         "SELECT object_retention_enabled FROM buckets WHERE name = ?1",
         [bucket],
-    )
-    .map_err(object_unavailable)?
+    )?
     .ok_or(ObjectError::BucketNotFound)
 }
 

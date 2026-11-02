@@ -167,10 +167,8 @@ pub(super) const METADATA_SCHEMA: &str = "ALTER TABLE objects ADD COLUMN content
     PRAGMA user_version = 4;";
 
 pub(super) fn migrate_metadata(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction
-        .execute_batch(METADATA_SCHEMA)
-        .map_err(unavailable)?;
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(METADATA_SCHEMA)?;
     transaction.commit().map_err(unavailable)
 }
 
@@ -211,10 +209,8 @@ CREATE UNIQUE INDEX objects_live ON objects(bucket, name) WHERE time_deleted IS 
 PRAGMA user_version = 9;";
 
 pub(super) fn migrate_versioning(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction
-        .execute_batch(VERSIONING_SCHEMA)
-        .map_err(unavailable)?;
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(VERSIONING_SCHEMA)?;
     transaction.commit().map_err(unavailable)
 }
 
@@ -223,17 +219,11 @@ pub(super) fn migrate_versioning(connection: &mut Connection) -> Result<(), Cata
     reason = "a one-time schema migration at open"
 )]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction
-        .execute_batch(GENERATION_SCHEMA)
-        .map_err(unavailable)?;
-    transaction
-        .execute("INSERT INTO object_generation VALUES (1, 0)", [])
-        .map_err(unavailable)?;
-    transaction
-        .pragma_update(None, "user_version", 3)
-        .map_err(unavailable)?;
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(SCHEMA)?;
+    transaction.execute_batch(GENERATION_SCHEMA)?;
+    transaction.execute("INSERT INTO object_generation VALUES (1, 0)", [])?;
+    transaction.pragma_update(None, "user_version", 3)?;
     transaction.commit().map_err(unavailable)
 }
 
@@ -333,7 +323,7 @@ pub(super) fn commit_publication(transaction: Transaction<'_>) -> Result<(), Obj
     let data_dir = fault::database_dir(&transaction);
     #[cfg(test)]
     fault::hit(&data_dir, Step::BeforeCommit).map_err(object_unavailable)?;
-    transaction.commit().map_err(object_unavailable)?;
+    transaction.commit()?;
     #[cfg(test)]
     fault::hit(&data_dir, Step::AfterCommit).map_err(object_unavailable)?;
     Ok(())
@@ -349,8 +339,7 @@ impl Catalog {
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::BeforePublish).map_err(object_unavailable)?;
         tokio::task::spawn_blocking(move || publish_blob(&source, &destination))
-            .await
-            .map_err(object_unavailable)?
+            .await?
             .map_err(object_unavailable)?;
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::AfterPublish).map_err(object_unavailable)?;
@@ -382,19 +371,18 @@ pub(super) fn reclaim(
         connection,
         "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
         [id],
-    )
-    .map_err(object_unavailable)?;
+    )?;
     if referenced {
         return Err(ObjectError::Unavailable(
             "deletion journal references a live blob".into(),
         ));
     }
     let path = blob_path(data_dir, id)?;
-    let shard = blob_shard(&path).map_err(object_unavailable)?;
-    unlink(&path).map_err(object_unavailable)?;
+    let shard = blob_shard(&path)?;
+    unlink(&path)?;
     #[cfg(unix)]
     if shard.exists() {
-        sync_dir(shard).map_err(object_unavailable)?;
+        sync_dir(shard)?;
     }
     // Windows has no directory fsync; the shard is still resolved so both platforms reject
     // the same malformed blob paths.
@@ -404,8 +392,7 @@ pub(super) fn reclaim(
         connection,
         "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
         [id],
-    )
-    .map_err(object_unavailable)?;
+    )?;
     Ok(())
 }
 
@@ -417,13 +404,13 @@ pub(super) fn recover(
     // The phases run in this order: staging and derived state first, then the deletion
     // journal, so the reference and orphan scans only see committed, durable state.
     let recover = || -> Result<(), ObjectError> {
-        fs::create_dir_all(data_dir.join("staging")).map_err(object_unavailable)?;
-        fs::create_dir_all(data_dir.join("blobs")).map_err(object_unavailable)?;
+        fs::create_dir_all(data_dir.join("staging"))?;
+        fs::create_dir_all(data_dir.join("blobs"))?;
         #[cfg(unix)]
         {
-            sync_dir(data_dir).map_err(object_unavailable)?;
+            sync_dir(data_dir)?;
             // A pre-crash shard creator may have stopped before making its parent durable.
-            sync_dir(&data_dir.join("blobs")).map_err(object_unavailable)?;
+            sync_dir(&data_dir.join("blobs"))?;
         }
         super::resumable_recovery::recover(connection, data_dir).map_err(object_unavailable)?;
         super::derived::recover(connection, data_dir, now)?;
@@ -444,12 +431,12 @@ pub(super) fn recover(
     reason = "a recovery scan that runs once at open"
 )]
 fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
-    for entry in fs::read_dir(data_dir.join("staging")).map_err(object_unavailable)? {
+    for entry in fs::read_dir(data_dir.join("staging"))? {
         let entry = entry.map_err(object_unavailable)?;
         if os_metadata(&entry) {
             continue;
         }
-        let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1) OR EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
+        let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1) OR EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0))?;
         if retained {
             continue;
         }
@@ -458,7 +445,7 @@ fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result
         })?;
     }
     #[cfg(unix)]
-    sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
+    sync_dir(&data_dir.join("staging"))?;
     Ok(())
 }
 
@@ -467,12 +454,11 @@ fn drain_deletion_journal(connection: &Connection, data_dir: &Path) -> Result<()
     // Keyset pages bound memory independently of the number of objects or pending deletions.
     loop {
         let ids = connection
-            .prepare_cached("SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128")
-            .map_err(object_unavailable)?
-            .query_map([], |r| r.get::<_, String>(0))
-            .map_err(object_unavailable)?
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(object_unavailable)?;
+            .prepare_cached(
+                "SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128",
+            )?
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         if ids.is_empty() {
             return Ok(());
         }
@@ -495,12 +481,9 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
         let rows = connection
             .prepare_cached(
                 "SELECT blob_id, size FROM objects WHERE blob_id > ?1 ORDER BY blob_id LIMIT 128",
-            )
-            .map_err(object_unavailable)?
-            .query_map([&after], |r| Ok((r.get::<_, String>(0)?, read_size(r, 1)?)))
-            .map_err(object_unavailable)?
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(object_unavailable)?;
+            )?
+            .query_map([&after], |r| Ok((r.get::<_, String>(0)?, read_size(r, 1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         if rows.is_empty() {
             return Ok(());
         }
@@ -525,18 +508,18 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
 /// Removes blobs no catalog row references; misplaced entries fail recovery.
 fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
     // Directory iterators and indexed single-ID probes also keep orphan scans bounded.
-    for shard in fs::read_dir(data_dir.join("blobs")).map_err(object_unavailable)? {
+    for shard in fs::read_dir(data_dir.join("blobs"))? {
         let shard = shard.map_err(object_unavailable)?;
         if os_metadata(&shard) {
             continue;
         }
-        if !shard.file_type().map_err(object_unavailable)?.is_dir() {
+        if !shard.file_type()?.is_dir() {
             return Err(object_unavailable(format!(
                 "invalid blob directory entry {}",
                 shard.path().display()
             )));
         }
-        for blob in fs::read_dir(shard.path()).map_err(object_unavailable)? {
+        for blob in fs::read_dir(shard.path())? {
             let blob = blob.map_err(object_unavailable)?;
             if os_metadata(&blob) {
                 continue;
@@ -558,8 +541,7 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
                 connection,
                 "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
                 [&id],
-            )
-            .map_err(object_unavailable)?;
+            )?;
             if !referenced {
                 unlink(&blob.path()).map_err(|error| {
                     object_unavailable(format!("blob entry {}: {error}", blob.path().display()))
@@ -567,7 +549,7 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
             }
         }
         #[cfg(unix)]
-        sync_dir(&shard.path()).map_err(object_unavailable)?;
+        sync_dir(&shard.path())?;
     }
     Ok(())
 }
@@ -707,8 +689,7 @@ pub(super) async fn create_upload_stage(
             .create_new(true)
             .open(stage)
     })
-    .await
-    .map_err(object_unavailable)?
+    .await?
     .map_err(object_unavailable)
 }
 
@@ -808,11 +789,11 @@ impl UploadCommit {
     /// Publishes the upload in one immediate transaction, or returns the replayed or
     /// unchanged record.
     fn commit(self, connection: &mut Connection) -> Result<ObjectRecord, ObjectError> {
-        let transaction = sql::immediate(connection).map_err(object_unavailable)?;
+        let transaction = sql::immediate(connection)?;
         let (storage_class, delete_permission) =
             authorized_bucket(&transaction, &self.bucket, &self.access)?;
         let fingerprint = self.fingerprint();
-        let replay_now = unix_micros(self.clock.now()).map_err(object_unavailable)?;
+        let replay_now = unix_micros(self.clock.now())?;
         if let Some(replay) = &self.replay {
             replay.check_incarnation(&transaction, &self.bucket)?;
             if let Some(record) = replay.replay(&transaction, replay_now, &fingerprint)? {
@@ -825,11 +806,9 @@ impl UploadCommit {
             &self.bucket,
             self.metadata.storage_class.clone(),
             storage_class,
-        )
-        .map_err(object_unavailable)?;
+        )?;
         let (versioning, default_hold) =
-            Catalog::bucket_settings_in_transaction(&transaction, &self.bucket)
-                .map_err(object_unavailable)?;
+            Catalog::bucket_settings_in_transaction(&transaction, &self.bucket)?;
         let previous = lookup(&transaction, &self.bucket, &self.name)?;
         // Rechecked under the write lock so a concurrent create cannot be overwritten.
         check_publication(
@@ -855,8 +834,8 @@ impl UploadCommit {
             now.duration_since(std::time::UNIX_EPOCH)
                 .map_err(object_unavailable)?;
         }
-        let micros = unix_micros(now).map_err(object_unavailable)?;
-        let time = system_time_micros(micros).map_err(object_unavailable)?;
+        let micros = unix_micros(now)?;
+        let time = system_time_micros(micros)?;
         let defaults = PublicationDefaults {
             storage_class,
             event_based_hold: default_hold,
@@ -960,7 +939,7 @@ impl Catalog {
             .run_object(move |connection| {
                 // The catalog worker serializes mutations; each seek ends before glob matching.
                 authorized_bucket(connection, &query.bucket, &access)?;
-                let now = unix_micros(clock.now()).map_err(object_unavailable)?;
+                let now = unix_micros(clock.now())?;
                 if query.soft_deleted {
                     super::soft_delete::purge_expired(connection, &query.bucket, now)?;
                 }
@@ -995,7 +974,7 @@ impl Catalog {
         execution: OwnedSemaphorePermit,
         operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
     ) -> Result<T, ObjectError> {
-        let activity = self.activity().map_err(object_unavailable)?;
+        let activity = self.activity()?;
         let inner = self.0.clone();
         self.0
             .executor
@@ -1037,7 +1016,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         self.run_waiting(move |connection| {
             Ok((|| {
-                let transaction = connection.transaction().map_err(object_unavailable)?;
+                let transaction = connection.transaction()?;
                 let (_, delete_permission) = authorized_bucket(&transaction, &bucket, &access)?;
                 let previous = lookup(&transaction, &bucket, &name)?;
                 check_publication(
@@ -1102,7 +1081,7 @@ impl Catalog {
     }
 
     pub(crate) fn admit_object_upload(&self) -> Result<UploadGuard, ObjectError> {
-        let activity = self.activity().map_err(object_unavailable)?;
+        let activity = self.activity()?;
         let mut uploads = self.0.uploads.lock().map_err(object_unavailable)?;
         if uploads.closed || !self.is_healthy() {
             return Err(object_unavailable("catalog is closed"));
@@ -1168,7 +1147,7 @@ impl Catalog {
             let stage = blob.staging_path(&catalog.0.data_dir);
             let published = blob.blob_path(&catalog.0.data_dir);
             let mut file = if let Some(memory) = &catalog.0.memory {
-                UploadSink::Memory(memory.stage().map_err(object_unavailable)?)
+                UploadSink::Memory(memory.stage()?)
             } else {
                 UploadSink::Disk(tokio::fs::File::from_std(
                     create_upload_stage(stage.clone(), published.clone()).await?,
@@ -1179,9 +1158,7 @@ impl Catalog {
                     write_stream(&mut file, expected, max_bytes, body, cancellation, &catalog)
                         .await?;
                 match file {
-                    UploadSink::Memory(memory) => {
-                        memory.publish(id.clone()).map_err(object_unavailable)?
-                    }
+                    UploadSink::Memory(memory) => memory.publish(id.clone())?,
                     UploadSink::Disk(file) => {
                         drop(file);
                         catalog
@@ -1235,8 +1212,7 @@ impl Catalog {
             }
             result
         })
-        .await
-        .map_err(object_unavailable)?
+        .await?
     }
 
     /// Removes a staged body and, when no committed row references its blob, the blob too.
@@ -1250,17 +1226,16 @@ impl Catalog {
         // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
         self.run_upload(move |connection| {
             if memory.is_none() {
-                unlink(&stage).map_err(object_unavailable)?;
+                unlink(&stage)?;
             }
             let referenced: bool = sql::scalar(
                 connection,
                 "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
                 [&id],
-            )
-            .map_err(object_unavailable)?;
+            )?;
             if !referenced {
                 if let Some(memory) = &memory {
-                    memory.remove(&id).map_err(object_unavailable)?;
+                    memory.remove(&id)?;
                 } else {
                     reclaim(connection, &data_dir, &id)?;
                 }
@@ -1300,7 +1275,7 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
+            let transaction = connection.transaction()?;
             selected(
                 &transaction,
                 &bucket,
@@ -1323,7 +1298,7 @@ impl Catalog {
         let record = record.clone();
         let access = access.clone();
         self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
+            let transaction = connection.transaction()?;
             authorize_generation(
                 &transaction,
                 &record.bucket,
@@ -1412,8 +1387,7 @@ impl Catalog {
         let access = access.clone();
         let principals = self.0.principals.get().cloned();
         self.run_object(move |connection| {
-            let transaction = sql::immediate(connection)
-                .map_err(object_unavailable)?;
+            let transaction = sql::immediate(connection)?;
             let (mut record, _) = selected(
                 &transaction,
                 &bucket,
@@ -1469,8 +1443,8 @@ impl Catalog {
                 .metageneration
                 .checked_add(1)
                 .ok_or_else(|| object_unavailable("metageneration exhausted"))?;
-            let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
-            record.updated = system_time_micros(micros).map_err(object_unavailable)?;
+            let micros = unix_micros(clock.now())?;
+            record.updated = system_time_micros(micros)?;
             let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
             transaction
                 .prepare_cached(
@@ -1504,16 +1478,14 @@ impl Catalog {
                         temporary_released,
                         event_released
                     ])
-                })
-                .map_err(object_unavailable)?;
+                })?;
             super::change_journal::object(
                 &transaction,
                 super::change_journal::origin(&access),
                 super::change_journal::ChangeKind::Metadata,
                 &record,
-            )
-            .map_err(object_unavailable)?;
-            transaction.commit().map_err(object_unavailable)?;
+            )?;
+            transaction.commit()?;
             Ok(record)
         })
         .await
@@ -1579,7 +1551,7 @@ pub(super) fn open_selected(
     conditions: ObjectConditions,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-    let transaction = connection.transaction().map_err(object_unavailable)?;
+    let transaction = connection.transaction()?;
     let (record, id) = selected(
         &transaction,
         bucket,
@@ -1591,32 +1563,28 @@ pub(super) fn open_selected(
     )?;
     // Open under the same execution permit that serializes deletes and overwrites.
     let file = match catalog.0.memory.as_deref() {
-        Some(memory) => ReaderData::Memory(memory.open(&id).map_err(object_unavailable)?),
-        None => ReaderData::Disk(tokio::fs::File::from_std(
-            File::open(blob_path(&catalog.0.data_dir, &id)?).map_err(object_unavailable)?,
-        )),
+        Some(memory) => ReaderData::Memory(memory.open(&id)?),
+        None => ReaderData::Disk(tokio::fs::File::from_std(File::open(blob_path(
+            &catalog.0.data_dir,
+            &id,
+        )?)?)),
     };
     let remaining = record.size;
-    let publicly_readable = super::policies::read_policy(&transaction, bucket)
-        .map_err(object_unavailable)?
-        .allows(
-            None,
-            crate::auth::OBJECTS_GET,
-            super::policies::policy_public_access(&transaction, bucket)
-                .map_err(object_unavailable)?,
-        )
-        || super::acl::object_granted(
-            &transaction,
-            bucket,
-            name,
-            record.generation,
-            &BucketAccess::Policy {
-                identity: None,
-                permission: crate::auth::Permission::ObjectsGet,
-                project: None,
-            },
-        )
-        .map_err(object_unavailable)?;
+    let publicly_readable = super::policies::read_policy(&transaction, bucket)?.allows(
+        None,
+        crate::auth::OBJECTS_GET,
+        super::policies::policy_public_access(&transaction, bucket)?,
+    ) || super::acl::object_granted(
+        &transaction,
+        bucket,
+        name,
+        record.generation,
+        &BucketAccess::Policy {
+            identity: None,
+            permission: crate::auth::Permission::ObjectsGet,
+            project: None,
+        },
+    )?;
     Ok((
         record,
         ObjectReader {
@@ -1642,12 +1610,8 @@ pub(super) fn delete_selected(
         conditions,
     } = target;
     authorized_bucket(connection, bucket, access)?;
-    super::soft_delete::purge_expired(
-        connection,
-        bucket,
-        unix_micros(clock.now()).map_err(object_unavailable)?,
-    )?;
-    let transaction = sql::immediate(connection).map_err(object_unavailable)?;
+    super::soft_delete::purge_expired(connection, bucket, unix_micros(clock.now())?)?;
+    let transaction = sql::immediate(connection)?;
     let (record, id) = selected(
         &transaction,
         bucket,
@@ -1657,8 +1621,7 @@ pub(super) fn delete_selected(
         RequestKind::Write,
         access,
     )?;
-    let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, bucket)
-        .map_err(object_unavailable)?;
+    let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, bucket)?;
     // Deleting a live version in a versioned bucket only makes it noncurrent.
     let retirement = if versioning == Versioning::Enabled && generation.is_none() {
         Retirement::Noncurrent
@@ -1678,18 +1641,17 @@ pub(super) fn delete_selected(
         super::change_journal::origin(access),
         super::change_journal::ChangeKind::Delete,
         &record,
-    )
-    .map_err(object_unavailable)?;
+    )?;
     retire_previous(
         &transaction,
         Some(&(record, id)),
         retirement,
-        unix_micros(clock.now()).map_err(object_unavailable)?,
+        unix_micros(clock.now())?,
         super::change_journal::origin(access),
         None,
         NotificationMode::for_access(access),
     )?;
-    transaction.commit().map_err(object_unavailable)?;
+    transaction.commit()?;
     Ok(())
 }
 
@@ -1771,8 +1733,8 @@ async fn write_stream(
             #[cfg(test)]
             fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
             match file {
-                UploadSink::Disk(file) => file.write_all(part).await.map_err(object_unavailable)?,
-                UploadSink::Memory(stage) => stage.write(part).map_err(object_unavailable)?,
+                UploadSink::Disk(file) => file.write_all(part).await?,
+                UploadSink::Memory(stage) => stage.write(part)?,
             }
         }
     }
@@ -1824,16 +1786,13 @@ pub(super) async fn make_durable(
     fault::hit(data_dir, Step::BodyFlush).map_err(object_unavailable)?;
     // tokio finishes the last write in the background, and sync_all drops its error;
     // flush reports it, so a failed tail cannot publish a short blob at the full size.
-    file.flush().await.map_err(object_unavailable)?;
+    file.flush().await?;
     #[cfg(test)]
     fault::hit(data_dir, Step::BodySync).map_err(object_unavailable)?;
     let synced = file.sync_all().await;
     #[cfg(test)]
     if synced.is_ok() {
-        fault::file_synced(
-            data_dir,
-            &file.metadata().await.map_err(object_unavailable)?,
-        );
+        fault::file_synced(data_dir, &file.metadata().await?);
     }
     synced.map_err(object_unavailable)
 }
@@ -2095,8 +2054,7 @@ fn seek_position(
                         ],
                         |row| row.get(0),
                     )
-                })
-                .map_err(object_unavailable)?;
+                })?;
             if !more {
                 position.after_generation = None;
                 position.trailing_prefix = true;
@@ -2151,8 +2109,7 @@ fn list_page_at(
     } else {
         UpperBound::Open
     };
-    let mut statements = ListStatements::prepare(connection, ListSource::of(query), bound)
-        .map_err(object_unavailable)?;
+    let mut statements = ListStatements::prepare(connection, ListSource::of(query), bound)?;
     loop {
         let Some(position) = seek_position(connection, query, now, cursor.as_ref(), &mut lower)?
         else {
@@ -2255,8 +2212,7 @@ pub(super) fn authorized_bucket(
     let (storage_class, project): (String, String) = connection
         .prepare_cached("SELECT storage_class, project FROM buckets WHERE name = ?1")
         .and_then(|mut statement| statement.query_row([bucket], |r| Ok((r.get(0)?, r.get(1)?))))
-        .optional()
-        .map_err(object_unavailable)?
+        .optional()?
         .ok_or(ObjectError::BucketNotFound)?;
     let delete_permission =
         super::check_access(connection, bucket, &project, access).map_err(|error| match error {
@@ -2272,8 +2228,7 @@ fn bucket_metageneration(connection: &Connection, bucket: &str) -> Result<i64, O
         connection,
         "SELECT metageneration FROM buckets WHERE name = ?1",
         [bucket],
-    )
-    .map_err(object_unavailable)?
+    )?
     .ok_or(ObjectError::BucketNotFound)
 }
 
@@ -2305,8 +2260,7 @@ pub(super) fn selected(
             .and_then(|mut statement| {
                 statement.query_row(params![bucket, name, generation], read_object)
             })
-            .optional()
-            .map_err(object_unavailable)?
+            .optional()?
     } else {
         lookup(connection, bucket, name)?
     };
@@ -2356,8 +2310,7 @@ pub(super) fn authorize_generation(
     access: &BucketAccess,
 ) -> Result<(), ObjectError> {
     if let Some(access) = object_acl_authority(connection, bucket, access)?
-        && !super::acl::object_granted(connection, bucket, name, generation, access)
-            .map_err(object_unavailable)?
+        && !super::acl::object_granted(connection, bucket, name, generation, access)?
     {
         return Err(ObjectError::Forbidden);
     }
@@ -2510,7 +2463,7 @@ pub(super) fn publish_in_transaction<T>(
                 .ok_or(ObjectError::InvalidMetadata)
         })
         .transpose()?;
-    let now = system_time_micros(micros).map_err(object_unavailable)?;
+    let now = system_time_micros(micros)?;
     // A retained live version may become noncurrent, but it cannot be replaced outright.
     if versioning == Versioning::Disabled
         && let Some((previous, _)) = previous
@@ -2559,8 +2512,8 @@ pub(super) fn publish_in_transaction<T>(
         [last.max(generation)],
     )?;
     let size = i64::try_from(record.size).map_err(object_unavailable)?;
-    let time_created = unix_micros(record.time_created).map_err(object_unavailable)?;
-    let updated = unix_micros(record.updated).map_err(object_unavailable)?;
+    let time_created = unix_micros(record.time_created)?;
+    let updated = unix_micros(record.updated)?;
     transaction.prepare_cached(
         "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time,customer_key_sha256,md5_available,owner,retain_until_sub_micro_nanos,temporary_hold_released,event_based_hold_released) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)",
     ).and_then(|mut statement| statement.execute(params![record.bucket, record.name, generation, record.metageneration,
@@ -2575,16 +2528,14 @@ pub(super) fn publish_in_transaction<T>(
             retain_sub_micro, temporary_released, event_released]))?;
     super::acl::publish_object_acl(transaction, &record, acl)?;
     if notification_mode == NotificationMode::Emit {
-        super::notification_outbox::published(transaction, origin, &record, previous, now)
-            .map_err(object_unavailable)?;
+        super::notification_outbox::published(transaction, origin, &record, previous, now)?;
     }
     super::change_journal::object(
         transaction,
         origin,
         super::change_journal::ChangeKind::Publish,
         &record,
-    )
-    .map_err(object_unavailable)?;
+    )?;
     Ok((record, retired, prepared))
 }
 
@@ -2608,7 +2559,7 @@ fn validate_publication_timestamps(record: &ObjectRecord) -> Result<(), ObjectEr
     .into_iter()
     .flatten()
     {
-        let micros = unix_micros(time).map_err(object_unavailable)?;
+        let micros = unix_micros(time)?;
         if !crate::clock::rfc3339_micros(i128::from(micros)) {
             return Err(outside());
         }
@@ -2628,7 +2579,7 @@ impl Catalog {
     }
 
     pub(super) async fn reclaim_pending(&self) -> Result<(), ObjectError> {
-        let activity = self.activity().map_err(object_unavailable)?;
+        let activity = self.activity()?;
         let permit = self
             .0
             .reclamation
@@ -2646,16 +2597,12 @@ impl Catalog {
                         .prepare_cached(
                             // Cancelled sessions need their marker until staging cleanup also succeeds.
                             "SELECT blob_id FROM pending_blob_deletions AS pending WHERE NOT EXISTS (SELECT 1 FROM resumable_sessions AS session WHERE session.blob_id = pending.blob_id AND session.state != 'COMPLETE') ORDER BY blob_id LIMIT 128",
-                        )
-                        .map_err(object_unavailable)?
-                        .query_map([], |row| row.get::<_, String>(0))
-                        .map_err(object_unavailable)?
-                        .collect::<rusqlite::Result<Vec<_>>>()
-                        .map_err(object_unavailable)?;
+                        )?
+                        .query_map([], |row| row.get::<_, String>(0))?
+                        .collect::<rusqlite::Result<Vec<_>>>()?;
                     for id in &ids {
                         let referenced: bool = sql::scalar(connection,
-                                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)", [id])
-                            .map_err(object_unavailable)?;
+                                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)", [id])?;
                         if referenced {
                             return Err(object_unavailable(
                                 "deletion journal references a live blob",
@@ -2673,8 +2620,8 @@ impl Catalog {
             let (removed, failure) = tokio::task::spawn_blocking(move || {
                 if let Some(memory) = memory {
                     for id in &ids {
-                        memory.remove_draft(id).map_err(object_unavailable)?;
-                        memory.remove(id).map_err(object_unavailable)?;
+                        memory.remove_draft(id)?;
+                        memory.remove(id)?;
                     }
                     return Ok((ids, None));
                 }
@@ -2682,7 +2629,7 @@ impl Catalog {
                 let mut failure = None;
                 for id in ids {
                     let path = blob_path(&data_dir, &id)?;
-                    let shard = blob_shard(&path).map_err(object_unavailable)?.to_owned();
+                    let shard = blob_shard(&path)?.to_owned();
                     match unlink(&path) {
                         Ok(()) => shards
                             .entry(shard)
@@ -2710,24 +2657,21 @@ impl Catalog {
                 }
                 Ok::<_, ObjectError>((removed, failure))
             })
-            .await
-            .map_err(object_unavailable)??;
+            .await??;
             catalog
                 .run_upload(move |connection| {
-                    let transaction = connection.transaction().map_err(object_unavailable)?;
+                    let transaction = connection.transaction()?;
                     for id in removed {
                         sql::exec(
                             &transaction,
                             "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
                             [&id],
-                        )
-                        .map_err(object_unavailable)?;
+                        )?;
                         sql::exec(
                             &transaction,
                             "DELETE FROM derived_deletions WHERE blob_id = ?1",
                             [&id],
-                        )
-                        .map_err(object_unavailable)?;
+                        )?;
                     }
                     transaction.commit().map_err(object_unavailable)
                 })
@@ -2759,19 +2703,17 @@ pub(super) fn retire_previous(
                     Retirement::Removed => crate::notification::Event::Delete,
                 },
                 object: record,
-                time: system_time_micros(micros).map_err(object_unavailable)?,
+                time: system_time_micros(micros)?,
                 replacement,
             },
-        )
-        .map_err(object_unavailable)?;
+        )?;
     }
     if retirement == Retirement::Noncurrent {
         sql::exec(
             connection,
             "UPDATE objects SET time_deleted = ?2 WHERE blob_id = ?1",
             params![id, micros],
-        )
-        .map_err(object_unavailable)?;
+        )?;
         Ok(None)
     } else {
         let duration = super::soft_delete::retention_seconds(connection, &record.bucket)?;
@@ -2783,19 +2725,19 @@ pub(super) fn retire_previous(
                         .ok_or(ObjectError::InvalidMetadata)?,
                 )
                 .ok_or(ObjectError::InvalidMetadata)?;
-            sql::exec(connection,
-                    "UPDATE objects SET time_deleted = COALESCE(time_deleted, ?2), soft_delete_time = ?2, hard_delete_time = ?3 WHERE blob_id = ?1", params![id, micros, deadline])
-                .map_err(object_unavailable)?;
+            sql::exec(
+                connection,
+                "UPDATE objects SET time_deleted = COALESCE(time_deleted, ?2), soft_delete_time = ?2, hard_delete_time = ?3 WHERE blob_id = ?1",
+                params![id, micros, deadline],
+            )?;
             return Ok(None);
         }
-        sql::exec(connection, "DELETE FROM objects WHERE blob_id = ?1", [id])
-            .map_err(object_unavailable)?;
+        sql::exec(connection, "DELETE FROM objects WHERE blob_id = ?1", [id])?;
         sql::exec(
             connection,
             "INSERT INTO pending_blob_deletions VALUES (?1)",
             [id],
-        )
-        .map_err(object_unavailable)?;
+        )?;
         Ok(Some(id.clone()))
     }
 }

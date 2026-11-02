@@ -37,8 +37,7 @@ fn store(
         transaction,
         "UPDATE buckets SET autoclass = ?2 WHERE name = ?1",
         rusqlite::params![bucket, value],
-    )
-    .map_err(unavailable)?;
+    )?;
     Ok(())
 }
 
@@ -87,8 +86,7 @@ pub(super) fn update(
                 )
                 .and_then(|mut statement| {
                     statement.execute([record.name.as_str(), AUTOCLASS_STORAGE_CLASS])
-                })
-                .map_err(unavailable)?;
+                })?;
         }
         if config != record.autoclass {
             store(transaction, &record.name, config.as_ref())?;
@@ -117,8 +115,7 @@ pub(crate) fn object_storage_class(
         .and_then(|mut statement| {
             statement.query_row([bucket], |row| row.get::<_, Option<String>>(0))
         })
-        .optional()
-        .map_err(unavailable)?
+        .optional()?
         .flatten()
         .map(|value| serde_json::from_str::<Autoclass>(&value))
         .transpose()

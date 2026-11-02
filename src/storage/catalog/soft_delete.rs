@@ -18,13 +18,17 @@ pub(super) fn purge_expired(
     bucket: &str,
     now: i64,
 ) -> Result<(), ObjectError> {
-    let transaction = sql::immediate(connection).map_err(object_unavailable)?;
-    sql::exec(&transaction,
-            "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100", params![bucket, now])
-        .map_err(object_unavailable)?;
-    sql::exec(&transaction,
-            "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100)", params![bucket, now])
-        .map_err(object_unavailable)?;
+    let transaction = sql::immediate(connection)?;
+    sql::exec(
+        &transaction,
+        "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100",
+        params![bucket, now],
+    )?;
+    sql::exec(
+        &transaction,
+        "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100)",
+        params![bucket, now],
+    )?;
     transaction.commit().map_err(object_unavailable)
 }
 
@@ -40,8 +44,7 @@ fn selected(
         .and_then(|mut statement| {
             statement.query_row(params![bucket, name, generation, now], read_object)
         })
-        .optional()
-        .map_err(object_unavailable)?
+        .optional()?
         .ok_or(ObjectError::ObjectNotFound)
 }
 
@@ -61,14 +64,14 @@ impl Catalog {
             self.0.clock.clone(),
         );
         self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
+            let transaction = connection.transaction()?;
             let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
             let (record, _) = selected(
                 &transaction,
                 &bucket,
                 &name,
                 generation,
-                unix_micros(clock.now()).map_err(object_unavailable)?,
+                unix_micros(clock.now())?,
             )
             .map_err(|error| {
                 if object_acl.is_some() && error == ObjectError::ObjectNotFound {
@@ -84,8 +87,7 @@ impl Catalog {
                     &name,
                     record.generation,
                     access,
-                )
-                .map_err(object_unavailable)?
+                )?
             {
                 return Err(ObjectError::Forbidden);
             }
@@ -117,7 +119,7 @@ impl Catalog {
             .run_object(move |connection| {
                 authorized_bucket(connection, &bucket, &restore_access)?;
                 let now = clock.now();
-                let micros = unix_micros(now).map_err(object_unavailable)?;
+                let micros = unix_micros(now)?;
                 purge_expired(connection, &bucket, micros)?;
                 let id = super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
                 let text = id.to_hex();
@@ -126,11 +128,10 @@ impl Catalog {
                     connection,
                     "INSERT INTO pending_blob_deletions VALUES (?1)",
                     [&text],
-                )
-                .map_err(object_unavailable)?;
+                )?;
                 let stage = id.staging_path(&data_dir);
                 let result = (|| {
-                    let transaction = sql::immediate(connection).map_err(object_unavailable)?;
+                    let transaction = sql::immediate(connection)?;
                     authorized_bucket(&transaction, &bucket, &restore_access)?;
                     let (_, delete_permission) =
                         authorized_bucket(&transaction, &bucket, &create_access)?;
@@ -163,21 +164,17 @@ impl Catalog {
                         now,
                     )?;
                     let (versioning, _) =
-                        Catalog::bucket_settings_in_transaction(&transaction, &bucket)
-                            .map_err(object_unavailable)?;
+                        Catalog::bucket_settings_in_transaction(&transaction, &bucket)?;
                     if let Some(memory) = &memory {
                         memory
                             .pin(&original, text.clone())
                             .map_err(object_unavailable)?;
                     } else {
-                        std::fs::hard_link(objects::blob_path(&data_dir, &original)?, &stage)
-                            .map_err(object_unavailable)?;
-                        objects::publish_blob(&stage, &id.blob_path(&data_dir))
-                            .map_err(object_unavailable)?;
+                        std::fs::hard_link(objects::blob_path(&data_dir, &original)?, &stage)?;
+                        objects::publish_blob(&stage, &id.blob_path(&data_dir))?;
                     }
                     record.metageneration = 1;
-                    record.time_created =
-                        super::system_time_micros(micros).map_err(object_unavailable)?;
+                    record.time_created = super::system_time_micros(micros)?;
                     record.updated = record.time_created;
                     record.time_deleted = None;
                     record.soft_delete_time = None;
@@ -206,9 +203,8 @@ impl Catalog {
                         &transaction,
                         "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
                         [&text],
-                    )
-                    .map_err(object_unavailable)?;
-                    transaction.commit().map_err(object_unavailable)?;
+                    )?;
+                    transaction.commit()?;
                     Ok(record)
                 })();
                 if memory.is_none()

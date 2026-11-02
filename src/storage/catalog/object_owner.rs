@@ -1,6 +1,6 @@
 //! Ownership joins the existing metadata publication transaction, without new blob steps.
 
-use super::{objects::object_unavailable, principals::Profile, unavailable};
+use super::{principals::Profile, unavailable};
 use crate::storage::catalog::sql;
 use crate::{
     bucket::{BucketAccess, CatalogError},
@@ -53,7 +53,7 @@ pub(super) fn reconcile(
     }
     let mut after: Option<(String, String, i64)> = None;
     loop {
-        let transaction = sql::immediate(connection).map_err(unavailable)?;
+        let transaction = sql::immediate(connection)?;
         let query = if after.is_some() {
             "SELECT bucket,name,generation,owner FROM objects WHERE owner IS NOT NULL AND (bucket,name,generation)>(?1,?2,?3) ORDER BY bucket,name,generation LIMIT 1"
         } else {
@@ -78,8 +78,7 @@ pub(super) fn reconcile(
                     },
                 )
             })
-            .optional()
-            .map_err(unavailable)?;
+            .optional()?;
         let Some((bucket, name, generation, Some(mut owner))) = row else {
             return Ok(());
         };
@@ -94,10 +93,9 @@ pub(super) fn reconcile(
                 )
                 .and_then(|mut statement| {
                     statement.execute(params![bucket, name, generation, owner])
-                })
-                .map_err(unavailable)?;
+                })?;
         }
-        transaction.commit().map_err(unavailable)?;
+        transaction.commit()?;
         after = Some((bucket, name, generation));
     }
 }
@@ -111,8 +109,11 @@ fn reconcile_grant(
     let Some(previous) = before.entity() else {
         return Ok(());
     };
-    let stored: Option<String> = sql::optional_scalar(connection,
-        "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![key.0, key.1, key.2]).map_err(unavailable)?;
+    let stored: Option<String> = sql::optional_scalar(
+        connection,
+        "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+        params![key.0, key.1, key.2],
+    )?;
     let Some(stored) = stored else { return Ok(()) };
     let mut entries: Vec<crate::acl::AclEntry> =
         serde_json::from_str(&stored).map_err(unavailable)?;
@@ -135,8 +136,11 @@ fn reconcile_grant(
         }
     }
     let stored = serde_json::to_string(&entries).map_err(unavailable)?;
-    sql::exec(connection,
-        "UPDATE acl_object_entries SET entries = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![key.0, key.1, key.2, stored]).map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "UPDATE acl_object_entries SET entries = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+        params![key.0, key.1, key.2, stored],
+    )?;
     Ok(())
 }
 
@@ -173,8 +177,7 @@ pub(super) fn for_publication(
         connection,
         "SELECT project FROM buckets WHERE name=?1",
         [bucket],
-    )
-    .map_err(object_unavailable)?;
+    )?;
     Ok(ObjectOwner::ProjectOwners { project })
 }
 

@@ -48,7 +48,7 @@ pub(super) fn open(connection: &Connection) -> Result<(), CatalogError> {
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     let valid: bool = connection.query_row(
         "SELECT count(*) = 1 AND min(last_id) >= (SELECT coalesce(max(id), 0) FROM notification_outbox) AND min(pending_count) = (SELECT count(*) FROM notification_outbox) AND min(pending_bytes) = (SELECT coalesce(sum(length(CAST(message AS BLOB)) + length(CAST(topic AS BLOB))), 0) FROM notification_outbox) FROM notification_outbox_state", [], |row| row.get(0)
-    ).map_err(unavailable)?;
+    )?;
     if !valid {
         return Err(CatalogError::Corrupt(
             "invalid notification outbox accounting".into(),
@@ -61,8 +61,7 @@ pub(super) fn enqueue(connection: &Connection, message: Message<'_>) -> Result<(
     let global: Option<(String, String)> = connection
         .prepare_cached("SELECT bucket, config FROM notification_runtime WHERE singleton = 1")
         .and_then(|mut statement| statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?))))
-        .optional()
-        .map_err(unavailable)?;
+        .optional()?;
     if let Some((bucket, stored)) = global
         && (bucket.is_empty() || bucket == message.object.bucket)
     {
@@ -135,21 +134,24 @@ fn insert(
     message: &Message<'_>,
 ) -> Result<(), CatalogError> {
     let bytes = i64::try_from(topic.len() + encoded.len()).map_err(unavailable)?;
-    let full: bool = sql::scalar(connection, "SELECT pending_count >= 4096 OR pending_bytes + ?1 > 16777216 FROM notification_outbox_state WHERE singleton = 1", [bytes]).map_err(unavailable)?;
+    let full: bool = sql::scalar(
+        connection,
+        "SELECT pending_count >= 4096 OR pending_bytes + ?1 > 16777216 FROM notification_outbox_state WHERE singleton = 1",
+        [bytes],
+    )?;
     if full {
         return Err(unavailable(OutboxFull));
     }
     let id: i64 = sql::optional_scalar(connection,
         "UPDATE notification_outbox_state SET last_id = last_id + 1 WHERE singleton = 1 AND last_id < 9223372036854775807 RETURNING last_id"
-    , []).map_err(unavailable)?
+    , [])?
         .ok_or_else(|| unavailable("notification outbox ID exhausted"))?;
     let due = unix_micros(message.time)?;
     sql::exec(
         connection,
         "INSERT INTO notification_outbox VALUES (?1, ?2, ?3, ?4, 0)",
         params![id, topic, encoded, due],
-    )
-    .map_err(unavailable)?;
+    )?;
     Ok(())
 }
 
@@ -168,15 +170,14 @@ impl Catalog {
     ) -> Result<(), CatalogError> {
         let global: Option<GlobalConfig> = runtime.global.clone();
         self.run(move |connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
-            sql::exec(&transaction, "DELETE FROM notification_runtime", []).map_err(unavailable)?;
+            let transaction = connection.transaction()?;
+            sql::exec(&transaction, "DELETE FROM notification_runtime", [])?;
             if let Some(global) = global {
                 transaction
                     .prepare_cached("INSERT INTO notification_runtime VALUES (1, ?1, ?2)")
                     .and_then(|mut statement| {
                         statement.execute(params![global.bucket, global.notification.to_stored()])
-                    })
-                    .map_err(unavailable)?;
+                    })?;
             }
             transaction.commit().map_err(unavailable)
         })
@@ -198,8 +199,7 @@ impl Catalog {
                 connection,
                 "DELETE FROM notification_outbox WHERE id = ?1",
                 [id],
-            )
-            .map_err(unavailable)?;
+            )?;
             Ok(())
         })
         .await
@@ -207,7 +207,7 @@ impl Catalog {
 
     pub(crate) async fn retry_notification(&self, id: i64, due: i64) -> Result<(), CatalogError> {
         self.run(move |connection| {
-            sql::exec(connection, "UPDATE notification_outbox SET due = ?2, attempts = min(attempts + 1, 63) WHERE id = ?1", params![id, due]).map_err(unavailable)?;
+            sql::exec(connection, "UPDATE notification_outbox SET due = ?2, attempts = min(attempts + 1, 63) WHERE id = ?1", params![id, due])?;
             Ok(())
         }).await
     }

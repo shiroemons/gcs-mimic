@@ -101,8 +101,7 @@ fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectEr
         connection,
         "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
         [bucket],
-    )
-    .map_err(object_unavailable)?
+    )?
     .ok_or(ObjectError::BucketNotFound)
 }
 
@@ -269,16 +268,14 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     let valid: bool = connection
         .query_row("SELECT (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL)<=128 AND (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)<=128", [], |row| {
             row.get(0)
-        })
-        .map_err(super::unavailable)?;
+        })?;
     if !valid {
         return Err(super::unavailable("rewrite session limit exceeded"));
     }
-    let mut statement = connection
-        .prepare_cached("SELECT * FROM rewrite_sessions ORDER BY id LIMIT 257")
-        .map_err(super::unavailable)?;
-    let mut rows = statement.query([]).map_err(super::unavailable)?;
-    while let Some(row) = rows.next().map_err(super::unavailable)? {
+    let mut statement =
+        connection.prepare_cached("SELECT * FROM rewrite_sessions ORDER BY id LIMIT 257")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
         read(row).map_err(super::unavailable)?;
     }
     Ok(())
@@ -289,23 +286,19 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     reason = "open-time recovery probes and drops expired sessions once"
 )]
 pub(super) fn recover_due(connection: &mut Connection, now: i64) -> Result<(), CatalogError> {
-    let due: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM rewrite_sessions WHERE deadline<=?1)",
-            [now],
-            |row| row.get(0),
-        )
-        .map_err(super::unavailable)?;
+    let due: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM rewrite_sessions WHERE deadline<=?1)",
+        [now],
+        |row| row.get(0),
+    )?;
     if !due {
         return Ok(());
     }
-    let transaction = connection.transaction().map_err(super::unavailable)?;
-    transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions SELECT transfer_id FROM rewrite_sessions WHERE deadline<=?1 AND transfer_id IS NOT NULL",[now]).map_err(super::unavailable)?;
-    transaction.execute("DELETE FROM derived_inputs WHERE transfer_id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now]).map_err(super::unavailable)?;
-    transaction.execute("DELETE FROM derived_transfers WHERE id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now]).map_err(super::unavailable)?;
-    transaction
-        .execute("DELETE FROM rewrite_sessions WHERE deadline<=?1", [now])
-        .map_err(super::unavailable)?;
+    let transaction = connection.transaction()?;
+    transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions SELECT transfer_id FROM rewrite_sessions WHERE deadline<=?1 AND transfer_id IS NOT NULL",[now])?;
+    transaction.execute("DELETE FROM derived_inputs WHERE transfer_id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now])?;
+    transaction.execute("DELETE FROM derived_transfers WHERE id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now])?;
+    transaction.execute("DELETE FROM rewrite_sessions WHERE deadline<=?1", [now])?;
     transaction.commit().map_err(super::unavailable)
 }
 
@@ -402,8 +395,7 @@ impl Catalog {
                     connection,
                     "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
                     [],
-                )
-                .map_err(object_unavailable)?;
+                )?;
                 if count >= 128 {
                     return Err(object_unavailable("rewrite session limit reached"));
                 }
@@ -412,7 +404,7 @@ impl Catalog {
                     &incarnation(connection, &start.binding.source_bucket)?,
                     &incarnation(connection, &start.binding.destination_bucket)?,
                 );
-                let deadline = unix_millis(transfer.deadline).map_err(object_unavailable)?;
+                let deadline = unix_millis(transfer.deadline)?;
                 connection
                     .prepare_cached(
                         "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
@@ -425,12 +417,10 @@ impl Catalog {
                             transfer.total as i64,
                             deadline
                         ])
-                    })
-                    .map_err(object_unavailable)?;
+                    })?;
                 let session = connection
                     .prepare_cached("SELECT * FROM rewrite_sessions WHERE id=?1")
-                    .and_then(|mut statement| statement.query_row([&transfer.id], read))
-                    .map_err(object_unavailable)?;
+                    .and_then(|mut statement| statement.query_row([&transfer.id], read))?;
                 check_source(connection, &session, &start.source_access).map(|_| ())
             },
         )
@@ -487,7 +477,7 @@ impl Catalog {
         let destination_check = destination_access.clone();
         let source_result = self
             .run_object(move |connection| {
-                let transaction = connection.transaction().map_err(object_unavailable)?;
+                let transaction = connection.transaction()?;
                 if replay {
                     check_incarnations(&transaction, &checked)?;
                     super::objects::authorize_generation(
@@ -557,17 +547,17 @@ impl Catalog {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             // shortcut: publish-time permission failures discard progress; specialize cleanup when retry must survive revocation.
             self.publish_derived_prepared(&id,destination,move |connection,record| {
-                if validate_session.deadline<=unix_millis(clock.now()).map_err(object_unavailable)? {return Err(ObjectError::DerivedTransferExpired);}
+                if validate_session.deadline<=unix_millis(clock.now())? {return Err(ObjectError::DerivedTransferExpired);}
                 let source = check_source(connection,&validate_session,&source_access)?;
-                let same_location: bool = sql::scalar(connection, "SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1", params![source.bucket,record.bucket]).map_err(object_unavailable)?;
+                let same_location: bool = sql::scalar(connection, "SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1", params![source.bucket,record.bucket])?;
                 let location = if same_location { crate::json::DestinationLocation::Same } else { crate::json::DestinationLocation::Different };
                 record.component_count = crate::json::derived_component_count(&source,&record.storage_class,location);
                 Ok(())
             },move |connection,record| {
                 let response=json!({"offset":record.size,"resource":render(record)?});
-                sql::exec(connection, "UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1", params![session.id,response.to_string()]).map_err(object_unavailable)?;
+                sql::exec(connection, "UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1", params![session.id,response.to_string()])?;
                 // shortcut: eviction follows creation deadlines; add completion ordering for recent-finish retention.
-                sql::exec(connection, "DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT max((SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)-128,0))", [&session.id]).map_err(object_unavailable)?;
+                sql::exec(connection, "DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT max((SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)-128,0))", [&session.id])?;
                 // The stored response remains authoritative if its network receiver disappears.
                 let _=sender.send(response);
                 Ok(())
@@ -587,7 +577,7 @@ impl Catalog {
         let id = session.id.clone();
         let now = unix_millis(self.0.clock.now())?;
         self.run_object(move |connection| {
-            let changed=sql::exec(connection, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5", params![id,next,current.offset as i64,saved,now]).map_err(object_unavailable)?;
+            let changed=sql::exec(connection, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5", params![id,next,current.offset as i64,saved,now])?;
             if changed!=1 {return Err(ObjectError::PreconditionFailed);}Ok(())
         }).await?;
         progress(&session, &response).map_err(Into::into)
@@ -600,7 +590,7 @@ impl Catalog {
         let mut after = String::new();
         loop {
             let cursor = after.clone();
-            let ids=self.run(move |connection| connection.prepare_cached("SELECT id FROM rewrite_sessions WHERE deadline<=?1 AND id>?2 ORDER BY id LIMIT 16").map_err(super::unavailable)?.query_map(params![now,cursor],|row|row.get::<_,String>(0)).map_err(super::unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
+            let ids=self.run(move |connection| connection.prepare_cached("SELECT id FROM rewrite_sessions WHERE deadline<=?1 AND id>?2 ORDER BY id LIMIT 16")?.query_map(params![now,cursor],|row|row.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
             if ids.is_empty() {
                 break;
             }
@@ -642,8 +632,7 @@ impl Catalog {
                 connection,
                 "SELECT min(deadline) FROM rewrite_sessions WHERE deadline>?1",
                 [now],
-            )
-            .map_err(super::unavailable)?;
+            )?;
             deadline
                 .map(system_time_millis)
                 .transpose()
