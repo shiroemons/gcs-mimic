@@ -35,11 +35,7 @@ pub(crate) async fn read_body<B: Body + Unpin>(
                 return Err(too_large());
             }
             bytes.try_reserve_exact(length).map_err(|_| {
-                JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Could not allocate request body buffer",
-                )
+                JsonError::service_unavailable("Could not allocate request body buffer")
             })?;
             while data.has_remaining() {
                 let chunk = data.chunk();

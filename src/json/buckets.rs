@@ -172,13 +172,9 @@ fn insert_string(
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| JsonError::invalid(format!("{field} must be a string"))),
-        None => default.map(str::to_owned).ok_or_else(|| {
-            JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "required",
-                format!("Missing required {field}"),
-            )
-        }),
+        None => default
+            .map(str::to_owned)
+            .ok_or_else(|| JsonError::required(format!("Missing required {field}"))),
     }
 }
 
@@ -1181,11 +1177,7 @@ pub(crate) fn soft_deleted_bucket_list(
 pub(super) use crate::auth::signature::encode_query_component as encode_segment;
 
 fn timestamp_error() -> JsonError {
-    JsonError::new(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "backendError",
-        "Bucket timestamp is outside the supported RFC 3339 range",
-    )
+    JsonError::service_unavailable("Bucket timestamp is outside the supported RFC 3339 range")
 }
 
 /// The RFC 9110 date of a stored timestamp, as `Last-Modified` carries it. The weekday and month

@@ -460,13 +460,10 @@ async fn get_iam(
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let policy = ctx.state.catalog.get_policy(bucket, access).await?;
     // The catalog renders every stored policy with an etag from its revision.
-    let etag = policy.etag.as_deref().ok_or_else(|| {
-        JsonError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "backendError",
-            "Stored IAM policy has no etag",
-        )
-    })?;
+    let etag = policy
+        .etag
+        .as_deref()
+        .ok_or_else(|| JsonError::service_unavailable("Stored IAM policy has no etag"))?;
     read_metadata_response(
         request.headers(),
         etag,

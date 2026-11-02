@@ -35,13 +35,10 @@ async fn reset(
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let admin = super::authority(&request, ctx)?;
     if request.method() != Method::POST {
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        return Err(JsonError::method_not_allowed(
             "Use POST /_internal/reset with an explicit confirmation",
-        );
-        error.allow = Some("POST");
-        return Err(error);
+            Some("POST"),
+        ));
     }
     if request.uri().query().is_some() {
         return Err(JsonError::invalid_argument(
@@ -80,9 +77,9 @@ async fn reset(
     }
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let result = ctx.object(None, deadline).await_catalog(admin.reset()).await.map_err(|error| match error {
-        AdminError::Busy { .. } => JsonError::new(StatusCode::SERVICE_UNAVAILABLE, "backendError", "Reset made no changes because catalog work or an unpublished body is active; retry after it completes"),
+        AdminError::Busy { .. } => JsonError::service_unavailable("Reset made no changes because catalog work or an unpublished body is active; retry after it completes"),
         AdminError::Precondition => JsonError::new(StatusCode::CONFLICT, "conflict", "Reset made no changes because an import is incomplete; complete or repair the import first"),
-        _ => JsonError::new(StatusCode::SERVICE_UNAVAILABLE, "backendError", "Reset could not confirm completion; inspect local storage and instance state before retrying"),
+        _ => JsonError::service_unavailable("Reset could not confirm completion; inspect local storage and instance state before retrying"),
     })?;
     Ok(json_response(&serde_json::to_value(result).map_err(
         |_| JsonError::invalid_argument("Cannot encode reset result"),

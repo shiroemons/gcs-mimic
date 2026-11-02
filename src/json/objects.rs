@@ -147,20 +147,18 @@ pub(crate) fn route_object_with_profile(
             error.plain = Some(&super::error::NOT_FOUND_HTML);
             return Some(Err(error));
         }
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        let error = JsonError::method_not_allowed(
             "HTTP method is not supported for this object endpoint",
+            Some(if upload {
+                "POST"
+            } else if object.is_none() {
+                "GET"
+            } else if download {
+                "GET, HEAD"
+            } else {
+                "GET, HEAD, DELETE, PATCH, PUT"
+            }),
         );
-        error.allow = Some(if upload {
-            "POST"
-        } else if object.is_none() {
-            "GET"
-        } else if download {
-            "GET, HEAD"
-        } else {
-            "GET, HEAD, DELETE, PATCH, PUT"
-        });
         return Some(Err(error));
     }
     Some((|| {
@@ -907,13 +905,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
     ] {
         headers.insert(
             key,
-            HeaderValue::from_str(&value).map_err(|_| {
-                JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Invalid stored object response header",
-                )
-            })?,
+            HeaderValue::from_str(&value).map_err(|_| JsonError::invalid_stored_header())?,
         );
     }
     for (key, value) in [
@@ -924,13 +916,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
         if let Some(value) = value {
             headers.insert(
                 key,
-                HeaderValue::from_str(value).map_err(|_| {
-                    JsonError::new(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "backendError",
-                        "Invalid stored object response header",
-                    )
-                })?,
+                HeaderValue::from_str(value).map_err(|_| JsonError::invalid_stored_header())?,
             );
         }
     }

@@ -3,7 +3,7 @@ use super::{
     query::{Decoding, decode, finish, parse_query, projection},
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
-use hyper::{Method, StatusCode, Uri};
+use hyper::{Method, Uri};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectCopyParams {
@@ -26,13 +26,10 @@ pub(super) fn route(
     let (source, destination) = path.split_once("/copyTo/b/")?;
     Some((|| {
         if method != Method::POST {
-            let mut error = JsonError::new(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "methodNotAllowed",
+            return Err(JsonError::method_not_allowed(
                 "Object copy requires POST",
-            );
-            error.allow = Some("POST");
-            return Err(error);
+                Some("POST"),
+            ));
         }
         let (source_bucket, source_name) = names(source, profile)?;
         let (bucket, name) = names(destination, profile)?;

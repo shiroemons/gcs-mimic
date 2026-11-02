@@ -25,13 +25,10 @@ pub(super) fn route_test_permissions(
         let bucket = query::decode(segment, query::Decoding::Path)?;
         super::buckets::validate_bucket_name_for_profile(&bucket, profile)?;
         if *method != Method::GET {
-            let mut error = JsonError::new(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "methodNotAllowed",
+            return Err(JsonError::method_not_allowed(
                 "Use GET for bucket testIamPermissions",
-            );
-            error.allow = Some("GET");
-            return Err(error);
+                Some("GET"),
+            ));
         }
         let (permissions, _) = test_permissions_query(uri.query())?;
         Ok(BucketRequest::TestIam {
@@ -81,12 +78,9 @@ pub(crate) fn test_permissions_query(
         }
     }
     if permissions.is_empty() {
-        return Err(JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "required",
-            "Required parameter: permissions",
-        )
-        .at_parameter("permissions"));
+        return Err(
+            JsonError::required("Required parameter: permissions").at_parameter("permissions")
+        );
     }
     let mut query = query::parse_query(&rest.join("&"))?;
     if query.get("userProject").is_some_and(String::is_empty) {

@@ -197,11 +197,7 @@ fn too_large() -> JsonError {
 }
 
 fn decoder_unavailable() -> JsonError {
-    JsonError::new(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "backendError",
-        "Request decoder is unavailable",
-    )
+    JsonError::service_unavailable("Request decoder is unavailable")
 }
 
 #[derive(Debug)]

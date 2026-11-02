@@ -14,7 +14,7 @@ use crate::{
     acl::{AclEntry, AclKind, AclTarget, Entity, project_number, validate_role},
     config::CompatProfile,
 };
-use hyper::{Method, StatusCode, Uri};
+use hyper::{Method, Uri};
 use serde_json::{Map, Value, json};
 
 /// A rejected ACL entity, role or entry list becomes the error body text; the validation
@@ -211,18 +211,14 @@ pub(crate) fn parse_acl_body(
             .transpose()
     };
     let required = |field: &str| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "required",
-            format!(
-                "Access control must contain {}",
-                if field == "role" {
-                    "a role"
-                } else {
-                    "an entity"
-                }
-            ),
-        )
+        JsonError::required(format!(
+            "Access control must contain {}",
+            if field == "role" {
+                "a role"
+            } else {
+                "an entity"
+            }
+        ))
     };
     let body_entity = string("entity")?;
     let role = string("role")?;

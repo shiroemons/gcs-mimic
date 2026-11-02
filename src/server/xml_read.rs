@@ -158,9 +158,7 @@ async fn read(
     if let Some((offset, length)) = range {
         if !head {
             reader.set_range(offset, length).await.map_err(|_| {
-                xml::Error::from(json::JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
+                xml::Error::from(json::JsonError::service_unavailable(
                     "Cannot seek object data",
                 ))
             })?;

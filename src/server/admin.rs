@@ -98,16 +98,9 @@ async fn update(
     )?;
     authorize_project(caller, auth::BUCKETS_UPDATE, &ctx.config.seed_project)?;
     if request.method() != Method::PUT {
-        let mut response = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
-            "Use PUT /_internal/config",
-        )
-        .into_response();
-        response
-            .headers_mut()
-            .insert("allow", hyper::header::HeaderValue::from_static("PUT"));
-        return Ok(response);
+        return Ok(
+            JsonError::method_not_allowed("Use PUT /_internal/config", Some("PUT")).into_response(),
+        );
     }
     if request.uri().query().is_some() {
         return Err(JsonError::invalid_argument(

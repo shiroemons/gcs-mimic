@@ -23,13 +23,10 @@ async fn reseed(
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let admin = super::authority(&request, ctx)?;
     if !matches!(*request.method(), Method::POST | Method::PUT) {
-        let mut error = JsonError::new(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "methodNotAllowed",
+        return Err(JsonError::method_not_allowed(
             "Use POST or PUT /_internal/reseed with an empty body",
-        );
-        error.allow = Some("POST, PUT");
-        return Err(error);
+            Some("POST, PUT"),
+        ));
     }
     if request.uri().query().is_some() {
         return Err(JsonError::invalid_argument(
@@ -86,9 +83,7 @@ fn failure(error: &std::io::Error) -> JsonError {
         Some(AdminError::Invalid(_)) => {
             JsonError::invalid_argument("Invalid fixture state; reseed made no changes")
         }
-        _ => JsonError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "backendError",
+        _ => JsonError::service_unavailable(
             "Reseed failed; inspect local fixture/storage diagnostics and retry",
         ),
     }

@@ -98,13 +98,7 @@ async fn media(
                 .as_deref()
                 .unwrap_or("public, max-age=3600, must-revalidate")
                 .parse()
-                .map_err(|_| {
-                    JsonError::new(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "backendError",
-                        "Invalid stored Cache-Control",
-                    )
-                })?,
+                .map_err(|_| JsonError::service_unavailable("Invalid stored Cache-Control"))?,
         );
     }
     let transcode = json::object_media_transcoding(request.headers(), &record)?;
@@ -168,13 +162,10 @@ async fn media(
     };
     if let Some((offset, length)) = range {
         if !head {
-            reader.set_range(offset, length).await.map_err(|_| {
-                JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Cannot seek object data",
-                )
-            })?;
+            reader
+                .set_range(offset, length)
+                .await
+                .map_err(|_| JsonError::service_unavailable("Cannot seek object data"))?;
         }
         if headers.contains_key("content-length") {
             headers.insert("content-length", length.into());
@@ -352,13 +343,7 @@ fn insert_provider_headers(
     record: &ObjectRecord,
     headers: &mut HeaderMap,
 ) -> Result<(), JsonError> {
-    let invalid = || {
-        JsonError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "backendError",
-            "Invalid stored object response header",
-        )
-    };
+    let invalid = JsonError::invalid_stored_header;
     headers.insert(
         "last-modified",
         HeaderValue::try_from(json::http_date(record.updated)?).map_err(|_| invalid())?,
@@ -392,13 +377,7 @@ fn range_hashes(
         let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
         headers.insert(
             "x-goog-hash",
-            HeaderValue::try_from(crc32c).map_err(|_| {
-                JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Invalid stored object response header",
-                )
-            })?,
+            HeaderValue::try_from(crc32c).map_err(|_| JsonError::invalid_stored_header())?,
         );
     }
     Ok(())
