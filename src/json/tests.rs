@@ -1293,14 +1293,22 @@ fn bkt_id_002_etag_encodes_only_the_metageneration() {
 #[test]
 fn bkt_lst_001_response_omits_empty_items_and_absent_token() {
     assert_eq!(
-        bucket_list(&[], None, "http://localhost", Projection::NoAcl).unwrap(),
+        bucket_list_with_profile(
+            &[],
+            None,
+            "http://localhost",
+            Projection::NoAcl,
+            CompatProfile::Native
+        )
+        .unwrap(),
         json!({"kind":"storage#buckets"})
     );
-    let value = bucket_list(
+    let value = bucket_list_with_profile(
         &[record()],
         Some("opaque"),
         "http://localhost:4443",
         Projection::NoAcl,
+        CompatProfile::Native,
     )
     .unwrap();
     assert_eq!(value["nextPageToken"], "opaque");

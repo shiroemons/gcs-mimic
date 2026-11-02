@@ -3,7 +3,7 @@
 //! [`route`] parses raw paths and queries into [`BucketRequest`]; other routes return `None`.
 //! [`read_body`] bounds collection before [`parse_insert`] creates a shared bucket record.
 //! The caller performs catalog operations and atomic condition checks, then uses
-//! [`bucket_resource`] / [`bucket_list`] with its advertised endpoint to render metadata.
+//! [`bucket_resource_with_profile`] / [`bucket_list_with_profile`] render metadata using its advertised endpoint.
 //! [`encode_page_token`] creates project/prefix-bound continuation cursors.
 //! [`JsonError`] maps catalog failures and produces JSON HTTP error responses.
 //! The supported subset and deviations are recorded in `docs/en/slices/json-bucket-crud.md`.
@@ -43,7 +43,7 @@ pub(crate) use buckets::{
     http_date, reject_predefined_acl, timestamp, validate_bucket_name_for_profile,
 };
 #[cfg(test)]
-pub(crate) use buckets::{BucketPredefinedAcls, bucket_list, bucket_resource};
+pub(crate) use buckets::{BucketPredefinedAcls, bucket_resource};
 pub(crate) use buckets::{
     bucket_list_with_profile, bucket_resource_with_profile, parse_bucket_patch,
     parse_bucket_replacement, parse_insert_with_profile, require_matching_bucket_name,

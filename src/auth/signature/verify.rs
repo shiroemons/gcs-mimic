@@ -83,19 +83,6 @@ pub(crate) fn has_header(headers: &HeaderMap) -> bool {
 }
 
 impl Auth {
-    #[cfg(test)]
-    pub(crate) async fn authenticate_xml<'a>(
-        &'a self,
-        catalog: &Catalog,
-        method: &Method,
-        uri: &Uri,
-        headers: &HeaderMap,
-        clock: &dyn Clock,
-    ) -> Result<Option<Caller<'a>>, VerificationError> {
-        self.authenticate_xml_resource(catalog, method, uri, headers, clock, &Resource::PathStyle)
-            .await
-    }
-
     pub(crate) async fn authenticate_xml_resource<'a>(
         &'a self,
         catalog: &Catalog,
@@ -431,7 +418,14 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("host", "localhost".parse().unwrap());
         let error = auth
-            .authenticate_xml(&catalog, &Method::GET, &uri, &headers, &clock)
+            .authenticate_xml_resource(
+                &catalog,
+                &Method::GET,
+                &uri,
+                &headers,
+                &clock,
+                &Resource::PathStyle,
+            )
             .await
             .unwrap_err();
         assert!(matches!(error, VerificationError::Catalog(_)));

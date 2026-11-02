@@ -1101,22 +1101,6 @@ pub(crate) fn bucket_etag(bucket: &BucketRecord) -> String {
 }
 
 /// Render one already bounded, sorted catalog page; the caller decides whether a token is due.
-#[cfg(test)]
-pub(crate) fn bucket_list(
-    buckets: &[BucketRecord],
-    next_page_token: Option<&str>,
-    base_url: &str,
-    projection: Projection,
-) -> Result<Value, JsonError> {
-    bucket_list_with_profile(
-        buckets,
-        next_page_token,
-        base_url,
-        projection,
-        CompatProfile::Native,
-    )
-}
-
 pub(crate) fn bucket_list_with_profile(
     buckets: &[BucketRecord],
     next_page_token: Option<&str>,
