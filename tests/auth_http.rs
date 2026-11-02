@@ -948,7 +948,7 @@ fn auth_http_rejected_uploads_do_not_read_or_stage_the_body() {
             .len(),
         1
     );
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -987,7 +987,7 @@ fn auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden() {
     server
         .get(PROJECT_A_ONLY, "/storage/v1/b/race/o")
         .forbidden();
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -1031,7 +1031,7 @@ fn auth_http_concurrent_creates_without_delete_have_one_winner() {
             .body,
         winners[0].1.as_bytes()
     );
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]

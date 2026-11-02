@@ -1,5 +1,9 @@
 mod object_effects_support;
-use object_effects_support::{Reply, Server, common::TestDir, settings};
+use object_effects_support::{
+    Reply, Server,
+    common::{self, TestDir},
+    settings,
+};
 use serde_json::{Value, json};
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
@@ -44,7 +48,7 @@ fn assert_no_transfer_files(dir: &TestDir) {
                 row.get::<_, i64>(0)
             })
             .unwrap();
-        let files = std::fs::read_dir(dir.0.join("staging")).unwrap().count();
+        let files = common::server::staging_count(dir);
         if count == 0 && files == 0 {
             return;
         }

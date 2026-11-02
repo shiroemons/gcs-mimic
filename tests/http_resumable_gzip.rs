@@ -137,7 +137,7 @@ fn invalid_gzip_initiations_never_create_sessions() {
     .concat();
     server.raw(&format!("POST {PATH} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\nTrailer: x-unexpected\r\n{GZIP}\r\n"), &body).status(400);
     assert_eq!(sessions(&dir), 0);
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]

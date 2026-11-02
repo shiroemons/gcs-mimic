@@ -289,7 +289,7 @@ fn obj_http_media_and_multipart_recheck_each_condition_after_streaming() {
             write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing&{key}={condition} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: {}\r\n\r\n", body.len()).unwrap();
             stream.write_all(&body[..body.len() - 1]).unwrap();
             let deadline = Instant::now() + Duration::from_secs(3);
-            while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 1 {
+            while common::server::staging_count(&dir) != 1 {
                 assert!(
                     Instant::now() < deadline,
                     "upload must pass advisory checks"
@@ -1154,7 +1154,7 @@ fn obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_gen
     assert_eq!(session.status, 200);
     assert!(session.body.is_empty());
     server.get("new").error(404, "notFound");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 1);
+    assert_eq!(common::server::staging_count(&dir), 1);
 }
 
 #[test]
@@ -1176,7 +1176,7 @@ fn obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks() 
         })
     }).collect();
     let deadline = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 4 {
+    while common::server::staging_count(&dir) != 4 {
         assert!(
             Instant::now() < deadline,
             "all uploads must pass advisory checks before any commit"
@@ -1207,7 +1207,7 @@ fn obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots() 
         stream.write_all(prefix).unwrap(); stream.write_all(b"\r\n").unwrap(); stream
     }).collect();
     let ready = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 8 {
+    while common::server::staging_count(&dir) != 8 {
         assert!(Instant::now() < ready, "all uploads must enter staging");
         thread::sleep(Duration::from_millis(5));
     }

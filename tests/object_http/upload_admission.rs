@@ -46,7 +46,7 @@ fn simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working() {
                 "131072"
             );
         }
-        assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+        assert_eq!(common::server::staging_count(&dir), 0);
     }
 }
 
@@ -99,13 +99,13 @@ fn simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission
                 "131072"
             );
         }
-        assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+        assert_eq!(common::server::staging_count(&dir), 0);
     }
 }
 
 fn wait_for_stages(dir: &TestDir, expected: usize) {
     let deadline = Instant::now() + Duration::from_secs(5);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != expected {
+    while common::server::staging_count(dir) != expected {
         assert!(
             Instant::now() < deadline,
             "staging count did not reach {expected}"

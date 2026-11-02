@@ -288,8 +288,5 @@ pub(crate) fn request(
     }
 }
 pub(crate) fn blobs(dir: &common::TestDir) -> usize {
-    std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum()
+    common::server::blob_count(dir)
 }

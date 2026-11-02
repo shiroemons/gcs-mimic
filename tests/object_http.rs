@@ -548,12 +548,8 @@ fn obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite()
     );
     assert_eq!(server.get("token").json(), replaced);
     assert_eq!(server.get("token?alt=media").body, b"replacement");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-    let blobs: usize = std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum();
-    assert_eq!(blobs, 1);
+    assert_eq!(common::server::staging_count(&dir), 0);
+    assert_eq!(common::server::blob_count(&dir), 1);
 }
 
 #[test]
@@ -576,7 +572,7 @@ fn obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
     server.get("absent").error(404, "notFound");
     assert_eq!(server.get("existing").json(), original);
     assert_eq!(server.get("existing?alt=media").body, b"original");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -726,7 +722,7 @@ fn obj_http_restart_and_sigkill_mid_upload_clean_staging() {
     let mut interrupted = server.stream();
     interrupted.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=partial HTTP/1.1\r\nHost: local\r\nContent-Length: 900000\r\n\r\npartial").unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() == 0 {
+    while common::server::staging_count(&dir) == 0 {
         assert!(Instant::now() < deadline, "upload reached staging");
         thread::sleep(Duration::from_millis(10));
     }
@@ -735,7 +731,7 @@ fn obj_http_restart_and_sigkill_mid_upload_clean_staging() {
     drop(interrupted);
     drop(server);
     let server = Server::start(&dir, 1_000_000, 5000);
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
     server.get("partial").error(404, "notFound");
     assert_eq!(server.get("durable").json(), original);
     assert_eq!(server.get("durable?alt=media").body, b"survives");
@@ -782,7 +778,7 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
         stream
     }).collect();
     let admitted = Instant::now() + Duration::from_secs(2);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() < 8 {
+    while common::server::staging_count(&dir) < 8 {
         assert!(Instant::now() < admitted, "all eight uploads admitted");
         thread::sleep(Duration::from_millis(5));
     }
@@ -803,7 +799,7 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
     assert!(started.elapsed() >= Duration::from_millis(800));
     assert!(started.elapsed() < Duration::from_secs(3));
     let cleaned = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 0 {
+    while common::server::staging_count(&dir) != 0 {
         assert!(Instant::now() < cleaned, "cancelled stages cleaned");
         thread::sleep(Duration::from_millis(10));
     }
@@ -812,13 +808,7 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
     for index in 1..8 {
         server.get(&format!("held-{index}")).error(404, "notFound");
     }
-    assert_eq!(
-        std::fs::read_dir(dir.0.join("blobs"))
-            .unwrap()
-            .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-            .sum::<usize>(),
-        1
-    );
+    assert_eq!(common::server::blob_count(&dir), 1);
     // Released permits admit a new upload; cleanup of the cancelled stages can
     // still hold the catalog briefly on a loaded runner, so retry its 503.
     let admitted = Instant::now() + Duration::from_secs(10);
@@ -965,10 +955,7 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
     let mut first = server.stream();
     first.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=committing HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\none").unwrap();
     let published = Instant::now() + Duration::from_secs(30);
-    while std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .all(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count() == 0)
-    {
+    while common::server::blob_count(&dir) == 0 {
         assert!(
             Instant::now() < published,
             "first upload reached publication"
@@ -1049,10 +1036,7 @@ fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
     let mut first = server.stream();
     first.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=first HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\none").unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
-    while std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .all(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count() == 0)
-    {
+    while common::server::blob_count(&dir) == 0 {
         assert!(
             Instant::now() < deadline,
             "first upload reached publication"
@@ -1085,7 +1069,7 @@ fn obj_http_additional_upload_waits_for_advisory_check() {
         uploads.push(stream);
     }
     let deadline = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() < 8 {
+    while common::server::staging_count(&dir) < 8 {
         assert!(Instant::now() < deadline, "all upload bodies admitted");
         thread::sleep(Duration::from_millis(10));
     }
@@ -1153,7 +1137,7 @@ fn obj_http_precheck_and_method_alt_reject_before_consuming_body() {
         )
         .error(400, "invalidParameter");
     assert_eq!(server.get("exists?alt=media").body, b"old");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -1195,7 +1179,7 @@ fn obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing()
         }
     }
     assert_eq!(server.get("exists?alt=media").body, b"old");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -1244,12 +1228,7 @@ fn obj_http_sigkill_after_blob_rename_before_commit_and_after_success() {
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let mut upload = server.stream();
     upload.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=durable HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\nnew").unwrap();
-    let count_blobs = || {
-        std::fs::read_dir(dir.0.join("blobs"))
-            .unwrap()
-            .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-            .sum::<usize>()
-    };
+    let count_blobs = || common::server::blob_count(&dir);
     let deadline = Instant::now() + Duration::from_secs(3);
     while count_blobs() < 2 {
         assert!(
@@ -1383,12 +1362,12 @@ fn assert_resumable_complete(server: &Server, dir: &TestDir, resource: &Value) {
         })
         .unwrap();
     assert_eq!(last, generation);
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-    let blobs: usize = std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum();
-    assert_eq!(blobs, 1, "only the committed object blob remains");
+    assert_eq!(common::server::staging_count(dir), 0);
+    assert_eq!(
+        common::server::blob_count(dir),
+        1,
+        "only the committed object blob remains"
+    );
 }
 
 #[test]

@@ -607,14 +607,8 @@ fn conditional_delete_and_metadata_patch_have_one_winner() {
             }
             statuses => panic!("exactly one mutation must succeed: {statuses:?}"),
         }
-        assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-        assert_eq!(
-            std::fs::read_dir(dir.0.join("blobs"))
-                .unwrap()
-                .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-                .sum::<usize>(),
-            1
-        );
+        assert_eq!(common::server::staging_count(&dir), 0);
+        assert_eq!(common::server::blob_count(&dir), 1);
     }
     server.stop();
 }
