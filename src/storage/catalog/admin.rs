@@ -513,7 +513,7 @@ impl Admin {
     pub(crate) async fn finish_seed(&self) -> Result<(), AdminError> {
         self.catalog
             .run_admin(|connection| {
-                let transaction = connection.transaction().map_err(unavailable)?;
+                let transaction = connection.transaction()?;
                 transaction
                     .execute(
                         "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
@@ -550,7 +550,7 @@ impl Admin {
         let default_retention = self.catalog.default_soft_delete_retention();
         self.catalog
             .run_admin(move |connection| {
-                let transaction = sql::immediate(connection).map_err(unavailable)?;
+                let transaction = sql::immediate(connection)?;
                 grant.authorize(&transaction)?;
                 let mut results = Vec::with_capacity(records.len());
                 // The names are bound as one JSON array so the statement text stays static.
@@ -594,7 +594,7 @@ impl Admin {
                     )?;
                     results.push(EnsureBucket::Created(record));
                 }
-                transaction.commit().map_err(unavailable)?;
+                transaction.commit()?;
                 Ok(results)
             })
             .await

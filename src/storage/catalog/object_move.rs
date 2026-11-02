@@ -41,7 +41,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let record = self
             .run(move |connection| {
-                let transaction = sql::immediate(connection).map_err(object_unavailable)?;
+                let transaction = sql::immediate(connection)?;
                 let (mut record, blob_id) = selected(
                     &transaction,
                     &bucket,
@@ -100,8 +100,7 @@ impl Catalog {
                     &transaction,
                     "DELETE FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
                     params![bucket, source, record.generation],
-                )
-                .map_err(object_unavailable)?;
+                )?;
                 record.name = destination;
                 record.metageneration = 1;
                 record.time_created = now;
@@ -127,7 +126,7 @@ impl Catalog {
                         Ok((record, ()))
                     },
                 )?;
-                transaction.commit().map_err(object_unavailable)?;
+                transaction.commit()?;
                 Ok(record)
             })
             .await?;

@@ -90,9 +90,9 @@ impl Catalog {
             let data_dir=catalog.0.data_dir.clone();
             let memory=catalog.0.memory.clone();
             if let Err(error)=catalog.run(move |connection| {
-                let referenced:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)", [&id]).map_err(object_unavailable)?;
+                let referenced:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)", [&id])?;
                 if !referenced {
-                    sql::exec(connection, "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)", [id]).map_err(object_unavailable)?;
+                    sql::exec(connection, "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)", [id])?;
                 }
                 maintenance::drain_storage(connection,&data_dir,memory.as_deref())?;
                 Ok(())
@@ -142,8 +142,7 @@ impl Catalog {
                             connection,
                             "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
                             [orphan],
-                        )
-                        .map_err(object_unavailable)?;
+                        )?;
                         maintenance::drain_storage(connection, &data_dir, memory.as_deref())?;
                         Ok(())
                     })
@@ -318,8 +317,7 @@ impl Catalog {
                 connection,
                 "SELECT count(*) FROM derived_transfers WHERE ephemeral=1",
                 [],
-            )
-            .map_err(object_unavailable)?;
+            )?;
             if count >= 128 {
                 return Err(object_unavailable("derived transfer limit reached"));
             }
@@ -334,8 +332,7 @@ impl Catalog {
                     now,
                     now + 900000
                 ],
-            )
-            .map_err(object_unavailable)?;
+            )?;
             file.acknowledge(total);
             Ok(())
         })

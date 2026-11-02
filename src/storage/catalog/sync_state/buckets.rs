@@ -46,20 +46,20 @@ impl RootLease {
         let root = self.status().root_id.as_bytes();
         let name = name.as_str().to_owned();
         self.catalog().run_admin(move |connection| {
-            let tx = connection.transaction().map_err(unavailable)?;
+            let tx = connection.transaction()?;
             lease.control_scope().authorize(&tx)?;
-            let mut incarnation: Option<String> = bucket_incarnation(&tx, &name).optional().map_err(unavailable)?;
+            let mut incarnation: Option<String> = bucket_incarnation(&tx, &name).optional()?;
             if incarnation.is_none() {
-                let known: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)", params![root,name]).map_err(unavailable)?;
+                let known: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)", params![root,name])?;
                 if known || create.is_none() { return Ok(false); }
                 let record = create.as_mut().ok_or_else(|| unavailable("missing default bucket"))?;
                 // A bucket mirroring a working tree keeps no deletion history on disk.
                 insert_bucket_in_transaction(&tx, record, 0)?;
                 change_journal::append(&tx, Origin::SyncIngest, change_journal::ChangeKind::BucketCreate, &name, None)?;
-                incarnation = Some(bucket_incarnation(&tx, &name).map_err(unavailable)?);
+                incarnation = Some(bucket_incarnation(&tx, &name)?);
             }
-            sql::exec(&tx, "INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation", params![root,name,incarnation]).map_err(unavailable)?;
-            tx.commit().map_err(unavailable)?;
+            sql::exec(&tx, "INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation", params![root,name,incarnation])?;
+            tx.commit()?;
             Ok(true)
         }).await.map_err(RootError::from)
     }
@@ -75,10 +75,10 @@ impl RootLease {
         let root = self.status().root_id.as_bytes();
         let lease = self.clone();
         self.catalog().run_admin(move |connection| {
-            let tx = connection.transaction().map_err(unavailable)?;
+            let tx = connection.transaction()?;
             lease.control_scope().authorize(&tx)?;
-            tx.prepare_cached("SELECT bucket,incarnation FROM sync_buckets WHERE root_id=?1 AND bucket>?2 ORDER BY bucket LIMIT ?3").map_err(unavailable)?
-                .query_map(params![root,after,limit as i64], |r|Ok((r.get(0)?,r.get(1)?))).map_err(unavailable)?
+            tx.prepare_cached("SELECT bucket,incarnation FROM sync_buckets WHERE root_id=?1 AND bucket>?2 ORDER BY bucket LIMIT ?3")?
+                .query_map(params![root,after,limit as i64], |r|Ok((r.get(0)?,r.get(1)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(RootError::from)
     }
@@ -93,14 +93,13 @@ impl RootLease {
         let lease = self.clone();
         self.catalog()
             .run_admin(move |connection| {
-                let tx = connection.transaction().map_err(unavailable)?;
+                let tx = connection.transaction()?;
                 lease.control_scope().authorize(&tx)?;
                 sql::exec(
                     &tx,
                     "DELETE FROM sync_buckets WHERE root_id=?1 AND bucket=?2 AND incarnation=?3",
                     params![root, name, incarnation],
-                )
-                .map_err(unavailable)?;
+                )?;
                 tx.commit().map_err(unavailable)
             })
             .await

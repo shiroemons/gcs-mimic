@@ -27,14 +27,13 @@ pub(super) fn create_empty(
 ) -> Result<PathBuf, ObjectError> {
     let path = stage_path(data_dir, id)?;
     if let Some(memory) = memory {
-        memory.create_draft(id.into()).map_err(object_unavailable)?;
+        memory.create_draft(id.into())?;
     } else {
         fs::OpenOptions::new()
             .create_new(true)
             .write(true)
             .open(&path)
-            .and_then(|file| file.sync_all())
-            .map_err(object_unavailable)?;
+            .and_then(|file| file.sync_all())?;
     }
     Ok(path)
 }
@@ -53,18 +52,12 @@ impl InputReader {
     }
     pub(super) async fn open(catalog: &Catalog, id: &str, start: u64) -> Result<Self, ObjectError> {
         if let Some(memory) = &catalog.0.memory {
-            let mut reader = memory.open(id).map_err(object_unavailable)?;
-            reader
-                .seek(io::SeekFrom::Start(start))
-                .map_err(object_unavailable)?;
+            let mut reader = memory.open(id)?;
+            reader.seek(io::SeekFrom::Start(start))?;
             Ok(Self::Memory(reader))
         } else {
-            let mut file = tokio::fs::File::open(stage_path(&catalog.0.data_dir, id)?)
-                .await
-                .map_err(object_unavailable)?;
-            file.seek(io::SeekFrom::Start(start))
-                .await
-                .map_err(object_unavailable)?;
+            let mut file = tokio::fs::File::open(stage_path(&catalog.0.data_dir, id)?).await?;
+            file.seek(io::SeekFrom::Start(start)).await?;
             Ok(Self::Disk(file))
         }
     }
@@ -72,9 +65,9 @@ impl InputReader {
     pub(super) async fn read_exact(&mut self, bytes: &mut [u8]) -> Result<(), ObjectError> {
         match self {
             Self::Disk(file) => {
-                file.read_exact(bytes).await.map_err(object_unavailable)?;
+                file.read_exact(bytes).await?;
             }
-            Self::Memory(reader) => reader.read_exact(bytes).map_err(object_unavailable)?,
+            Self::Memory(reader) => reader.read_exact(bytes)?,
         }
         Ok(())
     }
@@ -124,20 +117,14 @@ impl Output {
             .read(matches!(read, ReadAccess::ReadWrite))
             .write(true)
             .open(path)
-            .await
-            .map_err(object_unavailable)?;
-        if file.metadata().await.map_err(object_unavailable)?.len() < offset {
+            .await?;
+        if file.metadata().await?.len() < offset {
             return Err(object_unavailable("acknowledged upload prefix is missing"));
         }
-        file.set_len(offset).await.map_err(object_unavailable)?;
+        file.set_len(offset).await?;
         #[cfg(test)]
-        fault::truncated(
-            &catalog.0.data_dir,
-            &file.metadata().await.map_err(object_unavailable)?,
-        );
-        file.seek(io::SeekFrom::Start(offset))
-            .await
-            .map_err(object_unavailable)?;
+        fault::truncated(&catalog.0.data_dir, &file.metadata().await?);
+        file.seek(io::SeekFrom::Start(offset)).await?;
         Ok(Self::Disk(file))
     }
 
@@ -174,12 +161,9 @@ impl Output {
         offset: u64,
     ) -> Result<(), ObjectError> {
         if let Self::Disk(file) = self {
-            file.set_len(offset).await.map_err(object_unavailable)?;
+            file.set_len(offset).await?;
             #[cfg(test)]
-            fault::truncated(
-                &catalog.0.data_dir,
-                &file.metadata().await.map_err(object_unavailable)?,
-            );
+            fault::truncated(&catalog.0.data_dir, &file.metadata().await?);
         }
         // Tokio retains a failed background write across set_len; flush must observe it before sync.
         self.finish(catalog).await
@@ -190,14 +174,12 @@ impl Output {
             Self::Memory(draft) => return draft.hashes().map_err(object_unavailable),
             Self::Disk(file) => file,
         };
-        file.seek(io::SeekFrom::Start(0))
-            .await
-            .map_err(object_unavailable)?;
+        file.seek(io::SeekFrom::Start(0)).await?;
         let mut hasher = Hasher::default();
         let mut length = 0_u64;
         let mut buffer = [0; 64 * 1024];
         loop {
-            let n = file.read(&mut buffer).await.map_err(object_unavailable)?;
+            let n = file.read(&mut buffer).await?;
             if n == 0 {
                 break;
             }

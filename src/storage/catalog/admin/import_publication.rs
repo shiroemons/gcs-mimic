@@ -42,7 +42,7 @@ impl Admin {
         let principals = self.catalog.0.principals.get().cloned();
         self.catalog
             .run_admin(move |connection| {
-                let transaction = sql::immediate(connection).map_err(unavailable)?;
+                let transaction = sql::immediate(connection)?;
                 import_journal::check_publication(&transaction, &binding, expected_cursor)?;
                 let mut record = definition.0;
                 let exists: bool = transaction
@@ -93,7 +93,7 @@ impl Admin {
                     &[element],
                     &[result.is_ok()],
                 )?;
-                transaction.commit().map_err(unavailable)?;
+                transaction.commit()?;
                 Ok(result)
             })
             .await?

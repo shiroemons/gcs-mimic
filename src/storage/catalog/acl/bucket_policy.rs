@@ -116,8 +116,7 @@ fn mark_bound(connection: &Connection, bucket: &str) -> Result<(), CatalogError>
         connection,
         "UPDATE buckets SET acl_policy_bound=1 WHERE name=?1 AND acl_policy_bound=0",
         [bucket],
-    )
-    .map_err(unavailable)?;
+    )?;
     Ok(())
 }
 
@@ -261,8 +260,7 @@ pub(in super::super) fn replace_from_policy(
         connection,
         UPSERT_BUCKET_ENTRIES,
         params![bucket, "bucket", encoded],
-    )
-    .map_err(unavailable)?;
+    )?;
     mark_bound(connection, bucket)?;
     Ok(changed)
 }

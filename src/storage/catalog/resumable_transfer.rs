@@ -156,8 +156,7 @@ fn publication_record(
         connection,
         "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1",
         [&record.bucket],
-    )
-    .map_err(object_unavailable)?;
+    )?;
     record.retention_expiration_time =
         period.map(|period| time + std::time::Duration::from_secs(period as u64));
     Ok(record)
@@ -291,14 +290,14 @@ impl Catalog {
         #[cfg(test)]
         let data_dir = self.0.data_dir.clone();
         let changed = self.run_upload(move |connection| {
-            let transaction = sql::immediate(connection).map_err(object_unavailable)?;
-            let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', ?2) WHERE id = ?1 AND state = 'ACTIVE'", params![id, reason]).map_err(object_unavailable)?;
+            let transaction = sql::immediate(connection)?;
+            let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', ?2) WHERE id = ?1 AND state = 'ACTIVE'", params![id, reason])?;
             if changed == 1 {
-                sql::exec(&transaction, "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [&blob_id]).map_err(object_unavailable)?;
+                sql::exec(&transaction, "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [&blob_id])?;
             }
             #[cfg(test)]
             fault::hit(&data_dir, Step::SessionFailureCommit).map_err(object_unavailable)?;
-            transaction.commit().map_err(object_unavailable)?;
+            transaction.commit()?;
             #[cfg(test)]
             fault::hit(&data_dir, Step::SessionFailureCommitted).map_err(object_unavailable)?;
             Ok(changed)

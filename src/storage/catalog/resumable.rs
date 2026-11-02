@@ -222,7 +222,7 @@ fn remove_session_stage(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogE
     reason = "the schema migration backfills incarnations once"
 )]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
+    let transaction = connection.transaction()?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
     transaction
         .execute(
@@ -257,8 +257,12 @@ fn admit_session(
     transaction: &rusqlite::Transaction<'_>,
     catalog: &Catalog,
 ) -> Result<Vec<WriterGuard>, CatalogError> {
-    let (active, terminal): (i64, i64) = sql::row(transaction, "SELECT coalesce(sum(state = 'ACTIVE'), 0), coalesce(sum(state != 'ACTIVE'), 0) FROM resumable_sessions", [], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map_err(unavailable)?;
+    let (active, terminal): (i64, i64) = sql::row(
+        transaction,
+        "SELECT coalesce(sum(state = 'ACTIVE'), 0), coalesce(sum(state != 'ACTIVE'), 0) FROM resumable_sessions",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
     if active >= MAX_SESSIONS as i64 {
         return Err(unavailable("retained upload session limit reached"));
     }
@@ -296,8 +300,7 @@ fn admit_session(
             transaction,
             "DELETE FROM resumable_sessions WHERE id = ?1",
             [&id],
-        )
-        .map_err(unavailable)?;
+        )?;
         trimmed.push(guard);
         excess -= 1;
     }
@@ -502,7 +505,7 @@ impl Catalog {
             let offset = i64::try_from(offset).map_err(unavailable)?;
             let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
             let old = i64::try_from(old).map_err(unavailable)?;
-            let changed = sql::exec(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded]).map_err(unavailable)?;
+            let changed = sql::exec(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded])?;
             if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset as u64); }
             Ok((changed, output))
         }).await?;

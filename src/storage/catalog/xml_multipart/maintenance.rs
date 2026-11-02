@@ -2,13 +2,16 @@ use super::*;
 use crate::storage::catalog::sql;
 
 pub(super) fn retire(connection: &Connection, id: &str) -> Result<(), ObjectError> {
-    sql::exec(connection, "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1", [id]).map_err(object_unavailable)?;
+    sql::exec(
+        connection,
+        "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1",
+        [id],
+    )?;
     sql::exec(
         connection,
         "DELETE FROM xml_multipart_uploads WHERE id=?1",
         [id],
-    )
-    .map_err(object_unavailable)?;
+    )?;
     Ok(())
 }
 
@@ -27,39 +30,41 @@ pub(super) fn drain_storage(
         .and_then(|mut s| {
             s.query_map([], |r| r.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()
-        })
-        .map_err(object_unavailable)?;
+        })?;
     for id in ids {
         let blob = super::super::super::blob_id::BlobId::parse(&id)
             .ok_or_else(|| object_unavailable("invalid multipart blob ID"))?;
         if let Some(memory) = memory {
-            let referenced: bool = sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id=?1 UNION ALL SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1 UNION ALL SELECT 1 FROM derived_transfers WHERE id=?1)", [&id]).map_err(object_unavailable)?;
+            let referenced: bool = sql::scalar(
+                connection,
+                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id=?1 UNION ALL SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1 UNION ALL SELECT 1 FROM derived_transfers WHERE id=?1)",
+                [&id],
+            )?;
             if referenced {
                 return Err(object_unavailable(
                     "multipart deletion journal references retained bytes",
                 ));
             }
-            memory.remove_draft(&id).map_err(object_unavailable)?;
-            memory.remove(&id).map_err(object_unavailable)?;
+            memory.remove_draft(&id)?;
+            memory.remove(&id)?;
         } else {
             #[cfg(test)]
             super::super::fault::hit(data_dir, super::super::fault::Step::MultipartReclaim)
                 .map_err(object_unavailable)?;
-            objects::unlink(&blob.staging_path(data_dir)).map_err(object_unavailable)?;
+            objects::unlink(&blob.staging_path(data_dir))?;
             #[cfg(unix)]
             {
                 #[cfg(test)]
                 super::super::fault::hit(data_dir, super::super::fault::Step::MultipartReclaimSync)
                     .map_err(object_unavailable)?;
-                objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
+                objects::sync_dir(&data_dir.join("staging"))?;
             }
         }
         sql::exec(
             connection,
             "DELETE FROM xml_multipart_deletions WHERE blob_id=?1",
             [id],
-        )
-        .map_err(object_unavailable)?;
+        )?;
     }
     sql::scalar(
         connection,
@@ -80,28 +85,21 @@ pub(super) fn recover(
     now: i64,
 ) -> Result<(), CatalogError> {
     for id in due(connection, now)? {
-        connection
-            .execute_batch("BEGIN IMMEDIATE")
-            .map_err(super::super::unavailable)?;
+        connection.execute_batch("BEGIN IMMEDIATE")?;
         if let Err(error) = retire(connection, &id) {
-            connection
-                .execute_batch("ROLLBACK")
-                .map_err(super::super::unavailable)?;
+            connection.execute_batch("ROLLBACK")?;
             return Err(super::super::unavailable(error));
         }
-        connection
-            .execute_batch("COMMIT")
-            .map_err(super::super::unavailable)?;
+        connection.execute_batch("COMMIT")?;
     }
     while drain(connection, data_dir).map_err(super::super::unavailable)? {}
     let mut after = String::new();
     loop {
-        let part:Option<(String,i64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(super::super::unavailable)?;
+        let part:Option<(String,i64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         let Some((id, size)) = part else { break };
         let blob = super::super::super::blob_id::BlobId::parse(&id)
             .ok_or_else(|| super::super::unavailable("invalid multipart blob ID"))?;
-        let metadata = std::fs::symlink_metadata(blob.staging_path(data_dir))
-            .map_err(super::super::unavailable)?;
+        let metadata = std::fs::symlink_metadata(blob.staging_path(data_dir))?;
         if !metadata.is_file() || metadata.len() != size as u64 {
             return Err(super::super::unavailable(
                 "multipart part is missing or truncated",
@@ -136,9 +134,9 @@ impl Catalog {
                     id: guard_id,
                     _activity: activity,
                 };
-                let transaction = sql::immediate(connection).map_err(super::super::unavailable)?;
+                let transaction = sql::immediate(connection)?;
                 retire(&transaction, &id).map_err(super::super::unavailable)?;
-                transaction.commit().map_err(super::super::unavailable)?;
+                transaction.commit()?;
             }
             let pending =
                 drain_storage(connection, &catalog.0.data_dir, catalog.0.memory.as_deref())
@@ -147,8 +145,7 @@ impl Catalog {
                 connection,
                 "SELECT min(deadline) FROM xml_multipart_uploads",
                 [],
-            )
-            .map_err(super::super::unavailable)?;
+            )?;
             if pending {
                 return system_time_millis(now)
                     .map(Some)

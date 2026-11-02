@@ -58,8 +58,7 @@ pub(crate) struct CopyReplaySource<'a> {
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     // The same statement as the per-upload `capacity` check, so validation reuses its entry.
-    let count: i64 =
-        sql::scalar(connection, "SELECT count(*) FROM upload_replays", []).map_err(unavailable)?;
+    let count: i64 = sql::scalar(connection, "SELECT count(*) FROM upload_replays", [])?;
     if count > CAPACITY {
         return Err(unavailable("upload replay capacity exceeded"));
     }
@@ -185,7 +184,7 @@ impl UploadReplay {
             "SELECT request, incarnation, fingerprint, completion FROM upload_replays WHERE token = ?1 AND deadline > ?2",
             params![self.token, now],
             |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?, r.get::<_, Vec<u8>>(2)?, r.get::<_, String>(3)?)),
-        ).optional().map_err(objects::object_unavailable)?;
+        ).optional()?;
         row.map(|(request, incarnation, fingerprint, completion)| {
             if request != self.request || incarnation != self.incarnation {
                 return Err(invalid());
@@ -255,11 +254,18 @@ impl UploadReplay {
             Err(ObjectError::Forbidden) => false,
             Err(error) => return Err(error),
         };
-        let (uniform, project): (bool, String) = sql::row(connection, "SELECT uniform_bucket_level_access_locked_time IS NOT NULL, project FROM buckets WHERE name = ?1", [&record.bucket], |r| Ok((r.get(0)?, r.get(1)?)))
-            .map_err(objects::object_unavailable)?;
+        let (uniform, project): (bool, String) = sql::row(
+            connection,
+            "SELECT uniform_bucket_level_access_locked_time IS NOT NULL, project FROM buckets WHERE name = ?1",
+            [&record.bucket],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
         let acl = if visible && !uniform {
-            let entries: Option<String> = sql::optional_scalar(connection, "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![record.bucket, record.name, record.generation])
-                .map_err(objects::object_unavailable)?;
+            let entries: Option<String> = sql::optional_scalar(
+                connection,
+                "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+                params![record.bucket, record.name, record.generation],
+            )?;
             Some(
                 entries
                     .map(|v| serde_json::from_str(&v).map_err(objects::object_unavailable))
@@ -293,8 +299,7 @@ impl UploadReplay {
                 fingerprint,
                 completion
             ],
-        )
-        .map_err(objects::object_unavailable)?;
+        )?;
         let snapshot = acl
             .map(|entries| super::acl::ObjectAclSnapshot::new(record, entries, &self.incarnation));
         let _ = self.snapshot.set(snapshot);
@@ -306,8 +311,7 @@ impl UploadReplay {
         connection: &Connection,
         bucket: &str,
     ) -> Result<(), ObjectError> {
-        let incarnation: String =
-            bucket_incarnation(connection, bucket).map_err(objects::object_unavailable)?;
+        let incarnation: String = bucket_incarnation(connection, bucket)?;
         if incarnation != self.incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -320,10 +324,8 @@ pub(super) fn capacity(connection: &Connection, now: i64) -> Result<(), ObjectEr
         connection,
         "DELETE FROM upload_replays WHERE deadline <= ?1",
         [now],
-    )
-    .map_err(objects::object_unavailable)?;
-    let count: i64 = sql::scalar(connection, "SELECT count(*) FROM upload_replays", [])
-        .map_err(objects::object_unavailable)?;
+    )?;
+    let count: i64 = sql::scalar(connection, "SELECT count(*) FROM upload_replays", [])?;
     if count >= CAPACITY {
         return Err(objects::object_unavailable(
             "Upload replay capacity reached; retry after retained requests expire",
@@ -349,8 +351,7 @@ fn copy_source_generation(
         connection,
         "SELECT completion FROM upload_replays WHERE token=?1 AND deadline>?2",
         params![token, now],
-    )
-    .map_err(objects::object_unavailable)?;
+    )?;
     let generation = match stored {
         Some(stored) => {
             let completion: Completion =

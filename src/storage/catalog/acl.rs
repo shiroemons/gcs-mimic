@@ -149,8 +149,7 @@ pub(super) fn publish_object_acl(
         connection,
         UPSERT_OBJECT_ENTRIES,
         params![bucket, record.name, record.generation, entries],
-    )
-    .map_err(object_unavailable)?;
+    )?;
     Ok(())
 }
 
@@ -303,8 +302,7 @@ fn stored_bucket_entries(
         params![bucket, scope],
         |row| row.get::<_, String>(0),
     )
-    .optional()
-    .map_err(unavailable)?
+    .optional()?
     .map(|entries| decode(&entries))
     .transpose()
 }
@@ -358,8 +356,7 @@ pub(super) fn object_granted(
         connection,
         "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3)",
         params![bucket, name, generation],
-    )
-    .map_err(unavailable)?;
+    )?;
     if !exists {
         return Ok(false);
     }
@@ -555,16 +552,14 @@ pub(super) fn replace_resource_acl(
                 connection,
                 UPSERT_OBJECT_ENTRIES,
                 params![bucket, name, generation, entries],
-            )
-            .map_err(unavailable)?;
+            )?;
         }
         _ => {
             sql::exec(
                 connection,
                 UPSERT_BUCKET_ENTRIES,
                 params![bucket, scope(target.kind()), entries],
-            )
-            .map_err(unavailable)?;
+            )?;
         }
     }
     Ok(())
@@ -656,7 +651,7 @@ impl Catalog {
         let access = access.clone();
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
+            let transaction = connection.transaction()?;
             let Some(row) = bucket_row(&transaction, &snapshot.bucket)? else {
                 return Ok(None);
             };
@@ -675,8 +670,7 @@ impl Catalog {
             {
                 return Ok(None);
             }
-            let incarnation: String =
-                bucket_incarnation(&transaction, &snapshot.bucket).map_err(unavailable)?;
+            let incarnation: String = bucket_incarnation(&transaction, &snapshot.bucket)?;
             if snapshot.incarnation != incarnation {
                 return Ok(None);
             }
@@ -863,7 +857,7 @@ impl Catalog {
     ) -> Result<Option<AclProjection>, CatalogError> {
         let bucket = bucket.to_owned();
         self.run(move |connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
+            let transaction = connection.transaction()?;
             let Some(row) = bucket_row(&transaction, &bucket)? else {
                 return Ok(None);
             };

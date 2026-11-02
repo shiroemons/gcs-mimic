@@ -65,7 +65,7 @@ fn reset(
     data_dir: &Path,
     memory: Option<&crate::storage::memory::Store>,
 ) -> Result<ResetOutcome, CatalogError> {
-    let transaction = sql::immediate(connection).map_err(unavailable)?;
+    let transaction = sql::immediate(connection)?;
     let mode = if memory.is_some() {
         Reclamation::ClearMemory
     } else {
@@ -78,8 +78,7 @@ fn reset(
             connection,
             "SELECT epoch FROM change_journal_state WHERE singleton = 1",
             [],
-        )
-        .map_err(unavailable)?;
+        )?;
         if committed != next {
             return Err(unavailable(error));
         }
@@ -120,8 +119,7 @@ pub(super) fn clear_in_transaction(
         transaction,
         "SELECT EXISTS(SELECT 1 FROM import_journal WHERE active = 1)",
         [],
-    )
-    .map_err(unavailable)?;
+    )?;
     if importing {
         return Err(CatalogError::PreconditionFailed);
     }
@@ -129,8 +127,7 @@ pub(super) fn clear_in_transaction(
         transaction,
         "SELECT epoch FROM change_journal_state WHERE singleton = 1",
         [],
-    )
-    .map_err(unavailable)?;
+    )?;
     let next = epoch
         .checked_add(1)
         .ok_or_else(|| unavailable("reset epoch exhausted"))?;
@@ -139,18 +136,25 @@ pub(super) fn clear_in_transaction(
         "SELECT (SELECT count(*) FROM buckets), (SELECT count(*) FROM objects)",
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
-    )
-    .map_err(unavailable)?;
+    )?;
     if matches!(mode, Reclamation::Journal) {
-        sql::exec(transaction, "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects UNION SELECT blob_id FROM resumable_sessions UNION SELECT blob_id FROM derived_inputs UNION SELECT id FROM derived_transfers UNION SELECT blob_id FROM derived_deletions UNION SELECT blob_id FROM appendable_objects UNION SELECT blob_id FROM xml_multipart_parts UNION SELECT blob_id FROM xml_multipart_deletions", []).map_err(unavailable)?;
+        sql::exec(
+            transaction,
+            "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects UNION SELECT blob_id FROM resumable_sessions UNION SELECT blob_id FROM derived_inputs UNION SELECT id FROM derived_transfers UNION SELECT blob_id FROM derived_deletions UNION SELECT blob_id FROM appendable_objects UNION SELECT blob_id FROM xml_multipart_parts UNION SELECT blob_id FROM xml_multipart_deletions",
+            [],
+        )?;
     } else {
         // RAM can drop its whole registry after commit; growing a disk recovery journal would block a full catalog's reset.
-        sql::exec(transaction, "DELETE FROM pending_blob_deletions", []).map_err(unavailable)?;
+        sql::exec(transaction, "DELETE FROM pending_blob_deletions", [])?;
     }
     for query in CLEAR {
-        sql::exec(transaction, query, []).map_err(unavailable)?;
+        sql::exec(transaction, query, [])?;
     }
-    sql::exec(transaction, "UPDATE change_journal_state SET epoch = ?1, floor = sequence, enabled = 0 WHERE singleton = 1", [next]).map_err(unavailable)?;
+    sql::exec(
+        transaction,
+        "UPDATE change_journal_state SET epoch = ?1, floor = sequence, enabled = 0 WHERE singleton = 1",
+        [next],
+    )?;
     Ok((buckets, objects, next))
 }
 
@@ -197,12 +201,11 @@ const CLEAR: &[&str] = &[
 fn reclaim(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
     loop {
         let ids = connection
-            .prepare_cached("SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128")
-            .map_err(unavailable)?
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(unavailable)?
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(unavailable)?;
+            .prepare_cached(
+                "SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128",
+            )?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         if ids.is_empty() {
             return Ok(());
         }
@@ -217,7 +220,7 @@ fn reclaim(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError>
                 #[cfg(test)]
                 super::super::fault::hit(data_dir, super::super::fault::Step::ResetReclaim)
                     .map_err(unavailable)?;
-                objects::unlink(&path).map_err(unavailable)?;
+                objects::unlink(&path)?;
                 #[cfg(unix)]
                 if let Some(parent) = path.parent()
                     && parent.exists()
@@ -225,15 +228,14 @@ fn reclaim(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError>
                     #[cfg(test)]
                     super::super::fault::hit(data_dir, super::super::fault::Step::ResetReclaimSync)
                         .map_err(unavailable)?;
-                    objects::sync_dir(parent).map_err(unavailable)?;
+                    objects::sync_dir(parent)?;
                 }
             }
             sql::exec(
                 connection,
                 "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
                 [id],
-            )
-            .map_err(unavailable)?;
+            )?;
         }
     }
 }

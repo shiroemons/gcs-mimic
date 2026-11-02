@@ -418,8 +418,7 @@ impl RootLease {
                     connection,
                     "UPDATE sync_roots SET complete = 1 WHERE root_id = ?1",
                     [id.0],
-                )
-                .map_err(super::super::unavailable)?;
+                )?;
                 if changed != 1 {
                     return Err(CatalogError::Corrupt("missing root association".into()));
                 }

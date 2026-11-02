@@ -146,11 +146,11 @@ impl RootLease {
     ) -> Result<Summary, RootError> {
         let root = self.status().root_id;
         self.catalog().run_admin(move |connection| {
-            let tx=connection.transaction().map_err(unavailable)?;
+            let tx=connection.transaction()?;
             authority.authorize(&tx,root.as_bytes())?;
             let revision=revision(&tx,root.as_bytes())?;
-            let (baseline_complete,tracked_objects,mapping_findings,pending_writeback,paused_reason,path_stops,unresolved_conflicts,scan_stop)=sql::row(&tx, "SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1", [root.as_bytes()],|row|Ok((row.get(0)?,row.get::<_,i64>(1)? as u64,row.get::<_,i64>(2)? as u64,row.get::<_,i64>(3)? as u64,row.get(4)?,row.get::<_,i64>(5)? as u64,row.get::<_,i64>(6)? as u64,row.get(7)?))).map_err(unavailable)?;
-            let exists:bool=sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)", [root.as_bytes()]).map_err(unavailable)?;
+            let (baseline_complete,tracked_objects,mapping_findings,pending_writeback,paused_reason,path_stops,unresolved_conflicts,scan_stop)=sql::row(&tx, "SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1", [root.as_bytes()],|row|Ok((row.get(0)?,row.get::<_,i64>(1)? as u64,row.get::<_,i64>(2)? as u64,row.get::<_,i64>(3)? as u64,row.get(4)?,row.get::<_,i64>(5)? as u64,row.get::<_,i64>(6)? as u64,row.get(7)?)))?;
+            let exists:bool=sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)", [root.as_bytes()])?;
             let writeback=if exists {Some(writeback::observation(&tx,root).map_err(|error|unavailable(std::io::Error::other(error)))?)} else {None};
             Ok(Summary {revision,baseline_complete,tracked_objects,mapping_findings,pending_writeback,path_stops,unresolved_conflicts,paused_reason,scan_stop,writeback})
         }).await.map_err(RootError::from)
@@ -180,15 +180,13 @@ impl RootLease {
         let root = self.status().root_id.as_bytes();
         self.catalog()
             .run_admin(move |connection| {
-                let tx = connection.transaction().map_err(unavailable)?;
+                let tx = connection.transaction()?;
                 authority.authorize(&tx, root)?;
                 if revision(&tx, root)? != expected {
                     return Err(CatalogError::PreconditionFailed);
                 }
-                tx.prepare_cached(PAGE)
-                    .map_err(unavailable)?
-                    .query_map(params![root, after.0, after.1, limit as i64], read_item)
-                    .map_err(unavailable)?
+                tx.prepare_cached(PAGE)?
+                    .query_map(params![root, after.0, after.1, limit as i64], read_item)?
                     .collect::<rusqlite::Result<Vec<_>>>()
                     .map_err(unavailable)
             })
@@ -205,8 +203,8 @@ impl RootLease {
         }
         let root = self.status().root_id.as_bytes();
         self.catalog().run_admin(move |connection| {
-            let updated=sql::exec(connection, "UPDATE sync_observations SET revision=revision+1,paused_reason=?2 WHERE root_id=?1 AND paused_reason IS NOT ?2", params![root,reason]).map_err(unavailable)?;
-            if updated==0 && sql::row(connection, "SELECT 1 FROM sync_observations WHERE root_id=?1", [root],|row|row.get::<_,i64>(0)).optional().map_err(unavailable)?.is_none() {return Err(CatalogError::PreconditionFailed)}
+            let updated=sql::exec(connection, "UPDATE sync_observations SET revision=revision+1,paused_reason=?2 WHERE root_id=?1 AND paused_reason IS NOT ?2", params![root,reason])?;
+            if updated==0 && sql::row(connection, "SELECT 1 FROM sync_observations WHERE root_id=?1", [root],|row|row.get::<_,i64>(0)).optional()?.is_none() {return Err(CatalogError::PreconditionFailed)}
             Ok(())
         }).await.map_err(RootError::from)
     }
@@ -226,9 +224,9 @@ impl RootLease {
         let root = self.status().root_id.as_bytes();
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {
-            let tx = connection.transaction().map_err(unavailable)?;
+            let tx = connection.transaction()?;
             scope.authorize(&tx)?;
-            sql::exec(&tx, "UPDATE sync_observations SET revision=revision+1,scan_stop=?2 WHERE root_id=?1 AND scan_stop IS NOT ?2", params![root,reason]).map_err(unavailable)?;
+            sql::exec(&tx, "UPDATE sync_observations SET revision=revision+1,scan_stop=?2 WHERE root_id=?1 AND scan_stop IS NOT ?2", params![root,reason])?;
             tx.commit().map_err(unavailable)
         }).await.map_err(RootError::from)
     }

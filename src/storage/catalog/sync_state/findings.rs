@@ -69,7 +69,11 @@ fn remember_owner(
     name: &str,
 ) -> Result<(), CatalogError> {
     // One logical finding may survive several bucket incarnations; replacement cannot erase earlier authority.
-    sql::exec(transaction, "INSERT INTO sync_finding_owners(ordinal,incarnation,owner_project) SELECT ordinal,incarnation,owner_project FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 ON CONFLICT(ordinal,incarnation) DO UPDATE SET owner_project=excluded.owner_project", params![root,bucket,name]).map_err(unavailable)?;
+    sql::exec(
+        transaction,
+        "INSERT INTO sync_finding_owners(ordinal,incarnation,owner_project) SELECT ordinal,incarnation,owner_project FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 ON CONFLICT(ordinal,incarnation) DO UPDATE SET owner_project=excluded.owner_project",
+        params![root, bucket, name],
+    )?;
     Ok(())
 }
 
@@ -89,10 +93,10 @@ impl RootLease {
             lease.control_scope().authorize(&tx)?;
             matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
             let live = objects::lookup(&tx,&binding.bucket,name.as_str()).map_err(unavailable)?.is_some_and(|(record,_)| record.generation == generation.get());
-            let tracked: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)", params![binding.bucket,name.as_str(),generation.get(),binding.incarnation]).map_err(unavailable)?;
+            let tracked: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)", params![binding.bucket,name.as_str(),generation.get(),binding.incarnation])?;
             let valid = live || tracked;
             if valid {
-                sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,'collision',(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4)) ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project", params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get()]).map_err(unavailable)?;
+                sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,'collision',(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4)) ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project", params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get()])?;
                 remember_owner(&tx,root,&binding.bucket,name.as_str())?;
             }
             tx.commit().map_err(unavailable)

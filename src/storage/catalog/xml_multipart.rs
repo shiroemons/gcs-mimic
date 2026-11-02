@@ -223,7 +223,7 @@ impl Catalog {
             .ok_or_else(|| object_unavailable("multipart deadline overflow"))?;
         let upload = self
             .run(move |connection| {
-                let transaction = sql::immediate(connection).map_err(object_unavailable)?;
+                let transaction = sql::immediate(connection)?;
                 let (storage_class, _) =
                     objects::authorized_bucket(&transaction, &target.bucket, &access)?;
                 objects::authorized_bucket(
@@ -242,15 +242,13 @@ impl Catalog {
                     &transaction,
                     "SELECT count(*) FROM xml_multipart_uploads",
                     [],
-                )
-                .map_err(object_unavailable)?;
+                )?;
                 if count >= 128 {
                     return Err(object_unavailable(
                         "retained multipart session limit reached",
                     ));
                 }
-                let incarnation: String =
-                    bucket_incarnation(&transaction, &target.bucket).map_err(object_unavailable)?;
+                let incarnation: String = bucket_incarnation(&transaction, &target.bucket)?;
                 sql::exec(
                     &transaction,
                     "INSERT INTO xml_multipart_uploads VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -263,9 +261,8 @@ impl Catalog {
                         now,
                         deadline
                     ],
-                )
-                .map_err(object_unavailable)?;
-                transaction.commit().map_err(object_unavailable)?;
+                )?;
+                transaction.commit()?;
                 Ok(Upload {
                     target,
                     incarnation,
@@ -383,7 +380,11 @@ pub(super) fn recover(
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let bounded:bool=sql::scalar(connection, "SELECT (SELECT count(*) FROM xml_multipart_uploads)<=128 AND NOT EXISTS(SELECT 1 FROM xml_multipart_parts p LEFT JOIN xml_multipart_uploads u ON u.id=p.upload_id WHERE u.id IS NULL)", []).map_err(super::unavailable)?;
+    let bounded: bool = sql::scalar(
+        connection,
+        "SELECT (SELECT count(*) FROM xml_multipart_uploads)<=128 AND NOT EXISTS(SELECT 1 FROM xml_multipart_parts p LEFT JOIN xml_multipart_uploads u ON u.id=p.upload_id WHERE u.id IS NULL)",
+        [],
+    )?;
     if !bounded {
         return Err(super::unavailable("invalid multipart catalog state"));
     }

@@ -352,7 +352,7 @@ impl RootLease {
             Ok(directory) => directory,
             Err(error) => {
                 let owner = self.clone();
-                self.catalog().run_admin(move|c| {let _owner=owner;sql::exec(c, "UPDATE sync_writeback_roots SET recovery=1,io_failure=1 WHERE root_id=?1", [root]).map_err(unavailable)?;Ok(())}).await?;
+                self.catalog().run_admin(move|c| {let _owner=owner;sql::exec(c, "UPDATE sync_writeback_roots SET recovery=1,io_failure=1 WHERE root_id=?1", [root])?;Ok(())}).await?;
                 return Err(error);
             }
         };

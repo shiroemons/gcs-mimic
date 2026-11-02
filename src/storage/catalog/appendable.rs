@@ -349,8 +349,7 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
             row.get::<_, String>(8)?,
         ))
     })
-    .optional()
-    .map_err(object_unavailable)?;
+    .optional()?;
     let Some((generation, stored, blob_id, options, size, crc32c, created, updated, handle)) = row
     else {
         return Ok(Lookup::Absent);
@@ -593,8 +592,7 @@ impl AppendWriter {
                 let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
                 let changed = sql::exec(connection,
                         // A deleted or recreated bucket invalidates the writer as well.
-                        "UPDATE appendable_objects SET size = ?1, crc32c = ?2, updated = ?3 WHERE bucket = ?4 AND name = ?5 AND generation = ?6 AND write_handle = ?7 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?4)", params![size, crc32c, micros, bucket, name, generation, handle])
-                    .map_err(object_unavailable)?;
+                        "UPDATE appendable_objects SET size = ?1, crc32c = ?2, updated = ?3 WHERE bucket = ?4 AND name = ?5 AND generation = ?6 AND write_handle = ?7 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?4)", params![size, crc32c, micros, bucket, name, generation, handle])?;
                 if changed == 1 && let Some(checkpoint) = checkpoint { checkpoint.commit(); }
                 Ok((changed == 1).then_some(micros))
             })
@@ -766,14 +764,17 @@ pub(super) fn retire_published(
     backend: crate::config::Backend,
 ) -> Result<(), ObjectError> {
     if backend == crate::config::Backend::Memory {
-        sql::exec(connection, "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3", params![record.bucket, record.name, record.generation]).map_err(object_unavailable)?;
+        sql::exec(
+            connection,
+            "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3",
+            params![record.bucket, record.name, record.generation],
+        )?;
     }
     sql::exec(
         connection,
         "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
         params![record.bucket, record.name, record.generation],
-    )
-    .map_err(object_unavailable)?;
+    )?;
     Ok(())
 }
 
@@ -882,8 +883,7 @@ impl Catalog {
         let memory = self.0.memory.clone();
         let principals = self.0.principals.get().cloned();
         self.run_upload(move |connection| {
-            let transaction = sql::immediate(connection)
-                .map_err(object_unavailable)?;
+            let transaction = sql::immediate(connection)?;
             let (storage_class, _) = authorized_bucket(&transaction, &bucket, &options.access)?;
             let (current, stale) = match select(&transaction, &bucket, &name)? {
                 Lookup::Live(row) => (Some(record(&transaction, &bucket, &name, storage_class.clone(), &row, principals.as_ref())?), None),
@@ -891,8 +891,7 @@ impl Catalog {
                 Lookup::Absent => (None, None),
             };
             if let Some(id) = &stale {
-                sql::exec(&transaction, "DELETE FROM appendable_objects WHERE blob_id = ?1", [id])
-                    .map_err(object_unavailable)?;
+                sql::exec(&transaction, "DELETE FROM appendable_objects WHERE blob_id = ?1", [id])?;
             }
             let current = match current {
                 Some(record) => Some(record),
@@ -904,18 +903,15 @@ impl Catalog {
             }
             let incarnation = bucket_incarnation(&transaction, &bucket).optional()?.ok_or(ObjectError::BucketNotFound)?;
             let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
-            let last: i64 = sql::scalar(&transaction, "SELECT last_generation FROM object_generation WHERE singleton = 1", [])
-                .map_err(object_unavailable)?;
+            let last: i64 = sql::scalar(&transaction, "SELECT last_generation FROM object_generation WHERE singleton = 1", [])?;
             let generation = micros.max(
                 last.checked_add(1)
                     .ok_or_else(|| object_unavailable("generation exhausted"))?,
             );
-            sql::exec(&transaction, "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation])
-                .map_err(object_unavailable)?;
+            sql::exec(&transaction, "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation])?;
             let encoded = encode_options(&options).to_string();
             sql::exec(&transaction,
-                    "INSERT INTO appendable_objects VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?7, ?8, 0)", params![bucket, name, generation, incarnation, blob_id, encoded, micros, handle])
-                .map_err(object_unavailable)?;
+                    "INSERT INTO appendable_objects VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?7, ?8, 0)", params![bucket, name, generation, incarnation, blob_id, encoded, micros, handle])?;
             let time = system_time_micros(micros).map_err(object_unavailable)?;
             let row = Row {
                 generation,
@@ -967,8 +963,7 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         let selected = self
             .run_upload(move |connection| {
-                let transaction = sql::immediate(connection)
-                    .map_err(object_unavailable)?;
+                let transaction = sql::immediate(connection)?;
                 let (storage_class, _) = authorized_bucket(&transaction, &owned_bucket, &access)?;
                 let row = match select(&transaction, &owned_bucket, &owned_name)? {
                     Lookup::Live(row) if row.generation == generation => row,
@@ -995,9 +990,8 @@ impl Catalog {
                     }
                 }
                 sql::exec(&transaction,
-                        "UPDATE appendable_objects SET write_handle = ?1 WHERE bucket = ?2 AND name = ?3", params![handle, owned_bucket, owned_name])
-                    .map_err(object_unavailable)?;
-                transaction.commit().map_err(object_unavailable)?;
+                        "UPDATE appendable_objects SET write_handle = ?1 WHERE bucket = ?2 AND name = ?3", params![handle, owned_bucket, owned_name])?;
+                transaction.commit()?;
                 Ok(Ok((row.blob_id, record)))
             })
             .await??;
@@ -1052,7 +1046,7 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         let (record, file) = self
             .run(move |connection| {
-                let transaction = connection.transaction().map_err(object_unavailable)?;
+                let transaction = connection.transaction()?;
                 let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
                 let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {
                     return Err(ObjectError::ObjectNotFound);
@@ -1106,7 +1100,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
         self.run_upload(move |connection| {
-            let transaction = sql::immediate(connection).map_err(object_unavailable)?;
+            let transaction = sql::immediate(connection)?;
             let (storage_class, _) = authorized_bucket(&transaction, &owned_bucket, &access)?;
             let Lookup::Live(row) = select(&transaction, &owned_bucket, &owned_name)? else {
                 return Err(ObjectError::ObjectNotFound);
@@ -1132,9 +1126,8 @@ impl Catalog {
                 &transaction,
                 "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
                 params![owned_bucket, owned_name],
-            )
-            .map_err(object_unavailable)?;
-            transaction.commit().map_err(object_unavailable)?;
+            )?;
+            transaction.commit()?;
             data::remove(&catalog, &row.blob_id)
         })
         .await?;

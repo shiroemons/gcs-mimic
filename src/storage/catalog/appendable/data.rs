@@ -35,24 +35,21 @@ impl Data {
         size: u64,
     ) -> Result<Self, ObjectError> {
         if let Some(store) = &catalog.0.memory {
-            let mut draft = store.draft(id, size).map_err(object_unavailable)?;
+            let mut draft = store.draft(id, size)?;
             draft.acknowledge(size);
             return Ok(Self::Memory {
                 store: store.clone(),
                 id: id.into(),
             });
         }
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .open(path)
-            .map_err(object_unavailable)?;
-        if file.metadata().map_err(object_unavailable)?.len() < size {
+        let file = fs::OpenOptions::new().write(true).open(path)?;
+        if file.metadata()?.len() < size {
             return Err(ObjectError::Corrupt(
                 "appendable data is shorter than its persisted size".into(),
             ));
         }
-        file.set_len(size).map_err(object_unavailable)?;
-        file.sync_data().map_err(object_unavailable)?;
+        file.set_len(size)?;
+        file.sync_data()?;
         Ok(Self::Disk(Arc::new(file)))
     }
 
@@ -89,7 +86,7 @@ impl Data {
 
 pub(super) fn remove(catalog: &Catalog, id: &str) -> Result<(), ObjectError> {
     if let Some(store) = &catalog.0.memory {
-        store.remove_draft(id).map_err(object_unavailable)?;
+        store.remove_draft(id)?;
         store.remove(id).map_err(object_unavailable)
     } else {
         unlink(&data_path(&catalog.0.data_dir, id)?).map_err(object_unavailable)
