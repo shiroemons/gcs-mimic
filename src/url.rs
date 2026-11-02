@@ -278,8 +278,20 @@ pub fn encode_object_name(object: &str) -> String {
     encoded
 }
 
-/// Append `%XX` with uppercase hex digits, the RFC 3986 form shared by object paths and
-/// signed-URL canonicalization.
+/// Encode a literal path segment or query component using RFC 3986 unreserved bytes.
+pub(crate) fn encode_unreserved(raw: &str) -> String {
+    let mut result = String::with_capacity(raw.len());
+    for byte in raw.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            result.push(byte as char);
+        } else {
+            push_percent_encoded(&mut result, byte);
+        }
+    }
+    result
+}
+
+/// Append `%XX` with uppercase hex digits, shared by object paths and signed URLs.
 pub(crate) fn push_percent_encoded(out: &mut String, byte: u8) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     out.push('%');

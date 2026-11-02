@@ -495,15 +495,7 @@ fn unreserved(byte: u8) -> bool {
 
 /// Encode a literal query name or value using RFC 3986 unreserved bytes.
 pub fn encode_query_component(raw: &str) -> String {
-    let mut result = String::new();
-    for byte in raw.bytes() {
-        if unreserved(byte) {
-            result.push(byte as char);
-        } else {
-            push_percent_encoded(&mut result, byte);
-        }
-    }
-    result
+    crate::url::encode_unreserved(raw)
 }
 
 fn canonical_query(query: &BTreeMap<String, String>) -> String {

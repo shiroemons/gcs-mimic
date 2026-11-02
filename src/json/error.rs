@@ -500,7 +500,9 @@ impl JsonError {
 
     pub(crate) fn into_response(self) -> Response<Full<Bytes>> {
         if self.status == StatusCode::NOT_MODIFIED {
-            return crate::server::empty_response(self.status);
+            let mut response = Response::new(Full::new(Bytes::new()));
+            *response.status_mut() = self.status;
+            return response;
         }
         if let Some(plain) = self.plain {
             let body = plain.body.map_or_else(

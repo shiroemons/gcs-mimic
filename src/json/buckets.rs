@@ -1158,7 +1158,7 @@ pub(crate) fn soft_deleted_bucket_list(
     Ok(value)
 }
 
-pub(super) use crate::auth::signature::encode_query_component as encode_segment;
+pub(super) use crate::url::encode_unreserved as encode_segment;
 
 fn timestamp_error() -> JsonError {
     JsonError::service_unavailable("Bucket timestamp is outside the supported RFC 3339 range")
