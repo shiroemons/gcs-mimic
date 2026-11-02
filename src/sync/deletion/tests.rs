@@ -4,6 +4,7 @@
 )]
 
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     storage::{admin::Origin, sync_state::root::Activation},
     test_support::TestDir,
@@ -116,7 +117,7 @@ async fn protected_external_deletion_restores_bytes_and_versioned_removal_keeps_
             },
             None,
             None,
-            &crate::bucket::BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -293,7 +294,7 @@ async fn incomplete_scan_recreated_file_and_api_change_never_authorize_an_old_de
             },
             None,
             None,
-            &crate::bucket::BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();

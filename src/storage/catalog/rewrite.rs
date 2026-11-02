@@ -639,6 +639,7 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::storage::catalog::test_fixtures::bucket;
+    use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{
         clock::Clock,
         object::{ExpectedHashes, UploadChunk},
@@ -698,7 +699,7 @@ mod tests {
                 "source",
                 None,
                 ObjectConditions::default(),
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();

@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::SystemClock,
     object::{ObjectConditions, ObjectMetadataUpdate, UploadChunk},
@@ -335,16 +336,16 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
             },
             None,
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
     let policy = catalog
-        .get_policy("empty-bucket", &BucketAccess::Permissive)
+        .get_policy("empty-bucket", PERMISSIVE)
         .await
         .unwrap();
     catalog
-        .set_policy("empty-bucket", policy, &BucketAccess::Permissive)
+        .set_policy("empty-bucket", policy, PERMISSIVE)
         .await
         .unwrap();
     catalog
@@ -464,10 +465,7 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
         .await
         .unwrap();
     before.owner = None;
-    let policy = catalog
-        .get_policy("test-bucket", &BucketAccess::Permissive)
-        .await
-        .unwrap();
+    let policy = catalog.get_policy("test-bucket", PERMISSIVE).await.unwrap();
     let session = catalog
         .create_resumable_session(
             "test-bucket",
@@ -504,10 +502,7 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
         before
     );
     assert_eq!(
-        catalog
-            .get_policy("test-bucket", &BucketAccess::Permissive)
-            .await
-            .unwrap(),
+        catalog.get_policy("test-bucket", PERMISSIVE).await.unwrap(),
         policy
     );
     let lease = catalog

@@ -1,5 +1,8 @@
-use crate::bucket::BucketRecord;
+use crate::bucket::{BucketAccess, BucketRecord};
 use std::time::UNIX_EPOCH;
+
+/// Spelled out at every call site so a test that skips authorization says so.
+pub(crate) const PERMISSIVE: &BucketAccess = &BucketAccess::Permissive;
 
 pub(crate) fn bucket(name: &str, project: &str) -> BucketRecord {
     BucketRecord {

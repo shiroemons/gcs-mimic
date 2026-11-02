@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::SystemClock,
     object::{ExpectedHashes, ObjectRecord, UploadChunk},
@@ -102,7 +103,7 @@ async fn reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive
             "value",
             None,
             Default::default(),
-            &crate::bucket::BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -268,7 +269,7 @@ async fn reset_waits_for_staged_files_session_and_appendable_writers_and_clears_
             "value",
             None,
             Default::default(),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();

@@ -1,5 +1,6 @@
 use super::*;
 use crate::auth::{Auth, Registry};
+use crate::storage::test_fixtures::PERMISSIVE;
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -220,26 +221,14 @@ fn permissive_creator_owns_unauthenticated_publications_without_widening_other_p
         .unwrap();
     let with_creator = permissive(Some("who@example.test"));
     assert_eq!(
-        for_publication(
-            &connection,
-            "b",
-            &BucketAccess::Permissive,
-            Some(&with_creator)
-        )
-        .unwrap(),
+        for_publication(&connection, "b", PERMISSIVE, Some(&with_creator)).unwrap(),
         local_creator("user-who@example.test")
     );
     // No creator configured, no profile yet, or the legacy-style trusted profile keep the
     // project owners, which is also what existing data holds.
     for profile in [Some(permissive(None)), Some(Profile::TrustedLocal), None] {
         assert_eq!(
-            for_publication(
-                &connection,
-                "b",
-                &BucketAccess::Permissive,
-                profile.as_ref()
-            )
-            .unwrap(),
+            for_publication(&connection, "b", PERMISSIVE, profile.as_ref()).unwrap(),
             ObjectOwner::ProjectOwners {
                 project: "project".into()
             }

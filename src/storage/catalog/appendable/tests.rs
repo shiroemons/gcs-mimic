@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::test_support::TestDir;
 
 mod owner_tests;
@@ -119,13 +120,7 @@ async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_recla
     let id = writer.blob_id.clone();
     let generation = writer.record().generation;
     let (_, mut reader) = catalog
-        .open_appendable(
-            "append",
-            "cancelled",
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .open_appendable("append", "cancelled", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let (entered, started) = tokio::sync::oneshot::channel();
@@ -324,13 +319,7 @@ async fn schema_33_catalog_migrates_to_appendable_objects() {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
         catalog
-            .get_object_authorized(
-                "append",
-                "before",
-                None,
-                Default::default(),
-                &BucketAccess::Permissive
-            )
+            .get_object_authorized("append", "before", None, Default::default(), PERMISSIVE)
             .await
             .unwrap()
             .size,
@@ -353,13 +342,7 @@ async fn schema_33_catalog_migrates_to_appendable_objects() {
 
 async fn open(catalog: &Catalog, name: &str) -> Result<ObjectRecord, ObjectError> {
     catalog
-        .open_appendable(
-            "append",
-            name,
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .open_appendable("append", name, None, Default::default(), PERMISSIVE)
         .await
         .map(|(record, _)| record)
 }
@@ -434,13 +417,7 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
         Some(AppendError::Finalized)
     );
     catalog
-        .delete_object_authorized(
-            "append",
-            "crash",
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .delete_object_authorized("append", "crash", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -562,13 +539,7 @@ async fn publishing_a_reserved_generation_retires_its_row_atomically() {
         .unwrap();
     assert_eq!(rows, 0);
     catalog
-        .delete_object_authorized(
-            "append",
-            "atomic",
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .delete_object_authorized("append", "atomic", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -698,13 +669,7 @@ async fn appendable_size_limit_and_reader_bound_by_persisted_size() {
         Err(AppendError::Object(ObjectError::TooLarge))
     );
     let (record, mut reader) = catalog
-        .open_appendable(
-            "append",
-            "bounded",
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .open_appendable("append", "bounded", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(record.size, 4);
@@ -720,7 +685,7 @@ async fn appendable_size_limit_and_reader_bound_by_persisted_size() {
                 "bounded",
                 Some(record.generation + 1),
                 Default::default(),
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .err(),
@@ -736,7 +701,7 @@ async fn appendable_size_limit_and_reader_bound_by_persisted_size() {
                     if_generation_not_match: Some(record.generation),
                     ..Default::default()
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .err(),
@@ -746,13 +711,7 @@ async fn appendable_size_limit_and_reader_bound_by_persisted_size() {
 
 async fn persisted_content(catalog: &Catalog, name: &str) -> Vec<u8> {
     let (_, mut reader) = catalog
-        .open_appendable(
-            "append",
-            name,
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .open_appendable("append", name, None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let mut content = Vec::new();

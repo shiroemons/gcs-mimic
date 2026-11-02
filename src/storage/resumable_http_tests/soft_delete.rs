@@ -1,4 +1,5 @@
 use super::{Harness, Reply};
+use crate::storage::test_fixtures::PERMISSIVE;
 use serde_json::{Value, json};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -424,7 +425,7 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
             "history/item",
             generation.parse().unwrap(),
             Default::default(),
-            &crate::bucket::BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -435,8 +436,8 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
             "history/item",
             retained.generation,
             Default::default(),
-            &crate::bucket::BucketAccess::Permissive,
-            &crate::bucket::BucketAccess::Permissive,
+            PERMISSIVE,
+            PERMISSIVE,
         )
         .await
         .unwrap();

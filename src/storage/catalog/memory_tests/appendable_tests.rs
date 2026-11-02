@@ -1,5 +1,6 @@
 use super::appendable::AppendError;
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 
 async fn create(catalog: &Catalog) -> appendable::AppendWriter {
     catalog
@@ -33,7 +34,7 @@ async fn open(catalog: &Catalog) -> (crate::object::ObjectRecord, objects::Objec
             "growing",
             None,
             Default::default(),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap()
@@ -174,13 +175,7 @@ async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_re
     assert_eq!(open(&catalog).await.0.size, 4);
     assert_eq!(bytes(open(&catalog).await.1).await, b"abcd");
     catalog
-        .delete_object_authorized(
-            "test-bucket",
-            "value",
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .delete_object_authorized("test-bucket", "value", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let mut current = takeover(&catalog, writer.record().generation).await;
@@ -242,7 +237,7 @@ async fn ram_appendable_failed_size_and_publication_keep_acknowledged_state() {
                 custom_attributes: Default::default(),
                 object_name_prefix: String::new(),
             },
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -366,7 +361,7 @@ async fn ram_appendable_cancelled_flush_rolls_back_candidate_and_allows_takeover
             "growing",
             None,
             Default::default(),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();

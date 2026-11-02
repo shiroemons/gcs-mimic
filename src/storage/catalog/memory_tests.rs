@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::catalog::sql;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     object::{ExpectedHashes, ObjectConditions, ObjectError, UploadChunk},
     storage::admin::{AdminError, BucketDefinition, BucketName},
@@ -72,13 +73,7 @@ async fn put(
 
 async fn ram_transfer(catalog: &Catalog) -> derived::DerivedTransfer {
     let source = catalog
-        .resolve_derived_source(
-            "test-bucket",
-            "value",
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .resolve_derived_source("test-bucket", "value", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     catalog
@@ -110,13 +105,7 @@ async fn ram_derived_pins_survive_source_delete_and_checkpoints_share_hash_and_p
         2
     );
     catalog
-        .delete_object_authorized(
-            "test-bucket",
-            "value",
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .delete_object_authorized("test-bucket", "value", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -266,7 +255,7 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
                 custom_attributes: Default::default(),
                 object_name_prefix: String::new(),
             },
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -285,7 +274,7 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
                     "value",
                     source_generation,
                     Default::default(),
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                     std::time::SystemTime::now(),
                 )?;
                 Err(crate::storage::failure::object_unavailable(
@@ -378,13 +367,7 @@ async fn ram_derived_cancel_expiry_and_abandoned_begin_reclaim_their_owned_state
         Err(ObjectError::DerivedTransferNotFound)
     );
     let source = catalog
-        .resolve_derived_source(
-            "test-bucket",
-            "value",
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .resolve_derived_source("test-bucket", "value", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let worker = catalog.clone();
@@ -457,7 +440,7 @@ async fn ram_history_and_readers_hold_capacity_until_the_last_byte_reference_dro
             "value",
             Some(first.generation),
             ObjectConditions::default(),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -537,7 +520,7 @@ async fn ram_catalog_pages_are_bounded_without_limiting_another_catalog() {
             "value",
             None,
             ObjectConditions::default(),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -858,7 +841,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
             "value",
             Some(first.generation),
             ObjectConditions::default(),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -868,7 +851,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
             "value",
             first.generation,
             ObjectConditions::default(),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -878,8 +861,8 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
             "value",
             first.generation,
             ObjectConditions::default(),
-            &BucketAccess::Permissive,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -912,7 +895,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
                 "value",
                 first.generation,
                 ObjectConditions::default(),
-                &BucketAccess::Permissive
+                PERMISSIVE
             )
             .await
             .unwrap(),
@@ -956,13 +939,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
             .unwrap();
         let first = put(&catalog, Default::default(), true).await.unwrap();
         catalog
-            .delete_object_authorized(
-                "test-bucket",
-                "value",
-                None,
-                Default::default(),
-                &BucketAccess::Permissive,
-            )
+            .delete_object_authorized("test-bucket", "value", None, Default::default(), PERMISSIVE)
             .await
             .unwrap();
         if budget == 520 {
@@ -978,8 +955,8 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
                     "value",
                     first.generation,
                     Default::default(),
-                    &BucketAccess::Permissive,
-                    &BucketAccess::Permissive
+                    PERMISSIVE,
+                    PERMISSIVE
                 )
                 .await
                 .is_err()
@@ -996,7 +973,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
                 "value",
                 first.generation,
                 Default::default(),
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -1028,8 +1005,8 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
                     "value",
                     first.generation,
                     Default::default(),
-                    &BucketAccess::Permissive,
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
+                    PERMISSIVE,
                 )
                 .await
                 .unwrap();
@@ -1044,8 +1021,8 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
                             if_generation_match: Some(0),
                             ..Default::default()
                         },
-                        &BucketAccess::Permissive,
-                        &BucketAccess::Permissive
+                        PERMISSIVE,
+                        PERMISSIVE
                     )
                     .await,
                 Err(ObjectError::PreconditionFailed)

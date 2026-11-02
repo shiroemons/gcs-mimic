@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     auth::{Auth, Registry},
     clock::SystemClock,
@@ -91,7 +92,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                     entity: "user-delegate@example.test".into(),
                     role: Some("OWNER".into()),
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -136,7 +137,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 AclChange::Delete {
                     entity: "user-delegate@example.test".into(),
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();

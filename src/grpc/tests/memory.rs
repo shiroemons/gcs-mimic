@@ -1,4 +1,5 @@
 use super::super::{generated::google::storage::v2 as pb, v1, v2};
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     auth::{Auth, Registry},
     clock::SystemClock,
@@ -856,7 +857,7 @@ async fn strict_anonymous_publication_denials_ask_for_credentials_on_both_grpc_v
                 }],
                 etag: None,
             },
-            &crate::bucket::BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();

@@ -128,6 +128,7 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::storage::catalog::test_fixtures::bucket;
+    use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{
         csek::CsekError,
         object::{ObjectMetadataUpdate, UploadChunk},
@@ -151,12 +152,7 @@ mod tests {
             .unwrap();
         sender.send(Ok(UploadChunk::End)).await.unwrap();
         let permit = catalog
-            .prepare_object_upload(
-                "bucket",
-                name,
-                Default::default(),
-                &BucketAccess::Permissive,
-            )
+            .prepare_object_upload("bucket", name, Default::default(), PERMISSIVE)
             .await
             .unwrap();
         catalog
@@ -201,7 +197,7 @@ mod tests {
                 "secret",
                 None,
                 Default::default(),
-                &BucketAccess::Permissive,
+                PERMISSIVE,
                 Some(CustomerKey::from_sha256(sha256)),
             )
             .await
@@ -210,13 +206,7 @@ mod tests {
         // Transports that cannot carry a key (gRPC, legacy v1) use the keyless entry points.
         assert_eq!(
             catalog
-                .open_object_authorized(
-                    "bucket",
-                    "secret",
-                    None,
-                    Default::default(),
-                    &BucketAccess::Permissive
-                )
+                .open_object_authorized("bucket", "secret", None, Default::default(), PERMISSIVE)
                 .await
                 .err(),
             Some(ObjectError::CustomerEncryption(
@@ -225,13 +215,7 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .resolve_derived_source(
-                    "bucket",
-                    "secret",
-                    None,
-                    Default::default(),
-                    &BucketAccess::Permissive
-                )
+                .resolve_derived_source("bucket", "secret", None, Default::default(), PERMISSIVE)
                 .await
                 .err(),
             Some(ObjectError::CustomerEncryption(
@@ -244,7 +228,7 @@ mod tests {
                 "secret",
                 None,
                 Default::default(),
-                &BucketAccess::Permissive,
+                PERMISSIVE,
                 None,
             )
             .await
@@ -267,13 +251,7 @@ mod tests {
         drop(connection);
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let (record, _) = catalog
-            .open_object_authorized(
-                "bucket",
-                "plain",
-                None,
-                Default::default(),
-                &BucketAccess::Permissive,
-            )
+            .open_object_authorized("bucket", "plain", None, Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(record.customer_key_sha256, None);

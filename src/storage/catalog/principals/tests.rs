@@ -1,7 +1,7 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
-    auth::Registry, bucket::BucketAccess, clock::SystemClock, storage::admin::LocalAdmin,
-    test_support::TestDir,
+    auth::Registry, clock::SystemClock, storage::admin::LocalAdmin, test_support::TestDir,
 };
 use rusqlite::params;
 use serde_json::json;
@@ -134,7 +134,7 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
     );
     assert_eq!(
         reopened
-            .get_policy("first-bucket", &BucketAccess::Permissive)
+            .get_policy("first-bucket", PERMISSIVE)
             .await
             .unwrap(),
         before
@@ -170,10 +170,7 @@ async fn new_and_recreated_buckets_start_bound_without_inheriting_old_grants() {
         assert_ne!(incarnation, original);
         Ok(())
     }).await.unwrap();
-    let policy = catalog
-        .get_policy("bucket", &BucketAccess::Permissive)
-        .await
-        .unwrap();
+    let policy = catalog.get_policy("bucket", PERMISSIVE).await.unwrap();
     assert!(
         policy
             .bindings
@@ -216,10 +213,7 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
         .await
         .unwrap();
     assert_eq!(
-        catalog
-            .get_policy("bucket", &BucketAccess::Permissive)
-            .await
-            .unwrap(),
+        catalog.get_policy("bucket", PERMISSIVE).await.unwrap(),
         before
     );
     let acl = catalog
@@ -227,7 +221,7 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
             crate::acl::AclTarget::Bucket("bucket".into()),
             None,
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -241,10 +235,7 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
         .await
         .unwrap();
     assert_eq!(
-        reopened
-            .get_policy("bucket", &BucketAccess::Permissive)
-            .await
-            .unwrap(),
+        reopened.get_policy("bucket", PERMISSIVE).await.unwrap(),
         before
     );
     let acl = reopened
@@ -252,7 +243,7 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
             crate::acl::AclTarget::Bucket("bucket".into()),
             None,
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();

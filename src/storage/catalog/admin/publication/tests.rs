@@ -2,6 +2,7 @@
 
 use super::super::tests::{body, request, setup};
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use std::io::{Seek, SeekFrom};
 use std::{collections::BTreeMap, fs};
 
@@ -53,7 +54,7 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
                 ..Default::default()
             };
             catalog
-                .patch_bucket("test-bucket", update, None, None, &BucketAccess::Permissive)
+                .patch_bucket("test-bucket", update, None, None, PERMISSIVE)
                 .await
                 .unwrap();
         }
@@ -278,7 +279,7 @@ async fn publication_streaming_modes_preserve_patches_and_require_all_hash_field
             },
             patch,
             |_| Ok(()),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -322,7 +323,7 @@ async fn publication_inherits_metadata_patched_after_staging() {
             },
             patch,
             |_| Ok(()),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();

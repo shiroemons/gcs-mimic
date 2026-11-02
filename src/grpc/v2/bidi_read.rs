@@ -363,6 +363,7 @@ async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::test_fixtures::PERMISSIVE;
 
     #[test]
     fn bidi_shared_error_status() {
@@ -404,7 +405,7 @@ mod tests {
             tonic::Code::FailedPrecondition
         );
         assert!(check_handle_project(Some("new-project"), &access).is_ok());
-        assert!(check_handle_project(None, &BucketAccess::Permissive).is_ok());
+        assert!(check_handle_project(None, PERMISSIVE).is_ok());
     }
 
     #[test]

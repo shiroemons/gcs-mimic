@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::SystemClock,
     test_support::{TestDir, live_len},
@@ -111,7 +112,7 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
                             "object",
                             None,
                             Default::default(),
-                            &BucketAccess::Permissive,
+                            PERMISSIVE,
                         )
                         .await
                         .unwrap();
@@ -1276,7 +1277,7 @@ async fn disk_full_during_derived_retirement_preserves_the_same_transfer_and_byt
             "source",
             None,
             Default::default(),
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();

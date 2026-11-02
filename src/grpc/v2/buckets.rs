@@ -564,6 +564,7 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{
         auth::{Auth, Registry},
         clock::SystemClock,
@@ -1654,7 +1655,7 @@ mod tests {
                     }],
                     etag: None,
                 },
-                &crate::bucket::BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();

@@ -805,6 +805,7 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::test_fixtures::PERMISSIVE;
 
     #[test]
     fn jwt_detection_requires_three_segments_and_a_json_header() {
@@ -907,7 +908,7 @@ mod tests {
                     },
                     None,
                     None,
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                 )
                 .await
                 .unwrap();
@@ -1188,7 +1189,7 @@ mod tests {
                     },
                     None,
                     None,
-                    &crate::bucket::BucketAccess::Permissive,
+                    PERMISSIVE,
                 )
                 .await
                 .unwrap();

@@ -1182,6 +1182,7 @@ mod tests {
     use super::*;
     use crate::object::UploadChunk;
     use crate::storage::catalog::test_fixtures::bucket;
+    use crate::storage::test_fixtures::PERMISSIVE;
     use bytes::Bytes;
     use md5::{Digest, Md5, digest::common::hazmat::SerializableState};
     use std::io::Write;
@@ -1330,13 +1331,7 @@ mod tests {
 
     async fn source(catalog: &Catalog, name: &str) -> DerivedSource {
         catalog
-            .resolve_derived_source(
-                "bucket",
-                name,
-                None,
-                Default::default(),
-                &BucketAccess::Permissive,
-            )
+            .resolve_derived_source("bucket", name, None, Default::default(), PERMISSIVE)
             .await
             .unwrap()
     }
@@ -1526,7 +1521,7 @@ mod tests {
                     "source",
                     generation,
                     Default::default(),
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                     std::time::SystemTime::now(),
                 )?;
                 Err(ObjectError::PreconditionFailed)
@@ -1572,7 +1567,7 @@ mod tests {
                     "source",
                     generation,
                     Default::default(),
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                     std::time::SystemTime::now(),
                 )
             })
@@ -1607,13 +1602,7 @@ mod tests {
         ] {
             assert!(matches!(
                 catalog
-                    .resolve_derived_source(
-                        "bucket",
-                        "source",
-                        None,
-                        conditions,
-                        &BucketAccess::Permissive
-                    )
+                    .resolve_derived_source("bucket", "source", None, conditions, PERMISSIVE)
                     .await,
                 Err(ObjectError::PreconditionFailed)
             ));
@@ -1672,7 +1661,7 @@ mod tests {
                         "same",
                         Some(generation),
                         Default::default(),
-                        &BucketAccess::Permissive,
+                        PERMISSIVE,
                     )?;
                     assert_eq!(source.generation, generation);
                     assert_ne!(source.generation, destination.generation);
@@ -1685,7 +1674,7 @@ mod tests {
                         "same",
                         None,
                         Default::default(),
-                        &BucketAccess::Permissive,
+                        PERMISSIVE,
                     )?;
                     assert_eq!(live, *destination);
                     Ok(())
@@ -2151,7 +2140,7 @@ mod tests {
                     "source",
                     original.generation,
                     Default::default(),
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                     std::time::SystemTime::now(),
                 )
             })
@@ -2196,7 +2185,7 @@ mod tests {
                     "source",
                     original.generation,
                     Default::default(),
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                     std::time::SystemTime::now(),
                 )?;
                 fs::remove_file(&failed_blob)?;

@@ -231,6 +231,7 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{bucket::BucketRecord, storage::catalog::test_fixtures::bucket as bucket_record};
     use std::collections::BTreeMap;
 
@@ -378,7 +379,7 @@ mod tests {
         let catalog = Catalog::open(&dir.0).await.unwrap();
         catalog.insert_bucket(bucket("bucket")).await.unwrap();
         catalog
-            .insert_notification("bucket", config(""), &BucketAccess::Permissive)
+            .insert_notification("bucket", config(""), PERMISSIVE)
             .await
             .unwrap();
         catalog
@@ -389,9 +390,7 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            catalog
-                .list_notifications("bucket", &BucketAccess::Permissive)
-                .await,
+            catalog.list_notifications("bucket", PERMISSIVE).await,
             Err(CatalogError::Corrupt(_))
         ));
         catalog

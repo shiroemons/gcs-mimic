@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use std::{sync::Arc, time::Duration};
 
 async fn setup() -> (TestDir, Catalog) {
@@ -330,7 +331,7 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
                         },
                         None,
                         None,
-                        &BucketAccess::Permissive,
+                        PERMISSIVE,
                     )
                     .await
                     .unwrap();
@@ -340,7 +341,7 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
                     .set_policy(
                         "other-bucket",
                         crate::auth::Policy::default_for("project"),
-                        &BucketAccess::Permissive,
+                        PERMISSIVE,
                     )
                     .await
                     .unwrap();

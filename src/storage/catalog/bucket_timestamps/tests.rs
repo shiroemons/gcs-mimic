@@ -1,9 +1,10 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{storage::Catalog, test_support::TestDir};
 
 #[tokio::test]
 async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_writers() {
-    use crate::{acl::AclTarget, bucket::BucketAccess, storage::catalog::acl::AclChange};
+    use crate::{acl::AclTarget, storage::catalog::acl::AclChange};
     use std::time::UNIX_EPOCH;
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -54,7 +55,7 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
                         entity: "user-clock@example.invalid".into(),
                         role: Some("READER".into()),
                     },
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                 )
                 .await
                 .unwrap();
@@ -69,7 +70,7 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
                         custom_attributes: Default::default(),
                         object_name_prefix: String::new(),
                     },
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                 )
                 .await
                 .unwrap();

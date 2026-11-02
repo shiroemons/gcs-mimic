@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 
 #[tokio::test]
 async fn copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_capacity() {
@@ -172,13 +173,7 @@ async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
         Err(crate::object::ObjectError::InvalidFixedMetadata(_))
     ));
     let (record, mut reader) = catalog
-        .open_object_authorized(
-            "bucket",
-            "profile",
-            None,
-            Default::default(),
-            &crate::bucket::BucketAccess::Permissive,
-        )
+        .open_object_authorized("bucket", "profile", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -601,13 +596,7 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
                 ))
             ));
             let record = catalog
-                .get_object_authorized(
-                    "bucket",
-                    "php",
-                    None,
-                    Default::default(),
-                    &crate::bucket::BucketAccess::Permissive,
-                )
+                .get_object_authorized("bucket", "php", None, Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
             assert_eq!(
@@ -615,13 +604,7 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
                 old["generation"].as_str().unwrap()
             );
             let (_, mut reader) = catalog
-                .open_object_authorized(
-                    "bucket",
-                    "php",
-                    None,
-                    Default::default(),
-                    &crate::bucket::BucketAccess::Permissive,
-                )
+                .open_object_authorized("bucket", "php", None, Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
             assert_eq!(reader.next_chunk().await.unwrap().unwrap().as_ref(), b"old");

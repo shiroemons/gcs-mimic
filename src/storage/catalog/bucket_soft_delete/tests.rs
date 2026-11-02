@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{bucket::BucketMetadataUpdate, clock::Clock, test_support::TestDir};
 use std::{
     sync::{Arc, Mutex},
@@ -66,7 +67,7 @@ async fn set_retention(catalog: &Catalog, name: &str, seconds: u64) -> BucketRec
             },
             None,
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap()
@@ -110,7 +111,7 @@ async fn count(catalog: &Catalog, sql: &'static str) -> i64 {
 
 async fn delete(catalog: &Catalog, name: &str) -> Result<(), CatalogError> {
     catalog
-        .delete_bucket_authorized(name, None, None, &BucketAccess::Permissive)
+        .delete_bucket_authorized(name, None, None, PERMISSIVE)
         .await
 }
 
@@ -415,7 +416,7 @@ async fn restore_rebinds_policy_acl_entities_to_the_current_principals() {
                 }],
                 etag: None,
             },
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -441,7 +442,7 @@ async fn restore_rebinds_policy_acl_entities_to_the_current_principals() {
         .await
         .unwrap();
     reopened
-        .restore_bucket("rebound", generation, &BucketAccess::Permissive)
+        .restore_bucket("rebound", generation, PERMISSIVE)
         .await
         .unwrap();
     let entries = bucket_entities(&reopened).await;
@@ -566,7 +567,7 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
     let fresh = catalog.insert_bucket(record("fresh")).await.unwrap();
     assert!(fresh.generation > kept.generation && fresh.generation > 1_000_000_200_000);
     let restored = catalog
-        .restore_bucket("gone", 1_000_000_200_000, &BucketAccess::Permissive)
+        .restore_bucket("gone", 1_000_000_200_000, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(restored.generation, 1_000_000_200_000);

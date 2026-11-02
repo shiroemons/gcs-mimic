@@ -1,5 +1,6 @@
 use super::super::xml_multipart::{CompletedPart, Error, Options, Part, PartUpload, Target};
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 
 async fn begin(catalog: &Catalog) -> Target {
     catalog
@@ -188,13 +189,7 @@ async fn ram_xml_multipart_quota_preserves_parts_and_old_destination_for_retry()
         .unwrap();
     assert_eq!(listed[0].etag, first.etag);
     catalog
-        .delete_object_authorized(
-            "test-bucket",
-            "value",
-            None,
-            Default::default(),
-            &BucketAccess::Permissive,
-        )
+        .delete_object_authorized("test-bucket", "value", None, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     complete(&catalog, &target, &first.etag).await.unwrap();
@@ -257,7 +252,7 @@ async fn ram_xml_multipart_publication_failure_rolls_back_session_parts_and_outb
                 custom_attributes: Default::default(),
                 object_name_prefix: String::new(),
             },
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();

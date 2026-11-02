@@ -1,6 +1,8 @@
 mod blob_id;
 mod catalog;
 #[cfg(test)]
+pub(crate) use catalog::test_fixtures;
+#[cfg(test)]
 mod catalog_tests;
 pub(crate) mod failure;
 mod lock;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     json::{self, Projection},
     object::{
@@ -225,7 +226,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
                 },
                 None,
                 None,
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -265,7 +266,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
                 "media",
                 None,
                 ObjectConditions::default(),
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -436,7 +437,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
                 "source",
                 None,
                 ObjectConditions::default(),
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -519,7 +520,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
                 },
                 None,
                 None,
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -617,10 +618,7 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
         )
         .await
         .unwrap();
-    let policy = catalog
-        .get_policy("timestamp-0", &BucketAccess::Permissive)
-        .await
-        .unwrap();
+    let policy = catalog.get_policy("timestamp-0", PERMISSIVE).await.unwrap();
     let before = resources(&catalog).await;
     catalog.close().await.unwrap();
     let mut connection = Connection::open(dir.join("catalog.sqlite3")).unwrap();
@@ -677,10 +675,7 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
     let catalog = Catalog::open_with_clock(&dir, clock).await.unwrap();
     assert_eq!(resources(&catalog).await, before);
     assert_eq!(
-        catalog
-            .get_policy("timestamp-0", &BucketAccess::Permissive)
-            .await
-            .unwrap(),
+        catalog.get_policy("timestamp-0", PERMISSIVE).await.unwrap(),
         policy
     );
     assert_eq!(

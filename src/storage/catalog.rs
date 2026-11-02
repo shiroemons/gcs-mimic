@@ -7,6 +7,8 @@ use crate::bucket::{
 };
 use crate::clock::{Clock, SystemClock};
 use crate::storage::failure::unavailable;
+#[cfg(test)]
+use crate::storage::test_fixtures::PERMISSIVE;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, types::Type};
 use std::{
     path::{Path, PathBuf},
@@ -27,7 +29,7 @@ mod timestamp_tests;
 
 // Keep crate-local fixtures separate from schema helpers included by integration tests.
 #[cfg(test)]
-pub(super) mod test_fixtures;
+pub(crate) mod test_fixtures;
 #[cfg(test)]
 pub(super) mod test_support;
 
@@ -1585,7 +1587,7 @@ impl Catalog {
             name,
             if_metageneration_match,
             if_metageneration_not_match,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
     }
@@ -2260,7 +2262,7 @@ mod tests {
                     }],
                     etag: None,
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -2275,7 +2277,7 @@ mod tests {
                     bindings: vec![],
                     etag: None,
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();

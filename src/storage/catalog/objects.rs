@@ -1,5 +1,7 @@
 use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
 use crate::storage::catalog::sql;
+#[cfg(test)]
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
@@ -958,8 +960,7 @@ impl Catalog {
         query: ObjectListQuery,
         limit: usize,
     ) -> Result<ObjectListPage, ObjectError> {
-        self.list_objects_authorized(query, limit, &BucketAccess::Permissive)
-            .await
+        self.list_objects_authorized(query, limit, PERMISSIVE).await
     }
 
     pub(crate) async fn list_objects_authorized(
@@ -1078,7 +1079,7 @@ impl Catalog {
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<ObjectRecord, ObjectError> {
         let permit = self
-            .prepare_object_upload(bucket, name, conditions, &BucketAccess::Permissive)
+            .prepare_object_upload(bucket, name, conditions, PERMISSIVE)
             .await?;
         self.put_object_prechecked(
             ObjectUpload {
@@ -1270,14 +1271,8 @@ impl Catalog {
         generation: Option<i64>,
         conditions: ObjectConditions,
     ) -> Result<ObjectRecord, ObjectError> {
-        self.get_object_authorized(
-            bucket,
-            name,
-            generation,
-            conditions,
-            &BucketAccess::Permissive,
-        )
-        .await
+        self.get_object_authorized(bucket, name, generation, conditions, PERMISSIVE)
+            .await
     }
 
     pub(crate) async fn get_object_authorized(
@@ -1335,14 +1330,8 @@ impl Catalog {
         generation: Option<i64>,
         conditions: ObjectConditions,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-        self.open_object_authorized(
-            bucket,
-            name,
-            generation,
-            conditions,
-            &BucketAccess::Permissive,
-        )
-        .await
+        self.open_object_authorized(bucket, name, generation, conditions, PERMISSIVE)
+            .await
     }
 
     /// The bucket's project is verified in the same call that resolves the generation and
@@ -1379,7 +1368,7 @@ impl Catalog {
             },
             update,
             validate,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
     }
@@ -1511,14 +1500,8 @@ impl Catalog {
         generation: Option<i64>,
         conditions: ObjectConditions,
     ) -> Result<(), ObjectError> {
-        self.delete_object_authorized(
-            bucket,
-            name,
-            generation,
-            conditions,
-            &BucketAccess::Permissive,
-        )
-        .await
+        self.delete_object_authorized(bucket, name, generation, conditions, PERMISSIVE)
+            .await
     }
 
     pub(crate) async fn delete_object_authorized(
@@ -3316,7 +3299,7 @@ mod tests {
                 .unwrap();
             let conditions = ObjectConditions::default();
             let permit = catalog
-                .prepare_object_upload("bucket", "object", conditions, &BucketAccess::Permissive)
+                .prepare_object_upload("bucket", "object", conditions, PERMISSIVE)
                 .await
                 .unwrap();
             catalog.delete_bucket("bucket", None, None).await.unwrap();
@@ -3675,7 +3658,7 @@ mod tests {
                 etag: None,
             };
             let stored = catalog
-                .set_policy("bucket", policy, &BucketAccess::Permissive)
+                .set_policy("bucket", policy, PERMISSIVE)
                 .await
                 .unwrap();
             let read = catalog
@@ -3705,7 +3688,7 @@ mod tests {
                         },
                         None,
                         None,
-                        &BucketAccess::Permissive,
+                        PERMISSIVE,
                     )
                     .await
                     .unwrap();
@@ -3716,10 +3699,7 @@ mod tests {
                 Err(ObjectError::Forbidden)
             );
             assert_eq!(
-                catalog
-                    .get_policy("bucket", &BucketAccess::Permissive)
-                    .await
-                    .unwrap(),
+                catalog.get_policy("bucket", PERMISSIVE).await.unwrap(),
                 stored
             );
             assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
@@ -3784,7 +3764,7 @@ mod tests {
                         entity: "user-reader".into(),
                         role: Some("READER".into()),
                     },
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                 )
                 .await
                 .unwrap();
@@ -3797,7 +3777,7 @@ mod tests {
                 AclChange::Delete {
                     entity: "user-reader".into(),
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             );
             let read = catalog.get_object_authorized(
                 "bucket",
@@ -3870,7 +3850,7 @@ mod tests {
                 etag: None,
             };
             catalog
-                .set_policy("bucket", granted, &BucketAccess::Permissive)
+                .set_policy("bucket", granted, PERMISSIVE)
                 .await
                 .unwrap();
             let read = catalog
@@ -3902,7 +3882,7 @@ mod tests {
                         bindings: vec![],
                         etag: None,
                     },
-                    &BucketAccess::Permissive,
+                    PERMISSIVE,
                 )
                 .await
                 .unwrap();

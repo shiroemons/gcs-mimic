@@ -1,7 +1,7 @@
 use super::*;
 use crate::storage::catalog::sql;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
-    bucket::BucketAccess,
     notification::NotificationConfig,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
     test_support::TestDir,
@@ -46,7 +46,7 @@ async fn setup_with_clock(
                 custom_attributes: BTreeMap::from([("team".into(), "test".into())]),
                 object_name_prefix: "prefix/".into(),
             },
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -159,7 +159,7 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
                             custom_attributes: BTreeMap::new(),
                             object_name_prefix: "prefix/".into(),
                         },
-                        &BucketAccess::Permissive,
+                        PERMISSIVE,
                     )
                     .await
                     .unwrap();
@@ -428,7 +428,7 @@ async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time
         object_name_prefix: "prefix/".into(),
     };
     catalog
-        .insert_notification("test-bucket", config, &BucketAccess::Permissive)
+        .insert_notification("test-bucket", config, PERMISSIVE)
         .await
         .unwrap();
     let update = crate::object::ObjectMetadataUpdate {
@@ -466,13 +466,13 @@ async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time
     );
     assert!(
         catalog
-            .delete_notification("test-bucket", "1", &BucketAccess::Permissive)
+            .delete_notification("test-bucket", "1", PERMISSIVE)
             .await
             .unwrap()
     );
     assert!(
         catalog
-            .delete_notification("test-bucket", "2", &BucketAccess::Permissive)
+            .delete_notification("test-bucket", "2", PERMISSIVE)
             .await
             .unwrap()
     );
@@ -886,7 +886,7 @@ async fn schema_migration_preserves_configs_and_inconsistent_accounting_fails_re
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
         catalog
-            .list_notifications("test-bucket", &BucketAccess::Permissive)
+            .list_notifications("test-bucket", PERMISSIVE)
             .await
             .unwrap()
             .len(),

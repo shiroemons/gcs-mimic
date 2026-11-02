@@ -1,8 +1,9 @@
 use super::catalog::test_fixtures::bucket as bucket_record;
 use super::catalog::{CATALOG_SCHEMA_VERSION, test_support as common};
 use crate as gcs_mimic;
+use crate::storage::test_fixtures::PERMISSIVE;
 use gcs_mimic::{
-    bucket::{BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError},
+    bucket::{BucketMetadataUpdate, BucketRecord, CatalogError},
     storage::Catalog,
     test_support::TestDir,
 };
@@ -148,7 +149,7 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
             },
             None,
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -170,7 +171,7 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
             },
             None,
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap_err();
@@ -206,7 +207,7 @@ async fn acl_schema_migration_keeps_buckets_on_the_project_private_default() {
     );
     let target = gcs_mimic::acl::AclTarget::Bucket("acl-migration".into());
     let state = catalog
-        .read_acl(target.clone(), None, None, &BucketAccess::Permissive)
+        .read_acl(target.clone(), None, None, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(state.entries, gcs_mimic::acl::project_private("123"));
@@ -217,14 +218,14 @@ async fn acl_schema_migration_keeps_buckets_on_the_project_private_default() {
                 entity: "allUsers".into(),
                 role: Some("READER".into()),
             },
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let state = catalog
-        .read_acl(target, None, None, &BucketAccess::Permissive)
+        .read_acl(target, None, None, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(state.entries.len(), 4);
@@ -292,7 +293,7 @@ async fn lifecycle_schema_migration_and_restart() {
             },
             Some(original.metageneration),
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -344,7 +345,7 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
             update(true),
             Some(original.metageneration),
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -361,20 +362,14 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
                 update(false),
                 Some(original.metageneration),
                 None,
-                &BucketAccess::Permissive
+                PERMISSIVE
             )
             .await,
         Err(CatalogError::PreconditionFailed)
     );
     clock.0.store(2000, Ordering::Relaxed);
     let repeated = catalog
-        .replace_bucket(
-            "uniform-bucket",
-            update(true),
-            None,
-            None,
-            &BucketAccess::Permissive,
-        )
+        .replace_bucket("uniform-bucket", update(true), None, None, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -387,19 +382,13 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
             update(false),
             Some(repeated.metageneration),
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
     assert_eq!(disabled.uniform_bucket_level_access_locked_time, None);
     let enabled = catalog
-        .patch_bucket(
-            "uniform-bucket",
-            update(true),
-            None,
-            None,
-            &BucketAccess::Permissive,
-        )
+        .patch_bucket("uniform-bucket", update(true), None, None, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -418,23 +407,11 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
     for replace in [false, true] {
         let result = if replace {
             catalog
-                .replace_bucket(
-                    "uniform-bucket",
-                    update(false),
-                    None,
-                    None,
-                    &BucketAccess::Permissive,
-                )
+                .replace_bucket("uniform-bucket", update(false), None, None, PERMISSIVE)
                 .await
         } else {
             catalog
-                .patch_bucket(
-                    "uniform-bucket",
-                    update(false),
-                    None,
-                    None,
-                    &BucketAccess::Permissive,
-                )
+                .patch_bucket("uniform-bucket", update(false), None, None, PERMISSIVE)
                 .await
         };
         assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
@@ -498,7 +475,7 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
             },
             Some(original.metageneration),
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -562,7 +539,7 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
             },
             Some(original.metageneration),
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -577,7 +554,7 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
             },
             None,
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await;
     assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
@@ -649,13 +626,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         ..Default::default()
     };
     let record = catalog
-        .replace_bucket(
-            "put-clock",
-            update.clone(),
-            Some(3),
-            Some(2),
-            &BucketAccess::Permissive,
-        )
+        .replace_bucket("put-clock", update.clone(), Some(3), Some(2), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -685,7 +656,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
             },
             None,
             None,
-            &BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -715,19 +686,13 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
     for invalid in invalid {
         assert_eq!(
             catalog
-                .replace_bucket(
-                    "put-clock",
-                    invalid.clone(),
-                    Some(3),
-                    None,
-                    &BucketAccess::Permissive
-                )
+                .replace_bucket("put-clock", invalid.clone(), Some(3), None, PERMISSIVE)
                 .await,
             Err(CatalogError::PreconditionFailed)
         );
         assert!(matches!(
             catalog
-                .replace_bucket("put-clock", invalid, None, None, &BucketAccess::Permissive)
+                .replace_bucket("put-clock", invalid, None, None, PERMISSIVE)
                 .await,
             Err(CatalogError::InvalidMetadata(_))
         ));
@@ -746,7 +711,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
                 },
                 None,
                 None,
-                &BucketAccess::Permissive
+                PERMISSIVE
             )
             .await,
         Err(CatalogError::UnsupportedMetadata(_))
@@ -756,13 +721,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         Some(full.clone())
     );
     let next = catalog
-        .replace_bucket(
-            "put-clock",
-            Default::default(),
-            Some(5),
-            None,
-            &BucketAccess::Permissive,
-        )
+        .replace_bucket("put-clock", Default::default(), Some(5), None, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(next.labels, full.labels);
@@ -774,13 +733,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
     let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
     assert!(matches!(
         catalog
-            .replace_bucket(
-                "put-exhausted",
-                update,
-                None,
-                None,
-                &BucketAccess::Permissive
-            )
+            .replace_bucket("put-exhausted", update, None, None, PERMISSIVE)
             .await,
         Err(CatalogError::Unavailable(_))
     ));
@@ -814,13 +767,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         ..Default::default()
     };
     let record = catalog
-        .patch_bucket(
-            "patch-clock",
-            update.clone(),
-            Some(3),
-            Some(2),
-            &BucketAccess::Permissive,
-        )
+        .patch_bucket("patch-clock", update.clone(), Some(3), Some(2), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -830,13 +777,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     assert_eq!(record.time_created, original.time_created);
     assert_eq!(record.metageneration, 4);
     let next = catalog
-        .patch_bucket(
-            "patch-clock",
-            Default::default(),
-            Some(4),
-            None,
-            &BucketAccess::Permissive,
-        )
+        .patch_bucket("patch-clock", Default::default(), Some(4), None, PERMISSIVE)
         .await
         .unwrap();
     // A patch without a writable setting is a no-op, as on Cloud Storage.
@@ -852,25 +793,13 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     };
     assert!(matches!(
         catalog
-            .patch_bucket(
-                "patch-clock",
-                too_many.clone(),
-                None,
-                None,
-                &BucketAccess::Permissive
-            )
+            .patch_bucket("patch-clock", too_many.clone(), None, None, PERMISSIVE)
             .await,
         Err(CatalogError::InvalidMetadata(_))
     ));
     assert_eq!(
         catalog
-            .patch_bucket(
-                "patch-clock",
-                too_many,
-                Some(3),
-                None,
-                &BucketAccess::Permissive
-            )
+            .patch_bucket("patch-clock", too_many, Some(3), None, PERMISSIVE)
             .await,
         Err(CatalogError::PreconditionFailed)
     );
@@ -886,7 +815,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     ] {
         assert!(matches!(
             catalog
-                .patch_bucket("patch-clock", update, None, None, &BucketAccess::Permissive)
+                .patch_bucket("patch-clock", update, None, None, PERMISSIVE)
                 .await,
             Err(CatalogError::InvalidMetadata(_))
         ));
@@ -897,7 +826,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
     assert!(matches!(
         catalog
-            .patch_bucket("exhausted", update, None, None, &BucketAccess::Permissive)
+            .patch_bucket("exhausted", update, None, None, PERMISSIVE)
             .await,
         Err(CatalogError::Unavailable(_))
     ));

@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     auth::{Auth, Registry},
     clock::SystemClock,
@@ -1106,7 +1107,7 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
             },
             None,
             None,
-            &crate::bucket::BucketAccess::Permissive,
+            PERMISSIVE,
         )
         .await
         .unwrap();

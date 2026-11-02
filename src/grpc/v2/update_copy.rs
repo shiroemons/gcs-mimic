@@ -1160,6 +1160,7 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{
         auth::Auth, clock::SystemClock, object::UploadChunk, server::State, storage::Catalog,
         test_support::TestDir,
@@ -1466,7 +1467,7 @@ mod tests {
                 },
                 None,
                 None,
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -2054,7 +2055,7 @@ mod tests {
             .object_acl_projection(
                 "update-copy-bucket",
                 vec![("acl-object".into(), object.generation)],
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap()

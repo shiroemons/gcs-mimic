@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     fsutil::test_support::SourceDir,
     import::{self, MetadataMode, SourceFormat, SourcePlatform},
@@ -298,7 +299,7 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
                 },
                 None,
                 None,
-                &crate::bucket::BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();

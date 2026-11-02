@@ -165,6 +165,7 @@ pub(crate) async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{
         bucket::{BucketAccess, BucketRecord},
         object::{ObjectConditions, UploadChunk},
@@ -244,7 +245,7 @@ mod tests {
                     if_generation_match: Some(record.generation),
                     ..Default::default()
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap()
@@ -495,7 +496,7 @@ mod tests {
                     entity: "user-reader".into(),
                     role: Some("READER".into()),
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -520,7 +521,7 @@ mod tests {
                 AclChange::Delete {
                     entity: "user-reader".into(),
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -566,7 +567,7 @@ mod tests {
                     }],
                     etag: None,
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -590,7 +591,7 @@ mod tests {
                     bindings: vec![],
                     etag: None,
                 },
-                &BucketAccess::Permissive,
+                PERMISSIVE,
             )
             .await
             .unwrap();
