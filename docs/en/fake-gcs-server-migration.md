@@ -219,8 +219,9 @@ reaches a bucket without rules while the fallback is off. See
 For an unsigned resumable session created by the server, preserve path/query
 when replacing the internal authority with the browser-reachable authority.
 The scenario verifies changed-Host PUT with Content-Range and a preflight.
-Cancellation deliberately returns **499**, and later session access returns
-410, following the [JSON resumable protocol](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads).
+Cancellation returns a **499** `clientClosedRequest` JSON envelope, and later
+session access repeats it, as confirmed by the 2026-11-02 live recording of the
+[JSON resumable protocol](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads).
 Do not treat 499 here as an infrastructure failure or retry cancellation as an
 upload. This example checks the status explicitly instead of using curl `--fail`:
 

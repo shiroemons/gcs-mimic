@@ -139,7 +139,9 @@ and never overwrite acknowledged bytes, even when resent bytes differ.
 A future offset with a gap, malformed/duplicate ranges, reversed/overflowing
 offsets, conflicting totals, wrong body length or an invalid nonfinal chunk
 return 400 without publication. An unparsable JSON Content-Range terminalizes
-the session: later requests repeat the recorded plain 400. That terminal error
+the session when its syntax is invalid: later requests repeat the recorded
+plain 400. Duplicate headers and inconsistent offsets/totals remain retryable
+400 errors; their persistence has not been recorded. That terminal error
 and its cleanup journal commit together and survive restart; an undersized
 nonfinal chunk alone leaves the session retryable. Other exact error choices
 remain local. Serializing writers per session gives
@@ -231,6 +233,11 @@ response if cleanup fails; diagnostics and the deletion journal retain that
 cleanup failure for maintenance retry. Successfully cleaned cancelled sessions
 retain their 499 tombstone without repeating physical cleanup before expiry.
 Restart runs due cleanup before readiness and rearms the next deadline.
+
+Older cancelled records do not distinguish explicit cancellation from a
+validation abort. Until their original deadline (at most seven days), both
+answer the 499 envelope after upgrade. This accepted local-state limitation
+requires no migration; newly aborted sessions retain their distinct 410 result.
 
 ## Client-reachable Location
 
@@ -358,8 +365,8 @@ not additional independent features.
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-002 | positive | Persisted prefix returns Range bytes=0-last, empty body and same offset across repeated queries/restart |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-003 | positive | Completed status returns 200 Object snapshot even after later overwrite, never allocates a new generation |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-004 | negative | Invalid token/total/range or nonempty status body cannot mutate destination or report false completion |
-| BEHAVIOR-OBJECT-013 | RSM-CANCEL-001 | positive/permission | Anonymous delegate DELETE cancels active session with 499, removes staging and preserves old object |
-| BEHAVIOR-OBJECT-013 | RSM-CANCEL-002 | negative/boundary | Cancelled URI gives 410 before original deadline, 404 at/after deadline; unknown URI is 404 |
+| BEHAVIOR-OBJECT-013 | RSM-CANCEL-001 | positive/permission | Anonymous delegate DELETE cancels active session with a 499 clientClosedRequest JSON envelope, removes staging and preserves old object |
+| BEHAVIOR-OBJECT-013 | RSM-CANCEL-002 | negative/boundary | Cancelled URI repeats the 499 clientClosedRequest JSON envelope before original deadline, 404 at/after deadline; unknown URI is 404 |
 | BEHAVIOR-OBJECT-013 | RSM-CANCEL-003 | concurrency | Cancel racing append/finalize has one terminal winner; completed-object bytes are never deleted |
 | BEHAVIOR-OBJECT-013 | RSM-EXPIRY-001 | boundary | Injected clock at deadline-1, deadline, deadline+1 verifies fixed 604800-second lifetime without sliding renewal |
 | BEHAVIOR-OBJECT-013 | RSM-EXPIRY-002 | resource/restart | Explicit due maintenance and startup cleanup release staged bytes/records; idle scheduler has no polling loop |

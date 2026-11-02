@@ -23,7 +23,7 @@ The Location decision is final: keep bind-derived defaults, explicitly advertise
 | Attrs CRC32C/generation, NewReader | Both Go modes check checksum, size, generation and exact bytes |
 | CopierFrom source generation + DoesNotExist, replay 412, generation Delete | Both Go modes check copy bytes/metadata, replay failure and selected deletion/missing state |
 | Server initiation with X-Upload-Content-Type | migrationSession and TestMigrationAppScenarioBrowser/resumable verify inherited text/plain |
-| DELETE cancellation | TestMigrationAppScenarioCancellation checks 499, subsequent 410 and no published object |
+| DELETE cancellation | TestMigrationAppScenarioCancellation checks the 499 clientClosedRequest JSON envelope on cancellation and subsequent access, with no published object |
 | Origin preflight, media POST, changed-Host resumable PUT + Content-Range | TestMigrationAppScenarioBrowser/media and /resumable |
 | Anonymous alt=media and path-style reads | Both browser modes check bytes; JSON response also checks CORS |
 | Concurrent browser uploads | TestMigrationAppScenarioParallelBrowser, twelve simultaneous raw HTTP uploads and reads |

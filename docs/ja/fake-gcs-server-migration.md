@@ -194,7 +194,8 @@ gcs-mimicでは、バケットに`cors`を設定するまでこのfetchはCORS�
 サーバーが作った署名なしのresumable URLをブラウザーへ渡す場合は、pathとqueryを保ち、
 到達可能なオリジンへ置き換えます。シナリオはHost変更後のPUT、Content-Range、preflightを確認します。
 取り消しのDELETEは[JSON resumableの仕様](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads)どおり
-**499**を返し、その後のセッションアクセスは410になります。
+`clientClosedRequest`のJSONエンベロープと**499**を返します。
+その後のセッションアクセスも同じ499応答になります。
 499を基盤障害と扱わず、取り消しの成功として判定してください。
 
 ```sh

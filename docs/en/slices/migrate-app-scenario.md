@@ -13,7 +13,7 @@ The existing `scripts/sdk-go.sh` runner starts an isolated HTTP server and initi
 | Go default Writer | Leave ChunkSize unchanged; a body above the default 16 MiB threshold uses a resumable Location and chunk requests | PASS |
 | Go single-request Writer | ChunkSize = 0; upload, Attrs CRC32C and positive generation, exact NewReader bytes | PASS |
 | Go copy and deletion | CopierFrom selects the source generation and DoesNotExist destination; replay returns 412, then generation-specific Delete removes source and copy | PASS |
-| Server resumable initiation | X-Upload-Content-Type survives publication without a chunk Content-Type; DELETE cancellation returns 499, subsequent session access returns 410 and no object is published | PASS |
+| Server resumable initiation | X-Upload-Content-Type survives publication without a chunk Content-Type; DELETE cancellation and subsequent session access return the 499 clientClosedRequest JSON envelope, and no object is published | PASS |
 | Browser wire flow | Origin-bearing preflight and media POST succeed; a server-created session accepts a changed Host with PUT and one complete Content-Range | PASS |
 | Anonymous reads | Origin-bearing JSON alt=media and path-style GET return exact bytes; JSON CORS response permits the origin | PASS |
 | Ruby anonymous workflow | Explicit endpoint, initialized bucket, create_file, bucket.file lookup/bytes and delete/missing lookup | PASS |
@@ -40,7 +40,7 @@ The excluded parallel-upload and project-less-list cases retain their existing a
 
 ## Source comparison
 
-One Go scenario execution against `fsouza/fake-gcs-server:1.56.1` (image digest `sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef`) failed the strict assertions: both copy replays returned success instead of 412, preflight used `Access-Control-Allow-Origin: *` (media preflight also omitted Allow-Methods), and PUT after DELETE 499 returned 200 instead of 410; the Ruby scenario execution failed `migration bucket.file metadata differs`.
+One Go scenario execution against `fsouza/fake-gcs-server:1.56.1` (image digest `sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef`) failed the strict assertions: both copy replays returned success instead of 412, preflight used `Access-Control-Allow-Origin: *` (media preflight also omitted Allow-Methods), and PUT after DELETE 499 returned 200 instead of the then-local 410; the Ruby scenario execution failed `migration bucket.file metadata differs`. The cancellation expectation now follows the 2026-11-02 Cloud Storage recording: the later PUT repeats the 499 clientClosedRequest JSON envelope; the historical comparison was not rerun.
 
 The source comparison used HTTP, temporary empty `assets`/`exports` seed directories, `-external-url` set to the loopback published origin and `-public-host` set to its `localhost` authority. The image was pulled and run, never built. Successful initiation/default upload/Attrs/read/copy were reached before the Go replay assertion failed; browser transfer/read assertions after failed preflight and Ruby download assertions after failed metadata were not reached. A wildcard CORS response is a source formatting difference, not by itself proof of a browser failure. Source success is therefore not claimed, and source behavior does not override the Google-oriented negative tests. Later migration documentation must retain this limitation rather than claim full replacement.
 

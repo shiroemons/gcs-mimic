@@ -245,8 +245,10 @@ for sessions beyond the 128 most recent.
   refused, a cancellation frees an active slot, and 128 active plus 128 terminal
   records reopen cleanly.
 - `cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap`:
-  129 cancellations with failed cleanup are all kept (410), and the next
-  initiation is refused instead of exceeding the bound.
+  129 cancellations with failed cleanup are all kept, and the next initiation
+  is refused instead of exceeding the bound. Their historical response was
+  410; the 2026-11-02 recording and current regression tests use the repeated
+  499 clientClosedRequest JSON envelope.
 - `retained_completions_answer_status_and_final_retries_after_the_active_cap`:
   over HTTP, after 130 completions the retained sessions answer `bytes */10`,
   `bytes */*` and a replayed final PUT with 200 and the original resource; the

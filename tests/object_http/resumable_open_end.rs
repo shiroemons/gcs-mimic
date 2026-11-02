@@ -181,7 +181,6 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
         "bytes 0-*/x",
         "bytes 0-*/-1",
         "bytes x-*/*",
-        "bytes 6-*/5",
         "bytes 0-**/*",
     ] {
         let path = session(&server, "malformed", "");
@@ -198,6 +197,12 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
         assert_eq!(server.get("malformed").status, 404);
     }
     let path = session(&server, "rejected", "");
+    put_chunked(&server, &path, "bytes 6-*/5", b"abc").plain_error(
+        400,
+        "text/plain; charset=utf-8",
+        "Failed to parse Content-Range header.",
+    );
+    assert!(!status(&server, &path).headers.contains_key("range"));
     // A start past the persisted offset would leave a gap.
     put_chunked(&server, &path, "bytes 1-*/*", b"abc")
         .session_error(400, "Upload offset leaves a gap");

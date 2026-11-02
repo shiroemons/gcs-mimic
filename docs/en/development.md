@@ -620,8 +620,9 @@ Review `merged-reference.json` before replacing the committed reference. The
 merge replaces complete cases by ID, retains all other cases and their order,
 and requires a partial with `source: "live"` and nonzero reference requests.
 Self-check recordings (`source: "self-check"`) are refused on either side.
-For the existing live reference, a missing `source` is accepted only on the base;
-an unmarked partial must be re-recorded. Empty partials, unknown or duplicate
+For the existing live reference, a missing `source` is accepted only on a base
+with nonzero reference requests; an unmarked partial must be re-recorded.
+Zero-request bases, empty partials, unknown or duplicate
 case IDs, failed cases or steps, dates older than the base, incompatible formats,
 and different storage.proto revisions or tool metadata (including grpcurl) are
 also refused.

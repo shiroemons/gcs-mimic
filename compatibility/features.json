@@ -27553,7 +27553,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "All five initiation cases pass for the frozen JSON upload path, bounded metadata/length validation, encoded names, strict local create/overwrite permissions, 128 active sessions plus the 128 most recent completed/cancelled records (trimmed oldest-first at initiation, so finished uploads never block new ones) and configured absolute Location. A record trimmed before its seven-day deadline answers 404 like an unknown session; this local bound replaces the provider's week-long 200/410 answer only for sessions beyond the 128 most recent. One nonempty initiation retry token is accepted without ifGenerationMatch; another initiation creates a distinct bounded session, with no replay. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS retain provider alias, precedence/error and permission-timing questions outside this declared local subset; full objects.insert parity remains on JSON-OBJECTS-007.",
+      "notes": "All five initiation cases pass for the frozen JSON upload path, bounded metadata/length validation, encoded names, strict local create/overwrite permissions, 128 active sessions plus the 128 most recent completed/cancelled records (trimmed oldest-first at initiation, so finished uploads never block new ones) and configured absolute Location. A record trimmed before its seven-day deadline answers 404 like an unknown session; this local bound replaces the retained completion or terminal response only for sessions beyond the 128 most recent. One nonempty initiation retry token is accepted without ifGenerationMatch; another initiation creates a distinct bounded session, with no replay. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS retain provider alias, precedence/error and permission-timing questions outside this declared local subset; full objects.insert parity remains on JSON-OBJECTS-007.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -27705,7 +27705,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "All ten scoped sequential PUT/SDK POST chunk cases pass: numeric/unknown totals, overlap preserving acknowledged bytes, zero/exact-multiple completion, no-308 override, invalid ranges/lengths, interruption, bounded admission, object caps and open-ended final ranges (bytes start-*/total, the Node.js default single-request upload). Native 16 MiB through 1 GiB, slow and eight-session runs measure bounded server RSS in one declared profile; no cgroup or constrained-container memory claim. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-EDGES retains provider malformed/concurrent error and chunk-checkpoint parity; alternate upload commands and invocation-token replay are excluded. JSON session-protocol failures (unusable Content-Range, Content-Length or total that disagrees with the range, offset gap, nonfinal chunk size, unknown session) are bare text/plain bodies without cache-control, expires, pragma or vary, as recorded for the status 308, range and unknown-session replies. The 410 for a finished or cancelled session and the 499 cancel were not recorded; they follow the same form by inference, because the front end decides them from the session state alone, as it does the recorded 404. Failures of other kinds (checksum declaration conflicts, x-goog-hash, final metadata, offset or total conflicts found by the catalog) keep their JSON error envelope and reason, which SDKs read. The initiation reply and upload errors carry cache-control, expires and pragma. Upload errors with a JSON envelope keep x-content-type-options: nosniff, an intentional difference from Cloud Storage because the text/html body quotes request input.",
+      "notes": "All ten scoped sequential PUT/SDK POST chunk cases pass: numeric/unknown totals, overlap preserving acknowledged bytes, zero/exact-multiple completion, no-308 override, invalid ranges/lengths, interruption, bounded admission, object caps and open-ended final ranges (bytes start-*/total, the Node.js default single-request upload). Native 16 MiB through 1 GiB, slow and eight-session runs measure bounded server RSS in one declared profile; no cgroup or constrained-container memory claim. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md and docs/en/evidence/differential-harness.md. SPEC-RSM-EDGES retains unrecorded malformed/concurrent errors and chunk-checkpoint parity; alternate upload commands and invocation-token replay are excluded. JSON session-protocol failures use bare text/plain bodies without cache-control, expires, pragma or vary, as recorded for status 308, malformed Content-Range and unknown sessions. The 2026-11-02 isolated-session recording establishes a persistent plain 400 after a syntax error and the clientClosedRequest JSON 499 envelope on cancellation and later status. Duplicate headers and offset/total inconsistencies remain retryable local 400; larger non-multiple chunks retain local wording, while the recorded sub-256-KiB rejection uses Cloud Storage wording. Other terminal validation failures retain local plain 410. Checksum declaration conflicts, x-goog-hash, final metadata and catalog validation failures keep their JSON envelope and reason. Initiation and JSON errors carry their recorded caching headers; upload front-end errors omit x-content-type-options where recorded.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -28083,14 +28083,14 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "All six scoped cancellation/expiry cases pass: capability-authorized DELETE 499, local terminal 410 then 404, writer/finalization races, fixed 604800-second deadline, indexed startup/due cleanup, idle deadline scheduler and visible durable cleanup retry. Injected Clock changes test time; production uses the same persisted deadline against SystemClock. The original cancellation/checksum response survives postcommit unlink failure, and successfully cleaned tombstones are not physically reclaimed again before expiry. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-EDGES retains provider equality, error-body and terminal-retention parity beyond the frozen local rules.",
+      "notes": "All six scoped cancellation/expiry cases pass: capability-authorized DELETE and later cancelled-session access return the 499 clientClosedRequest JSON envelope until local expiry returns 404; writer/finalization races, fixed 604800-second deadline, indexed startup/due cleanup, idle deadline scheduler and visible durable cleanup retry remain covered. Injected Clock changes test time; production uses the same persisted deadline against SystemClock. The original cancellation/checksum response survives postcommit unlink failure, and successfully cleaned tombstones are not physically reclaimed again before expiry. Older CANCELLED rows cannot distinguish cancellation from validation abort and answer 499 until their original deadline, at most seven days; newly aborted sessions retain local 410. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md and docs/en/evidence/differential-harness.md. SPEC-RSM-EDGES retains unrecorded lifetime boundaries, cancellation-repeat DELETE and completed-session DELETE/retention behavior beyond the recorded cancellation and subsequent PUT response.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "RSM-CANCEL-001",
-          "description": "positive/permission: Anonymous delegate DELETE cancels active session with 499, removes staging and preserves old object. Contract: docs/en/slices/resumable-upload.md.",
+          "description": "positive/permission: Anonymous delegate DELETE cancels active session with the 499 clientClosedRequest JSON envelope, removes staging and preserves old object. Contract: docs/en/slices/resumable-upload.md.",
           "result": "PASS",
           "test_ids": [
             "anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline",
@@ -28099,7 +28099,7 @@
         },
         {
           "id": "RSM-CANCEL-002",
-          "description": "negative/boundary: Cancelled URI gives 410 before original deadline, 404 at/after deadline; unknown URI is 404. Contract: docs/en/slices/resumable-upload.md.",
+          "description": "negative/boundary: Cancelled URI repeats the 499 clientClosedRequest JSON envelope before original deadline, 404 at/after deadline; unknown URI is 404. Contract: docs/en/slices/resumable-upload.md.",
           "result": "PASS",
           "test_ids": [
             "anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline",
@@ -53852,25 +53852,85 @@
       "interface": "External validation",
       "phase": "P0",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXTERNAL",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXTERNAL",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control"
+        "https://docs.cloud.google.com/storage/docs/access-control",
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-11-02",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Use only explicitly authorized isolated project/bucket with cost boundaries and cleanup; avoid irreversible real retention locking.",
+      "notes": "Optional differential harness with explicit live opt-in, bounded request pacing, isolated labelled buckets, cleanup/sweep and recording redaction. The committed live reference covers 59 JSON/XML/gRPC cases recorded on 2026-11-01; only obj-resumable was re-recorded on 2026-11-02. All 59 cases match the normalized offline replay in docs/en/evidence/differential-comparison.md. This completes the declared harness workflows, not unrestricted Cloud Storage conformance; per-case comparison rules, normalization and the remaining feature-specific gaps define the tested scope. Real calls require separately authorized credentials/project; irreversible retention locking is refused.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DIFF-SELF-CHECK",
+          "description": "Run all 59 declarative cases locally without Google credentials; every request expectation passes, no cases are skipped and cleanup leaves zero buckets.",
+          "result": "PASS",
+          "test_ids": ["differential_self_check"]
+        },
+        {
+          "id": "DIFF-LIVE-RECORD",
+          "description": "Explicitly authorized live recording with cleanup and a redaction guard: 59-case reference from 2026-11-01, with one isolated-session obj-resumable refresh on 2026-11-02 using 30 reference requests, zero 429 retries and zero leftover labelled buckets.",
+          "result": "PASS",
+          "test_ids": ["differential_live_record"]
+        },
+        {
+          "id": "DIFF-OFFLINE-REPLAY",
+          "description": "Replay the committed mixed-date live reference without Google access; all 59 cases match with zero differing fields, notes, errors or skips, and the report preserves every case description.",
+          "result": "PASS",
+          "test_ids": ["differential_offline_replay"]
+        },
+        {
+          "id": "DIFF-PARTIAL-MERGE",
+          "description": "Merge a live nonzero-request partial offline: replace only obj-resumable, preserve all other 58 cases as JSON values and retain recording dates/tool metadata; refuse self-check, zero-request, failed, stale and incompatible inputs and run the output leak guard.",
+          "result": "PASS",
+          "test_ids": ["differential_partial_merge"]
+        }
+      ],
+      "test_ids": [
+        "differential_self_check",
+        "differential_live_record",
+        "differential_offline_replay",
+        "differential_partial_merge"
+      ],
+      "verification": [
+        {
+          "command": "cargo xtask differential run --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-02",
+          "artifact": "docs/en/evidence/differential-harness.md",
+          "test_ids": ["differential_self_check"]
+        },
+        {
+          "command": "cargo xtask differential run --filter obj-resumable --record \"$TMPDIR/resumable-live.json\" --out \"$TMPDIR/resumable-live\"",
+          "result": "PASS",
+          "verified_at": "2026-11-02",
+          "artifact": "docs/en/evidence/differential-harness.md",
+          "test_ids": ["differential_live_record"]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --evidence docs/en/evidence/differential-comparison.md --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-02",
+          "artifact": "docs/en/evidence/differential-comparison.md",
+          "test_ids": ["differential_offline_replay"]
+        },
+        {
+          "command": "cargo xtask differential merge compatibility/differential/reference/gcs.json \"$TMPDIR/resumable-live.json\" --out compatibility/differential/reference/gcs.json",
+          "result": "PASS",
+          "verified_at": "2026-11-02",
+          "artifact": "docs/en/evidence/differential-harness.md",
+          "test_ids": ["differential_partial_merge"]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "d080b189c3354d03032f336f22c206bc166384e6",
+      "last_verified": "2026-11-02"
     },
     {
       "id": "DESIGN-090",
@@ -56024,7 +56084,7 @@
         },
         {
           "id": "HTTP-MIGRATION-BROWSER-WIRE",
-          "description": "Raw HTTP substitute with Origin: media/resumable preflight and POST, server-created X-Upload-Content-Type session uploaded with changed Host and complete Content-Range, JSON/path-style anonymous exact-byte reads, and 499 cancellation followed by 410 without publication. No browser enforcement or strict authorization claim. Contract: docs/en/slices/migrate-app-scenario.md.",
+          "description": "Raw HTTP substitute with Origin: media/resumable preflight and POST, server-created X-Upload-Content-Type session uploaded with changed Host and complete Content-Range, JSON/path-style anonymous exact-byte reads, and cancellation plus subsequent access returning the 499 clientClosedRequest JSON envelope without publication. No browser enforcement or strict authorization claim. Contract: docs/en/slices/migrate-app-scenario.md.",
           "result": "PASS",
           "test_ids": [
             "TestMigrationAppScenarioBrowser",

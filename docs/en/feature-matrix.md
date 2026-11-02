@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 204 | 0 | 105 | 1 | 0 | 0 |
 | behavior | 201 | 90 | 0 | 72 | 39 | 0 | 0 |
-| project_requirement | 95 | 26 | 0 | 40 | 29 | 0 | 0 |
+| project_requirement | 95 | 25 | 0 | 40 | 30 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 204 | 49 | 39 | 18 | 0 | 0 |
 | behavior | 91 | 68 | 38 | 4 | 0 | 0 |
-| project_requirement | 26 | 0 | 0 | 0 | 0 | 69 |
+| project_requirement | 25 | 0 | 0 | 0 | 1 | 69 |
 
 ## api_operation
 
@@ -961,7 +961,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-086 | Python official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 2 |
 | DESIGN-087 | Official Rust SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 0 |
 | DESIGN-088 | Hermetic SDK tests deny unintended egress | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-089 | Optional Google differential conformance | NOT_STARTED | P0 | EXTERNAL | NONE | 0 |
+| DESIGN-089 | Optional Google differential conformance | IMPLEMENTED | P0 | EXTERNAL | EXTERNAL | 0 |
 | DESIGN-090 | Deterministic fault injection | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 
 ### Signed access

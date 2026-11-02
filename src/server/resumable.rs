@@ -339,7 +339,7 @@ fn plan_chunk(
         ChunkKind::Data => open_end || total == Some(end),
     };
     if kind == ChunkKind::Data && !finalize && !length.is_multiple_of(256 * 1024) {
-        let message = if target.name.is_some() {
+        let message = if target.name.is_some() || length >= 256 * 1024 {
             "Nonfinal chunk must be a multiple of 256 KiB".into()
         } else {
             format!(
@@ -408,8 +408,8 @@ async fn session_framing(
     ctx: ObjectCtx<'_>,
 ) -> Result<(Option<Range>, Option<u64>), JsonError> {
     let framing = chunk_framing(headers, ctx.config.max_object_bytes);
-    // Only the JSON front end records an unparsable range as a terminal session failure.
-    if target.name.is_none() && framing.is_err() && resumable::range(headers).is_err() {
+    // The recording proves a terminal JSON session failure only for malformed syntax.
+    if target.name.is_none() && framing.is_err() && resumable::range_has_syntax_error(headers) {
         let lease = ctx
             .await_catalog(
                 ctx.state

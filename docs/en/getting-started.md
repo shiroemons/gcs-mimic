@@ -668,8 +668,9 @@ Nonretryable checksum/permission errors require a new initiation.
 ### Cancel an incomplete session
 
 Initiate another upload and cancel its capability URI, rather than deleting an
-object. JSON resumable cancellation returns 499; omit curl `--fail` when checking
-this expected response. A cancelled session returns local 410 before its original
+object. JSON resumable cancellation returns a 499 `clientClosedRequest` JSON
+envelope; omit curl `--fail` when checking this expected response. Later requests
+to the cancelled session repeat that 499 envelope before its original
 deadline. At or after 604800 seconds from initiation it returns 404, as does an
 unknown session. Activity never renews this seven-day lifetime. This guide does
 not wait a week; expiry boundaries belong to injected-clock acceptance tests.
@@ -689,7 +690,7 @@ test "$status" = 499
 status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
   -H 'Content-Length: 0' -H 'Content-Range: bytes */*' \
   --output /dev/null --write-out '%{http_code}' "$cancel_uri")
-test "$status" = 410
+test "$status" = 499
 status=$(curl --disable --noproxy '*' --silent --show-error --output /dev/null \
   --write-out '%{http_code}' "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fcancel.bin")
 test "$status" = 404

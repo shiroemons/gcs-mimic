@@ -339,40 +339,47 @@ pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, JsonError> {
     parse_range(headers).map_err(|_| unusable_content_range())
 }
 
-fn parse_range(headers: &HeaderMap) -> Result<Option<Range>, JsonError> {
-    single(headers, "content-range")?
+enum RangeError {
+    Syntax,
+    Semantic,
+}
+
+pub(crate) fn range_has_syntax_error(headers: &HeaderMap) -> bool {
+    matches!(parse_range(headers), Err(RangeError::Syntax))
+}
+
+fn range_unsigned(value: &str) -> Result<u64, RangeError> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(RangeError::Syntax);
+    }
+    unsigned(value).map_err(|_| RangeError::Semantic)
+}
+
+fn parse_range(headers: &HeaderMap) -> Result<Option<Range>, RangeError> {
+    single(headers, "content-range")
+        .map_err(|_| RangeError::Semantic)?
         .map(|value| {
-            let value = value
-                .strip_prefix("bytes ")
-                .ok_or_else(|| JsonError::invalid_parameter("Invalid Content-Range"))?;
-            let (range, total) = value
-                .split_once('/')
-                .ok_or_else(|| JsonError::invalid_parameter("Invalid Content-Range"))?;
+            let value = value.strip_prefix("bytes ").ok_or(RangeError::Syntax)?;
+            let (range, total) = value.split_once('/').ok_or(RangeError::Syntax)?;
             let total = if total == "*" {
                 None
             } else {
-                Some(unsigned(total)?)
+                Some(range_unsigned(total)?)
             };
             if range == "*" {
                 return Ok(Range::Status(total));
             }
-            let (start, end) = range
-                .split_once('-')
-                .ok_or_else(|| JsonError::invalid_parameter("Invalid Content-Range"))?;
+            let (start, end) = range.split_once('-').ok_or(RangeError::Syntax)?;
             if end == "*" {
-                let start = unsigned(start)?;
+                let start = range_unsigned(start)?;
                 if total.is_some_and(|n| start > n) {
-                    return Err(JsonError::invalid_parameter(
-                        "Invalid Content-Range offsets",
-                    ));
+                    return Err(RangeError::Semantic);
                 }
                 return Ok(Range::Open { start, total });
             }
-            let (start, end) = (unsigned(start)?, unsigned(end)?);
+            let (start, end) = (range_unsigned(start)?, range_unsigned(end)?);
             if end < start || end == u64::MAX || total.is_some_and(|n| end >= n) {
-                return Err(JsonError::invalid_parameter(
-                    "Invalid Content-Range offsets",
-                ));
+                return Err(RangeError::Semantic);
             }
             Ok(Range::Data { start, end, total })
         })

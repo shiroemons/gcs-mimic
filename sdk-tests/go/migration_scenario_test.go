@@ -203,8 +203,18 @@ func TestMigrationAppScenarioCancellation(t *testing.T) {
 	ctx, client, httpClient, endpoint := newEmulatorClient(t)
 	object := resumableObject(t, client.Bucket("assets"), "browser/cancelled.txt")
 	location := migrationSession(t, ctx, httpClient, endpoint, object.ObjectName())
-	migrationHTTP(t, ctx, httpClient, http.MethodDelete, location, "", nil, 499)
-	migrationHTTP(t, ctx, httpClient, http.MethodPut, location, "", http.Header{"Content-Range": {"bytes */0"}}, http.StatusGone)
+	for _, method := range []string{http.MethodDelete, http.MethodPut} {
+		_, body := migrationHTTP(t, ctx, httpClient, method, location, "", http.Header{"Content-Range": {"bytes */0"}}, 499)
+		var envelope struct {
+			Error struct {
+				Code    int
+				Message string
+			}
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil || envelope.Error.Code != 499 || envelope.Error.Message != "clientClosedRequest" {
+			t.Fatalf("cancelled session envelope: %s, error=%v", body, err)
+		}
+	}
 	requireObjectMissing(t, ctx, object)
 }
 
