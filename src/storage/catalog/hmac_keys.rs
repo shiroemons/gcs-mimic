@@ -172,13 +172,8 @@ fn select(
     project: &str,
     access_id: &str,
 ) -> Result<Option<HmacKeyRecord>, CatalogError> {
-    connection
-        .prepare_cached(SELECT_KEY)
-        .and_then(|mut statement| {
-            statement
-                .query_row(params![access_id, project], record)
-                .optional()
-        })
+    sql::row(connection, SELECT_KEY, params![access_id, project], record)
+        .optional()
         .map_err(unavailable)
 }
 
@@ -223,9 +218,7 @@ impl Catalog {
     ) -> Result<Option<(String, String)>, CatalogError> {
         let access_id = access_id.to_owned();
         self.run(move |connection| {
-            connection
-                .prepare_cached("SELECT service_account_email, secret FROM hmac_keys WHERE access_id = ?1 AND state = 'ACTIVE'")
-                .and_then(|mut statement| statement.query_row([access_id], |row| Ok((row.get(0)?, row.get(1)?))).optional())
+            sql::row(connection, "SELECT service_account_email, secret FROM hmac_keys WHERE access_id = ?1 AND state = 'ACTIVE'", [access_id], |row| Ok((row.get(0)?, row.get(1)?))).optional()
                 .map_err(unavailable)
         }).await
     }
@@ -239,30 +232,24 @@ impl Catalog {
         let now = unix_millis(self.0.clock.now())?;
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
-            let live: i64 = sql::scalar(&transaction,
-                    "SELECT count(*) FROM hmac_keys WHERE project = ?1 AND service_account_email = ?2 AND state != 'DELETED'", [&project, &email])?;
+            let live: i64 = sql::scalar(
+                &transaction,
+                "SELECT count(*) FROM hmac_keys WHERE project = ?1 AND service_account_email = ?2 AND state != 'DELETED'",
+                [&project, &email],
+            )?;
             if live >= MAX_KEYS_PER_SERVICE_ACCOUNT {
                 return Ok(Err(HmacKeyError::LimitReached));
             }
             // A collision among 275 random bits is not expected; retrying keeps IDs unique anyway.
             let mut access_id = generate_access_id()?;
-            while transaction
-                .prepare_cached("SELECT EXISTS(SELECT 1 FROM hmac_keys WHERE access_id = ?1)")
-                .and_then(|mut statement| {
-                    statement.query_row([&access_id], |row| row.get::<_, bool>(0))
-                })?
+            while sql::row(&transaction, "SELECT EXISTS(SELECT 1 FROM hmac_keys WHERE access_id = ?1)", [&access_id], |row| row.get::<_, bool>(0))?
             {
                 access_id = generate_access_id()?;
             }
             let secret = generate_secret()?;
-            transaction
-                .prepare_cached(
+            sql::exec(&transaction,
                     "INSERT INTO hmac_keys (access_id, project, service_account_email, secret, state, time_created, updated, revision)
-                     VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5, 1)",
-                )
-                .and_then(|mut statement| {
-                    statement.execute(params![access_id, project, email, secret, now])
-                })?;
+                     VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5, 1)", params![access_id, project, email, secret, now])?;
             let record = select(&transaction, &project, &access_id)?
                 .ok_or_else(|| unavailable("inserted HMAC key is missing"))?;
             transaction.commit()?;

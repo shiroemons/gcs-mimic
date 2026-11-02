@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::catalog::fault::{Fault, Step};
+use crate::storage::catalog::sql;
 
 #[tokio::test]
 async fn conflict_capture_write_flush_sync_failures_preserve_input_and_winner() {
@@ -279,11 +280,13 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                 let id = state.0.0.clone();
                 recovered
                     .run_admin(move |connection| {
-                        connection
-                            .prepare_cached("UPDATE sync_conflicts SET retained=?2 WHERE id=?1")
-                            .and_then(|mut statement| statement.execute(params![id, identity]))
-                            .map(|_| ())
-                            .map_err(unavailable)
+                        sql::exec(
+                            connection,
+                            "UPDATE sync_conflicts SET retained=?2 WHERE id=?1",
+                            params![id, identity],
+                        )
+                        .map(|_| ())
+                        .map_err(unavailable)
                     })
                     .await
                     .unwrap();

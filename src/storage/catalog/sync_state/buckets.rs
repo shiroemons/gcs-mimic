@@ -3,7 +3,7 @@ use super::{
     MAX_PAGE,
     root::{RootError, RootLease},
 };
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::BucketRecord,
     storage::{
@@ -11,7 +11,7 @@ use crate::{
         catalog::{change_journal, insert_bucket_in_transaction, unavailable},
     },
 };
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_buckets (
     root_id BLOB NOT NULL REFERENCES sync_roots(root_id),
@@ -48,7 +48,7 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx = connection.transaction().map_err(unavailable)?;
             lease.control_scope().authorize(&tx)?;
-            let mut incarnation: Option<String> = sql::optional_scalar(&tx, "SELECT incarnation FROM bucket_incarnations WHERE bucket=?1", [&name]).map_err(unavailable)?;
+            let mut incarnation: Option<String> = bucket_incarnation(&tx, &name).optional().map_err(unavailable)?;
             if incarnation.is_none() {
                 let known: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)", params![root,name]).map_err(unavailable)?;
                 if known || create.is_none() { return Ok(false); }
@@ -56,7 +56,7 @@ impl RootLease {
                 // A bucket mirroring a working tree keeps no deletion history on disk.
                 insert_bucket_in_transaction(&tx, record, 0)?;
                 change_journal::append(&tx, Origin::SyncIngest, change_journal::ChangeKind::BucketCreate, &name, None)?;
-                incarnation = Some(sql::scalar(&tx, "SELECT incarnation FROM bucket_incarnations WHERE bucket=?1", [&name]).map_err(unavailable)?);
+                incarnation = Some(bucket_incarnation(&tx, &name).map_err(unavailable)?);
             }
             sql::exec(&tx, "INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation", params![root,name,incarnation]).map_err(unavailable)?;
             tx.commit().map_err(unavailable)?;

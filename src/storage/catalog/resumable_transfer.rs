@@ -9,7 +9,7 @@ use super::{
 };
 use crate::hashing::Hashes;
 use crate::object::{ObjectError, ObjectRecord, UploadChunk};
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{bucket_incarnation, sql};
 use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 use std::io;
@@ -110,22 +110,22 @@ fn check_session_publishable(
     session: &super::resumable::ResumableSession,
     now: std::time::SystemTime,
 ) -> Result<(), ResumableError> {
-    let stored = transaction
-        .prepare_cached("SELECT * FROM resumable_sessions WHERE id = ?1")
-        .and_then(|mut statement| statement.query_row([&session.id], read_session))
-        .map_err(object_unavailable)?;
+    let stored = sql::row(
+        transaction,
+        "SELECT * FROM resumable_sessions WHERE id = ?1",
+        [&session.id],
+        read_session,
+    )
+    .map_err(object_unavailable)?;
     if now >= stored.deadline {
         return Err(ResumableError::NotFound);
     }
     if stored.state != SessionState::Active {
         return Err(ResumableError::Gone);
     }
-    let incarnation: Option<String> = sql::optional_scalar(
-        transaction,
-        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-        [&session.bucket],
-    )
-    .map_err(object_unavailable)?;
+    let incarnation: Option<String> = bucket_incarnation(transaction, &session.bucket)
+        .optional()
+        .map_err(object_unavailable)?;
     if incarnation.as_deref() != Some(&session.incarnation) {
         return Err(ObjectError::Forbidden.into());
     }
@@ -247,11 +247,14 @@ impl Catalog {
         let id = lease.session.id.clone();
         let committed = self
             .run_upload(move |connection| {
-                connection
-                    .prepare_cached("SELECT * FROM resumable_sessions WHERE id = ?1")
-                    .and_then(|mut statement| statement.query_row([id], read_session))
-                    .optional()
-                    .map_err(object_unavailable)
+                sql::row(
+                    connection,
+                    "SELECT * FROM resumable_sessions WHERE id = ?1",
+                    [id],
+                    read_session,
+                )
+                .optional()
+                .map_err(object_unavailable)
             })
             .await?;
         if let Some(session) = committed

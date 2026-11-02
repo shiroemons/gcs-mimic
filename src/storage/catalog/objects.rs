@@ -362,16 +362,36 @@ fn os_metadata(entry: &fs::DirEntry) -> bool {
     name == ".DS_Store" || name.starts_with("._")
 }
 
+pub(super) fn blob_referenced(connection: &Connection, id: &str) -> rusqlite::Result<bool> {
+    sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
+        [id],
+    )
+}
+
+pub(super) fn discard_unreferenced_blob(
+    connection: &Connection,
+    data_dir: &Path,
+    memory: Option<&crate::storage::memory::Store>,
+    id: &str,
+) -> Result<(), ObjectError> {
+    if !blob_referenced(connection, id)? {
+        if let Some(memory) = memory {
+            memory.remove(id)?;
+        } else {
+            reclaim(connection, data_dir, id)?;
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn reclaim(
     connection: &Connection,
     data_dir: &Path,
     id: &str,
 ) -> Result<(), ObjectError> {
-    let referenced: bool = sql::scalar(
-        connection,
-        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-        [id],
-    )?;
+    let referenced: bool = blob_referenced(connection, id)?;
     if referenced {
         return Err(ObjectError::Unavailable(
             "deletion journal references a live blob".into(),
@@ -537,11 +557,7 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
                 )));
             }
             // The same statement as `reclaim`, so this per-blob scan reuses its cache entry.
-            let referenced: bool = sql::scalar(
-                connection,
-                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-                [&id],
-            )?;
+            let referenced: bool = blob_referenced(connection, &id)?;
             if !referenced {
                 unlink(&blob.path()).map_err(|error| {
                     object_unavailable(format!("blob entry {}: {error}", blob.path().display()))
@@ -1228,19 +1244,7 @@ impl Catalog {
             if memory.is_none() {
                 unlink(&stage)?;
             }
-            let referenced: bool = sql::scalar(
-                connection,
-                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-                [&id],
-            )?;
-            if !referenced {
-                if let Some(memory) = &memory {
-                    memory.remove(&id)?;
-                } else {
-                    reclaim(connection, &data_dir, &id)?;
-                }
-            }
-            Ok(())
+            discard_unreferenced_blob(connection, &data_dir, memory.as_deref(), &id)
         })
         .await
     }
@@ -1446,18 +1450,14 @@ impl Catalog {
             let micros = unix_micros(clock.now())?;
             record.updated = system_time_micros(micros)?;
             let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
-            transaction
-                .prepare_cached(
+            sql::exec(&transaction,
                     "UPDATE objects SET metageneration = ?3, updated = ?4, content_type = ?5,
                     content_encoding = ?6, content_disposition = ?7, content_language = ?8,
                     cache_control = ?9, metadata = ?10, event_based_hold = ?11,
                     temporary_hold = ?13, custom_time = ?14, retention_mode = ?15, retain_until_time = ?16,
                     retain_until_sub_micro_nanos = ?17,
                     temporary_hold_released = ?18, event_based_hold_released = ?19
-                    WHERE bucket = ?1 AND name = ?2 AND generation = ?12",
-                )
-                .and_then(|mut statement| {
-                    statement.execute(params![
+                    WHERE bucket = ?1 AND name = ?2 AND generation = ?12", params![
                         bucket,
                         name,
                         record.metageneration,
@@ -1477,8 +1477,7 @@ impl Catalog {
                         retain_sub_micro,
                         temporary_released,
                         event_released
-                    ])
-                })?;
+                    ])?;
             super::change_journal::object(
                 &transaction,
                 super::change_journal::origin(&access),
@@ -2209,11 +2208,14 @@ pub(super) fn authorized_bucket(
     bucket: &str,
     access: &BucketAccess,
 ) -> Result<(String, DeletePermission), ObjectError> {
-    let (storage_class, project): (String, String) = connection
-        .prepare_cached("SELECT storage_class, project FROM buckets WHERE name = ?1")
-        .and_then(|mut statement| statement.query_row([bucket], |r| Ok((r.get(0)?, r.get(1)?))))
-        .optional()?
-        .ok_or(ObjectError::BucketNotFound)?;
+    let (storage_class, project): (String, String) = sql::row(
+        connection,
+        "SELECT storage_class, project FROM buckets WHERE name = ?1",
+        [bucket],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()?
+    .ok_or(ObjectError::BucketNotFound)?;
     let delete_permission =
         super::check_access(connection, bucket, &project, access).map_err(|error| match error {
             CatalogError::Forbidden => ObjectError::Forbidden,
@@ -2237,11 +2239,14 @@ pub(super) fn lookup(
     bucket: &str,
     name: &str,
 ) -> Result<Option<(ObjectRecord, String)>, ObjectError> {
-    connection
-        .prepare_cached(SELECT_LIVE_OBJECT)
-        .and_then(|mut statement| statement.query_row(params![bucket, name], read_object))
-        .optional()
-        .map_err(object_unavailable)
+    sql::row(
+        connection,
+        SELECT_LIVE_OBJECT,
+        params![bucket, name],
+        read_object,
+    )
+    .optional()
+    .map_err(object_unavailable)
 }
 
 pub(super) fn selected(
@@ -2255,12 +2260,13 @@ pub(super) fn selected(
 ) -> Result<(ObjectRecord, String), ObjectError> {
     let object_acl = object_acl_authority(connection, bucket, access)?;
     let record = if let Some(generation) = generation {
-        connection
-            .prepare_cached(SELECT_OBJECT_GENERATION)
-            .and_then(|mut statement| {
-                statement.query_row(params![bucket, name, generation], read_object)
-            })
-            .optional()?
+        sql::row(
+            connection,
+            SELECT_OBJECT_GENERATION,
+            params![bucket, name, generation],
+            read_object,
+        )
+        .optional()?
     } else {
         lookup(connection, bucket, name)?
     };
@@ -2601,8 +2607,7 @@ impl Catalog {
                         .query_map([], |row| row.get::<_, String>(0))?
                         .collect::<rusqlite::Result<Vec<_>>>()?;
                     for id in &ids {
-                        let referenced: bool = sql::scalar(connection,
-                                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)", [id])?;
+                        let referenced: bool = blob_referenced(connection, id)?;
                         if referenced {
                             return Err(object_unavailable(
                                 "deletion journal references a live blob",

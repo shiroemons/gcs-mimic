@@ -96,8 +96,7 @@ pub(super) fn recover(
     while drain(connection, data_dir).map_err(super::super::unavailable)? {}
     let mut after = String::new();
     loop {
-        let part:Option<(String,i64)>=connection.prepare_cached("SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1")
-            .and_then(|mut s|s.query_row([&after],|r|Ok((r.get(0)?,r.get(1)?)))).optional().map_err(super::super::unavailable)?;
+        let part:Option<(String,i64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(super::super::unavailable)?;
         let Some((id, size)) = part else { break };
         let blob = super::super::super::blob_id::BlobId::parse(&id)
             .ok_or_else(|| super::super::unavailable("invalid multipart blob ID"))?;

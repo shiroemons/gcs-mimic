@@ -59,26 +59,24 @@ pub(super) fn reconcile(
         } else {
             "SELECT bucket,name,generation,owner FROM objects WHERE owner IS NOT NULL AND ?1 IS NULL AND ?2 IS NULL AND ?3 IS NULL ORDER BY bucket,name,generation LIMIT 1"
         };
-        let row = transaction
-            .prepare_cached(query)
-            .and_then(|mut statement| {
-                statement.query_row(
-                    params![
-                        after.as_ref().map(|key| &key.0),
-                        after.as_ref().map(|key| &key.1),
-                        after.as_ref().map(|key| key.2)
-                    ],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, i64>(2)?,
-                            read(row, 3)?,
-                        ))
-                    },
-                )
-            })
-            .optional()?;
+        let row = sql::row(
+            &transaction,
+            query,
+            params![
+                after.as_ref().map(|key| &key.0),
+                after.as_ref().map(|key| &key.1),
+                after.as_ref().map(|key| key.2)
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    read(row, 3)?,
+                ))
+            },
+        )
+        .optional()?;
         let Some((bucket, name, generation, Some(mut owner))) = row else {
             return Ok(());
         };
@@ -87,13 +85,11 @@ pub(super) fn reconcile(
         if owner != before {
             reconcile_grant(&transaction, (&bucket, &name, generation), &before, &owner)?;
             let owner = serde_json::to_string(&owner).map_err(unavailable)?;
-            transaction
-                .prepare_cached(
-                    "UPDATE objects SET owner=?4 WHERE bucket=?1 AND name=?2 AND generation=?3",
-                )
-                .and_then(|mut statement| {
-                    statement.execute(params![bucket, name, generation, owner])
-                })?;
+            sql::exec(
+                &transaction,
+                "UPDATE objects SET owner=?4 WHERE bucket=?1 AND name=?2 AND generation=?3",
+                params![bucket, name, generation, owner],
+            )?;
         }
         transaction.commit()?;
         after = Some((bucket, name, generation));
@@ -197,14 +193,13 @@ pub(super) fn selected(
     name: &str,
     generation: i64,
 ) -> Result<Option<ObjectOwner>, CatalogError> {
-    connection
-        .prepare_cached("SELECT owner FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3")
-        .and_then(|mut statement| {
-            statement.query_row(rusqlite::params![bucket, name, generation], |row| {
-                read(row, 0)
-            })
-        })
-        .optional()
-        .map(Option::flatten)
-        .map_err(unavailable)
+    sql::row(
+        connection,
+        "SELECT owner FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3",
+        rusqlite::params![bucket, name, generation],
+        |row| read(row, 0),
+    )
+    .optional()
+    .map(Option::flatten)
+    .map_err(unavailable)
 }

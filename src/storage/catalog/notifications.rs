@@ -6,7 +6,7 @@
 use super::{BucketAccess, Catalog, CatalogError, check_access, unavailable};
 use crate::notification::{NotificationConfig, NotificationRecord, check_limits};
 use crate::storage::catalog::sql;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 
 /// A configuration over a bucket or event-type limit is invalid metadata whose message names
 /// the limit; the validation error has no cause to keep.
@@ -28,22 +28,13 @@ CREATE TABLE bucket_notifications (
 ) WITHOUT ROWID;
 PRAGMA user_version = 28;";
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "validates catalog state once at open"
-)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     // IDs are never reused within a bucket incarnation, so every row must be covered by its allocator.
-    let valid: bool = connection
-        .query_row(
-            "SELECT NOT EXISTS(SELECT 1 FROM bucket_notifications n LEFT JOIN bucket_notification_ids i ON i.bucket = n.bucket WHERE i.last_id IS NULL OR n.id > i.last_id)",
-            [],
-            |row| row.get(0),
-        )?;
-    if !valid {
-        return Err(unavailable("invalid bucket notification catalog state"));
-    }
-    Ok(())
+    sql::validate(
+        connection,
+        "SELECT NOT EXISTS(SELECT 1 FROM bucket_notifications n LEFT JOIN bucket_notification_ids i ON i.bucket = n.bucket WHERE i.last_id IS NULL OR n.id > i.last_id)",
+        "invalid bucket notification catalog state",
+    )
 }
 
 fn authorize(
@@ -146,11 +137,11 @@ impl Catalog {
                 [&bucket],
             )?
             .ok_or_else(|| unavailable("notification ID exhausted"))?;
-            transaction
-                .prepare_cached("INSERT INTO bucket_notifications VALUES (?1, ?2, ?3)")
-                .and_then(|mut statement| {
-                    statement.execute(params![bucket, id, config.to_stored()])
-                })?;
+            sql::exec(
+                &transaction,
+                "INSERT INTO bucket_notifications VALUES (?1, ?2, ?3)",
+                params![bucket, id, config.to_stored()],
+            )?;
             touch_bucket(
                 &transaction,
                 &bucket,
@@ -176,14 +167,11 @@ impl Catalog {
             let transaction = connection.transaction()?;
             authorize(&transaction, &bucket, &access)?;
             let Some(id) = id else { return Ok(None) };
-            let stored: Option<String> = transaction
-                .prepare_cached(
-                    "SELECT config FROM bucket_notifications WHERE bucket = ?1 AND id = ?2",
-                )
-                .and_then(|mut statement| {
-                    statement.query_row(params![bucket, id], |row| row.get(0))
-                })
-                .optional()?;
+            let stored: Option<String> = sql::optional_scalar(
+                &transaction,
+                "SELECT config FROM bucket_notifications WHERE bucket = ?1 AND id = ?2",
+                params![bucket, id],
+            )?;
             stored.map(|stored| record(id, &stored)).transpose()
         })
         .await

@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::catalog::fault::{Fault, Step};
+use crate::storage::catalog::sql;
 
 #[tokio::test]
 async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_discard() {
@@ -354,15 +355,13 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
                 let selected = id.clone();
                 catalog
                     .run_admin(move |connection| {
-                        connection
-                            .prepare_cached(
-                                "UPDATE sync_recovery_workspaces SET observation=?2 WHERE id=?1",
-                            )
-                            .and_then(|mut statement| {
-                                statement.execute(params![selected, observation])
-                            })
-                            .map(|_| ())
-                            .map_err(unavailable)
+                        sql::exec(
+                            connection,
+                            "UPDATE sync_recovery_workspaces SET observation=?2 WHERE id=?1",
+                            params![selected, observation],
+                        )
+                        .map(|_| ())
+                        .map_err(unavailable)
                     })
                     .await
                     .unwrap();

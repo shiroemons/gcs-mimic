@@ -68,24 +68,21 @@ pub(super) fn insert_policy(
     policy: &Policy,
 ) -> Result<(), CatalogError> {
     let revision = next_revision(connection)?;
-    connection
-        .prepare_cached("INSERT INTO bucket_policies VALUES (?1, ?2, ?3)")
-        .and_then(|mut statement| {
-            statement.execute(params![
-                bucket,
-                policy.bindings_json().to_string(),
-                revision
-            ])
-        })?;
+    sql::exec(
+        connection,
+        "INSERT INTO bucket_policies VALUES (?1, ?2, ?3)",
+        params![bucket, policy.bindings_json().to_string(), revision],
+    )?;
     Ok(())
 }
 
 pub(super) fn read_policy(connection: &Connection, bucket: &str) -> Result<Policy, CatalogError> {
-    let (bindings, revision): (String, i64) = connection
-        .prepare_cached("SELECT bindings, revision FROM bucket_policies WHERE bucket = ?1")
-        .and_then(|mut statement| {
-            statement.query_row([bucket], |row| Ok((row.get(0)?, row.get(1)?)))
-        })?;
+    let (bindings, revision): (String, i64) = sql::row(
+        connection,
+        "SELECT bindings, revision FROM bucket_policies WHERE bucket = ?1",
+        [bucket],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
     Policy::from_stored(&bindings, crate::json::policy_etag(revision))
         .map_err(|reason| CatalogError::Corrupt(reason.into()))
 }
@@ -96,15 +93,11 @@ pub(super) fn store_policy(
     policy: &mut Policy,
 ) -> Result<(), CatalogError> {
     let revision = next_revision(connection)?;
-    connection
-        .prepare_cached("UPDATE bucket_policies SET bindings = ?2, revision = ?3 WHERE bucket = ?1")
-        .and_then(|mut statement| {
-            statement.execute(params![
-                bucket,
-                policy.bindings_json().to_string(),
-                revision
-            ])
-        })?;
+    sql::exec(
+        connection,
+        "UPDATE bucket_policies SET bindings = ?2, revision = ?3 WHERE bucket = ?1",
+        params![bucket, policy.bindings_json().to_string(), revision],
+    )?;
     policy.etag = Some(crate::json::policy_etag(revision));
     Ok(())
 }

@@ -1,17 +1,24 @@
 //! Cached, static SQL shared by catalog operations.
 
 use rusqlite::{
-    Connection, OptionalExtension, Params, Transaction, TransactionBehavior, types::FromSql,
+    Connection, OptionalExtension, Params, Row, Transaction, TransactionBehavior, types::FromSql,
 };
+
+pub(super) fn row<T>(
+    connection: &Connection,
+    sql: &'static str,
+    params: impl Params,
+    read: impl FnOnce(&Row<'_>) -> rusqlite::Result<T>,
+) -> rusqlite::Result<T> {
+    connection.prepare_cached(sql)?.query_row(params, read)
+}
 
 pub(super) fn scalar<T: FromSql>(
     connection: &Connection,
     sql: &'static str,
     params: impl Params,
 ) -> rusqlite::Result<T> {
-    connection
-        .prepare_cached(sql)?
-        .query_row(params, |row| row.get(0))
+    row(connection, sql, params, |row| row.get(0))
 }
 
 pub(super) fn optional_scalar<T: FromSql>(
@@ -32,6 +39,18 @@ pub(super) fn exec(
 
 pub(super) fn immediate(connection: &mut Connection) -> rusqlite::Result<Transaction<'_>> {
     connection.transaction_with_behavior(TransactionBehavior::Immediate)
+}
+
+pub(super) fn validate(
+    connection: &Connection,
+    sql: &'static str,
+    message: &'static str,
+) -> Result<(), crate::bucket::CatalogError> {
+    if scalar(connection, sql, [])? {
+        Ok(())
+    } else {
+        Err(super::unavailable(message))
+    }
 }
 
 #[cfg(test)]
@@ -83,6 +102,10 @@ mod tests {
         );
         assert!(
             optional_scalar::<i64>(&connection, "SELECT value FROM missing_table", []).is_err()
+        );
+        validate(&connection, "SELECT 1", "invalid state").unwrap();
+        assert!(
+            matches!(validate(&connection, "SELECT 0", "invalid state"), Err(crate::bucket::CatalogError::Unavailable(cause)) if cause == "invalid state")
         );
     }
 }

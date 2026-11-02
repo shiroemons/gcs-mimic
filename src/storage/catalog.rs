@@ -194,6 +194,14 @@ const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
                      CREATE INDEX buckets_project_name ON buckets(project, name);
                      PRAGMA user_version = 1;";
 
+fn bucket_incarnation(connection: &Connection, bucket: &str) -> rusqlite::Result<String> {
+    sql::scalar(
+        connection,
+        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
+        [bucket],
+    )
+}
+
 /// A bounded keyset page. Continue after the last returned name when `has_more` is true.
 pub(crate) struct BucketListPage {
     pub items: Vec<BucketRecord>,
@@ -1455,22 +1463,21 @@ impl Catalog {
         transaction: &rusqlite::Transaction<'_>,
         name: &str,
     ) -> Result<(objects::Versioning, bool), CatalogError> {
-        transaction
-            .prepare_cached(
-                "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
-            )
-            .and_then(|mut statement| {
-                statement.query_row([name], |row| {
-                    let versioning = if row.get(0)? {
-                        objects::Versioning::Enabled
-                    } else {
-                        objects::Versioning::Disabled
-                    };
-                    Ok((versioning, row.get(1)?))
-                })
-            })
-            .optional()?
-            .ok_or(CatalogError::NotFound)
+        sql::row(
+            transaction,
+            "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
+            [name],
+            |row| {
+                let versioning = if row.get(0)? {
+                    objects::Versioning::Enabled
+                } else {
+                    objects::Versioning::Disabled
+                };
+                Ok((versioning, row.get(1)?))
+            },
+        )
+        .optional()?
+        .ok_or(CatalogError::NotFound)
     }
 
     /// Reads the bucket and checks `access` against the owner observed by the same read.
@@ -1497,12 +1504,13 @@ impl Catalog {
     pub(crate) async fn bucket_has_cors(&self, name: &str) -> Result<bool, CatalogError> {
         let name = name.to_owned();
         self.run(move |connection| {
-            let stored = connection
-                .prepare_cached("SELECT cors FROM buckets WHERE name = ?1")
-                .and_then(|mut statement| {
-                    statement.query_row([name], |row| row.get::<_, String>(0))
-                })
-                .optional()?;
+            let stored = sql::row(
+                connection,
+                "SELECT cors FROM buckets WHERE name = ?1",
+                [name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
             Ok(stored.is_some_and(|cors| cors != "[]"))
         })
         .await
@@ -1593,12 +1601,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
-            let (metageneration, project): (i64, String) = transaction
-                .prepare_cached("SELECT metageneration, project FROM buckets WHERE name = ?1")
-                .and_then(|mut statement| {
-                    statement.query_row([&name], |r| Ok((r.get(0)?, r.get(1)?)))
-                })
-                .optional()?
+            let (metageneration, project): (i64, String) = sql::row(&transaction, "SELECT metageneration, project FROM buckets WHERE name = ?1", [&name], |r| Ok((r.get(0)?, r.get(1)?))).optional()?
                 .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &project, &access)?;
             if if_metageneration_match.is_some_and(|value| value != metageneration)
@@ -1614,14 +1617,11 @@ impl Catalog {
             // With a soft delete policy the version and its retained objects move aside first,
             // so the permanent deletions below no longer find them.
             bucket_soft_delete::retire(&transaction, &name, unix_micros(clock.now())?)?;
-            let execute = |sql: &'static str| {
-                sql::exec(&transaction, sql, [&name])
-                    .map_err(unavailable)
-            };
-            execute(
+            sql::exec(&transaction,
                 "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1",
+                [&name],
             )?;
-            execute("DELETE FROM objects WHERE bucket = ?1")?;
+            sql::exec(&transaction, "DELETE FROM objects WHERE bucket = ?1", [&name])?;
             change_journal::append(
                 &transaction,
                 change_journal::origin(&access),
@@ -1629,10 +1629,10 @@ impl Catalog {
                 &name,
                 None,
             )?;
-            execute("DELETE FROM bucket_policies WHERE bucket = ?1")?;
-            execute("DELETE FROM bucket_incarnations WHERE bucket = ?1")?;
-            execute("DELETE FROM sync_objects WHERE bucket = ?1")?;
-            execute("DELETE FROM buckets WHERE name = ?1")?;
+            sql::exec(&transaction, "DELETE FROM bucket_policies WHERE bucket = ?1", [&name])?;
+            sql::exec(&transaction, "DELETE FROM bucket_incarnations WHERE bucket = ?1", [&name])?;
+            sql::exec(&transaction, "DELETE FROM sync_objects WHERE bucket = ?1", [&name])?;
+            sql::exec(&transaction, "DELETE FROM buckets WHERE name = ?1", [&name])?;
             let result = transaction.commit().map_err(unavailable);
             // Commit failures may be ambiguous; cleanup rechecks the current bucket incarnation.
             maintenance_wake.notify_one();
@@ -1713,15 +1713,11 @@ fn validate_retention_expiration(
         253_402_300_799_999_999_i128 - i128::from(policy.retention_period) * 1_000_000,
     )
     .map_err(unavailable)?;
-    let invalid: bool = connection
-        .prepare_cached(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND time_created > ?2)",
-        )
-        .and_then(|mut statement| {
-            statement.query_row(rusqlite::params![record.name, latest_creation], |row| {
-                row.get(0)
-            })
-        })?;
+    let invalid: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND time_created > ?2)",
+        rusqlite::params![record.name, latest_creation],
+    )?;
     if invalid {
         return Err(CatalogError::InvalidMetadata("Bucket retention would place an existing object's expiration outside the supported RFC3339 UTC range".into()));
     }

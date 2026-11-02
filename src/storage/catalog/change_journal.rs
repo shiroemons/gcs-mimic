@@ -161,18 +161,12 @@ fn valid_cursor(cursor: JournalFence, current: JournalFence, floor: i64) -> bool
         && cursor.sequence <= current.sequence
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "validates catalog state once at open"
-)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection.query_row(
-        "SELECT count(*) = 1 AND min(singleton) = 1 AND min(sequence) >= (SELECT coalesce(max(sequence), 0) FROM change_journal) AND (SELECT count(*) FROM change_journal) = min(sequence - floor) AND min(sequence - floor) <= 65536 AND NOT EXISTS(SELECT 1 FROM change_journal WHERE sequence <= (SELECT floor FROM change_journal_state)) FROM change_journal_state", [], |r| r.get(0)
-    )?;
-    if !valid {
-        return Err(unavailable("invalid change journal state"));
-    }
-    Ok(())
+    sql::validate(
+        connection,
+        "SELECT count(*) = 1 AND min(singleton) = 1 AND min(sequence) >= (SELECT coalesce(max(sequence), 0) FROM change_journal) AND (SELECT count(*) FROM change_journal) = min(sequence - floor) AND min(sequence - floor) <= 65536 AND NOT EXISTS(SELECT 1 FROM change_journal WHERE sequence <= (SELECT floor FROM change_journal_state)) FROM change_journal_state",
+        "invalid change journal state",
+    )
 }
 
 pub(super) fn origin(access: &BucketAccess) -> Origin {
@@ -282,23 +276,22 @@ pub(super) fn parent_pap(connection: &Connection, projects: &[String]) -> Result
 }
 
 fn state(connection: &Connection) -> Result<(JournalFence, i64, bool), CatalogError> {
-    connection
-        .prepare_cached(
-            "SELECT sequence, epoch, floor, enabled FROM change_journal_state WHERE singleton = 1",
-        )
-        .and_then(|mut statement| {
-            statement.query_row([], |r| {
-                Ok((
-                    JournalFence {
-                        sequence: JournalSeq(r.get::<_, i64>(0)? as u64),
-                        revision: r.get(1)?,
-                    },
-                    r.get(2)?,
-                    r.get(3)?,
-                ))
-            })
-        })
-        .map_err(unavailable)
+    sql::row(
+        connection,
+        "SELECT sequence, epoch, floor, enabled FROM change_journal_state WHERE singleton = 1",
+        [],
+        |r| {
+            Ok((
+                JournalFence {
+                    sequence: JournalSeq(r.get::<_, i64>(0)? as u64),
+                    revision: r.get(1)?,
+                },
+                r.get(2)?,
+                r.get(3)?,
+            ))
+        },
+    )
+    .map_err(unavailable)
 }
 
 impl Catalog {

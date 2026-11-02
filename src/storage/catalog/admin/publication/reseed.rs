@@ -454,18 +454,12 @@ fn confirmed(
     ids: &[&str],
     epoch: Option<i64>,
 ) -> Result<bool, AdminError> {
-    let (complete, current): (bool, i64) = connection.prepare_cached("SELECT complete, epoch FROM startup_seed, change_journal_state WHERE startup_seed.singleton = 1 AND change_journal_state.singleton = 1")
-        .and_then(|mut statement| statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))).map_err(objects_error)?;
+    let (complete, current): (bool, i64) = sql::row(connection, "SELECT complete, epoch FROM startup_seed, change_journal_state WHERE startup_seed.singleton = 1 AND change_journal_state.singleton = 1", [], |row| Ok((row.get(0)?, row.get(1)?))).map_err(objects_error)?;
     if !complete || epoch.is_some_and(|epoch| epoch != current) {
         return Ok(false);
     }
     for id in ids {
-        let exists: bool = sql::scalar(
-            connection,
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-            [id],
-        )
-        .map_err(objects_error)?;
+        let exists: bool = objects::blob_referenced(connection, id).map_err(objects_error)?;
         if !exists {
             return Ok(false);
         }

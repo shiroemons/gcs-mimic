@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::sql;
 
 pub(crate) struct UploadQuery {
     pub bucket: String,
@@ -32,8 +33,7 @@ impl Catalog {
             let mut after_id=query.upload_marker.clone().unwrap_or_else(||if query.key_marker.is_empty(){String::new()}else{"~".into()});
             let mut group=group_prefix(&query.key_marker,&query.prefix,&query.delimiter);
             loop {
-                let upload=transaction.prepare_cached("SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.bucket=?1 AND u.deadline>?2 AND (u.name>?3 OR (u.name=?3 AND u.id>?4)) ORDER BY u.name,u.id LIMIT 1")
-                    .and_then(|mut s|s.query_row(params![query.bucket,now,after_name,after_id],read_upload)).optional().map_err(object_unavailable)?;
+                let upload=sql::row(&transaction, "SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.bucket=?1 AND u.deadline>?2 AND (u.name>?3 OR (u.name=?3 AND u.id>?4)) ORDER BY u.name,u.id LIMIT 1", params![query.bucket,now,after_name,after_id],read_upload).optional().map_err(object_unavailable)?;
                 let Some(upload)=upload else {break};
                 after_name=upload.target.name.clone();after_id=upload.target.id.clone();
                 if !after_name.starts_with(&query.prefix) {continue;}

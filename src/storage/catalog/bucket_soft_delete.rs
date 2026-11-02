@@ -140,11 +140,11 @@ fn retained_key(name: &str, generation: i64) -> String {
 fn rekey_objects(connection: &Connection, from: &str, to: &str) -> Result<(), CatalogError> {
     // Parent and child keys change in one transaction; defer the check to its commit.
     connection.pragma_update(None, "defer_foreign_keys", true)?;
-    for sql in [
+    for query in [
         "UPDATE acl_object_entries SET bucket = ?2 WHERE bucket = ?1",
         "UPDATE objects SET bucket = ?2 WHERE bucket = ?1",
     ] {
-        sql::exec(connection, sql, params![from, to])?;
+        sql::exec(connection, query, params![from, to])?;
     }
     Ok(())
 }
@@ -152,11 +152,12 @@ fn rekey_objects(connection: &Connection, from: &str, to: &str) -> Result<(), Ca
 /// Called inside the bucket deletion transaction after its permission, condition and
 /// emptiness checks. Without a positive soft delete policy the deletion stays permanent.
 pub(super) fn retire(connection: &Connection, name: &str, now: i64) -> Result<(), CatalogError> {
-    let (retention, generation): (i64, i64) = connection
-        .prepare_cached(
-            "SELECT COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0), generation FROM buckets WHERE name = ?1",
-        )
-        .and_then(|mut statement| statement.query_row([name], |row| Ok((row.get(0)?, row.get(1)?))))?;
+    let (retention, generation): (i64, i64) = sql::row(
+        connection,
+        "SELECT COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0), generation FROM buckets WHERE name = ?1",
+        [name],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
     if retention <= 0 {
         return Ok(());
     }
@@ -217,14 +218,8 @@ fn restore_in_transaction(
     access: &BucketAccess,
     principals: Option<&Profile>,
 ) -> Result<BucketRecord, CatalogError> {
-    let project: String = connection
-        .prepare_cached(
-            "SELECT project FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2 AND hard_delete_time > ?3",
-        )
-        .and_then(|mut statement| {
-            statement.query_row(params![name, generation, now], |row| row.get(0))
-        })
-        .optional()?
+    let project: String = sql::optional_scalar(connection,
+            "SELECT project FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2 AND hard_delete_time > ?3", params![name, generation, now])?
         .ok_or(CatalogError::NotFound)?;
     authorize(connection, access, &project)?;
     if select_bucket(connection, name)?.is_some() {
@@ -237,11 +232,11 @@ fn restore_in_transaction(
         "INSERT INTO bucket_policies SELECT name, bindings, ?3 FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2",
         params![name, generation, revision],
     )?;
-    for sql in [
+    for query in [
         RESTORE_BUCKET,
         "INSERT INTO acl_bucket_entries (bucket, scope, entries) SELECT ?1, json_extract(value, '$.scope'), json_extract(value, '$.entries') FROM soft_deleted_buckets, json_each(acl) WHERE name = ?1 AND generation = ?2",
     ] {
-        sql::exec(connection, sql, params![name, generation])?;
+        sql::exec(connection, query, params![name, generation])?;
     }
     // Sessions bound to the deleted incarnation must not resume against the restored bucket.
     sql::exec(
@@ -285,11 +280,11 @@ fn purge_batch(connection: &mut Connection, now: i64) -> Result<i64, CatalogErro
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (name, generation) in &expired {
         let key = retained_key(name, *generation);
-        for sql in [
+        for query in [
             "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1",
             "DELETE FROM objects WHERE bucket = ?1",
         ] {
-            sql::exec(&transaction, sql, [&key])?;
+            sql::exec(&transaction, query, [&key])?;
         }
         sql::exec(
             &transaction,
@@ -322,14 +317,14 @@ impl Catalog {
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let now = unix_micros(clock.now())?;
-            let version = transaction
-                .prepare_cached(SELECT_VERSION)
-                .and_then(|mut statement| {
-                    statement
-                        .query_row(params![name, generation, now], read_version)
-                        .optional()
-                })?
-                .ok_or(CatalogError::NotFound)?;
+            let version = sql::row(
+                &transaction,
+                SELECT_VERSION,
+                params![name, generation, now],
+                read_version,
+            )
+            .optional()?
+            .ok_or(CatalogError::NotFound)?;
             authorize(&transaction, &access, &version.record.project)?;
             Ok(version)
         })

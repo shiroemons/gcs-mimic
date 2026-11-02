@@ -5,7 +5,7 @@ use super::{
     rewrite_token::RewriteToken,
     system_time_millis, unix_millis,
 };
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::BucketAccess,
     object::{ObjectConditions, ObjectError, ObjectRecord},
@@ -97,12 +97,9 @@ pub(crate) struct RewriteProgress {
 }
 
 fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
-    sql::optional_scalar(
-        connection,
-        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-        [bucket],
-    )?
-    .ok_or(ObjectError::BucketNotFound)
+    bucket_incarnation(connection, bucket)
+        .optional()?
+        .ok_or(ObjectError::BucketNotFound)
 }
 
 fn encode(start: &RewriteStart, source: &str, destination: &str) -> Value {
@@ -260,18 +257,12 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<&str>) -> bo
         && session.offset <= session.total
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "catalog validation runs once at open"
-)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection
-        .query_row("SELECT (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL)<=128 AND (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)<=128", [], |row| {
-            row.get(0)
-        })?;
-    if !valid {
-        return Err(super::unavailable("rewrite session limit exceeded"));
-    }
+    sql::validate(
+        connection,
+        "SELECT (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL)<=128 AND (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)<=128",
+        "rewrite session limit exceeded",
+    )?;
     let mut statement =
         connection.prepare_cached("SELECT * FROM rewrite_sessions ORDER BY id LIMIT 257")?;
     let mut rows = statement.query([])?;
@@ -405,22 +396,23 @@ impl Catalog {
                     &incarnation(connection, &start.binding.destination_bucket)?,
                 );
                 let deadline = unix_millis(transfer.deadline)?;
-                connection
-                    .prepare_cached(
-                        "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
-                    )
-                    .and_then(|mut statement| {
-                        statement.execute(params![
-                            transfer.id,
-                            token,
-                            request.to_string(),
-                            transfer.total as i64,
-                            deadline
-                        ])
-                    })?;
-                let session = connection
-                    .prepare_cached("SELECT * FROM rewrite_sessions WHERE id=?1")
-                    .and_then(|mut statement| statement.query_row([&transfer.id], read))?;
+                sql::exec(
+                    connection,
+                    "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
+                    params![
+                        transfer.id,
+                        token,
+                        request.to_string(),
+                        transfer.total as i64,
+                        deadline
+                    ],
+                )?;
+                let session = sql::row(
+                    connection,
+                    "SELECT * FROM rewrite_sessions WHERE id=?1",
+                    [&transfer.id],
+                    read,
+                )?;
                 check_source(connection, &session, &start.source_access).map(|_| ())
             },
         )
@@ -445,13 +437,14 @@ impl Catalog {
         let now = unix_millis(self.0.clock.now())?;
         let session = self
             .run_object(move |connection| {
-                connection
-                    .prepare_cached(
-                        "SELECT * FROM rewrite_sessions WHERE token = ?1 OR previous_token = ?1",
-                    )
-                    .and_then(|mut statement| statement.query_row([token], read))
-                    .optional()
-                    .map_err(object_unavailable)
+                sql::row(
+                    connection,
+                    "SELECT * FROM rewrite_sessions WHERE token = ?1 OR previous_token = ?1",
+                    [token],
+                    read,
+                )
+                .optional()
+                .map_err(object_unavailable)
             })
             .await?
             .ok_or(RewriteError::Gone)?;

@@ -20,7 +20,7 @@ use super::{
     resumable::{ResumableOptions, decode_options, encode_options},
     system_time_micros, unix_micros,
 };
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
@@ -327,15 +327,6 @@ fn data_path(data_dir: &Path, blob_id: &str) -> Result<PathBuf, ObjectError> {
         .ok_or_else(|| ObjectError::Corrupt("invalid appendable blob ID".into()))
 }
 
-fn incarnation(connection: &Connection, bucket: &str) -> Result<Option<String>, ObjectError> {
-    sql::optional_scalar(
-        connection,
-        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-        [bucket],
-    )
-    .map_err(object_unavailable)
-}
-
 enum Lookup {
     Absent,
     /// A row from a deleted bucket incarnation or an already published generation.
@@ -344,12 +335,8 @@ enum Lookup {
 }
 
 fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, ObjectError> {
-    let row = connection
-        .prepare_cached(
-            "SELECT generation, incarnation, blob_id, options, size, crc32c, time_created, updated, write_handle FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
-        )
-        .and_then(|mut statement| {
-            statement.query_row(params![bucket, name], |row| {
+    let row = sql::row(connection,
+            "SELECT generation, incarnation, blob_id, options, size, crc32c, time_created, updated, write_handle FROM appendable_objects WHERE bucket = ?1 AND name = ?2", params![bucket, name], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
@@ -361,16 +348,17 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
                     row.get::<_, i64>(7)?,
                     row.get::<_, String>(8)?,
                 ))
-            })
-        })
-        .optional()
+            }).optional()
         .map_err(object_unavailable)?;
     let Some((generation, stored, blob_id, options, size, crc32c, created, updated, handle)) = row
     else {
         return Ok(Lookup::Absent);
     };
     if published_generation(connection, bucket, name, generation)?
-        || incarnation(connection, bucket)?.as_deref() != Some(stored.as_str())
+        || bucket_incarnation(connection, bucket)
+            .optional()?
+            .as_deref()
+            != Some(stored.as_str())
     {
         return Ok(Lookup::Stale(blob_id));
     }
@@ -399,14 +387,12 @@ fn published_generation(
     name: &str,
     generation: i64,
 ) -> Result<bool, ObjectError> {
-    connection
-        .prepare_cached(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3)",
-        )
-        .and_then(|mut statement| {
-            statement.query_row(params![bucket, name, generation], |row| row.get(0))
-        })
-        .map_err(object_unavailable)
+    sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3)",
+        params![bucket, name, generation],
+    )
+    .map_err(object_unavailable)
 }
 
 /// The adapter-visible view of an unfinalized generation. It has no MD5 and no finalize time.
@@ -615,14 +601,9 @@ impl AppendWriter {
             .run_upload(move |connection| {
                 let _guard = guard;
                 let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
-                let changed = connection
-                    .prepare_cached(
+                let changed = sql::exec(connection,
                         // A deleted or recreated bucket invalidates the writer as well.
-                        "UPDATE appendable_objects SET size = ?1, crc32c = ?2, updated = ?3 WHERE bucket = ?4 AND name = ?5 AND generation = ?6 AND write_handle = ?7 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?4)",
-                    )
-                    .and_then(|mut statement| {
-                        statement.execute(params![size, crc32c, micros, bucket, name, generation, handle])
-                    })
+                        "UPDATE appendable_objects SET size = ?1, crc32c = ?2, updated = ?3 WHERE bucket = ?4 AND name = ?5 AND generation = ?6 AND write_handle = ?7 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?4)", params![size, crc32c, micros, bucket, name, generation, handle])
                     .map_err(object_unavailable)?;
                 if changed == 1 && let Some(checkpoint) = checkpoint { checkpoint.commit(); }
                 Ok((changed == 1).then_some(micros))
@@ -745,13 +726,8 @@ impl AppendWriter {
         let changed = self
             .catalog
             .run_upload(move |connection| {
-                connection
-                    .prepare_cached(
-                        "UPDATE appendable_objects SET finalizing = ?1 WHERE bucket = ?2 AND name = ?3 AND generation = ?4 AND write_handle = ?5 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?2)",
-                    )
-                    .and_then(|mut statement| {
-                        statement.execute(params![finalizing, bucket, name, generation, handle])
-                    })
+                sql::exec(connection,
+                        "UPDATE appendable_objects SET finalizing = ?1 WHERE bucket = ?2 AND name = ?3 AND generation = ?4 AND write_handle = ?5 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?2)", params![finalizing, bucket, name, generation, handle])
                     .map_err(object_unavailable)
             })
             .await?;
@@ -802,14 +778,12 @@ pub(super) fn retire_published(
     if backend == crate::config::Backend::Memory {
         sql::exec(connection, "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3", params![record.bucket, record.name, record.generation]).map_err(object_unavailable)?;
     }
-    connection
-        .prepare_cached(
-            "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-        )
-        .and_then(|mut statement| {
-            statement.execute(params![record.bucket, record.name, record.generation])
-        })
-        .map_err(object_unavailable)?;
+    sql::exec(
+        connection,
+        "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+        params![record.bucket, record.name, record.generation],
+    )
+    .map_err(object_unavailable)?;
     Ok(())
 }
 
@@ -938,7 +912,7 @@ impl Catalog {
             if current.is_some() {
                 return Ok(Err(AppendError::ReplaceUnsupported));
             }
-            let incarnation = incarnation(&transaction, &bucket)?.ok_or(ObjectError::BucketNotFound)?;
+            let incarnation = bucket_incarnation(&transaction, &bucket).optional()?.ok_or(ObjectError::BucketNotFound)?;
             let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
             let last: i64 = sql::scalar(&transaction, "SELECT last_generation FROM object_generation WHERE singleton = 1", [])
                 .map_err(object_unavailable)?;
@@ -949,13 +923,8 @@ impl Catalog {
             sql::exec(&transaction, "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation])
                 .map_err(object_unavailable)?;
             let encoded = encode_options(&options).to_string();
-            transaction
-                .prepare_cached(
-                    "INSERT INTO appendable_objects VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?7, ?8, 0)",
-                )
-                .and_then(|mut statement| {
-                    statement.execute(params![bucket, name, generation, incarnation, blob_id, encoded, micros, handle])
-                })
+            sql::exec(&transaction,
+                    "INSERT INTO appendable_objects VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?7, ?8, 0)", params![bucket, name, generation, incarnation, blob_id, encoded, micros, handle])
                 .map_err(object_unavailable)?;
             let time = system_time_micros(micros).map_err(object_unavailable)?;
             let row = Row {
@@ -972,8 +941,7 @@ impl Catalog {
             let checkpoint = memory.as_ref().map(|store| store.create_draft_checkpoint(&blob_id)).transpose().map_err(object_unavailable)?;
             let committed = transaction.commit().map_err(object_unavailable);
             if let Some(checkpoint) = checkpoint {
-                let referenced = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id=?1)")
-                    .and_then(|mut statement| statement.query_row([&blob_id], |row| row.get::<_,bool>(0)));
+                let referenced = sql::row(connection, "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id=?1)", [&blob_id], |row| row.get::<_,bool>(0));
                 // An ambiguous commit or failed probe must never discard possibly committed bytes.
                 if committed.is_ok() || !matches!(referenced, Ok(false)) { checkpoint.commit(); }
             }

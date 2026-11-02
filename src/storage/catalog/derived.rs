@@ -311,16 +311,10 @@ fn transfer(
     id: &str,
     now: i64,
 ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
-    let (total, offset, state, crc, created, deadline): (i64, i64, Vec<u8>, u32, i64, i64) = connection
-        .prepare_cached(
-            "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1",
-        )
-        .and_then(|mut statement| {
-            statement.query_row([id], |row| {
+    let (total, offset, state, crc, created, deadline): (i64, i64, Vec<u8>, u32, i64, i64) = sql::row(connection,
+            "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1", [id], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
-            })
-        })
-        .optional()?
+            }).optional()?
         .ok_or(ObjectError::DerivedTransferNotFound)?;
     if now >= deadline {
         return Err(ObjectError::DerivedTransferExpired);
@@ -603,7 +597,11 @@ impl Catalog {
         let result = self
             .run_object(move |connection| {
                 let (_permit, _writer) = (permit, writer);
-                let count: i64 = sql::scalar(connection, "SELECT count(*) FROM derived_transfers WHERE ephemeral = ?1", [ephemeral])?;
+                let count: i64 = sql::scalar(
+                    connection,
+                    "SELECT count(*) FROM derived_transfers WHERE ephemeral = ?1",
+                    [ephemeral],
+                )?;
                 if count >= MAX_TRANSFERS_PER_KIND as i64 {
                     return Err(object_unavailable("derived transfer limit reached"));
                 }
@@ -612,23 +610,21 @@ impl Catalog {
                 let result = (|| {
                     #[cfg(unix)]
                     if memory.is_none() {
-                    objects::sync_dir(&data_dir.join("staging"))?;
+                        objects::sync_dir(&data_dir.join("staging"))?;
                     }
                     let transaction = sql::immediate(connection)?;
-                    transaction
-                        .prepare_cached(
-                            "INSERT INTO derived_transfers VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6, 0)",
-                        )
-                        .and_then(|mut statement| {
-                            statement.execute(params![
-                                id,
-                                total as i64,
-                                Hasher::default().md5_state().0.as_slice(),
-                                ephemeral,
-                                created,
-                                deadline
-                            ])
-                        })?;
+                    sql::exec(
+                        &transaction,
+                        "INSERT INTO derived_transfers VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6, 0)",
+                        params![
+                            id,
+                            total as i64,
+                            Hasher::default().md5_state().0.as_slice(),
+                            ephemeral,
+                            created,
+                            deadline
+                        ],
+                    )?;
                     insert_inputs(&transaction, &id, &segments)?;
                     let transfer = DerivedTransfer {
                         id: id.clone(),
@@ -641,8 +637,11 @@ impl Catalog {
                     if let Err(error) = transaction.commit() {
                         // A failed commit can be ambiguous; retain every confirmed reference.
                         preserve = true;
-                        let committed: bool = sql::scalar(connection,
-                                "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)", [&id])?;
+                        let committed: bool = sql::scalar(
+                            connection,
+                            "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)",
+                            [&id],
+                        )?;
                         if !committed {
                             preserve = false;
                             return Err(object_unavailable(error));
@@ -1057,18 +1056,7 @@ fn cleanup_record_with_memory(
     } else {
         objects::unlink(&stage_path(data_dir, id)?)?;
     }
-    let referenced: bool = sql::scalar(
-        connection,
-        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-        [id],
-    )?;
-    if !referenced {
-        if let Some(memory) = memory {
-            memory.remove(id)?;
-        } else {
-            objects::reclaim(connection, data_dir, id)?;
-        }
-    }
+    objects::discard_unreferenced_blob(connection, data_dir, memory, id)?;
     discard_record(connection, id)
 }
 

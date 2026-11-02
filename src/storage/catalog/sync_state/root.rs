@@ -201,31 +201,27 @@ fn reserve(
     if catalog_id(&transaction)? != catalog {
         return Err(RootError::ForeignMarker);
     }
-    let found = transaction
-        .prepare_cached(
-            "SELECT root_id, device, inode, complete, location FROM sync_roots
+    let found = sql::row(
+        &transaction,
+        "SELECT root_id, device, inode, complete, location FROM sync_roots
          WHERE location = ?1 OR (device = ?2 AND inode = ?3) LIMIT 1",
-        )
-        .and_then(|mut statement| {
-            statement.query_row(
-                params![
-                    location,
-                    identity.device.to_be_bytes(),
-                    identity.inode.to_be_bytes()
-                ],
-                |row| {
-                    Ok((
-                        RootId(row.get(0)?),
-                        row.get::<_, [u8; 8]>(1)?,
-                        row.get::<_, [u8; 8]>(2)?,
-                        row.get::<_, bool>(3)?,
-                        row.get::<_, Vec<u8>>(4)?,
-                    ))
-                },
-            )
-        })
-        .optional()
-        .map_err(super::super::unavailable)?;
+        params![
+            location,
+            identity.device.to_be_bytes(),
+            identity.inode.to_be_bytes()
+        ],
+        |row| {
+            Ok((
+                RootId(row.get(0)?),
+                row.get::<_, [u8; 8]>(1)?,
+                row.get::<_, [u8; 8]>(2)?,
+                row.get::<_, bool>(3)?,
+                row.get::<_, Vec<u8>>(4)?,
+            ))
+        },
+    )
+    .optional()
+    .map_err(super::super::unavailable)?;
     let status = if let Some((id, device, inode, complete, stored_location)) = found {
         if device != identity.device.to_be_bytes()
             || inode != identity.inode.to_be_bytes()
@@ -268,17 +264,17 @@ fn reserve(
         }
         let mut id = [0; 16];
         getrandom::fill(&mut id).map_err(|error| RootError::Admin(AdminError::backend(error)))?;
-        transaction
-            .prepare_cached("INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)")
-            .and_then(|mut statement| {
-                statement.execute(params![
-                    id,
-                    location,
-                    identity.device.to_be_bytes(),
-                    identity.inode.to_be_bytes()
-                ])
-            })
-            .map_err(super::super::unavailable)?;
+        sql::exec(
+            &transaction,
+            "INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)",
+            params![
+                id,
+                location,
+                identity.device.to_be_bytes(),
+                identity.inode.to_be_bytes()
+            ],
+        )
+        .map_err(super::super::unavailable)?;
         RootStatus {
             catalog_id: catalog,
             root_id: RootId(id),

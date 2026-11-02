@@ -1,7 +1,7 @@
 //! Persistent XML multipart state; ordinary objects appear only at completion.
 
 use super::{Catalog, objects, resumable, system_time_millis, unix_millis};
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     auth::Permission,
     bucket::{BucketAccess, CatalogError},
@@ -173,9 +173,7 @@ fn active(
     now: i64,
 ) -> Result<Upload, Error> {
     objects::authorized_bucket(connection, &target.bucket, access)?;
-    connection.prepare_cached("SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.id=?1 AND u.bucket=?2 AND u.name=?3 AND u.deadline>?4")
-        .and_then(|mut statement| statement.query_row(params![target.id,target.bucket,target.name,now],read_upload))
-        .optional().map_err(object_unavailable)?.ok_or(Error::NoSuchUpload)
+    sql::row(connection, "SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.id=?1 AND u.bucket=?2 AND u.name=?3 AND u.deadline>?4", params![target.id,target.bucket,target.name,now],read_upload).optional().map_err(object_unavailable)?.ok_or(Error::NoSuchUpload)
 }
 
 fn read_part(row: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
@@ -192,9 +190,7 @@ fn read_part(row: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
 }
 
 fn part(connection: &Connection, id: &str, number: u16) -> Result<Part, Error> {
-    connection.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2")
-        .and_then(|mut statement| statement.query_row(params![id,number],read_part))
-        .optional().map_err(object_unavailable)?.ok_or(Error::InvalidPart)
+    sql::row(connection, "SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![id,number],read_part).optional().map_err(object_unavailable)?.ok_or(Error::InvalidPart)
 }
 
 impl Catalog {
@@ -253,28 +249,22 @@ impl Catalog {
                         "retained multipart session limit reached",
                     ));
                 }
-                let incarnation: String = sql::scalar(
+                let incarnation: String =
+                    bucket_incarnation(&transaction, &target.bucket).map_err(object_unavailable)?;
+                sql::exec(
                     &transaction,
-                    "SELECT incarnation FROM bucket_incarnations WHERE bucket=?1",
-                    [&target.bucket],
+                    "INSERT INTO xml_multipart_uploads VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    params![
+                        target.id,
+                        target.bucket,
+                        target.name,
+                        incarnation,
+                        encoded,
+                        now,
+                        deadline
+                    ],
                 )
                 .map_err(object_unavailable)?;
-                transaction
-                    .prepare_cached(
-                        "INSERT INTO xml_multipart_uploads VALUES (?1,?2,?3,?4,?5,?6,?7)",
-                    )
-                    .and_then(|mut s| {
-                        s.execute(params![
-                            target.id,
-                            target.bucket,
-                            target.name,
-                            incarnation,
-                            encoded,
-                            now,
-                            deadline
-                        ])
-                    })
-                    .map_err(object_unavailable)?;
                 transaction.commit().map_err(object_unavailable)?;
                 Ok(Upload {
                     target,

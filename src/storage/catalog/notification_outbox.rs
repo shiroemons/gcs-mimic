@@ -58,10 +58,13 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
 }
 
 pub(super) fn enqueue(connection: &Connection, message: Message<'_>) -> Result<(), CatalogError> {
-    let global: Option<(String, String)> = connection
-        .prepare_cached("SELECT bucket, config FROM notification_runtime WHERE singleton = 1")
-        .and_then(|mut statement| statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?))))
-        .optional()?;
+    let global: Option<(String, String)> = sql::row(
+        connection,
+        "SELECT bucket, config FROM notification_runtime WHERE singleton = 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()?;
     if let Some((bucket, stored)) = global
         && (bucket.is_empty() || bucket == message.object.bucket)
     {
@@ -142,10 +145,12 @@ fn insert(
     if full {
         return Err(unavailable(OutboxFull));
     }
-    let id: i64 = sql::optional_scalar(connection,
-        "UPDATE notification_outbox_state SET last_id = last_id + 1 WHERE singleton = 1 AND last_id < 9223372036854775807 RETURNING last_id"
-    , [])?
-        .ok_or_else(|| unavailable("notification outbox ID exhausted"))?;
+    let id: i64 = sql::optional_scalar(
+        connection,
+        "UPDATE notification_outbox_state SET last_id = last_id + 1 WHERE singleton = 1 AND last_id < 9223372036854775807 RETURNING last_id",
+        [],
+    )?
+    .ok_or_else(|| unavailable("notification outbox ID exhausted"))?;
     let due = unix_micros(message.time)?;
     sql::exec(
         connection,
@@ -173,11 +178,11 @@ impl Catalog {
             let transaction = connection.transaction()?;
             sql::exec(&transaction, "DELETE FROM notification_runtime", [])?;
             if let Some(global) = global {
-                transaction
-                    .prepare_cached("INSERT INTO notification_runtime VALUES (1, ?1, ?2)")
-                    .and_then(|mut statement| {
-                        statement.execute(params![global.bucket, global.notification.to_stored()])
-                    })?;
+                sql::exec(
+                    &transaction,
+                    "INSERT INTO notification_runtime VALUES (1, ?1, ?2)",
+                    params![global.bucket, global.notification.to_stored()],
+                )?;
             }
             transaction.commit().map_err(unavailable)
         })
@@ -186,10 +191,9 @@ impl Catalog {
 
     pub(crate) async fn next_notification(&self) -> Result<Option<Pending>, CatalogError> {
         self.run(|connection| {
-            connection.prepare_cached("SELECT id, topic, message, due, attempts FROM notification_outbox ORDER BY due, id LIMIT 1")
-                .and_then(|mut statement| statement.query_row([], |row| Ok(Pending {
+            sql::row(connection, "SELECT id, topic, message, due, attempts FROM notification_outbox ORDER BY due, id LIMIT 1", [], |row| Ok(Pending {
                     id: row.get(0)?, topic: row.get(1)?, message: row.get(2)?, due: row.get(3)?, attempts: row.get(4)?,
-                }))).optional().map_err(unavailable)
+                })).optional().map_err(unavailable)
         }).await
     }
 

@@ -59,17 +59,12 @@ pub struct ImportProgress {
 pub struct ImportJournal(Catalog);
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection.query_row(
+    super::sql::validate(connection,
         "SELECT (SELECT count(*) FROM import_journal) <= 1
          AND (SELECT count(*) FROM import_observations) = coalesce((SELECT cursor FROM import_journal), 0)
          AND NOT EXISTS(SELECT 1 FROM import_observations WHERE ordinal > (SELECT cursor FROM import_journal))
          AND NOT EXISTS(SELECT 1 FROM import_journal WHERE active = 0 AND (SELECT complete FROM startup_seed) != 1)",
-        [], |row| row.get(0),
-    )?;
-    if !valid {
-        return Err(unavailable("invalid import journal state"));
-    }
-    Ok(())
+        "invalid import journal state")
 }
 
 fn progress(connection: &Connection) -> Result<Option<ImportProgress>, CatalogError> {
@@ -179,18 +174,14 @@ pub(super) fn record_outcomes(
 }
 
 pub(super) fn validate_failure(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection.query_row(
+    super::sql::validate(connection,
         "SELECT (SELECT count(*) FROM import_journal) <= 1
          AND NOT EXISTS(SELECT 1 FROM import_journal WHERE failure IS NOT NULL AND active = 0)
          AND NOT EXISTS(SELECT 1 FROM import_observations WHERE ordinal > coalesce((SELECT expected FROM import_journal),0))
          AND (SELECT count(*) FROM import_observations WHERE ordinal <= coalesce((SELECT cursor FROM import_journal),0)) = coalesce((SELECT cursor FROM import_journal),0)
          AND NOT EXISTS(SELECT 1 FROM import_journal WHERE failure IS NULL AND (SELECT count(*) FROM import_observations) != cursor)
-         AND NOT EXISTS(SELECT 1 FROM import_journal WHERE active = 0 AND (SELECT complete FROM startup_seed) != 1)", [], |row| row.get(0),
-    )?;
-    if !valid {
-        return Err(unavailable("invalid import failure state"));
-    }
-    Ok(())
+         AND NOT EXISTS(SELECT 1 FROM import_journal WHERE active = 0 AND (SELECT complete FROM startup_seed) != 1)",
+        "invalid import failure state")
 }
 
 impl ImportJournal {

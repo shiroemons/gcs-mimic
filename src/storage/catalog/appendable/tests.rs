@@ -397,7 +397,7 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
     let (id, generation) = (leftover.clone(), published.generation);
     catalog
         .run_upload(move |connection| {
-            let incarnation = incarnation(connection, "append")?.unwrap();
+            let incarnation = bucket_incarnation(connection, "append").optional()?.unwrap();
             let encoded = encode_options(&options()).to_string();
             connection
                 .execute(

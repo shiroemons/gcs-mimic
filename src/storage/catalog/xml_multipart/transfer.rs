@@ -51,8 +51,7 @@ impl Catalog {
                 let result=(|| -> Result<_,Error> {
                     active(&transaction,&target,&access,now)?;
                     objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
-                    transaction.prepare_cached("SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2")
-                        .and_then(|mut s|s.query_row(params![target.id,request.number],|r|r.get::<_,i64>(0))).map(|value|value as u64).map_err(object_unavailable).map_err(Error::from)
+                    sql::row(&transaction, "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2", params![target.id,request.number],|r|r.get::<_,i64>(0)).map(|value|value as u64).map_err(object_unavailable).map_err(Error::from)
                 })();
                 Ok(result)
             }).await??;
@@ -332,19 +331,19 @@ impl Catalog {
             if count >= 128 {
                 return Err(object_unavailable("derived transfer limit reached"));
             }
-            connection
-                .prepare_cached("INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)")
-                .and_then(|mut s| {
-                    s.execute(params![
-                        id,
-                        total as i64,
-                        state.as_slice(),
-                        crc32c,
-                        now,
-                        now + 900000
-                    ])
-                })
-                .map_err(object_unavailable)?;
+            sql::exec(
+                connection,
+                "INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)",
+                params![
+                    id,
+                    total as i64,
+                    state.as_slice(),
+                    crc32c,
+                    now,
+                    now + 900000
+                ],
+            )
+            .map_err(object_unavailable)?;
             file.acknowledge(total);
             Ok(())
         })

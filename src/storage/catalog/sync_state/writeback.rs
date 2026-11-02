@@ -318,7 +318,7 @@ impl RootLease {
         let owner = self.clone();
         let expected:Option<([u8;8],[u8;8])>=self.catalog().run_admin(move|c| {
             let _owner=owner;
-            c.prepare_cached("SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1").and_then(|mut statement|statement.query_row([root],|r|Ok((r.get(0)?,r.get(1)?)))).optional().map_err(unavailable)
+            sql::row(c, "SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1", [root],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(unavailable)
         }).await?;
         let directory = self
             .file_job(move |root| {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::sql;
 use crate::{
     object::{ExpectedHashes, ObjectConditions, ObjectError, UploadChunk},
     storage::admin::{AdminError, BucketDefinition, BucketName},
@@ -836,12 +837,12 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
         .unwrap();
     let id: String = catalog
         .run(|connection| {
-            connection
-                .prepare_cached(
-                    "SELECT blob_id FROM objects WHERE bucket='test-bucket' AND name='value'",
-                )
-                .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-                .map_err(unavailable)
+            sql::scalar(
+                connection,
+                "SELECT blob_id FROM objects WHERE bucket='test-bucket' AND name='value'",
+                [],
+            )
+            .map_err(unavailable)
         })
         .await
         .unwrap();
@@ -921,10 +922,12 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
     assert!(paths.iter().all(|path| !path.exists()));
     let pending: i64 = catalog
         .run(|connection| {
-            connection
-                .prepare_cached("SELECT count(*) FROM pending_blob_deletions")
-                .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-                .map_err(unavailable)
+            sql::scalar(
+                connection,
+                "SELECT count(*) FROM pending_blob_deletions",
+                [],
+            )
+            .map_err(unavailable)
         })
         .await
         .unwrap();

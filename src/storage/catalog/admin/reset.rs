@@ -134,18 +134,21 @@ pub(super) fn clear_in_transaction(
     let next = epoch
         .checked_add(1)
         .ok_or_else(|| unavailable("reset epoch exhausted"))?;
-    let (buckets, objects) = transaction
-        .prepare_cached("SELECT (SELECT count(*) FROM buckets), (SELECT count(*) FROM objects)")
-        .and_then(|mut statement| statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?))))
-        .map_err(unavailable)?;
+    let (buckets, objects) = sql::row(
+        transaction,
+        "SELECT (SELECT count(*) FROM buckets), (SELECT count(*) FROM objects)",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .map_err(unavailable)?;
     if matches!(mode, Reclamation::Journal) {
         sql::exec(transaction, "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects UNION SELECT blob_id FROM resumable_sessions UNION SELECT blob_id FROM derived_inputs UNION SELECT id FROM derived_transfers UNION SELECT blob_id FROM derived_deletions UNION SELECT blob_id FROM appendable_objects UNION SELECT blob_id FROM xml_multipart_parts UNION SELECT blob_id FROM xml_multipart_deletions", []).map_err(unavailable)?;
     } else {
         // RAM can drop its whole registry after commit; growing a disk recovery journal would block a full catalog's reset.
         sql::exec(transaction, "DELETE FROM pending_blob_deletions", []).map_err(unavailable)?;
     }
-    for sql in CLEAR {
-        sql::exec(transaction, sql, []).map_err(unavailable)?;
+    for query in CLEAR {
+        sql::exec(transaction, query, []).map_err(unavailable)?;
     }
     sql::exec(transaction, "UPDATE change_journal_state SET epoch = ?1, floor = sequence, enabled = 0 WHERE singleton = 1", [next]).map_err(unavailable)?;
     Ok((buckets, objects, next))

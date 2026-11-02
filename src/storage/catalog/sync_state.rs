@@ -6,7 +6,7 @@ use super::{
     admin::{AdminError, BucketName, Generation, ObjectName},
     unavailable,
 };
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::CatalogError,
     object::{ObjectError, ObjectRecord},
@@ -153,21 +153,12 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "validates catalog state once at open"
-)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection
-        .query_row(
-            "SELECT count(*) = 1 AND min(singleton) = 1 FROM catalog_identity",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(unavailable)?;
-    if !valid {
-        return Err(unavailable("invalid catalog identity"));
-    }
+    sql::validate(
+        connection,
+        "SELECT count(*) = 1 AND min(singleton) = 1 FROM catalog_identity",
+        "invalid catalog identity",
+    )?;
     catalog_id(connection)?;
     Ok(())
 }
@@ -193,9 +184,9 @@ pub(super) fn matching(
             error => ObjectError::from(error),
         })?;
     }
-    let incarnation: Option<String> =
-        sql::optional_scalar(connection, SELECT_INCARNATION, [bucket])
-            .map_err(super::objects::object_unavailable)?;
+    let incarnation: Option<String> = bucket_incarnation(connection, bucket)
+        .optional()
+        .map_err(super::objects::object_unavailable)?;
     if binding.catalog != catalog_id(connection).map_err(super::objects::object_unavailable)?
         || binding.bucket != bucket
         || incarnation.as_ref() != Some(&binding.incarnation)
@@ -255,8 +246,6 @@ pub(super) fn delete_in_transaction(
     Ok(())
 }
 
-const SELECT_INCARNATION: &str = "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1";
-
 // A literal macro keeps the statements below static for the prepared statement cache.
 macro_rules! sync_columns {
     () => {
@@ -311,7 +300,8 @@ impl SyncState {
         let bucket = bucket.as_str().to_owned();
         self.0
             .run_admin(move |connection| {
-                let incarnation = sql::optional_scalar(connection, SELECT_INCARNATION, [&bucket])
+                let incarnation = bucket_incarnation(connection, &bucket)
+                    .optional()
                     .map_err(unavailable)?
                     .ok_or(CatalogError::NotFound)?;
                 Ok(SyncBinding {
@@ -369,17 +359,14 @@ impl SyncState {
             .run_admin(move |connection| {
                 Ok((|| {
                     matching(connection, &binding, &binding.bucket)?;
-                    connection
-                        .prepare_cached(SELECT_BY_PATH)
-                        .and_then(|mut statement| {
-                            statement
-                                .query_row(
-                                    params![path, binding.bucket, binding.incarnation],
-                                    read_record,
-                                )
-                                .optional()
-                        })
-                        .map_err(super::objects::object_unavailable)
+                    sql::row(
+                        connection,
+                        SELECT_BY_PATH,
+                        params![path, binding.bucket, binding.incarnation],
+                        read_record,
+                    )
+                    .optional()
+                    .map_err(super::objects::object_unavailable)
                 })())
             })
             .await?

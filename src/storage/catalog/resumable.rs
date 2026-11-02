@@ -1,5 +1,5 @@
 use super::{Catalog, CatalogError, system_time_millis, unavailable, unix_millis};
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{bucket_incarnation, sql};
 
 use crate::{
     auth::{Identity, OBJECTS_CREATE},
@@ -233,15 +233,12 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "catalog validation runs once at open"
-)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection.query_row("SELECT NOT EXISTS(SELECT 1 FROM buckets LEFT JOIN bucket_incarnations ON name = bucket WHERE bucket IS NULL) AND NOT EXISTS(SELECT 1 FROM bucket_incarnations LEFT JOIN buckets ON bucket = name WHERE name IS NULL) AND (SELECT count(*) FROM resumable_sessions WHERE state = 'ACTIVE') <= 128 AND (SELECT count(*) FROM resumable_sessions) <= 256", [], |r| r.get(0)).map_err(unavailable)?;
-    if !valid {
-        return Err(unavailable("invalid resumable catalog state"));
-    }
+    sql::validate(
+        connection,
+        "SELECT NOT EXISTS(SELECT 1 FROM buckets LEFT JOIN bucket_incarnations ON name = bucket WHERE bucket IS NULL) AND NOT EXISTS(SELECT 1 FROM bucket_incarnations LEFT JOIN buckets ON bucket = name WHERE name IS NULL) AND (SELECT count(*) FROM resumable_sessions WHERE state = 'ACTIVE') <= 128 AND (SELECT count(*) FROM resumable_sessions) <= 256",
+        "invalid resumable catalog state",
+    )?;
     // Admission keeps at most MAX_SESSIONS active plus MAX_TERMINAL_SESSIONS terminal rows.
     let mut statement = connection
         .prepare_cached("SELECT * FROM resumable_sessions ORDER BY id LIMIT 257")
@@ -260,9 +257,7 @@ fn admit_session(
     transaction: &rusqlite::Transaction<'_>,
     catalog: &Catalog,
 ) -> Result<Vec<WriterGuard>, CatalogError> {
-    let (active, terminal): (i64, i64) = transaction
-        .prepare_cached("SELECT coalesce(sum(state = 'ACTIVE'), 0), coalesce(sum(state != 'ACTIVE'), 0) FROM resumable_sessions")
-        .and_then(|mut statement| statement.query_row([], |r| Ok((r.get(0)?, r.get(1)?))))
+    let (active, terminal): (i64, i64) = sql::row(transaction, "SELECT coalesce(sum(state = 'ACTIVE'), 0), coalesce(sum(state != 'ACTIVE'), 0) FROM resumable_sessions", [], |r| Ok((r.get(0)?, r.get(1)?)))
         .map_err(unavailable)?;
     if active >= MAX_SESSIONS as i64 {
         return Err(unavailable("retained upload session limit reached"));
@@ -339,7 +334,7 @@ impl Catalog {
             let previous=super::objects::lookup(&transaction,&bucket,&name)?;
             super::objects::check_publication(previous.as_ref(),crate::object::ObjectConditions::default(),delete_permission,catalog.0.clock.now())?;
             let _trimmed = admit_session(&transaction, &catalog)?;
-            let incarnation: String = sql::optional_scalar(&transaction, "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1", [&bucket]).map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;
+            let incarnation: String = bucket_incarnation(&transaction, &bucket).optional().map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;
             let id = random_id::<32>()?;
             let blob = super::super::blob_id::BlobId::generate().map_err(unavailable)?;
             let blob_id = blob.to_hex();
@@ -358,7 +353,7 @@ impl Catalog {
                 }
                 return Err(unavailable(error).into());
             }
-            connection.prepare_cached("SELECT * FROM resumable_sessions WHERE id = ?1").and_then(|mut statement| statement.query_row([&id], read_session)).map_err(|e|unavailable(e).into())
+            sql::row(connection, "SELECT * FROM resumable_sessions WHERE id = ?1", [&id], read_session).map_err(|e|unavailable(e).into())
         })())).await??;
         self.0.maintenance_wake.notify_one();
         Ok(session)
@@ -376,15 +371,14 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let session = self
             .run_waiting(move |connection| {
-                connection
-                    .prepare_cached(
-                        "SELECT * FROM resumable_sessions WHERE id = ?1 AND bucket = ?2",
-                    )
-                    .and_then(|mut statement| {
-                        statement.query_row(params![id, bucket], read_session)
-                    })
-                    .optional()
-                    .map_err(unavailable)
+                sql::row(
+                    connection,
+                    "SELECT * FROM resumable_sessions WHERE id = ?1 AND bucket = ?2",
+                    params![id, bucket],
+                    read_session,
+                )
+                .optional()
+                .map_err(unavailable)
             })
             .await?
             .ok_or(ResumableError::NotFound)?;

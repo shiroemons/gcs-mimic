@@ -39,13 +39,14 @@ fn selected(
     generation: i64,
     now: i64,
 ) -> Result<(ObjectRecord, String), ObjectError> {
-    connection
-        .prepare_cached(SELECT_SOFT_DELETED_GENERATION)
-        .and_then(|mut statement| {
-            statement.query_row(params![bucket, name, generation, now], read_object)
-        })
-        .optional()?
-        .ok_or(ObjectError::ObjectNotFound)
+    sql::row(
+        connection,
+        SELECT_SOFT_DELETED_GENERATION,
+        params![bucket, name, generation, now],
+        read_object,
+    )
+    .optional()?
+    .ok_or(ObjectError::ObjectNotFound)
 }
 
 impl Catalog {

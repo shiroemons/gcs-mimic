@@ -90,11 +90,7 @@ pub(super) fn clean_session_storage(
 ) -> Result<(), CatalogError> {
     let blob = super::super::blob_id::BlobId::parse(blob_id)
         .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
-    let live: bool = sql::scalar(
-        connection,
-        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-        [blob_id],
-    )?;
+    let live: bool = super::objects::blob_referenced(connection, blob_id)?;
     if let Some(memory) = memory {
         memory.remove_draft(blob_id)?;
     } else {

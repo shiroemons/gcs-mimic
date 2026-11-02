@@ -1,5 +1,5 @@
 use super::{Catalog, UploadGuard, objects, unavailable, unix_micros};
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError, ObjectRecord},
@@ -38,7 +38,6 @@ pub(super) const SCHEMA: &str = "CREATE TABLE upload_replays (
 ) WITHOUT ROWID;
 CREATE INDEX upload_replays_deadline ON upload_replays(deadline, token);
 PRAGMA user_version = 35;";
-const SELECT_INCARNATION: &str = "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1";
 
 /// The client's idempotency token and the exact request it binds; without a token the
 /// request is not replayable.
@@ -125,9 +124,8 @@ impl CopyReplay {
         )?;
         self.replay
             .check_incarnation(connection, &self.destination_bucket)?;
-        let incarnation: String =
-            sql::scalar(connection, SELECT_INCARNATION, [&self.source_bucket])
-                .map_err(objects::object_unavailable)?;
+        let incarnation: String = bucket_incarnation(connection, &self.source_bucket)
+            .map_err(objects::object_unavailable)?;
         if incarnation != self.source_incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -183,12 +181,11 @@ impl UploadReplay {
         connection: &Connection,
         now: i64,
     ) -> Result<Option<(Vec<u8>, Completion)>, ObjectError> {
-        let row = connection.prepare_cached(
+        let row = sql::row(connection,
             "SELECT request, incarnation, fingerprint, completion FROM upload_replays WHERE token = ?1 AND deadline > ?2",
-        ).and_then(|mut statement| statement.query_row(
             params![self.token, now],
             |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?, r.get::<_, Vec<u8>>(2)?, r.get::<_, String>(3)?)),
-        )).optional().map_err(objects::object_unavailable)?;
+        ).optional().map_err(objects::object_unavailable)?;
         row.map(|(request, incarnation, fingerprint, completion)| {
             if request != self.request || incarnation != self.incarnation {
                 return Err(invalid());
@@ -258,9 +255,7 @@ impl UploadReplay {
             Err(ObjectError::Forbidden) => false,
             Err(error) => return Err(error),
         };
-        let (uniform, project): (bool, String) = connection
-            .prepare_cached("SELECT uniform_bucket_level_access_locked_time IS NOT NULL, project FROM buckets WHERE name = ?1")
-            .and_then(|mut statement| statement.query_row([&record.bucket], |r| Ok((r.get(0)?, r.get(1)?))))
+        let (uniform, project): (bool, String) = sql::row(connection, "SELECT uniform_bucket_level_access_locked_time IS NOT NULL, project FROM buckets WHERE name = ?1", [&record.bucket], |r| Ok((r.get(0)?, r.get(1)?)))
             .map_err(objects::object_unavailable)?;
         let acl = if visible && !uniform {
             let entries: Option<String> = sql::optional_scalar(connection, "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![record.bucket, record.name, record.generation])
@@ -286,20 +281,20 @@ impl UploadReplay {
         let deadline = now
             .checked_add(LIFETIME_MICROS)
             .ok_or_else(|| objects::object_unavailable("upload replay deadline overflow"))?;
-        connection
-            .prepare_cached("INSERT INTO upload_replays VALUES (?1,?2,?3,?4,?5,?6,?7)")
-            .and_then(|mut statement| {
-                statement.execute(params![
-                    self.token,
-                    self.request,
-                    self.incarnation,
-                    now,
-                    deadline,
-                    fingerprint,
-                    completion
-                ])
-            })
-            .map_err(objects::object_unavailable)?;
+        sql::exec(
+            connection,
+            "INSERT INTO upload_replays VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                self.token,
+                self.request,
+                self.incarnation,
+                now,
+                deadline,
+                fingerprint,
+                completion
+            ],
+        )
+        .map_err(objects::object_unavailable)?;
         let snapshot = acl
             .map(|entries| super::acl::ObjectAclSnapshot::new(record, entries, &self.incarnation));
         let _ = self.snapshot.set(snapshot);
@@ -311,8 +306,8 @@ impl UploadReplay {
         connection: &Connection,
         bucket: &str,
     ) -> Result<(), ObjectError> {
-        let incarnation: String = sql::scalar(connection, SELECT_INCARNATION, [bucket])
-            .map_err(objects::object_unavailable)?;
+        let incarnation: String =
+            bucket_incarnation(connection, bucket).map_err(objects::object_unavailable)?;
         if incarnation != self.incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -429,11 +424,7 @@ impl Catalog {
                         &token,
                         now,
                     )?;
-                    let incarnation = transaction
-                        .prepare_cached(SELECT_INCARNATION)
-                        .and_then(|mut statement| {
-                            statement.query_row([&source_query], |row| row.get(0))
-                        })
+                    let incarnation = bucket_incarnation(&transaction, &source_query)
                         .map_err(objects::object_unavailable)?;
                     Ok::<_, ObjectError>((incarnation, generation))
                 })())
@@ -536,7 +527,7 @@ impl Catalog {
                         .map_err(objects::object_unavailable)?;
                     let (_, delete_permission) =
                         objects::authorized_bucket(&transaction, &bucket, &access)?;
-                    let incarnation = sql::scalar(&transaction, SELECT_INCARNATION, [&bucket])
+                    let incarnation = bucket_incarnation(&transaction, &bucket)
                         .map_err(objects::object_unavailable)?;
                     if expected_incarnation
                         .as_ref()

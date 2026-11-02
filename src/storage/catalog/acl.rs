@@ -12,7 +12,7 @@ use super::{
     policies::{check_access, public_access_prevention},
     unavailable, unix_micros,
 };
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     acl::{AclEntry, AclKind, AclTarget, Entity, MAX_ENTRIES, project_private},
     bucket::{BucketAccess, CatalogError},
@@ -145,12 +145,12 @@ pub(super) fn publish_object_acl(
         owner.remove_implicit_grant(&mut entries);
     }
     let entries = serde_json::to_string(&entries).map_err(object_unavailable)?;
-    connection
-        .prepare_cached(UPSERT_OBJECT_ENTRIES)
-        .and_then(|mut statement| {
-            statement.execute(params![bucket, record.name, record.generation, entries])
-        })
-        .map_err(object_unavailable)?;
+    sql::exec(
+        connection,
+        UPSERT_OBJECT_ENTRIES,
+        params![bucket, record.name, record.generation, entries],
+    )
+    .map_err(object_unavailable)?;
     Ok(())
 }
 
@@ -275,21 +275,15 @@ struct BucketRow {
 }
 
 fn bucket_row(connection: &Connection, bucket: &str) -> Result<Option<BucketRow>, CatalogError> {
-    connection
-        .prepare_cached(
-            "SELECT project, metageneration, uniform_bucket_level_access_locked_time IS NOT NULL, acl_policy_bound FROM buckets WHERE name = ?1",
-        )
-        .and_then(|mut statement| {
-            statement.query_row([bucket], |row| {
+    sql::row(connection,
+            "SELECT project, metageneration, uniform_bucket_level_access_locked_time IS NOT NULL, acl_policy_bound FROM buckets WHERE name = ?1", [bucket], |row| {
                 Ok(BucketRow {
                     project: row.get(0)?,
                     metageneration: row.get(1)?,
                     uniform_access: row.get(2)?,
                     policy_bound: row.get(3)?,
                 })
-            })
-        })
-        .optional()
+            }).optional()
         .map_err(unavailable)
 }
 
@@ -302,15 +296,16 @@ fn stored_bucket_entries(
     bucket: &str,
     scope: &str,
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
-    connection
-        .prepare_cached("SELECT entries FROM acl_bucket_entries WHERE bucket = ?1 AND scope = ?2")
-        .and_then(|mut statement| {
-            statement.query_row(params![bucket, scope], |row| row.get::<_, String>(0))
-        })
-        .optional()
-        .map_err(unavailable)?
-        .map(|entries| decode(&entries))
-        .transpose()
+    sql::row(
+        connection,
+        "SELECT entries FROM acl_bucket_entries WHERE bucket = ?1 AND scope = ?2",
+        params![bucket, scope],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(unavailable)?
+    .map(|entries| decode(&entries))
+    .transpose()
 }
 
 pub(super) fn bucket_granted(
@@ -358,14 +353,12 @@ pub(super) fn object_granted(
     {
         return Ok(false);
     }
-    let exists: bool = connection
-        .prepare_cached(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3)",
-        )
-        .and_then(|mut statement| {
-            statement.query_row(params![bucket, name, generation], |row| row.get(0))
-        })
-        .map_err(unavailable)?;
+    let exists: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3)",
+        params![bucket, name, generation],
+    )
+    .map_err(unavailable)?;
     if !exists {
         return Ok(false);
     }
@@ -392,16 +385,10 @@ fn stored_object_entries(
     name: &str,
     generation: i64,
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
-    connection
-        .prepare_cached(
-            "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-        )
-        .and_then(|mut statement| {
-            statement.query_row(params![bucket, name, generation], |row| {
+    sql::row(connection,
+            "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![bucket, name, generation], |row| {
                 row.get::<_, String>(0)
-            })
-        })
-        .optional()
+            }).optional()
         .map_err(unavailable)?
         .map(|entries| decode(&entries))
         .transpose()
@@ -566,20 +553,20 @@ pub(super) fn replace_resource_acl(
         ResolvedAclTarget::Object {
             name, generation, ..
         } => {
-            connection
-                .prepare_cached(UPSERT_OBJECT_ENTRIES)
-                .and_then(|mut statement| {
-                    statement.execute(params![bucket, name, generation, entries])
-                })
-                .map_err(unavailable)?;
+            sql::exec(
+                connection,
+                UPSERT_OBJECT_ENTRIES,
+                params![bucket, name, generation, entries],
+            )
+            .map_err(unavailable)?;
         }
         _ => {
-            connection
-                .prepare_cached(UPSERT_BUCKET_ENTRIES)
-                .and_then(|mut statement| {
-                    statement.execute(params![bucket, scope(target.kind()), entries])
-                })
-                .map_err(unavailable)?;
+            sql::exec(
+                connection,
+                UPSERT_BUCKET_ENTRIES,
+                params![bucket, scope(target.kind()), entries],
+            )
+            .map_err(unavailable)?;
         }
     }
     Ok(())
@@ -690,12 +677,8 @@ impl Catalog {
             {
                 return Ok(None);
             }
-            let incarnation: String = sql::scalar(
-                &transaction,
-                "SELECT incarnation FROM bucket_incarnations WHERE bucket=?1",
-                [&snapshot.bucket],
-            )
-            .map_err(unavailable)?;
+            let incarnation: String =
+                bucket_incarnation(&transaction, &snapshot.bucket).map_err(unavailable)?;
             if snapshot.incarnation != incarnation {
                 return Ok(None);
             }
@@ -821,19 +804,10 @@ impl Catalog {
                         if target.kind() == AclKind::Bucket {
                             bucket_policy::replace_policy(&transaction, bucket, &state.entries, principals.as_ref())?;
                         }
-                        transaction
-                            .prepare_cached(UPSERT_BUCKET_ENTRIES)
-                            .and_then(|mut statement| {
-                                statement.execute(params![bucket, scope(target.kind()), entries])
-                            })
+                        sql::exec(&transaction, UPSERT_BUCKET_ENTRIES, params![bucket, scope(target.kind()), entries])
                             .map_err(unavailable)?;
-                        transaction
-                            .prepare_cached(
-                                "UPDATE buckets SET metageneration = ?2, updated = ?3, updated_nanos = 0 WHERE name = ?1",
-                            )
-                            .and_then(|mut statement| {
-                                statement.execute(params![bucket, state.metageneration, micros])
-                            })
+                        sql::exec(&transaction,
+                                "UPDATE buckets SET metageneration = ?2, updated = ?3, updated_nanos = 0 WHERE name = ?1", params![bucket, state.metageneration, micros])
                             .map_err(unavailable)?;
                         change_journal::append(
                             &transaction,
@@ -844,19 +818,10 @@ impl Catalog {
                         )?;
                     }
                     Some(mut record) => {
-                        transaction
-                            .prepare_cached(UPSERT_OBJECT_ENTRIES)
-                            .and_then(|mut statement| {
-                                statement.execute(params![bucket, record.name, record.generation, entries])
-                            })
+                        sql::exec(&transaction, UPSERT_OBJECT_ENTRIES, params![bucket, record.name, record.generation, entries])
                             .map_err(unavailable)?;
-                        transaction
-                            .prepare_cached(
-                                "UPDATE objects SET metageneration = ?4, updated = ?5 WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-                            )
-                            .and_then(|mut statement| {
-                                statement.execute(params![bucket, record.name, record.generation, state.metageneration, micros])
-                            })
+                        sql::exec(&transaction,
+                                "UPDATE objects SET metageneration = ?4, updated = ?5 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![bucket, record.name, record.generation, state.metageneration, micros])
                             .map_err(unavailable)?;
                         record.metageneration = state.metageneration;
                         record.updated = super::system_time_micros(micros).map_err(unavailable)?;

@@ -1,7 +1,7 @@
 use super::{
     Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
 };
-use crate::storage::catalog::sql;
+use crate::storage::catalog::bucket_incarnation;
 use crate::{
     bucket::BucketAccess,
     clock::Clock,
@@ -17,15 +17,6 @@ use crate::storage::failure::object_unavailable;
 pub(crate) enum SourceDisposal {
     Keep,
     Delete,
-}
-
-fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
-    sql::scalar(
-        connection,
-        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-        [bucket],
-    )
-    .map_err(object_unavailable)
 }
 
 /// The source identities a compose read, re-checked when it publishes.
@@ -87,7 +78,7 @@ impl ComposePlan {
     /// The bucket is unchanged and, when sources are deleted, the caller may still delete
     /// them and their retention allows it.
     fn validate(&self, connection: &Connection, clock: &dyn Clock) -> Result<(), ObjectError> {
-        if incarnation(connection, &self.bucket)? != self.expected_incarnation {
+        if bucket_incarnation(connection, &self.bucket)? != self.expected_incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
         if self.disposal == SourceDisposal::Delete {
@@ -264,7 +255,7 @@ impl Catalog {
                 destination_delete,
                 clock.now(),
             )?;
-            incarnation(&transaction, &destination.bucket)
+            Ok(bucket_incarnation(&transaction, &destination.bucket)?)
         })
         .await
     }
