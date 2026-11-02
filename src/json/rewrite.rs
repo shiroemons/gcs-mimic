@@ -2,7 +2,11 @@ use super::{
     Decoding, Fields, JsonError, decode, parse_query, query, validate_bucket_name_for_profile,
     validate_object_name,
 };
-use crate::{config::CompatProfile, object::ObjectConditions, storage::rewrite::RewriteProgress};
+use crate::{
+    config::CompatProfile,
+    object::{ObjectConditions, ObjectTarget},
+    storage::rewrite::{RewriteNames, RewriteProgress},
+};
 use hyper::{Method, Uri};
 use serde_json::{Map, Value, json};
 
@@ -15,9 +19,9 @@ pub(crate) enum RewriteSide {
 }
 
 pub(crate) struct RewriteRequest {
-    pub path: [String; 4],
-    pub token: Option<String>,
-    pub parameters: Map<String, Value>,
+    pub(crate) names: RewriteNames,
+    pub(crate) token: Option<String>,
+    pub(crate) parameters: Map<String, Value>,
 }
 
 impl RewriteRequest {
@@ -74,16 +78,22 @@ pub(crate) fn route(
                 Some("POST"),
             ));
         }
-        let path = [
-            decode(segments[0], Decoding::Path)?,
-            decode(segments[2], Decoding::Path)?,
-            decode(segments[5], Decoding::Path)?,
-            decode(segments[7], Decoding::Path)?,
-        ];
-        for bucket in [&path[0], &path[2]] {
+        let names = RewriteNames {
+            source: ObjectTarget::new(
+                decode(segments[0], Decoding::Path)?,
+                decode(segments[2], Decoding::Path)?,
+                (),
+            ),
+            destination: ObjectTarget::new(
+                decode(segments[5], Decoding::Path)?,
+                decode(segments[7], Decoding::Path)?,
+                (),
+            ),
+        };
+        for bucket in [&names.source.bucket, &names.destination.bucket] {
             validate_bucket_name_for_profile(bucket, profile)?;
         }
-        for object in [&path[1], &path[3]] {
+        for object in [&names.source.name, &names.destination.name] {
             validate_object_name(object)?;
         }
         let mut parameters = parse_query(uri.query().unwrap_or_default())?;
@@ -152,7 +162,7 @@ pub(crate) fn route(
         }
         query::finish(&remaining)?;
         Ok(RewriteRequest {
-            path,
+            names,
             token,
             parameters: parameters
                 .into_iter()
@@ -187,8 +197,11 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(
-            parsed.path,
-            ["source-bucket", "a/b%", "destination-bucket", "c/d"]
+            parsed.names,
+            RewriteNames {
+                source: ObjectTarget::new("source-bucket", "a/b%", ()),
+                destination: ObjectTarget::new("destination-bucket", "c/d", ()),
+            }
         );
         for maximum in [
             "0",

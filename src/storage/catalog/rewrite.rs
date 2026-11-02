@@ -17,7 +17,7 @@ use std::{
     time::SystemTime,
 };
 
-pub(crate) use super::rewrite_token::RewriteBinding;
+pub(crate) use super::rewrite_token::{RewriteBinding, RewriteNames};
 
 pub(super) const SCHEMA: &str = "CREATE TABLE rewrite_sessions (
     id TEXT PRIMARY KEY CHECK(length(id) = 32),

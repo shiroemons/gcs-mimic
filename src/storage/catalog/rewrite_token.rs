@@ -1,3 +1,4 @@
+use crate::object::ObjectTarget;
 use serde_json::{Map, Value};
 
 /// An unguessable database key: its authoritative request binding stays in the catalog.
@@ -21,6 +22,20 @@ impl RewriteToken {
 
     pub(crate) fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Neither name carries a version: the source parameter or token selects one, and
+/// publication assigns the destination's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RewriteNames {
+    pub(crate) source: ObjectTarget<()>,
+    pub(crate) destination: ObjectTarget<()>,
+}
+
+impl RewriteNames {
+    pub(crate) fn source_at(&self, generation: Option<i64>) -> ObjectTarget {
+        ObjectTarget::new(&self.source.bucket, &self.source.name, generation)
     }
 }
 

@@ -2,7 +2,7 @@ use super::RequestBody as Incoming;
 use super::*;
 use crate::{
     json::rewrite::{RewriteRequest, RewriteSide},
-    object::{ObjectConditions, ObjectTarget},
+    object::ObjectConditions,
     storage::{
         DerivedDestination,
         rewrite::{RewriteBinding, RewriteError, RewriteStart},
@@ -27,8 +27,9 @@ async fn authorize_source(
     operation: &RewriteRequest,
     access: &BucketAccess,
 ) -> Result<(), JsonError> {
+    let source = &operation.names.source;
     if catalog
-        .has_bucket_permission(&operation.path[0], access)
+        .has_bucket_permission(&source.bucket, access)
         .await?
     {
         return Ok(());
@@ -37,8 +38,8 @@ async fn authorize_source(
     let generation = if let Some(token) = &operation.token {
         match catalog.rewrite_session(token).await {
             Ok(session)
-                if session.binding.source_bucket == operation.path[0]
-                    && session.binding.source_object == operation.path[1] =>
+                if session.binding.source_bucket == source.bucket
+                    && session.binding.source_object == source.name =>
             {
                 Some(session.binding.source_generation)
             }
@@ -48,9 +49,12 @@ async fn authorize_source(
     } else {
         requested
     };
-    let target = ObjectTarget::new(&operation.path[0], &operation.path[1], generation);
     catalog
-        .get_object(target, ObjectConditions::default(), access)
+        .get_object(
+            operation.names.source_at(generation),
+            ObjectConditions::default(),
+            access,
+        )
         .await?;
     Ok(())
 }
@@ -66,10 +70,12 @@ pub(super) async fn respond(
         activity,
         ..
     } = ctx;
-    let source_access = ctx.authorize(auth::OBJECTS_GET, &operation.path[0]).await?;
+    let source_access = ctx
+        .authorize(auth::OBJECTS_GET, &operation.names.source.bucket)
+        .await?;
     authorize_source(&state.catalog, &operation, &source_access).await?;
     let destination_access = ctx
-        .authorize(auth::OBJECTS_CREATE, &operation.path[2])
+        .authorize(auth::OBJECTS_CREATE, &operation.names.destination.bucket)
         .await?;
     if operation
         .parameters
@@ -77,7 +83,10 @@ pub(super) async fn respond(
     {
         let record = state
             .catalog
-            .get_bucket(&operation.path[2], &BucketAccess::Permissive)
+            .get_bucket(
+                &operation.names.destination.bucket,
+                &BucketAccess::Permissive,
+            )
             .await?
             .ok_or(CatalogError::NotFound)?;
         json::reject_predefined_acl(
@@ -174,17 +183,16 @@ async fn resolve_source(
     access: &BucketAccess,
     keys: Keys,
 ) -> Result<crate::storage::DerivedSource, JsonError> {
-    let target = ObjectTarget::new(
-        &operation.path[0],
-        &operation.path[1],
-        operation.number("sourceGeneration"),
-    );
+    let target = operation
+        .names
+        .source_at(operation.number("sourceGeneration"));
     let conditions = operation.conditions(RewriteSide::Source);
     catalog
         .resolve_derived_source_keyed(target, conditions, access, keys.source)
         .await
         .map_err(|failure| {
-            JsonError::from(failure).naming_object(&operation.path[0], &operation.path[1])
+            JsonError::from(failure)
+                .naming_object(&operation.names.source.bucket, &operation.names.source.name)
         })
 }
 
@@ -201,15 +209,16 @@ async fn execute(
         source_access,
         destination_access,
     } = job;
+    let names = &operation.names;
     let mut owner = None;
     let token = if let Some(token) = &operation.token {
         let session = catalog.rewrite_session(token).await.map_err(error)?;
         if !session.binding.accepts(
             [
-                &operation.path[0],
-                &operation.path[1],
-                &operation.path[2],
-                &operation.path[3],
+                &names.source.bucket,
+                &names.source.name,
+                &names.destination.bucket,
+                &names.destination.name,
             ],
             &operation.parameters,
             body.as_ref(),
@@ -230,18 +239,18 @@ async fn execute(
             keys.destination.map(crate::csek::CustomerKey::sha256);
         catalog
             .check_upload(
-                &operation.path[2],
-                &operation.path[3],
+                &names.destination.bucket,
+                &names.destination.name,
                 operation.conditions(RewriteSide::Destination),
                 &destination_access,
             )
             .await?;
         let source_bucket = catalog
-            .get_bucket(&operation.path[0], &BucketAccess::Permissive)
+            .get_bucket(&names.source.bucket, &BucketAccess::Permissive)
             .await?
             .ok_or(ObjectError::BucketNotFound)?;
         let destination_bucket = catalog
-            .get_bucket(&operation.path[2], &BucketAccess::Permissive)
+            .get_bucket(&names.destination.bucket, &BucketAccess::Permissive)
             .await?
             .ok_or(ObjectError::BucketNotFound)?;
         let multiple = source_bucket.location != destination_bucket.location
@@ -269,11 +278,11 @@ async fn execute(
                 .or_insert_with(|| Value::String(value.into()));
         }
         let binding = RewriteBinding {
-            source_bucket: operation.path[0].clone(),
-            source_object: operation.path[1].clone(),
+            source_bucket: names.source.bucket.clone(),
+            source_object: names.source.name.clone(),
             source_generation: source.object.generation,
-            destination_bucket: operation.path[2].clone(),
-            destination_object: operation.path[3].clone(),
+            destination_bucket: names.destination.bucket.clone(),
+            destination_object: names.destination.name.clone(),
             parameters,
             metadata: body.clone(),
         };
@@ -331,8 +340,8 @@ fn destination(
         .unwrap_or_else(|| "application/octet-stream".into());
     Ok(DerivedDestination {
         component_count: source.component_count,
-        bucket: request.path[2].clone(),
-        name: request.path[3].clone(),
+        bucket: request.names.destination.bucket.clone(),
+        name: request.names.destination.name.clone(),
         content_type,
         metadata,
         storage_class: class,
