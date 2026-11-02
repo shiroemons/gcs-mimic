@@ -142,6 +142,11 @@ fn xml_bucket_requests_reject_object_preconditions() {
         let reply = server.request(method, "/condition-bucket", &format!("{ADMIN}{header}"), "");
         assert_eq!(reply.status, 400, "{}", reply.body);
         assert!(reply.body.contains(message), "{}", reply.body);
+        for (auth, status) in [("", 401), (NONE, 403)] {
+            let reply = server.request(method, "/condition-bucket", &format!("{auth}{header}"), "");
+            assert_eq!(reply.status, status, "{}", reply.body);
+            assert!(!reply.body.contains(message), "{}", reply.body);
+        }
     }
 }
 
