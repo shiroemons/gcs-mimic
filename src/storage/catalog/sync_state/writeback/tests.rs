@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     clock::SystemClock,
     object::UploadChunk,
@@ -691,15 +691,14 @@ async fn writeback_rejects_foreign_stale_hold_and_changed_api_winners() {
     let held = publish(&catalog, &bucket, "held", b"held").await;
     catalog
         .update_object_metadata(
-            bucket.as_str(),
-            "held",
-            None,
+            live(bucket.as_str(), "held"),
             Default::default(),
             crate::object::ObjectMetadataUpdate {
                 event_based_hold: Some(true),
                 ..Default::default()
             },
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -737,15 +736,14 @@ async fn writeback_rejects_foreign_stale_hold_and_changed_api_winners() {
     let receipt = writeback.durable(armed.token).await.unwrap();
     catalog
         .update_object_metadata(
-            bucket.as_str(),
-            "object",
-            None,
+            live(bucket.as_str(), "object"),
             Default::default(),
             crate::object::ObjectMetadataUpdate {
                 event_based_hold: Some(true),
                 ..Default::default()
             },
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -755,15 +753,14 @@ async fn writeback_rejects_foreign_stale_hold_and_changed_api_winners() {
     ));
     catalog
         .update_object_metadata(
-            bucket.as_str(),
-            "object",
-            None,
+            live(bucket.as_str(), "object"),
             Default::default(),
             crate::object::ObjectMetadataUpdate {
                 event_based_hold: Some(false),
                 ..Default::default()
             },
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();

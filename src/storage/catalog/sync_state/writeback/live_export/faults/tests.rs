@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     config::Config,
     object::{ObjectMetadataUpdate, ObjectRecord},
@@ -71,15 +72,14 @@ impl Fixture {
         );
         catalog
             .update_object_metadata(
-                "test-bucket",
-                "object",
-                None,
+                live("test-bucket", "object"),
                 Default::default(),
                 ObjectMetadataUpdate {
                     temporary_hold: Some(true),
                     ..Default::default()
                 },
                 |_| Ok(()),
+                PERMISSIVE,
             )
             .await
             .unwrap();

@@ -294,13 +294,9 @@ impl Storage {
         let record = self
             .state
             .catalog
-            .update_object_metadata_authorized(
-                crate::storage::ObjectSelector {
-                    bucket,
-                    name,
-                    generation: generation(selected)?,
-                    conditions,
-                },
+            .update_object_metadata(
+                ObjectTarget::new(bucket, name, generation(selected)?),
+                conditions,
                 update,
                 move |record| {
                     let current = convert::object(record)

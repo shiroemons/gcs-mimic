@@ -62,16 +62,6 @@ pub(super) const SELECT_SOFT_DELETED_GENERATION: &str = concat!(
     " FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3 AND soft_delete_time IS NOT NULL AND hard_delete_time > ?4"
 );
 
-/// The object version a request addresses and the preconditions it must meet.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ObjectSelector<'a> {
-    pub(crate) bucket: &'a str,
-    pub(crate) name: &'a str,
-    /// `None` selects the live version.
-    pub(crate) generation: Option<i64>,
-    pub(crate) conditions: ObjectConditions,
-}
-
 /// A streamed upload's destination and everything its publication checks and records,
 /// apart from the body and the admission permit.
 pub(crate) struct ObjectUpload<'a> {
@@ -1315,46 +1305,20 @@ impl Catalog {
             .await
     }
 
-    #[cfg(test)]
+    /// Applies the public update contract after rechecking the caller's authorization.
     pub(crate) async fn update_object_metadata(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
-        update: ObjectMetadataUpdate,
-        validate: impl FnOnce(&ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
-    ) -> Result<ObjectRecord, ObjectError> {
-        self.update_object_metadata_authorized(
-            ObjectSelector {
-                bucket,
-                name,
-                generation,
-                conditions,
-            },
-            update,
-            validate,
-            PERMISSIVE,
-        )
-        .await
-    }
-
-    /// Applies the public update contract after rechecking the caller's authorization.
-    pub(crate) async fn update_object_metadata_authorized(
-        &self,
-        target: ObjectSelector<'_>,
         update: ObjectMetadataUpdate,
         validate: impl FnOnce(&ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
         access: &BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
-        let ObjectSelector {
+        let ObjectTarget {
             bucket,
             name,
             generation,
-            conditions,
         } = target;
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
         let clock = self.0.clock.clone();
         let access = access.clone();
         let principals = self.0.principals.get().cloned();
@@ -3555,13 +3519,9 @@ mod tests {
         };
         assert_eq!(
             catalog
-                .update_object_metadata_authorized(
-                    ObjectSelector {
-                        bucket: "bucket",
-                        name: "object",
-                        generation: None,
-                        conditions,
-                    },
+                .update_object_metadata(
+                    live("bucket", "object"),
+                    conditions,
                     update,
                     |_| Ok(()),
                     access,

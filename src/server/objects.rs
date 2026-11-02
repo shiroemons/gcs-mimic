@@ -16,7 +16,7 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     json::{self, JsonError, ObjectRequest, UploadRequest},
     object::{ObjectError, retention::UnlockedOverride},
-    storage::{MoveAccess, ObjectSelector, UploadAclSnapshot},
+    storage::{MoveAccess, UploadAclSnapshot},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
 use serde_json::Value;
@@ -498,13 +498,9 @@ async fn update(
     let record = ctx
         .state
         .catalog
-        .update_object_metadata_authorized(
-            ObjectSelector {
-                bucket: &bucket,
-                name: &name,
-                generation: params.generation,
-                conditions: params.conditions,
-            },
+        .update_object_metadata(
+            ObjectTarget::new(bucket, name, params.generation),
+            params.conditions,
             update.update,
             move |record| {
                 // A wrong key fails before the metadata change commits.

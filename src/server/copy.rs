@@ -705,9 +705,7 @@ mod tests {
         let blocker = tokio::spawn(async move {
             blocking_catalog
                 .update_object_metadata(
-                    "bucket",
-                    "source",
-                    None,
+                    live("bucket", "source"),
                     Default::default(),
                     Default::default(),
                     move |_| {
@@ -715,6 +713,7 @@ mod tests {
                         hold.recv().unwrap();
                         Ok(())
                     },
+                    PERMISSIVE,
                 )
                 .await
         });

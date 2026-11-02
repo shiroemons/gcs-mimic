@@ -282,12 +282,11 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
             ChangeKind::Metadata => {
                 catalog
                     .update_object_metadata(
-                        "test-bucket",
-                        "object",
-                        None,
-                        ObjectConditions::default(),
+                        live("test-bucket", "object"),
+                        Default::default(),
                         ObjectMetadataUpdate::default(),
                         |_| Ok(()),
+                        PERMISSIVE,
                     )
                     .await
                     .unwrap();

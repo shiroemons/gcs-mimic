@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     object::{ObjectMetadataUpdate, UploadChunk},
     storage::admin::Origin,
@@ -500,9 +500,7 @@ async fn ingest_preserves_metadata_patch_and_api_body_racing_publication() {
         } else {
             catalog
                 .update_object_metadata(
-                    "test-bucket",
-                    "object",
-                    None,
+                    live("test-bucket", "object"),
                     Default::default(),
                     ObjectMetadataUpdate {
                         content_type: Some(Some("application/patched".into())),
@@ -513,6 +511,7 @@ async fn ingest_preserves_metadata_patch_and_api_body_racing_publication() {
                         ..Default::default()
                     },
                     |_| Ok(()),
+                    PERMISSIVE,
                 )
                 .await
                 .unwrap();

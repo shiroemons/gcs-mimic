@@ -4,7 +4,7 @@
 )]
 
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     clock::SystemClock,
     storage::{
@@ -310,15 +310,14 @@ async fn conflict_restore_stale_generation_and_holds_preserve_quota_and_bytes() 
     fixture
         .catalog
         .update_object_metadata(
-            "test-bucket",
-            "object.txt",
-            None,
+            live("test-bucket", "object.txt"),
             Default::default(),
             crate::object::ObjectMetadataUpdate {
                 temporary_hold: Some(true),
                 ..Default::default()
             },
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();

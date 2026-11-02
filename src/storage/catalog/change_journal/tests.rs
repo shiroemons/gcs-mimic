@@ -3,7 +3,7 @@ use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     clock::SystemClock,
-    object::{ObjectConditions, ObjectMetadataUpdate, UploadChunk},
+    object::{ObjectMetadataUpdate, UploadChunk},
     storage::admin::{BucketDefinition, BucketName, ObjectName, Publication, PublishMode},
     test_support::TestDir,
 };
@@ -77,12 +77,11 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
     }
     catalog
         .update_object_metadata(
-            "test-bucket",
-            "object",
-            None,
-            ObjectConditions::default(),
+            live("test-bucket", "object"),
+            Default::default(),
             ObjectMetadataUpdate::default(),
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();

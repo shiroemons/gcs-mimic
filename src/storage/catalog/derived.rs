@@ -1545,15 +1545,14 @@ mod tests {
         drop(connection);
         catalog
             .update_object_metadata(
-                "bucket",
-                "source",
-                None,
+                live("bucket", "source"),
                 Default::default(),
                 ObjectMetadataUpdate {
                     event_based_hold: Some(true),
                     ..Default::default()
                 },
                 |_| Ok(()),
+                PERMISSIVE,
             )
             .await
             .unwrap();

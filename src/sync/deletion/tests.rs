@@ -4,7 +4,7 @@
 )]
 
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     storage::{admin::Origin, sync_state::root::Activation},
     test_support::TestDir,
@@ -51,15 +51,14 @@ async fn protected_external_deletion_restores_bytes_and_versioned_removal_keeps_
         .unwrap();
     catalog
         .update_object_metadata(
-            "test-bucket",
-            "0000",
-            None,
+            live("test-bucket", "0000"),
             Default::default(),
             crate::object::ObjectMetadataUpdate {
                 temporary_hold: Some(true),
                 ..Default::default()
             },
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -96,15 +95,14 @@ async fn protected_external_deletion_restores_bytes_and_versioned_removal_keeps_
     );
     catalog
         .update_object_metadata(
-            "test-bucket",
-            "0000",
-            None,
+            live("test-bucket", "0000"),
             Default::default(),
             crate::object::ObjectMetadataUpdate {
                 temporary_hold: Some(false),
                 ..Default::default()
             },
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();

@@ -448,12 +448,11 @@ async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time
     };
     let changed = catalog
         .update_object_metadata(
-            "test-bucket",
-            "prefix/item",
-            None,
+            live("test-bucket", "prefix/item"),
             Default::default(),
             update.clone(),
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -462,15 +461,14 @@ async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time
     assert!(
         catalog
             .update_object_metadata(
-                "test-bucket",
-                "prefix/item",
-                None,
+                live("test-bucket", "prefix/item"),
                 ObjectConditions {
                     if_metageneration_match: Some(1),
                     ..Default::default()
                 },
                 update,
-                |_| Ok(())
+                |_| Ok(()),
+                PERMISSIVE
             )
             .await
             .is_err()

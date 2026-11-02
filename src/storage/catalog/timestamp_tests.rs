@@ -250,12 +250,11 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
         assert_eq!(object.time_created, expected);
         let updated = catalog
             .update_object_metadata(
-                "timestamp-bucket",
-                "media",
-                None,
-                ObjectConditions::default(),
+                live("timestamp-bucket", "media"),
+                Default::default(),
                 ObjectMetadataUpdate::default(),
                 |_| Ok(()),
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -524,12 +523,11 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         assert_eq!(patched.updated, expected);
         let updated = catalog
             .update_object_metadata(
-                "timestamp-bucket",
-                "source",
-                None,
-                ObjectConditions::default(),
+                live("timestamp-bucket", "source"),
+                Default::default(),
                 ObjectMetadataUpdate::default(),
                 |_| Ok(()),
+                PERMISSIVE,
             )
             .await
             .unwrap();

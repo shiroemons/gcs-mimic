@@ -1646,10 +1646,8 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     );
     let changed = catalog
         .update_object_metadata(
-            "bucket",
-            "metadata",
-            None,
-            ObjectConditions::default(),
+            live("bucket", "metadata"),
+            Default::default(),
             ObjectMetadataUpdate {
                 content_type: Some(Some("text/plain".into())),
                 content_encoding: Some(Some("identity".into())),
@@ -1657,6 +1655,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
                 ..Default::default()
             },
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -1674,15 +1673,14 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     clock.0.store(10_000_000, Ordering::Relaxed);
     let cleared = catalog
         .update_object_metadata(
-            "bucket",
-            "metadata",
-            None,
-            ObjectConditions::default(),
+            live("bucket", "metadata"),
+            Default::default(),
             ObjectMetadataUpdate {
                 replace: true,
                 ..Default::default()
             },
             |_| Ok(()),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -1724,9 +1722,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
                 barrier.wait().await;
                 catalog
                     .update_object_metadata(
-                        "bucket",
-                        "race",
-                        None,
+                        live("bucket", "race"),
                         conditions,
                         ObjectMetadataUpdate {
                             metadata: Some(Some(BTreeMap::from([(
@@ -1736,6 +1732,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
                             ..Default::default()
                         },
                         |_| Ok(()),
+                        PERMISSIVE,
                     )
                     .await
             })

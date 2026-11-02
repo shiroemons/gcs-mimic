@@ -91,7 +91,7 @@ pub(crate) use objects::Versioning;
 mod bucket_soft_delete;
 mod soft_delete;
 pub(crate) use objects::{
-    ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader, ObjectSelector, ObjectUpload,
+    ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader, ObjectUpload,
 };
 
 mod derived;

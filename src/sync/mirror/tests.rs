@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     clock::SystemClock,
     object::UploadChunk,
@@ -107,15 +107,14 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
         if held {
             catalog
                 .update_object_metadata(
-                    bucket.as_str(),
-                    "object",
-                    None,
+                    live(bucket.as_str(), "object"),
                     Default::default(),
                     crate::object::ObjectMetadataUpdate {
                         temporary_hold: Some(true),
                         ..Default::default()
                     },
                     |_| Ok(()),
+                    PERMISSIVE,
                 )
                 .await
                 .unwrap();
@@ -394,15 +393,14 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
         );
         let patched = catalog
             .update_object_metadata(
-                bucket.as_str(),
-                "object",
-                None,
+                live(bucket.as_str(), "object"),
                 Default::default(),
                 crate::object::ObjectMetadataUpdate {
                     content_type: Some(Some("text/plain".into())),
                     ..Default::default()
                 },
                 |_| Ok(()),
+                PERMISSIVE,
             )
             .await
             .unwrap();

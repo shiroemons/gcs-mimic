@@ -8,7 +8,7 @@ use crate::{
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError},
     server::authorize_bucket,
     storage::{
-        DerivedDestination, DerivedRequestGuard, MoveAccess, ObjectSelector,
+        DerivedDestination, DerivedRequestGuard, MoveAccess,
         rewrite::{RewriteBinding, RewriteError, RewriteStart},
     },
 };
@@ -982,13 +982,9 @@ impl Storage {
         let record = self
             .state
             .catalog
-            .update_object_metadata_authorized(
-                ObjectSelector {
-                    bucket,
-                    name,
-                    generation: (o.generation != 0).then_some(o.generation),
-                    conditions: c,
-                },
+            .update_object_metadata(
+                ObjectTarget::new(bucket, name, (o.generation != 0).then_some(o.generation)),
+                c,
                 parsed.update,
                 |_| Ok(()),
                 &access,
