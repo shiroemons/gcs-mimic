@@ -18881,6 +18881,7 @@
       ]
     },
     {
+      "bucket": "shared",
       "error": null,
       "id": "obj-resumable",
       "steps": [
@@ -19140,46 +19141,13 @@
           }
         },
         {
-          "fingerprint": "6186b0a98e0d3147",
-          "name": "total-mismatch",
-          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up2>",
-          "response": {
-            "body": {
-              "kind": "text",
-              "value": "Failed to parse Content-Range header."
-            },
-            "headers": {
-              "content-type": "text/plain; charset=utf-8",
-              "x-harness-body-framing": "content-length:<ok>"
-            },
-            "status": 400
-          }
-        },
-        {
-          "fingerprint": "ac25e8f8d6b7ce1e",
-          "name": "bad-content-range",
-          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up2>",
-          "response": {
-            "body": {
-              "kind": "text",
-              "value": "Failed to parse Content-Range header."
-            },
-            "headers": {
-              "content-type": "text/plain; charset=utf-8",
-              "x-harness-body-framing": "content-length:<ok>"
-            },
-            "status": 400
-          }
-        },
-        {
-          "expectation": "expected status 308, got 400",
           "fingerprint": "aa1738c91ab1e3c2",
           "name": "chunk-not-final",
           "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up2>",
           "response": {
             "body": {
               "kind": "text",
-              "value": "Failed to parse Content-Range header."
+              "value": "Invalid request.  The number of bytes uploaded is required to be equal or greater than 262144, except for the final request (it's recommended to be the exact multiple of 262144).  The received request contained 5 bytes, which does not meet this requirement."
             },
             "headers": {
               "content-type": "text/plain; charset=utf-8",
@@ -19189,27 +19157,128 @@
           }
         },
         {
-          "expectation": "expected status 308, got 400",
-          "fingerprint": "0f1b8e25ff996d23",
-          "name": "status-after-chunk",
-          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up2>",
+          "fingerprint": "ed0f7f5c3b330f80",
+          "name": "start-cancel",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-resumable-2&uploadType=resumable",
           "response": {
             "body": {
-              "kind": "text",
-              "value": "Failed to parse Content-Range header."
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-resumable-2&uploadType=resumable&upload_id=<up3>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "b9f0c1fa7718a2a4",
+          "name": "status-before-cancel",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up3>",
+          "response": {
+            "body": {
+              "kind": "empty"
             },
             "headers": {
               "content-type": "text/plain; charset=utf-8",
               "x-harness-body-framing": "content-length:<ok>"
             },
-            "status": 400
+            "status": 308
           }
         },
         {
-          "expectation": "expected status 499, got 400",
-          "fingerprint": "8e41f6e83eea5ef0",
+          "fingerprint": "34dc02f609bcb87d",
           "name": "cancel",
-          "request": "DELETE /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up2>",
+          "request": "DELETE /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up3>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 499,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "clientClosedRequest",
+                      "reason": "clientClosedRequest"
+                    }
+                  ],
+                  "message": "clientClosedRequest"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 499
+          }
+        },
+        {
+          "fingerprint": "b9f0c1fa7718a2a4",
+          "name": "status-after-cancel",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up3>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 499,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "clientClosedRequest",
+                      "reason": "clientClosedRequest"
+                    }
+                  ],
+                  "message": "clientClosedRequest"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 499
+          }
+        },
+        {
+          "fingerprint": "11f3a69f1cfdb031",
+          "name": "start-total-mismatch",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-resumable-2&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-resumable-2&uploadType=resumable&upload_id=<up4>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "6d467c81c9a76ec5",
+          "name": "total-mismatch",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up4>",
           "response": {
             "body": {
               "kind": "text",
@@ -19223,10 +19292,45 @@
           }
         },
         {
-          "expectation": "expected status 404, got 400",
-          "fingerprint": "0f1b8e25ff996d23",
-          "name": "status-after-cancel",
-          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up2>",
+          "fingerprint": "d7bd0f7e95457946",
+          "name": "start-bad-content-range",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-resumable-2&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-resumable-2&uploadType=resumable&upload_id=<up5>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c4937130afb7f08d",
+          "name": "bad-content-range",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up5>",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "Failed to parse Content-Range header."
+            },
+            "headers": {
+              "content-type": "text/plain; charset=utf-8",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "860147b725e874da",
+          "name": "status-after-bad-content-range",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up5>",
           "response": {
             "body": {
               "kind": "text",
@@ -19276,7 +19380,6 @@
           }
         },
         {
-          "expectation": "expected status 412, got 200",
           "fingerprint": "c4a098fd46dea5c8",
           "name": "start-precondition-fail",
           "request": "POST /upload/storage/v1/b/<bucket>/o?ifGenerationMatch=0&name=obj-resumable-1&uploadType=resumable",
@@ -26275,7 +26378,12 @@
     }
   ],
   "format": 2,
-  "generated": "2026-11-01",
-  "requests": 781,
+  "generated": "2026-11-02",
+  "recorded_dates": [
+    "2026-11-01",
+    "2026-11-02"
+  ],
+  "requests": 811,
+  "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

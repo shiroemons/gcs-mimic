@@ -577,10 +577,6 @@ mod tests {
         )
         .unwrap();
         for case in cases {
-            // The isolated resumable probes await a live refresh of their changed requests.
-            if case.id == "obj-resumable" {
-                continue;
-            }
             let recorded = reference["cases"]
                 .as_array()
                 .unwrap()
