@@ -10,7 +10,7 @@ use crate::{
     bucket::BucketAccess,
     csek::CustomerKey,
     json,
-    object::{ObjectConditions, ObjectRecord, ObjectTarget},
+    object::{ObjectConditions, ObjectRecord},
     storage::ObjectReader,
     xml,
 };
@@ -21,7 +21,7 @@ pub(super) async fn respond(
     operation: xml::ReadRequest,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, xml::Error> {
-    if operation.name.is_empty() {
+    if operation.target.name.is_empty() {
         return xml::list::respond(request, operation, ctx).await;
     }
     let delete = request.method() == Method::DELETE;
@@ -31,7 +31,7 @@ pub(super) async fn respond(
         auth::OBJECTS_GET
     };
     let access = ctx
-        .authorize(permission, &operation.bucket)
+        .authorize(permission, &operation.target.bucket)
         .await
         .map_err(|error| anonymous_error(error, ctx.caller))?;
     let conditions = xml::headers(
@@ -52,10 +52,9 @@ pub(super) async fn respond(
     // Reads and DELETE have no payload; consume framing before any mutation or response.
     xml::empty_body(request.body_mut()).await?;
     if delete {
-        let target = ObjectTarget::new(operation.bucket, operation.name, operation.generation);
         ctx.state
             .catalog
-            .delete_object(target, conditions, &access)
+            .delete_object(operation.target, conditions, &access)
             .await
             .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
         return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
@@ -71,9 +70,12 @@ async fn read(
     access: &BucketAccess,
     key: Option<CustomerKey>,
 ) -> Result<Response<ResponseBody>, xml::Error> {
+    let xml::ReadRequest {
+        target,
+        response_overrides,
+    } = operation;
     let catalog = &ctx.state.catalog;
     let head = request.method() == Method::HEAD;
-    let target = ObjectTarget::new(operation.bucket, operation.name, operation.generation);
     // HEAD returns only metadata, which an encrypted object exposes without its key.
     let (record, mut reader, reveal) = if head {
         catalog
@@ -112,10 +114,17 @@ async fn read(
         }
     }
     if json::object_media_transcoding(request.headers(), &record)? {
-        let overrides = operation.response_overrides;
-        return gunzipped(ctx, &record, reader, headers, overrides, request.method()).await;
+        return gunzipped(
+            ctx,
+            &record,
+            reader,
+            headers,
+            response_overrides,
+            request.method(),
+        )
+        .await;
     }
-    headers.extend(operation.response_overrides);
+    headers.extend(response_overrides);
     let requested = request
         .headers()
         .get("range")

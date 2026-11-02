@@ -3,7 +3,7 @@
 use crate::{
     config::{Config, EndpointSnapshot},
     json::{self, JsonError},
-    object::{ObjectConditions, ObjectRecord},
+    object::{ObjectConditions, ObjectRecord, ObjectTarget},
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -190,10 +190,9 @@ pub(crate) fn normalize_legacy_headers(headers: &mut HeaderMap) -> Result<(), Er
     Ok(())
 }
 
+/// An XML object request's path and response overrides; headers supply preconditions separately.
 pub(crate) struct ReadRequest {
-    pub bucket: String,
-    pub name: String,
-    pub generation: Option<i64>,
+    pub target: ObjectTarget,
     pub response_overrides: HeaderMap,
 }
 
@@ -610,17 +609,13 @@ pub(crate) fn route(
                 json::validate_object_name(&name)?;
             }
             return Ok(ReadRequest {
-                bucket,
-                name,
-                generation: None,
+                target: ObjectTarget::new(bucket, name, None),
                 response_overrides: HeaderMap::new(),
             });
         }
         if *method == Method::GET && name.is_empty() {
             return Ok(ReadRequest {
-                bucket,
-                name: String::new(),
-                generation: None,
+                target: ObjectTarget::new(bucket, String::new(), None),
                 response_overrides: HeaderMap::new(),
             });
         }
@@ -686,9 +681,7 @@ pub(crate) fn route(
             return Err(Error::unsupported(key));
         }
         Ok(ReadRequest {
-            bucket,
-            name,
-            generation,
+            target: ObjectTarget::new(bucket, name, generation),
             response_overrides,
         })
     })())

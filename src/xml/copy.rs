@@ -144,7 +144,7 @@ pub(super) async fn respond(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
     let access = ctx
-        .authorize(auth::OBJECTS_CREATE, &operation.bucket)
+        .authorize(auth::OBJECTS_CREATE, &operation.target.bucket)
         .await
         .map_err(|error| anonymous_error(error, ctx.caller))?;
     let source = source(request.headers(), ctx)?;
@@ -162,7 +162,7 @@ pub(super) async fn respond(
             ));
         }
     };
-    if source.bucket == operation.bucket && source.name == operation.name {
+    if source.bucket == operation.target.bucket && source.name == operation.target.name {
         return Err(Error::unsupported(
             "self-copy metadata updates; use the JSON object metadata update API",
         ));
@@ -261,8 +261,8 @@ fn destination(
         crc32c: options.expected.crc32c.or(Some(source.crc32c)),
     };
     Ok(DerivedDestination {
-        bucket: operation.bucket,
-        name: operation.name,
+        bucket: operation.target.bucket,
+        name: operation.target.name,
         content_type: String::new(),
         metadata,
         storage_class,

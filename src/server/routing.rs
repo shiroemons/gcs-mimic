@@ -536,7 +536,7 @@ async fn respond_xml_object(
         .as_ref()
         .ok()
         .filter(|_| head || delete || request.method() == Method::GET)
-        .map(|read| (read.bucket.clone(), read.name.clone()));
+        .map(|read| (read.target.bucket.clone(), read.target.name.clone()));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let auth_inputs = xml::Authentication {
         auth: &ctx.state.auth,

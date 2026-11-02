@@ -167,11 +167,11 @@ pub(crate) async fn respond(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
     let access = ctx
-        .authorize(auth::OBJECTS_LIST, &operation.bucket)
+        .authorize(auth::OBJECTS_LIST, &operation.target.bucket)
         .await
         .map_err(|error| anonymous_error(error, ctx.caller))?;
     let params = parse(
-        operation.bucket.clone(),
+        operation.target.bucket.clone(),
         request.uri().query().unwrap_or_default(),
         request.headers(),
     )?;

@@ -197,8 +197,8 @@ pub(crate) async fn respond(
         request.uri().query().unwrap_or_default(),
         request.headers(),
     )?;
-    let (operation, id) = operation(request.method(), &path.name, &mut query)?;
-    xml_text(&path.name)?;
+    let (operation, id) = operation(request.method(), &path.target.name, &mut query)?;
+    xml_text(&path.target.name)?;
     let permission = match operation {
         Operation::Begin | Operation::Put(_) | Operation::Complete => {
             "storage.multipartUploads.create"
@@ -208,7 +208,7 @@ pub(crate) async fn respond(
         Operation::Abort => "storage.multipartUploads.abort",
     };
     let access = ctx
-        .authorize(permission, &path.bucket)
+        .authorize(permission, &path.target.bucket)
         .await
         .map_err(|error| anonymous_error(error, ctx.caller))?;
     if matches!(operation, Operation::Uploads | Operation::Parts) {
@@ -234,8 +234,8 @@ pub(crate) async fn respond(
         };
         let upload = ctx
             .await_catalog(ctx.state.catalog.begin_xml_multipart(
-                &path.bucket,
-                &path.name,
+                &path.target.bucket,
+                &path.target.name,
                 options,
                 access,
             ))
@@ -247,8 +247,8 @@ pub(crate) async fn respond(
         return Ok(response(body));
     }
     let target = storage::Target {
-        bucket: path.bucket,
-        name: path.name,
+        bucket: path.target.bucket,
+        name: path.target.name,
         id,
     };
     let lease = ctx

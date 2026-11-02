@@ -285,7 +285,7 @@ fn upload_error(
     operation: &ReadRequest,
     expected: &ExpectedHashes,
 ) -> Error {
-    let object = format!("{}/{}", operation.bucket, operation.name);
+    let object = format!("{}/{}", operation.target.bucket, operation.target.name);
     let crc_failed = match &error {
         ObjectError::HashMismatch(mismatch) => mismatch.algorithm == HashAlgorithm::Crc32c,
         ObjectError::ChecksumMismatch => expected.md5.is_none() && expected.crc32c.is_some(),
@@ -360,7 +360,7 @@ pub(crate) async fn respond(
         ..
     } = ctx;
     let access = ctx
-        .authorize(auth::OBJECTS_CREATE, &operation.bucket)
+        .authorize(auth::OBJECTS_CREATE, &operation.target.bucket)
         .await
         .map_err(|error| anonymous_error(error, caller))?;
     let signing = if streaming.is_some() {
@@ -385,8 +385,8 @@ pub(crate) async fn respond(
     }
     let permit = ctx
         .await_catalog(state.catalog.prepare_object_upload(
-            &operation.bucket,
-            &operation.name,
+            &operation.target.bucket,
+            &operation.target.name,
             conditions,
             &access,
         ))
@@ -395,8 +395,8 @@ pub(crate) async fn respond(
     let (sender, body) = mpsc::channel(2);
     let upload = state.catalog.put_object_prechecked(
         ObjectUpload {
-            bucket: &operation.bucket,
-            name: &operation.name,
+            bucket: &operation.target.bucket,
+            name: &operation.target.name,
             content_type,
             expected,
             conditions,

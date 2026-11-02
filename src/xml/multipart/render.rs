@@ -52,8 +52,8 @@ pub(super) async fn list(
             }
             remaining(&query)?;
             let target = storage::Target {
-                bucket: path.bucket,
-                name: path.name,
+                bucket: path.target.bucket,
+                name: path.target.name,
                 id,
             };
             let (upload, parts, more) = ctx
@@ -99,7 +99,7 @@ pub(super) async fn list(
             let page = ctx
                 .await_catalog(ctx.state.catalog.list_xml_uploads(
                     storage::UploadQuery {
-                        bucket: path.bucket.clone(),
+                        bucket: path.target.bucket.clone(),
                         prefix: prefix.clone(),
                         delimiter: delimiter.clone(),
                         key_marker: marker.clone(),
@@ -112,7 +112,7 @@ pub(super) async fn list(
                 .map_err(|error| storage_error(error, ctx))?;
             let mut body = start("ListMultipartUploadsResult");
             for (name, value) in [
-                ("Bucket", path.bucket),
+                ("Bucket", path.target.bucket),
                 ("KeyMarker", marker),
                 ("UploadIdMarker", upload_marker.unwrap_or_default()),
                 ("Prefix", prefix),
