@@ -249,11 +249,11 @@ refresh the token at Google. The entry works only with the permissive profile.
 
 | Symptom | Cause | Repair |
 | --- | --- | --- |
-| Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | 0.6.0 and earlier do not translate source names | Upgrade to 0.7.0 or later, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
+| Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | A [withdrawn release](release-policy.md#withdrawn-releases) (0.6.0 or earlier) does not translate source names | Upgrade to the current release, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
 | Startup rejects `-event.pubsub-topic` or another `FAKE_GCS_EVENT_*` | 0.7.0 and earlier lack delivery; since 0.8.0 event flags map to native settings and require complete local publisher configuration | Upgrade to 0.8.0 or later and supply project/topic and an explicit local Pub/Sub emulator endpoint; provision its topic/subscriptions separately. See the [notification contract](slices/pubsub-notification-delivery.md). |
 | SDK initiation succeeds but its next request cannot connect | Location contains loopback or a host-only address | Set `GCS_MIMIC_API_BASE_URL: http://gcs:4443` for container clients and recreate the service. |
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when translating unsigned URLs. |
-| A newly added empty directory creates no bucket | 0.2.1 and earlier imported seed files once; see the [0.3.0 release notes](releases/0.3.0.md) | Upgrade to 0.3.0, which replays seed on every startup and creates the bucket after a restart, or add `{"name":"exports"}` to the version-1 buckets file and restart; do not erase the data volume. |
+| A newly added empty directory creates no bucket | A [withdrawn release](release-policy.md#withdrawn-releases) (0.2.1 or earlier) imported seed files once | Upgrade to the current release with an empty data volume; it replays seed on every startup. Data from withdrawn releases is unsupported. |
 | HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Use `GCS_MIMIC_SCHEME: http` and `GCS_MIMIC_LISTEN: 0.0.0.0:4443`; let the image's probe inherit them. |
 | Bucket listing returns 400 `required` ("Required parameter: project") | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
 | Docker reports the host port is in use | Another worktree publishes the same port | Set `GCS_MIMIC_PORT=24443` and a different Compose project; update browser URLs, leaving `http://gcs:4443` unchanged. |
@@ -663,9 +663,9 @@ pass. Additional APIs, strict authorization and resource/performance results are
 reported separately with their own evidence. New upstream releases expand the
 baseline explicitly rather than silently changing the denominator.
 
-Product **1.0.0** additionally requires the fixed extension scopes and stable
-public contract in the [release policy](release-policy.md#the-100-gate).
-Earlier useful increments ship as `0.x` releases without a full-superset claim.
+This gate, together with the fixed named additions, is a goal rather than a product version condition.
+Product **1.0.0** freezes the public contract and states the supported migration scope as defined in the [release policy](release-policy.md#the-100-gate).
+No release, before or after it, claims a full superset until this gate passes.
 
 ## Sources consulted
 

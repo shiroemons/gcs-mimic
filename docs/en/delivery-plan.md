@@ -82,7 +82,9 @@ backend workflows into independently tested slices. Existing HTTP SDK/browser
 checks run throughout. Rails uses its already-delivered prerequisites and may
 proceed early when an independent owner is available.
 
-The [1.0.0 gate](release-policy.md#the-100-gate) combines the completed tracks.
+The [1.0.0 gate](release-policy.md#the-100-gate) freezes the public contract
+and does not wait for every track.
+The full-superset gate below remains a separate goal.
 Publish useful additions in separate `0.x` minors instead of bundling all tracks
 into one version. No calendar dates or per-track version numbers are reserved.
 
@@ -417,7 +419,7 @@ gate because it lacks a current GCS inventory row.
 | 2 | Seed adapter | Scoped source storage contract and native seed | Preserve source keys, bytes, MIME/default metadata and selected seed lifecycle |
 | 3 | Durable filesystem import | Scoped source storage contract, object media and metadata | Read xattrs/sidecars without modifying source; preserve identities and verify recovery |
 | 4 | Go and live-state export | Baseline, durable import, public reads and resumable upload | Tested Go facade; export active/archived state before stopping memory source |
-| 5 | Full replacement validation | Complete source inventory, migration, named additions, Rails and distribution | Every baseline capability and 1.0.0 condition passes; no undisclosed exclusions |
+| 5 | Full replacement validation | Complete source inventory, migration, named additions, Rails and distribution | Every baseline capability and named addition passes; no undisclosed exclusions |
 
 The diagram groups related prerequisites. It shows no execution results;
 the ledger retains the exact dependencies and default selection order.

@@ -2,20 +2,19 @@
 
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-GitHub Releases from 0.1.0 publish native archives for the release-matrix
-targets below. Do not infer platform support from the supported packaging
-targets alone; only targets in the release matrix are built, tested and
-published.
+GitHub Releases from 0.8.0 publish native archives for the targets below.
+Earlier releases were [withdrawn](release-policy.md#withdrawn-releases).
+Do not infer platform support from the supported packaging targets alone;
+only targets in the release matrix are built, tested and published.
 
 ## Target matrix
 
 Each target builds and runs its Rust tests on the corresponding CPU, including
 the Linux musl tests. Cross-compilation alone is insufficient for publication.
 
-0.1.0 and 0.1.1 shipped only the four Linux targets, 0.1.2 added both macOS
-targets, and 0.1.3 added both Windows targets once their native suites passed.
-Directory synchronization remains unsupported on Windows; `sync_dir` is
-rejected there with a diagnostic.
+Every published release ships all eight targets.
+Directory synchronization remains unsupported on Windows;
+`sync_dir` is rejected there with a diagnostic.
 
 | OS / ABI | CPU | Rust target | Native runner | Archive |
 | --- | --- | --- | --- | --- |
@@ -89,8 +88,8 @@ Missing notice inputs stop packaging.
 The musl notice input is reviewed for Rust 1.99.1; a compiler upgrade must review
 and advance that version guard along with the bundled runtime's notices.
 
-Release assets include one archive per release-matrix target (all eight from
-0.1.3) and `SHA256SUMS`. Manual dispatch runs the publish
+Release assets include one archive per release-matrix target and `SHA256SUMS`.
+Manual dispatch runs the publish
 job up to the asset list, so asset count and checksum failures appear before
 a tag; only a tag push creates the Release. Verify the selected
 archive after downloading both from the same release:
@@ -103,18 +102,8 @@ On macOS, use `shasum -a 256 --ignore-missing --check SHA256SUMS`; on
 PowerShell, use `Get-FileHash <archive> -Algorithm SHA256` and compare the
 corresponding entry.
 
-The 0.1.3 `SHA256SUMS` ends its two Windows entries with CRLF. GNU `sha256sum`
-accepts them, but macOS `shasum --check` reports those archives as unreadable.
-The archives and digests are correct; remove the carriage returns before
-checking:
-
-```sh
-tr -d '\r' < SHA256SUMS > SHA256SUMS.lf
-shasum -a 256 --ignore-missing --check SHA256SUMS.lf
-```
-
-Later releases publish `SHA256SUMS` with LF line endings only, and the publish
-job rejects a file that contains a carriage return.
+`SHA256SUMS` uses LF line endings only;
+the publish job rejects a file that contains a carriage return.
 Checksums detect corruption; they are not code signatures or independent proof
 of origin.
 

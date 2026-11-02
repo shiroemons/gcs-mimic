@@ -223,11 +223,11 @@ googleauth 1.17.6は、既定のuniverseのサービスアカウントではGoog
 
 | 症状 | 原因 | 直し方 |
 | --- | --- | --- |
-| `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | 0.6.0以前は旧設定名を読み替えない | 0.7.0以降に上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
+| `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | [撤回したリリース](release-policy.md#撤回したリリース)（0.6.0以前）は旧設定名を読み替えない | 現行版に上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
 | `-event.pubsub-topic`などの`FAKE_GCS_EVENT_*`で起動が止まる | 0.7.0以前は配信がない。0.8.0以降は完全なローカル配信設定が必要 | project・topicと、明示したローカルPub/Subエミュレーターの接続先を指定し、topicとsubscriptionは別に用意する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md)を参照。 |
 | SDKの開始は成功するが次の接続が失敗する | Locationがループバックかホスト専用のURL | コンテナ向けに`GCS_MIMIC_API_BASE_URL: http://gcs:4443`を指定し、サービスを再作成する。 |
 | ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使い、署名なしセッションのpath/queryを保って変換する。 |
-| 後から足した空ディレクトリがバケットにならない | 0.2.1以前は初期ファイルを一度だけ読み込んでいた。[0.3.0のリリースノート（英語）](../en/releases/0.3.0.md)を参照 | 0.3.0へ更新すると起動のたびにseedを反映するため、再起動でバケットが作られる。またはバケットファイルへ`{"name":"exports"}`を追加して再起動する。データボリュームは消さない。 |
+| 後から足した空ディレクトリがバケットにならない | [撤回したリリース](release-policy.md#撤回したリリース)（0.2.1以前）は初期ファイルを一度だけ読み込んでいた | 空のデータボリュームで現行版に上げる。起動のたびにseedを反映する。撤回したリリースのデータはサポートしない。 |
 | HTTPで接続できない・probeがunhealthy | スキームや待受設定の不一致 | `GCS_MIMIC_SCHEME: http`と`GCS_MIMIC_LISTEN: 0.0.0.0:4443`を使い、probeにも継承させる。 |
 | 一覧で400 required（Required parameter: project）が返る | nativeではprojectが必須 | `/storage/v1/b?project=local-project`を使う。既存のlegacyプロファイルは省略時にseed_projectを使う。 |
 | ホスト側ポートが使用中 | 別の作業ツリーと重複 | `GCS_MIMIC_PORT=24443`と別プロジェクト名を指定し、ブラウザーのURLも変更する。内部URLは変えない。 |

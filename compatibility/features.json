@@ -915,7 +915,7 @@
           "Prepare docs/en/releases/0.1.0.md with ledger/evidence mapping, schema/upgrade limits and runnable file combinations; distinguish pre-tag gates that must pass from tag execution, assign pin refresh/revalidation and pending SHA/diff/freshness rules to dist-tag-publication, and remove source-identity/resource/schedule finalization markers before publication; failed local gates remain release-blocking; see docs/en/slices/dist-release-notes.md.",
           "Publish only after separate authorization; verify registry/release access and immutable identity instead of treating configured workflows as executed."
         ],
-        "deferred_scope": "The first 0.x release does not require Rails, initializer, synchronization, gRPC, lifecycle or all coverage groups; it does require the explicit release-policy/platform gates. Version 1.0.0 additionally requires the complete reference-superset gate and named extensions."
+        "deferred_scope": "The first 0.x release does not require Rails, initializer, synchronization, gRPC, lifecycle or all coverage groups; it does require the explicit release-policy/platform gates. Version 1.0.0 additionally requires the stable-contract gate in docs/en/release-policy.md; the complete reference-superset gate and named extensions remain a separate goal."
       },
       {
         "id": "configuration-workflows",
@@ -1037,7 +1037,7 @@
         "Retain names, bytes, headers/metadata, source identities, ACL/bucket settings and archived versions where exposed; unsupported or inconsistent source state blocks a lossless migration claim.",
         "Verify source immutability, bounded dry-run/import, interruption/retry, resource budgets, endpoint cutover and rollback without losing post-cutover writes.",
         "Report baseline version, profile, supported platforms and remaining gaps; partial releases cannot advertise full replacement. New versions explicitly extend the baseline.",
-        "Reserve product 1.0.0 for this complete gate plus the fixed additions: independent bucket settings, create-missing file initialization with preserved API updates, bidirectional directory sync, strict local authorization/V4 RSA validation and persistent version history. Full Google API coverage is a separate goal; follow docs/en/release-policy.md."
+        "Claim the fully backward-compatible superset only after this complete gate and the fixed additions pass: independent bucket settings, create-missing file initialization with preserved API updates, bidirectional directory sync, strict local authorization/V4 RSA validation and persistent version history. Product 1.0.0 is a separate stable-contract gate that makes no superset claim, and full Google API coverage is a separate goal; follow docs/en/release-policy.md."
       ],
       "milestones": [
         {
@@ -58498,9 +58498,20 @@
           "description": "Verify all supported schema upgrades with existing generations, permissions and resumable sessions, reject newer formats without reset, and test complete stopped-data backup restoration with matching executables. Accepted in docs/en/slices/onboarding-state-contract.md: each schema-owning slice uses its own atomic version and adds rollback/retry/downgrade cases; shared-timestamp-precision retains schema 14 evidence and replacement-validation retains the final gate. Broader restoration, cutover and platform coverage remain pending.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "released-data-upgrade",
+          "description": "Data directories written and gracefully stopped by every supported published release (0.8.0 and later, from pinned images through scripts/released-data-fixtures.sh) open with the current build twice and return every bucket and object field the release returned, except address links, with the same bytes for every live and archived generation. Each supported release has a fixture. Withdrawn releases 0.1.0-0.7.0 are unsupported; see docs/en/release-policy.md.",
+          "result": "PASS",
+          "test_ids": [
+            "supported_release_data_directories_upgrade_without_changing_resources",
+            "every_supported_release_has_a_fixture"
+          ]
         }
       ],
       "test_ids": [
+        "supported_release_data_directories_upgrade_without_changing_resources",
+        "every_supported_release_has_a_fixture",
         "writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync",
         "sync_root_schema_migration_rolls_back_retries_and_preserves_state",
         "timestamp_migration_scales_extrema_and_rolls_back_after_partial_update",
@@ -58524,6 +58535,16 @@
         "schema_upgrade_is_logged_once_and_newer_schema_explains_recovery"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test released_data_upgrade",
+          "result": "PASS",
+          "verified_at": "2026-11-02",
+          "artifact": "docs/en/release-policy.md",
+          "test_ids": [
+            "supported_release_data_directories_upgrade_without_changing_resources",
+            "every_supported_release_has_a_fixture"
+          ]
+        },
         {
           "command": "cargo test --workspace --locked",
           "result": "PASS",
@@ -58640,7 +58661,7 @@
         "The initial schema 14 timestamp migration/backup/downgrade cases are owned by shared-timestamp-precision. Unsupported or overflowing old times block startup without conversion; no automatic downgrade exists. Broader catalog upgrade policy, tested backup restoration, source cutover and memory export remain pending; later schema slices own their migrations and replacement-validation retains the final gate."
       ],
       "implemented_in": "2ce4de17630de272e35fe1009d1dba3121b446a8",
-      "last_verified": "2026-10-25"
+      "last_verified": "2026-11-02"
     },
     {
       "id": "AUDIT-015",

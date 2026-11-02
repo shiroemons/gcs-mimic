@@ -98,9 +98,7 @@ curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
 In Compose, add `- ./data:/data:ro` to the service's existing `volumes` list.
-No environment variable is needed. 0.2.1 and earlier required
-`GCS_MIMIC_SEED_DIR=/data` and imported seed files once; see the
-[0.3.0 release notes](releases/0.3.0.md) when upgrading.
+No environment variable is needed.
 
 ### When the seed directory is used
 

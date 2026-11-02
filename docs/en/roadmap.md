@@ -3,9 +3,9 @@
 [日本語](../ja/roadmap.md)
 
 Updated **2026-11-02** for the 0.9.0 release. Published installation examples use `0.9.0`. The scoped SDK, browser and distribution results of the 0.8.0 migration additions are recorded in the [combined verification](evidence/migration-integration.md); they do not complete the broader feature rows.
-Continue closing the gaps in existing fake-gcs-server workflows through useful
-`0.x` increments; reserve **1.0.0** for verified reference compatibility plus
-the named extensions. The order below selects work, not release dates.
+Continue closing the gaps in existing fake-gcs-server workflows through useful `0.x` increments.
+**1.0.0** freezes the public contract and requires tested data directory upgrades from every supported release; the complete fake-gcs-server superset remains a separate goal.
+The order below selects work, not release dates.
 
 ## Available today
 
@@ -48,7 +48,8 @@ blocks another track; a higher-priority row does not make every later row wait.
 | Next | Verify migration and local adapters together | Quiesced source, explicit cutover and final SDK/container runs | Directory sync |
 | Then | Close reference behavior and ordinary Rails setup | Scoped API/profile and credential contracts | Independent reference capabilities |
 | Every release | Reconcile evidence and pass distribution gates | Platform, dependency and artifact verification | All implementation tracks |
-| Final gate | Release the verified superset as 1.0.0 | Complete baseline and named extensions | Combine verified scopes |
+| Stable contract | Release the frozen public contract as 1.0.0 | Contract review, release-data upgrades, candidate soak and final verification | Superset work continues in later minors |
+| Superset goal | Claim the complete fake-gcs-server superset | Complete baseline and named extensions | Combine verified scopes |
 
 Current work closes remaining acceptance cases in small increments.
 The recorded migration checkpoint does not validate subsequent XML, ACL or
@@ -146,9 +147,10 @@ fixes as patches. Do not wait for complete parity while staying at `0.1.0`.
 Initializer, sync and import can ship separately; version numbers are assigned
 to actual release scopes rather than reserved for tracks.
 
-`1.0.0` requires complete pinned-reference functionality, tested migration and
-the specified extensions. Full Google API coverage is separate. See the
-[version policy and exact gate](release-policy.md#the-100-gate).
+`1.0.0` freezes the public contract, upgrades data directories from every supported release (`0.8.0` and later) and follows a release-candidate soak.
+The complete pinned-reference superset and full Google API coverage are separate goals.
+See the [version policy and exact gate](release-policy.md#the-100-gate).
+Releases `0.1.0` through `0.7.0` are [withdrawn](release-policy.md#withdrawn-releases).
 
 ## First useful release
 

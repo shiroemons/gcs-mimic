@@ -101,8 +101,7 @@ curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
 Composeでは、サービスの既存の`volumes`へ`- ./data:/data:ro`を追記します。
-環境変数は不要です。0.2.1以前は`GCS_MIMIC_SEED_DIR=/data`が必要で、初期ファイルを一度だけ読み込んでいました。
-更新するときは[0.3.0のリリースノート（英語）](../en/releases/0.3.0.md)を参照してください。
+環境変数は不要です。
 
 ### 初期ファイルのディレクトリが使われる条件
 

@@ -54,38 +54,45 @@ preparing the chosen release. A local preview image is not a published version.
 
 ## The 1.0.0 gate
 
-`1.0.0` means a verified functional superset of the **pinned fake-gcs-server
-baseline**, with a stable public gcs-mimic contract. All of these must pass:
+`1.0.0` is a stability promise, not a completeness claim.
+It commits to the public contract described above, so users can upgrade within `1.x` without changing a documented integration or losing data.
+Every supported capability keeps its recorded scope; rows that are `PARTIAL` in the [feature ledger](../../compatibility/features.json) stay `PARTIAL` and are documented as such.
+All of these must pass:
 
-1. Close the [full reference gate](fake-gcs-server-migration.md#delivery-and-full-superset-gate)
-   for its complete capability set: configuration behavior, JSON/XML, backend
-   modes, TLS, helper/event behavior, Go integration and Storage v1 gRPC.
-   Test both reference backends and representative existing applications.
-   Different setting names and explicit deployment/data-conversion steps are
-   allowed with tested mappings; unchanged CLI spelling is not required.
-2. Verify preservation of source-visible data and settings, including exposed
-   history and identities, safe cutover/recovery and rollback. Missing source
-   semantics cannot be waived by narrowing a comparison row.
-3. Verify the named additions: independent per-bucket settings, a create-missing
-   bucket initializer with API updates preserved, bidirectional directory
-   synchronization, strict local authorization and V4 RSA validation, and
-   persistent version history. Keep these scopes fixed in the release contract;
-   unrelated future ideas do not silently become new blockers.
-4. Pass the release's platform, SDK/browser, resource, persistence and public
-   distribution gates. Record every baseline capability and added scope with
-   executable evidence, publish migration guidance, and commit to the versioned
-   public contract.
+1. **Freeze the public contract.**
+   Document the stable surface: CLI commands and options, environment variables, configuration file formats and defaults, data directory access, and the supported API subset with its recorded limits.
+   Before the first release candidate, review that surface for names, aliases and defaults that should not be kept, and ship every remaining breaking change in a `0.x` minor release.
+2. **Upgrade data directories from every supported release.**
+   A data directory written by each supported release opens with the new build and serves the same buckets, objects, generations, metadata and bytes.
+   The fixtures come from the published images through `scripts/released-data-fixtures.sh` and are checked by `tests/released_data_upgrade.rs`; each release adds its own fixture.
+   Supported releases are `0.8.0` and later; see [withdrawn releases](#withdrawn-releases).
+3. **Soak a release candidate.**
+   Publish `1.0.0-rc.N` and keep it for at least 14 days without a breaking change.
+   A breaking change starts a new candidate.
+4. **Verify the final source once.**
+   Run the native, cross-target, SDK, container and browser gates on the release commit.
+   Results from earlier checkpoints do not substitute for this run.
+5. **State the migration scope.**
+   The [fake-gcs-server migration guide](fake-gcs-server-migration.md) lists the supported migration workflows and the remaining gaps against the pinned reference without claiming full replacement.
 
-The current reference is fake-gcs-server **v1.56.1** at the pinned source revision
-in the [migration guide](fake-gcs-server-migration.md). Refresh the upstream
-inventory before release; explicitly record the compared version and any newer
-baseline adoption. A `1.0.0` release does not assert compatibility with untested
-upstream versions. Unsupported reference behavior remains a blocker, including
-behavior that needs a separate legacy profile rather than native strict rules.
+A complete functional superset of the pinned fake-gcs-server baseline remains a goal, tracked by the [full-superset gate](fake-gcs-server-migration.md#delivery-and-full-superset-gate).
+It is not a `1.0.0` condition.
+The phrase "fully backward-compatible superset" is used only after that gate passes, in whichever release that happens.
+Full Google Cloud Storage API coverage is likewise a separate goal.
 
-Full Google Cloud Storage API coverage is a separate goal, not this version's
-definition. After `1.0.0`, breaking public-contract changes increment major,
-compatible additions increment minor, and compatible fixes increment patch.
+After `1.0.0`, breaking public-contract changes increment major, compatible additions increment minor, and compatible fixes increment patch.
+
+## Withdrawn releases
+
+Releases `0.1.0` through `0.7.0` were withdrawn on 2026-11-02.
+They predate a usable public contract, and keeping them available invited use that the project does not support.
+Their GitHub Releases and native archives were deleted.
+Their exact version and minor alias container tags on GHCR and Docker Hub are scheduled for removal; do not use them in the meantime.
+Their Git tags and their [release notes](releases/) remain as source history.
+
+Data directories written by these releases are not supported.
+A current build may still open one, but that upgrade is untested; start with an empty data directory or reseed it.
+This withdrawal is a one-time exception to the immutability rule below, made before `1.0.0`.
 
 ## Release identity and publication
 
