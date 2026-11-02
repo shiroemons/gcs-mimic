@@ -28,9 +28,9 @@ use std::{
 };
 
 #[cfg(test)]
-use super::Hook as ExportHook;
+use super::Hook;
 #[cfg(test)]
-tokio::task_local! { static EXPORT_HOOK: std::sync::Arc<ExportHook>; }
+tokio::task_local! { static EXPORT_HOOK: std::sync::Arc<Hook>; }
 #[cfg(test)]
 tokio::task_local! { static LIVE_EXPORTS: std::sync::Arc<std::sync::atomic::AtomicUsize>; }
 #[cfg(test)]

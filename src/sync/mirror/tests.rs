@@ -335,7 +335,7 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
             .await
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle",
             entered: Default::default(),
             release: Default::default(),
@@ -525,7 +525,7 @@ async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buck
             .await
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle,after-prepare",
             entered: Default::default(),
             release: Default::default(),
@@ -590,7 +590,7 @@ async fn live_export_retries_file_and_parent_permissions_without_advancing_the_c
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         publish_origin(&catalog, &bucket, b"before", Origin::Api).await;
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle,retry",
             entered: Default::default(),
             release: Default::default(),
@@ -669,7 +669,7 @@ async fn live_export_bucket_incarnation_races_keep_other_buckets_progressing() {
                 "after-binding" => "idle,after-binding",
                 _ => "idle,after-get-path",
             };
-            let hook = Arc::new(ExportHook {
+            let hook = Arc::new(Hook {
                 phase: phases,
                 entered: Default::default(),
                 release: Default::default(),
@@ -761,7 +761,7 @@ async fn live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_
             .unwrap()
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle",
             entered: Default::default(),
             release: Default::default(),
@@ -845,7 +845,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             .unwrap()
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle",
             entered: Default::default(),
             release: Default::default(),
@@ -1082,7 +1082,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
         if identical {
             std::fs::write(&path, b"api").unwrap();
         }
-        let hook = std::sync::Arc::new(ExportHook {
+        let hook = std::sync::Arc::new(Hook {
             phase,
             entered: tokio::sync::Notify::new(),
             release: tokio::sync::Notify::new(),
@@ -1438,7 +1438,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
             .unwrap()
             .timed_out
     );
-    let hook = std::sync::Arc::new(ExportHook {
+    let hook = std::sync::Arc::new(Hook {
         phase: "wait-fence",
         entered: tokio::sync::Notify::new(),
         release: tokio::sync::Notify::new(),
@@ -1523,11 +1523,14 @@ async fn retry_repeats_transient_errors_and_keeps_permanent_causes() {
     .unwrap();
     assert_eq!(result, 7);
     assert_eq!(attempts, 2);
+    attempts = 0;
     let error = with_retry(&root, || {
+        attempts += 1;
         std::future::ready(Err::<(), _>(writeback::Error::Admin(AdminError::Forbidden)))
     })
     .await
     .unwrap_err();
+    assert_eq!(attempts, 1);
     assert!(matches!(
         error.get_ref().unwrap().downcast_ref::<writeback::Error>(),
         Some(writeback::Error::Admin(AdminError::Forbidden))
