@@ -1,8 +1,6 @@
-#[path = "../src/test_support.rs"]
-mod support;
+use crate::common::TestDir;
 use gcs_mimic::config::Config;
 use std::{collections::BTreeMap, fs};
-use support::TestDir;
 
 fn settings(root: &TestDir) -> Vec<String> {
     fs::create_dir_all(root.0.join("tree")).unwrap();

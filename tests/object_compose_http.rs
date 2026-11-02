@@ -1,5 +1,9 @@
 mod object_effects_support;
-use object_effects_support::{Reply, Server, common::TestDir, request, settings};
+use object_effects_support::{
+    Reply, Server,
+    common::{self, TestDir},
+    request, settings,
+};
 use serde_json::{Value, json};
 use std::{
     sync::{Arc, Barrier},
@@ -576,7 +580,7 @@ fn compose_rechecks_read_and_create_grants_after_streaming() {
     connection
         .execute_batch("DROP TRIGGER revoke_compose_grant;")
         .unwrap();
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -601,7 +605,7 @@ fn compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletio
     assert_eq!(server.get("a").json(), a);
     assert_eq!(server.get("b").json(), b);
     assert_eq!(media(&server, "destination").body, b"preserved");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
     assert_eq!(
         connection
             .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
@@ -659,7 +663,7 @@ fn compose_hold_added_after_streaming_preserves_destination_and_sources() {
             .unwrap(),
         0
     );
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -716,7 +720,7 @@ fn compose_source_generation_change_never_deletes_the_replacement() {
             .unwrap(),
         0
     );
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -748,7 +752,7 @@ fn compose_destination_condition_is_rechecked_after_streaming() {
             .unwrap(),
         0
     );
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -783,7 +787,7 @@ fn compose_incarnation_change_preserves_original_error_and_recovers_after_restar
             .unwrap(),
         0
     );
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -814,7 +818,7 @@ fn compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed() {
             .unwrap(),
         0
     );
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -846,5 +850,5 @@ fn compose_same_name_noncurrent_source_hold_is_rechecked_before_publication() {
             .unwrap(),
         0
     );
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }

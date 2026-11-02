@@ -2,18 +2,19 @@ mod object_effects_support;
 mod xml_v2_hmac;
 mod xml_v4_streaming;
 
+use common::server::{Server, http_command};
 use gcs_mimic::auth::signature::{encode_query_component, timestamp};
 use object_effects_support::{
     Reply,
     common::{self, TestDir},
 };
 use ring::{digest, hmac};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Command, Stdio},
+    process::{Command, Stdio},
     time::{Duration, SystemTime},
 };
 
@@ -22,11 +23,6 @@ const PRIVATE: &[u8] = include_bytes!("../fixtures/signing/test-only-private.pem
 const KEYS: &str = "/storage/v1/projects/local/hmacKeys";
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 
-struct Server {
-    child: Child,
-    stdout: BufReader<ChildStdout>,
-    address: String,
-}
 struct Key {
     id: String,
     secret: String,
@@ -78,49 +74,26 @@ impl Server {
             {"id":"scoped@example.invalid","tokens":[]},
             {"id":"stranger@example.invalid","tokens":[],"project_roles":{"other":["roles/storage.admin"]}}
         ]}).to_string()).unwrap();
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--backend",
-                backend,
-                "--data-dir",
-            ])
-            .arg(dir.0.join("data"))
-            .args([
-                "--api-base-url",
-                "http://127.0.0.1:4443",
-                "--max-object-bytes",
-                &max_bytes.to_string(),
-            ])
-            .args([
-                "--public-host",
-                "storage.example.invalid",
-                "--xml-virtual-host-domains",
-                "storage.example.invalid",
-                "--auth-mode",
-                "strict",
-                "--identity-file",
-            ])
-            .arg(identities)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut server = Self {
-            child,
-            stdout,
-            address: String::new(),
-        };
-        let mut line = String::new();
-        server.stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(ready["event"], "ready");
-        server.address = ready["listen"].as_str().unwrap().into();
-        server
+        Self::launch(
+            http_command(&dir.0.join("data"))
+                .args(["--backend", backend])
+                .args([
+                    "--api-base-url",
+                    "http://127.0.0.1:4443",
+                    "--max-object-bytes",
+                    &max_bytes.to_string(),
+                ])
+                .args([
+                    "--public-host",
+                    "storage.example.invalid",
+                    "--xml-virtual-host-domains",
+                    "storage.example.invalid",
+                    "--auth-mode",
+                    "strict",
+                    "--identity-file",
+                ])
+                .arg(identities),
+        )
     }
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
         object_effects_support::request(&self.address, method, path, headers, body)
@@ -158,23 +131,6 @@ impl Server {
         common::stop_server(&mut self.child, &mut self.stdout);
     }
 }
-impl Drop for Server {
-    fn drop(&mut self) {
-        match self.child.try_wait() {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                if let Err(error) = self.child.kill() {
-                    eprintln!("fixture kill failed: {error}");
-                }
-                if let Err(error) = self.child.wait() {
-                    eprintln!("fixture wait failed: {error}");
-                }
-            }
-            Err(error) => eprintln!("fixture status failed: {error}"),
-        }
-    }
-}
-
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

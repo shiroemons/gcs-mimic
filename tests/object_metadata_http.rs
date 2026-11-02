@@ -1,21 +1,16 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Server, http_command, write_request};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     sync::{Arc, Barrier},
     time::Duration,
 };
 
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
 struct Reply {
     status: u16,
     headers: BTreeMap<String, String>,
@@ -24,29 +19,7 @@ struct Reply {
 
 impl Server {
     fn start(dir: &TestDir) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(["--api-base-url", "http://127.0.0.1:4443"])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(http_command(&dir.0).args(["--api-base-url", "http://127.0.0.1:4443"]))
     }
     fn request(&self, method: &str, path: &str, body: &[u8]) -> Reply {
         request(&self.address, method, path, body)
@@ -77,14 +50,6 @@ impl Server {
     }
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
     }
 }
 impl Reply {
@@ -120,8 +85,14 @@ fn request_headers(address: &str, method: &str, path: &str, body: &[u8], headers
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
-    write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{headers}Connection: close\r\n\r\n", body.len()).unwrap();
-    stream.write_all(body).unwrap();
+    write_request(
+        &mut stream,
+        method,
+        path,
+        "localhost",
+        &format!("Content-Type: application/json\r\n{headers}Connection: close\r\n"),
+        body,
+    );
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
@@ -642,14 +613,8 @@ fn conditional_delete_and_metadata_patch_have_one_winner() {
             }
             statuses => panic!("exactly one mutation must succeed: {statuses:?}"),
         }
-        assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-        assert_eq!(
-            std::fs::read_dir(dir.0.join("blobs"))
-                .unwrap()
-                .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-                .sum::<usize>(),
-            1
-        );
+        assert_eq!(common::server::staging_count(&dir), 0);
+        assert_eq!(common::server::blob_count(&dir), 1);
     }
     server.stop();
 }

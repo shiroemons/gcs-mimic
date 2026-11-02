@@ -69,12 +69,8 @@ fn upload_replay_concurrent_requests_publish_one_generation() {
     assert_eq!(replies[1].status, 200);
     assert_eq!(replies[0].body, replies[1].body);
     assert_eq!(server.get("race").json(), replies[0].json());
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-    let blobs: usize = std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .map(|s| std::fs::read_dir(s.unwrap().path()).unwrap().count())
-        .sum();
-    assert_eq!(blobs, 1);
+    assert_eq!(common::server::staging_count(&dir), 0);
+    assert_eq!(common::server::blob_count(&dir), 1);
 }
 
 #[test]

@@ -137,7 +137,7 @@ fn open_range_completes_single_request_uploads_at_body_eof() {
         assert_eq!(completed(&reply)["size"], "0");
         assert_eq!(media(&server, name), b"");
     }
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]

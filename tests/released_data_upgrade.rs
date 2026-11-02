@@ -6,14 +6,15 @@
 mod common;
 
 use common::TestDir;
+use common::server::Server;
 use md5::{Digest, Md5};
 use serde_json::Value;
 use std::{
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{Read, Write},
     net::TcpStream,
     path::Path,
-    process::{Child, ChildStdout, Stdio},
+    process::Stdio,
     time::Duration,
 };
 
@@ -23,33 +24,15 @@ const SUPPORTED_RELEASES: &[&str] = &["0.8.0", "0.9.0"];
 /// Link fields embed the advertised base URL of whichever server answered.
 const ADDRESS_FIELDS: &[&str] = &["selfLink", "mediaLink"];
 
-struct Server {
-    child: Child,
-    stdout: BufReader<ChildStdout>,
-    address: String,
-}
-
 impl Server {
     fn start(data: &Path) -> Self {
-        let mut child = common::server_command()
-            .env("GCS_MIMIC_LISTEN", "127.0.0.1:0")
-            .args(["serve", "--scheme", "http", "--data-dir"])
-            .arg(data)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready event");
-        assert_eq!(ready["event"], "ready", "{ready}");
-        let address = ready["listen"].as_str().unwrap().to_owned();
-        Self {
-            child,
-            stdout,
-            address,
-        }
+        Self::launch(
+            common::server_command()
+                .env("GCS_MIMIC_LISTEN", "127.0.0.1:0")
+                .args(["serve", "--scheme", "http", "--data-dir"])
+                .arg(data)
+                .stderr(Stdio::null()),
+        )
     }
 
     /// HTTP/1.0 keeps the body unchunked and closes the connection after it.
@@ -76,15 +59,6 @@ impl Server {
 
     fn stop(mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
     }
 }
 

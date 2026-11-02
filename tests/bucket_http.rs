@@ -1,19 +1,14 @@
 mod common;
 
+use common::server::{Server, http_command, request_head};
 use common::{CleanEnv, TestDir};
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufReader, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Command, Stdio},
+    process::Command,
     time::Duration,
 };
-
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
 
 impl Server {
     fn start(dir: &TestDir) -> Self {
@@ -21,31 +16,11 @@ impl Server {
     }
 
     fn start_options(dir: &TestDir, options: &[&str]) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(["--api-base-url", "https://advertised.invalid/api"])
-            .args(options)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready event after catalog recovery");
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(
+            http_command(&dir.0)
+                .args(["--api-base-url", "https://advertised.invalid/api"])
+                .args(options),
+        )
     }
 
     fn raw(&self, request: &str) -> Reply {
@@ -55,11 +30,29 @@ impl Server {
     /// One-shot requests ask for `Connection: close`, so the server closes first
     /// (see [`common::await_server_close`]).
     fn request(&self, method: &str, path: &str, body: &str) -> Reply {
-        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nX-Forwarded-Host: evil.invalid\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()))
+        let mut request = request_head(
+            method,
+            path,
+            "untrusted.invalid",
+            "X-Forwarded-Host: evil.invalid\r\nContent-Type: application/json\r\nConnection: close\r\n",
+            body.len(),
+        );
+        request.push_str(body);
+        self.raw(&request)
     }
 
     fn authorized(&self, token: &str, method: &str, path: &str, body: &str) -> Reply {
-        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: local.invalid\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()))
+        let mut request = request_head(
+            method,
+            path,
+            "local.invalid",
+            &format!(
+                "Authorization: Bearer {token}\r\nContent-Type: application/json\r\nConnection: close\r\n"
+            ),
+            body.len(),
+        );
+        request.push_str(body);
+        self.raw(&request)
     }
 
     fn insert(&self, name: &str, project: &str) -> Reply {
@@ -72,15 +65,6 @@ impl Server {
 
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
     }
 }
 

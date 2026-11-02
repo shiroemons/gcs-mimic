@@ -1,54 +1,28 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Reply, Server, http_command, no_leaks, write_request};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{Read, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     sync::{Arc, Barrier},
     thread,
     time::{Duration, Instant},
 };
 
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
-
 impl Server {
     fn start(dir: &TestDir, limit: u64, deadline: u64) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(["--api-base-url", "http://127.0.0.1:4443"])
-            .args([
-                "--max-object-bytes",
-                &limit.to_string(),
-                "--object-request-timeout-ms",
-                &deadline.to_string(),
-            ])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(
+            http_command(&dir.0)
+                .args(["--api-base-url", "http://127.0.0.1:4443"])
+                .args([
+                    "--max-object-bytes",
+                    &limit.to_string(),
+                    "--object-request-timeout-ms",
+                    &deadline.to_string(),
+                ]),
+        )
     }
 
     fn bucket(&self) {
@@ -65,7 +39,15 @@ impl Server {
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        request(&self.address, method, path, headers, body)
+        request(
+            &self.address,
+            method,
+            path,
+            "localhost",
+            headers,
+            body,
+            self.client_timeout,
+        )
     }
 
     fn upload(&self, query: &str, body: &[u8]) -> Reply {
@@ -91,69 +73,9 @@ impl Server {
     }
 }
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
-    }
-}
-
-struct Reply {
-    status: u16,
-    body: Vec<u8>,
-    headers: BTreeMap<String, String>,
-}
-
 impl Reply {
     fn read(stream: TcpStream) -> Self {
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        let status = line.split_whitespace().nth(1).unwrap().parse().unwrap();
-        let mut headers = BTreeMap::new();
-        loop {
-            line.clear();
-            reader.read_line(&mut line).unwrap();
-            if line == "\r\n" {
-                break;
-            }
-            let (key, value) = line.trim_end().split_once(':').unwrap();
-            headers.insert(key.to_ascii_lowercase(), value.trim().to_owned());
-        }
-        let mut body = Vec::new();
-        if headers
-            .get("transfer-encoding")
-            .is_some_and(|v| v == "chunked")
-        {
-            loop {
-                line.clear();
-                reader.read_line(&mut line).unwrap();
-                let length = usize::from_str_radix(line.trim(), 16).unwrap();
-                if length == 0 {
-                    break;
-                }
-                let start = body.len();
-                body.resize(start + length, 0);
-                reader.read_exact(&mut body[start..]).unwrap();
-                let mut crlf = [0; 2];
-                reader.read_exact(&mut crlf).unwrap();
-                assert_eq!(&crlf, b"\r\n");
-            }
-        } else if let Some(length) = headers.get("content-length") {
-            // A persistent connection stays open after the body, so read only its length.
-            let length = length.parse().unwrap();
-            reader.take(length).read_to_end(&mut body).unwrap();
-            assert_eq!(body.len() as u64, length, "truncated HTTP {status} body");
-        } else {
-            reader.read_to_end(&mut body).unwrap();
-        }
-        Self {
-            status,
-            headers,
-            body,
-        }
+        Self::framed(stream)
     }
 
     fn json(&self) -> Value {
@@ -183,20 +105,34 @@ impl Reply {
 }
 
 fn socket(address: &str) -> TcpStream {
+    socket_with_timeout(address, Duration::from_secs(5))
+}
+
+fn socket_with_timeout(address: &str, timeout: Duration) -> TcpStream {
     let stream = TcpStream::connect(address).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
-    stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
+    stream.set_read_timeout(Some(timeout)).unwrap();
+    stream.set_write_timeout(Some(timeout)).unwrap();
     stream
 }
 
-fn request(address: &str, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-    let mut stream = socket(address);
-    write!(stream,"{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n{headers}Connection: close\r\n\r\n",body.len()).unwrap();
-    stream.write_all(body).unwrap();
+fn request(
+    address: &str,
+    method: &str,
+    path: &str,
+    host: &str,
+    headers: &str,
+    body: &[u8],
+    timeout: Duration,
+) -> Reply {
+    let mut stream = socket_with_timeout(address, timeout);
+    write_request(
+        &mut stream,
+        method,
+        path,
+        host,
+        &format!("{headers}Connection: close\r\n"),
+        body,
+    );
     Reply::read(stream)
 }
 
@@ -249,25 +185,6 @@ fn fields_multipart_response_preserves_uploaded_metadata_and_bytes() {
     assert_eq!(media.status, 200);
     assert_eq!(media.body, b"data");
     server.stop();
-}
-
-fn no_leaks(dir: &TestDir, expected: usize) {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        let staging = std::fs::read_dir(dir.0.join("staging")).unwrap().count();
-        let blobs: usize = std::fs::read_dir(dir.0.join("blobs"))
-            .unwrap()
-            .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-            .sum();
-        if staging == 0 && blobs == expected {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "staging={staging}, blobs={blobs}, expected={expected}"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
 }
 
 #[test]
@@ -394,7 +311,7 @@ fn obj_http_media_and_multipart_recheck_each_condition_after_streaming() {
             write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing&{key}={condition} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: {}\r\n\r\n", body.len()).unwrap();
             stream.write_all(&body[..body.len() - 1]).unwrap();
             let deadline = Instant::now() + Duration::from_secs(3);
-            while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 1 {
+            while common::server::staging_count(&dir) != 1 {
                 assert!(
                     Instant::now() < deadline,
                     "upload must pass advisory checks"
@@ -1116,7 +1033,15 @@ fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
                 let body = &body;
                 scope.spawn(move || {
                     barrier.wait();
-                    request(&address, "POST", path, headers, body)
+                    request(
+                        &address,
+                        "POST",
+                        path,
+                        "localhost",
+                        headers,
+                        body,
+                        Duration::from_secs(5),
+                    )
                 })
             })
             .collect();
@@ -1154,69 +1079,173 @@ fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
 }
 
 #[test]
-fn obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite() {
-    for query_name in [false, true] {
+fn obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite() {
+    for (upload, query_name) in [("media", true), ("multipart", false), ("multipart", true)] {
         let dir = TestDir::new();
-        let server = Server::start(&dir, 1000, 30_000);
-        server.bucket();
-        let headers = "Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Gcs-Idempotency-Token: opaque, retry=token\r\n";
+        let server = token_server(&dir, upload);
+        let request = |method: &str, path: &str, headers: &str, body: &[u8]| {
+            let (host, forwarded) = if upload == "media" {
+                ("untrusted.invalid", "X-Forwarded-Host: evil.invalid\r\n")
+            } else {
+                ("localhost", "")
+            };
+            request(
+                &server.address,
+                method,
+                path,
+                host,
+                &format!("{forwarded}{headers}"),
+                body,
+                server.client_timeout,
+            )
+        };
+        let content_type = if upload == "multipart" {
+            "Content-Type: multipart/related; boundary=boundary\r\n"
+        } else {
+            ""
+        };
+        let headers =
+            format!("{content_type}X-Goog-Gcs-Idempotency-Token: opaque, retry=token\r\n");
         let path = format!(
-            "/upload/storage/v1/b/test-bucket/o?uploadType=multipart&{}ifGenerationMatch=",
+            "/upload/storage/v1/b/test-bucket/o?uploadType={upload}&{}ifGenerationMatch=",
             if query_name { "name=token&" } else { "" }
         );
-        let body = wire(br#"{"name":"token"}"#, None, b"original", None);
-        let original = server
-            .request("POST", &format!("{path}0"), headers, &body)
-            .json();
+        let body = |bytes: &[u8]| {
+            if upload == "multipart" {
+                wire(br#"{"name":"token"}"#, None, bytes, None)
+            } else {
+                bytes.to_vec()
+            }
+        };
+        let original_body = body(b"original");
+        let original = request("POST", &format!("{path}0"), &headers, &original_body).json();
         assert_eq!(
-            server
-                .request("POST", &format!("{path}0"), headers, &body)
-                .json(),
+            request("POST", &format!("{path}0"), &headers, &original_body).json(),
             original
         );
-        assert_eq!(server.get("token").json(), original);
-        assert_eq!(server.get("token?alt=media").body, b"original");
-        no_leaks(&dir, 1);
+        let object_path = "/storage/v1/b/test-bucket/o/token";
+        assert_eq!(request("GET", object_path, "", b"").json(), original);
+        assert_eq!(
+            request("GET", &format!("{object_path}?alt=media"), "", b"").body,
+            b"original"
+        );
+        if upload == "multipart" {
+            no_leaks(&dir, 1);
+        }
         let overwrite = format!("{path}{}", original["generation"].as_str().unwrap());
-        let body = wire(br#"{"name":"token"}"#, None, b"replacement", None);
-        let headers = "Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Gcs-Idempotency-Token: overwrite-token\r\n";
-        let replaced = server.request("POST", &overwrite, headers, &body).json();
+        let body = body(b"replacement");
+        let headers = format!("{content_type}X-Goog-Gcs-Idempotency-Token: overwrite-token\r\n");
+        let replaced = request("POST", &overwrite, &headers, &body).json();
         assert_ne!(replaced["generation"], original["generation"]);
         assert_eq!(
-            server.request("POST", &overwrite, headers, &body).json(),
+            request("POST", &overwrite, &headers, &body).json(),
             replaced
         );
-        assert_eq!(server.get("token").json(), replaced);
-        assert_eq!(server.get("token?alt=media").body, b"replacement");
-        no_leaks(&dir, 1);
+        assert_eq!(request("GET", object_path, "", b"").json(), replaced);
+        assert_eq!(
+            request("GET", &format!("{object_path}?alt=media"), "", b"").body,
+            b"replacement"
+        );
+        if upload == "media" {
+            assert_eq!(common::server::staging_count(&dir), 0);
+            assert_eq!(common::server::blob_count(&dir), 1);
+        } else {
+            no_leaks(&dir, 1);
+        }
     }
 }
 
 #[test]
-fn obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
-    let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 30_000);
-    server.bucket();
-    let original = server
-        .upload("name=existing", &wire(b"{}", None, b"original", None))
-        .json();
-    let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
-    for name in ["", "&name=absent", "&name=existing"] {
-        for headers in [
-            "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
-            format!("{token}{token}"),
-        ] {
-            for query in ["", "&ifGenerationMatch=0"] {
-                let mut stream = socket(&server.address);
-                write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart{name}{query} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 9999\r\n{headers}\r\n").unwrap();
-                Reply::read(stream).error(400, "invalidParameter");
+fn obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
+    for (upload, names, content_type, length) in [
+        (
+            "media",
+            ["&name=absent", "&name=existing"].as_slice(),
+            "",
+            900,
+        ),
+        (
+            "multipart",
+            ["", "&name=absent", "&name=existing"].as_slice(),
+            "Content-Type: multipart/related; boundary=boundary\r\n",
+            9999,
+        ),
+    ] {
+        let dir = TestDir::new();
+        let server = token_server(&dir, upload);
+        let body = if upload == "multipart" {
+            wire(b"{}", None, b"original", None)
+        } else {
+            b"original".to_vec()
+        };
+        let original = server
+            .request(
+                "POST",
+                &format!("/upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing"),
+                content_type,
+                &body,
+            )
+            .json();
+        let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
+        for name in names {
+            for headers in [
+                "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
+                format!("{token}{token}"),
+            ] {
+                for query in ["", "&ifGenerationMatch=0"] {
+                    let mut stream = socket_with_timeout(&server.address, server.client_timeout);
+                    write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}{name}{query} HTTP/1.1\r\nHost: local\r\n{content_type}Content-Length: {length}\r\n{headers}\r\n").unwrap();
+                    Reply::read(stream).json_error(400, "invalidParameter");
+                }
             }
         }
+        server.get("absent").json_error(404, "notFound");
+        assert_eq!(server.get("existing").json(), original);
+        assert_eq!(server.get("existing?alt=media").body, b"original");
+        if upload == "media" {
+            assert_eq!(common::server::staging_count(&dir), 0);
+        }
+        no_leaks(&dir, 1);
     }
-    server.get("absent").error(404, "notFound");
-    assert_eq!(server.get("existing").json(), original);
-    assert_eq!(server.get("existing?alt=media").body, b"original");
-    no_leaks(&dir, 1);
+}
+
+fn token_server(dir: &TestDir, upload: &str) -> Server {
+    if upload == "multipart" {
+        let server = Server::start(dir, 1000, 30_000);
+        server.bucket();
+        return server;
+    }
+    // These flags mirror object_http's server start for the media variant.
+    let mut server = Server::launch(http_command(&dir.0).args([
+        "--api-base-url",
+        "https://advertised.invalid/api",
+        "--max-object-bytes",
+        "1000",
+        "--connection-timeout-ms",
+        "5000",
+        "--object-request-timeout-ms",
+        "900000",
+        "--catalog-wait-timeout-ms",
+        "30000",
+        "--max-connections",
+        "32",
+    ]));
+    server.client_timeout = Duration::from_secs(30);
+    assert_eq!(server.ready["max_object_bytes"], 1000);
+    assert_eq!(server.ready["object_request_timeout_ms"], 900_000);
+    assert_eq!(server.ready["catalog_wait_timeout_ms"], 30_000);
+    assert_eq!(
+        server
+            .request(
+                "POST",
+                "/storage/v1/b?project=local",
+                "Content-Type: application/json\r\n",
+                br#"{"name":"test-bucket","storageClass":"NEARLINE"}"#
+            )
+            .status,
+        200
+    );
+    server
 }
 
 #[test]
@@ -1259,7 +1288,7 @@ fn obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_gen
     assert_eq!(session.status, 200);
     assert!(session.body.is_empty());
     server.get("new").error(404, "notFound");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 1);
+    assert_eq!(common::server::staging_count(&dir), 1);
 }
 
 #[test]
@@ -1281,7 +1310,7 @@ fn obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks() 
         })
     }).collect();
     let deadline = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 4 {
+    while common::server::staging_count(&dir) != 4 {
         assert!(
             Instant::now() < deadline,
             "all uploads must pass advisory checks before any commit"
@@ -1312,7 +1341,7 @@ fn obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots() 
         stream.write_all(prefix).unwrap(); stream.write_all(b"\r\n").unwrap(); stream
     }).collect();
     let ready = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 8 {
+    while common::server::staging_count(&dir) != 8 {
         assert!(Instant::now() < ready, "all uploads must enter staging");
         thread::sleep(Duration::from_millis(5));
     }

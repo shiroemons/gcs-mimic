@@ -120,7 +120,7 @@ fn multipart_gzip_checks_crc_size_truncation_and_trailers_after_the_mime_close()
     .concat();
     server.raw(&format!("POST {PATH} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\nTrailer: x-bad\r\n{TYPE}\r\n"), &chunks).status(400);
     assert_eq!(server.request("GET", OBJECT, "", b"").json(), before);
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn multipart_gzip_limits_and_declared_checksums_preserve_previous_objects() {
         .request("POST", PATH, TYPE, &vec![b'x'; 400_000])
         .status(400);
     assert_eq!(server.request("GET", OBJECT, "", b"").json(), before);
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn multipart_gzip_strict_permissions_precede_publication() {
 
 fn await_staging(dir: &TestDir, count: usize) {
     let deadline = Instant::now() + Duration::from_secs(5);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != count {
+    while common::server::staging_count(dir) != count {
         assert!(
             Instant::now() < deadline,
             "staging did not reach expected count {count}"

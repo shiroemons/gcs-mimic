@@ -1,14 +1,14 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Server, http_command, write_request};
 use gcs_mimic::auth::signature::sign_url;
 use hyper::{HeaderMap, Method, Uri};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     time::{Duration, SystemTime},
 };
 
@@ -19,12 +19,6 @@ const PRIVATE: &[u8] = include_bytes!("../fixtures/signing/test-only-private.pem
 const PUBLIC: &str = include_str!("../fixtures/signing/test-only-public.pem");
 const BUCKET: &str = "/storage/v1/b/browser-bucket";
 const EXPOSED: &str = "Content-Type, ETag, X-Goog-Generation, X-Goog-If-Generation-Match";
-
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
 
 impl Server {
     fn start(data: &TestDir, config: &TestDir) -> Self {
@@ -39,34 +33,13 @@ impl Server {
             .to_string(),
         )
         .unwrap();
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--api-base-url",
-                "http://127.0.0.1:4443",
-                "--data-dir",
-            ])
-            .arg(&data.0)
-            .args(["--auth-mode", "strict", "--identity-file"])
-            .arg(identities)
-            .args(["--xml-virtual-host-domains", "storage.example.invalid"])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready event");
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(
+            http_command(&data.0)
+                .args(["--api-base-url", "http://127.0.0.1:4443"])
+                .args(["--auth-mode", "strict", "--identity-file"])
+                .arg(identities)
+                .args(["--xml-virtual-host-domains", "storage.example.invalid"]),
+        )
     }
 
     fn url(&self, virtual_host: bool, name: &str) -> String {
@@ -97,9 +70,14 @@ impl Server {
         stream
             .set_write_timeout(Some(Duration::from_secs(5)))
             .unwrap();
-        write!(stream, "{method} {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n",
-            uri.path_and_query().unwrap(), uri.authority().unwrap(), body.len()).unwrap();
-        stream.write_all(body).unwrap();
+        write_request(
+            &mut stream,
+            method,
+            uri.path_and_query().unwrap().as_str(),
+            uri.authority().unwrap().as_str(),
+            &format!("Connection: close\r\n{headers}"),
+            body,
+        );
         Reply::read(stream, method == "HEAD")
     }
 
@@ -129,15 +107,6 @@ impl Server {
 
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
     }
 }
 

@@ -556,17 +556,8 @@ fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects(
                 .body,
             b"old"
         );
-        assert_eq!(
-            std::fs::read_dir(data.0.join("staging")).unwrap().count(),
-            0
-        );
-        assert_eq!(
-            std::fs::read_dir(data.0.join("blobs"))
-                .unwrap()
-                .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-                .sum::<usize>(),
-            1
-        );
+        assert_eq!(common::server::staging_count(&data), 0);
+        assert_eq!(common::server::blob_count(&data), 1);
     }
 }
 
@@ -594,7 +585,7 @@ fn auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streamin
         write!(stream, "POST /upload/storage/v1/b/iam-bucket/o?uploadType={upload}&name=object HTTP/1.1\r\nHost: local\r\n{NO_ROLES}Content-Type: multipart/related; boundary=boundary\r\nContent-Length: {}\r\n\r\n", body.len()).unwrap();
         stream.write_all(&body[..body.len() - 1]).unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
-        while std::fs::read_dir(data.0.join("staging")).unwrap().count() != 1 {
+        while common::server::staging_count(&data) != 1 {
             assert!(
                 Instant::now() < deadline,
                 "upload must pass advisory authorization"
@@ -618,17 +609,8 @@ fn auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streamin
                 .body,
             b"old"
         );
-        assert_eq!(
-            std::fs::read_dir(data.0.join("staging")).unwrap().count(),
-            0
-        );
-        assert_eq!(
-            std::fs::read_dir(data.0.join("blobs"))
-                .unwrap()
-                .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-                .sum::<usize>(),
-            1
-        );
+        assert_eq!(common::server::staging_count(&data), 0);
+        assert_eq!(common::server::blob_count(&data), 1);
     }
 }
 

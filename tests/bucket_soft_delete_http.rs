@@ -1,19 +1,9 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Server, http_command, write_request};
 use serde_json::{Value, json};
-use std::{
-    io::{BufRead, BufReader, Write},
-    net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
-    time::Duration,
-};
-
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
+use std::{io::BufReader, net::TcpStream, time::Duration};
 
 impl Server {
     fn start(dir: &TestDir, options: &[&str]) -> Self {
@@ -26,49 +16,29 @@ impl Server {
     }
 
     fn start_with(dir: &TestDir, options: &[&str], unconfigured: bool) -> Self {
-        let mut command = common::server_command();
+        let mut command = http_command(&dir.0.join("data"));
         if unconfigured {
             command.env_remove("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS");
         }
-        let mut child = command
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(dir.0.join("data"))
-            .args(options)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready event");
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(command.args(options))
     }
 
     fn send(&self, token: Option<&str>, method: &str, path: &str, body: &str) -> Reply {
         let authorization = token
             .map(|token| format!("Authorization: Bearer {token}\r\n"))
             .unwrap_or_default();
-        let request = format!(
-            "{method} {path} HTTP/1.1\r\nHost: local.invalid\r\n{authorization}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
         let mut stream = TcpStream::connect(&self.address).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
-        stream.write_all(request.as_bytes()).unwrap();
+        write_request(
+            &mut stream,
+            method,
+            path,
+            "local.invalid",
+            &format!("{authorization}Content-Type: application/json\r\nConnection: close\r\n"),
+            body.as_bytes(),
+        );
         let mut reader = BufReader::new(stream);
         let reply = common::read_http_response(&mut reader, false).unwrap();
         let reply = String::from_utf8(reply).unwrap();
@@ -98,15 +68,6 @@ impl Server {
 
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
     }
 }
 

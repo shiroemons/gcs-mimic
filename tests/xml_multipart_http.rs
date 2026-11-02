@@ -360,7 +360,7 @@ fn multipart_reset_and_bucket_recreation_invalidate_sessions_and_remove_parts() 
     reset
         .expect("maintenance eventually becomes idle")
         .status(200);
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
     drop(server);
     let server = Server::start(&dir, &[]);
     bucket(&server, "");

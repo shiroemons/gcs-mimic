@@ -1,13 +1,14 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Server, write_request};
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufReader, Read},
     net::{TcpListener, TcpStream},
     path::Path,
-    process::{Child, ChildStdout, Command, Stdio},
+    process::{Command, Stdio},
     time::Duration,
 };
 
@@ -42,29 +43,9 @@ fn selected(root: &Path) -> Command {
     command
 }
 
-struct Server {
-    child: Child,
-    stdout: BufReader<ChildStdout>,
-    ready: Value,
-}
-
 impl Server {
     fn start(command: &mut Command) -> Self {
-        let mut child = command
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            stdout,
-            ready,
-        }
+        Self::launch(command.stderr(Stdio::piped()))
     }
 
     fn request(
@@ -78,7 +59,14 @@ impl Server {
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
-        write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{headers}\r\n{body}", body.len()).unwrap();
+        write_request(
+            &mut stream,
+            method,
+            path,
+            "localhost",
+            &format!("Content-Type: application/json\r\n{headers}"),
+            body.as_bytes(),
+        );
         let raw =
             common::read_http_response(&mut BufReader::new(stream), method == "HEAD").unwrap();
         let end = raw
@@ -112,15 +100,6 @@ impl Server {
             .read_to_string(&mut stderr)
             .unwrap();
         stderr
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
     }
 }
 

@@ -7,22 +7,16 @@ mod upload_admission;
 #[path = "object_http/upload_replay.rs"]
 mod upload_replay;
 
+use common::server::{Reply, Server, http_command, request_head};
 use common::{TestDir, closed_by_server};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
+    process::Stdio,
     thread,
     time::{Duration, Instant},
 };
-
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
 
 impl Server {
     fn start(dir: &TestDir, limit: u64, timeout: u64) -> Self {
@@ -47,46 +41,25 @@ impl Server {
         catalog_timeout: u64,
         connections: usize,
     ) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args([
-                "--api-base-url",
-                "https://advertised.invalid/api",
-                "--max-object-bytes",
-                &limit.to_string(),
-                "--connection-timeout-ms",
-                &timeout.to_string(),
-                "--object-request-timeout-ms",
-                &object_timeout.to_string(),
-                "--catalog-wait-timeout-ms",
-                &catalog_timeout.to_string(),
-                "--max-connections",
-                &connections.to_string(),
-            ])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready after recovery");
-        assert_eq!(ready["event"], "ready");
+        let server = Self::launch(http_command(&dir.0).args([
+            "--api-base-url",
+            "https://advertised.invalid/api",
+            "--max-object-bytes",
+            &limit.to_string(),
+            "--connection-timeout-ms",
+            &timeout.to_string(),
+            "--object-request-timeout-ms",
+            &object_timeout.to_string(),
+            "--catalog-wait-timeout-ms",
+            &catalog_timeout.to_string(),
+            "--max-connections",
+            &connections.to_string(),
+        ]));
+        let ready = &server.ready;
         assert_eq!(ready["max_object_bytes"], limit);
         assert_eq!(ready["object_request_timeout_ms"], object_timeout);
         assert_eq!(ready["catalog_wait_timeout_ms"], catalog_timeout);
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        server
     }
 
     fn stream(&self) -> TcpStream {
@@ -111,7 +84,14 @@ impl Server {
     /// One-shot requests ask for `Connection: close`, so the server closes first
     /// (see [`common::await_server_close`]).
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        let mut request = format!("{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nX-Forwarded-Host: evil.invalid\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n", body.len()).into_bytes();
+        let mut request = request_head(
+            method,
+            path,
+            "untrusted.invalid",
+            &format!("X-Forwarded-Host: evil.invalid\r\nConnection: close\r\n{headers}"),
+            body.len(),
+        )
+        .into_bytes();
         request.extend_from_slice(body);
         self.raw(&request)
     }
@@ -152,15 +132,6 @@ impl Server {
     }
 }
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
-    }
-}
-
 /// Creates the test bucket and runs `setup` on a server with the default deadlines,
 /// then stops it. A short connection deadline under test also bounds a whole bucket
 /// insert, which loaded runs exceeded with 503 before the scenario even started.
@@ -172,68 +143,9 @@ fn before_short_deadline<T>(dir: &TestDir, setup: impl FnOnce(&Server) -> T) -> 
     result
 }
 
-struct Reply {
-    status: u16,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
-}
-
 impl Reply {
     fn read(stream: TcpStream) -> Self {
-        let mut reader = BufReader::new(stream);
-        let mut bytes = Vec::new();
-        while !bytes.ends_with(b"\r\n\r\n") {
-            assert_ne!(
-                reader.read_until(b'\n', &mut bytes).unwrap(),
-                0,
-                "HTTP response headers"
-            );
-        }
-        let boundary = bytes
-            .windows(4)
-            .position(|v| v == b"\r\n\r\n")
-            .expect("HTTP response");
-        let text = std::str::from_utf8(&bytes[..boundary]).unwrap();
-        let mut lines = text.split("\r\n");
-        let status = lines
-            .next()
-            .unwrap()
-            .split_whitespace()
-            .nth(1)
-            .unwrap()
-            .parse()
-            .unwrap();
-        let headers: BTreeMap<String, String> = lines
-            .map(|line| {
-                let (key, value) = line.split_once(':').unwrap();
-                (key.to_ascii_lowercase(), value.trim().into())
-            })
-            .collect();
-        // A complete framed response stays valid even if a late request write causes a reset.
-        let length = if matches!(status, 204 | 304) {
-            0
-        } else {
-            headers["content-length"].parse().unwrap()
-        };
-        let mut body = Vec::with_capacity(length);
-        // A short body names the response, so a rare truncation identifies its request.
-        let read = reader.by_ref().take(length as u64).read_to_end(&mut body);
-        assert!(
-            read.is_ok() && body.len() == length,
-            "HTTP {status} body ended after {} of {length} bytes ({read:?}); headers: {headers:?}",
-            body.len()
-        );
-        if headers
-            .get("connection")
-            .is_some_and(|value| value == "close")
-        {
-            common::await_server_close(&mut reader);
-        }
-        Self {
-            status,
-            headers,
-            body,
-        }
+        Self::framed(stream)
     }
 
     fn json(&self) -> Value {
@@ -241,29 +153,7 @@ impl Reply {
     }
 
     fn error(&self, status: u16, reason: &str) {
-        assert_eq!(
-            self.status,
-            status,
-            "{}",
-            String::from_utf8_lossy(&self.body)
-        );
-        // The upload front end labelled some JSON envelopes text/html (recorded).
-        let content_type = self.headers["content-type"].as_str();
-        assert!(
-            matches!(
-                content_type,
-                "application/json; charset=UTF-8" | "text/html; charset=UTF-8"
-            ),
-            "{content_type}"
-        );
-        let body: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
-            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
-        });
-        let error = &body["error"];
-        assert_eq!(error["code"], status);
-        assert_eq!(error["errors"][0]["domain"], "global");
-        assert_eq!(error["errors"][0]["reason"], reason, "{error}");
-        assert_eq!(error["errors"][0]["message"], error["message"]);
+        self.json_error(status, reason);
     }
 
     /// A session-continuation failure: a bare `text/plain` page that carries none of the JSON
@@ -616,65 +506,6 @@ fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
 }
 
 #[test]
-fn obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite() {
-    let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 5000);
-    server.bucket();
-    let token = "X-Goog-Gcs-Idempotency-Token: opaque, retry=token\r\n";
-    let create = "name=token&ifGenerationMatch=0";
-    let original = server.upload(create, token, b"original").json();
-    assert_eq!(server.upload(create, token, b"original").json(), original);
-    assert_eq!(server.get("token").json(), original);
-    assert_eq!(server.get("token?alt=media").body, b"original");
-    let overwrite = format!(
-        "name=token&ifGenerationMatch={}",
-        original["generation"].as_str().unwrap()
-    );
-    let overwrite_token = "X-Goog-Gcs-Idempotency-Token: overwrite-token\r\n";
-    let replaced = server
-        .upload(&overwrite, overwrite_token, b"replacement")
-        .json();
-    assert_ne!(replaced["generation"], original["generation"]);
-    assert_eq!(
-        server
-            .upload(&overwrite, overwrite_token, b"replacement")
-            .json(),
-        replaced
-    );
-    assert_eq!(server.get("token").json(), replaced);
-    assert_eq!(server.get("token?alt=media").body, b"replacement");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-    let blobs: usize = std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum();
-    assert_eq!(blobs, 1);
-}
-
-#[test]
-fn obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
-    let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 5000);
-    server.bucket();
-    let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
-    let original = server.upload("name=existing", "", b"original").json();
-    for name in ["absent", "existing"] {
-        for headers in [
-            "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
-            format!("{token}{token}"),
-        ] {
-            for query in ["", "&ifGenerationMatch=0"] {
-                server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name={name}{query} HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{headers}\r\n").as_bytes()).error(400, "invalidParameter");
-            }
-        }
-    }
-    server.get("absent").error(404, "notFound");
-    assert_eq!(server.get("existing").json(), original);
-    assert_eq!(server.get("existing?alt=media").body, b"original");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-}
-
-#[test]
 fn obj_http_idempotency_token_local_read_delete_rule_and_upload_replay() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 5000);
@@ -821,7 +652,7 @@ fn obj_http_restart_and_sigkill_mid_upload_clean_staging() {
     let mut interrupted = server.stream();
     interrupted.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=partial HTTP/1.1\r\nHost: local\r\nContent-Length: 900000\r\n\r\npartial").unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() == 0 {
+    while common::server::staging_count(&dir) == 0 {
         assert!(Instant::now() < deadline, "upload reached staging");
         thread::sleep(Duration::from_millis(10));
     }
@@ -830,7 +661,7 @@ fn obj_http_restart_and_sigkill_mid_upload_clean_staging() {
     drop(interrupted);
     drop(server);
     let server = Server::start(&dir, 1_000_000, 5000);
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
     server.get("partial").error(404, "notFound");
     assert_eq!(server.get("durable").json(), original);
     assert_eq!(server.get("durable?alt=media").body, b"survives");
@@ -877,7 +708,7 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
         stream
     }).collect();
     let admitted = Instant::now() + Duration::from_secs(2);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() < 8 {
+    while common::server::staging_count(&dir) < 8 {
         assert!(Instant::now() < admitted, "all eight uploads admitted");
         thread::sleep(Duration::from_millis(5));
     }
@@ -898,7 +729,7 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
     assert!(started.elapsed() >= Duration::from_millis(800));
     assert!(started.elapsed() < Duration::from_secs(3));
     let cleaned = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 0 {
+    while common::server::staging_count(&dir) != 0 {
         assert!(Instant::now() < cleaned, "cancelled stages cleaned");
         thread::sleep(Duration::from_millis(10));
     }
@@ -907,13 +738,7 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
     for index in 1..8 {
         server.get(&format!("held-{index}")).error(404, "notFound");
     }
-    assert_eq!(
-        std::fs::read_dir(dir.0.join("blobs"))
-            .unwrap()
-            .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-            .sum::<usize>(),
-        1
-    );
+    assert_eq!(common::server::blob_count(&dir), 1);
     // Released permits admit a new upload; cleanup of the cancelled stages can
     // still hold the catalog briefly on a loaded runner, so retry its 503.
     let admitted = Instant::now() + Duration::from_secs(10);
@@ -989,30 +814,8 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
 #[test]
 fn obj_http_media_read_failure_after_headers_names_its_cause() {
     let dir = TestDir::new();
-    let mut child = common::server_command()
-        .args([
-            "serve",
-            "--scheme",
-            "http",
-            "--listen",
-            "127.0.0.1:0",
-            "--data-dir",
-        ])
-        .arg(&dir.0)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut stderr = child.stderr.take().unwrap();
-    let mut stdout = BufReader::new(child.stdout.take().unwrap());
-    let mut line = String::new();
-    stdout.read_line(&mut line).unwrap();
-    let ready: Value = serde_json::from_str(&line).unwrap();
-    let server = Server {
-        child,
-        address: ready["listen"].as_str().unwrap().into(),
-        stdout,
-    };
+    let mut server = Server::launch(http_command(&dir.0).stderr(Stdio::piped()));
+    let mut stderr = server.child.stderr.take().unwrap();
     server.bucket();
     let size = 8 * 1024 * 1024;
     assert_eq!(
@@ -1082,10 +885,7 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
     let mut first = server.stream();
     first.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=committing HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\none").unwrap();
     let published = Instant::now() + Duration::from_secs(30);
-    while std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .all(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count() == 0)
-    {
+    while common::server::blob_count(&dir) == 0 {
         assert!(
             Instant::now() < published,
             "first upload reached publication"
@@ -1166,10 +966,7 @@ fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
     let mut first = server.stream();
     first.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=first HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\none").unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
-    while std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .all(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count() == 0)
-    {
+    while common::server::blob_count(&dir) == 0 {
         assert!(
             Instant::now() < deadline,
             "first upload reached publication"
@@ -1202,7 +999,7 @@ fn obj_http_additional_upload_waits_for_advisory_check() {
         uploads.push(stream);
     }
     let deadline = Instant::now() + Duration::from_secs(3);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() < 8 {
+    while common::server::staging_count(&dir) < 8 {
         assert!(Instant::now() < deadline, "all upload bodies admitted");
         thread::sleep(Duration::from_millis(10));
     }
@@ -1270,7 +1067,7 @@ fn obj_http_precheck_and_method_alt_reject_before_consuming_body() {
         )
         .error(400, "invalidParameter");
     assert_eq!(server.get("exists?alt=media").body, b"old");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -1312,7 +1109,7 @@ fn obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing()
         }
     }
     assert_eq!(server.get("exists?alt=media").body, b"old");
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -1361,12 +1158,7 @@ fn obj_http_sigkill_after_blob_rename_before_commit_and_after_success() {
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let mut upload = server.stream();
     upload.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=durable HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\nnew").unwrap();
-    let count_blobs = || {
-        std::fs::read_dir(dir.0.join("blobs"))
-            .unwrap()
-            .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-            .sum::<usize>()
-    };
+    let count_blobs = || common::server::blob_count(&dir);
     let deadline = Instant::now() + Duration::from_secs(3);
     while count_blobs() < 2 {
         assert!(
@@ -1500,12 +1292,12 @@ fn assert_resumable_complete(server: &Server, dir: &TestDir, resource: &Value) {
         })
         .unwrap();
     assert_eq!(last, generation);
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-    let blobs: usize = std::fs::read_dir(dir.0.join("blobs"))
-        .unwrap()
-        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-        .sum();
-    assert_eq!(blobs, 1, "only the committed object blob remains");
+    assert_eq!(common::server::staging_count(dir), 0);
+    assert_eq!(
+        common::server::blob_count(dir),
+        1,
+        "only the committed object blob remains"
+    );
 }
 
 #[test]

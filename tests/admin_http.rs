@@ -4,6 +4,7 @@ mod admin_reset;
 mod object_effects_support;
 
 use common::TestDir;
+use common::server::{Server, http_command, write_request};
 use gcs_mimic::auth::signature::sign_url;
 use gcs_mimic::config::Config;
 use hyper::{HeaderMap, Method, Uri};
@@ -12,18 +13,33 @@ use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     time::{Duration, SystemTime},
 };
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 const OBJECT: &str = "/storage/v1/b/test-bucket/o/value";
 
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-    ready: Value,
+#[test]
+fn server_drop_preserves_original_panic_for_running_and_exited_children() {
+    for graceful in [false, true] {
+        for exited in [false, true] {
+            let dir = TestDir::new();
+            let mut server = Server::launch(&mut http_command(&dir.0));
+            if graceful {
+                server = server.graceful();
+            }
+            if exited {
+                server.child.kill().unwrap();
+                server.child.wait().unwrap();
+            }
+            let panic = std::panic::catch_unwind(move || {
+                let _server = server;
+                panic!("original test failure");
+            })
+            .unwrap_err();
+            assert_eq!(panic.downcast_ref::<&str>(), Some(&"original test failure"));
+        }
+    }
 }
 
 impl Server {
@@ -39,8 +55,16 @@ impl Server {
         stream
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        write!(stream, "POST /_internal/objects HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=fixture\r\nContent-Length: {}\r\n{auth}Connection: close\r\n\r\n", wire.len()).unwrap();
-        stream.write_all(wire).unwrap();
+        write_request(
+            &mut stream,
+            "POST",
+            "/_internal/objects",
+            "localhost",
+            &format!(
+                "Content-Type: multipart/related; boundary=fixture\r\n{auth}Connection: close\r\n"
+            ),
+            wire,
+        );
         let response = common::read_http_response(&mut BufReader::new(stream), false).unwrap();
         let start = response
             .windows(4)
@@ -63,33 +87,12 @@ impl Server {
         }
     }
     fn start(dir: &TestDir, options: &[&str]) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--seed-project",
-                "local",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(options)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-            ready,
-        }
+        Self::launch(
+            http_command(&dir.0)
+                .args(["--seed-project", "local"])
+                .args(options),
+        )
+        .graceful()
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
@@ -140,12 +143,14 @@ impl Server {
         stream
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        write!(
-            stream,
-            "{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Length: {}\r\n{headers}Connection: close\r\n\r\n", body.len()
-        )
-        .unwrap();
-        stream.write_all(body).unwrap();
+        write_request(
+            &mut stream,
+            method,
+            path,
+            host,
+            &format!("{headers}Connection: close\r\n"),
+            body,
+        );
         let response = common::read_http_response(&mut BufReader::new(stream), false).unwrap();
         String::from_utf8_lossy(&response)
             .split_whitespace()
@@ -585,14 +590,6 @@ fn direct_fixture_progress_renews_inactivity_without_disabling_the_deadline() {
             .body,
         b"chunk".repeat(20)
     );
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            common::stop_server(&mut self.child, &mut self.stdout);
-        }
-    }
 }
 
 #[test]

@@ -120,7 +120,7 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
         reset,
         json!({"buckets":1, "objects":2, "cleanupPending":false})
     );
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
     assert_eq!(server.request("GET", OBJECT, "", b"").status, 404);
     assert_eq!(
         server

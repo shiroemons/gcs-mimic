@@ -167,10 +167,7 @@ fn abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart() {
                 .unwrap(),
             0
         );
-        assert_eq!(
-            std::fs::read_dir(dir.0.join("staging")).unwrap().count(),
-            256
-        );
+        assert_eq!(common::server::staging_count(&dir), 256);
     }
     let completed = server
         .request("POST", &continue_path(&token.unwrap()), ADMIN, b"")
@@ -332,7 +329,7 @@ fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
                 0
             );
         }
-        assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+        assert_eq!(common::server::staging_count(&dir), 0);
     }
 }
 
@@ -487,7 +484,7 @@ fn rewrite_expired_token_and_restart_cleanup_preserve_live_destination() {
             0
         );
     }
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]
@@ -853,7 +850,7 @@ fn rewrite_progress_replay_reclaims_state_after_bucket_recreation() {
             0
         );
     }
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(common::server::staging_count(&dir), 0);
     server.get("destination").error(404, "notFound");
 }
 
@@ -1027,7 +1024,7 @@ fn rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success() 
     let started = std::time::Instant::now();
     let worker = thread::spawn(move || request(&address, "POST", BASE, ADMIN, b""));
     let limit = started + std::time::Duration::from_secs(2);
-    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() < 2 {
+    while common::server::staging_count(&dir) < 2 {
         assert!(std::time::Instant::now() < limit);
         thread::sleep(std::time::Duration::from_millis(1));
     }

@@ -4,6 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub(crate) mod server;
+
 #[path = "../../src/test_support.rs"]
 pub(super) mod input_fixtures;
 pub(crate) type TestDir = input_fixtures::TestDir;

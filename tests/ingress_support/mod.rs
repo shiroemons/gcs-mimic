@@ -1,48 +1,29 @@
+pub(super) use crate::common::server::Server;
+use crate::common::server::{http_command, request_head};
 use crate::common::{self, TestDir};
 use serde_json::Value;
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufReader, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     time::Duration,
 };
 
-pub(super) struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
-
 impl Server {
     pub(super) fn start(dir: &TestDir, options: &[&str]) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(options)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(http_command(&dir.0).args(options)).graceful()
     }
 
     pub(super) fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n{headers}\r\n", body.len()), body)
+        self.raw(
+            &request_head(
+                method,
+                path,
+                "localhost",
+                &format!("Connection: close\r\n{headers}"),
+                body.len(),
+            ),
+            body,
+        )
     }
 
     pub(super) fn connect(&self) -> TcpStream {
@@ -93,12 +74,6 @@ impl Server {
             common::await_server_close(&mut reader);
         }
         reply
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
     }
 }
 

@@ -1,50 +1,23 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Server, http_command, write_request};
 use serde_json::{Value, json};
-use std::{
-    io::{BufRead, BufReader, Write},
-    net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
-    time::Duration,
-};
-
-struct Server {
-    child: Child,
-    stdout: BufReader<ChildStdout>,
-    address: String,
-}
+use std::{io::BufReader, net::TcpStream, time::Duration};
 
 impl Server {
     fn start(data: &TestDir, options: &[&str]) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--connection-timeout-ms",
-                "20000",
-                "--api-base-url",
-                "http://localhost:4443",
-                "--data-dir",
-            ])
-            .arg(&data.0)
-            .args(options)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            stdout,
-            address: ready["listen"].as_str().unwrap().into(),
-        }
+        Self::launch(
+            http_command(&data.0)
+                .args([
+                    "--connection-timeout-ms",
+                    "20000",
+                    "--api-base-url",
+                    "http://localhost:4443",
+                ])
+                .args(options),
+        )
+        .graceful()
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &str) -> (u16, String) {
@@ -66,7 +39,14 @@ impl Server {
         stream
             .set_write_timeout(Some(Duration::from_secs(30)))
             .unwrap();
-        write!(stream, "{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nContent-Length: {}\r\n{headers}\r\n{body}", body.len()).unwrap();
+        write_request(
+            &mut stream,
+            method,
+            path,
+            host,
+            &format!("Connection: close\r\n{headers}"),
+            body.as_bytes(),
+        );
         let raw =
             common::read_http_response(&mut BufReader::new(stream), method == "HEAD").unwrap();
         let raw = String::from_utf8(raw).unwrap();
@@ -121,12 +101,6 @@ impl Server {
         );
         assert_eq!(status, 200, "{body}");
         serde_json::from_str(&body).unwrap()
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
     }
 }
 
