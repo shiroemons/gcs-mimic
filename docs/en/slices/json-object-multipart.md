@@ -7,6 +7,11 @@ acceptance additions to JSON-OBJECTS-007, BEHAVIOR-OBJECT-001,
 BEHAVIOR-OBJECT-005 and BEHAVIOR-COMMON-011. This contract decomposes the
 supported subset; `compatibility/features.json` remains the status authority.
 `objects.insert` remains PARTIAL because resumable uploads are separate P3 work.
+
+Upload errors omit `x-content-type-options`, matching the 2026-11-01 Cloud Storage
+recording. JSON envelopes labelled `text/html` escape `<`, `>` and `&` as JSON
+Unicode escapes, preserving decoded messages without interpreting input as markup.
+
 Multipart also remains PARTIAL with LOCAL_SIMULATION fidelity: the scoped local
 cases pass, while SPEC-013/SPEC-016, ACL/IAM permissions and direct-service edge
 evidence remain incomplete. The policy requires no deviations and matching target
