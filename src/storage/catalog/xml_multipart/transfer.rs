@@ -307,7 +307,7 @@ impl Catalog {
         self.run(move |connection| {
             #[cfg(unix)]
             if memory.is_none() {
-                objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
+                objects::sync_dir(&data_dir.join("staging"))?;
             }
             let count: i64 = sql::scalar(
                 connection,

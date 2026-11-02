@@ -72,10 +72,7 @@ pub(super) fn recover_prefix(
     };
     validate_prefix(&metadata, blob_id, offset)?;
     if metadata.len() > offset {
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .open(&stage)
-            .map_err(unavailable)?;
+        let file = fs::OpenOptions::new().write(true).open(&stage)?;
         file.set_len(offset)?;
         #[cfg(test)]
         super::fault::truncated(data_dir, &file.metadata()?);

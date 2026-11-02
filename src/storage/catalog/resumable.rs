@@ -191,8 +191,7 @@ fn create_session_bytes(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogE
     let file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&path)
-        .map_err(unavailable)?;
+        .open(&path)?;
     let synced = (|| -> std::io::Result<()> {
         file.sync_all()?;
         #[cfg(unix)]
@@ -201,7 +200,7 @@ fn create_session_bytes(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogE
     })();
     if let Err(error) = synced {
         drop(file);
-        fs::remove_file(path).map_err(unavailable)?;
+        fs::remove_file(path)?;
         return Err(unavailable(error));
     }
     Ok(())
@@ -223,13 +222,11 @@ fn remove_session_stage(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogE
 )]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction()?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction
-        .execute(
-            "INSERT INTO bucket_incarnations SELECT name, lower(hex(randomblob(16))) FROM buckets",
-            [],
-        )
-        .map_err(unavailable)?;
+    transaction.execute_batch(SCHEMA)?;
+    transaction.execute(
+        "INSERT INTO bucket_incarnations SELECT name, lower(hex(randomblob(16))) FROM buckets",
+        [],
+    )?;
     transaction.commit().map_err(unavailable)
 }
 
@@ -240,12 +237,11 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         "invalid resumable catalog state",
     )?;
     // Admission keeps at most MAX_SESSIONS active plus MAX_TERMINAL_SESSIONS terminal rows.
-    let mut statement = connection
-        .prepare_cached("SELECT * FROM resumable_sessions ORDER BY id LIMIT 257")
-        .map_err(unavailable)?;
-    let mut rows = statement.query([]).map_err(unavailable)?;
-    while let Some(row) = rows.next().map_err(unavailable)? {
-        read_session(row).map_err(unavailable)?;
+    let mut statement =
+        connection.prepare_cached("SELECT * FROM resumable_sessions ORDER BY id LIMIT 257")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        read_session(row)?;
     }
     Ok(())
 }
@@ -280,8 +276,7 @@ fn admit_session(
             statement
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
                 .collect()
-        })
-        .map_err(unavailable)?;
+        })?;
     for (id, blob_id, state) in candidates {
         if excess <= 0 {
             break;
@@ -294,7 +289,7 @@ fn admit_session(
             && let Some(memory) = &catalog.0.memory
         {
             // Completion normally drops the RAM draft; this covers a failed drop.
-            memory.remove_draft(&blob_id).map_err(unavailable)?;
+            memory.remove_draft(&blob_id)?;
         }
         sql::exec(
             transaction,

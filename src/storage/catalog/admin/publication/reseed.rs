@@ -288,7 +288,7 @@ async fn prepare_entry(
             .as_ref()
             .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?;
         let source = catalog.0.data_dir.join("staging").join(id);
-        let destination = objects::blob_path(&catalog.0.data_dir, id).map_err(AdminError::from)?;
+        let destination = objects::blob_path(&catalog.0.data_dir, id)?;
         #[cfg(test)]
         super::super::super::fault::hit(
             &catalog.0.data_dir,

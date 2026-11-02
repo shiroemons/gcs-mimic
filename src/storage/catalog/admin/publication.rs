@@ -340,8 +340,7 @@ async fn cleanup(catalog: &Catalog, id: String) -> Result<(), AdminError> {
         .run_upload(move |connection| {
             objects::blob_referenced(connection, &probe).map_err(objects_error)
         })
-        .await
-        .map_err(AdminError::from)?;
+        .await?;
     if let Some(memory) = &catalog.0.memory {
         if !referenced {
             memory.remove(&id)?;
@@ -349,7 +348,7 @@ async fn cleanup(catalog: &Catalog, id: String) -> Result<(), AdminError> {
         return Ok(());
     }
     let stage = catalog.0.data_dir.join("staging").join(&id);
-    let blob = objects::blob_path(&catalog.0.data_dir, &id).map_err(AdminError::from)?;
+    let blob = objects::blob_path(&catalog.0.data_dir, &id)?;
     catalog
         .0
         .file_workers
@@ -411,7 +410,7 @@ impl Admin {
                 batch_ownership: None,
             };
             let stage = catalog.0.data_dir.join("staging").join(&id);
-            let blob = objects::blob_path(&catalog.0.data_dir, &id).map_err(AdminError::from)?;
+            let blob = objects::blob_path(&catalog.0.data_dir, &id)?;
             let memory = catalog.0.memory.clone();
             let memory_id = id.clone();
             let result = catalog
@@ -685,7 +684,7 @@ async fn run_batch(
                 .as_ref()
                 .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?;
             let stage = catalog.0.data_dir.join("staging").join(id);
-            let blob = objects::blob_path(&catalog.0.data_dir, id).map_err(AdminError::from)?;
+            let blob = objects::blob_path(&catalog.0.data_dir, id)?;
             catalog
                 .0
                 .file_workers
@@ -725,8 +724,7 @@ async fn run_batch(
             );
             Ok((outcome, entries))
         })
-        .await
-        .map_err(AdminError::from)?;
+        .await?;
     let (results, attempted, exceeded) = match outcome {
         Ok(outcome) => outcome,
         Err(error) => {
@@ -754,7 +752,7 @@ fn commit_batch(
     budget: Duration,
     import: Option<&ImportBatch>,
 ) -> Result<CommittedBatch, ObjectError> {
-    let transaction = sql::immediate(connection).map_err(objects_error)?;
+    let transaction = sql::immediate(connection)?;
     let started = std::time::Instant::now();
     if let Some(import) = import {
         import_journal::check_publication(&transaction, &import.binding, import.cursor).map_err(
@@ -769,14 +767,10 @@ fn commit_batch(
         if !results.is_empty() && started.elapsed() >= budget {
             break;
         }
-        transaction
-            .execute_batch("SAVEPOINT publication_element")
-            .map_err(objects_error)?;
+        transaction.execute_batch("SAVEPOINT publication_element")?;
         match publish_entry(&transaction, entry, grant, clock) {
             Ok(record) => {
-                transaction
-                    .execute_batch("RELEASE publication_element")
-                    .map_err(objects_error)?;
+                transaction.execute_batch("RELEASE publication_element")?;
                 results.push(Ok(record));
             }
             Err(error) => match AdminError::from(error) {
@@ -787,11 +781,9 @@ fn commit_batch(
                 | AdminError::Forbidden
                 | AdminError::Checksum
                 | AdminError::TooLarge) => {
-                    transaction
-                        .execute_batch(
-                            "ROLLBACK TO publication_element; RELEASE publication_element",
-                        )
-                        .map_err(objects_error)?;
+                    transaction.execute_batch(
+                        "ROLLBACK TO publication_element; RELEASE publication_element",
+                    )?;
                     results.push(Err(error));
                 }
                 error => return Err(objects_error_admin(error)),
@@ -805,10 +797,9 @@ fn commit_batch(
             import.cursor,
             &import.elements[..results.len()],
             &results.iter().map(Result::is_ok).collect::<Vec<_>>(),
-        )
-        .map_err(objects_error)?;
+        )?;
     }
-    transaction.commit().map_err(objects_error)?;
+    transaction.commit()?;
     let attempted = results.len();
     Ok((results, attempted, started.elapsed() > budget))
 }
@@ -884,10 +875,8 @@ fn publish_entry(
         bucket,
         entry.request.metadata.storage_class.clone(),
         storage_class,
-    )
-    .map_err(ObjectError::from)?;
-    let (versioning, default_hold) =
-        Catalog::bucket_settings_in_transaction(transaction, bucket).map_err(objects_error)?;
+    )?;
+    let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(transaction, bucket)?;
     let previous = objects::lookup(transaction, bucket, name)?;
     objects::check_publication(
         previous.as_ref(),
@@ -924,8 +913,8 @@ fn publish_entry(
     let now = clock.now();
     now.duration_since(std::time::UNIX_EPOCH)
         .map_err(objects_error)?;
-    let micros = super::super::unix_micros(now).map_err(objects_error)?;
-    let time = super::super::system_time_micros(micros).map_err(objects_error)?;
+    let micros = super::super::unix_micros(now)?;
+    let time = super::super::system_time_micros(micros)?;
     let id = staged
         .id
         .as_deref()
@@ -984,9 +973,12 @@ fn record_publication_metadata(
         .import_identity
         .and_then(ImportedIdentity::time_deleted)
     {
-        let micros = super::super::unix_micros(deleted).map_err(objects_error)?;
-        sql::exec(transaction, "UPDATE objects SET time_deleted = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", rusqlite::params![record.bucket, record.name, record.generation, micros])
-            .map_err(objects_error)?;
+        let micros = super::super::unix_micros(deleted)?;
+        sql::exec(
+            transaction,
+            "UPDATE objects SET time_deleted = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+            rusqlite::params![record.bucket, record.name, record.generation, micros],
+        )?;
         record.time_deleted = Some(deleted);
     }
     apply_acl(

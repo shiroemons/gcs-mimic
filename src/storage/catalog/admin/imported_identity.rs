@@ -34,7 +34,7 @@ impl ImportedIdentity {
         updated: SystemTime,
     ) -> Result<Self, AdminError> {
         for time in [time_created, updated] {
-            let micros = super::super::unix_micros(time).map_err(AdminError::from)?;
+            let micros = super::super::unix_micros(time)?;
             if !crate::clock::rfc3339_micros(i128::from(micros)) {
                 return Err(AdminError::Invalid(
                     "imported timestamps must be within the supported RFC3339 UTC range".into(),

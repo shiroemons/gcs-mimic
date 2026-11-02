@@ -160,10 +160,7 @@ fn read_marker(directory: &File) -> Result<Option<(Marker, FileIdentity)>, RootE
     };
     let before = fsutil::stat_identity(&file)?;
     let mut bytes = Vec::with_capacity(4097);
-    (&file)
-        .take(4097)
-        .read_to_end(&mut bytes)
-        .map_err(RootError::from)?;
+    (&file).take(4097).read_to_end(&mut bytes)?;
     if bytes.len() > 4096 || before != fsutil::stat_identity(&file)? {
         return Err(RootError::InvalidMarker);
     }
@@ -397,7 +394,7 @@ impl RootLease {
             .file_workers
             .run(move || {
                 lease.validate()?;
-                let result = job(lease.ownership.lock.file()).map_err(RootError::from)?;
+                let result = job(lease.ownership.lock.file())?;
                 lease.validate()?;
                 Ok(result)
             })

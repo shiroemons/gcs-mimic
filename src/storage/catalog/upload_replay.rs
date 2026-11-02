@@ -62,12 +62,11 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     if count > CAPACITY {
         return Err(unavailable("upload replay capacity exceeded"));
     }
-    let mut statement = connection
-        .prepare_cached("SELECT completion FROM upload_replays ORDER BY token")
-        .map_err(unavailable)?;
-    let mut rows = statement.query([]).map_err(unavailable)?;
-    while let Some(row) = rows.next().map_err(unavailable)? {
-        let completion: String = row.get(0).map_err(unavailable)?;
+    let mut statement =
+        connection.prepare_cached("SELECT completion FROM upload_replays ORDER BY token")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let completion: String = row.get(0)?;
         let _: Completion = serde_json::from_str(&completion).map_err(unavailable)?;
     }
     Ok(())

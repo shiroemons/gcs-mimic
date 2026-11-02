@@ -69,55 +69,43 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
     let retired = connection
         .prepare_cached(
             "SELECT a.blob_id FROM appendable_objects a WHERE EXISTS(SELECT 1 FROM objects o WHERE o.bucket = a.bucket AND o.name = a.name AND o.generation = a.generation) OR NOT EXISTS(SELECT 1 FROM bucket_incarnations i WHERE i.bucket = a.bucket AND i.incarnation = a.incarnation)",
-        )
-        .map_err(super::unavailable)?
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(super::unavailable)?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(super::unavailable)?;
+        )?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     for id in retired {
-        connection
-            .execute("DELETE FROM appendable_objects WHERE blob_id = ?1", [&id])
-            .map_err(super::unavailable)?;
-        unlink(&data_path(data_dir, &id).map_err(super::unavailable)?)
-            .map_err(super::unavailable)?;
+        connection.execute("DELETE FROM appendable_objects WHERE blob_id = ?1", [&id])?;
+        unlink(&data_path(data_dir, &id).map_err(super::unavailable)?)?;
     }
     // Startup takes no write lock unless there is work: an UPDATE matching nothing still would.
-    let interrupted: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE finalizing = 1)",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(super::unavailable)?;
+    let interrupted: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE finalizing = 1)",
+        [],
+        |row| row.get(0),
+    )?;
     if interrupted {
-        connection
-            .execute(
-                "UPDATE appendable_objects SET finalizing = 0 WHERE finalizing = 1",
-                [],
-            )
-            .map_err(super::unavailable)?;
+        connection.execute(
+            "UPDATE appendable_objects SET finalizing = 0 WHERE finalizing = 1",
+            [],
+        )?;
     }
     let directory = data_dir.join("appendable");
-    if !directory.try_exists().map_err(super::unavailable)? {
+    if !directory.try_exists()? {
         return Ok(());
     }
-    for entry in fs::read_dir(&directory).map_err(super::unavailable)? {
-        let entry = entry.map_err(super::unavailable)?;
+    for entry in fs::read_dir(&directory)? {
+        let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
         // A creation that crashed before its row committed leaves an unreferenced file.
         if BlobId::parse(&name).is_none() {
             continue;
         }
-        let referenced: bool = connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id = ?1)",
-                [&name],
-                |row| row.get(0),
-            )
-            .map_err(super::unavailable)?;
+        let referenced: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id = ?1)",
+            [&name],
+            |row| row.get(0),
+        )?;
         if !referenced {
-            unlink(&entry.path()).map_err(super::unavailable)?;
+            unlink(&entry.path())?;
         }
     }
     Ok(())
@@ -935,8 +923,7 @@ impl Catalog {
             }
             Ok(Ok((stale, created)))
         })
-        .await
-        .map_err(AppendError::Object)?
+        .await?
     }
 
     /// Takes over an unfinalized generation. A matching write handle resumes the caller's own

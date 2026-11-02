@@ -678,8 +678,7 @@ fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
         }
     } else {
         Connection::open_in_memory()
-    }
-    .map_err(unavailable)?;
+    }?;
     connection.busy_timeout(Duration::from_secs(5))?;
     connection.execute_batch(
         "PRAGMA cache_size = -2048;
@@ -1185,7 +1184,7 @@ impl Catalog {
                         .close()
                         .map_err(|(_, error)| unavailable(error))?;
                     if let Some(lock) = lock {
-                        lock.release().map_err(unavailable)?;
+                        lock.release()?;
                     }
                     if let Some(memory) = &inner.memory {
                         memory.clear()?;

@@ -58,7 +58,7 @@ fn validate_effective_entries(
     entries: &[AclEntry],
     owner: Option<&crate::object::owner::ObjectOwner>,
 ) -> Result<(), CatalogError> {
-    crate::acl::validate_entries(kind, entries).map_err(CatalogError::from)?;
+    crate::acl::validate_entries(kind, entries)?;
     if entries.len() >= MAX_ENTRIES && owner.is_some_and(|owner| owner.entity().is_none()) {
         return Err(CatalogError::from(crate::acl::AclError::TooManyEntries));
     }
@@ -102,13 +102,10 @@ pub(super) fn publish_object_acl(
     mode: PublicationAcl<'_>,
 ) -> Result<(), ObjectError> {
     let bucket = &record.bucket;
-    let row = bucket_row(connection, bucket)
-        .map_err(object_unavailable)?
-        .ok_or(ObjectError::BucketNotFound)?;
+    let row = bucket_row(connection, bucket)?.ok_or(ObjectError::BucketNotFound)?;
     let mut entries = match mode {
         PublicationAcl::InheritDefault => {
-            let stored = stored_bucket_entries(connection, bucket, "defaultObject")
-                .map_err(object_unavailable)?;
+            let stored = stored_bucket_entries(connection, bucket, "defaultObject")?;
             if stored.is_none() && record.owner.is_none() {
                 return Ok(());
             }
@@ -125,7 +122,7 @@ pub(super) fn publish_object_acl(
             if entries
                 .iter()
                 .any(|entry| Entity::parse(&entry.entity).is_ok_and(Entity::is_public))
-                && public_access_prevention(connection, bucket).map_err(object_unavailable)?
+                && public_access_prevention(connection, bucket)?
             {
                 return Err(ObjectError::PublicAccessPrevention);
             }

@@ -388,10 +388,10 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     if !bounded {
         return Err(super::unavailable("invalid multipart catalog state"));
     }
-    let mut statement=connection.prepare_cached("SELECT id,bucket,name,incarnation,options,created FROM xml_multipart_uploads ORDER BY id LIMIT 128").map_err(super::unavailable)?;
-    let mut rows = statement.query([]).map_err(super::unavailable)?;
-    while let Some(row) = rows.next().map_err(super::unavailable)? {
-        read_upload(row).map_err(super::unavailable)?;
+    let mut statement=connection.prepare_cached("SELECT id,bucket,name,incarnation,options,created FROM xml_multipart_uploads ORDER BY id LIMIT 128")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        read_upload(row)?;
     }
     Ok(())
 }

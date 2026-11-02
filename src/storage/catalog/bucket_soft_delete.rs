@@ -421,12 +421,7 @@ impl Catalog {
                         break;
                     }
                 }
-                Ok((
-                    purged,
-                    next.map(system_time_micros)
-                        .transpose()
-                        .map_err(unavailable)?,
-                ))
+                Ok((purged, next.map(system_time_micros).transpose()?))
             })
             .await?;
         if purged > 0 {

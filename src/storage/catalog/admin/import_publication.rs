@@ -45,13 +45,11 @@ impl Admin {
                 let transaction = sql::immediate(connection)?;
                 import_journal::check_publication(&transaction, &binding, expected_cursor)?;
                 let mut record = definition.0;
-                let exists: bool = transaction
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM buckets WHERE name = ?1)",
-                        [&record.name],
-                        |row| row.get(0),
-                    )
-                    .map_err(unavailable)?;
+                let exists: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM buckets WHERE name = ?1)",
+                    [&record.name],
+                    |row| row.get(0),
+                )?;
                 let result = if exists {
                     Err(AdminError::Precondition)
                 } else {

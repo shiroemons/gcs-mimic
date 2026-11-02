@@ -370,11 +370,9 @@ impl Catalog {
                     &session.bucket,
                     options.metadata.storage_class.clone(),
                     storage_class,
-                )
-                .map_err(object_unavailable)?;
+                )?;
                 let (versioning, default_hold) =
-                    Catalog::bucket_settings_in_transaction(&transaction, &session.bucket)
-                        .map_err(object_unavailable)?;
+                    Catalog::bucket_settings_in_transaction(&transaction, &session.bucket)?;
                 let previous = lookup(&transaction, &session.bucket, &session.name)?;
                 check_publication(
                     previous.as_ref(),

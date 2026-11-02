@@ -71,7 +71,7 @@ pub(super) fn read_all(
     })?;
     let mut records = Vec::new();
     for row in rows {
-        let (id, stored) = row.map_err(unavailable)?;
+        let (id, stored) = row?;
         records.push(record(id, &stored)?);
     }
     Ok(records)
@@ -128,7 +128,7 @@ impl Catalog {
                 .into_iter()
                 .map(|record| record.config)
                 .collect();
-            check_limits(&existing, &config).map_err(CatalogError::from)?;
+            check_limits(&existing, &config)?;
             let id: i64 = sql::optional_scalar(
                 &transaction,
                 "INSERT INTO bucket_notification_ids VALUES (?1, 1)

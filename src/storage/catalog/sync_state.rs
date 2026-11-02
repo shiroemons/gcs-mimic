@@ -144,12 +144,10 @@ fn valid_path(path: &str) -> bool {
 )]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction()?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
+    transaction.execute_batch(SCHEMA)?;
     let mut id = [0; 16];
     getrandom::fill(&mut id).map_err(unavailable)?;
-    transaction
-        .execute("INSERT INTO catalog_identity VALUES (1, ?1)", [id])
-        .map_err(unavailable)?;
+    transaction.execute("INSERT INTO catalog_identity VALUES (1, ?1)", [id])?;
     transaction.commit().map_err(unavailable)
 }
 
@@ -316,8 +314,7 @@ impl SyncState {
         self.0
             .run_admin(move |connection| {
                 let incarnation = bucket_incarnation(connection, &bucket)
-                    .optional()
-                    .map_err(unavailable)?
+                    .optional()?
                     .ok_or(CatalogError::NotFound)?;
                 Ok(SyncBinding {
                     catalog: catalog_id(connection)?,

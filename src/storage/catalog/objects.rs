@@ -374,9 +374,7 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::BeforePublish).map_err(object_unavailable)?;
-        tokio::task::spawn_blocking(move || publish_blob(&source, &destination))
-            .await?
-            .map_err(object_unavailable)?;
+        tokio::task::spawn_blocking(move || publish_blob(&source, &destination)).await??;
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::AfterPublish).map_err(object_unavailable)?;
         Ok(())
@@ -2165,8 +2163,7 @@ pub(super) fn selected(
             .map(|(record, _)| {
                 super::acl::object_granted(connection, bucket, name, record.generation, access)
             })
-            .transpose()
-            .map_err(object_unavailable)?
+            .transpose()?
             .unwrap_or(false);
         if !granted {
             return Err(ObjectError::Forbidden);
@@ -2572,7 +2569,7 @@ impl Catalog {
                 .await?;
             failure.map_or(Ok(()), Err)
         });
-        task.await.map_err(object_unavailable)?
+        task.await?
     }
 }
 

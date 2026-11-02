@@ -158,10 +158,9 @@ impl BucketDefinition {
         BucketName::new(record.name.clone())?;
         crate::json::validate_project(&record.project)
             .map_err(|error| AdminError::Invalid(error.message))?;
-        crate::bucket::validate_cors(&record.cors).map_err(AdminError::from)?;
-        crate::bucket::validate_storage_class(&record.storage_class).map_err(AdminError::from)?;
-        let (location, location_type) =
-            crate::bucket::bucket_location(&record.location).map_err(AdminError::from)?;
+        crate::bucket::validate_cors(&record.cors)?;
+        crate::bucket::validate_storage_class(&record.storage_class)?;
+        let (location, location_type) = crate::bucket::bucket_location(&record.location)?;
         if record.metageneration <= 0
             || record.location != location
             || record.location_type != location_type
@@ -173,8 +172,8 @@ impl BucketDefinition {
         {
             return Err(AdminError::Invalid("invalid bucket metadata".into()));
         }
-        super::unix_micros(record.time_created).map_err(AdminError::from)?;
-        super::unix_micros(record.updated).map_err(AdminError::from)?;
+        super::unix_micros(record.time_created)?;
+        super::unix_micros(record.updated)?;
         Ok(Self(record))
     }
     pub fn default_for(
@@ -514,12 +513,10 @@ impl Admin {
         self.catalog
             .run_admin(|connection| {
                 let transaction = connection.transaction()?;
-                transaction
-                    .execute(
-                        "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
-                        [],
-                    )
-                    .map_err(unavailable)?;
+                transaction.execute(
+                    "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
+                    [],
+                )?;
                 transaction.commit().map_err(unavailable)
             })
             .await
@@ -561,19 +558,15 @@ impl Admin {
                         .collect::<Vec<_>>(),
                 )
                 .map_err(unavailable)?;
-                let mut lookup = transaction
-                    .prepare_cached(concat!(
-                        "SELECT ",
-                        super::bucket_columns!(),
-                        " FROM buckets WHERE name IN (SELECT value FROM json_each(?1))"
-                    ))
-                    .map_err(unavailable)?;
+                let mut lookup = transaction.prepare_cached(concat!(
+                    "SELECT ",
+                    super::bucket_columns!(),
+                    " FROM buckets WHERE name IN (SELECT value FROM json_each(?1))"
+                ))?;
                 let mut existing = lookup
-                    .query_map([names], read_bucket)
-                    .map_err(unavailable)?
+                    .query_map([names], read_bucket)?
                     .map(|record| record.map(|record| (record.name.clone(), record)))
-                    .collect::<rusqlite::Result<std::collections::HashMap<_, _>>>()
-                    .map_err(unavailable)?;
+                    .collect::<rusqlite::Result<std::collections::HashMap<_, _>>>()?;
                 drop(lookup);
                 for BucketDefinition(mut record) in records {
                     if let Some(existing) = existing.remove(&record.name) {
@@ -650,27 +643,19 @@ impl Admin {
         let after = after.unwrap_or("").to_owned();
         self.catalog
             .run_admin(move |connection| {
-                let mut statement = connection
-                    .prepare_cached(concat!(
-                        "SELECT ",
-                        super::bucket_columns!(),
-                        ", i.incarnation FROM buckets
+                let mut statement = connection.prepare_cached(concat!(
+                    "SELECT ",
+                    super::bucket_columns!(),
+                    ", i.incarnation FROM buckets
                  LEFT JOIN bucket_incarnations i ON i.bucket = buckets.name
                  WHERE name > ?1 ORDER BY name LIMIT ?2"
-                    ))
-                    .map_err(unavailable)?;
-                let mut rows = statement
-                    .query(rusqlite::params![after, limit as i64 + 1])
-                    .map_err(unavailable)?;
+                ))?;
+                let mut rows = statement.query(rusqlite::params![after, limit as i64 + 1])?;
                 let mut items = Vec::new();
                 let mut remaining = super::BUCKET_LIST_METADATA_BUDGET;
                 let mut has_more = false;
-                while let Some(row) = rows.next().map_err(unavailable)? {
-                    let incarnation = row
-                        .get_ref("incarnation")
-                        .map_err(unavailable)?
-                        .as_str()
-                        .map_err(unavailable)?;
+                while let Some(row) = rows.next()? {
+                    let incarnation = row.get_ref("incarnation")?.as_str().map_err(unavailable)?;
                     let charge = super::bucket_metadata_charge(row)?
                         .saturating_add(incarnation.len().saturating_mul(8));
                     if items.len() == limit || (!items.is_empty() && charge > remaining) {
@@ -678,7 +663,7 @@ impl Admin {
                         break;
                     }
                     items.push(BucketEntry {
-                        bucket: read_bucket(row).map_err(unavailable)?,
+                        bucket: read_bucket(row)?,
                         incarnation: incarnation.to_owned(),
                     });
                     remaining = remaining.saturating_sub(charge);
@@ -713,9 +698,8 @@ impl Admin {
             ));
         }
         let activity = self.catalog.activity()?;
-        crate::object::validate_fixed_metadata("contentType", &request.content_type)
-            .map_err(AdminError::from)?;
-        request.metadata.validate().map_err(AdminError::from)?;
+        crate::object::validate_fixed_metadata("contentType", &request.content_type)?;
+        request.metadata.validate()?;
         let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
         let permit = self
             .catalog

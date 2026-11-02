@@ -62,7 +62,7 @@ pub(super) fn recover_due(
 fn unlink(path: &Path) -> Result<(), CatalogError> {
     match fs::remove_file(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        result => result.map_err(unavailable)?,
+        result => result?,
     }
     #[cfg(unix)]
     if let Some(parent) = path.parent()

@@ -58,7 +58,7 @@ fn member_entity(member: &str, project: &str, principals: Option<&Profile>) -> O
 }
 
 fn iam_member(entity: &str, project: &str) -> Result<String, CatalogError> {
-    Ok(match Entity::parse(entity).map_err(CatalogError::from)? {
+    Ok(match Entity::parse(entity)? {
         Entity::AllUsers | Entity::AllAuthenticatedUsers => entity.into(),
         Entity::UserEmail(id) | Entity::UserId(id) => format!("user:{id}"),
         Entity::GroupEmail(id) | Entity::GroupId(id) => format!("group:{id}"),
@@ -126,7 +126,7 @@ fn merge_stored_grants(
     project: &str,
     principals: Option<&Profile>,
 ) -> Result<bool, CatalogError> {
-    validate_entries(AclKind::Bucket, entries).map_err(CatalogError::from)?;
+    validate_entries(AclKind::Bucket, entries)?;
     let mut changed = false;
     for entry in entries {
         let role = bucket_iam_role(&entry.role)
@@ -242,7 +242,7 @@ pub(in super::super) fn replace_from_policy(
 ) -> Result<bool, CatalogError> {
     let row = bucket_row(connection, bucket)?.ok_or(CatalogError::NotFound)?;
     let entries = policy_entries(policy, &row.project, principals);
-    validate_entries(AclKind::Bucket, &entries).map_err(CatalogError::from)?;
+    validate_entries(AclKind::Bucket, &entries)?;
     let mut current = stored_bucket_entries(connection, bucket, "bucket")?
         .unwrap_or_else(|| project_private(&row.project));
     let stored_order = current.clone();
