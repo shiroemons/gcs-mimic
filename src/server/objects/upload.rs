@@ -186,7 +186,7 @@ pub(super) async fn multipart(
         activity.send_modify(|progress| progress.awaiting_catalog = false);
         frame
     });
-    let mut multipart = json::Multipart::new(body, &boundary);
+    let mut multipart = json::Multipart::related(body, &boundary);
     let bytes = multipart.metadata().await?;
     let name_known = name.is_some();
     let (name, mut metadata, expected) = json::multipart_metadata(&bytes, name, expected)?;

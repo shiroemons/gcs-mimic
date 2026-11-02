@@ -23,8 +23,27 @@ fn token(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
 
+/// Which quotes may delimit a Content-Type parameter value.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ParamQuotes {
+    /// RFC 2045 quoted strings only.
+    Double,
+    /// Also a value in single quotes that is not itself a valid token. gcloud storage (apitools,
+    /// Python's email package) sends `boundary='===============N=='`, and Cloud Storage accepts
+    /// it on that production path; no live recording was made. A single-quoted value that is a
+    /// valid RFC token keeps its literal meaning, quotes included.
+    DoubleOrSingle,
+}
+
 // Quoted parameter values may contain semicolons and escaped quotes.
 fn content_type(value: &str) -> Result<(String, Vec<(String, String)>), JsonError> {
+    content_type_with(value, ParamQuotes::Double)
+}
+
+fn content_type_with(
+    value: &str,
+    quotes: ParamQuotes,
+) -> Result<(String, Vec<(String, String)>), JsonError> {
     let (mime, rest) = value.split_once(';').unwrap_or((value, ""));
     let mime = mime.trim();
     if !mime
@@ -61,6 +80,12 @@ fn content_type(value: &str) -> Result<(String, Vec<(String, String)>), JsonErro
             }
             let end = end.ok_or_else(invalid)?;
             (value, &tail[end + 1..])
+        } else if quotes == ParamQuotes::DoubleOrSingle
+            && let Some(inner) = tail.strip_prefix('\'')
+            && let Some(end) = inner.find('\'')
+            && !token(&tail[..end + 2])
+        {
+            (inner[..end].to_owned(), &inner[end + 1..])
         } else {
             let index = tail.find(';').unwrap_or(tail.len());
             let (value, tail) = tail.split_at(index);
@@ -91,7 +116,7 @@ pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonErro
         .ok_or_else(invalid)?
         .to_str()
         .map_err(|_| invalid())?;
-    let (mime, params) = content_type(value)?;
+    let (mime, params) = content_type_with(value, ParamQuotes::DoubleOrSingle)?;
     if mime != "multipart/related" {
         return Err(invalid());
     }
@@ -209,25 +234,79 @@ enum LineEnd {
     CrlfOrEof,
 }
 
+/// Which line breaks frame delimiters and part headers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Framing {
+    /// RFC 2046 CRLF only.
+    Crlf,
+    /// CRLF or a bare LF, as Go's mime/multipart reads. gcloud storage (apitools) frames
+    /// multipart/related uploads with bare LFs on its production path; no live recording was
+    /// made. A delimiter's CR is optional, so LF-framed media cannot end in a CR byte.
+    CrlfOrLf,
+}
+
 pub(crate) struct Multipart<B> {
     body: B,
     pending: Bytes,
     buffer: BytesMut,
+    /// `CRLF--boundary`, or `LF--boundary` with an optional preceding CR under `CrlfOrLf`.
     delimiter: Vec<u8>,
+    framing: Framing,
     eof: bool,
     closed: bool,
 }
 
 impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
+    /// A strictly CRLF-framed body, such as an XML POST Object form.
     pub(crate) fn new(body: B, boundary: &str) -> Self {
+        Self::with_framing(body, boundary, Framing::Crlf)
+    }
+
+    /// A JSON multipart/related upload, which also accepts bare-LF framing.
+    pub(crate) fn related(body: B, boundary: &str) -> Self {
+        Self::with_framing(body, boundary, Framing::CrlfOrLf)
+    }
+
+    fn with_framing(body: B, boundary: &str, framing: Framing) -> Self {
+        let delimiter = match framing {
+            Framing::Crlf => format!("\r\n--{boundary}"),
+            Framing::CrlfOrLf => format!("\n--{boundary}"),
+        };
         Self {
             body,
             pending: Bytes::new(),
             // A synthetic CRLF lets the first boundary use the same search as later boundaries.
             buffer: BytesMut::from(&b"\r\n"[..]),
-            delimiter: format!("\r\n--{boundary}").into_bytes(),
+            delimiter: delimiter.into_bytes(),
+            framing,
             eof: false,
             closed: false,
+        }
+    }
+
+    /// The start and length of the first complete delimiter in the buffer, including an
+    /// optional CR before an LF delimiter.
+    fn find_delimiter(&self) -> Option<(usize, usize)> {
+        let index = self
+            .buffer
+            .windows(self.delimiter.len())
+            .position(|v| v == self.delimiter)?;
+        let length = self.delimiter.len();
+        Some(
+            if self.framing == Framing::CrlfOrLf && index > 0 && self.buffer[index - 1] == b'\r' {
+                (index - 1, length + 1)
+            } else {
+                (index, length)
+            },
+        )
+    }
+
+    /// Bytes kept back while no delimiter is complete: a delimiter prefix, plus the CR that may
+    /// precede an LF delimiter.
+    fn held_back(&self) -> usize {
+        match self.framing {
+            Framing::Crlf => self.delimiter.len() - 1,
+            Framing::CrlfOrLf => self.delimiter.len(),
         }
     }
 
@@ -248,13 +327,12 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     async fn line(&mut self, cap: usize, end: LineEnd) -> Result<Vec<u8>, JsonError> {
         let mut scanned = 0;
         loop {
-            if let Some(end) = self.buffer[scanned..].windows(2).position(|v| v == b"\r\n") {
-                let end = scanned + end;
+            if let Some((end, terminator)) = self.line_end(scanned) {
                 if end > cap {
                     return Err(invalid());
                 }
                 let line = self.buffer.split_to(end).to_vec();
-                self.buffer.advance(2);
+                self.buffer.advance(terminator);
                 return Ok(line);
             }
             // A trailing CR may become the line terminator in the next frame.
@@ -275,8 +353,27 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         }
     }
 
-    async fn delimiter(&mut self) -> Result<(), JsonError> {
-        self.buffer.advance(self.delimiter.len());
+    /// The end of the first line at or after `from` and its terminator length.
+    fn line_end(&self, from: usize) -> Option<(usize, usize)> {
+        match self.framing {
+            Framing::Crlf => self.buffer[from..]
+                .windows(2)
+                .position(|v| v == b"\r\n")
+                .map(|end| (from + end, 2)),
+            Framing::CrlfOrLf => {
+                let end = from + self.buffer[from..].iter().position(|b| *b == b'\n')?;
+                Some(if end > 0 && self.buffer[end - 1] == b'\r' {
+                    (end - 1, 2)
+                } else {
+                    (end, 1)
+                })
+            }
+        }
+    }
+
+    /// Consumes a delimiter of `length` bytes at the start of the buffer and the rest of its line.
+    async fn delimiter(&mut self, length: usize) -> Result<(), JsonError> {
+        self.buffer.advance(length);
         let line = self.line(HEADER_CAP, LineEnd::CrlfOrEof).await?;
         let tail = if let Some(tail) = line.strip_prefix(b"--") {
             self.closed = true;
@@ -295,20 +392,16 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     pub(crate) async fn start(&mut self) -> Result<(), JsonError> {
         let mut discarded = 0;
         loop {
-            if let Some(index) = self
-                .buffer
-                .windows(self.delimiter.len())
-                .position(|v| v == self.delimiter)
-            {
+            if let Some((index, length)) = self.find_delimiter() {
                 discarded += index;
                 if discarded > DISCARD_CAP + 2 {
                     return Err(invalid());
                 }
                 self.buffer.advance(index);
-                self.delimiter().await?;
+                self.delimiter(length).await?;
                 return if self.closed { Err(invalid()) } else { Ok(()) };
             }
-            let discard = self.buffer.len().saturating_sub(self.delimiter.len() - 1);
+            let discard = self.buffer.len().saturating_sub(self.held_back());
             discarded += discard;
             if discarded > DISCARD_CAP + 2 || self.eof {
                 return Err(invalid());
@@ -388,18 +481,14 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
 
     pub(crate) async fn next_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
         loop {
-            if let Some(index) = self
-                .buffer
-                .windows(self.delimiter.len())
-                .position(|v| v == self.delimiter)
-            {
+            if let Some((index, length)) = self.find_delimiter() {
                 if index > 0 {
                     return Ok(Some(self.buffer.split_to(index).freeze()));
                 }
-                self.delimiter().await?;
+                self.delimiter(length).await?;
                 return Ok(None);
             }
-            let length = self.buffer.len().saturating_sub(self.delimiter.len() - 1);
+            let length = self.buffer.len().saturating_sub(self.held_back());
             if length > 0 {
                 return Ok(Some(self.buffer.split_to(length).freeze()));
             }
@@ -609,10 +698,22 @@ mod tests {
         body
     }
 
-    async fn parse<B: Body<Data = Bytes> + Unpin>(
+    const FRAMINGS: [Framing; 2] = [Framing::Crlf, Framing::CrlfOrLf];
+
+    /// Parses a CRLF-framed body strictly and leniently; both framings must agree on it.
+    async fn parse(body: impl Into<Bytes>) -> Result<(Vec<u8>, Vec<u8>), JsonError> {
+        let body = body.into();
+        let strict = parse_with(Full::new(body.clone()), Framing::Crlf).await;
+        let lenient = parse_with(Full::new(body), Framing::CrlfOrLf).await;
+        assert_eq!(strict.as_ref().ok(), lenient.as_ref().ok());
+        strict
+    }
+
+    async fn parse_with<B: Body<Data = Bytes> + Unpin>(
         body: B,
+        framing: Framing,
     ) -> Result<(Vec<u8>, Vec<u8>), JsonError> {
-        let mut parser = Multipart::new(body, "boundary");
+        let mut parser = Multipart::with_framing(body, "boundary", framing);
         let metadata = parser.metadata().await?;
         parser.headers(PartKind::Media).await?;
         let mut media = Vec::new();
@@ -627,6 +728,19 @@ mod tests {
     async fn multipart_parser_preserves_boundary_prefixes_at_every_chunk_split() {
         let payload = b"\x00\xff\r\n--boundar\r\n--\r\n--bound\r\nend\r\n";
         let body = wire(b"{}", payload);
+        for framing in FRAMINGS {
+            let (metadata, media) = parse_in_chunks(&body, framing).await;
+            assert_eq!(metadata, b"{}");
+            assert_eq!(media, payload);
+        }
+    }
+
+    /// Parses `body` once per frame width, from one byte to the whole body, and returns the
+    /// result every width agreed on.
+    async fn parse_in_chunks(body: &[u8], framing: Framing) -> (Vec<u8>, Vec<u8>) {
+        let whole = parse_with(Full::new(Bytes::copy_from_slice(body)), framing)
+            .await
+            .unwrap();
         for width in 1..=body.len() {
             let (sender, receiver) = chunk_body::channel();
             let chunks: Vec<_> = body.chunks(width).map(Bytes::copy_from_slice).collect();
@@ -635,10 +749,95 @@ mod tests {
                     sender.send(Ok(chunk)).await.unwrap();
                 }
             });
-            let (metadata, media) = parse(receiver).await.unwrap();
-            assert_eq!(metadata, b"{}");
-            assert_eq!(media, payload);
+            assert_eq!(
+                parse_with(receiver, framing).await.unwrap(),
+                whole,
+                "{width}"
+            );
             producer.await.unwrap();
+        }
+        whole
+    }
+
+    /// The exact request shape gcloud storage 591.0.0 (apitools) sends for a small upload.
+    const GCLOUD_BOUNDARY: &str = "===============5708193607524502531==";
+    const GCLOUD_BODY: &[u8] = b"--===============5708193607524502531==\nContent-Type: application/json\nMIME-Version: 1.0\n\n{\"bucket\": \"example\", \"contentType\": \"text/plain\", \"name\": \"hello.txt\"}\n--===============5708193607524502531==\nContent-Type: text/plain\nMIME-Version: 1.0\nContent-Transfer-Encoding: binary\n\nHello from gcloud!\n\n--===============5708193607524502531==--\n";
+
+    #[tokio::test]
+    async fn related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "content-type",
+            format!("multipart/related; boundary='{GCLOUD_BOUNDARY}'")
+                .parse()
+                .unwrap(),
+        );
+        assert_eq!(multipart_boundary(&headers).unwrap(), GCLOUD_BOUNDARY);
+        let mut parser =
+            Multipart::related(Full::new(Bytes::from_static(GCLOUD_BODY)), GCLOUD_BOUNDARY);
+        let metadata = parser.metadata().await.unwrap();
+        assert!(metadata.starts_with(b"{\"bucket\"") && metadata.ends_with(b"}"));
+        assert_eq!(
+            parser.headers(PartKind::Media).await.unwrap().as_deref(),
+            Some("text/plain")
+        );
+        let mut media = Vec::new();
+        while let Some(chunk) = parser.next_chunk().await.unwrap() {
+            media.extend_from_slice(&chunk);
+        }
+        // The LF before the delimiter belongs to the delimiter; the one before it is data.
+        assert_eq!(media, b"Hello from gcloud!\n");
+        parser.finish().await.unwrap();
+        // The strict framing of XML POST Object forms still rejects bare LFs.
+        let mut strict =
+            Multipart::new(Full::new(Bytes::from_static(GCLOUD_BODY)), GCLOUD_BOUNDARY);
+        assert!(strict.metadata().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn related_uploads_read_lf_and_mixed_framing_at_every_chunk_split() {
+        let payload = b"\x00\xff\n--boundar\r\n--\n--bound\rx\nend\n";
+        let lf = |metadata: &[u8], media: &[u8]| {
+            let mut body = b"--boundary\nContent-Type: application/json\n\n".to_vec();
+            body.extend_from_slice(metadata);
+            body.extend_from_slice(b"\n--boundary\nContent-Type: application/octet-stream\n\n");
+            body.extend_from_slice(media);
+            body.extend_from_slice(b"\n--boundary--\n");
+            body
+        };
+        let (metadata, media) = parse_in_chunks(&lf(b"{}", payload), Framing::CrlfOrLf).await;
+        assert_eq!(metadata, b"{}");
+        assert_eq!(media, payload);
+        // CRLF and LF lines may mix: CRLF delimiters with LF headers, and the reverse.
+        for body in [
+            b"--boundary\nContent-Type: application/json\r\n\n{}\r\n--boundary\r\n\nmedia\r\n--boundary--".as_slice(),
+            b"--boundary\r\nContent-Type: application/json\n\r\n{}\n--boundary\n\r\nmedia\n--boundary--\r\n",
+        ] {
+            assert_eq!(
+                parse_in_chunks(body, Framing::CrlfOrLf).await,
+                (b"{}".to_vec(), b"media".to_vec())
+            );
+            assert!(parse_with(Full::new(Bytes::copy_from_slice(body)), Framing::Crlf).await.is_err());
+        }
+        // A CR directly before an LF delimiter is part of the delimiter, not the media.
+        let (_, media) = parse_in_chunks(&lf(b"{}", b"media\r"), Framing::CrlfOrLf).await;
+        assert_eq!(media, b"media");
+        for body in [
+            // A lone CR does not end a header line.
+            b"--boundary\nContent-Type: application/json\r\r\n\n{}\n--boundary--\n".as_slice(),
+            // Missing close delimiter, an unterminated header block and a third part stay invalid.
+            b"--boundary\nContent-Type: application/json\n\n{}\n--boundary\n\nmedia\n",
+            b"--boundary\nContent-Type: application/json\n",
+            b"--boundary\nContent-Type: application/json\n\n{}\n--boundary\n\nmedia\n--boundary\n\nthird\n--boundary--\n",
+            b"--boundary\nContent-Type: application/json\n\n{}\n--boundary\n\nmedia\n--boundary-x\n",
+        ] {
+            assert!(
+                parse_with(Full::new(Bytes::copy_from_slice(body)), Framing::CrlfOrLf)
+                    .await
+                    .is_err(),
+                "{}",
+                String::from_utf8_lossy(body)
+            );
         }
     }
 
@@ -650,27 +849,36 @@ mod tests {
         let body = format!(
             "--boundary{padding}\r\n{header}{value}\r\n\r\n{{}}\r\n--boundary{padding}\r\n\r\nmedia\r\n--boundary--{padding}\r\n"
         );
-        let (sender, receiver) = chunk_body::channel();
-        let producer = tokio::spawn(async move {
-            for byte in body.into_bytes() {
-                sender.send(Ok(Bytes::from(vec![byte]))).await.unwrap();
-            }
-        });
-        let (metadata, media) = parse(receiver).await.unwrap();
-        assert_eq!(metadata, b"{}");
-        assert_eq!(media, b"media");
-        producer.await.unwrap();
+        for framing in FRAMINGS {
+            let (sender, receiver) = chunk_body::channel();
+            let bytes = body.clone().into_bytes();
+            let producer = tokio::spawn(async move {
+                for byte in bytes {
+                    sender.send(Ok(Bytes::from(vec![byte]))).await.unwrap();
+                }
+            });
+            let (metadata, media) = parse_with(receiver, framing).await.unwrap();
+            assert_eq!(metadata, b"{}");
+            assert_eq!(media, b"media");
+            producer.await.unwrap();
+        }
         for tail in [b"x\r\n".as_slice(), b"x", b"\r"] {
             let mut body = wire(b"{}", b"media");
             body.truncate(body.len() - 2);
             body.extend_from_slice(padding.as_bytes());
             body.extend_from_slice(tail);
-            assert!(parse(Full::new(Bytes::from(body))).await.is_err());
+            assert!(parse(Bytes::from(body)).await.is_err());
         }
     }
 
     #[tokio::test]
     async fn multipart_parser_streams_large_media_with_bounded_carry() {
+        for framing in FRAMINGS {
+            stream_large_media(framing).await;
+        }
+    }
+
+    async fn stream_large_media(framing: Framing) {
         let (sender, receiver) = chunk_body::channel();
         let producer = tokio::spawn(async move {
             sender
@@ -690,7 +898,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let mut parser = Multipart::new(receiver, "boundary");
+        let mut parser = Multipart::with_framing(receiver, "boundary", framing);
         assert_eq!(parser.metadata().await.unwrap(), b"{}");
         parser.headers(PartKind::Media).await.unwrap();
         let mut size = 0;
@@ -716,6 +924,40 @@ mod tests {
             headers.insert("content-type", value.parse().unwrap());
             multipart_boundary(&headers).unwrap();
         }
+        // gcloud's single-quoted boundary drops its quotes; a single-quoted value that is a
+        // valid RFC token keeps them, as the RFC reads it.
+        for (value, expected) in [
+            (
+                "multipart/related; boundary='===============N=='",
+                "===============N==",
+            ),
+            (
+                "multipart/related; boundary='a b'; type=\"application/json\"",
+                "a b",
+            ),
+            ("multipart/related; boundary='abc'", "'abc'"),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert("content-type", value.parse().unwrap());
+            assert_eq!(multipart_boundary(&headers).unwrap(), expected, "{value}");
+        }
+        for value in [
+            "multipart/related; boundary='===unterminated",
+            "multipart/related; boundary='==='x",
+            "multipart/related; boundary='x '",
+            "multipart/related; boundary='a\"b='",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert("content-type", value.parse().unwrap());
+            assert!(multipart_boundary(&headers).is_err(), "{value}");
+        }
+        // Only multipart/related uploads accept the single quotes.
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "content-type",
+            "multipart/form-data; boundary='==='".parse().unwrap(),
+        );
+        assert!(form_data_boundary(&headers).is_err());
         for value in [
             "text/plain; boundary=x",
             "multipart/related",
@@ -779,20 +1021,24 @@ mod tests {
             preamble.extend_from_slice(b"\r\n");
             preamble.extend_from_slice(&base);
             assert_eq!(
-                parse(Full::new(Bytes::from(preamble))).await.is_ok(),
+                parse(Bytes::from(preamble)).await.is_ok(),
                 length == DISCARD_CAP
             );
             let mut epilogue = base.clone();
             epilogue.extend(std::iter::repeat_n(b'e', length));
             assert_eq!(
-                parse(Full::new(Bytes::from(epilogue))).await.is_ok(),
+                parse(Bytes::from(epilogue)).await.is_ok(),
                 length == DISCARD_CAP
             );
         }
-        for length in [JSON_CAP, JSON_CAP + 1] {
-            let mut parser = Multipart::new(
+        for (length, framing) in [JSON_CAP, JSON_CAP + 1]
+            .into_iter()
+            .flat_map(|length| FRAMINGS.map(|framing| (length, framing)))
+        {
+            let mut parser = Multipart::with_framing(
                 Full::new(Bytes::from(wire(&vec![b' '; length], b""))),
                 "boundary",
+                framing,
             );
             let result = parser.metadata().await;
             if length == JSON_CAP {
@@ -804,7 +1050,7 @@ mod tests {
         let mut body = b"--boundary\r\nX-Long: ".to_vec();
         body.extend(std::iter::repeat_n(b'x', HEADER_CAP));
         body.extend_from_slice(b"\r\n\r\n{}\r\n--boundary--");
-        assert!(parse(Full::new(Bytes::from(body))).await.is_err());
+        assert!(parse(Bytes::from(body)).await.is_err());
     }
 
     #[tokio::test]
@@ -812,22 +1058,22 @@ mod tests {
         let valid = wire(b"{}", b"media");
         for length in 0..valid.len() - 4 {
             assert!(
-                parse(Full::new(Bytes::copy_from_slice(&valid[..length])))
+                parse(Bytes::copy_from_slice(&valid[..length]))
                     .await
                     .is_err(),
                 "truncation {length}"
             );
         }
         for body in [b"--boundary--".as_slice(), b"--boundary\r\nContent-Type: text/plain\r\n\r\n{}\r\n--boundary--", b"--boundary\r\nBroken\r\n\r\n{}\r\n--boundary--", b"--boundary\r\nContent-Type: application/json\r\nContent-Type: application/json\r\n\r\n{}\r\n--boundary--"] {
-            assert!(parse(Full::new(Bytes::copy_from_slice(body))).await.is_err());
+            assert!(parse(Bytes::copy_from_slice(body)).await.is_err());
         }
         let third = String::from_utf8(valid.clone())
             .unwrap()
             .replace("--boundary--", "--boundary\r\n\r\nthird\r\n--boundary--");
-        assert!(parse(Full::new(Bytes::from(third))).await.is_err());
+        assert!(parse(Bytes::from(third)).await.is_err());
         let without_final_crlf = &valid[..valid.len() - 2];
         assert!(
-            parse(Full::new(Bytes::copy_from_slice(without_final_crlf)))
+            parse(Bytes::copy_from_slice(without_final_crlf))
                 .await
                 .is_ok()
         );

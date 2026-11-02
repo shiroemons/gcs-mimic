@@ -60,7 +60,7 @@ pub(super) async fn insert(
         activity.send_modify(|progress| progress.awaiting_catalog = false);
         frame
     });
-    let mut multipart = json::Multipart::new(body, &boundary);
+    let mut multipart = json::Multipart::related(body, &boundary);
     let metadata = multipart.metadata().await?;
     let mut fixture = parse(
         &metadata,

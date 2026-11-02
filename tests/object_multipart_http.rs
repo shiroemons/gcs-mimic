@@ -1349,3 +1349,46 @@ fn obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots() 
         .json();
     no_leaks(&dir, 1);
 }
+
+/// gcloud storage 591.0.0 (apitools) frames small uploads with bare LFs and a single-quoted
+/// boundary; this is its request byte for byte, apart from the bucket name.
+#[test]
+fn obj_multipart_http_accepts_the_gcloud_request_shape() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1_000_000, 30_000);
+    server.bucket();
+    let boundary = "===============5708193607524502531==";
+    let body = format!(
+        "--{boundary}\nContent-Type: application/json\nMIME-Version: 1.0\n\n{{\"bucket\": \"test-bucket\", \"contentType\": \"text/plain\", \"name\": \"hello.txt\"}}\n--{boundary}\nContent-Type: text/plain\nMIME-Version: 1.0\nContent-Transfer-Encoding: binary\n\nHello from gcloud!\n\n--{boundary}--\n"
+    );
+    let object = server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?alt=json&uploadType=multipart",
+            &format!("Content-Type: multipart/related; boundary='{boundary}'\r\n"),
+            body.as_bytes(),
+        )
+        .json();
+    assert_eq!(object["name"], "hello.txt");
+    assert_eq!(object["contentType"], "text/plain");
+    assert_eq!(object["size"], "19");
+    assert_eq!(
+        server.get("hello.txt?alt=media").body,
+        b"Hello from gcloud!\n"
+    );
+    // A mismatched quote or a boundary the body does not use still fails before publishing.
+    for content_type in [
+        format!("multipart/related; boundary='{boundary}"),
+        "multipart/related; boundary='other'".to_owned(),
+    ] {
+        let reply = server.request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=rejected",
+            &format!("Content-Type: {content_type}\r\n"),
+            body.as_bytes(),
+        );
+        assert_eq!(reply.status, 400, "{content_type}");
+    }
+    assert_eq!(server.get("rejected").status, 404);
+    no_leaks(&dir, 1);
+}
