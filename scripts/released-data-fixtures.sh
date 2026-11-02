@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Regenerates tests/fixtures/released-data/<version>: a data directory written by a
+# published release image plus the JSON that release returned for it. The upgrade
+# test opens these directories with the current build, so the fixtures must come
+# from the real release rather than from a hand-downgraded current catalog.
+set -euo pipefail
+
+if [[ ${1:-} == --help ]]; then
+  echo "Usage: bash scripts/released-data-fixtures.sh [VERSION ...]"
+  exit 0
+fi
+
+# Releases whose data directories the stable contract upgrades. Pin digests so a
+# regenerated fixture comes from the same published bytes.
+# A case statement instead of an associative array keeps macOS's bash 3.2 working.
+image_for() {
+  case $1 in
+    0.8.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:12fb3dab04c3ba04809a88633534c79fbab23293aec3d299fefe82ae66cd9b63 ;;
+    0.9.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:6ebafefe846bcd7a0b52870a60ca95512c907694857391c916888eacdb2a8e50 ;;
+    *) return 1 ;;
+  esac
+}
+if [[ $# == 0 ]]; then set -- 0.8.0 0.9.0; fi
+for version in "$@"; do
+  if ! image_for "$version" >/dev/null; then echo "No pinned image for $version" >&2; exit 2; fi
+done
+
+cd "$(dirname "$0")/.."
+port=14480
+base=http://127.0.0.1:$port
+container=
+cleanup() {
+  if [[ -n $container ]]; then docker rm -f "$container" >/dev/null 2>&1 || true; fi
+}
+trap cleanup EXIT
+
+request() {
+  local method=$1 path=$2 type=$3 body=$4
+  curl -fsS -X "$method" -H "Content-Type: $type" --data-binary "$body" "$base$path"
+}
+
+for version in "$@"; do
+  target=tests/fixtures/released-data/$version
+  container=gcs-mimic-fixture-$version
+  docker rm -f "$container" >/dev/null 2>&1 || true
+  docker run -d --name "$container" -p "127.0.0.1:$port:4443" \
+    -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_API_BASE_URL="$base" \
+    "$(image_for "$version")" >/dev/null
+  ready=
+  for _ in $(seq 1 60); do
+    if curl -fsS "$base/storage/v1/b?project=fixture" >/dev/null 2>&1; then ready=1; break; fi
+    sleep 0.5
+  done
+  if [[ -z $ready ]]; then docker logs "$container" >&2; exit 1; fi
+
+  # A versioned bucket with an archived generation, a patched live generation and a
+  # non-ASCII name, plus an unversioned bucket: the state a typical user keeps.
+  request POST '/storage/v1/b?project=fixture' application/json \
+    '{"name":"released","versioning":{"enabled":true}}' >/dev/null
+  request POST '/storage/v1/b?project=fixture' application/json '{"name":"plain"}' >/dev/null
+  request POST '/upload/storage/v1/b/released/o?uploadType=media&name=dir%2Fhello.txt' \
+    text/plain 'first generation' >/dev/null
+  request POST '/upload/storage/v1/b/released/o?uploadType=media&name=dir%2Fhello.txt' \
+    text/plain 'second generation' >/dev/null
+  request PATCH '/storage/v1/b/released/o/dir%2Fhello.txt' application/json \
+    '{"metadata":{"origin":"released"},"cacheControl":"no-cache"}' >/dev/null
+  request POST '/upload/storage/v1/b/released/o?uploadType=media&name=%E6%97%A5%E6%9C%AC%E8%AA%9E%20file.txt' \
+    text/plain 'unicode name' >/dev/null
+  request POST '/upload/storage/v1/b/plain/o?uploadType=media&name=a.bin' \
+    application/octet-stream 'plain bytes' >/dev/null
+
+  rm -rf "$target"
+  mkdir -p "$target"
+  {
+    printf '{"version":"%s","image":"%s",' "$version" "$(image_for "$version")"
+    printf '"buckets":%s,' "$(curl -fsS "$base/storage/v1/b?project=fixture")"
+    printf '"released":%s,' "$(curl -fsS "$base/storage/v1/b/released/o?versions=true")"
+    printf '"plain":%s}' "$(curl -fsS "$base/storage/v1/b/plain/o")"
+  } | jq --sort-keys . >"$target/expected.json"
+
+  # A graceful stop checkpoints the catalog, so the copied directory is what a user
+  # upgrading from this release would have on disk.
+  docker stop -t 20 "$container" >/dev/null
+  docker cp "$container:/var/lib/gcs-mimic" "$target/data"
+  docker rm "$container" >/dev/null
+  container=
+  echo "$version: $(find "$target/data" -type f | wc -l | tr -d ' ') files"
+done
