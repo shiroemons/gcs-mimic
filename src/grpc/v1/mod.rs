@@ -1,4 +1,5 @@
 //! Retired Storage v1 migration adapter; shared catalog operations enforce state and permissions.
+use crate::grpc::validate::request_conditions;
 mod convert;
 #[cfg(test)]
 mod tests;
@@ -94,14 +95,10 @@ fn common(
     params: Option<&pb::CommonRequestParams>,
     object: Option<&pb::CommonObjectRequestParams>,
 ) -> Result<(), Status> {
-    if params.is_some_and(|p| p != &Default::default())
-        || object.is_some_and(|p| p != &Default::default())
-    {
-        return Err(unsupported(
-            "legacy common request parameters; omit billing, quota, field selection and encryption",
-        ));
-    }
-    Ok(())
+    const MESSAGE: &str =
+        "legacy common request parameters; omit billing, quota, field selection and encryption";
+    crate::grpc::validate::common(params, MESSAGE)?;
+    crate::grpc::validate::common(object, MESSAGE)
 }
 
 fn projection(value: i32) -> Result<(), Status> {
@@ -120,26 +117,20 @@ fn conditions(
     m: Option<i64>,
     nm: Option<i64>,
 ) -> Result<ObjectConditions, Status> {
-    if [g, ng, m, nm].into_iter().flatten().any(|v| v < 0) {
-        return Err(Status::invalid_argument(
-            "Preconditions must be nonnegative; use if_generation_match=0 for create only",
-        ));
-    }
-    Ok(ObjectConditions {
-        if_generation_match: g,
-        if_generation_not_match: ng,
-        if_metageneration_match: m,
-        if_metageneration_not_match: nm,
-    })
+    crate::grpc::validate::lenient_conditions(
+        g,
+        ng,
+        m,
+        nm,
+        "Preconditions must be nonnegative; use if_generation_match=0 for create only",
+    )
 }
 
 fn generation(value: i64) -> Result<Option<i64>, Status> {
-    if value < 0 {
-        return Err(Status::invalid_argument(
-            "generation must be positive or 0 for the live object",
-        ));
-    }
-    Ok((value != 0).then_some(value))
+    crate::grpc::validate::generation(
+        value,
+        "generation must be positive or 0 for the live object",
+    )
 }
 
 fn limit(value: i32) -> Result<usize, Status> {
@@ -573,12 +564,7 @@ impl pb::storage_server::Storage for Storage {
                 &r.bucket,
                 &r.object,
                 generation(r.generation)?,
-                conditions(
-                    r.if_generation_match,
-                    r.if_generation_not_match,
-                    r.if_metageneration_match,
-                    r.if_metageneration_not_match,
-                )?,
+                request_conditions!(r)?,
                 &access,
             )
             .await
@@ -606,12 +592,7 @@ impl pb::storage_server::Storage for Storage {
                 &r.bucket,
                 &r.object,
                 generation(r.generation)?,
-                conditions(
-                    r.if_generation_match,
-                    r.if_generation_not_match,
-                    r.if_metageneration_match,
-                    r.if_metageneration_not_match,
-                )?,
+                request_conditions!(r)?,
                 &access,
             )
             .await
@@ -637,12 +618,7 @@ impl pb::storage_server::Storage for Storage {
             bucket: &r.bucket,
             name: &r.object,
             selected: r.generation,
-            conditions: conditions(
-                r.if_generation_match,
-                r.if_generation_not_match,
-                r.if_metageneration_match,
-                r.if_metageneration_not_match,
-            )?,
+            conditions: request_conditions!(r)?,
             object: r.metadata.unwrap_or_default(),
             write: json::WriteMode::Replace,
         };
@@ -669,12 +645,7 @@ impl pb::storage_server::Storage for Storage {
             bucket: &r.bucket,
             name: &r.object,
             selected: r.generation,
-            conditions: conditions(
-                r.if_generation_match,
-                r.if_generation_not_match,
-                r.if_metageneration_match,
-                r.if_metageneration_not_match,
-            )?,
+            conditions: request_conditions!(r)?,
             object: r.metadata.unwrap_or_default(),
             write: json::WriteMode::Patch,
         };

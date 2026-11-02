@@ -1,4 +1,5 @@
 use super::{Storage, convert, iam, names, pb, status::unsupported};
+use crate::grpc::validate::{request_conditions, strict_conditions as conditions};
 use crate::{
     auth::{self, Caller},
     bucket::{BucketAccess, BucketMetadataUpdate},
@@ -22,31 +23,6 @@ fn access_error(error: JsonError, caller: Option<Caller<'_>>) -> Status {
     super::status::from_json(crate::server::anonymous_error(error, caller))
 }
 
-fn conditions(
-    gm: Option<i64>,
-    gn: Option<i64>,
-    mm: Option<i64>,
-    mn: Option<i64>,
-) -> Result<ObjectConditions, Status> {
-    if gm.is_some_and(|v| v < 0)
-        || gn.is_some_and(|v| v < 0)
-        || mm.is_some_and(|v| v <= 0)
-        || mn.is_some_and(|v| v <= 0)
-        || (gm.is_some() && gn.is_some())
-        || (mm.is_some() && mn.is_some())
-    {
-        return Err(Status::invalid_argument(
-            "Invalid generation conditions; use one match or not-match per generation, for example if_generation_match=0",
-        ));
-    }
-    Ok(ObjectConditions {
-        if_generation_match: gm,
-        if_generation_not_match: gn,
-        if_metageneration_match: mm,
-        if_metageneration_not_match: mn,
-    })
-}
-
 fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
     mask.filter(|m| !m.paths.is_empty())
         .map(|m| m.paths.as_slice())
@@ -58,15 +34,10 @@ fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
 }
 
 fn common(params: &Option<pb::CommonObjectRequestParams>) -> Result<(), Status> {
-    if params
-        .as_ref()
-        .is_some_and(|p| p != &pb::CommonObjectRequestParams::default())
-    {
-        return Err(unsupported(
-            "customer-supplied encryption; omit common_object_request_params",
-        ));
-    }
-    Ok(())
+    crate::grpc::validate::common(
+        params.as_ref(),
+        "customer-supplied encryption; omit common_object_request_params",
+    )
 }
 
 /// The bucket of an IAM resource. Managed folders and objects are valid IAM resources
@@ -454,18 +425,8 @@ impl Storage {
     ) -> Result<Response<pb::RewriteResponse>, Status> {
         let r = request.into_inner();
         check_rewrite_request(&r)?;
-        let sc = conditions(
-            r.if_source_generation_match,
-            r.if_source_generation_not_match,
-            r.if_source_metageneration_match,
-            r.if_source_metageneration_not_match,
-        )?;
-        let dc = conditions(
-            r.if_generation_match,
-            r.if_generation_not_match,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        let sc = request_conditions!(source r)?;
+        let dc = request_conditions!(r)?;
         let body = r.destination.as_ref().map(derived_fields).transpose()?;
         if r.destination
             .as_ref()
@@ -891,12 +852,7 @@ impl Storage {
         let access = authorize_bucket(&self.state, caller, auth::OBJECTS_UPDATE, bucket)
             .await
             .map_err(|e| access_error(e, caller))?;
-        let mut c = conditions(
-            r.if_generation_match,
-            r.if_generation_not_match,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        let mut c = request_conditions!(r)?;
         if paths.iter().any(|p| p == "metadata") && !o.metadata.is_empty() {
             let current = self
                 .state
@@ -1064,18 +1020,8 @@ impl Storage {
         let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
             .await
             .map_err(|e| access_error(e, caller))?;
-        let sc = conditions(
-            r.if_source_generation_match,
-            r.if_source_generation_not_match,
-            r.if_source_metageneration_match,
-            r.if_source_metageneration_not_match,
-        )?;
-        let dc = conditions(
-            r.if_generation_match,
-            r.if_generation_not_match,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        let sc = request_conditions!(source r)?;
+        let dc = request_conditions!(r)?;
         let record = self
             .state
             .catalog
@@ -1119,12 +1065,7 @@ impl Storage {
         let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
             .await
             .map_err(|e| access_error(e, caller))?;
-        let c = conditions(
-            r.if_generation_match,
-            r.if_generation_not_match,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        let c = request_conditions!(r)?;
         let record = self
             .state
             .catalog

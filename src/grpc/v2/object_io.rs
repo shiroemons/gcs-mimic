@@ -4,6 +4,7 @@ use super::{
     convert, names, pb,
     status::{from_json as json_status, unsupported_for},
 };
+use crate::grpc::validate::request_conditions;
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     json,
@@ -53,13 +54,10 @@ fn session_status(error: ResumableError) -> Status {
 }
 
 pub(super) fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> {
-    if params.is_some_and(|p| p != &pb::CommonObjectRequestParams::default()) {
-        return Err(unsupported_for(
-            "customer encryption; omit common_object_request_params",
-            None,
-        ));
-    }
-    Ok(())
+    crate::grpc::validate::common(
+        params,
+        "customer encryption; omit common_object_request_params",
+    )
 }
 
 pub(super) fn conditions(
@@ -68,26 +66,20 @@ pub(super) fn conditions(
     m: Option<i64>,
     nm: Option<i64>,
 ) -> Result<ObjectConditions, Status> {
-    if [g, ng, m, nm].into_iter().flatten().any(|n| n < 0) {
-        return Err(Status::invalid_argument(
-            "Preconditions must be nonnegative; use if_generation_match=0 to create only",
-        ));
-    }
-    Ok(ObjectConditions {
-        if_generation_match: g,
-        if_generation_not_match: ng,
-        if_metageneration_match: m,
-        if_metageneration_not_match: nm,
-    })
+    crate::grpc::validate::lenient_conditions(
+        g,
+        ng,
+        m,
+        nm,
+        "Preconditions must be nonnegative; use if_generation_match=0 to create only",
+    )
 }
 
 fn generation(value: i64) -> Result<Option<i64>, Status> {
-    if value < 0 {
-        return Err(Status::invalid_argument(
-            "generation must be positive, or 0 to select the live object",
-        ));
-    }
-    Ok((value != 0).then_some(value))
+    crate::grpc::validate::generation(
+        value,
+        "generation must be positive, or 0 to select the live object",
+    )
 }
 
 pub(super) fn hashes(value: Option<&pb::ObjectChecksums>) -> Result<ExpectedHashes, Status> {
@@ -335,12 +327,7 @@ impl Storage {
             bucket,
             name,
             generation(r.generation)?,
-            conditions(
-                r.if_generation_match,
-                r.if_generation_not_match,
-                r.if_metageneration_match,
-                r.if_metageneration_not_match,
-            )?,
+            request_conditions!(r)?,
             &access,
         )
         .await
@@ -409,12 +396,7 @@ impl Storage {
                 bucket,
                 name,
                 generation(r.generation)?,
-                conditions(
-                    r.if_generation_match,
-                    r.if_generation_not_match,
-                    r.if_metageneration_match,
-                    r.if_metageneration_not_match,
-                )?,
+                request_conditions!(r)?,
                 &access,
             )
             .await
@@ -523,12 +505,7 @@ impl Storage {
                 bucket,
                 name,
                 generation(r.generation)?,
-                conditions(
-                    r.if_generation_match,
-                    r.if_generation_not_match,
-                    r.if_metageneration_match,
-                    r.if_metageneration_not_match,
-                )?,
+                request_conditions!(r)?,
                 &access,
             )
             .await
@@ -953,12 +930,7 @@ impl Storage {
         }
         metadata.content_type = Some(Some(content_type.clone()));
         metadata.validate().map_err(object_status)?;
-        let conditions = conditions(
-            spec.if_generation_match,
-            spec.if_generation_not_match,
-            spec.if_metageneration_match,
-            spec.if_metageneration_not_match,
-        )?;
+        let conditions = request_conditions!(spec)?;
         let total = spec
             .object_size
             .map(|n| {

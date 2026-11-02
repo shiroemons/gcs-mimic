@@ -1,6 +1,7 @@
 use super::{
     Storage, common, conditions, convert, metadata, object_error, pb, projection, unsupported,
 };
+use crate::grpc::validate::request_conditions;
 use crate::{
     auth::Caller,
     hashing::Hasher,
@@ -75,12 +76,7 @@ impl Storage {
         let content_type = object.content_type.clone();
         crate::json::validate_object_name(&name).map_err(super::from_json)?;
         let metadata = metadata(object, crate::json::WriteMode::Patch)?;
-        let conditions = conditions(
-            spec.if_generation_match,
-            spec.if_generation_not_match,
-            spec.if_metageneration_match,
-            spec.if_metageneration_not_match,
-        )?;
+        let conditions = request_conditions!(spec)?;
         let access = self
             .access(caller, &bucket, "storage.objects.create")
             .await?;
