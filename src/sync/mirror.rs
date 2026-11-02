@@ -28,13 +28,9 @@ use std::{
 };
 
 #[cfg(test)]
-struct ExportHook {
-    phase: &'static str,
-    entered: tokio::sync::Notify,
-    release: tokio::sync::Notify,
-}
+use super::Hook;
 #[cfg(test)]
-tokio::task_local! { static EXPORT_HOOK: std::sync::Arc<ExportHook>; }
+tokio::task_local! { static EXPORT_HOOK: std::sync::Arc<Hook>; }
 #[cfg(test)]
 tokio::task_local! { static LIVE_EXPORTS: std::sync::Arc<std::sync::atomic::AtomicUsize>; }
 #[cfg(test)]
@@ -148,17 +144,14 @@ fn watch_retryable(error: &io::Error) -> bool {
     if is_transient(error) {
         return true;
     }
-    let mut next = Some(error as &(dyn std::error::Error + 'static));
-    while let Some(cause) = next {
-        if cause
+    std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |cause| {
+        cause.source()
+    })
+    .any(|cause| {
+        cause
             .downcast_ref::<io::Error>()
             .is_some_and(|error| error.kind() == io::ErrorKind::PermissionDenied)
-        {
-            return true;
-        }
-        next = cause.source();
-    }
-    false
+    })
 }
 impl Task {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
@@ -209,11 +202,11 @@ fn is_transient(error: &io::Error) -> bool {
         return true;
     }
     // `io::Error::source` skips a wrapped error itself, so start the walk at the wrapped one.
-    let mut next = error
+    let first = error
         .get_ref()
         .map(|inner| inner as &(dyn std::error::Error + 'static));
-    while let Some(cause) = next {
-        let transient = if let Some(admin) = cause.downcast_ref::<AdminError>() {
+    std::iter::successors(first, |cause| cause.source()).any(|cause| {
+        if let Some(admin) = cause.downcast_ref::<AdminError>() {
             match admin {
                 AdminError::Busy { .. } => true,
                 AdminError::Io(kind) => transient_kind(*kind),
@@ -230,13 +223,8 @@ fn is_transient(error: &io::Error) -> bool {
             )
         } else {
             false
-        };
-        if transient {
-            return true;
         }
-        next = cause.source();
-    }
-    false
+    })
 }
 
 pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<Task> {
@@ -361,29 +349,6 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
         done: completion,
         rescan,
     })
-}
-
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-async fn run_live(
-    catalog: &Catalog,
-    root: &RootLease,
-    stopping: &mut tokio::sync::watch::Receiver<bool>,
-) -> io::Result<()> {
-    let (_sender, mut receiver) = tokio::sync::mpsc::channel(1);
-    let health = crate::task::TaskHealth::default();
-    let config = Config::default();
-    run_live_config(
-        LiveRun {
-            catalog,
-            root,
-            config: &config,
-            health: &health,
-            resume: None,
-        },
-        stopping,
-        &mut receiver,
-    )
-    .await
 }
 
 struct LiveRun<'a> {
@@ -602,8 +567,16 @@ struct Initialized {
 }
 
 fn pause_reason(error: &io::Error) -> &'static str {
-    let mut next = Some(error as &(dyn std::error::Error + 'static));
-    while let Some(cause) = next {
+    for cause in std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .and_then(|error| {
+                error
+                    .get_ref()
+                    .map(|cause| cause as &(dyn std::error::Error + 'static))
+            })
+            .or_else(|| cause.source())
+    }) {
         if matches!(
             cause.downcast_ref::<crate::storage::sync_state::conflicts::Error>(),
             Some(crate::storage::sync_state::conflicts::Error::Capacity)
@@ -625,14 +598,6 @@ fn pause_reason(error: &io::Error) -> &'static str {
         ) {
             return "IoFailure";
         }
-        next = cause
-            .downcast_ref::<io::Error>()
-            .and_then(|error| {
-                error
-                    .get_ref()
-                    .map(|cause| cause as &(dyn std::error::Error + 'static))
-            })
-            .or_else(|| cause.source());
     }
     "observer-failure"
 }
@@ -1352,21 +1317,11 @@ async fn file_job_retry<T: Send + 'static>(
     root: &RootLease,
     job: impl Fn(&File) -> Result<T, AdminError> + Clone + Send + 'static,
 ) -> io::Result<T> {
-    let mut seconds = 1;
-    loop {
-        match root.file_job(job.clone()).await {
-            Ok(result) => return Ok(result),
-            Err(error) => {
-                let error = writeback::Error::Root(error);
-                if !retryable(&error) {
-                    return Err(io::Error::other(error));
-                }
-                if !wait_retry(&error, &mut seconds, root).await {
-                    return Err(io::Error::other(error));
-                }
-            }
-        }
-    }
+    with_retry(root, || {
+        let job = job.clone();
+        async move { root.file_job(job).await.map_err(writeback::Error::Root) }
+    })
+    .await
 }
 
 pub(super) async fn create_directory(root: &RootLease, directory: PathBuf) -> io::Result<bool> {
@@ -1384,12 +1339,23 @@ async fn advance_with_retry(
     writeback: &Writeback,
     operation: LiveExport,
 ) -> io::Result<LiveResult> {
+    with_retry(writeback.root_lease(), || {
+        writeback.advance_live_export(operation.clone())
+    })
+    .await
+}
+
+async fn with_retry<T, F: Future<Output = Result<T, writeback::Error>>>(
+    root: &RootLease,
+    mut operation: impl FnMut() -> F,
+) -> io::Result<T> {
     let mut seconds = 1;
     loop {
-        match writeback.advance_live_export(operation.clone()).await {
+        // Keep nested export futures off the mirror worker's bounded thread stack.
+        match Box::pin(operation()).await {
             Ok(result) => return Ok(result),
             Err(error) if retryable(&error) => {
-                if !wait_retry(&error, &mut seconds, writeback.root_lease()).await {
+                if !wait_retry(&error, &mut seconds, root).await {
                     return Err(io::Error::other(error));
                 }
             }

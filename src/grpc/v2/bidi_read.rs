@@ -1,15 +1,10 @@
-use super::{
-    ResponseStream, Storage,
-    append::Finality,
-    names, pb,
-    status::{self, unsupported},
-};
+use super::{ResponseStream, Storage, append::Finality, names, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
     json::JsonError,
     object::{ObjectConditions, ObjectRecord},
-    server::{State, anonymous_error, authorize_bucket},
+    server::State,
     storage::ObjectReader,
 };
 use prost::Message;
@@ -59,7 +54,7 @@ fn handles() -> &'static Mutex<VecDeque<Handle>> {
 }
 
 fn error(error: impl Into<JsonError>, caller: Option<Caller<'_>>) -> Status {
-    status::from_json(anonymous_error(error.into(), caller))
+    super::access_status(error.into(), caller)
 }
 
 #[expect(
@@ -179,9 +174,7 @@ impl Storage {
         })?;
         validate_spec(&spec)?;
         let (bucket, object) = names::object_name(&spec.bucket, &spec.object)?;
-        let access = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, bucket)
-            .await
-            .map_err(|e| error(e, caller))?;
+        let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let resumed = spec.read_handle.is_some();
         let (selected, token) = if resumed {
             self.resume_read_handle(&spec, &access, caller).await?

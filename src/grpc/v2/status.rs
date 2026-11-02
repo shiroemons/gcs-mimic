@@ -78,15 +78,12 @@ pub(crate) fn unsupported(method: &str) -> Status {
         ]
         .into(),
     };
-    let details = RpcStatus {
-        code: Code::Unimplemented as i32,
-        message: message.clone(),
-        details: vec![prost_types::Any {
-            type_url: "type.googleapis.com/google.rpc.ErrorInfo".into(),
-            value: info.encode_to_vec(),
-        }],
-    };
-    Status::with_details(Code::Unimplemented, message, details.encode_to_vec().into())
+    with_detail(
+        Code::Unimplemented,
+        message,
+        "type.googleapis.com/google.rpc.ErrorInfo",
+        info.encode_to_vec(),
+    )
 }
 
 /// The domain Cloud Storage puts in the `ErrorInfo` of a rejected request. It names the service,
@@ -145,6 +142,30 @@ mod tests {
 
     fn rpc_status(status: &Status) -> RpcStatus {
         RpcStatus::decode(status.details()).unwrap()
+    }
+
+    #[test]
+    fn unsupported_errors_keep_their_details() {
+        let status = unsupported("example");
+        assert_eq!(status.code(), Code::Unimplemented);
+        assert_eq!(
+            status.message(),
+            "gcs-mimic does not support gRPC example; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+        );
+        let details = rpc_status(&status);
+        assert_eq!(details.code, Code::Unimplemented as i32);
+        assert_eq!(details.message, status.message());
+        assert_eq!(details.details.len(), 1);
+        let detail = &details.details[0];
+        assert_eq!(detail.type_url, "type.googleapis.com/google.rpc.ErrorInfo");
+        let info = ErrorInfo::decode(detail.value.as_slice()).unwrap();
+        assert_eq!(info.reason, "badRequest");
+        assert_eq!(info.domain, "global");
+        assert_eq!(info.metadata["service"], "gcs-mimic");
+        assert_eq!(
+            info.metadata["remedy"],
+            "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
+        );
     }
 
     #[test]

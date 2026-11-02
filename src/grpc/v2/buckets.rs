@@ -1,5 +1,5 @@
 use super::status::from_json as json_error;
-use super::{Storage, pb, status::unsupported_for as unsupported};
+use super::{Storage, pb, status::unsupported_for};
 use super::{convert, names};
 use crate::auth::Caller;
 use crate::{bucket::CatalogError, json};
@@ -12,7 +12,7 @@ fn catalog_error(error: CatalogError, caller: Option<Caller<'_>>) -> Status {
             "Bucket is not empty; delete its objects and versions before deleting the bucket",
         );
     }
-    json_error(crate::server::anonymous_error(error.into(), caller))
+    super::access_status(error.into(), caller)
 }
 
 fn require_caller(caller: Option<Caller<'_>>) -> Result<(), Status> {
@@ -162,9 +162,10 @@ fn clear_default<T: Default + PartialEq>(field: &mut Option<T>) {
 
 /// Adds the retention, soft-delete and IAM settings of a CreateBucket request to `body`.
 fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<(), Status> {
-    for (field, policy) in [
+    for (field, key, policy) in [
         (
             "retentionPolicy",
+            "retentionPeriod",
             bucket.retention_policy.as_ref().map(|p| {
                 (
                     p.retention_duration.as_ref(),
@@ -174,6 +175,7 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
         ),
         (
             "softDeletePolicy",
+            "retentionDurationSeconds",
             bucket
                 .soft_delete_policy
                 .as_ref()
@@ -192,11 +194,6 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
                         "fractional bucket retention duration",
                     ));
                 }
-                let key = if field == "retentionPolicy" {
-                    "retentionPeriod"
-                } else {
-                    "retentionDurationSeconds"
-                };
                 body[field] = json!({key: duration.seconds.to_string()});
             }
         }
@@ -217,13 +214,21 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
     Ok(())
 }
 
-fn create_metadata(
-    bucket: &pb::Bucket,
-    name: &str,
-    project: &str,
-    state: &crate::server::State,
-) -> Result<crate::bucket::BucketRecord, Status> {
-    let mut remaining = bucket.clone();
+pub(super) fn cors_json(cors: &[pb::bucket::Cors]) -> serde_json::Value {
+    cors.iter()
+        .map(|cors| {
+            json!({
+                "origin": cors.origin,
+                "method": cors.method,
+                "responseHeader": cors.response_header,
+                "maxAgeSeconds": cors.max_age_seconds,
+            })
+        })
+        .collect()
+}
+
+/// Builds create-only JSON metadata without introducing update-mask reset defaults.
+pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_json::Value, Status> {
     let mut body = json!({"name": name, "defaultEventBasedHold": bucket.default_event_based_hold});
     for (field, value) in [
         ("location", &bucket.location),
@@ -234,11 +239,34 @@ fn create_metadata(
         }
     }
     body["labels"] = json!(bucket.labels);
-    body["cors"] = json!(bucket.cors.iter().map(|cors| json!({"origin": cors.origin, "method": cors.method, "responseHeader": cors.response_header, "maxAgeSeconds": cors.max_age_seconds})).collect::<Vec<_>>());
+    body["cors"] = cors_json(&bucket.cors);
     if let Some(versioning) = &bucket.versioning {
         body["versioning"] = json!({"enabled": versioning.enabled});
     }
     create_policies(bucket, &mut body)?;
+    if let Some(autoclass) = bucket.autoclass.as_ref() {
+        if autoclass.toggle_time.is_some() || autoclass.terminal_storage_class_update_time.is_some()
+        {
+            return Err(super::status::unsupported(
+                "create bucket autoclass output fields",
+            ));
+        }
+        body["autoclass"] = json!({"enabled": autoclass.enabled});
+        if let Some(class) = &autoclass.terminal_storage_class {
+            body["autoclass"]["terminalStorageClass"] = class.clone().into();
+        }
+    }
+    Ok(body)
+}
+
+fn create_metadata(
+    bucket: &pb::Bucket,
+    name: &str,
+    project: &str,
+    state: &crate::server::State,
+) -> Result<crate::bucket::BucketRecord, Status> {
+    let mut remaining = bucket.clone();
+    let body = create_fields(bucket, name)?;
     remaining.project.clear();
     remaining.location.clear();
     remaining.storage_class.clear();
@@ -252,18 +280,7 @@ fn create_metadata(
     if remaining.rpo == "DEFAULT" {
         remaining.rpo.clear();
     }
-    if let Some(autoclass) = remaining.autoclass.take() {
-        if autoclass.toggle_time.is_some() || autoclass.terminal_storage_class_update_time.is_some()
-        {
-            return Err(super::status::unsupported(
-                "create bucket autoclass output fields",
-            ));
-        }
-        body["autoclass"] = json!({"enabled": autoclass.enabled});
-        if let Some(class) = autoclass.terminal_storage_class {
-            body["autoclass"]["terminalStorageClass"] = class.into();
-        }
-    }
+    remaining.autoclass = None;
     clear_default(&mut remaining.billing);
     clear_default(&mut remaining.hierarchical_namespace);
     clear_default(&mut remaining.custom_placement_config);
@@ -357,10 +374,7 @@ impl Storage {
         let request = request.into_inner();
         let name = names::bucket_name(&request.name)?;
         json::validate_bucket_name(name).map_err(json_error)?;
-        let access =
-            crate::server::authorize_bucket(&self.state, caller, "storage.buckets.delete", name)
-                .await
-                .map_err(|error| json_error(crate::server::anonymous_error(error, caller)))?;
+        let access = self.access(caller, name, "storage.buckets.delete").await?;
         self.state
             .catalog
             .delete_bucket_authorized(
@@ -383,10 +397,7 @@ impl Storage {
         let name = names::bucket_name(&request.name)?;
         json::validate_bucket_name(name).map_err(json_error)?;
         bucket_mask(pb::Bucket::default(), request.read_mask.as_ref())?;
-        let access =
-            crate::server::authorize_bucket(&self.state, caller, "storage.buckets.get", name)
-                .await
-                .map_err(|error| json_error(crate::server::anonymous_error(error, caller)))?;
+        let access = self.access(caller, name, "storage.buckets.get").await?;
         let record = self
             .state
             .catalog
@@ -433,7 +444,7 @@ impl Storage {
             ));
         }
         if !request.predefined_acl.is_empty() || !request.predefined_default_object_acl.is_empty() {
-            return Err(unsupported("CreateBucket predefined ACLs", caller));
+            return Err(unsupported_for("CreateBucket predefined ACLs", caller));
         }
         let mut bucket = request.bucket.unwrap_or_default();
         // The Java SDK repeats the new resource name here, and Cloud Storage accepts it. A
@@ -496,7 +507,10 @@ impl Storage {
                 .map_err(|e| json_error(e.into()))?;
         }
         if request.return_partial_success {
-            return Err(unsupported("ListBuckets return_partial_success", caller));
+            return Err(unsupported_for(
+                "ListBuckets return_partial_success",
+                caller,
+            ));
         }
         if request.page_size < 0 || request.prefix.len() > 222 {
             return Err(Status::invalid_argument(
@@ -602,6 +616,59 @@ mod tests {
                 }),
             },
         )
+    }
+
+    #[test]
+    fn create_rejects_output_fields_and_fractional_durations_in_order() {
+        type InvalidCase = (&'static str, fn(&mut pb::Bucket));
+        const FRACTIONAL: prost_types::Duration = prost_types::Duration {
+            seconds: 1,
+            nanos: 1,
+        };
+        let cases: [InvalidCase; 7] = [
+            ("create bucket autoclass output fields", |b| {
+                b.autoclass
+                    .get_or_insert_default()
+                    .terminal_storage_class_update_time = Some(Default::default())
+            }),
+            ("create bucket IAM lock_time", |b| {
+                b.iam_config
+                    .get_or_insert_default()
+                    .uniform_bucket_level_access
+                    .get_or_insert_default()
+                    .lock_time = Some(Default::default())
+            }),
+            ("fractional bucket retention duration", |b| {
+                b.soft_delete_policy
+                    .get_or_insert_default()
+                    .retention_duration = Some(FRACTIONAL)
+            }),
+            ("create bucket policy output fields", |b| {
+                b.soft_delete_policy.get_or_insert_default().effective_time =
+                    Some(Default::default())
+            }),
+            ("fractional bucket retention duration", |b| {
+                b.retention_policy
+                    .get_or_insert_default()
+                    .retention_duration = Some(FRACTIONAL)
+            }),
+            ("create bucket policy output fields", |b| {
+                b.retention_policy.get_or_insert_default().is_locked = true
+            }),
+            ("create bucket policy output fields", |b| {
+                let policy = b.retention_policy.get_or_insert_default();
+                policy.is_locked = false;
+                policy.effective_time = Some(Default::default());
+            }),
+        ];
+        let mut bucket = pb::Bucket::default();
+        for (reason, invalidate) in cases {
+            // Each higher-priority rejection must supersede the invalid fields already set.
+            invalidate(&mut bucket);
+            let status = create_fields(&bucket, "test-bucket").unwrap_err();
+            assert_eq!(status.code(), tonic::Code::Unimplemented, "{reason}");
+            assert!(status.message().contains(reason), "{reason}: {status}");
+        }
     }
 
     fn create(name: &str) -> pb::CreateBucketRequest {

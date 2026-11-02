@@ -1,6 +1,7 @@
 //! Storage transports share domain state, never JSON wire representations.
 pub(crate) mod v1;
 pub(crate) mod v2;
+mod validate;
 
 // Generated upstream code retains its own field names and documentation.
 #[expect(

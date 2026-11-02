@@ -1,11 +1,12 @@
 use super::{
-    ResponseStream, Storage,
+    ResponseStream, Storage, access_status,
     append::Finality,
     convert, names, pb,
-    status::{from_json as json_status, unsupported_for as unsupported},
+    status::{from_json as json_status, unsupported_for},
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
+    grpc::validate::{self, request_conditions},
     json,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk},
     storage::{ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState},
@@ -17,7 +18,7 @@ use tonic::{Request, Response, Status, Streaming};
 
 pub(super) fn object_status(error: ObjectError) -> Status {
     if matches!(error, ObjectError::UnsupportedMetadata(_)) {
-        return unsupported(&error.to_string(), None);
+        return unsupported_for(&error.to_string(), None);
     }
     json_status(error.into())
 }
@@ -36,11 +37,6 @@ pub(super) fn named_object_status<'a>(
     }
 }
 
-/// Anonymous denials ask for credentials, matching bucket RPCs, BidiReadObject and JSON.
-pub(super) fn access_status(error: json::JsonError, caller: Option<Caller<'_>>) -> Status {
-    json_status(crate::server::anonymous_error(error, caller))
-}
-
 fn session_status(error: ResumableError) -> Status {
     match error {
         ResumableError::NotFound | ResumableError::Gone | ResumableError::Cancelled => {
@@ -53,13 +49,10 @@ fn session_status(error: ResumableError) -> Status {
 }
 
 pub(super) fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> {
-    if params.is_some_and(|p| p != &pb::CommonObjectRequestParams::default()) {
-        return Err(unsupported(
-            "customer encryption; omit common_object_request_params",
-            None,
-        ));
-    }
-    Ok(())
+    validate::common(
+        params,
+        "customer encryption; omit common_object_request_params",
+    )
 }
 
 pub(super) fn conditions(
@@ -68,26 +61,20 @@ pub(super) fn conditions(
     m: Option<i64>,
     nm: Option<i64>,
 ) -> Result<ObjectConditions, Status> {
-    if [g, ng, m, nm].into_iter().flatten().any(|n| n < 0) {
-        return Err(Status::invalid_argument(
-            "Preconditions must be nonnegative; use if_generation_match=0 to create only",
-        ));
-    }
-    Ok(ObjectConditions {
-        if_generation_match: g,
-        if_generation_not_match: ng,
-        if_metageneration_match: m,
-        if_metageneration_not_match: nm,
-    })
+    validate::lenient_conditions(
+        g,
+        ng,
+        m,
+        nm,
+        "Preconditions must be nonnegative; use if_generation_match=0 to create only",
+    )
 }
 
 fn generation(value: i64) -> Result<Option<i64>, Status> {
-    if value < 0 {
-        return Err(Status::invalid_argument(
-            "generation must be positive, or 0 to select the live object",
-        ));
-    }
-    Ok((value != 0).then_some(value))
+    validate::generation(
+        value,
+        "generation must be positive, or 0 to select the live object",
+    )
 }
 
 pub(super) fn hashes(value: Option<&pb::ObjectChecksums>) -> Result<ExpectedHashes, Status> {
@@ -204,7 +191,7 @@ fn mask_object(
                 // Cloud Storage accepts it, so it stays an error instead of a false success.
                 let root = path.split('.').next().unwrap_or_default();
                 return Err(if matches!(root, $(stringify!($field))|+) {
-                    unsupported(&format!("read_mask path {path}; request a supported top-level object field"), None)
+                    unsupported_for(&format!("read_mask path {path}; request a supported top-level object field"), None)
                 } else {
                     Status::invalid_argument(format!("There is no field for this resource named '{path}'."))
                 });
@@ -328,19 +315,12 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_DELETE, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_DELETE).await?;
         self.delete_including_appendable(
             bucket,
             name,
             generation(r.generation)?,
-            conditions(
-                r.if_generation_match,
-                r.if_generation_not_match,
-                r.if_metageneration_match,
-                r.if_metageneration_not_match,
-            )?,
+            request_conditions!(conditions, r)?,
             &access,
         )
         .await
@@ -357,9 +337,7 @@ impl Storage {
         let (bucket, id) = parse_upload_id(&r.upload_id)?;
         // gRPC upload IDs are not bearer capabilities, so cancellation requires the
         // same permission as QueryWriteStatus and resumed writes.
-        crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        self.access(caller, bucket, OBJECTS_CREATE).await?;
         match self
             .state
             .catalog
@@ -395,23 +373,19 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         if r.soft_deleted == Some(true) || !r.restore_token.is_empty() {
-            return Err(unsupported("GetObject soft_deleted/restore_token", caller));
+            return Err(unsupported_for(
+                "GetObject soft_deleted/restore_token",
+                caller,
+            ));
         }
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let (record, finality) = self
             .get_readable(
                 bucket,
                 name,
                 generation(r.generation)?,
-                conditions(
-                    r.if_generation_match,
-                    r.if_generation_not_match,
-                    r.if_metageneration_match,
-                    r.if_metageneration_not_match,
-                )?,
+                request_conditions!(conditions, r)?,
                 &access,
             )
             .await
@@ -512,20 +486,13 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let (record, mut reader, finality) = self
             .open_readable(
                 bucket,
                 name,
                 generation(r.generation)?,
-                conditions(
-                    r.if_generation_match,
-                    r.if_generation_not_match,
-                    r.if_metageneration_match,
-                    r.if_metageneration_not_match,
-                )?,
+                request_conditions!(conditions, r)?,
                 &access,
             )
             .await
@@ -571,7 +538,10 @@ impl Storage {
                     "metadata" => metadata = true,
                     p if p.starts_with("metadata.") => paths.push(p[9..].to_owned()),
                     _ => {
-                        return Err(unsupported(&format!("ReadObject read_mask {path}"), caller));
+                        return Err(unsupported_for(
+                            &format!("ReadObject read_mask {path}"),
+                            caller,
+                        ));
                     }
                 }
             }
@@ -726,7 +696,7 @@ impl Storage {
             ));
         }
         if !r.filter.is_empty() {
-            return Err(unsupported("ListObjects filter", caller));
+            return Err(unsupported_for("ListObjects filter", caller));
         }
         if r.include_folders_as_prefixes {
             json::check_folders_as_prefixes(&r.delimiter).map_err(json_status)?;
@@ -762,9 +732,7 @@ impl Storage {
                 "Invalid listing query or page_token; reuse the token with the original prefix and delimiter",
             ));
         };
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_LIST, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_LIST).await?;
         let page = self
             .state
             .catalog
@@ -829,9 +797,7 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         let (bucket, id) = parse_upload_id(&r.upload_id)?;
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
         let session = self
             .state
             .catalog
@@ -883,7 +849,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<(String, String, ResumableOptions, Option<u64>), Status> {
         if spec.appendable == Some(true) || !spec.predefined_acl.is_empty() {
-            return Err(unsupported(
+            return Err(unsupported_for(
                 "appendable/predefined_acl; omit these fields",
                 caller,
             ));
@@ -900,9 +866,7 @@ impl Storage {
         let (bucket, name) = names::object_name(&resource.bucket, &resource.name)?;
         let bucket = bucket.to_owned();
         let name = name.to_owned();
-        let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, &bucket)
-            .await
-            .map_err(|e| access_status(e, caller))?;
+        let access = self.access(caller, &bucket, OBJECTS_CREATE).await?;
         let content_type = if resource.content_type.is_empty() {
             "application/octet-stream".to_owned()
         } else {
@@ -940,19 +904,14 @@ impl Storage {
         let expected = merge_hashes(hashes(resource.checksums.as_ref())?, hashes(checksums)?)?;
         resource.checksums = None;
         if resource != pb::Object::default() {
-            return Err(unsupported(
+            return Err(unsupported_for(
                 "write_object_spec.resource fields; use content_type, fixed/custom metadata and holds",
                 caller,
             ));
         }
         metadata.content_type = Some(Some(content_type.clone()));
         metadata.validate().map_err(object_status)?;
-        let conditions = conditions(
-            spec.if_generation_match,
-            spec.if_generation_not_match,
-            spec.if_metageneration_match,
-            spec.if_metageneration_not_match,
-        )?;
+        let conditions = request_conditions!(conditions, spec)?;
         let total = spec
             .object_size
             .map(|n| {
@@ -1003,7 +962,7 @@ impl Storage {
                 }
             }
             Some(FirstMessage::AppendObjectSpec(_)) => {
-                return Err(unsupported("Rapid append", caller));
+                return Err(unsupported_for("Rapid append", caller));
             }
             None => {
                 return Err(Status::invalid_argument(
@@ -1032,10 +991,7 @@ impl Storage {
         let mut result;
         loop {
             check_resumable_message(&message, caller)?;
-            let access =
-                crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
-                    .await
-                    .map_err(|e| access_status(e, caller))?;
+            let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
             let lease = self
                 .state
                 .catalog
@@ -1291,7 +1247,7 @@ fn check_resumable_message(
         ));
     }
     if message.object_checksums.is_some() && !message.finish_write {
-        return Err(unsupported(
+        return Err(unsupported_for(
             "object_checksums before resumable finish; set StartResumableWrite.object_checksums or send them with finish_write=true",
             caller,
         ));
@@ -1366,7 +1322,7 @@ async fn produce_single_write<
             ));
         }
         if (message.flush || message.state_lookup) && !message.finish_write {
-            return Err(unsupported(
+            return Err(unsupported_for(
                 "non-resumable flush/state_lookup; use StartResumableWrite and upload_id",
                 caller,
             ));

@@ -717,11 +717,7 @@ impl Ingest<'_> {
 }
 
 #[cfg(test)]
-struct Hook {
-    phase: &'static str,
-    entered: tokio::sync::Notify,
-    release: tokio::sync::Notify,
-}
+use super::Hook;
 #[cfg(test)]
 tokio::task_local! { static HOOK: std::sync::Arc<Hook>; }
 #[cfg(test)]

@@ -9,6 +9,28 @@ use crate::{
 use bytes::Bytes;
 use std::fs;
 
+async fn run_live(
+    catalog: &Catalog,
+    root: &RootLease,
+    stopping: &mut tokio::sync::watch::Receiver<bool>,
+) -> io::Result<()> {
+    let (_sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let health = crate::task::TaskHealth::default();
+    let config = Config::default();
+    run_live_config(
+        LiveRun {
+            catalog,
+            root,
+            config: &config,
+            health: &health,
+            resume: None,
+        },
+        stopping,
+        &mut receiver,
+    )
+    .await
+}
+
 async fn publish(catalog: &Catalog, bucket: &BucketName, body: &[u8]) -> ObjectRecord {
     publish_origin(catalog, bucket, body, Origin::SyncIngest).await
 }
@@ -313,7 +335,7 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
             .await
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle",
             entered: Default::default(),
             release: Default::default(),
@@ -503,7 +525,7 @@ async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buck
             .await
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle,after-prepare",
             entered: Default::default(),
             release: Default::default(),
@@ -568,7 +590,7 @@ async fn live_export_retries_file_and_parent_permissions_without_advancing_the_c
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         publish_origin(&catalog, &bucket, b"before", Origin::Api).await;
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle,retry",
             entered: Default::default(),
             release: Default::default(),
@@ -647,7 +669,7 @@ async fn live_export_bucket_incarnation_races_keep_other_buckets_progressing() {
                 "after-binding" => "idle,after-binding",
                 _ => "idle,after-get-path",
             };
-            let hook = Arc::new(ExportHook {
+            let hook = Arc::new(Hook {
                 phase: phases,
                 entered: Default::default(),
                 release: Default::default(),
@@ -739,7 +761,7 @@ async fn live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_
             .unwrap()
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle",
             entered: Default::default(),
             release: Default::default(),
@@ -823,7 +845,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             .unwrap()
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(ExportHook {
+        let hook = Arc::new(Hook {
             phase: "idle",
             entered: Default::default(),
             release: Default::default(),
@@ -1060,7 +1082,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
         if identical {
             std::fs::write(&path, b"api").unwrap();
         }
-        let hook = std::sync::Arc::new(ExportHook {
+        let hook = std::sync::Arc::new(Hook {
             phase,
             entered: tokio::sync::Notify::new(),
             release: tokio::sync::Notify::new(),
@@ -1416,7 +1438,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
             .unwrap()
             .timed_out
     );
-    let hook = std::sync::Arc::new(ExportHook {
+    let hook = std::sync::Arc::new(Hook {
         phase: "wait-fence",
         entered: tokio::sync::Notify::new(),
         release: tokio::sync::Notify::new(),
@@ -1480,6 +1502,40 @@ async fn a_transient_mirror_failure_is_retried_until_it_clears() {
     );
     task.finish().await.unwrap();
     assert!(catalog.background_tasks_running());
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn retry_repeats_transient_errors_and_keeps_permanent_causes() {
+    let (_data, _tree, catalog, _bucket, root) = live_fixture().await;
+    let mut attempts = 0;
+    let result = with_retry(&root, || {
+        attempts += 1;
+        std::future::ready(if attempts == 1 {
+            Err(writeback::Error::Admin(AdminError::Io(
+                io::ErrorKind::Interrupted,
+            )))
+        } else {
+            Ok(7)
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(result, 7);
+    assert_eq!(attempts, 2);
+    attempts = 0;
+    let error = with_retry(&root, || {
+        attempts += 1;
+        std::future::ready(Err::<(), _>(writeback::Error::Admin(AdminError::Forbidden)))
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(attempts, 1);
+    assert!(matches!(
+        error.get_ref().unwrap().downcast_ref::<writeback::Error>(),
+        Some(writeback::Error::Admin(AdminError::Forbidden))
+    ));
+    drop(root);
     catalog.close().await.unwrap();
 }
 

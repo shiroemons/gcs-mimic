@@ -1,7 +1,8 @@
-use super::{Storage, convert, iam, names, pb, status::unsupported};
+use super::{Storage, access_status, convert, iam, names, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::{BucketAccess, BucketMetadataUpdate},
+    grpc::validate::{self, request_conditions, strict_conditions},
     json::{self, JsonError},
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError},
     server::authorize_bucket,
@@ -17,36 +18,6 @@ fn error(error: impl Into<JsonError>) -> Status {
     super::status::from_json(error.into())
 }
 
-/// Anonymous denials ask for credentials, matching bucket RPCs, BidiReadObject and JSON.
-fn access_error(error: JsonError, caller: Option<Caller<'_>>) -> Status {
-    super::status::from_json(crate::server::anonymous_error(error, caller))
-}
-
-fn conditions(
-    gm: Option<i64>,
-    gn: Option<i64>,
-    mm: Option<i64>,
-    mn: Option<i64>,
-) -> Result<ObjectConditions, Status> {
-    if gm.is_some_and(|v| v < 0)
-        || gn.is_some_and(|v| v < 0)
-        || mm.is_some_and(|v| v <= 0)
-        || mn.is_some_and(|v| v <= 0)
-        || (gm.is_some() && gn.is_some())
-        || (mm.is_some() && mn.is_some())
-    {
-        return Err(Status::invalid_argument(
-            "Invalid generation conditions; use one match or not-match per generation, for example if_generation_match=0",
-        ));
-    }
-    Ok(ObjectConditions {
-        if_generation_match: gm,
-        if_generation_not_match: gn,
-        if_metageneration_match: mm,
-        if_metageneration_not_match: mn,
-    })
-}
-
 fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
     mask.filter(|m| !m.paths.is_empty())
         .map(|m| m.paths.as_slice())
@@ -58,15 +29,10 @@ fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
 }
 
 fn common(params: &Option<pb::CommonObjectRequestParams>) -> Result<(), Status> {
-    if params
-        .as_ref()
-        .is_some_and(|p| p != &pb::CommonObjectRequestParams::default())
-    {
-        return Err(unsupported(
-            "customer-supplied encryption; omit common_object_request_params",
-        ));
-    }
-    Ok(())
+    validate::common(
+        params.as_ref(),
+        "customer-supplied encryption; omit common_object_request_params",
+    )
 }
 
 /// The bucket of an IAM resource. Managed folders and objects are valid IAM resources
@@ -157,19 +123,62 @@ fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
 }
 
 fn lifecycle(value: &pb::bucket::Lifecycle) -> Value {
-    json!({"rule":value.rule.iter().map(|r| {
-        let mut v=json!({});
-        if let Some(a)=&r.action {v["action"]=json!({"type":a.r#type}); if !a.storage_class.is_empty() {v["action"]["storageClass"]=a.storage_class.clone().into();}}
-        if let Some(c)=&r.condition {
-            let mut conditions=Map::new();
-            for (key,n) in [("age",c.age_days),("numNewerVersions",c.num_newer_versions),("daysSinceCustomTime",c.days_since_custom_time),("daysSinceNoncurrentTime",c.days_since_noncurrent_time)] {if let Some(n)=n {conditions.insert(key.into(),n.into());}}
-            if let Some(live)=c.is_live {conditions.insert("isLive".into(),live.into());}
-            for (key,date) in [("createdBefore",&c.created_before),("customTimeBefore",&c.custom_time_before),("noncurrentTimeBefore",&c.noncurrent_time_before)] {if let Some(d)=date {conditions.insert(key.into(),format!("{:04}-{:02}-{:02}",d.year,d.month,d.day).into());}}
-            for (key,values) in [("matchesStorageClass",&c.matches_storage_class),("matchesPrefix",&c.matches_prefix),("matchesSuffix",&c.matches_suffix)] {if !values.is_empty() {conditions.insert(key.into(),json!(values));}}
-            v["condition"]=conditions.into();
-        }
-        v
-    }).collect::<Vec<_>>()})
+    let rules = value
+        .rule
+        .iter()
+        .map(|rule| {
+            let mut value = json!({});
+            if let Some(action) = &rule.action {
+                value["action"] = json!({"type": action.r#type});
+                if !action.storage_class.is_empty() {
+                    value["action"]["storageClass"] = action.storage_class.clone().into();
+                }
+            }
+            if let Some(condition) = &rule.condition {
+                let mut conditions = Map::new();
+                for (key, number) in [
+                    ("age", condition.age_days),
+                    ("numNewerVersions", condition.num_newer_versions),
+                    ("daysSinceCustomTime", condition.days_since_custom_time),
+                    (
+                        "daysSinceNoncurrentTime",
+                        condition.days_since_noncurrent_time,
+                    ),
+                ] {
+                    if let Some(number) = number {
+                        conditions.insert(key.into(), number.into());
+                    }
+                }
+                if let Some(live) = condition.is_live {
+                    conditions.insert("isLive".into(), live.into());
+                }
+                for (key, date) in [
+                    ("createdBefore", &condition.created_before),
+                    ("customTimeBefore", &condition.custom_time_before),
+                    ("noncurrentTimeBefore", &condition.noncurrent_time_before),
+                ] {
+                    if let Some(date) = date {
+                        conditions.insert(
+                            key.into(),
+                            format!("{:04}-{:02}-{:02}", date.year, date.month, date.day).into(),
+                        );
+                    }
+                }
+                for (key, values) in [
+                    ("matchesStorageClass", &condition.matches_storage_class),
+                    ("matchesPrefix", &condition.matches_prefix),
+                    ("matchesSuffix", &condition.matches_suffix),
+                ] {
+                    if !values.is_empty() {
+                        conditions.insert(key.into(), json!(values));
+                    }
+                }
+                value["condition"] = conditions.into();
+            }
+            value
+        })
+        .collect::<Vec<_>>();
+    json!({"rule": rules})
 }
 
 /// The JSON form of a replacement ACL. Only entity and role are writable; the shared JSON
@@ -206,46 +215,111 @@ fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
     let mut body = json!({});
     for path in paths {
         match path.as_str() {
-        "labels"=>body["labels"]=if b.labels.is_empty(){Value::Null}else{json!(b.labels)},
-        p if p.starts_with("labels.") && p.len()>7=>{let key=&p[7..];body["labels"][key]=b.labels.get(key).map_or(Value::Null,|v|v.clone().into());}
-        "storage_class"=>body["storageClass"]=b.storage_class.clone().into(),
-        "autoclass"|"autoclass.enabled"|"autoclass.terminal_storage_class"=>{
-            let a=b.autoclass.clone().unwrap_or_default();
-            if path!="autoclass.terminal_storage_class"{body["autoclass"]["enabled"]=a.enabled.into();}
-            if path!="autoclass.enabled" && let Some(class)=a.terminal_storage_class{body["autoclass"]["terminalStorageClass"]=class.into();}
-        }
-        "versioning"|"versioning.enabled"=>body["versioning"]=json!({"enabled":b.versioning.as_ref().is_some_and(|v|v.enabled)}),
-        "default_event_based_hold"=>body["defaultEventBasedHold"]=b.default_event_based_hold.into(),
-        "cors"=>body["cors"]=json!(b.cors.iter().map(|c|json!({"origin":c.origin,"method":c.method,"responseHeader":c.response_header,"maxAgeSeconds":c.max_age_seconds})).collect::<Vec<_>>()),
-        "lifecycle"|"lifecycle.rule"=>body["lifecycle"]=b.lifecycle.as_ref().map_or(json!({"rule":[]}),lifecycle),
-        "retention_policy"|"retention_policy.retention_duration"=>{
-            body["retentionPolicy"]=b.retention_policy.as_ref().and_then(|p|p.retention_duration).map_or(Value::Null,|d|json!({"retentionPeriod":d.seconds.to_string()}));
-            if b.retention_policy.as_ref().is_some_and(|p|p.is_locked){return Err(unsupported("retention_policy.is_locked; use LockBucketRetentionPolicy"));}
-        }
-        "soft_delete_policy"|"soft_delete_policy.retention_duration"=>{
-            let d=b.soft_delete_policy.as_ref().and_then(|p|p.retention_duration).unwrap_or_default();
-            if d.nanos!=0{return Err(unsupported("fractional soft delete duration; use whole seconds"));}
-            body["softDeletePolicy"]=json!({"retentionDurationSeconds":d.seconds.to_string()});
-        }
-        "iam_config" => {
-            // Go uses this parent mask even when only one IAM setting is present.
-            if let Some(i) = &b.iam_config {
-                if let Some(u) = &i.uniform_bucket_level_access {
-                    body["iamConfiguration"]["uniformBucketLevelAccess"] = json!({"enabled": u.enabled});
+            "labels" => {
+                body["labels"] = if b.labels.is_empty() {
+                    Value::Null
+                } else {
+                    json!(b.labels)
+                };
+            }
+            p if p.starts_with("labels.") && p.len() > 7 => {
+                let key = &p[7..];
+                body["labels"][key] = b.labels.get(key).map_or(Value::Null, |v| v.clone().into());
+            }
+            "storage_class" => body["storageClass"] = b.storage_class.clone().into(),
+            "autoclass" | "autoclass.enabled" | "autoclass.terminal_storage_class" => {
+                let autoclass = b.autoclass.clone().unwrap_or_default();
+                if path != "autoclass.terminal_storage_class" {
+                    body["autoclass"]["enabled"] = autoclass.enabled.into();
                 }
-                if !i.public_access_prevention.is_empty() {
-                    body["iamConfiguration"]["publicAccessPrevention"] = i.public_access_prevention.clone().into();
+                if path != "autoclass.enabled"
+                    && let Some(class) = autoclass.terminal_storage_class
+                {
+                    body["autoclass"]["terminalStorageClass"] = class.into();
                 }
             }
+            "versioning" | "versioning.enabled" => {
+                body["versioning"] =
+                    json!({"enabled": b.versioning.as_ref().is_some_and(|v| v.enabled)});
+            }
+            "default_event_based_hold" => {
+                body["defaultEventBasedHold"] = b.default_event_based_hold.into();
+            }
+            "cors" => body["cors"] = super::buckets::cors_json(&b.cors),
+            "lifecycle" | "lifecycle.rule" => {
+                body["lifecycle"] = b.lifecycle.as_ref().map_or(json!({"rule": []}), lifecycle);
+            }
+            "retention_policy" | "retention_policy.retention_duration" => {
+                body["retentionPolicy"] = b
+                    .retention_policy
+                    .as_ref()
+                    .and_then(|p| p.retention_duration)
+                    .map_or(
+                        Value::Null,
+                        |d| json!({"retentionPeriod": d.seconds.to_string()}),
+                    );
+                if b.retention_policy.as_ref().is_some_and(|p| p.is_locked) {
+                    return Err(unsupported(
+                        "retention_policy.is_locked; use LockBucketRetentionPolicy",
+                    ));
+                }
+            }
+            "soft_delete_policy" | "soft_delete_policy.retention_duration" => {
+                let duration = b
+                    .soft_delete_policy
+                    .as_ref()
+                    .and_then(|p| p.retention_duration)
+                    .unwrap_or_default();
+                if duration.nanos != 0 {
+                    return Err(unsupported(
+                        "fractional soft delete duration; use whole seconds",
+                    ));
+                }
+                body["softDeletePolicy"] =
+                    json!({"retentionDurationSeconds": duration.seconds.to_string()});
+            }
+            "iam_config" => {
+                // Go uses this parent mask even when only one IAM setting is present.
+                if let Some(iam) = &b.iam_config {
+                    if let Some(uniform) = &iam.uniform_bucket_level_access {
+                        body["iamConfiguration"]["uniformBucketLevelAccess"] =
+                            json!({"enabled": uniform.enabled});
+                    }
+                    if !iam.public_access_prevention.is_empty() {
+                        body["iamConfiguration"]["publicAccessPrevention"] =
+                            iam.public_access_prevention.clone().into();
+                    }
+                }
+            }
+            "iam_config.uniform_bucket_level_access"
+            | "iam_config.uniform_bucket_level_access.enabled" => {
+                let enabled = b
+                    .iam_config
+                    .as_ref()
+                    .and_then(|iam| iam.uniform_bucket_level_access.as_ref())
+                    .is_some_and(|uniform| uniform.enabled);
+                body["iamConfiguration"]["uniformBucketLevelAccess"] = json!({"enabled": enabled});
+            }
+            "acl" => body["acl"] = acl_entries(b.acl.iter().map(|e| (&e.entity, &e.role))),
+            "default_object_acl" => {
+                body["defaultObjectAcl"] =
+                    acl_entries(b.default_object_acl.iter().map(|e| (&e.entity, &e.role)));
+            }
+            "iam_config.public_access_prevention" => {
+                body["iamConfiguration"]["publicAccessPrevention"] = b
+                    .iam_config
+                    .as_ref()
+                    .map(|i| i.public_access_prevention.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("inherited")
+                    .into();
+            }
+            _ => {
+                return Err(unsupported(&format!(
+                    "UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"
+                )));
+            }
         }
-        "iam_config.uniform_bucket_level_access"|"iam_config.uniform_bucket_level_access.enabled"=>{
-            let i=b.iam_config.as_ref();body["iamConfiguration"]["uniformBucketLevelAccess"]=json!({"enabled":i.and_then(|i|i.uniform_bucket_level_access.as_ref()).is_some_and(|u|u.enabled)});
-        }
-        "acl"=>body["acl"]=acl_entries(b.acl.iter().map(|e|(&e.entity,&e.role))),
-        "default_object_acl"=>body["defaultObjectAcl"]=acl_entries(b.default_object_acl.iter().map(|e|(&e.entity,&e.role))),
-        "iam_config.public_access_prevention"=>body["iamConfiguration"]["publicAccessPrevention"]=b.iam_config.as_ref().map(|i|i.public_access_prevention.as_str()).filter(|s|!s.is_empty()).unwrap_or("inherited").into(),
-        _=>return Err(unsupported(&format!("UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"))),
-    }
     }
     Ok(body)
 }
@@ -454,18 +528,8 @@ impl Storage {
     ) -> Result<Response<pb::RewriteResponse>, Status> {
         let r = request.into_inner();
         check_rewrite_request(&r)?;
-        let sc = conditions(
-            r.if_source_generation_match,
-            r.if_source_generation_not_match,
-            r.if_source_metageneration_match,
-            r.if_source_metageneration_not_match,
-        )?;
-        let dc = conditions(
-            r.if_generation_match,
-            r.if_generation_not_match,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        let sc = request_conditions!(strict_conditions, source r)?;
+        let dc = request_conditions!(strict_conditions, r)?;
         let body = r.destination.as_ref().map(derived_fields).transpose()?;
         if r.destination
             .as_ref()
@@ -489,17 +553,12 @@ impl Storage {
         };
         let binding = session.as_ref().map(|s| &s.binding);
         let target = RewriteTarget::resolve(&r, binding)?;
-        let read = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, target.source_bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let create = authorize_bucket(
-            &self.state,
-            caller,
-            auth::OBJECTS_CREATE,
-            target.destination_bucket,
-        )
-        .await
-        .map_err(|e| access_error(e, caller))?;
+        let read = self
+            .access(caller, target.source_bucket, auth::OBJECTS_GET)
+            .await?;
+        let create = self
+            .access(caller, target.destination_bucket, auth::OBJECTS_CREATE)
+            .await?;
         let mut owner = None;
         let token = if let Some(binding) = binding {
             if !target.matches(binding)
@@ -670,10 +729,8 @@ impl Storage {
     ) -> Result<Response<pb::Bucket>, Status> {
         let r = request.into_inner();
         let bucket = names::bucket_name(&r.bucket)?;
-        conditions(None, None, Some(r.if_metageneration_match), None)?;
-        let access = authorize_bucket(&self.state, caller, auth::BUCKETS_UPDATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        strict_conditions(None, None, Some(r.if_metageneration_match), None)?;
+        let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
         let record = self
             .state
             .catalog
@@ -707,9 +764,7 @@ impl Storage {
                 "requested_policy_version must be 0, 1 or 3",
             ));
         }
-        let access = authorize_bucket(&self.state, caller, auth::BUCKETS_GET_IAM, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        let access = self.access(caller, bucket, auth::BUCKETS_GET_IAM).await?;
         Ok(Response::new(policy(
             self.state
                 .catalog
@@ -735,9 +790,7 @@ impl Storage {
                 "SetIamPolicy update_mask; omit the mask to replace bindings and etag",
             ));
         }
-        let access = authorize_bucket(&self.state, caller, auth::BUCKETS_SET_IAM, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        let access = self.access(caller, bucket, auth::BUCKETS_SET_IAM).await?;
         let p = r.policy.ok_or_else(|| {
             Status::invalid_argument(
                 "policy is required; supply bindings, for example an empty list",
@@ -820,7 +873,7 @@ impl Storage {
         if !r.predefined_acl.is_empty() || !r.predefined_default_object_acl.is_empty() {
             return Err(unsupported("predefined bucket ACLs; omit predefined_acl"));
         }
-        conditions(
+        strict_conditions(
             None,
             None,
             r.if_metageneration_match,
@@ -828,9 +881,7 @@ impl Storage {
         )?;
         let paths = mask(r.update_mask.as_ref())?;
         let mut body = bucket_patch(&b, paths)?;
-        let access = authorize_bucket(&self.state, caller, auth::BUCKETS_UPDATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
         let mut mm = r.if_metageneration_match;
         if paths.iter().any(|p| p == "labels") && !b.labels.is_empty() {
             let current = self
@@ -888,15 +939,8 @@ impl Storage {
         }
         let paths = mask(r.update_mask.as_ref())?;
         let mut body = object_patch(&o, paths)?;
-        let access = authorize_bucket(&self.state, caller, auth::OBJECTS_UPDATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let mut c = conditions(
-            r.if_generation_match,
-            r.if_generation_not_match,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
+        let mut c = request_conditions!(strict_conditions, r)?;
         if paths.iter().any(|p| p == "metadata") && !o.metadata.is_empty() {
             let current = self
                 .state
@@ -937,7 +981,7 @@ impl Storage {
             retention_override,
         )
         .await
-        .map_err(|e| access_error(e, caller))?;
+        .map_err(|e| access_status(e, caller))?;
         let record = self
             .state
             .catalog
@@ -980,9 +1024,7 @@ impl Storage {
             Status::invalid_argument("destination is required; supply bucket and name")
         })?;
         let (bucket, name) = names::object_name(&o.bucket, &o.name)?;
-        let access = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        let access = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         let body = derived_fields(&o)?;
         let sources = r
             .source_objects
@@ -998,7 +1040,7 @@ impl Storage {
                     .object_preconditions
                     .as_ref()
                     .and_then(|p| p.if_generation_match);
-                conditions(gm, None, None, None)?;
+                strict_conditions(gm, None, None, None)?;
                 Ok(ComposeSource {
                     name: s.name.clone(),
                     generation: (s.generation != 0).then_some(s.generation),
@@ -1026,7 +1068,12 @@ impl Storage {
             metadata: parsed.update,
             storage_class: None,
             expected: ExpectedHashes::default(),
-            conditions: conditions(r.if_generation_match, None, r.if_metageneration_match, None)?,
+            conditions: strict_conditions(
+                r.if_generation_match,
+                None,
+                r.if_metageneration_match,
+                None,
+            )?,
             access,
             component_count: None,
         };
@@ -1055,27 +1102,11 @@ impl Storage {
         let r = request.into_inner();
         let (bucket, source) = names::object_name(&r.bucket, &r.source_object)?;
         names::object_name(&r.bucket, &r.destination_object)?;
-        let read = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let delete = authorize_bucket(&self.state, caller, auth::OBJECTS_DELETE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let sc = conditions(
-            r.if_source_generation_match,
-            r.if_source_generation_not_match,
-            r.if_source_metageneration_match,
-            r.if_source_metageneration_not_match,
-        )?;
-        let dc = conditions(
-            r.if_generation_match,
-            r.if_generation_not_match,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        let read = self.access(caller, bucket, auth::OBJECTS_GET).await?;
+        let delete = self.access(caller, bucket, auth::OBJECTS_DELETE).await?;
+        let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
+        let sc = request_conditions!(strict_conditions, source r)?;
+        let dc = request_conditions!(strict_conditions, r)?;
         let record = self
             .state
             .catalog
@@ -1113,18 +1144,9 @@ impl Storage {
             ));
         }
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
-        let restore = authorize_bucket(&self.state, caller, auth::OBJECTS_RESTORE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
-            .await
-            .map_err(|e| access_error(e, caller))?;
-        let c = conditions(
-            r.if_generation_match,
-            r.if_generation_not_match,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        let restore = self.access(caller, bucket, auth::OBJECTS_RESTORE).await?;
+        let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
+        let c = request_conditions!(strict_conditions, r)?;
         let record = self
             .state
             .catalog
@@ -1211,6 +1233,46 @@ mod tests {
     }
 
     #[test]
+    fn grpc_bucket_masks_preserve_resets_and_omitted_parent_fields() {
+        let bucket = pb::Bucket::default();
+        let paths = [
+            "autoclass",
+            "versioning",
+            "retention_policy",
+            "soft_delete_policy",
+            "cors",
+            "iam_config.public_access_prevention",
+            "iam_config.uniform_bucket_level_access",
+            "iam_config",
+        ]
+        .map(String::from);
+        assert_eq!(
+            bucket_patch(&bucket, &paths).unwrap(),
+            json!({
+                "autoclass": {"enabled": false},
+                "versioning": {"enabled": false},
+                "retentionPolicy": null,
+                "softDeletePolicy": {"retentionDurationSeconds": "0"},
+                "cors": [],
+                "iamConfiguration": {
+                    "publicAccessPrevention": "inherited",
+                    "uniformBucketLevelAccess": {"enabled": false},
+                },
+            })
+        );
+        let create = super::super::buckets::create_fields(&bucket, "").unwrap();
+        for omitted in [
+            "autoclass",
+            "versioning",
+            "retentionPolicy",
+            "softDeletePolicy",
+            "iamConfiguration",
+        ] {
+            assert!(create.get(omitted).is_none(), "{omitted}");
+        }
+    }
+
+    #[test]
     fn grpc_masks_reject_unsupported_and_accept_defaults() {
         let status = error(JsonError::new(
             hyper::StatusCode::NOT_IMPLEMENTED,
@@ -1273,11 +1335,15 @@ mod tests {
         );
         assert!(common(&Some(pb::CommonObjectRequestParams::default())).is_ok());
         assert_eq!(
-            conditions(Some(-1), None, None, None).unwrap_err().code(),
+            strict_conditions(Some(-1), None, None, None)
+                .unwrap_err()
+                .code(),
             Code::InvalidArgument
         );
         assert_eq!(
-            conditions(None, None, Some(0), None).unwrap_err().code(),
+            strict_conditions(None, None, Some(0), None)
+                .unwrap_err()
+                .code(),
             Code::InvalidArgument
         );
         let b = pb::Bucket {
