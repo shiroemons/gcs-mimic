@@ -527,6 +527,12 @@ which side is right, and it never fixes anything. HTTP goes through the
 external `curl` command and gRPC through the external `grpcurl` command, both
 behind one transport trait.
 
+The local server uses a loopback Pub/Sub stand-in that returns 404 for the
+notification case's deliberately missing topic. Notification creation therefore
+exercises gcs-mimic's configured-emulator existence check; it never contacts
+Google Pub/Sub. Other topic lookups and publish requests are refused by the
+stand-in.
+
 ```sh
 cargo xtask differential validate            # parse and check the case files, no network
 cargo xtask differential run                 # self-check: gcs-mimic only
@@ -600,6 +606,27 @@ Modes:
   current `expect_status`, so correcting that value needs no new recording. `--record FILE` in self-check mode records gcs-mimic itself, which
   gives an offline fixture for testing the replay path.
 
+To refresh one case, record only that case in Live mode, then merge the partial
+recording into the existing reference offline:
+
+```sh
+GCS_MIMIC_DIFF_PROJECT=<project> GCS_MIMIC_DIFF_TOKEN="$(gcloud auth print-access-token)" \
+  cargo xtask differential run --filter bkt-notifications --record partial.json
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  partial.json --out merged-reference.json
+```
+
+Review `merged-reference.json` before replacing the committed reference. The
+merge replaces complete cases by ID, retains all other cases and their order,
+and rejects empty partials, unknown or duplicate case IDs, incompatible formats,
+or different storage.proto revisions or tool metadata (including grpcurl).
+Use the same pinned tools for the partial recording. The format stays unchanged;
+`generated` becomes the partial recording's date (the latest refresh), and
+`requests` sums both recordings' reference requests, including requests for
+superseded observations and cleanup. The output passes the same redaction leak
+guard as an ordinary recording. `--out` may name the base file for an in-place
+update after review.
+
 Other options: `--cases DIR` (default `compatibility/differential/cases`),
 `--filter TEXT` (case ids containing the text), `--out DIR` (default a
 temporary directory outside the repository), `--binary PATH` (skip the build),
@@ -633,6 +660,12 @@ captured variables. The infrastructure headers `date`, `server`, `alt-svc`,
 `x-harness-body-framing`: `content-length:<ok>` when the declared length equals
 the bytes received (`<mismatch N vs M>` otherwise), or `chunked`. A response
 body that is not UTF-8 text is compared exactly as `<binary base64:...>`.
+
+Email addresses with a percent-encoded `@` in a URL become
+`<email:percent-encoded>`, so raw `@` versus `%40` remains a reported encoding
+difference. Both forms are also detected by the leak guard. The local Storage
+service agent's project number `0` uses the same `<project-number>` placeholder
+as the discovered project number in live service-agent names.
 
 ### Case files
 
