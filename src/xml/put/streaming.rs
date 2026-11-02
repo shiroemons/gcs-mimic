@@ -9,11 +9,7 @@ use ring::digest;
 mod tests;
 
 fn malformed() -> Error {
-    Error::new(
-        StatusCode::BAD_REQUEST,
-        "InvalidArgument",
-        "Invalid signed chunk framing or decoded length.",
-    )
+    Error::invalid("Invalid signed chunk framing or decoded length.")
 }
 
 pub(super) fn stored_encoding(headers: &HeaderMap) -> Result<Option<Option<String>>, Error> {

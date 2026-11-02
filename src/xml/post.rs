@@ -44,10 +44,6 @@ const FORM_CAP: usize = 256 * 1024;
 const FIELD_LIMIT: usize = 64;
 const CUSTOM_METADATA_CAP: usize = 8192;
 
-fn invalid(message: impl Into<String>) -> Error {
-    Error::new(StatusCode::BAD_REQUEST, "InvalidArgument", message)
-}
-
 /// Cloud Storage reports unmet conditions as InvalidPolicyDocument with this wording.
 fn policy_error(details: impl std::fmt::Display) -> Error {
     Error::new(
@@ -82,7 +78,7 @@ fn signature_error(failure: signature::VerificationError) -> Error {
             "SignatureDoesNotMatch",
             "The policy signature does not match.",
         ),
-        Failure::Malformed | Failure::Expired | Failure::NotYetValid => invalid(
+        Failure::Malformed | Failure::Expired | Failure::NotYetValid => Error::invalid(
             "Invalid policy credentials; use exactly one supported signing version with its required fields and signature encoding.",
         ),
     }
@@ -96,8 +92,9 @@ struct Form {
 
 /// Parse `form-data; name="..."; filename="..."`. Field names compare case-insensitively.
 fn disposition(headers: &HeaderMap) -> Result<(String, Option<String>), Error> {
-    let malformed =
-        || invalid("Each form part requires Content-Disposition: form-data; name=\"FIELD\".");
+    let malformed = || {
+        Error::invalid("Each form part requires Content-Disposition: form-data; name=\"FIELD\".")
+    };
     let raw = headers
         .get("content-disposition")
         .ok_or_else(malformed)?
@@ -171,7 +168,7 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
     let mut total = 0;
     loop {
         if parser.closed() {
-            return Err(invalid(
+            return Err(Error::invalid(
                 "The form requires a file field; send it as the last form field.",
             ));
         }
@@ -180,7 +177,7 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
             return Ok(Form { fields, filename });
         }
         if fields.len() == FIELD_LIMIT {
-            return Err(invalid(format!(
+            return Err(Error::invalid(format!(
                 "The form has more than {FIELD_LIMIT} fields before the file field."
             )));
         }
@@ -188,7 +185,7 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
         while let Some(chunk) = parser.next_chunk().await? {
             if value.len() + chunk.len() > FIELD_CAP || total + value.len() + chunk.len() > FORM_CAP
             {
-                return Err(invalid(format!(
+                return Err(Error::invalid(format!(
                     "Form fields before the file field are limited to {FIELD_CAP} bytes each and {FORM_CAP} bytes in total."
                 )));
             }
@@ -196,9 +193,9 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
         }
         total += value.len();
         let value = String::from_utf8(value)
-            .map_err(|_| invalid(format!("Form field {name} must be UTF-8.")))?;
+            .map_err(|_| Error::invalid(format!("Form field {name} must be UTF-8.")))?;
         if fields.insert(name.clone(), value).is_some() {
-            return Err(invalid(format!("Duplicate form field {name}.")));
+            return Err(Error::invalid(format!("Duplicate form field {name}.")));
         }
     }
 }
@@ -407,7 +404,7 @@ fn header_value(field: &str, value: &str) -> Result<String, Error> {
         .bytes()
         .any(|byte| byte.is_ascii_control() && byte != b'\t')
     {
-        return Err(invalid(format!(
+        return Err(Error::invalid(format!(
             "Form field {field} must not contain control characters."
         )));
     }
@@ -443,21 +440,21 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
     }
     let version = Version::select(fields)?;
     if fields.get("bucket").is_some_and(|value| value != bucket) {
-        return Err(invalid(
+        return Err(Error::invalid(
             "The bucket form field must match the bucket in the request URL.",
         ));
     }
     let key = fields
         .get("key")
         .filter(|key| !key.is_empty())
-        .ok_or_else(|| invalid("The form requires a non-empty key field."))?;
+        .ok_or_else(|| Error::invalid("The form requires a non-empty key field."))?;
     let name = if key.contains("${filename}") {
         let filename = form
             .filename
             .as_deref()
             .filter(|name| !name.is_empty())
             .ok_or_else(|| {
-                invalid("The key uses ${filename}, but the file part has no filename.")
+                Error::invalid("The key uses ${filename}, but the file part has no filename.")
             })?;
         key.replace("${filename}", filename)
     } else {
@@ -471,7 +468,7 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
             "content-type",
             value
                 .parse()
-                .map_err(|_| invalid("Invalid Content-Type form field."))?,
+                .map_err(|_| Error::invalid("Invalid Content-Type form field."))?,
         );
     }
     let (content_type, _) =
@@ -487,7 +484,7 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
             raw.parse::<u64>()
                 .ok()
                 .filter(|_| raw.bytes().all(|byte| byte.is_ascii_digit()))
-                .ok_or_else(|| invalid("Invalid Content-Length form field."))
+                .ok_or_else(|| Error::invalid("Invalid Content-Length form field."))
         })
         .transpose()?;
     Ok(Plan {
@@ -509,14 +506,18 @@ fn success_action(fields: &BTreeMap<String, String>) -> Result<Success, Error> {
                 matches!(uri.scheme_str(), Some("http" | "https")) && uri.authority().is_some()
             })
             .and_then(|uri| HeaderValue::try_from(uri.to_string()).ok())
-            .ok_or_else(|| invalid("success_action_redirect must be an absolute HTTP(S) URL."))?;
+            .ok_or_else(|| {
+                Error::invalid("success_action_redirect must be an absolute HTTP(S) URL.")
+            })?;
         return Ok(Success::Redirect(location));
     }
     match fields.get("success_action_status").map(String::as_str) {
         None | Some("204") => Ok(Success::Status(StatusCode::NO_CONTENT)),
         Some("200") => Ok(Success::Status(StatusCode::OK)),
         Some("201") => Ok(Success::Status(StatusCode::CREATED)),
-        Some(_) => Err(invalid("success_action_status must be 200, 201 or 204.")),
+        Some(_) => Err(Error::invalid(
+            "success_action_status must be 200, 201 or 204.",
+        )),
     }
 }
 
@@ -533,7 +534,7 @@ fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpda
     }
     if let Some(value) = fields.get("x-goog-custom-time") {
         custom_time_key(value).map_err(|_| {
-            invalid("x-goog-custom-time must be RFC 3339, for example 2026-10-20T01:02:03Z.")
+            Error::invalid("x-goog-custom-time must be RFC 3339, for example 2026-10-20T01:02:03Z.")
         })?;
         metadata.custom_time = Some(Some(value.clone()));
     }
@@ -591,7 +592,9 @@ pub(crate) async fn respond(
         )));
     }
     let boundary = json::form_data_boundary(request.headers()).map_err(|_| {
-        invalid("POST Object requires Content-Type: multipart/form-data with a valid boundary.")
+        Error::invalid(
+            "POST Object requires Content-Type: multipart/form-data with a valid boundary.",
+        )
     })?;
     let headers = request.headers().clone();
     let body = request.into_body().map_frame(|frame| {
@@ -623,7 +626,7 @@ pub(crate) async fn respond(
                 &bucket,
                 state.clock.now(),
                 signed_at,
-                version.ok_or_else(|| invalid("Missing policy version."))?,
+                version.ok_or_else(|| Error::invalid("Missing policy version."))?,
             )
         })
         .transpose()?
@@ -680,7 +683,7 @@ async fn authenticate<'a>(
             .map_err(|error| Error::from(JsonError::from(error)));
     };
     if headers.contains_key("authorization") {
-        return Err(invalid(
+        return Err(Error::invalid(
             "Send either a policy form or an Authorization header, not both.",
         ));
     }
@@ -753,7 +756,7 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
             }
         }
         if !parser.closed() {
-            return Err(invalid(
+            return Err(Error::invalid(
                 "The file field must be the last field in the form.",
             ));
         }
@@ -765,7 +768,7 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
             ));
         }
         if declared_length.is_some_and(|length| length != size) {
-            return Err(invalid(
+            return Err(Error::invalid(
                 "The Content-Length form field does not match the file size.",
             ));
         }

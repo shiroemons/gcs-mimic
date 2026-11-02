@@ -49,10 +49,6 @@ fn target(object: &ObjectPath, ctx: ObjectCtx<'_>) -> Result<String, Error> {
     Ok(name)
 }
 
-fn invalid(message: &str) -> Error {
-    Error::new(StatusCode::BAD_REQUEST, "InvalidArgument", message)
-}
-
 /// Whether the initiation authenticated through a signature, which admits its signing headers.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Signing {
@@ -111,7 +107,7 @@ fn options(
 ) -> Result<ResumableOptions, Error> {
     reject_unsupported_headers(headers, signing)?;
     if auth::signature::resumable_start(headers) != Ok(true) {
-        return Err(invalid("x-goog-resumable must be start."));
+        return Err(Error::invalid("x-goog-resumable must be start."));
     }
     let conditions = put::conditions(headers)?;
     let (content_type, expected) = put::content_type_and_hashes(headers, conditions)?;
@@ -151,7 +147,7 @@ pub(crate) async fn start(
     let options = options(request.headers(), signing, access)?;
     json::read_body(request.into_body(), 0)
         .await
-        .map_err(|_| invalid("Resumable upload initiation carries no body."))?;
+        .map_err(|_| Error::invalid("Resumable upload initiation carries no body."))?;
     let id = resumable::create_session(ctx, &object.bucket, &name, options, None)
         .await
         .map_err(|error| Error::from(anonymous_error(error, caller)))?;
@@ -164,7 +160,7 @@ pub(crate) async fn start(
         object.name()
     );
     let location =
-        HeaderValue::try_from(location).map_err(|_| invalid("Invalid session endpoint."))?;
+        HeaderValue::try_from(location).map_err(|_| Error::invalid("Invalid session endpoint."))?;
     let mut response = empty_response(StatusCode::CREATED);
     let headers = response.headers_mut();
     headers.insert(LOCATION, location);
@@ -184,7 +180,7 @@ pub(crate) async fn session(
     let mut query = json::parse_query(request.uri().query().unwrap_or_default())?;
     let id = query
         .remove("upload_id")
-        .ok_or_else(|| invalid("Missing upload_id."))?;
+        .ok_or_else(|| Error::invalid("Missing upload_id."))?;
     if let Some(key) = query.keys().next() {
         return Err(Error::unsupported(key));
     }

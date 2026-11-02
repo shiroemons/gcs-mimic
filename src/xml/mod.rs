@@ -202,11 +202,7 @@ pub(crate) fn normalize_legacy_headers(headers: &mut HeaderMap) -> Result<(), Er
             let target = HeaderName::from_bytes(format!("x-goog-{suffix}").as_bytes())
                 .map_err(|_| Error::unsupported(name.as_str()))?;
             if headers.contains_key(&target) {
-                return Err(Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "InvalidArgument",
-                    "Ambiguous legacy extension headers.",
-                ));
+                return Err(Error::invalid("Ambiguous legacy extension headers."));
             }
             replacements.push((
                 name.clone(),
@@ -268,6 +264,10 @@ impl ErrorBody {
 }
 
 impl Error {
+    fn invalid(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "InvalidArgument", message)
+    }
+
     fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
         Self {
             status,
@@ -300,11 +300,7 @@ impl Error {
     /// The 400 for a Range header with several ranges; `Details` echoes the header as
     /// Cloud Storage does (observed 2026-10-31).
     pub(crate) fn multiple_ranges(requested: &str) -> Self {
-        let mut error = Self::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
-            "Invalid argument.",
-        );
+        let mut error = Self::invalid("Invalid argument.");
         error.details = Some(format!(
             "Multiple ranges are not supported; Range:{requested}"
         ));
@@ -312,13 +308,9 @@ impl Error {
     }
 
     pub(crate) fn unsupported(name: &str) -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
-            format!(
-                "gcs-mimic does not support XML API {name}; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
-            ),
-        )
+        Self::invalid(format!(
+            "gcs-mimic does not support XML API {name}; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
+        ))
     }
 
     pub(crate) fn response(self, body_mode: ErrorBody) -> Response<Full<Bytes>> {
@@ -549,13 +541,10 @@ pub(crate) fn select_object_with_endpoints(
 ) -> Result<Option<ObjectPath>, Error> {
     let public = legacy_public_authority(config, endpoints);
     let legacy_authority = if public.is_some() {
-        Some(request_authority(headers).ok_or_else(|| {
-            Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
-                "Require one valid Host authority.",
-            )
-        })?)
+        Some(
+            request_authority(headers)
+                .ok_or_else(|| Error::invalid("Require one valid Host authority."))?,
+        )
     } else {
         None
     };
@@ -585,11 +574,7 @@ pub(crate) fn select_object_with_endpoints(
                     "The request authority does not match Host.",
                 )
             } else {
-                Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "InvalidArgument",
-                    "The request authority does not match Host.",
-                )
+                Error::invalid("The request authority does not match Host.")
             });
         }
     }
@@ -709,11 +694,7 @@ pub(crate) fn route(
                         .bytes()
                         .any(|byte| byte.is_ascii_control() && byte != b'\t')
                 {
-                    return Err(Error::new(
-                        StatusCode::BAD_REQUEST,
-                        "InvalidArgument",
-                        "Invalid response header override.",
-                    ));
+                    return Err(Error::invalid("Invalid response header override."));
                 }
                 let value = HeaderValue::from_str(&value)
                     .ok()
@@ -797,13 +778,7 @@ fn number(raw: &str, min: MinValue) -> Result<i64, Error> {
         .ok()
         .filter(|n| *n >= floor)
         .filter(|_| !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()))
-        .ok_or_else(|| {
-            Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
-                "Invalid generation or metageneration.",
-            )
-        })
+        .ok_or_else(|| Error::invalid("Invalid generation or metageneration."))
 }
 
 /// `x-goog-` headers with defined meaning that this adapter does not implement. An object read
@@ -851,9 +826,7 @@ pub(crate) fn headers(
             ));
         }
         if token.as_bytes().trim_ascii().is_empty() {
-            return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
+            return Err(Error::invalid(
                 "Expected a non-empty x-goog-gcs-idempotency-token header.",
             ));
         }
@@ -919,13 +892,9 @@ pub(crate) fn headers(
                 ));
             }
             *target = Some(number(
-                value.to_str().map_err(|_| {
-                    Error::new(
-                        StatusCode::BAD_REQUEST,
-                        "InvalidArgument",
-                        "Invalid precondition header.",
-                    )
-                })?,
+                value
+                    .to_str()
+                    .map_err(|_| Error::invalid("Invalid precondition header."))?,
                 min,
             )?);
         }
@@ -948,13 +917,7 @@ where
         return Err(unexpected());
     }
     while let Some(frame) = body.frame().await {
-        let frame = frame.map_err(|_| {
-            Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
-                "Could not read request body.",
-            )
-        })?;
+        let frame = frame.map_err(|_| Error::invalid("Could not read request body."))?;
         let data = frame
             .into_data()
             .map_err(|_| Error::unsupported("request trailers"))?;

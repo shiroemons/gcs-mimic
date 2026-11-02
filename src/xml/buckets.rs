@@ -111,9 +111,7 @@ async fn execute(
 
 fn project(headers: &HeaderMap) -> Result<&str, Error> {
     let project = super::put::single(headers, "x-goog-project-id")?.ok_or_else(|| {
-        Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
+        Error::invalid(
             "Specify x-goog-project-id; a default interoperable project is not configured.",
         )
     })?;

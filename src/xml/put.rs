@@ -37,13 +37,10 @@ pub(super) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'
             "Expected one header value.",
         ));
     }
-    value.to_str().map(Some).map_err(|_| {
-        Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
-            "Header must be representable as ASCII.",
-        )
-    })
+    value
+        .to_str()
+        .map(Some)
+        .map_err(|_| Error::invalid("Header must be representable as ASCII."))
 }
 
 /// Signature-specific headers are validated before the operation adapter sees them.
@@ -149,11 +146,7 @@ pub(super) fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error>
     }
     if let Some(token) = single(headers, "x-goog-gcs-idempotency-token")? {
         if token.trim().is_empty() {
-            return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
-                "Expected a non-empty retry token.",
-            ));
+            return Err(Error::invalid("Expected a non-empty retry token."));
         }
         if conditions.if_generation_match.is_none() {
             return Err(Error::unsupported(
@@ -170,13 +163,7 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
             raw.parse::<u64>()
                 .ok()
                 .filter(|_| !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()))
-                .ok_or_else(|| {
-                    Error::new(
-                        StatusCode::BAD_REQUEST,
-                        "InvalidArgument",
-                        "Invalid Content-Length.",
-                    )
-                })
+                .ok_or_else(|| Error::invalid("Invalid Content-Length."))
         })
         .transpose()?;
     let chunked = single(headers, "transfer-encoding")?;
@@ -186,11 +173,7 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
         ));
     }
     if chunked.is_some() && length.is_some() {
-        return Err(Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
-            "Ambiguous body framing.",
-        ));
+        return Err(Error::invalid("Ambiguous body framing."));
     }
     if length.is_none() && chunked.is_none() {
         return Err(Error::new(
@@ -278,9 +261,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     if let Some(class) = single(headers, "x-goog-storage-class")? {
         crate::object::validate_object_storage_class(class).map_err(|error| match error {
             ObjectError::UnsupportedMetadata(reason) => Error::unsupported(&reason),
-            _ => Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
+            _ => Error::invalid(
                 "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
             ),
         })?;
@@ -291,11 +272,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     for name in headers.keys() {
         if let Some(key) = name.as_str().strip_prefix("x-goog-meta-") {
             if key.is_empty() {
-                return Err(Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "InvalidArgument",
-                    "Custom metadata requires a key.",
-                ));
+                return Err(Error::invalid("Custom metadata requires a key."));
             }
             // `name` comes from this map, so the header is present.
             if let Some(value) = single(headers, name.as_str())? {

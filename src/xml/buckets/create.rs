@@ -18,9 +18,7 @@ pub(super) async fn respond(
         None | Some("false") => false,
         Some("true") => true,
         Some(_) => {
-            return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidArgument",
+            return Err(Error::invalid(
                 "x-goog-bucket-object-lock-enabled must be true or false",
             ));
         }
