@@ -211,6 +211,8 @@ pub(crate) fn scrub_emails(text: &str) -> String {
             (1, "<email>")
         } else if bytes[at..].starts_with(b"%40") {
             (3, "<email:percent-encoded>")
+        } else if bytes[at..].starts_with(b"%2540") {
+            (5, "<email:double-percent-encoded>")
         } else {
             at += 1;
             continue;
@@ -624,6 +626,15 @@ mod tests {
             scrub_emails("user-a%40example.com a@b.org"),
             "user-<email:percent-encoded> <email>"
         );
+        let double_encoded = encoded.replace("%40", "%2540");
+        assert!(contains_email(&double_encoded));
+        let scrubbed = scrub_emails(&double_encoded);
+        assert_eq!(
+            scrubbed,
+            "<host>/storage/v1/b/b/o/o/acl/user-<email:double-percent-encoded>"
+        );
+        assert_ne!(scrubbed, scrub_emails(encoded));
+        assert!(!contains_email(&scrubbed));
     }
 
     #[test]

@@ -50,7 +50,9 @@ pub(super) fn serve() -> io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     println!("{}", listener.local_addr()?);
     for connection in listener.incoming() {
-        answer(connection?)?;
+        if let Err(error) = answer(connection?) {
+            eprintln!("Pub/Sub stub connection: {error}");
+        }
     }
     Ok(())
 }

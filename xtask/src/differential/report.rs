@@ -432,7 +432,8 @@ fn redact_text(text: &str, secrets: &[(String, &str)]) -> String {
     }
     out = super::normalize::scrub_emails(&out)
         .replace("<email>", "<redacted>")
-        .replace("<email:percent-encoded>", "<redacted>");
+        .replace("<email:percent-encoded>", "<redacted>")
+        .replace("<email:double-percent-encoded>", "<redacted>");
     redact_paths(&out)
 }
 
@@ -558,12 +559,15 @@ mod tests {
 
     #[test]
     fn guard_catches_and_redacts_encoded_email_paths() {
-        let text = r#"{"selfLink":"<host>/acl/user-caller%40example.com"}"#;
-        assert_eq!(find_leaks(text, &[]), ["$.selfLink: an email address"]);
-        let redacted = redact_leaks(text, &[]);
-        assert!(!redacted.contains("caller"));
-        assert!(redacted.contains("<redacted>"));
-        assert!(find_leaks(&redacted, &[]).is_empty());
+        for encoded in ["%40", "%2540"] {
+            let text = json!({"selfLink": format!("<host>/acl/user-caller{encoded}example.com")})
+                .to_string();
+            assert_eq!(find_leaks(&text, &[]), ["$.selfLink: an email address"]);
+            let redacted = redact_leaks(&text, &[]);
+            assert!(!redacted.contains("caller"));
+            assert!(redacted.contains("<redacted>"));
+            assert!(find_leaks(&redacted, &[]).is_empty());
+        }
     }
 
     #[test]

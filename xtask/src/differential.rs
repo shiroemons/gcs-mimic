@@ -415,7 +415,7 @@ fn execute(
         Mode::SelfCheck => None,
         Mode::Replay(_) => {
             let recorded = replayed.ok_or("recording was not loaded")?;
-            generated = format!("{generated} (recording of {})", recorded.generated);
+            generated = replay_date(&generated, &recorded);
             reference_requests = Some(recorded.requests);
             reference_retries = count_retries(&recorded.cases);
             Some(recorded.cases)
@@ -447,6 +447,8 @@ fn execute(
             reference_failed_cleanup = live.run.failed_cleanup;
             let recording = recording::Recording {
                 generated: today(),
+                recorded_dates: std::collections::BTreeSet::from([today()]),
+                source: recording::Source::Live,
                 requests: live.requests,
                 tools: tools_note(),
                 cases: live.run.cases.clone(),
@@ -469,6 +471,8 @@ fn execute(
         // Recording gcs-mimic itself gives an offline fixture for testing replay.
         let recording = recording::Recording {
             generated: today(),
+            recorded_dates: std::collections::BTreeSet::from([today()]),
+            source: recording::Source::SelfCheck,
             requests: 0,
             tools: tools_note(),
             cases: mimic_run.cases.clone(),
@@ -561,6 +565,19 @@ fn out_dir(options: &Options, work: &Path) -> PathBuf {
     options.out.clone().unwrap_or_else(|| work.join("out"))
 }
 
+fn replay_date(today: &str, recording: &recording::Recording) -> String {
+    if recording.recorded_dates.len() > 1 {
+        let dates: Vec<_> = recording
+            .recorded_dates
+            .iter()
+            .map(String::as_str)
+            .collect();
+        format!("{today} (recordings of {})", dates.join(" and "))
+    } else {
+        format!("{today} (recording of {})", recording.generated)
+    }
+}
+
 /// Drops the gRPC cases when `grpcurl` is not installed, so the rest of the
 /// run still counts. The report lists each dropped case as skipped.
 fn split_unrunnable(cases: &[case::Case], grpcurl: bool) -> (Vec<case::Case>, Vec<String>) {
@@ -588,6 +605,22 @@ mod tests {
         };
         let value = serde_json::json!({"id": id, "description": "d", "steps": [step]});
         case::parse_case(&value, id).unwrap()
+    }
+
+    #[test]
+    fn replay_names_all_recording_dates_after_a_partial_refresh() {
+        let recording = recording::from_json(&serde_json::json!({
+            "format": 2,
+            "generated": "2026-11-02",
+            "recorded_dates": ["2026-11-01", "2026-11-02"],
+            "source": "live",
+            "cases": [],
+        }))
+        .unwrap();
+        assert_eq!(
+            replay_date("2026-11-03", &recording),
+            "2026-11-03 (recordings of 2026-11-01 and 2026-11-02)"
+        );
     }
 
     #[test]

@@ -9,8 +9,17 @@ use std::collections::BTreeSet;
 type Result<T> = std::result::Result<T, String>;
 const FORMAT: u64 = 2;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Source {
+    Live,
+    SelfCheck,
+    Legacy,
+}
+
 pub(crate) struct Recording {
     pub(crate) generated: String,
+    pub(crate) recorded_dates: BTreeSet<String>,
+    pub(crate) source: Source,
     pub(crate) requests: u64,
     /// Tool versions behind the gRPC bodies; see `differential::tools_note`.
     pub(crate) tools: String,
@@ -20,6 +29,15 @@ pub(crate) struct Recording {
 /// Replace complete cases, retaining base order and counting all reference
 /// requests spent on both recordings, including superseded observations.
 pub(crate) fn merge(mut base: Recording, partial: Recording) -> Result<Recording> {
+    if base.source == Source::SelfCheck || partial.source != Source::Live || partial.requests == 0 {
+        return Err("merge requires a live reference and a partial with live provenance and nonzero requests".into());
+    }
+    if !crate::date(&base.generated)
+        || !crate::date(&partial.generated)
+        || partial.generated < base.generated
+    {
+        return Err("partial recording date must be valid and no older than the base".into());
+    }
     let revision = base
         .tools
         .strip_prefix("storage.proto ")
@@ -44,12 +62,17 @@ pub(crate) fn merge(mut base: Recording, partial: Recording) -> Result<Recording
         if !ids.contains(&case.id) || !replacements.insert(case.id.clone()) {
             return Err("partial recording has unknown or duplicate case ids".into());
         }
+        if case.error.is_some() || case.steps.iter().any(|step| step.result.is_err()) {
+            return Err("partial recording contains a failed case or step".into());
+        }
     }
     base.requests = base
         .requests
         .checked_add(partial.requests)
         .ok_or("recording request count overflow")?;
     base.generated = partial.generated;
+    base.recorded_dates.extend(partial.recorded_dates);
+    base.source = Source::Live;
     for case in partial.cases {
         let slot = base
             .cases
@@ -111,13 +134,46 @@ pub(crate) fn to_json(recording: &Recording) -> Value {
             })
         })
         .collect();
-    json!({
+    let mut value = json!({
         "format": FORMAT,
         "generated": recording.generated,
+        "recorded_dates": recording.recorded_dates,
         "requests": recording.requests,
         "tools": recording.tools,
         "cases": cases,
-    })
+    });
+    let source = match recording.source {
+        Source::Live => Some("live"),
+        Source::SelfCheck => Some("self-check"),
+        Source::Legacy => None,
+    };
+    if let Some(source) = source {
+        value["source"] = json!(source);
+    }
+    value
+}
+
+fn recorded_dates(value: &Value, generated: &str) -> Result<BTreeSet<String>> {
+    let dates = match value.get("recorded_dates") {
+        None => BTreeSet::from([generated.to_owned()]),
+        Some(dates) => dates
+            .as_array()
+            .ok_or("recorded_dates must be an array")?
+            .iter()
+            .map(|date| {
+                date.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| "recorded date must be a string".into())
+            })
+            .collect::<Result<BTreeSet<_>>>()?,
+    };
+    if dates.is_empty()
+        || !dates.iter().all(|date| crate::date(date))
+        || dates.last().map(String::as_str) != Some(generated)
+    {
+        return Err("recorded dates must be valid with generated as the latest date".into());
+    }
+    Ok(dates)
 }
 
 fn parse_body(value: &Value) -> Result<NormBody> {
@@ -179,6 +235,13 @@ pub(crate) fn from_json(value: &Value) -> Result<Recording> {
     if value["format"].as_u64() != Some(FORMAT) {
         return Err(format!("unsupported recording format (expected {FORMAT})"));
     }
+    let source = match value.get("source") {
+        None => Source::Legacy,
+        Some(Value::String(source)) if source == "live" => Source::Live,
+        Some(Value::String(source)) if source == "self-check" => Source::SelfCheck,
+        _ => return Err("unknown recording source".into()),
+    };
+    let generated = value["generated"].as_str().unwrap_or_default();
     let cases = value["cases"]
         .as_array()
         .ok_or("recording without cases")?
@@ -198,7 +261,9 @@ pub(crate) fn from_json(value: &Value) -> Result<Recording> {
         })
         .collect::<Result<_>>()?;
     Ok(Recording {
-        generated: value["generated"].as_str().unwrap_or_default().to_owned(),
+        generated: generated.to_owned(),
+        recorded_dates: recorded_dates(value, generated)?,
+        source,
         requests: value["requests"].as_u64().unwrap_or(0),
         tools: value["tools"].as_str().unwrap_or_default().to_owned(),
         cases,
@@ -213,6 +278,8 @@ mod tests {
     fn fixture(ids: &[&str], generated: &str, requests: u64) -> Recording {
         Recording {
             generated: generated.into(),
+            recorded_dates: BTreeSet::from([generated.into()]),
+            source: Source::Live,
             requests,
             tools: format!("storage.proto {}; grpcurl 1.9.4", "a".repeat(40)),
             cases: ids
@@ -241,8 +308,69 @@ mod tests {
         );
         assert_eq!(merged.generated, "2026-11-02");
         assert_eq!(merged.requests, 112);
+        assert_eq!(merged.source, Source::Live);
+        assert_eq!(
+            merged.recorded_dates,
+            BTreeSet::from(["2026-11-01".into(), "2026-11-02".into()])
+        );
         assert_eq!(to_json(&merged)["format"], FORMAT);
         assert_eq!(from_json(&to_json(&merged)).unwrap().tools, merged.tools);
+    }
+
+    #[test]
+    fn merge_requires_live_nonempty_provenance_but_accepts_a_legacy_base() {
+        let base_json = to_json(&fixture(&["b"], "2026-11-01", 100));
+        let mut legacy = base_json.clone();
+        legacy.as_object_mut().unwrap().remove("source");
+        legacy.as_object_mut().unwrap().remove("recorded_dates");
+        let base = from_json(&legacy).unwrap();
+        assert_eq!(base.source, Source::Legacy);
+        assert!(merge(base, fixture(&["b"], "2026-11-02", 12)).is_ok());
+        for source in [Source::Legacy, Source::SelfCheck] {
+            let mut partial = fixture(&["b"], "2026-11-02", 12);
+            partial.source = source;
+            assert!(merge(from_json(&base_json).unwrap(), partial).is_err());
+        }
+        let mut self_check = fixture(&["b"], "2026-11-01", 100);
+        self_check.source = Source::SelfCheck;
+        assert!(merge(self_check, fixture(&["b"], "2026-11-02", 12)).is_err());
+        assert!(
+            merge(
+                from_json(&base_json).unwrap(),
+                fixture(&["b"], "2026-11-02", 0)
+            )
+            .is_err()
+        );
+        let mut unknown = base_json;
+        unknown["source"] = json!("unknown");
+        assert!(from_json(&unknown).is_err());
+    }
+
+    #[test]
+    fn merge_refuses_old_partial_dates_and_failed_observations() {
+        assert!(
+            merge(
+                fixture(&["b"], "2026-11-02", 100),
+                fixture(&["b"], "2026-11-01", 12)
+            )
+            .is_err()
+        );
+        let mut failed_case = fixture(&["b"], "2026-11-02", 12);
+        failed_case.cases[0].error = Some("setup failed".into());
+        assert!(merge(fixture(&["b"], "2026-11-01", 100), failed_case).is_err());
+        let mut failed_step = fixture(&["b"], "2026-11-02", 12);
+        failed_step.cases[0].steps.push(StepOutcome {
+            name: "get".into(),
+            request: "GET /x".into(),
+            result: Err("transport failed".into()),
+            expectation: None,
+            retries: 0,
+            fingerprint: "00ff".into(),
+        });
+        assert!(merge(fixture(&["b"], "2026-11-01", 100), failed_step).is_err());
+        let mut bad_dates = to_json(&fixture(&["b"], "2026-11-02", 12));
+        bad_dates["recorded_dates"] = json!(["2026-11-03"]);
+        assert!(from_json(&bad_dates).is_err());
     }
 
     #[test]
@@ -288,6 +416,8 @@ mod tests {
     fn round_trips_responses_errors_and_expectations() {
         let recording = Recording {
             generated: "2026-11-01".into(),
+            recorded_dates: BTreeSet::from(["2026-11-01".into()]),
+            source: Source::Live,
             requests: 7,
             tools: "grpcurl 1.9.4".into(),
             cases: vec![CaseOutcome {

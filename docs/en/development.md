@@ -618,10 +618,17 @@ cargo xtask differential merge compatibility/differential/reference/gcs.json \
 
 Review `merged-reference.json` before replacing the committed reference. The
 merge replaces complete cases by ID, retains all other cases and their order,
-and rejects empty partials, unknown or duplicate case IDs, incompatible formats,
-or different storage.proto revisions or tool metadata (including grpcurl).
+and requires a partial with `source: "live"` and nonzero reference requests.
+Self-check recordings (`source: "self-check"`) are refused on either side.
+For the existing live reference, a missing `source` is accepted only on the base;
+an unmarked partial must be re-recorded. Empty partials, unknown or duplicate
+case IDs, failed cases or steps, dates older than the base, incompatible formats,
+and different storage.proto revisions or tool metadata (including grpcurl) are
+also refused.
 Use the same pinned tools for the partial recording. The format stays unchanged;
-`generated` becomes the partial recording's date (the latest refresh), and
+`generated` becomes the partial recording's date (the latest refresh),
+`recorded_dates` retains every contributing recording date, and replay headers
+name the combined dates so the latest refresh does not date every observation.
 `requests` sums both recordings' reference requests, including requests for
 superseded observations and cleanup. The output passes the same redaction leak
 guard as an ordinary recording. `--out` may name the base file for an in-place
@@ -666,6 +673,8 @@ Email addresses with a percent-encoded `@` in a URL become
 difference. Both forms are also detected by the leak guard. The local Storage
 service agent's project number `0` uses the same `<project-number>` placeholder
 as the discovered project number in live service-agent names.
+Double-encoded `%2540` becomes `<email:double-percent-encoded>` and is also
+detected by the leak guard.
 
 ### Case files
 
