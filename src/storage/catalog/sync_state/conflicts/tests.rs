@@ -413,7 +413,7 @@ async fn conflict_original_owner_survives_bucket_recreation_and_completed_retry(
         .unwrap();
     fixture
         .catalog
-        .delete_bucket("test-bucket", None, None, PERMISSIVE)
+        .delete_bucket("test-bucket", Default::default(), PERMISSIVE)
         .await
         .unwrap();
     fixture

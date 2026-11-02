@@ -113,8 +113,7 @@ async fn protected_external_deletion_restores_bytes_and_versioned_removal_keeps_
                 versioning_enabled: Some(true),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await
@@ -290,8 +289,7 @@ async fn incomplete_scan_recreated_file_and_api_change_never_authorize_an_old_de
                 versioning_enabled: Some(true),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await

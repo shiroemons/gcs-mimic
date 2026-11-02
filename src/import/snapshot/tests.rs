@@ -301,8 +301,7 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
                     versioning_enabled: Some(true),
                     ..Default::default()
                 },
-                None,
-                None,
+                Default::default(),
                 PERMISSIVE,
             )
             .await

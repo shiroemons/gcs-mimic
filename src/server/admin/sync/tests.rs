@@ -1105,8 +1105,7 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
                 versioning_enabled: Some(true),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await

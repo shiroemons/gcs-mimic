@@ -54,7 +54,7 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
                 ..Default::default()
             };
             catalog
-                .patch_bucket("test-bucket", update, None, None, PERMISSIVE)
+                .patch_bucket("test-bucket", update, Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
         }

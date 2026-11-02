@@ -310,8 +310,10 @@ async fn lock_retention_policy(
                 lock_retention_policy: true,
                 ..Default::default()
             },
-            Some(metageneration),
-            None,
+            BucketConditions {
+                if_metageneration_match: Some(metageneration),
+                ..Default::default()
+            },
             access,
         )
         .await?;
@@ -412,25 +414,13 @@ async fn write(
         WriteMode::Replace => {
             state
                 .catalog
-                .replace_bucket(
-                    bucket,
-                    update,
-                    conditions.if_metageneration_match,
-                    conditions.if_metageneration_not_match,
-                    access,
-                )
+                .replace_bucket(bucket, update, conditions, access)
                 .await
         }
         WriteMode::Patch => {
             state
                 .catalog
-                .patch_bucket(
-                    bucket,
-                    update,
-                    conditions.if_metageneration_match,
-                    conditions.if_metageneration_not_match,
-                    access,
-                )
+                .patch_bucket(bucket, update, conditions, access)
                 .await
         }
     }
@@ -685,12 +675,7 @@ async fn delete(
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     ctx.state
         .catalog
-        .delete_bucket(
-            bucket,
-            conditions.if_metageneration_match,
-            conditions.if_metageneration_not_match,
-            access,
-        )
+        .delete_bucket(bucket, conditions, access)
         .await
         .map_err(|error| bucket_catalog_error(error, ctx.profile, None))?;
     Ok(if ctx.profile == CompatProfile::LegacyEmulator {

@@ -715,7 +715,7 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
     );
     assert_eq!(
         catalog
-            .delete_bucket("bucket", None, None, PERMISSIVE)
+            .delete_bucket("bucket", Default::default(), PERMISSIVE)
             .await,
         Err(CatalogError::NotEmpty)
     );
@@ -744,7 +744,7 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
         Err(ObjectError::ObjectNotFound)
     );
     catalog
-        .delete_bucket("bucket", None, None, PERMISSIVE)
+        .delete_bucket("bucket", Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -914,7 +914,7 @@ async fn conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic(
             ObjectConditions::default(),
             async move {
                 deleting
-                    .delete_bucket("bucket", None, None, PERMISSIVE)
+                    .delete_bucket("bucket", Default::default(), PERMISSIVE)
                     .await
             },
             iteration,

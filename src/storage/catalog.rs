@@ -1,7 +1,7 @@
 use super::lock;
 use crate::auth::{Identity, OBJECTS_DELETE, Policy};
 use crate::bucket::{
-    BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError, LabelPart,
+    BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError, LabelPart,
     UNIFORM_ACCESS_LOCK_PERIOD, cors_from_value, cors_value, valid_label, validate_cors,
     validate_storage_class,
 };
@@ -1310,46 +1310,29 @@ impl Catalog {
         &self,
         name: &str,
         update: BucketMetadataUpdate,
-        if_metageneration_match: Option<i64>,
-        if_metageneration_not_match: Option<i64>,
+        conditions: BucketConditions,
         access: &BucketAccess,
     ) -> Result<BucketRecord, CatalogError> {
-        self.update_bucket(
-            name,
-            update,
-            if_metageneration_match,
-            if_metageneration_not_match,
-            access,
-            BucketWrite::Patch,
-        )
-        .await
+        self.update_bucket(name, update, conditions, access, BucketWrite::Patch)
+            .await
     }
 
     pub(crate) async fn replace_bucket(
         &self,
         name: &str,
         update: BucketMetadataUpdate,
-        if_metageneration_match: Option<i64>,
-        if_metageneration_not_match: Option<i64>,
+        conditions: BucketConditions,
         access: &BucketAccess,
     ) -> Result<BucketRecord, CatalogError> {
-        self.update_bucket(
-            name,
-            update,
-            if_metageneration_match,
-            if_metageneration_not_match,
-            access,
-            BucketWrite::Replace,
-        )
-        .await
+        self.update_bucket(name, update, conditions, access, BucketWrite::Replace)
+            .await
     }
 
     async fn update_bucket(
         &self,
         name: &str,
         mut update: BucketMetadataUpdate,
-        if_metageneration_match: Option<i64>,
-        if_metageneration_not_match: Option<i64>,
+        conditions: BucketConditions,
         access: &BucketAccess,
         mode: BucketWrite,
     ) -> Result<BucketRecord, CatalogError> {
@@ -1370,8 +1353,8 @@ impl Catalog {
                     identity: identity.clone(), project: project.clone(), permission: crate::auth::Permission::BucketsSetIam,
                 })?;
             }
-            if if_metageneration_match.is_some_and(|value| value != record.metageneration)
-                || if_metageneration_not_match == Some(record.metageneration)
+            if conditions.if_metageneration_match.is_some_and(|value| value != record.metageneration)
+                || conditions.if_metageneration_not_match == Some(record.metageneration)
             {
                 return Err(CatalogError::PreconditionFailed);
             }
@@ -1398,7 +1381,7 @@ impl Catalog {
             if let Some(duration) = update.soft_delete_retention {
                 apply_soft_delete_retention(&mut record, duration, clock.now())?;
             }
-            apply_retention_policy(&mut record, &update, if_metageneration_match, clock.now())?;
+            apply_retention_policy(&mut record, &update, conditions.if_metageneration_match, clock.now())?;
             validate_retention_expiration(&transaction, &record)?;
             bucket_autoclass::update(&transaction, &mut record, &update, clock.now())?;
             if let Some(labels) = update.labels.take() {
@@ -1570,8 +1553,7 @@ impl Catalog {
     pub(crate) async fn delete_bucket(
         &self,
         name: &str,
-        if_metageneration_match: Option<i64>,
-        if_metageneration_not_match: Option<i64>,
+        conditions: BucketConditions,
         access: &BucketAccess,
     ) -> Result<(), CatalogError> {
         let name = name.to_owned();
@@ -1589,8 +1571,8 @@ impl Catalog {
             .optional()?
             .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &project, &access)?;
-            if if_metageneration_match.is_some_and(|value| value != metageneration)
-                || if_metageneration_not_match == Some(metageneration)
+            if conditions.if_metageneration_match.is_some_and(|value| value != metageneration)
+                || conditions.if_metageneration_not_match == Some(metageneration)
             {
                 return Err(CatalogError::PreconditionFailed);
             }
@@ -2264,16 +2246,13 @@ mod tests {
             .get_bucket("patch-policy", PERMISSIVE)
             .await
             .unwrap();
+        let conditions = BucketConditions {
+            if_metageneration_match: Some(99),
+            ..Default::default()
+        };
         assert_eq!(
             catalog
-                .update_bucket(
-                    "patch-policy",
-                    update.clone(),
-                    Some(99),
-                    None,
-                    &access,
-                    mode
-                )
+                .update_bucket("patch-policy", update.clone(), conditions, &access, mode)
                 .await,
             Err(CatalogError::Forbidden)
         );
@@ -2293,14 +2272,7 @@ mod tests {
         };
         assert_eq!(
             catalog
-                .update_bucket(
-                    "patch-policy",
-                    invalid.clone(),
-                    Some(99),
-                    None,
-                    &access,
-                    mode
-                )
+                .update_bucket("patch-policy", invalid.clone(), conditions, &access, mode)
                 .await,
             Err(CatalogError::Forbidden)
         );
@@ -2312,7 +2284,7 @@ mod tests {
             before
         );
         catalog
-            .delete_bucket("patch-policy", None, None, PERMISSIVE)
+            .delete_bucket("patch-policy", Default::default(), PERMISSIVE)
             .await
             .unwrap();
         let mut replacement = record;
@@ -2320,7 +2292,7 @@ mod tests {
         let replacement = catalog.insert_bucket(replacement).await.unwrap();
         assert_eq!(
             catalog
-                .update_bucket("patch-policy", update, None, None, &access, mode)
+                .update_bucket("patch-policy", update, Default::default(), &access, mode)
                 .await,
             Err(CatalogError::Forbidden)
         );
@@ -2333,7 +2305,7 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .update_bucket("patch-policy", invalid, None, None, &access, mode)
+                .update_bucket("patch-policy", invalid, Default::default(), &access, mode)
                 .await,
             Err(CatalogError::Forbidden)
         );

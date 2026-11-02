@@ -134,7 +134,7 @@ async fn sync_observation_owner_inventory_recreation_preserves_keyset_and_incarn
     let old = &first.items[0];
     assert_eq!(old.bucket.name, "page-a");
     catalog
-        .delete_bucket("page-a", None, None, PERMISSIVE)
+        .delete_bucket("page-a", Default::default(), PERMISSIVE)
         .await
         .unwrap();
     admin
@@ -330,8 +330,7 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
                             versioning_enabled: Some(true),
                             ..Default::default()
                         },
-                        None,
-                        None,
+                        Default::default(),
                         PERMISSIVE,
                     )
                     .await
@@ -349,7 +348,7 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
             }
             ChangeKind::BucketDelete => {
                 catalog
-                    .delete_bucket("other-bucket", None, None, PERMISSIVE)
+                    .delete_bucket("other-bucket", Default::default(), PERMISSIVE)
                     .await
                     .unwrap();
             }

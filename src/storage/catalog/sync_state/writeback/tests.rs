@@ -557,7 +557,7 @@ async fn writeback_pending_pages_survive_bucket_deletion_recreation_and_restart(
             .unwrap();
     }
     catalog
-        .delete_bucket(bucket.as_str(), None, None, PERMISSIVE)
+        .delete_bucket(bucket.as_str(), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     catalog
@@ -637,7 +637,7 @@ async fn writeback_protected_sparse_body_exceeds_quota_without_cleanup_or_false_
         .await
         .unwrap();
     catalog
-        .delete_bucket(bucket.as_str(), None, None, PERMISSIVE)
+        .delete_bucket(bucket.as_str(), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     catalog

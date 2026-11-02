@@ -276,7 +276,7 @@ async fn sync_state_publication_skip_rollback_and_conditional_delete_are_atomic(
         Err(AdminError::NotFound)
     );
     catalog
-        .delete_bucket("test-bucket", None, None, PERMISSIVE)
+        .delete_bucket("test-bucket", Default::default(), PERMISSIVE)
         .await
         .unwrap();
     admin

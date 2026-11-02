@@ -321,7 +321,7 @@ mod tests {
         ));
 
         catalog
-            .delete_bucket("bucket", None, None, &access)
+            .delete_bucket("bucket", Default::default(), &access)
             .await
             .unwrap();
         catalog.insert_bucket(bucket("bucket")).await.unwrap();

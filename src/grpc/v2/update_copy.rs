@@ -1,8 +1,8 @@
 use super::{Storage, access_status, convert, iam, names, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
-    bucket::{BucketAccess, BucketMetadataUpdate},
-    grpc::validate::{self, request_conditions, strict_conditions},
+    bucket::{BucketAccess, BucketConditions, BucketMetadataUpdate},
+    grpc::validate::{self, bucket_conditions, request_conditions, strict_conditions},
     json::{self, JsonError},
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget},
     server::authorize_bucket,
@@ -736,8 +736,10 @@ impl Storage {
                     lock_retention_policy: true,
                     ..Default::default()
                 },
-                Some(r.if_metageneration_match),
-                None,
+                BucketConditions {
+                    if_metageneration_match: Some(r.if_metageneration_match),
+                    ..Default::default()
+                },
                 &access,
             )
             .await
@@ -878,7 +880,7 @@ impl Storage {
         let paths = mask(r.update_mask.as_ref())?;
         let mut body = bucket_patch(&b, paths)?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
-        let mut mm = r.if_metageneration_match;
+        let mut conditions = bucket_conditions!(r);
         if paths.iter().any(|p| p == "labels") && !b.labels.is_empty() {
             let current = self
                 .state
@@ -890,7 +892,11 @@ impl Storage {
             for key in current.labels.keys().filter(|k| !b.labels.contains_key(*k)) {
                 body["labels"][key] = Value::Null;
             }
-            mm = Some(mm.unwrap_or(current.metageneration));
+            conditions.if_metageneration_match = Some(
+                conditions
+                    .if_metageneration_match
+                    .unwrap_or(current.metageneration),
+            );
         }
         let update = json::parse_bucket_patch(
             body.to_string().as_bytes(),
@@ -900,7 +906,7 @@ impl Storage {
         let record = self
             .state
             .catalog
-            .patch_bucket(bucket, update, mm, r.if_metageneration_not_match, &access)
+            .patch_bucket(bucket, update, conditions, &access)
             .await
             .map_err(error)?;
         let mut result = convert::bucket(&record);
@@ -1452,8 +1458,7 @@ mod tests {
                     public_access_prevention_enforced: Some(true),
                     ..Default::default()
                 },
-                None,
-                None,
+                Default::default(),
                 PERMISSIVE,
             )
             .await

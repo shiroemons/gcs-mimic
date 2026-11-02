@@ -674,8 +674,7 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
                 versioning_enabled: Some(true),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             &BucketAccess::Admin(admin.grant.clone()),
         )
         .await
@@ -794,8 +793,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
                 default_event_based_hold: Some(true),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             &BucketAccess::Admin(admin.grant.clone()),
         )
         .await

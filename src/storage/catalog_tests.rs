@@ -3,7 +3,7 @@ use super::catalog::{CATALOG_SCHEMA_VERSION, test_support as common};
 use crate as gcs_mimic;
 use crate::storage::test_fixtures::PERMISSIVE;
 use gcs_mimic::{
-    bucket::{BucketMetadataUpdate, BucketRecord, CatalogError},
+    bucket::{BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError},
     storage::Catalog,
     test_support::TestDir,
 };
@@ -156,8 +156,7 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
                 }),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await
@@ -178,8 +177,7 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
                 storage_class: Some("COLDLINE".into()),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await
@@ -353,8 +351,10 @@ async fn lifecycle_schema_migration_and_restart() {
                 lifecycle: Some(rules.clone()),
                 ..Default::default()
             },
-            Some(original.metageneration),
-            None,
+            BucketConditions {
+                if_metageneration_match: Some(original.metageneration),
+                ..Default::default()
+            },
             PERMISSIVE,
         )
         .await
@@ -407,14 +407,12 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
         uniform_bucket_level_access_enabled: Some(enabled),
         ..Default::default()
     };
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(original.metageneration),
+        ..Default::default()
+    };
     let enabled = catalog
-        .patch_bucket(
-            "uniform-bucket",
-            update(true),
-            Some(original.metageneration),
-            None,
-            PERMISSIVE,
-        )
+        .patch_bucket("uniform-bucket", update(true), conditions, PERMISSIVE)
         .await
         .unwrap();
     let locked_time = UNIX_EPOCH + Duration::from_secs(1000 + 90 * 24 * 60 * 60);
@@ -425,19 +423,14 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
     assert_eq!(enabled.metageneration, original.metageneration + 1);
     assert_eq!(
         catalog
-            .patch_bucket(
-                "uniform-bucket",
-                update(false),
-                Some(original.metageneration),
-                None,
-                PERMISSIVE
-            )
+            .patch_bucket("uniform-bucket", update(false), conditions, PERMISSIVE)
             .await,
         Err(CatalogError::PreconditionFailed)
     );
     clock.0.store(2000, Ordering::Relaxed);
+    let unconditioned = Default::default();
     let repeated = catalog
-        .replace_bucket("uniform-bucket", update(true), None, None, PERMISSIVE)
+        .replace_bucket("uniform-bucket", update(true), unconditioned, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -448,15 +441,17 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
         .replace_bucket(
             "uniform-bucket",
             update(false),
-            Some(repeated.metageneration),
-            None,
+            BucketConditions {
+                if_metageneration_match: Some(repeated.metageneration),
+                ..Default::default()
+            },
             PERMISSIVE,
         )
         .await
         .unwrap();
     assert_eq!(disabled.uniform_bucket_level_access_locked_time, None);
     let enabled = catalog
-        .patch_bucket("uniform-bucket", update(true), None, None, PERMISSIVE)
+        .patch_bucket("uniform-bucket", update(true), unconditioned, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -478,11 +473,11 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
     for replace in [false, true] {
         let result = if replace {
             catalog
-                .replace_bucket("uniform-bucket", update(false), None, None, PERMISSIVE)
+                .replace_bucket("uniform-bucket", update(false), unconditioned, PERMISSIVE)
                 .await
         } else {
             catalog
-                .patch_bucket("uniform-bucket", update(false), None, None, PERMISSIVE)
+                .patch_bucket("uniform-bucket", update(false), unconditioned, PERMISSIVE)
                 .await
         };
         assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
@@ -553,8 +548,10 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
                 public_access_prevention_enforced: Some(true),
                 ..Default::default()
             },
-            Some(original.metageneration),
-            None,
+            BucketConditions {
+                if_metageneration_match: Some(original.metageneration),
+                ..Default::default()
+            },
             PERMISSIVE,
         )
         .await
@@ -623,8 +620,10 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
                 cors: Some(vec![rule.clone()]),
                 ..Default::default()
             },
-            Some(original.metageneration),
-            None,
+            BucketConditions {
+                if_metageneration_match: Some(original.metageneration),
+                ..Default::default()
+            },
             PERMISSIVE,
         )
         .await
@@ -638,8 +637,7 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
                 cors: Some(vec![invalid.clone()]),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await;
@@ -723,8 +721,12 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         storage_class: Some("NEARLINE".into()),
         ..Default::default()
     };
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(3),
+        if_metageneration_not_match: Some(2),
+    };
     let record = catalog
-        .replace_bucket("put-clock", update.clone(), Some(3), Some(2), PERMISSIVE)
+        .replace_bucket("put-clock", update.clone(), conditions, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -752,8 +754,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
                 labels: Some(Some(labels)),
                 ..update.clone()
             },
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await
@@ -781,16 +782,20 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
             ..update.clone()
         },
     ];
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(3),
+        ..Default::default()
+    };
     for invalid in invalid {
         assert_eq!(
             catalog
-                .replace_bucket("put-clock", invalid.clone(), Some(3), None, PERMISSIVE)
+                .replace_bucket("put-clock", invalid.clone(), conditions, PERMISSIVE)
                 .await,
             Err(CatalogError::PreconditionFailed)
         );
         assert!(matches!(
             catalog
-                .replace_bucket("put-clock", invalid, None, None, PERMISSIVE)
+                .replace_bucket("put-clock", invalid, Default::default(), PERMISSIVE)
                 .await,
             Err(CatalogError::InvalidMetadata(_))
         ));
@@ -807,8 +812,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
                     storage_class: Some("RAPID".into()),
                     ..Default::default()
                 },
-                None,
-                None,
+                Default::default(),
                 PERMISSIVE
             )
             .await,
@@ -818,8 +822,12 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         catalog.get_bucket("put-clock", PERMISSIVE).await.unwrap(),
         Some(full.clone())
     );
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(5),
+        ..Default::default()
+    };
     let next = catalog
-        .replace_bucket("put-clock", Default::default(), Some(5), None, PERMISSIVE)
+        .replace_bucket("put-clock", Default::default(), conditions, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(next.labels, full.labels);
@@ -831,7 +839,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
     let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
     assert!(matches!(
         catalog
-            .replace_bucket("put-exhausted", update, None, None, PERMISSIVE)
+            .replace_bucket("put-exhausted", update, Default::default(), PERMISSIVE)
             .await,
         Err(CatalogError::Unavailable(_))
     ));
@@ -867,8 +875,12 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         default_event_based_hold: Some(true),
         ..Default::default()
     };
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(3),
+        if_metageneration_not_match: Some(2),
+    };
     let record = catalog
-        .patch_bucket("patch-clock", update.clone(), Some(3), Some(2), PERMISSIVE)
+        .patch_bucket("patch-clock", update.clone(), conditions, PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -877,8 +889,12 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     );
     assert_eq!(record.time_created, original.time_created);
     assert_eq!(record.metageneration, 4);
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(4),
+        ..Default::default()
+    };
     let next = catalog
-        .patch_bucket("patch-clock", Default::default(), Some(4), None, PERMISSIVE)
+        .patch_bucket("patch-clock", Default::default(), conditions, PERMISSIVE)
         .await
         .unwrap();
     // A patch without a writable setting is a no-op, as on Cloud Storage.
@@ -892,15 +908,20 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         )),
         ..update.clone()
     };
+    let unconditioned = Default::default();
     assert!(matches!(
         catalog
-            .patch_bucket("patch-clock", too_many.clone(), None, None, PERMISSIVE)
+            .patch_bucket("patch-clock", too_many.clone(), unconditioned, PERMISSIVE)
             .await,
         Err(CatalogError::InvalidMetadata(_))
     ));
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(3),
+        ..Default::default()
+    };
     assert_eq!(
         catalog
-            .patch_bucket("patch-clock", too_many, Some(3), None, PERMISSIVE)
+            .patch_bucket("patch-clock", too_many, conditions, PERMISSIVE)
             .await,
         Err(CatalogError::PreconditionFailed)
     );
@@ -916,7 +937,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     ] {
         assert!(matches!(
             catalog
-                .patch_bucket("patch-clock", update, None, None, PERMISSIVE)
+                .patch_bucket("patch-clock", update, Default::default(), PERMISSIVE)
                 .await,
             Err(CatalogError::InvalidMetadata(_))
         ));
@@ -930,7 +951,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
     assert!(matches!(
         catalog
-            .patch_bucket("exhausted", update, None, None, PERMISSIVE)
+            .patch_bucket("exhausted", update, Default::default(), PERMISSIVE)
             .await,
         Err(CatalogError::Unavailable(_))
     ));
@@ -996,16 +1017,20 @@ async fn create_get_delete_and_restart_preserve_every_field() {
         Some(expected)
     );
     catalog
-        .delete_bucket("bucket", None, None, PERMISSIVE)
+        .delete_bucket("bucket", Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
         catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
         None
     );
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(9),
+        ..Default::default()
+    };
     assert_eq!(
         catalog
-            .delete_bucket("bucket", Some(9), None, PERMISSIVE)
+            .delete_bucket("bucket", conditions, PERMISSIVE)
             .await,
         Err(CatalogError::NotFound)
     );
@@ -1220,9 +1245,13 @@ async fn delete_preconditions_are_atomic_and_preserve_failed_records() {
         .await
         .unwrap();
     for (matching, not_matching) in [(Some(2), None), (None, Some(3)), (Some(3), Some(3))] {
+        let conditions = BucketConditions {
+            if_metageneration_match: matching,
+            if_metageneration_not_match: not_matching,
+        };
         assert_eq!(
             catalog
-                .delete_bucket("conditional", matching, not_matching, PERMISSIVE)
+                .delete_bucket("conditional", conditions, PERMISSIVE)
                 .await,
             Err(CatalogError::PreconditionFailed)
         );
@@ -1234,24 +1263,36 @@ async fn delete_preconditions_are_atomic_and_preserve_failed_records() {
                 .is_some()
         );
     }
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(3),
+        if_metageneration_not_match: Some(2),
+    };
     catalog
-        .delete_bucket("conditional", Some(3), Some(2), PERMISSIVE)
+        .delete_bucket("conditional", conditions, PERMISSIVE)
         .await
         .unwrap();
     catalog
         .insert_bucket(bucket("conditional", "project"))
         .await
         .unwrap();
+    let conditions = BucketConditions {
+        if_metageneration_not_match: Some(4),
+        ..Default::default()
+    };
     catalog
-        .delete_bucket("conditional", None, Some(4), PERMISSIVE)
+        .delete_bucket("conditional", conditions, PERMISSIVE)
         .await
         .unwrap();
     catalog
         .insert_bucket(bucket("conditional", "project"))
         .await
         .unwrap();
+    let conditions = BucketConditions {
+        if_metageneration_match: Some(3),
+        ..Default::default()
+    };
     catalog
-        .delete_bucket("conditional", Some(3), None, PERMISSIVE)
+        .delete_bucket("conditional", conditions, PERMISSIVE)
         .await
         .unwrap();
 }

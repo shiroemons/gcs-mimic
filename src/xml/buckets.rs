@@ -87,7 +87,7 @@ async fn execute(
         if delete {
             ctx.state
                 .catalog
-                .delete_bucket(&path.bucket, None, None, &access)
+                .delete_bucket(&path.bucket, Default::default(), &access)
                 .await
                 .map_err(|error| catalog_error(error, caller))?;
             return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));

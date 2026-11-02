@@ -21,6 +21,17 @@ macro_rules! request_conditions {
 }
 pub(super) use request_conditions;
 
+/// Read bucket fields by name so the two metageneration conditions cannot trade places.
+macro_rules! bucket_conditions {
+    ($request:ident) => {
+        $crate::bucket::BucketConditions {
+            if_metageneration_match: $request.if_metageneration_match,
+            if_metageneration_not_match: $request.if_metageneration_not_match,
+        }
+    };
+}
+pub(super) use bucket_conditions;
+
 pub(super) fn lenient_conditions(
     g: Option<i64>,
     ng: Option<i64>,

@@ -2,6 +2,7 @@ use super::status::from_json as json_error;
 use super::{Storage, pb, status::unsupported_for};
 use super::{convert, names};
 use crate::auth::Caller;
+use crate::grpc::validate::bucket_conditions;
 use crate::{bucket::CatalogError, json};
 use serde_json::json;
 use tonic::{Request, Response, Status};
@@ -377,12 +378,7 @@ impl Storage {
         let access = self.access(caller, name, "storage.buckets.delete").await?;
         self.state
             .catalog
-            .delete_bucket(
-                name,
-                request.if_metageneration_match,
-                request.if_metageneration_not_match,
-                &access,
-            )
+            .delete_bucket(name, bucket_conditions!(request), &access)
             .await
             .map_err(|error| catalog_error(error, caller))?;
         Ok(Response::new(()))

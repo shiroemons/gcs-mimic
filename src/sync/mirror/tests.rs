@@ -697,7 +697,7 @@ async fn live_export_bucket_incarnation_races_keep_other_buckets_progressing() {
                 .await
                 .unwrap();
             catalog
-                .delete_bucket(bucket.as_str(), None, None, PERMISSIVE)
+                .delete_bucket(bucket.as_str(), Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
             if recreate {

@@ -343,8 +343,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
                 versioning_enabled: Some(true),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await
@@ -358,7 +357,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
         .await
         .unwrap();
     catalog
-        .delete_bucket("empty-bucket", None, None, PERMISSIVE)
+        .delete_bucket("empty-bucket", Default::default(), PERMISSIVE)
         .await
         .unwrap();
     publish(&catalog, Origin::Seed, "source").await;

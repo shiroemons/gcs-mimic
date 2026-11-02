@@ -602,7 +602,7 @@ async fn appendable_objects_do_not_survive_bucket_recreation() {
     writer.flush().await.unwrap();
     assert_eq!(open(&catalog, "old").await.unwrap().size, 3);
     catalog
-        .delete_bucket("append", None, None, PERMISSIVE)
+        .delete_bucket("append", Default::default(), PERMISSIVE)
         .await
         .unwrap();
     insert_bucket(&catalog).await;

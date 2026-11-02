@@ -885,11 +885,11 @@ mod tests {
             };
             let result = if replace {
                 catalog
-                    .replace_bucket("pap-permissions", update, None, None, &access)
+                    .replace_bucket("pap-permissions", update, Default::default(), &access)
                     .await
             } else {
                 catalog
-                    .patch_bucket("pap-permissions", update, None, None, &access)
+                    .patch_bucket("pap-permissions", update, Default::default(), &access)
                     .await
             };
             assert_eq!(result, Err(CatalogError::Forbidden));
@@ -909,8 +909,7 @@ mod tests {
                         public_access_prevention_enforced: Some(enforced),
                         ..Default::default()
                     },
-                    None,
-                    None,
+                    Default::default(),
                     PERMISSIVE,
                 )
                 .await
@@ -932,11 +931,11 @@ mod tests {
                     };
                     let result = if replace {
                         catalog
-                            .replace_bucket("pap-permissions", update, None, None, &access)
+                            .replace_bucket("pap-permissions", update, Default::default(), &access)
                             .await
                     } else {
                         catalog
-                            .patch_bucket("pap-permissions", update, None, None, &access)
+                            .patch_bucket("pap-permissions", update, Default::default(), &access)
                             .await
                     };
                     let expected = value.unwrap_or(enforced);
@@ -1018,13 +1017,14 @@ mod tests {
                         } else {
                             update.acl = Some(entries);
                         }
+                        let conditions = Default::default();
                         let result = if replace {
                             catalog
-                                .replace_bucket("acl-permissions", update, None, None, &access)
+                                .replace_bucket("acl-permissions", update, conditions, &access)
                                 .await
                         } else {
                             catalog
-                                .patch_bucket("acl-permissions", update, None, None, &access)
+                                .patch_bucket("acl-permissions", update, conditions, &access)
                                 .await
                         };
                         if readable && same {

@@ -693,7 +693,7 @@ async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recre
         .await
         .unwrap();
     catalog
-        .delete_bucket(bucket.as_str(), None, None, PERMISSIVE)
+        .delete_bucket(bucket.as_str(), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     fs::write(tree.0.join("deleted-bucket/retained"), b"do not import").unwrap();

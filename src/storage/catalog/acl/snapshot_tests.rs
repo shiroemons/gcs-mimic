@@ -210,7 +210,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 .is_none()
         );
         catalog
-            .delete_bucket("bucket", None, None, PERMISSIVE)
+            .delete_bucket("bucket", Default::default(), PERMISSIVE)
             .await
             .unwrap();
         catalog

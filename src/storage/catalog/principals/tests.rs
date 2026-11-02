@@ -163,7 +163,7 @@ async fn new_and_recreated_buckets_start_bound_without_inheriting_old_grants() {
         Ok(incarnation)
     }).await.unwrap();
     catalog
-        .delete_bucket("bucket", None, None, PERMISSIVE)
+        .delete_bucket("bucket", Default::default(), PERMISSIVE)
         .await
         .unwrap();
     bucket(&catalog, "bucket", "another-project").await;

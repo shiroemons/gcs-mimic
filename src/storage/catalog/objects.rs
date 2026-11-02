@@ -3194,7 +3194,7 @@ mod tests {
                 .await
                 .unwrap();
             catalog
-                .delete_bucket("bucket", None, None, PERMISSIVE)
+                .delete_bucket("bucket", Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
             let (sender, body) = mpsc::channel(2);
@@ -3440,7 +3440,7 @@ mod tests {
                 .await;
         }
         let _ = catalog
-            .delete_bucket("bucket", None, None, PERMISSIVE)
+            .delete_bucket("bucket", Default::default(), PERMISSIVE)
             .await;
         create_bucket(catalog, project).await;
         put(catalog, "object", b"other project").await
@@ -3511,7 +3511,9 @@ mod tests {
         );
         // Authorization precedes the non-empty check, so a non-empty bucket also reports 403.
         assert_eq!(
-            catalog.delete_bucket("bucket", None, None, access).await,
+            catalog
+                .delete_bucket("bucket", Default::default(), access)
+                .await,
             Err(CatalogError::Forbidden)
         );
         assert_eq!(
@@ -3574,8 +3576,7 @@ mod tests {
                             public_access_prevention_enforced: Some(true),
                             ..Default::default()
                         },
-                        None,
-                        None,
+                        Default::default(),
                         PERMISSIVE,
                     )
                     .await
@@ -3880,7 +3881,9 @@ mod tests {
         );
         assert_eq!(catalog.get_bucket("bucket", &access).await, Ok(None));
         assert_eq!(
-            catalog.delete_bucket("bucket", None, None, &access).await,
+            catalog
+                .delete_bucket("bucket", Default::default(), &access)
+                .await,
             Err(CatalogError::NotFound)
         );
         // Created later in a project where the caller lacks the permission.

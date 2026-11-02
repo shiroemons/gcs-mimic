@@ -221,8 +221,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
                     versioning_enabled: Some(true),
                     ..Default::default()
                 },
-                None,
-                None,
+                Default::default(),
                 PERMISSIVE,
             )
             .await
@@ -477,8 +476,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
                     versioning_enabled: Some(true),
                     ..Default::default()
                 },
-                None,
-                None,
+                Default::default(),
                 PERMISSIVE,
             )
             .await

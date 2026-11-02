@@ -65,8 +65,7 @@ async fn set_retention(catalog: &Catalog, name: &str, seconds: u64) -> BucketRec
                 soft_delete_retention: Some(seconds),
                 ..Default::default()
             },
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await
@@ -110,7 +109,9 @@ async fn count(catalog: &Catalog, sql: &'static str) -> i64 {
 }
 
 async fn delete(catalog: &Catalog, name: &str) -> Result<(), CatalogError> {
-    catalog.delete_bucket(name, None, None, PERMISSIVE).await
+    catalog
+        .delete_bucket(name, Default::default(), PERMISSIVE)
+        .await
 }
 
 #[tokio::test]

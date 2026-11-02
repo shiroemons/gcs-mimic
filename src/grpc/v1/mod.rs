@@ -22,10 +22,10 @@ pub mod pb {
 
 use crate::{
     auth::{BUCKETS_LIST, Caller},
-    bucket::{BucketAccess, CatalogError},
+    bucket::{BucketAccess, BucketConditions, CatalogError},
     grpc::{
         v2::status::{from_json, unsupported},
-        validate::{self, request_conditions},
+        validate::{self, bucket_conditions, request_conditions},
     },
     json,
     object::{ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget},
@@ -367,12 +367,7 @@ impl pb::storage_server::Storage for Storage {
             .await?;
         self.state
             .catalog
-            .delete_bucket(
-                &r.bucket,
-                r.if_metageneration_match,
-                r.if_metageneration_not_match,
-                &access,
-            )
+            .delete_bucket(&r.bucket, bucket_conditions!(r), &access)
             .await
             .map_err(catalog_error)?;
         Ok(Response::new(()))
@@ -460,8 +455,10 @@ impl pb::storage_server::Storage for Storage {
                 &r.bucket,
                 update,
                 // Fence output-only validation against concurrent metadata changes.
-                Some(current.metageneration),
-                r.if_metageneration_not_match,
+                BucketConditions {
+                    if_metageneration_match: Some(current.metageneration),
+                    ..bucket_conditions!(r)
+                },
                 &access,
             )
             .await

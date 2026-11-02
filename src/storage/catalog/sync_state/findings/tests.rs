@@ -225,7 +225,7 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
         .await
         .unwrap();
     catalog
-        .delete_bucket(bucket.as_str(), None, None, PERMISSIVE)
+        .delete_bucket(bucket.as_str(), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert!(matches!(
@@ -354,7 +354,7 @@ async fn finding_owner_migration_backfills_only_proven_incarnations_and_rolls_ba
                 .await
                 .unwrap();
             catalog
-                .delete_bucket(name, None, None, PERMISSIVE)
+                .delete_bucket(name, Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
             if name == "reused-bucket" {

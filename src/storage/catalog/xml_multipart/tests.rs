@@ -501,7 +501,7 @@ async fn bucket_delete_wakes_cleanup_and_releases_full_multipart_session_capacit
     tokio::pin!(changed);
     changed.as_mut().enable();
     catalog
-        .delete_bucket("bucket", None, None, PERMISSIVE)
+        .delete_bucket("bucket", Default::default(), PERMISSIVE)
         .await
         .unwrap();
     tokio::time::timeout(Duration::from_secs(5), changed)

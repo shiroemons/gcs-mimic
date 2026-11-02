@@ -134,7 +134,7 @@ async fn protected_transfer_retains_original_owner_incarnation_and_generation_af
             .unwrap();
         fixture
             .catalog
-            .delete_bucket(fixture.bucket.as_str(), None, None, PERMISSIVE)
+            .delete_bucket(fixture.bucket.as_str(), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         if recreate {
