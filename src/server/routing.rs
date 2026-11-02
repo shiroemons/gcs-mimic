@@ -534,29 +534,21 @@ async fn respond_xml_object(
         .filter(|_| head || delete || request.method() == Method::GET)
         .map(|read| (read.bucket.clone(), read.name.clone()));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
+    let authentication = xml::Authentication {
+        auth: &ctx.state.auth,
+        catalog: &ctx.state.catalog,
+        method: request.method(),
+        uri: request.uri(),
+        headers: request.headers(),
+        clock: ctx.state.clock.as_ref(),
+        resource: &resource,
+    };
     let authentication = if put && !multipart {
-        xml::authenticate_upload_target(
-            &ctx.state.auth,
-            &ctx.state.catalog,
-            request.method(),
-            request.uri(),
-            request.headers(),
-            ctx.state.clock.as_ref(),
-            &resource,
-        )
-        .await
+        xml::authenticate_upload_target(authentication).await
     } else {
-        xml::authenticate_target(
-            &ctx.state.auth,
-            &ctx.state.catalog,
-            request.method(),
-            request.uri(),
-            request.headers(),
-            ctx.state.clock.as_ref(),
-            &resource,
-        )
-        .await
-        .map(|caller| (caller, None))
+        xml::authenticate_target(authentication)
+            .await
+            .map(|caller| (caller, None))
     };
     let result = match authentication {
         Ok((caller, streaming)) => {
@@ -602,15 +594,15 @@ async fn respond_xml_resumable(
             xml::resumable::session(request, object, ctx.object(None, deadline)).await
         }
         xml::resumable::Route::Start => {
-            match xml::authenticate_target(
-                &ctx.state.auth,
-                &ctx.state.catalog,
-                request.method(),
-                request.uri(),
-                request.headers(),
-                ctx.state.clock.as_ref(),
+            match xml::authenticate_target(xml::Authentication {
+                auth: &ctx.state.auth,
+                catalog: &ctx.state.catalog,
+                method: request.method(),
+                uri: request.uri(),
+                headers: request.headers(),
+                clock: ctx.state.clock.as_ref(),
                 resource,
-            )
+            })
             .await
             {
                 Ok(caller) => match xml::normalize_legacy_headers(request.headers_mut()) {

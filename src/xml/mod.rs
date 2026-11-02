@@ -24,36 +24,29 @@ pub(crate) mod post;
 pub(crate) mod put;
 pub(crate) mod resumable;
 
-#[cfg(test)]
-pub(crate) async fn authenticate<'a>(
-    auth: &'a crate::auth::Auth,
-    catalog: &crate::storage::Catalog,
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    clock: &dyn crate::clock::Clock,
+/// The caller borrows only auth so the request can be consumed after authentication.
+pub(crate) struct Authentication<'auth, 'request> {
+    pub(crate) auth: &'auth crate::auth::Auth,
+    pub(crate) catalog: &'request crate::storage::Catalog,
+    pub(crate) method: &'request Method,
+    pub(crate) uri: &'request Uri,
+    pub(crate) headers: &'request HeaderMap,
+    pub(crate) clock: &'request dyn crate::clock::Clock,
+    pub(crate) resource: &'request crate::auth::signature::Resource,
+}
+
+pub(crate) async fn authenticate_target<'a>(
+    request: Authentication<'a, '_>,
 ) -> Result<Option<crate::auth::Caller<'a>>, Error> {
-    authenticate_target(
+    let Authentication {
         auth,
         catalog,
         method,
         uri,
         headers,
         clock,
-        &crate::auth::signature::Resource::PathStyle,
-    )
-    .await
-}
-
-pub(crate) async fn authenticate_target<'a>(
-    auth: &'a crate::auth::Auth,
-    catalog: &crate::storage::Catalog,
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    clock: &dyn crate::clock::Clock,
-    resource: &crate::auth::signature::Resource,
-) -> Result<Option<crate::auth::Caller<'a>>, Error> {
+        resource,
+    } = request;
     if crate::auth::signature::is_signed(uri.query()) || crate::auth::signature::has_header(headers)
     {
         auth.authenticate_xml_resource(catalog, method, uri, headers, clock, resource)
@@ -130,41 +123,8 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
     Error::new(status, code, message)
 }
 
-#[cfg(test)]
-pub(crate) async fn authenticate_upload<'a>(
-    auth: &'a crate::auth::Auth,
-    catalog: &crate::storage::Catalog,
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    clock: &dyn crate::clock::Clock,
-) -> Result<
-    (
-        Option<crate::auth::Caller<'a>>,
-        Option<crate::auth::signature::Streaming>,
-    ),
-    Error,
-> {
-    authenticate_upload_target(
-        auth,
-        catalog,
-        method,
-        uri,
-        headers,
-        clock,
-        &crate::auth::signature::Resource::PathStyle,
-    )
-    .await
-}
-
 pub(crate) async fn authenticate_upload_target<'a>(
-    auth: &'a crate::auth::Auth,
-    catalog: &crate::storage::Catalog,
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    clock: &dyn crate::clock::Clock,
-    resource: &crate::auth::signature::Resource,
+    request: Authentication<'a, '_>,
 ) -> Result<
     (
         Option<crate::auth::Caller<'a>>,
@@ -172,17 +132,25 @@ pub(crate) async fn authenticate_upload_target<'a>(
     ),
     Error,
 > {
-    if headers
+    if request
+        .headers
         .get("x-amz-content-sha256")
         .is_some_and(|value| value == crate::auth::signature::STREAMING_PAYLOAD)
     {
-        let (caller, streaming) = auth
-            .authenticate_streaming(catalog, method, uri, headers, clock)
+        let (caller, streaming) = request
+            .auth
+            .authenticate_streaming(
+                request.catalog,
+                request.method,
+                request.uri,
+                request.headers,
+                request.clock,
+            )
             .await
             .map_err(signature_error)?;
         Ok((Some(caller), Some(streaming)))
     } else {
-        authenticate_target(auth, catalog, method, uri, headers, clock, resource)
+        authenticate_target(request)
             .await
             .map(|caller| (caller, None))
     }

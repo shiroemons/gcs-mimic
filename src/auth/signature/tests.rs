@@ -344,14 +344,15 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
     let auth = auth();
     let dir = crate::test_support::TestDir::new();
     let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
-    let error = crate::xml::authenticate(
-        &auth,
-        &catalog,
-        &Method::GET,
-        &expired.parse().unwrap(),
-        &HeaderMap::new(),
-        &Fixed(now),
-    )
+    let error = crate::xml::authenticate_target(crate::xml::Authentication {
+        auth: &auth,
+        catalog: &catalog,
+        method: &Method::GET,
+        uri: &expired.parse().unwrap(),
+        headers: &HeaderMap::new(),
+        clock: &Fixed(now),
+        resource: &Resource::PathStyle,
+    })
     .await
     .err()
     .unwrap();

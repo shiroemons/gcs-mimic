@@ -37,15 +37,15 @@ pub(crate) async fn respond(
         auth::signature::Resource::PathStyle,
         ObjectPath::signature_resource,
     );
-    let result = match super::authenticate_target(
-        &ctx.state.auth,
-        &ctx.state.catalog,
-        request.method(),
-        request.uri(),
-        request.headers(),
-        ctx.state.clock.as_ref(),
-        &resource,
-    )
+    let result = match super::authenticate_target(super::Authentication {
+        auth: &ctx.state.auth,
+        catalog: &ctx.state.catalog,
+        method: request.method(),
+        uri: request.uri(),
+        headers: request.headers(),
+        clock: ctx.state.clock.as_ref(),
+        resource: &resource,
+    })
     .await
     {
         Ok(caller) => match super::normalize_legacy_headers(request.headers_mut()) {

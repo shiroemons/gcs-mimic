@@ -266,15 +266,15 @@ mod tests {
                 .unwrap_err();
             assert!(matches!(failure, VerificationError::Catalog(_)));
             assert!(failure.source().is_some());
-            let xml = crate::xml::authenticate_target(
-                &auth,
-                &catalog,
-                &Method::GET,
-                &uri,
-                &headers,
-                &clock,
-                &Resource::PathStyle,
-            )
+            let xml = crate::xml::authenticate_target(crate::xml::Authentication {
+                auth: &auth,
+                catalog: &catalog,
+                method: &Method::GET,
+                uri: &uri,
+                headers: &headers,
+                clock: &clock,
+                resource: &Resource::PathStyle,
+            })
             .await
             .unwrap_err();
             assert_eq!(xml.status, hyper::StatusCode::SERVICE_UNAVAILABLE);
@@ -436,9 +436,17 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, VerificationError::Catalog(_)));
         assert!(error.source().is_some());
-        let error = crate::xml::authenticate(&auth, &catalog, &Method::GET, &uri, &headers, &clock)
-            .await
-            .unwrap_err();
+        let error = crate::xml::authenticate_target(crate::xml::Authentication {
+            auth: &auth,
+            catalog: &catalog,
+            method: &Method::GET,
+            uri: &uri,
+            headers: &headers,
+            clock: &clock,
+            resource: &Resource::PathStyle,
+        })
+        .await
+        .unwrap_err();
         assert_eq!(
             error.response(crate::xml::ErrorBody::Include).status(),
             hyper::StatusCode::SERVICE_UNAVAILABLE
