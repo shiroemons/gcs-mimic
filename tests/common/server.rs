@@ -21,6 +21,32 @@ pub(crate) struct Reply {
 }
 
 impl Reply {
+    pub(crate) fn json_error(&self, status: u16, reason: &str) {
+        assert_eq!(
+            self.status,
+            status,
+            "{}",
+            String::from_utf8_lossy(&self.body)
+        );
+        // The upload front end labelled some JSON envelopes text/html (recorded).
+        let content_type = self.headers["content-type"].as_str();
+        assert!(
+            matches!(
+                content_type,
+                "application/json; charset=UTF-8" | "text/html; charset=UTF-8"
+            ),
+            "{content_type}"
+        );
+        let body: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
+        let error = &body["error"];
+        assert_eq!(error["code"], status);
+        assert_eq!(error["errors"][0]["domain"], "global");
+        assert_eq!(error["errors"][0]["reason"], reason, "{error}");
+        assert_eq!(error["errors"][0]["message"], error["message"]);
+    }
+
     pub(crate) fn framed(stream: TcpStream) -> Self {
         let mut reader = BufReader::new(stream);
         let mut line = String::new();

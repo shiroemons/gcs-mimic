@@ -146,29 +146,7 @@ impl Reply {
     }
 
     fn error(&self, status: u16, reason: &str) {
-        assert_eq!(
-            self.status,
-            status,
-            "{}",
-            String::from_utf8_lossy(&self.body)
-        );
-        // The upload front end labelled some JSON envelopes text/html (recorded).
-        let content_type = self.headers["content-type"].as_str();
-        assert!(
-            matches!(
-                content_type,
-                "application/json; charset=UTF-8" | "text/html; charset=UTF-8"
-            ),
-            "{content_type}"
-        );
-        let body: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
-            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
-        });
-        let error = &body["error"];
-        assert_eq!(error["code"], status);
-        assert_eq!(error["errors"][0]["domain"], "global");
-        assert_eq!(error["errors"][0]["reason"], reason, "{error}");
-        assert_eq!(error["errors"][0]["message"], error["message"]);
+        self.json_error(status, reason);
     }
 
     /// A session-continuation failure: a bare `text/plain` page that carries none of the JSON
@@ -518,61 +496,6 @@ fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
     let next_generation = replaced.json()["generation"].as_str().unwrap().to_owned();
     assert_ne!(next_generation, generation.to_string());
     assert_eq!(server.request("DELETE", &format!("/storage/v1/b/test-bucket/o/conditions?generation={next_generation}&ifGenerationMatch={next_generation}&ifMetagenerationMatch=1&ifMetagenerationNotMatch=2"), "", b"").status, 204);
-}
-
-#[test]
-fn obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite() {
-    let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 5000);
-    server.bucket();
-    let token = "X-Goog-Gcs-Idempotency-Token: opaque, retry=token\r\n";
-    let create = "name=token&ifGenerationMatch=0";
-    let original = server.upload(create, token, b"original").json();
-    assert_eq!(server.upload(create, token, b"original").json(), original);
-    assert_eq!(server.get("token").json(), original);
-    assert_eq!(server.get("token?alt=media").body, b"original");
-    let overwrite = format!(
-        "name=token&ifGenerationMatch={}",
-        original["generation"].as_str().unwrap()
-    );
-    let overwrite_token = "X-Goog-Gcs-Idempotency-Token: overwrite-token\r\n";
-    let replaced = server
-        .upload(&overwrite, overwrite_token, b"replacement")
-        .json();
-    assert_ne!(replaced["generation"], original["generation"]);
-    assert_eq!(
-        server
-            .upload(&overwrite, overwrite_token, b"replacement")
-            .json(),
-        replaced
-    );
-    assert_eq!(server.get("token").json(), replaced);
-    assert_eq!(server.get("token?alt=media").body, b"replacement");
-    assert_eq!(common::server::staging_count(&dir), 0);
-    assert_eq!(common::server::blob_count(&dir), 1);
-}
-
-#[test]
-fn obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
-    let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 5000);
-    server.bucket();
-    let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
-    let original = server.upload("name=existing", "", b"original").json();
-    for name in ["absent", "existing"] {
-        for headers in [
-            "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
-            format!("{token}{token}"),
-        ] {
-            for query in ["", "&ifGenerationMatch=0"] {
-                server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name={name}{query} HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{headers}\r\n").as_bytes()).error(400, "invalidParameter");
-            }
-        }
-    }
-    server.get("absent").error(404, "notFound");
-    assert_eq!(server.get("existing").json(), original);
-    assert_eq!(server.get("existing?alt=media").body, b"original");
-    assert_eq!(common::server::staging_count(&dir), 0);
 }
 
 #[test]

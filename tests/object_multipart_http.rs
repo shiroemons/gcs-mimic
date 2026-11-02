@@ -1049,69 +1049,152 @@ fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
 }
 
 #[test]
-fn obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite() {
-    for query_name in [false, true] {
+fn obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite() {
+    for (upload, query_name) in [("media", true), ("multipart", false), ("multipart", true)] {
         let dir = TestDir::new();
-        let server = Server::start(&dir, 1000, 30_000);
-        server.bucket();
-        let headers = "Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Gcs-Idempotency-Token: opaque, retry=token\r\n";
+        let server = token_server(&dir, upload);
+        let content_type = if upload == "multipart" {
+            "Content-Type: multipart/related; boundary=boundary\r\n"
+        } else {
+            ""
+        };
+        let headers =
+            format!("{content_type}X-Goog-Gcs-Idempotency-Token: opaque, retry=token\r\n");
         let path = format!(
-            "/upload/storage/v1/b/test-bucket/o?uploadType=multipart&{}ifGenerationMatch=",
+            "/upload/storage/v1/b/test-bucket/o?uploadType={upload}&{}ifGenerationMatch=",
             if query_name { "name=token&" } else { "" }
         );
-        let body = wire(br#"{"name":"token"}"#, None, b"original", None);
+        let body = |bytes: &[u8]| {
+            if upload == "multipart" {
+                wire(br#"{"name":"token"}"#, None, bytes, None)
+            } else {
+                bytes.to_vec()
+            }
+        };
+        let original_body = body(b"original");
         let original = server
-            .request("POST", &format!("{path}0"), headers, &body)
+            .request("POST", &format!("{path}0"), &headers, &original_body)
             .json();
         assert_eq!(
             server
-                .request("POST", &format!("{path}0"), headers, &body)
+                .request("POST", &format!("{path}0"), &headers, &original_body)
                 .json(),
             original
         );
         assert_eq!(server.get("token").json(), original);
         assert_eq!(server.get("token?alt=media").body, b"original");
-        no_leaks(&dir, 1);
+        if upload == "multipart" {
+            no_leaks(&dir, 1);
+        }
         let overwrite = format!("{path}{}", original["generation"].as_str().unwrap());
-        let body = wire(br#"{"name":"token"}"#, None, b"replacement", None);
-        let headers = "Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Gcs-Idempotency-Token: overwrite-token\r\n";
-        let replaced = server.request("POST", &overwrite, headers, &body).json();
+        let body = body(b"replacement");
+        let headers = format!("{content_type}X-Goog-Gcs-Idempotency-Token: overwrite-token\r\n");
+        let replaced = server.request("POST", &overwrite, &headers, &body).json();
         assert_ne!(replaced["generation"], original["generation"]);
         assert_eq!(
-            server.request("POST", &overwrite, headers, &body).json(),
+            server.request("POST", &overwrite, &headers, &body).json(),
             replaced
         );
         assert_eq!(server.get("token").json(), replaced);
         assert_eq!(server.get("token?alt=media").body, b"replacement");
-        no_leaks(&dir, 1);
+        if upload == "media" {
+            assert_eq!(common::server::staging_count(&dir), 0);
+            assert_eq!(common::server::blob_count(&dir), 1);
+        } else {
+            no_leaks(&dir, 1);
+        }
     }
 }
 
 #[test]
-fn obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
-    let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 30_000);
-    server.bucket();
-    let original = server
-        .upload("name=existing", &wire(b"{}", None, b"original", None))
-        .json();
-    let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
-    for name in ["", "&name=absent", "&name=existing"] {
-        for headers in [
-            "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
-            format!("{token}{token}"),
-        ] {
-            for query in ["", "&ifGenerationMatch=0"] {
-                let mut stream = socket(&server.address);
-                write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart{name}{query} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 9999\r\n{headers}\r\n").unwrap();
-                Reply::read(stream).error(400, "invalidParameter");
+fn obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
+    for (upload, names, content_type, length) in [
+        (
+            "media",
+            ["&name=absent", "&name=existing"].as_slice(),
+            "",
+            900,
+        ),
+        (
+            "multipart",
+            ["", "&name=absent", "&name=existing"].as_slice(),
+            "Content-Type: multipart/related; boundary=boundary\r\n",
+            9999,
+        ),
+    ] {
+        let dir = TestDir::new();
+        let server = token_server(&dir, upload);
+        let body = if upload == "multipart" {
+            wire(b"{}", None, b"original", None)
+        } else {
+            b"original".to_vec()
+        };
+        let original = server
+            .request(
+                "POST",
+                &format!("/upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing"),
+                content_type,
+                &body,
+            )
+            .json();
+        let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
+        for name in names {
+            for headers in [
+                "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
+                format!("{token}{token}"),
+            ] {
+                for query in ["", "&ifGenerationMatch=0"] {
+                    let mut stream = socket(&server.address);
+                    write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}{name}{query} HTTP/1.1\r\nHost: local\r\n{content_type}Content-Length: {length}\r\n{headers}\r\n").unwrap();
+                    Reply::read(stream).json_error(400, "invalidParameter");
+                }
             }
         }
+        server.get("absent").json_error(404, "notFound");
+        assert_eq!(server.get("existing").json(), original);
+        assert_eq!(server.get("existing?alt=media").body, b"original");
+        if upload == "media" {
+            assert_eq!(common::server::staging_count(&dir), 0);
+        }
+        no_leaks(&dir, 1);
     }
-    server.get("absent").error(404, "notFound");
-    assert_eq!(server.get("existing").json(), original);
-    assert_eq!(server.get("existing?alt=media").body, b"original");
-    no_leaks(&dir, 1);
+}
+
+fn token_server(dir: &TestDir, upload: &str) -> Server {
+    if upload == "multipart" {
+        let server = Server::start(dir, 1000, 30_000);
+        server.bucket();
+        return server;
+    }
+    let server = Server::launch(http_command(&dir.0).args([
+        "--api-base-url",
+        "https://advertised.invalid/api",
+        "--max-object-bytes",
+        "1000",
+        "--connection-timeout-ms",
+        "5000",
+        "--object-request-timeout-ms",
+        "900000",
+        "--catalog-wait-timeout-ms",
+        "30000",
+        "--max-connections",
+        "32",
+    ]));
+    assert_eq!(server.ready["max_object_bytes"], 1000);
+    assert_eq!(server.ready["object_request_timeout_ms"], 900_000);
+    assert_eq!(server.ready["catalog_wait_timeout_ms"], 30_000);
+    assert_eq!(
+        server
+            .request(
+                "POST",
+                "/storage/v1/b?project=local",
+                "Content-Type: application/json\r\n",
+                br#"{"name":"test-bucket","storageClass":"NEARLINE"}"#
+            )
+            .status,
+        200
+    );
+    server
 }
 
 #[test]
