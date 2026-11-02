@@ -72,39 +72,6 @@ pub(crate) async fn dispatch(
     service.call(request).await
 }
 
-pub(crate) fn known_method(path: &str) -> bool {
-    path.strip_prefix("/google.storage.v2.Storage/")
-        .is_some_and(|method| {
-            matches!(
-                method,
-                "DeleteBucket"
-                    | "GetBucket"
-                    | "CreateBucket"
-                    | "ListBuckets"
-                    | "LockBucketRetentionPolicy"
-                    | "GetIamPolicy"
-                    | "SetIamPolicy"
-                    | "TestIamPermissions"
-                    | "UpdateBucket"
-                    | "ComposeObject"
-                    | "DeleteObject"
-                    | "RestoreObject"
-                    | "CancelResumableWrite"
-                    | "GetObject"
-                    | "ReadObject"
-                    | "BidiReadObject"
-                    | "UpdateObject"
-                    | "WriteObject"
-                    | "BidiWriteObject"
-                    | "ListObjects"
-                    | "RewriteObject"
-                    | "StartResumableWrite"
-                    | "QueryWriteStatus"
-                    | "MoveObject"
-            )
-        })
-}
-
 impl Storage {
     pub(crate) fn authenticate<T>(
         &self,
@@ -126,226 +93,57 @@ fn auth_error(_: AuthFailure) -> Status {
     )
 }
 
-#[tonic::async_trait]
-impl pb::storage_server::Storage for Storage {
-    type ReadObjectStream = ResponseStream<pb::ReadObjectResponse>;
-    type BidiReadObjectStream = ResponseStream<pb::BidiReadObjectResponse>;
-    type BidiWriteObjectStream = ResponseStream<pb::BidiWriteObjectResponse>;
+macro_rules! storage_methods {
+    ($($wire:ident => $method:ident($request:ty) -> $response:ty;)*) => {
+        pub(crate) fn known_method(path: &str) -> bool {
+            path.strip_prefix("/google.storage.v2.Storage/")
+                .is_some_and(|method| matches!(method, $(stringify!($wire))|*))
+        }
 
-    async fn delete_bucket(
-        &self,
-        request: Request<pb::DeleteBucketRequest>,
-    ) -> Result<Response<()>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.delete_bucket(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn get_bucket(
-        &self,
-        request: Request<pb::GetBucketRequest>,
-    ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.get_bucket(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn create_bucket(
-        &self,
-        request: Request<pb::CreateBucketRequest>,
-    ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.create_bucket(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn list_buckets(
-        &self,
-        request: Request<pb::ListBucketsRequest>,
-    ) -> Result<Response<pb::ListBucketsResponse>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.list_buckets(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn lock_bucket_retention_policy(
-        &self,
-        request: Request<pb::LockBucketRetentionPolicyRequest>,
-    ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.lock_bucket_retention_policy(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn get_iam_policy(
-        &self,
-        request: Request<iam::GetIamPolicyRequest>,
-    ) -> Result<Response<iam::Policy>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.get_iam_policy(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn set_iam_policy(
-        &self,
-        request: Request<iam::SetIamPolicyRequest>,
-    ) -> Result<Response<iam::Policy>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.set_iam_policy(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn test_iam_permissions(
-        &self,
-        request: Request<iam::TestIamPermissionsRequest>,
-    ) -> Result<Response<iam::TestIamPermissionsResponse>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.test_iam_permissions(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn update_bucket(
-        &self,
-        request: Request<pb::UpdateBucketRequest>,
-    ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.update_bucket(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn compose_object(
-        &self,
-        request: Request<pb::ComposeObjectRequest>,
-    ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.compose_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn delete_object(
-        &self,
-        request: Request<pb::DeleteObjectRequest>,
-    ) -> Result<Response<()>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.delete_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn restore_object(
-        &self,
-        request: Request<pb::RestoreObjectRequest>,
-    ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.restore_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn cancel_resumable_write(
-        &self,
-        request: Request<pb::CancelResumableWriteRequest>,
-    ) -> Result<Response<pb::CancelResumableWriteResponse>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.cancel_resumable_write(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn get_object(
-        &self,
-        request: Request<pb::GetObjectRequest>,
-    ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.get_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn read_object(
-        &self,
-        request: Request<pb::ReadObjectRequest>,
-    ) -> Result<Response<Self::ReadObjectStream>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.read_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn bidi_read_object(
-        &self,
-        request: Request<Streaming<pb::BidiReadObjectRequest>>,
-    ) -> Result<Response<Self::BidiReadObjectStream>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.bidi_read_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn update_object(
-        &self,
-        request: Request<pb::UpdateObjectRequest>,
-    ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.update_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn write_object(
-        &self,
-        request: Request<Streaming<pb::WriteObjectRequest>>,
-    ) -> Result<Response<pb::WriteObjectResponse>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.write_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn bidi_write_object(
-        &self,
-        request: Request<Streaming<pb::BidiWriteObjectRequest>>,
-    ) -> Result<Response<Self::BidiWriteObjectStream>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.bidi_write_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn list_objects(
-        &self,
-        request: Request<pb::ListObjectsRequest>,
-    ) -> Result<Response<pb::ListObjectsResponse>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.list_objects(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn rewrite_object(
-        &self,
-        request: Request<pb::RewriteObjectRequest>,
-    ) -> Result<Response<pb::RewriteResponse>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.rewrite_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn start_resumable_write(
-        &self,
-        request: Request<pb::StartResumableWriteRequest>,
-    ) -> Result<Response<pb::StartResumableWriteResponse>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.start_resumable_write(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn query_write_status(
-        &self,
-        request: Request<pb::QueryWriteStatusRequest>,
-    ) -> Result<Response<pb::QueryWriteStatusResponse>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.query_write_status(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
-    async fn move_object(
-        &self,
-        request: Request<pb::MoveObjectRequest>,
-    ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
-        self.move_object(request, caller)
-            .await
-            .map_err(|status| status::anonymous(status, caller))
-    }
+        #[tonic::async_trait]
+        impl pb::storage_server::Storage for Storage {
+            type ReadObjectStream = ResponseStream<pb::ReadObjectResponse>;
+            type BidiReadObjectStream = ResponseStream<pb::BidiReadObjectResponse>;
+            type BidiWriteObjectStream = ResponseStream<pb::BidiWriteObjectResponse>;
+
+            $(
+                async fn $method(
+                    &self,
+                    request: Request<$request>,
+                ) -> Result<Response<$response>, Status> {
+                    let caller = self.authenticate(&request)?;
+                    self.$method(request, caller)
+                        .await
+                        .map_err(|status| status::anonymous(status, caller))
+                }
+            )*
+        }
+    };
+}
+
+storage_methods! {
+    DeleteBucket => delete_bucket(pb::DeleteBucketRequest) -> ();
+    GetBucket => get_bucket(pb::GetBucketRequest) -> pb::Bucket;
+    CreateBucket => create_bucket(pb::CreateBucketRequest) -> pb::Bucket;
+    ListBuckets => list_buckets(pb::ListBucketsRequest) -> pb::ListBucketsResponse;
+    LockBucketRetentionPolicy => lock_bucket_retention_policy(pb::LockBucketRetentionPolicyRequest) -> pb::Bucket;
+    GetIamPolicy => get_iam_policy(iam::GetIamPolicyRequest) -> iam::Policy;
+    SetIamPolicy => set_iam_policy(iam::SetIamPolicyRequest) -> iam::Policy;
+    TestIamPermissions => test_iam_permissions(iam::TestIamPermissionsRequest) -> iam::TestIamPermissionsResponse;
+    UpdateBucket => update_bucket(pb::UpdateBucketRequest) -> pb::Bucket;
+    ComposeObject => compose_object(pb::ComposeObjectRequest) -> pb::Object;
+    DeleteObject => delete_object(pb::DeleteObjectRequest) -> ();
+    RestoreObject => restore_object(pb::RestoreObjectRequest) -> pb::Object;
+    CancelResumableWrite => cancel_resumable_write(pb::CancelResumableWriteRequest) -> pb::CancelResumableWriteResponse;
+    GetObject => get_object(pb::GetObjectRequest) -> pb::Object;
+    ReadObject => read_object(pb::ReadObjectRequest) -> Self::ReadObjectStream;
+    BidiReadObject => bidi_read_object(Streaming<pb::BidiReadObjectRequest>) -> Self::BidiReadObjectStream;
+    UpdateObject => update_object(pb::UpdateObjectRequest) -> pb::Object;
+    WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse;
+    BidiWriteObject => bidi_write_object(Streaming<pb::BidiWriteObjectRequest>) -> Self::BidiWriteObjectStream;
+    ListObjects => list_objects(pb::ListObjectsRequest) -> pb::ListObjectsResponse;
+    RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse;
+    StartResumableWrite => start_resumable_write(pb::StartResumableWriteRequest) -> pb::StartResumableWriteResponse;
+    QueryWriteStatus => query_write_status(pb::QueryWriteStatusRequest) -> pb::QueryWriteStatusResponse;
+    MoveObject => move_object(pb::MoveObjectRequest) -> pb::Object;
 }
