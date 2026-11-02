@@ -46,9 +46,28 @@ Object: a 35-byte gzip member stored with `Content-Encoding: gzip`.
 | Request | Status | Notable headers |
 | --- | --- | --- |
 | JSON, no `Accept-Encoding` or `Accept-Encoding: identity` | 200, expanded body | `x-guploader-response-body-transformations: gunzipped`, `warning: 214 UploadServer gunzipped`, stored-object `x-goog-hash`, no Content-Length or Content-Encoding, `vary: Origin` and `vary: X-Origin` |
-| JSON, `Accept-Encoding: gzip` | 200, stored bytes | `content-encoding: gzip`, `content-length: 35`, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding` |
+| JSON, `Accept-Encoding: gzip` | 200, stored bytes | `content-encoding: gzip`, no Content-Length, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding` |
 | JSON identity with `Range: bytes=0-4` | 200, whole expanded body | Range ignored while transcoding |
 | XML, `Accept-Encoding: identity` | 200, expanded body | the same two transformation fields and two `x-goog-hash` fields |
+
+The **2026-11-01** `obj-download-gzip` recording in
+`compatibility/differential/reference/gcs.json` supersedes the earlier compressed
+JSON GET length observations: HTTP/1.1 uses chunked framing for stored gzip,
+including a 206 range and a download with object `Cache-Control: no-transform`.
+Private JSON downloads retain the default
+`no-cache, no-store, max-age=0, must-revalidate` cache policy and append
+`no-transform` when that directive is present in the object's metadata.
+`Accept-Encoding: gzip` alone does not add that directive. Stored-content length
+and range headers still describe the compressed bytes. This is a JSON media
+response rule; XML framing is unchanged.
+
+The [transcoding contract](https://docs.cloud.google.com/storage/docs/transcoding)
+documents that accepting gzip or setting object `no-transform` prevents
+decompressive transcoding, and that transcoding ignores Range. Framing and the
+private cache-policy spelling above come from the recording. gcs-mimic keeps
+the existing bounded object-body stream when omitting Content-Length.
+The gzip negotiation and HEAD/range tests in `tests/sdk_object_wire_http.rs`
+cover these framing and cache-policy rules.
 
 ### gcs-mimic behavior
 
@@ -112,7 +131,7 @@ identity object, on `/storage/v1/b/{bucket}/o/{object}?alt=media` and
 | Request | Status | Notable headers |
 | --- | --- | --- |
 | gzip object, no `Accept-Encoding` or `identity`, either endpoint | 200, no body | the GET headers: weak `etag: W/...`, both transformation fields, stored-object `x-goog-hash`, no Content-Length |
-| gzip object, `Accept-Encoding: gzip` | 200, no body | strong ETag, `content-encoding: gzip`, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding`, no Content-Length (the matching GET sends `content-length: 49`) |
+| gzip object, `Accept-Encoding: gzip` | 200, no body | strong ETag, `content-encoding: gzip`, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding`, no Content-Length |
 | identity object | 200, no body | the GET headers including `content-length: 16` |
 
 gcs-mimic previously returned 400 on `/storage/v1` and 405 on `/download`.
