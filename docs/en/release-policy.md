@@ -86,8 +86,7 @@ After `1.0.0`, breaking public-contract changes increment major, compatible addi
 
 Releases `0.1.0` through `0.7.0` were withdrawn on 2026-11-02.
 They predate a usable public contract, and keeping them available invited use that the project does not support.
-Their GitHub Releases and native archives were deleted.
-Their exact version and minor alias container tags on GHCR and Docker Hub are scheduled for removal; do not use them in the meantime.
+Their GitHub Releases, native archives, and exact version and minor alias container tags on GHCR and Docker Hub were deleted.
 Their Git tags and their [release notes](releases/) remain as source history.
 
 Data directories written by these releases are not supported.
