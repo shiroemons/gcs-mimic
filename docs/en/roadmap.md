@@ -1,41 +1,17 @@
 # Roadmap
 
-<!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
-
 [日本語](../ja/roadmap.md)
 
-Updated **2026-11-01** for the 0.8.0 release. Published installation examples
-use `0.8.0`. The scoped SDK, browser and distribution results of the 0.8.0
-migration additions are recorded in the
-[combined verification](evidence/migration-integration.md); they do not
-complete the broader feature rows.
+Updated **2026-11-02** for the 0.9.0 release. Published installation examples use `0.9.0`. The scoped SDK, browser and distribution results of the 0.8.0 migration additions are recorded in the [combined verification](evidence/migration-integration.md); they do not complete the broader feature rows.
 Continue closing the gaps in existing fake-gcs-server workflows through useful
 `0.x` increments; reserve **1.0.0** for verified reference compatibility plus
 the named extensions. The order below selects work, not release dates.
 
 ## Available today
 
-The [0.8.0 release](releases/0.8.0.md) provides native archives and Linux
-AMD64/ARM64 images on GHCR and Docker Hub.
-The HTTP quick start, HTTPS default, simultaneous HTTP/HTTPS listeners,
-public-host routing, default bucket location and log-level controls are available.
-The [configuration mapping](fake-gcs-server-configuration.md) documents native
-equivalents and diagnostics for all 19 known source environment variables.
+The [0.9.0 release](releases/0.9.0.md) provides native archives and Linux AMD64/ARM64 images on GHCR and Docker Hub. The HTTP quick start, HTTPS default, simultaneous HTTP/HTTPS listeners, public-host routing, default bucket location and log-level controls are available. The [configuration mapping](fake-gcs-server-configuration.md) documents native equivalents and diagnostics for all 19 known source environment variables.
 
-Scoped workflows include multiple buckets, per-bucket CORS/IAM, streaming
-transfers, rewrite/compose/move, version history, holds, bucket/object retention,
-soft delete/restore, V2/V4 RSA signed transfers and V4 signed POST policies.
-JSON ACL resources, notification configurations, HMAC key management and
-Autoclass settings also exist, with the effect limitations below. Bucket and
-object PATCH/PUT replace ACLs atomically with other metadata.
-Media, multipart and copy invocation tokens replay the original response
-within bounded local retention, and JSON media GET and XML GET expand
-gzip-encoded objects.
-Storage v2 gRPC includes resumable and appendable writes and ranged reads;
-legacy Storage v1 serves the twelve inventoried reference RPCs with field limits.
-See the [0.8.0 release notes](releases/0.8.0.md), the
-[0.5.0 release notes](releases/0.5.0.md) and the
-[0.4.0 feature scope and limits](releases/0.4.0.md).
+Scoped workflows include multiple buckets, per-bucket CORS/IAM, streaming transfers, rewrite/compose/move, version history, holds, bucket/object retention, soft delete/restore, V2/V4 RSA signed transfers and V4 signed POST policies. JSON ACL resources, notification configurations, HMAC key management and Autoclass settings also exist, with the effect limitations below. Bucket and object PATCH/PUT replace ACLs atomically with other metadata. Media, multipart and copy invocation tokens replay the original response within bounded local retention, and JSON media GET and XML GET expand gzip-encoded objects. Storage v2 gRPC includes resumable and appendable writes and ranged reads; legacy Storage v1 serves the twelve inventoried reference RPCs with field limits. Since 0.9.0, `gcloud storage` runs the [example workflow](../../examples/gcloud/README.md), and [examples](../../examples/README.md) cover eight official clients. See the [0.9.0 release notes](releases/0.9.0.md), the [0.8.0 release notes](releases/0.8.0.md), the [0.5.0 release notes](releases/0.5.0.md) and the [0.4.0 feature scope and limits](releases/0.4.0.md).
 
 Bucket initialization creates missing buckets and preserves API changes.
 Seed files replay on every startup with extension-derived MIME types. Since
@@ -176,10 +152,7 @@ the specified extensions. Full Google API coverage is separate. See the
 
 ## First useful release
 
-The first useful `0.x` release has shipped; published examples now use `0.8.0`.
-The original gate covered scoped JSON, public/private access and URL
-workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS.
-Rails, lifecycle, gRPC and full parity were not prerequisites for that first release.
+The first useful `0.x` release has shipped; published examples now use `0.9.0`. The original gate covered scoped JSON, public/private access and URL workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS. Rails, lifecycle, gRPC and full parity were not prerequisites for that first release.
 
 Native CI/platform checks, current dependencies, release notes, packaged
 notices/checksums and verified public image access still gate each release.

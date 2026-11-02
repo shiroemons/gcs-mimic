@@ -197,13 +197,7 @@ cancelled uploads remain tracked until their cleanup finishes. Upload prechecks
 and resumable session creation/read/checkpoint calls wait for catalog admission
 within the catalog wait deadline; other catalog calls still reject saturation.
 
-Older catalogs migrate automatically, one way and in order, to the current schema 48;
-the log names the versions. 0.7.0 used schema 35, so a data directory opened by 0.8.0
-cannot go back to 0.7.0. Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs
-are rejected without changing their data; automatic recovery of deleted v2 generations is
-unavailable. Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid storage
-entries stop startup with a path diagnostic. Object `selfLink` addresses the current
-resource without a generation query; `mediaLink` selects the returned generation.
+Older catalogs migrate automatically, one way and in order, to the current schema 49; the log names the versions. 0.8.0 used schema 48 and 0.7.0 schema 35, so a data directory opened by 0.9.0 cannot go back to 0.8.0 or earlier. Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs are rejected without changing their data; automatic recovery of deleted v2 generations is unavailable. Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid storage entries stop startup with a path diagnostic. Object `selfLink` addresses the current resource without a generation query; `mediaLink` selects the returned generation.
 
 ## Initialize missing buckets from a file
 
