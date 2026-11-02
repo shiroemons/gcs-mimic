@@ -43,6 +43,10 @@ Go 1.27.3 and cloud.google.com/go/storage v1.70.0.
 
 ## Verification
 
+The standalone compose validation suite now runs as
+`cargo test --locked --offline --test contracts compose_validation`.
+The commands below retain the binary names used for the recorded results.
+
 Acceptance was recorded before implementation. On 2026-10-27, the unmodified
 server failed all three new wire tests: bucket creation returned 501; empty MIME
 and null compose returned 400. The pinned Ruby high-level calls independently

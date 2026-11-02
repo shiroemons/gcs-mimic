@@ -177,6 +177,11 @@ An obsolete completion counts as `deferred` in that pass and leaves baseline inc
 
 ### Initial-export verification
 
+The validation-only suites now share the `contracts` integration binary. Run
+`cargo test --locked --offline --test contracts sync_configuration` or
+`cargo test --locked --offline --test contracts sync_mapping` to select one.
+Historical verification commands below retain their original binary names.
+
 Verified on 2026-10-25, macOS ARM64, Rust 1.99.1 against the two-setting configuration.
 The startup-only marker diagnostic also explains accidental Git/copy transport,
 `.gitignore`, preserving the old tree, and selecting the intended `data_dir`.
