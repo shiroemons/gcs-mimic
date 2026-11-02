@@ -185,6 +185,11 @@ impl Server {
 
 impl Drop for Server {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            return;
+        }
         match self.shutdown {
             Shutdown::Graceful => stop_server(&mut self.child, &mut self.stdout),
             Shutdown::Kill if self.child.try_wait().unwrap().is_none() => {

@@ -43,6 +43,7 @@ impl Server {
             &self.address,
             method,
             path,
+            "localhost",
             headers,
             body,
             self.client_timeout,
@@ -118,6 +119,7 @@ fn request(
     address: &str,
     method: &str,
     path: &str,
+    host: &str,
     headers: &str,
     body: &[u8],
     timeout: Duration,
@@ -127,7 +129,7 @@ fn request(
         &mut stream,
         method,
         path,
-        "localhost",
+        host,
         &format!("{headers}Connection: close\r\n"),
         body,
     );
@@ -1035,6 +1037,7 @@ fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
                         &address,
                         "POST",
                         path,
+                        "localhost",
                         headers,
                         body,
                         Duration::from_secs(5),
@@ -1080,6 +1083,22 @@ fn obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite()
     for (upload, query_name) in [("media", true), ("multipart", false), ("multipart", true)] {
         let dir = TestDir::new();
         let server = token_server(&dir, upload);
+        let request = |method: &str, path: &str, headers: &str, body: &[u8]| {
+            let (host, forwarded) = if upload == "media" {
+                ("untrusted.invalid", "X-Forwarded-Host: evil.invalid\r\n")
+            } else {
+                ("localhost", "")
+            };
+            request(
+                &server.address,
+                method,
+                path,
+                host,
+                &format!("{forwarded}{headers}"),
+                body,
+                server.client_timeout,
+            )
+        };
         let content_type = if upload == "multipart" {
             "Content-Type: multipart/related; boundary=boundary\r\n"
         } else {
@@ -1099,31 +1118,34 @@ fn obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite()
             }
         };
         let original_body = body(b"original");
-        let original = server
-            .request("POST", &format!("{path}0"), &headers, &original_body)
-            .json();
+        let original = request("POST", &format!("{path}0"), &headers, &original_body).json();
         assert_eq!(
-            server
-                .request("POST", &format!("{path}0"), &headers, &original_body)
-                .json(),
+            request("POST", &format!("{path}0"), &headers, &original_body).json(),
             original
         );
-        assert_eq!(server.get("token").json(), original);
-        assert_eq!(server.get("token?alt=media").body, b"original");
+        let object_path = "/storage/v1/b/test-bucket/o/token";
+        assert_eq!(request("GET", object_path, "", b"").json(), original);
+        assert_eq!(
+            request("GET", &format!("{object_path}?alt=media"), "", b"").body,
+            b"original"
+        );
         if upload == "multipart" {
             no_leaks(&dir, 1);
         }
         let overwrite = format!("{path}{}", original["generation"].as_str().unwrap());
         let body = body(b"replacement");
         let headers = format!("{content_type}X-Goog-Gcs-Idempotency-Token: overwrite-token\r\n");
-        let replaced = server.request("POST", &overwrite, &headers, &body).json();
+        let replaced = request("POST", &overwrite, &headers, &body).json();
         assert_ne!(replaced["generation"], original["generation"]);
         assert_eq!(
-            server.request("POST", &overwrite, &headers, &body).json(),
+            request("POST", &overwrite, &headers, &body).json(),
             replaced
         );
-        assert_eq!(server.get("token").json(), replaced);
-        assert_eq!(server.get("token?alt=media").body, b"replacement");
+        assert_eq!(request("GET", object_path, "", b"").json(), replaced);
+        assert_eq!(
+            request("GET", &format!("{object_path}?alt=media"), "", b"").body,
+            b"replacement"
+        );
         if upload == "media" {
             assert_eq!(common::server::staging_count(&dir), 0);
             assert_eq!(common::server::blob_count(&dir), 1);
@@ -1193,6 +1215,7 @@ fn token_server(dir: &TestDir, upload: &str) -> Server {
         server.bucket();
         return server;
     }
+    // These flags mirror object_http's server start for the media variant.
     let mut server = Server::launch(http_command(&dir.0).args([
         "--api-base-url",
         "https://advertised.invalid/api",

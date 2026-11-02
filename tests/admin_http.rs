@@ -19,6 +19,29 @@ use std::{
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 const OBJECT: &str = "/storage/v1/b/test-bucket/o/value";
 
+#[test]
+fn server_drop_preserves_original_panic_for_running_and_exited_children() {
+    for graceful in [false, true] {
+        for exited in [false, true] {
+            let dir = TestDir::new();
+            let mut server = Server::launch(&mut http_command(&dir.0));
+            if graceful {
+                server = server.graceful();
+            }
+            if exited {
+                server.child.kill().unwrap();
+                server.child.wait().unwrap();
+            }
+            let panic = std::panic::catch_unwind(move || {
+                let _server = server;
+                panic!("original test failure");
+            })
+            .unwrap_err();
+            assert_eq!(panic.downcast_ref::<&str>(), Some(&"original test failure"));
+        }
+    }
+}
+
 impl Server {
     fn fixture(&self, metadata: Value, body: &[u8], auth: &str) -> Reply {
         let mut wire = format!("--fixture\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--fixture\r\nContent-Type: application/octet-stream\r\n\r\n").into_bytes();
