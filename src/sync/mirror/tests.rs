@@ -9,6 +9,28 @@ use crate::{
 use bytes::Bytes;
 use std::fs;
 
+async fn run_live(
+    catalog: &Catalog,
+    root: &RootLease,
+    stopping: &mut tokio::sync::watch::Receiver<bool>,
+) -> io::Result<()> {
+    let (_sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let health = crate::task::TaskHealth::default();
+    let config = Config::default();
+    run_live_config(
+        LiveRun {
+            catalog,
+            root,
+            config: &config,
+            health: &health,
+            resume: None,
+        },
+        stopping,
+        &mut receiver,
+    )
+    .await
+}
+
 async fn publish(catalog: &Catalog, bucket: &BucketName, body: &[u8]) -> ObjectRecord {
     publish_origin(catalog, bucket, body, Origin::SyncIngest).await
 }
@@ -1480,6 +1502,37 @@ async fn a_transient_mirror_failure_is_retried_until_it_clears() {
     );
     task.finish().await.unwrap();
     assert!(catalog.background_tasks_running());
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn retry_repeats_transient_errors_and_keeps_permanent_causes() {
+    let (_data, _tree, catalog, _bucket, root) = live_fixture().await;
+    let mut attempts = 0;
+    let result = with_retry(&root, || {
+        attempts += 1;
+        std::future::ready(if attempts == 1 {
+            Err(writeback::Error::Admin(AdminError::Io(
+                io::ErrorKind::Interrupted,
+            )))
+        } else {
+            Ok(7)
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(result, 7);
+    assert_eq!(attempts, 2);
+    let error = with_retry(&root, || {
+        std::future::ready(Err::<(), _>(writeback::Error::Admin(AdminError::Forbidden)))
+    })
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error.get_ref().unwrap().downcast_ref::<writeback::Error>(),
+        Some(writeback::Error::Admin(AdminError::Forbidden))
+    ));
+    drop(root);
     catalog.close().await.unwrap();
 }
 

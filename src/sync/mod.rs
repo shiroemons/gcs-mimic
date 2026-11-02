@@ -8,6 +8,13 @@ pub mod mapping;
 mod mirror;
 pub use mirror::{Reconciliation, Task, reconcile, start};
 
+#[cfg(test)]
+struct Hook {
+    phase: &'static str,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
 pub(crate) const SETTLE_MS: u64 = 1000;
 pub(crate) const CONFLICT_MAX_BYTES: u64 = 1_073_741_824;
 pub(crate) const CONFLICT_MAX_ENTRIES: u64 = 1000;
