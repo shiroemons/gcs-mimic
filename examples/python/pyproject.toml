@@ -1,0 +1,9 @@
+[project]
+name = "gcs-mimic-example-python"
+version = "0.0.0"
+requires-python = ">=3.15"
+dependencies = ["google-cloud-storage==3.17.1"]
+
+[tool.uv]
+# 0.13.6 is the first uv release that can install the pinned CPython 3.15.2.
+required-version = ">=0.13.6"
