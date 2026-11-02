@@ -1,6 +1,5 @@
 //! JSON API object reads: media downloads and metadata.
 
-use super::gunzipped_response;
 use crate::object::ObjectRecord;
 use crate::server::RequestBody as Incoming;
 use crate::storage::ObjectReader;
@@ -228,7 +227,7 @@ async fn gunzipped(
         return Ok(gzip::plain_body_rejection(headers));
     }
     gzip::insert_transcoded_headers(&mut headers);
-    Ok(gunzipped_response(ctx, method, reader, headers, record))
+    Ok(gzip::response(ctx, record, reader, headers, method))
 }
 
 /// The headers a conditional media response (304 or 412) keeps: the representation's type,

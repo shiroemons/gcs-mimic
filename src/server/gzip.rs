@@ -1,12 +1,12 @@
-use super::{ObjectActivity, ResponseBody, boxed};
+use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response};
 use crate::{
-    object::ObjectError,
+    object::{ObjectError, ObjectRecord},
     storage::{ObjectReader, failure::object_unavailable},
 };
 use bytes::Bytes;
 use flate2::bufread::MultiGzDecoder;
 use http_body_util::{BodyExt, Full};
-use hyper::{HeaderMap, Response, StatusCode, header::HeaderValue};
+use hyper::{HeaderMap, Method, Response, StatusCode, header::HeaderValue};
 use std::io::{self, BufRead, BufReader, Read};
 use tokio::sync::watch;
 
@@ -119,7 +119,29 @@ pub(super) fn plain_body_rejection(mut headers: HeaderMap) -> Response<ResponseB
     boxed(response)
 }
 
-pub(super) fn body(
+/// HEAD sends the selected headers without starting the bounded decompression worker.
+pub(super) fn response(
+    ctx: ObjectCtx<'_>,
+    record: &ObjectRecord,
+    reader: ObjectReader,
+    headers: HeaderMap,
+    method: &Method,
+) -> Response<ResponseBody> {
+    let mut response = if method == Method::HEAD {
+        boxed(empty_response(StatusCode::OK))
+    } else {
+        Response::new(body(
+            reader,
+            record.size,
+            ctx.config.max_object_bytes,
+            ctx.activity,
+        ))
+    };
+    *response.headers_mut() = headers;
+    response
+}
+
+fn body(
     reader: ObjectReader,
     stored_size: u64,
     expanded_limit: u64,

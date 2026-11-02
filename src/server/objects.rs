@@ -17,30 +17,9 @@ use crate::{
     object::{ObjectError, retention::UnlockedOverride},
     storage::{MoveAccess, ObjectSelector, UploadAclSnapshot},
 };
-use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri};
+use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
 use serde_json::Value;
 use std::collections::BTreeMap;
-
-pub(super) fn gunzipped_response(
-    ctx: ObjectCtx<'_>,
-    method: &Method,
-    reader: crate::storage::ObjectReader,
-    headers: HeaderMap,
-    record: &crate::object::ObjectRecord,
-) -> Response<ResponseBody> {
-    let mut response = if method == Method::HEAD {
-        boxed(empty_response(StatusCode::OK))
-    } else {
-        Response::new(super::gzip::body(
-            reader,
-            record.size,
-            ctx.config.max_object_bytes,
-            ctx.activity,
-        ))
-    };
-    *response.headers_mut() = headers;
-    response
-}
 
 /// A written object's resource and, for a replayed upload, the ACL it recorded.
 struct Written {
