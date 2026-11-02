@@ -2,7 +2,7 @@ use super::{
     ResponseStream, Storage,
     append::Finality,
     convert, names, pb,
-    status::{from_json as json_status, unsupported_for as unsupported},
+    status::{from_json as json_status, unsupported_for},
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
@@ -17,7 +17,7 @@ use tonic::{Request, Response, Status, Streaming};
 
 pub(super) fn object_status(error: ObjectError) -> Status {
     if matches!(error, ObjectError::UnsupportedMetadata(_)) {
-        return unsupported(&error.to_string(), None);
+        return unsupported_for(&error.to_string(), None);
     }
     json_status(error.into())
 }
@@ -54,7 +54,7 @@ fn session_status(error: ResumableError) -> Status {
 
 pub(super) fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> {
     if params.is_some_and(|p| p != &pb::CommonObjectRequestParams::default()) {
-        return Err(unsupported(
+        return Err(unsupported_for(
             "customer encryption; omit common_object_request_params",
             None,
         ));
@@ -204,7 +204,7 @@ fn mask_object(
                 // Cloud Storage accepts it, so it stays an error instead of a false success.
                 let root = path.split('.').next().unwrap_or_default();
                 return Err(if matches!(root, $(stringify!($field))|+) {
-                    unsupported(&format!("read_mask path {path}; request a supported top-level object field"), None)
+                    unsupported_for(&format!("read_mask path {path}; request a supported top-level object field"), None)
                 } else {
                     Status::invalid_argument(format!("There is no field for this resource named '{path}'."))
                 });
@@ -395,7 +395,10 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         if r.soft_deleted == Some(true) || !r.restore_token.is_empty() {
-            return Err(unsupported("GetObject soft_deleted/restore_token", caller));
+            return Err(unsupported_for(
+                "GetObject soft_deleted/restore_token",
+                caller,
+            ));
         }
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
@@ -571,7 +574,10 @@ impl Storage {
                     "metadata" => metadata = true,
                     p if p.starts_with("metadata.") => paths.push(p[9..].to_owned()),
                     _ => {
-                        return Err(unsupported(&format!("ReadObject read_mask {path}"), caller));
+                        return Err(unsupported_for(
+                            &format!("ReadObject read_mask {path}"),
+                            caller,
+                        ));
                     }
                 }
             }
@@ -726,7 +732,7 @@ impl Storage {
             ));
         }
         if !r.filter.is_empty() {
-            return Err(unsupported("ListObjects filter", caller));
+            return Err(unsupported_for("ListObjects filter", caller));
         }
         if r.include_folders_as_prefixes {
             json::check_folders_as_prefixes(&r.delimiter).map_err(json_status)?;
@@ -883,7 +889,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<(String, String, ResumableOptions, Option<u64>), Status> {
         if spec.appendable == Some(true) || !spec.predefined_acl.is_empty() {
-            return Err(unsupported(
+            return Err(unsupported_for(
                 "appendable/predefined_acl; omit these fields",
                 caller,
             ));
@@ -940,7 +946,7 @@ impl Storage {
         let expected = merge_hashes(hashes(resource.checksums.as_ref())?, hashes(checksums)?)?;
         resource.checksums = None;
         if resource != pb::Object::default() {
-            return Err(unsupported(
+            return Err(unsupported_for(
                 "write_object_spec.resource fields; use content_type, fixed/custom metadata and holds",
                 caller,
             ));
@@ -1003,7 +1009,7 @@ impl Storage {
                 }
             }
             Some(FirstMessage::AppendObjectSpec(_)) => {
-                return Err(unsupported("Rapid append", caller));
+                return Err(unsupported_for("Rapid append", caller));
             }
             None => {
                 return Err(Status::invalid_argument(
@@ -1291,7 +1297,7 @@ fn check_resumable_message(
         ));
     }
     if message.object_checksums.is_some() && !message.finish_write {
-        return Err(unsupported(
+        return Err(unsupported_for(
             "object_checksums before resumable finish; set StartResumableWrite.object_checksums or send them with finish_write=true",
             caller,
         ));
@@ -1366,7 +1372,7 @@ async fn produce_single_write<
             ));
         }
         if (message.flush || message.state_lookup) && !message.finish_write {
-            return Err(unsupported(
+            return Err(unsupported_for(
                 "non-resumable flush/state_lookup; use StartResumableWrite and upload_id",
                 caller,
             ));

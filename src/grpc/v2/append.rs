@@ -5,7 +5,7 @@ use super::{
     Storage, convert, names,
     object_io::{access_status, common, conditions, hashes, object_status, verify_crc32c},
     pb,
-    status::unsupported_for as unsupported,
+    status::unsupported_for,
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE},
@@ -65,7 +65,7 @@ fn append_status(error: AppendError, caller: Option<Caller<'_>>) -> Status {
         AppendError::Finalized => Status::failed_precondition(
             "The appendable object is finalized and accepts no more data; write a new object instead",
         ),
-        AppendError::ReplaceUnsupported => unsupported(
+        AppendError::ReplaceUnsupported => unsupported_for(
             "appendable writes that replace an existing object; delete the object first, or set if_generation_match=0 to create only",
             caller,
         ),
@@ -121,7 +121,7 @@ impl Storage {
         match first.first_message.take() {
             Some(FirstMessage::WriteObjectSpec(mut spec)) => {
                 if spec.object_size.is_some() {
-                    return Err(unsupported(
+                    return Err(unsupported_for(
                         "appendable object_size; omit it and finalize with finish_write",
                         caller,
                     ));
