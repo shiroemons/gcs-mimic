@@ -147,9 +147,16 @@ impl IoCause {
     }
 }
 
-/// Formats like the kind alone so messages such as `catalog I/O: {kind}` are unchanged.
+/// Plain failures retain the kind-only message; contextual failures also identify their entry.
 impl fmt::Display for IoCause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(context) = self
+            .source
+            .as_deref()
+            .and_then(|source| source.downcast_ref::<BackendCause>())
+        {
+            return context.fmt(formatter);
+        }
         fmt::Display::fmt(&self.kind, formatter)
     }
 }
@@ -259,44 +266,6 @@ impl StorageCause for CatalogError {
     }
 }
 
-impl StorageCause for BackendCause {
-    fn into_cause(self) -> BackendCause {
-        self
-    }
-
-    fn classify(self) -> Classified {
-        let mut io_kind = None;
-        let mut corrupt = false;
-        for error in crate::error::causes(&self) {
-            if let Some(error) = error.downcast_ref::<io::Error>() {
-                io_kind = Some(error.kind());
-                break;
-            }
-            if let Some(ObjectError::Io(cause)) = error.downcast_ref::<ObjectError>() {
-                io_kind = Some(cause.kind());
-                break;
-            }
-            if matches!(
-                error.downcast_ref::<ObjectError>(),
-                Some(ObjectError::Corrupt(_))
-            ) {
-                corrupt = true;
-                break;
-            }
-        }
-        if let Some(kind) = io_kind {
-            return Classified::Io(IoCause {
-                kind,
-                source: Some(Arc::new(self)),
-            });
-        }
-        if corrupt {
-            return Classified::Corrupt(self);
-        }
-        Classified::Unavailable(self)
-    }
-}
-
 impl StorageCause for ObjectError {
     fn into_cause(self) -> BackendCause {
         BackendCause::from_error(self)
@@ -361,6 +330,7 @@ unavailable_cause!(
     crate::task::BlockingFailed,
     crate::fsutil::FsError,
     crate::storage::admin::AdminError,
+    crate::storage::blob_id::InvalidBlobId,
 );
 
 impl From<Classified> for CatalogError {
@@ -391,6 +361,35 @@ pub(crate) fn unavailable(cause: impl StorageCause) -> CatalogError {
 /// Maps an object failure to `ObjectError`, classifying corrupt and I/O causes.
 pub(crate) fn object_unavailable(cause: impl StorageCause) -> ObjectError {
     cause.classify().into()
+}
+
+/// Adds recovery context while preserving the failure's classification and original source.
+pub(crate) fn object_context(context: impl fmt::Display, cause: impl StorageCause) -> ObjectError {
+    match cause.classify() {
+        Classified::Corrupt(cause) => ObjectError::Corrupt(BackendCause::with_source(
+            format!("{context}: {cause}"),
+            cause,
+        )),
+        Classified::Unavailable(cause) => ObjectError::Unavailable(BackendCause::with_source(
+            format!("{context}: {cause}"),
+            cause,
+        )),
+        Classified::Io(cause) => {
+            let message = format!(
+                "{context}: {}",
+                cause
+                    .source()
+                    .map_or_else(|| cause.kind().to_string(), ToString::to_string)
+            );
+            ObjectError::Io(IoCause {
+                kind: cause.kind(),
+                source: Some(Arc::new(BackendCause {
+                    message: message.into(),
+                    source: cause.source,
+                })),
+            })
+        }
+    }
 }
 
 /// Keeps access and metadata rejections consistent across object publication paths.

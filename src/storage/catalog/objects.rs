@@ -561,11 +561,18 @@ fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result
         if retained {
             continue;
         }
-        unlink(&entry.path()).map_err(|error| {
-            object_unavailable(crate::storage::failure::BackendCause::with_source(
-                format!("staging entry {}: {error}", entry.path().display()),
+        #[cfg(test)]
+        fault::hit(data_dir, Step::RecoveryStagingUnlink).map_err(|error| {
+            crate::storage::failure::object_context(
+                format_args!("staging entry {}", entry.path().display()),
                 error,
-            ))
+            )
+        })?;
+        unlink(&entry.path()).map_err(|error| {
+            crate::storage::failure::object_context(
+                format_args!("staging entry {}", entry.path().display()),
+                error,
+            )
         })?;
     }
     #[cfg(unix)]
@@ -588,10 +595,10 @@ fn drain_deletion_journal(connection: &Connection, data_dir: &Path) -> Result<()
         }
         for id in ids {
             reclaim(connection, data_dir, &id).map_err(|error| {
-                object_unavailable(crate::storage::failure::BackendCause::with_source(
-                    format!("deletion journal blob {id}: {error}"),
+                crate::storage::failure::object_context(
+                    format_args!("deletion journal blob {id}"),
                     error,
-                ))
+                )
             })?;
         }
     }
@@ -617,10 +624,7 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
         for (id, size) in rows {
             let path = id.blob_path(data_dir);
             let metadata = fs::symlink_metadata(&path).map_err(|error| {
-                ObjectError::Unavailable(crate::storage::failure::BackendCause::with_source(
-                    format!("referenced blob {id}: {error}"),
-                    error,
-                ))
+                crate::storage::failure::object_context(format_args!("referenced blob {id}"), error)
             })?;
             if !metadata.is_file() || metadata.len() != size {
                 return Err(object_unavailable(format!(
@@ -655,10 +659,10 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
                 object_unavailable(format!("invalid blob ID {}", blob.path().display()))
             })?;
             let id = id.parse::<BlobId>().map_err(|error| {
-                object_unavailable(crate::storage::failure::BackendCause::with_source(
-                    format!("blob entry {}: {error}", blob.path().display()),
+                crate::storage::failure::object_context(
+                    format_args!("blob entry {}", blob.path().display()),
                     error,
-                ))
+                )
             })?;
             let expected = id.blob_path(data_dir);
             if expected != blob.path() {
@@ -671,10 +675,10 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
             let referenced: bool = blob_referenced(connection, &id)?;
             if !referenced {
                 unlink(&blob.path()).map_err(|error| {
-                    object_unavailable(crate::storage::failure::BackendCause::with_source(
-                        format!("blob entry {}: {error}", blob.path().display()),
+                    crate::storage::failure::object_context(
+                        format_args!("blob entry {}", blob.path().display()),
                         error,
-                    ))
+                    )
                 })?;
             }
         }
@@ -2837,6 +2841,35 @@ mod tests {
     use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::UNIX_EPOCH;
+
+    #[tokio::test]
+    async fn staging_recovery_keeps_entry_context_and_the_io_failure_kind() {
+        let data = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&data.0).await.unwrap();
+        catalog.close().await.unwrap();
+        let stage = data.0.join("staging").join("abandoned");
+        fs::write(&stage, b"body").unwrap();
+        fault::arm(
+            &data.0,
+            Step::RecoveryStagingUnlink,
+            0,
+            fault::Fault::Io(io::ErrorKind::PermissionDenied),
+        );
+        let error = Catalog::open(&data.0).await.err().unwrap();
+        assert!(
+            matches!(&error, CatalogError::Io(cause) if cause.kind() == io::ErrorKind::PermissionDenied)
+        );
+        assert!(error.to_string().contains("staging entry"));
+        assert!(error.to_string().contains("abandoned"));
+        assert!(
+            crate::error::causes(&error).any(|error| error.downcast_ref::<io::Error>().is_some())
+        );
+        assert!(stage.is_file());
+        assert_eq!(fault::pending(&data.0), 0);
+        let recovered = Catalog::open(&data.0).await.unwrap();
+        assert!(!stage.exists());
+        recovered.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn replayed_upload_keeps_its_record_when_discard_fails() {

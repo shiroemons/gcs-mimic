@@ -28,16 +28,17 @@ fn object_access_rejections_keep_their_domain_status() {
 
 #[test]
 fn contextual_recovery_failures_keep_classification_and_sources() {
-    let error = object_unavailable(BackendCause::with_source(
+    let error = object_context(
         "staging cleanup",
         io::Error::from(io::ErrorKind::StorageFull),
-    ));
+    );
     assert!(
         matches!(error, ObjectError::Io(ref cause) if cause.kind() == io::ErrorKind::StorageFull)
     );
     assert!(crate::error::causes(&error).any(|error| error.downcast_ref::<io::Error>().is_some()));
+    assert!(error.to_string().contains("staging cleanup"));
     let corrupt = object_unavailable(sqlite_failure(rusqlite::ffi::SQLITE_CORRUPT));
-    let error = object_unavailable(BackendCause::with_source("deletion journal", corrupt));
+    let error = object_context("deletion journal", corrupt);
     assert!(matches!(error, ObjectError::Corrupt(_)));
     assert!(
         crate::error::causes(&error).any(|error| error.downcast_ref::<rusqlite::Error>().is_some())

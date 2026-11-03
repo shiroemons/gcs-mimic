@@ -57,6 +57,8 @@ pub(crate) enum Step {
     ReclaimForget,
     /// After publishing a restore's pinned bytes, before its metadata transaction.
     RestorePinned,
+    /// Before removing an unretained staging entry during startup recovery.
+    RecoveryStagingUnlink,
     TransferAccepted,
     TransferComplete,
     TransferCompleted,
