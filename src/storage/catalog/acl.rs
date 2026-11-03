@@ -285,11 +285,20 @@ fn bucket_row(connection: &Connection, bucket: &str) -> Result<Option<BucketRow>
 }
 
 pub(super) fn decode(entries: &str, kind: AclKind) -> Result<Vec<AclEntry>, CatalogError> {
-    let entries: Vec<AclEntry> = serde_json::from_str(entries)
-        .map_err(|_| CatalogError::Corrupt("invalid stored ACL".into()))?;
+    let invalid = |error| {
+        CatalogError::Corrupt(crate::storage::failure::BackendCause::with_source(
+            "invalid stored ACL",
+            error,
+        ))
+    };
+    let entries: Vec<AclEntry> = serde_json::from_str(entries).map_err(invalid)?;
     for entry in &entries {
-        crate::acl::validate_role(kind, entry.role.as_str())
-            .map_err(|_| CatalogError::Corrupt("invalid stored ACL".into()))?;
+        crate::acl::validate_role(kind, entry.role.as_str()).map_err(|error| {
+            CatalogError::Corrupt(crate::storage::failure::BackendCause::with_source(
+                "invalid stored ACL",
+                error,
+            ))
+        })?;
     }
     Ok(entries)
 }

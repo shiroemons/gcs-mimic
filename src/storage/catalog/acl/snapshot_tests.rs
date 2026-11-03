@@ -11,6 +11,12 @@ use bytes::Bytes;
 use std::sync::Arc;
 
 #[test]
+fn malformed_stored_acl_keeps_the_json_error_source() {
+    let error = decode("[", AclKind::Bucket).unwrap_err();
+    assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+}
+
+#[test]
 fn unknown_stored_acl_role_is_catalog_corruption() {
     for role in ["unknown", "reader", "", "FULL_CONTROL"] {
         let encoded = serde_json::json!([{"entity":"allUsers","role":role}]).to_string();
