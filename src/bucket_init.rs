@@ -1018,10 +1018,17 @@ pub async fn apply(
     };
     let project = config.seed_project.clone();
     let default_location = config.default_location.clone();
-    let records = tokio::task::spawn_blocking(move || {
+    let records = crate::task::spawn_blocking("bucket-initializer", move || {
         load(&path, &project, clock.as_ref(), &default_location)
     })
     .await
+    .map_err(|_| {
+        std::io::Error::other(Diagnostics::error(
+            DiagnosticSource::Initializer,
+            "buckets_file",
+            "Cannot finish reading bucket initialization; inspect local resources and restart.",
+        ))
+    })?
     .map_err(|_| {
         std::io::Error::other(Diagnostics::error(
             DiagnosticSource::Initializer,

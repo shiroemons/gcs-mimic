@@ -153,17 +153,18 @@ fn body(
         let mut progress = activity.subscribe();
         let stream = async {
             let file = reader.into_reader().await;
-            let mut decoder = tokio::task::spawn_blocking(move || {
+            let mut decoder = crate::task::spawn_blocking("object-gzip-decoder", move || {
                 MultiGzDecoder::new(Input {
                     reader: BufReader::new(file.take(stored_size)),
                     budget: CHUNK_BYTES,
                 })
             })
             .await
+            .map_err(|_| io::Error::other("gzip decoder worker failed"))?
             .map_err(|_| io::Error::other("gzip decoder worker failed"))?;
             let mut total = 0_u64;
             loop {
-                let (next, bytes) = tokio::task::spawn_blocking(move || {
+                let (next, bytes) = crate::task::spawn_blocking("object-gzip-read", move || {
                     decoder.get_mut().budget = CHUNK_BYTES;
                     let mut bytes = vec![0; CHUNK_BYTES];
                     let result = decoder.read(&mut bytes).map(|length| {
@@ -173,6 +174,7 @@ fn body(
                     (decoder, result)
                 })
                 .await
+                .map_err(|_| io::Error::other("gzip decoder worker failed"))?
                 .map_err(|_| io::Error::other("gzip decoder worker failed"))?;
                 decoder = next;
                 let bytes = match bytes {

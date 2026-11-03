@@ -24,6 +24,10 @@ pub struct Listener {
 }
 
 impl Listener {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "The job catches and sends panics before cancellation-safe pathname cleanup on this same worker."
+    )]
     pub async fn bind(path: &Path) -> io::Result<Self> {
         let path = path.to_owned();
         let runtime = Handle::current();
@@ -124,6 +128,10 @@ struct Owner {
     runtime: Handle,
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "Drop may run outside the runtime; cleanup reports panics through catch_job on the retained runtime."
+)]
 fn cleanup_job(
     runtime: &Handle,
     path: PathBuf,

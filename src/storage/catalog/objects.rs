@@ -396,7 +396,10 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::BeforePublish).map_err(object_unavailable)?;
-        tokio::task::spawn_blocking(move || publish_blob(&source, &destination)).await??;
+        crate::task::spawn_blocking("blob-publication", move || {
+            publish_blob(&source, &destination)
+        })
+        .await???;
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::AfterPublish).map_err(object_unavailable)?;
         Ok(())
@@ -728,7 +731,7 @@ pub(super) async fn create_upload_stage(
     stage: PathBuf,
     published: PathBuf,
 ) -> Result<File, ObjectError> {
-    tokio::task::spawn_blocking(move || -> io::Result<File> {
+    crate::task::spawn_blocking("upload-stage", move || -> io::Result<File> {
         if published.try_exists()? {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -740,7 +743,7 @@ pub(super) async fn create_upload_stage(
             .create_new(true)
             .open(stage)
     })
-    .await?
+    .await??
     .map_err(object_unavailable)
 }
 
@@ -2492,7 +2495,8 @@ impl Catalog {
             }
             let backend = catalog.0.backend.clone();
             let (removed, failure) =
-                tokio::task::spawn_blocking(move || backend.reclaim_batch(ids)).await??;
+                crate::task::spawn_blocking("blob-reclamation", move || backend.reclaim_batch(ids))
+                    .await???;
             catalog
                 .run_upload(move |connection| {
                     let transaction = connection.transaction()?;

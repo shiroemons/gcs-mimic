@@ -118,6 +118,10 @@ pub(crate) fn catch_job<T>(name: &'static str, job: impl FnOnce() -> T) -> Resul
 }
 
 /// Run an admitted CPU job on the runtime's bounded blocking pool, reporting its panic.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The shared blocking entry point reports panics through catch_job."
+)]
 pub(crate) fn spawn_blocking<F, T>(name: &'static str, job: F) -> JoinHandle<Result<T, JobPanicked>>
 where
     F: FnOnce() -> T + Send + 'static,
@@ -310,6 +314,19 @@ pub(crate) mod tests {
     };
 
     static PANICS: Mutex<Vec<(&'static str, String)>> = Mutex::new(Vec::new());
+
+    #[tokio::test]
+    async fn blocking_job_reports_panics_to_the_caller() {
+        let error = spawn_blocking("blocking-panic-test", || panic!("blocking job failed"))
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, JobPanicked("blocking-panic-test")));
+        assert_eq!(
+            reported_panics("blocking-panic-test"),
+            ["blocking job failed"]
+        );
+    }
 
     pub(super) fn record_panic(name: &'static str, message: &str) {
         PANICS
