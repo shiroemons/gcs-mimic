@@ -229,7 +229,11 @@ async fn object_listing_preserves_json_pagination_prefixes_versions_and_errors()
                 .into_inner();
             assert_eq!(
                 actual.items,
-                page.items.iter().map(pb::Object::from).collect::<Vec<_>>()
+                page.items
+                    .iter()
+                    .map(convert::object)
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
             );
             assert_eq!(actual.prefixes, page.prefixes);
             assert_eq!(

@@ -28,13 +28,20 @@ pub(super) enum ExecutorError {
 impl std::fmt::Display for ExecutorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::Closed => "catalog is closed",
+            Self::Closed => crate::storage::failure::BackendFailure::CatalogClosed.message(),
             Self::Panicked => "catalog operation panicked",
         })
     }
 }
 
-impl std::error::Error for ExecutorError {}
+impl std::error::Error for ExecutorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Closed => Some(&crate::storage::failure::BackendFailure::CatalogClosed),
+            Self::Panicked => None,
+        }
+    }
+}
 
 impl crate::storage::failure::StorageCause for ExecutorError {
     fn into_cause(self) -> crate::storage::failure::BackendCause {

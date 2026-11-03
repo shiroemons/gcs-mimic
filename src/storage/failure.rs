@@ -16,6 +16,9 @@ use std::{
 
 type Source = Arc<dyn Error + Send + Sync + 'static>;
 
+mod kind;
+pub(crate) use kind::BackendFailure;
+
 /// The message and optional underlying error of an unavailable or corrupt backend.
 ///
 /// `Display` prints only the message. A cause built from an error uses that error's own
@@ -58,6 +61,10 @@ impl BackendCause {
 
     pub(crate) fn message(&self) -> &str {
         &self.message
+    }
+
+    pub(crate) fn failure(&self) -> Option<BackendFailure> {
+        crate::error::causes(self).find_map(|error| error.downcast_ref::<BackendFailure>().copied())
     }
 
     pub(crate) fn source(&self) -> Option<&(dyn Error + 'static)> {
@@ -112,6 +119,12 @@ impl From<&str> for BackendCause {
 impl From<String> for BackendCause {
     fn from(message: String) -> Self {
         Self::new(message)
+    }
+}
+
+impl From<BackendFailure> for BackendCause {
+    fn from(failure: BackendFailure) -> Self {
+        Self::from_error(failure)
     }
 }
 
@@ -263,6 +276,12 @@ impl StorageCause for ObjectError {
 impl StorageCause for &'static str {
     fn into_cause(self) -> BackendCause {
         BackendCause::new(self)
+    }
+}
+
+impl StorageCause for BackendFailure {
+    fn into_cause(self) -> BackendCause {
+        self.into()
     }
 }
 

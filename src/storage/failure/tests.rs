@@ -1,7 +1,178 @@
 use super::*;
 
+fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
+    use BackendFailure::*;
+    let cases = [
+        (
+            CatalogClosed,
+            "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
+        ),
+        (
+            OperationLimit,
+            "Object storage is unavailable: catalog operation limit reached; retry with fewer concurrent requests (for example, 16)",
+        ),
+        (
+            UploadWaitTimeout,
+            "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit",
+        ),
+        (
+            RetainedSessionLimit,
+            "Object storage is unavailable: retained upload session limit reached; wait for expired sessions to be reclaimed or use single-request media uploads",
+        ),
+        (
+            OutboxLimit,
+            "Object storage is unavailable: notification outbox limit reached; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery, then retry with generation preconditions",
+        ),
+        (
+            FinalizationTimeout,
+            "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)",
+        ),
+        (
+            CopyDeadline,
+            "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)",
+        ),
+        (
+            SessionBusy,
+            "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session",
+        ),
+        (
+            MissingCompletion,
+            "Object storage is unavailable: internal storage failure (private backend details withheld)",
+        ),
+    ];
+    let mut failures: Vec<_> = cases
+        .into_iter()
+        .flat_map(|(cause, message)| {
+            [
+                (object_unavailable(cause), message),
+                (ObjectError::from(unavailable(cause)), message),
+            ]
+        })
+        .collect();
+    for (failure, guidance) in crate::storage::catalog::test_fixtures::guidance_source_failures() {
+        failures.push((
+            failure,
+            cases.iter().find(|(kind, _)| *kind == guidance).unwrap().1,
+        ));
+    }
+    for error in [
+        crate::server::copy::CheckpointError::ObserverDropped,
+        crate::server::copy::CheckpointError::Abandoned,
+    ] {
+        let message = "Object storage is unavailable: internal storage failure (private backend details withheld)";
+        failures.push((ObjectError::backend(error), message));
+        failures.push((
+            ObjectError::from(unavailable(ObjectError::backend(error))),
+            message,
+        ));
+    }
+    failures
+}
+
+#[tokio::test]
+async fn backend_guidance_wire_responses_are_stable_across_protocols() {
+    use http_body_util::BodyExt;
+    use hyper::{HeaderMap, StatusCode};
+
+    for (failure, message) in guidance_failures() {
+        let error = crate::json::JsonError::from(failure);
+        let grpc: hyper::Response<tonic::body::Body> =
+            tonic::Status::from(error.clone()).into_http();
+        assert_eq!(grpc.status(), StatusCode::OK);
+        let expected: HeaderMap = [
+            ("content-type", "application/grpc".to_owned()),
+            ("grpc-status", "14".to_owned()),
+            ("grpc-message", message.replace(' ', "%20")),
+        ]
+        .into_iter()
+        .map(|(key, value)| {
+            (
+                key.parse::<hyper::header::HeaderName>().unwrap(),
+                value.parse().unwrap(),
+            )
+        })
+        .collect();
+        assert_eq!(grpc.headers(), &expected);
+        assert!(
+            grpc.into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .is_empty()
+        );
+
+        let xml = crate::xml::Error::from(error.clone()).response(crate::xml::ErrorBody::Include);
+        assert_eq!(xml.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = format!(
+            "<?xml version='1.0' encoding='UTF-8'?><Error><Code>ServiceUnavailable</Code><Message>{message}</Message></Error>"
+        );
+        let expected: HeaderMap = [
+            ("content-type", "application/xml; charset=UTF-8".to_owned()),
+            ("cache-control", "private, max-age=0".to_owned()),
+            ("content-length", body.len().to_string()),
+        ]
+        .into_iter()
+        .map(|(key, value)| {
+            (
+                key.parse::<hyper::header::HeaderName>().unwrap(),
+                value.parse().unwrap(),
+            )
+        })
+        .collect();
+        assert_eq!(xml.headers(), &expected);
+        assert_eq!(xml.into_body().collect().await.unwrap().to_bytes(), body);
+
+        let json = error.into_response();
+        assert_eq!(json.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let expected: HeaderMap = [
+            ("content-type", "application/json; charset=UTF-8"),
+            (
+                "cache-control",
+                "no-cache, no-store, max-age=0, must-revalidate",
+            ),
+            ("pragma", "no-cache"),
+        ]
+        .into_iter()
+        .map(|(key, value)| {
+            (
+                key.parse::<hyper::header::HeaderName>().unwrap(),
+                value.parse().unwrap(),
+            )
+        })
+        .collect();
+        assert_eq!(json.headers(), &expected);
+        let body = format!(
+            "{{\n  \"error\": {{\n    \"code\": 503,\n    \"message\": \"{message}\",\n    \"errors\": [\n      {{\n        \"message\": \"{message}\",\n        \"domain\": \"global\",\n        \"reason\": \"backendError\"\n      }}\n    ]\n  }}\n}}"
+        );
+        assert_eq!(json.into_body().collect().await.unwrap().to_bytes(), body);
+    }
+}
+
 fn sqlite_failure(code: std::ffi::c_int) -> rusqlite::Error {
     rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None)
+}
+
+#[test]
+fn backend_guidance_survives_changed_context_and_io_wrappers() {
+    for cause in [
+        BackendCause::with_source("renamed backend diagnostic", BackendFailure::CatalogClosed),
+        BackendCause::from_error(CatalogError::Unavailable(BackendCause::with_source(
+            "renamed catalog diagnostic",
+            BackendFailure::CatalogClosed,
+        ))),
+        BackendCause::from_error(io::Error::other(BackendCause::with_source(
+            "renamed I/O diagnostic",
+            BackendFailure::CatalogClosed,
+        ))),
+    ] {
+        assert_eq!(cause.failure(), Some(BackendFailure::CatalogClosed));
+        assert!(cause.source().is_some());
+        assert_eq!(
+            crate::json::JsonError::from(ObjectError::Unavailable(cause)).message,
+            guidance_failures()[0].1
+        );
+    }
 }
 
 #[test]

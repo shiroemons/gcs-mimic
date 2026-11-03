@@ -4,7 +4,10 @@ use crate::{
     config::Config,
     json,
     object::{ObjectError, ObjectRecord},
-    storage::{Catalog, CopyReplay, DerivedDestination, DerivedSource},
+    storage::{
+        Catalog, CopyReplay, DerivedDestination, DerivedSource,
+        failure::{BackendFailure, object_unavailable},
+    },
 };
 use std::time::Duration;
 use tokio::{sync::watch, time::Instant};
@@ -19,6 +22,26 @@ pub(crate) struct Checkpoint {
 }
 
 #[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CheckpointError {
+    ObserverDropped,
+    Abandoned,
+}
+
+#[cfg(test)]
+impl std::fmt::Display for CheckpointError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ObserverDropped => "copy checkpoint observer dropped",
+            Self::Abandoned => "copy checkpoint abandoned",
+        })
+    }
+}
+
+#[cfg(test)]
+impl std::error::Error for CheckpointError {}
+
+#[cfg(test)]
 async fn checkpoint_at(
     progress: &crate::storage::DerivedTransfer,
     checkpoint: &mut Option<Checkpoint>,
@@ -31,11 +54,11 @@ async fn checkpoint_at(
         checkpoint
             .reached
             .send(progress.clone())
-            .map_err(|_| ObjectError::Unavailable("copy checkpoint observer dropped".into()))?;
+            .map_err(|_| ObjectError::backend(CheckpointError::ObserverDropped))?;
         checkpoint
             .resume
             .await
-            .map_err(|_| ObjectError::Unavailable("copy checkpoint abandoned".into()))?;
+            .map_err(|_| ObjectError::backend(CheckpointError::Abandoned))?;
     }
     Ok(())
 }
@@ -102,7 +125,7 @@ pub(crate) async fn execute(
         catalog.begin_derived_ephemeral(vec![source.whole()], config.max_object_bytes),
     )
     .await
-    .map_err(|_| ObjectError::Unavailable("copy request deadline exceeded".into()))??;
+    .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;
     activity.send_modify(|activity| activity.awaiting_catalog = false);
     let mut owner = catalog.guard_derived_request(&transfer.id);
     // The request owns this future: cancellation can finish an in-flight bounded advance,
@@ -121,7 +144,7 @@ pub(crate) async fn execute(
         Ok::<_, ObjectError>(())
     })
     .await
-    .map_err(|_| ObjectError::Unavailable("copy request deadline exceeded".into()))??;
+    .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;
     begin_catalog_wait(activity).await;
     // Only catalog admission can time out. Once publication starts, return its durable outcome
     // rather than reporting a timeout while a detached mutation can still commit.

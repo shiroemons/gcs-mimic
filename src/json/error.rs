@@ -1,4 +1,9 @@
-use crate::{auth::AuthFailure, bucket::CatalogError, object::ObjectError};
+use crate::{
+    auth::AuthFailure,
+    bucket::CatalogError,
+    object::ObjectError,
+    storage::failure::{BackendCause, BackendFailure},
+};
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
 use serde_json::{Value, json};
@@ -102,6 +107,8 @@ pub struct JsonError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ErrorKind {
+    /// Keeps the typed timeout cause available to classification tests after JSON adaptation.
+    Backend(BackendFailure),
     MissingBucket,
     MissingObject,
     NamedMissingObject,
@@ -262,46 +269,25 @@ impl JsonError {
         )
     }
 
-    fn backend(message: &str) -> Self {
+    fn backend(backend: &BackendCause) -> Self {
         // Only fixed diagnostics cross the HTTP boundary; arbitrary backend text can contain paths or secrets.
-        let cause = message
+        if let Some(failure) = backend.failure()
+            && let Some(message) = failure.guidance()
+        {
+            return Self::service_unavailable(message).with_kind(ErrorKind::Backend(failure));
+        }
+        let cause = backend
+            .message()
             .strip_prefix("catalog unavailable: ")
-            .unwrap_or(message);
-        let message = match cause {
-            "catalog is closed" => {
-                "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying"
-            }
-            "catalog operation limit reached" => {
-                "Object storage is unavailable: catalog operation limit reached; retry with fewer concurrent requests (for example, 16)"
-            }
-            "upload catalog wait timed out" => {
-                "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit"
-            }
-            "retained upload session limit reached" => {
-                "Object storage is unavailable: retained upload session limit reached; wait for expired sessions to be reclaimed or use single-request media uploads"
-            }
-            "notification outbox limit reached" => {
-                "Object storage is unavailable: notification outbox limit reached; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery, then retry with generation preconditions"
-            }
-            "upload finalization timed out" => {
-                "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)"
-            }
-            "copy request deadline exceeded" => {
-                "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)"
-            }
-            "upload session is busy" => {
-                "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session"
-            }
-            _ => {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Error,
-                    "object_backend_failure",
-                    json!({"cause": safe_backend_cause(cause)}),
-                );
-                "Object storage is unavailable: internal storage failure (private backend details withheld)"
-            }
-        };
-        Self::service_unavailable(message)
+            .unwrap_or(backend.message());
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Error,
+            "object_backend_failure",
+            json!({"cause": safe_backend_cause(cause)}),
+        );
+        Self::service_unavailable(
+            "Object storage is unavailable: internal storage failure (private backend details withheld)",
+        )
     }
 
     /// An unclassified protocol error; use a named constructor for a semantic error kind.
@@ -887,7 +873,7 @@ impl From<ObjectError> for JsonError {
             ).with_kind(ErrorKind::IncompleteBody),
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid(reason),
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
-            ObjectError::Unavailable(cause) => Self::backend(cause.message()),
+            ObjectError::Unavailable(cause) => Self::backend(&cause),
             ObjectError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
                 Self::storage_capacity()
             }
@@ -1053,17 +1039,17 @@ mod tests {
             return;
         }
         for cause in [
-            "catalog is closed",
-            "catalog operation limit reached",
-            "upload catalog wait timed out",
-            "retained upload session limit reached",
-            "upload finalization timed out",
-            "copy request deadline exceeded",
-            "upload session is busy",
+            BackendFailure::CatalogClosed,
+            BackendFailure::OperationLimit,
+            BackendFailure::UploadWaitTimeout,
+            BackendFailure::RetainedSessionLimit,
+            BackendFailure::FinalizationTimeout,
+            BackendFailure::CopyDeadline,
+            BackendFailure::SessionBusy,
         ] {
             let error = JsonError::from(ObjectError::Unavailable(cause.into()));
             assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
-            assert!(error.message.contains(cause));
+            assert!(error.message.contains(cause.message()));
         }
         let error = JsonError::from(ObjectError::Unavailable(
             "failure at /secret/catalog with token=private".into(),
@@ -1094,11 +1080,38 @@ mod tests {
         ] {
             let cause = cause.strip_prefix("catalog unavailable: ").unwrap_or(cause);
             assert_eq!(safe_backend_cause(cause), expected);
-            let error = JsonError::backend(cause);
+            let error = JsonError::backend(&cause.into());
             assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(
                 error.message,
                 "Object storage is unavailable: internal storage failure (private backend details withheld)"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn unavailable_catalog_keeps_bucket_guidance() {
+        use http_body_util::BodyExt;
+
+        for cause in [
+            BackendCause::from("catalog is closed"),
+            BackendCause::from(BackendFailure::CatalogClosed),
+        ] {
+            let response = JsonError::from(CatalogError::Unavailable(cause)).into_response();
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                "application/json; charset=UTF-8"
+            );
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                NO_STORE_CACHE_CONTROL
+            );
+            assert_eq!(response.headers()[header::PRAGMA], "no-cache");
+            assert_eq!(response.headers().len(), 3);
+            assert_eq!(
+                response.into_body().collect().await.unwrap().to_bytes(),
+                "{\n  \"error\": {\n    \"code\": 503,\n    \"message\": \"Bucket catalog is unavailable\",\n    \"errors\": [\n      {\n        \"message\": \"Bucket catalog is unavailable\",\n        \"domain\": \"global\",\n        \"reason\": \"backendError\"\n      }\n    ]\n  }\n}"
             );
         }
     }

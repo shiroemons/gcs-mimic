@@ -1016,9 +1016,9 @@ impl Catalog {
                 let (_execution, _activity) = (execution, activity);
                 match inner.with_connection(operation) {
                     Ok(result) => result,
-                    Err(super::ConnectionUnavailable::Closed) => {
-                        Err(object_unavailable("catalog is closed"))
-                    }
+                    Err(super::ConnectionUnavailable::Closed) => Err(object_unavailable(
+                        crate::storage::failure::BackendFailure::CatalogClosed,
+                    )),
                     Err(error) => Err(object_unavailable(error)),
                 }
             })
@@ -1088,7 +1088,9 @@ impl Catalog {
         let activity = self.activity()?;
         let mut uploads = self.0.uploads.lock().map_err(object_unavailable)?;
         if uploads.closed || !self.is_healthy() {
-            return Err(object_unavailable("catalog is closed"));
+            return Err(object_unavailable(
+                crate::storage::failure::BackendFailure::CatalogClosed,
+            ));
         }
         uploads.active += 1;
         Ok(UploadGuard {

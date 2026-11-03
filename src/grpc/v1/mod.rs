@@ -307,14 +307,14 @@ impl Storage {
                 conditions,
                 update,
                 move |record| {
-                    let current = pb::Object::from(record);
+                    let current = convert::object(record)?;
                     convert::object_outputs(&mut supplied, Some(&current))
                 },
                 &access,
             )
             .await
             .map_err(|error| object_access_error(error, caller))?;
-        Ok(Response::new(pb::Object::from(&record)))
+        Ok(Response::new(convert::object(&record)?))
     }
 }
 
@@ -558,7 +558,7 @@ impl pb::storage_server::Storage for Storage {
             .get_object(target, request_conditions!(conditions, r)?, &access)
             .await
             .map_err(|error| object_access_error(error, caller))?;
-        Ok(Response::new(pb::Object::from(&record)))
+        Ok(Response::new(convert::object(&record)?))
     }
 
     async fn delete_object(
@@ -675,7 +675,11 @@ impl pb::storage_server::Storage for Storage {
             .map(|cursor| json::encode_object_page_token(&query, json::Projection::NoAcl, cursor))
             .unwrap_or_default();
         Ok(Response::new(pb::ListObjectsResponse {
-            items: page.items.iter().map(pb::Object::from).collect(),
+            items: page
+                .items
+                .iter()
+                .map(convert::object)
+                .collect::<Result<_, _>>()?,
             prefixes: page.prefixes,
             next_page_token,
         }))
@@ -750,7 +754,7 @@ impl pb::storage_server::Storage for Storage {
             )
             .await
             .map_err(|error| object_access_error(error, caller))?;
-        Ok(Response::new(pb::Object::from(&record)))
+        Ok(Response::new(convert::object(&record)?))
     }
 
     async fn insert_object(

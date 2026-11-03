@@ -112,42 +112,40 @@ pub(super) fn object_outputs(
     Ok(())
 }
 
-impl From<&ObjectRecord> for pb::Object {
-    fn from(record: &ObjectRecord) -> Self {
-        Self {
-            name: record.name.clone(),
-            bucket: record.bucket.clone(),
-            generation: record.generation,
-            metageneration: record.metageneration,
-            size: crate::grpc::convert::signed(record.size),
-            storage_class: record.storage_class.clone(),
-            content_type: record.content_type.clone(),
-            content_encoding: record.content_encoding.clone().unwrap_or_default(),
-            content_disposition: record.content_disposition.clone().unwrap_or_default(),
-            content_language: record.content_language.clone().unwrap_or_default(),
-            cache_control: record.cache_control.clone().unwrap_or_default(),
-            metadata: record.metadata.clone().into_iter().collect(),
-            crc32c: record
-                .customer_key_sha256
-                .is_none()
-                .then_some(record.crc32c),
-            md5_hash: if record.has_md5() && record.customer_key_sha256.is_none() {
-                crate::base64::encode(&record.md5)
-            } else {
-                String::new()
-            },
-            component_count: crate::grpc::convert::component_count(record.component_count),
-            time_created: Some(record.time_created.into()),
-            updated: Some(record.updated.into()),
-            time_deleted: record.time_deleted.map(Into::into),
-            // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
-            // the three states exist only in the JSON resource.
-            event_based_hold: Some(record.event_based_hold == Some(true)),
-            temporary_hold: record.temporary_hold == Some(true),
-            retention_expiration_time: record.retention_expiration_time.map(Into::into),
-            ..Default::default()
-        }
-    }
+pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
+    Ok(pb::Object {
+        name: record.name.clone(),
+        bucket: record.bucket.clone(),
+        generation: record.generation,
+        metageneration: record.metageneration,
+        size: crate::grpc::convert::signed(record.size, "size")?,
+        storage_class: record.storage_class.clone(),
+        content_type: record.content_type.clone(),
+        content_encoding: record.content_encoding.clone().unwrap_or_default(),
+        content_disposition: record.content_disposition.clone().unwrap_or_default(),
+        content_language: record.content_language.clone().unwrap_or_default(),
+        cache_control: record.cache_control.clone().unwrap_or_default(),
+        metadata: record.metadata.clone().into_iter().collect(),
+        crc32c: record
+            .customer_key_sha256
+            .is_none()
+            .then_some(record.crc32c),
+        md5_hash: if record.has_md5() && record.customer_key_sha256.is_none() {
+            crate::base64::encode(&record.md5)
+        } else {
+            String::new()
+        },
+        component_count: crate::grpc::convert::component_count(record.component_count)?,
+        time_created: Some(record.time_created.into()),
+        updated: Some(record.updated.into()),
+        time_deleted: record.time_deleted.map(Into::into),
+        // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
+        // the three states exist only in the JSON resource.
+        event_based_hold: Some(record.event_based_hold == Some(true)),
+        temporary_hold: record.temporary_hold == Some(true),
+        retention_expiration_time: record.retention_expiration_time.map(Into::into),
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]
@@ -178,7 +176,7 @@ mod tests {
             },
         ] {
             let json = json::object_resource(&record, "", Projection::NoAcl).unwrap();
-            let legacy = pb::Object::from(&record);
+            let legacy = object(&record).unwrap();
             assert_eq!(
                 legacy.md5_hash,
                 json["md5Hash"].as_str().unwrap_or_default()
