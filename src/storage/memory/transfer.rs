@@ -223,11 +223,13 @@ pub(in crate::storage) struct Draft {
 impl Draft {
     pub(in crate::storage) fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
         let stage = self.stage.as_mut().ok_or_else(poisoned)?;
-        stage.write(bytes)?;
+        let before = stage.size;
+        let result = stage.write(bytes);
         if let Some(hasher) = &mut stage.hasher {
-            hasher.update(bytes);
+            // A full budget can reject a later block after earlier bytes were accepted.
+            hasher.update(&bytes[..(stage.size - before) as usize]);
         }
-        Ok(())
+        result
     }
 
     pub(in crate::storage) fn acknowledge(&mut self, offset: u64) {
@@ -310,6 +312,26 @@ fn poisoned() -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_draft_write_keeps_hashes_aligned_and_rolls_back_on_drop() {
+        let store = Store::new(2 * BLOCK_SIZE + 4096);
+        store.create_resumable_draft("draft".into()).unwrap();
+        let mut draft = store.draft("draft", 0).unwrap();
+        let input = vec![3; 4 * BLOCK_SIZE as usize];
+        assert_eq!(
+            draft.write(&input).unwrap_err().kind(),
+            io::ErrorKind::StorageFull
+        );
+        let (hashes, size) = draft.hashes().unwrap();
+        assert!(size > 0 && size < input.len() as u64);
+        let mut expected = crate::hashing::Hasher::default();
+        expected.update(&input[..size as usize]);
+        assert_eq!(hashes, expected.finish());
+        drop(draft);
+        let draft = store.draft("draft", 0).unwrap();
+        assert_eq!(draft.hashes().unwrap().1, 0);
+    }
 
     #[test]
     fn ram_draft_rollback_and_source_aliases_share_the_aggregate_budget() {
