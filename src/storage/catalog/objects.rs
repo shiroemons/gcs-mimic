@@ -432,14 +432,7 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
                 fault::dir_created(shard);
                 #[cfg(unix)]
                 if let Err(error) = sync_dir(blobs) {
-                    if let Err(cleanup) = fs::remove_dir(shard) {
-                        crate::diagnostics::emit(
-                            crate::diagnostics::LogLevel::Warn,
-                            "blob_shard_cleanup_deferred",
-                            serde_json::json!({"message": cleanup.to_string()}),
-                        );
-                    }
-                    return Err(error);
+                    return Err(cleanup_failed_shard(shard, error));
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -476,6 +469,18 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
         let destination = shard.canonicalize()?.join(file_name);
         crate::fsutil::move_write_through(&source, &destination)
     }
+}
+
+#[cfg(unix)]
+fn cleanup_failed_shard(shard: &Path, error: io::Error) -> io::Error {
+    if let Err(cleanup) = fs::remove_dir(shard) {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Warn,
+            "blob_shard_cleanup_deferred",
+            serde_json::json!({"message": cleanup.to_string()}),
+        );
+    }
+    error
 }
 
 /// Commits a publication transaction after its blob is durable in `blobs/`.
@@ -2961,6 +2966,26 @@ mod tests {
     use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::UNIX_EPOCH;
+
+    #[cfg(unix)]
+    #[test]
+    fn shard_cleanup_keeps_the_original_sync_failure() {
+        for occupied in [false, true] {
+            let data = crate::test_support::TestDir::new();
+            let shard = data.0.join("shard");
+            fs::create_dir(&shard).unwrap();
+            if occupied {
+                fs::write(shard.join("concurrent"), b"bytes").unwrap();
+            }
+            let error = cleanup_failed_shard(
+                &shard,
+                io::Error::new(io::ErrorKind::StorageFull, "shard parent sync failed"),
+            );
+            assert_eq!(error.kind(), io::ErrorKind::StorageFull);
+            assert_eq!(error.to_string(), "shard parent sync failed");
+            assert_eq!(shard.exists(), occupied);
+        }
+    }
 
     #[cfg(unix)]
     #[test]
