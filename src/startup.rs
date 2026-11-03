@@ -688,6 +688,18 @@ mod tests {
         assert!(error.source().unwrap().source().is_none());
     }
 
+    #[test]
+    fn seed_io_diagnostics_ignore_words_in_fixture_paths() {
+        let error = SeedError::Entry {
+            label: "bucket/max_object_bytes".into(),
+            source: Box::new(SeedError::Io(io::ErrorKind::PermissionDenied.into())),
+        };
+        assert_eq!(
+            seed_failure(&error),
+            "seed import: unreadable or invalid fixture input; correct seed_dir fixtures and their permissions, names, project, overlap and configured limits before restarting."
+        );
+    }
+
     #[tokio::test]
     #[cfg(unix)]
     async fn unix_startup_does_not_bind_the_configured_default_tcp_address() {
