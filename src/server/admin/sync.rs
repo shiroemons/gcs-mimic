@@ -1,5 +1,6 @@
 //! Live synchronization controls never open a data directory or confer fixture authority.
 
+use crate::storage::admin::AdminError;
 use crate::{
     auth::Identity,
     json::{self, JsonError},
@@ -503,14 +504,8 @@ fn busy() -> JsonError {
 }
 fn root_error(error: &RootError) -> JsonError {
     match error {
-        RootError::Admin(crate::storage::admin::AdminError::Forbidden) => {
-            crate::auth::AuthFailure::Forbidden.into()
-        }
-        RootError::Admin(crate::storage::admin::AdminError::Precondition) => stale(),
-        RootError::Admin(crate::storage::admin::AdminError::Corrupt(cause)) => {
-            crate::object::ObjectError::Corrupt(cause.clone()).into()
-        }
-        RootError::Admin(_) | RootError::InUse => busy(),
+        RootError::Admin(error) => admin_error(error).unwrap_or_else(busy),
+        RootError::InUse => busy(),
         RootError::Unsupported => JsonError::new(
             StatusCode::NOT_IMPLEMENTED,
             "notImplemented",
@@ -523,28 +518,39 @@ fn root_error(error: &RootError) -> JsonError {
         ),
     }
 }
+
+fn admin_error(error: &AdminError) -> Option<JsonError> {
+    Some(match error {
+        AdminError::Forbidden => crate::auth::AuthFailure::Forbidden.into(),
+        AdminError::Precondition => stale(),
+        AdminError::Corrupt(cause) => crate::object::ObjectError::Corrupt(cause.clone()).into(),
+        AdminError::DiskFull => JsonError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "disk_full",
+            "Free disk space without deleting synchronization data, then retry",
+        ),
+        AdminError::Io(_) => JsonError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "io_failure",
+            "Restore storage access, then retry",
+        ),
+        _ => return None,
+    })
+}
+
 fn control_error(error: &io::Error) -> JsonError {
     for error in crate::error::causes(error) {
         if let Some(root) = error.downcast_ref::<RootError>() {
             return root_error(root);
         }
-        if let Some(crate::storage::admin::AdminError::Corrupt(cause)) =
-            error.downcast_ref::<crate::storage::admin::AdminError>()
+        if let Some(error) = error.downcast_ref::<AdminError>()
+            && let Some(response) = admin_error(error)
         {
-            return crate::object::ObjectError::Corrupt(cause.clone()).into();
-        }
-        if let Some(crate::storage::admin::AdminError::Forbidden) =
-            error.downcast_ref::<crate::storage::admin::AdminError>()
-        {
-            return crate::auth::AuthFailure::Forbidden.into();
+            return response;
         }
         if matches!(
-            error.downcast_ref::<crate::storage::admin::AdminError>(),
-            Some(
-                crate::storage::admin::AdminError::Precondition
-                    | crate::storage::admin::AdminError::Hold
-                    | crate::storage::admin::AdminError::NotFound
-            )
+            error.downcast_ref::<AdminError>(),
+            Some(AdminError::Hold | AdminError::NotFound)
         ) {
             return stale();
         }
