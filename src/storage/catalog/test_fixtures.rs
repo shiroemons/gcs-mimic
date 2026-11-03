@@ -3,6 +3,48 @@ use crate::bucket::{BucketAccess, BucketRecord};
 use crate::object::ObjectTarget;
 use std::time::UNIX_EPOCH;
 
+pub(in crate::storage) fn guidance_source_failures() -> Vec<(
+    crate::object::ObjectError,
+    crate::storage::failure::BackendFailure,
+)> {
+    use super::{ConnectionUnavailable, admission_error, executor, unavailable};
+    use crate::{
+        object::ObjectError,
+        storage::failure::{BackendFailure, object_unavailable},
+    };
+
+    vec![
+        (
+            ObjectError::from(unavailable(executor::ExecutorError::Closed)),
+            BackendFailure::CatalogClosed,
+        ),
+        (
+            ObjectError::from(unavailable(ConnectionUnavailable::Closed)),
+            BackendFailure::CatalogClosed,
+        ),
+        (
+            object_unavailable(executor::ExecutorError::Closed),
+            BackendFailure::CatalogClosed,
+        ),
+        (
+            object_unavailable(ConnectionUnavailable::Closed),
+            BackendFailure::CatalogClosed,
+        ),
+        (
+            ObjectError::from(admission_error(&tokio::sync::TryAcquireError::Closed)),
+            BackendFailure::CatalogClosed,
+        ),
+        (
+            ObjectError::from(admission_error(&tokio::sync::TryAcquireError::NoPermits)),
+            BackendFailure::OperationLimit,
+        ),
+        (
+            ObjectError::from(unavailable(BackendFailure::OutboxLimit)),
+            BackendFailure::OutboxLimit,
+        ),
+    ]
+}
+
 /// Spelled out at every call site so a test that skips authorization says so.
 pub(crate) const PERMISSIVE: &BucketAccess = &BucketAccess::Permissive;
 

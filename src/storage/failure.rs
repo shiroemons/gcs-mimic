@@ -285,16 +285,6 @@ impl StorageCause for BackendFailure {
     }
 }
 
-impl StorageCause for tokio::sync::TryAcquireError {
-    fn into_cause(self) -> BackendCause {
-        match self {
-            Self::Closed => BackendFailure::CatalogClosed,
-            Self::NoPermits => BackendFailure::OperationLimit,
-        }
-        .into()
-    }
-}
-
 impl StorageCause for String {
     fn into_cause(self) -> BackendCause {
         BackendCause::new(self)

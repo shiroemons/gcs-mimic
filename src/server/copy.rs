@@ -22,6 +22,26 @@ pub(crate) struct Checkpoint {
 }
 
 #[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CheckpointError {
+    ObserverDropped,
+    Abandoned,
+}
+
+#[cfg(test)]
+impl std::fmt::Display for CheckpointError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ObserverDropped => "copy checkpoint observer dropped",
+            Self::Abandoned => "copy checkpoint abandoned",
+        })
+    }
+}
+
+#[cfg(test)]
+impl std::error::Error for CheckpointError {}
+
+#[cfg(test)]
 async fn checkpoint_at(
     progress: &crate::storage::DerivedTransfer,
     checkpoint: &mut Option<Checkpoint>,
@@ -34,11 +54,11 @@ async fn checkpoint_at(
         checkpoint
             .reached
             .send(progress.clone())
-            .map_err(|_| object_unavailable(BackendFailure::CopyObserverDropped))?;
+            .map_err(|_| ObjectError::backend(CheckpointError::ObserverDropped))?;
         checkpoint
             .resume
             .await
-            .map_err(|_| object_unavailable(BackendFailure::CopyAbandoned))?;
+            .map_err(|_| ObjectError::backend(CheckpointError::Abandoned))?;
     }
     Ok(())
 }

@@ -2,24 +2,69 @@ use super::*;
 
 fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
     use BackendFailure::*;
-    let mut failures: Vec<_> = [
-        (CatalogClosed, "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying"),
-        (OperationLimit, "Object storage is unavailable: catalog operation limit reached; retry with fewer concurrent requests (for example, 16)"),
-        (UploadWaitTimeout, "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit"),
-        (RetainedSessionLimit, "Object storage is unavailable: retained upload session limit reached; wait for expired sessions to be reclaimed or use single-request media uploads"),
-        (OutboxLimit, "Object storage is unavailable: notification outbox limit reached; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery, then retry with generation preconditions"),
-        (FinalizationTimeout, "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)"),
-        (CopyDeadline, "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)"),
-        (SessionBusy, "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session"),
-        (CopyObserverDropped, "Object storage is unavailable: internal storage failure (private backend details withheld)"),
-        (CopyAbandoned, "Object storage is unavailable: internal storage failure (private backend details withheld)"),
-        (MissingCompletion, "Object storage is unavailable: internal storage failure (private backend details withheld)"),
-    ].into_iter().flat_map(|(cause, message)| [
-        (object_unavailable(cause), message),
-        (ObjectError::from(unavailable(cause)), message),
-    ]).collect();
-    for (failure, guidance) in crate::storage::catalog::guidance_source_failures() {
-        failures.push((failure, failures[guidance * 2].1));
+    let cases = [
+        (
+            CatalogClosed,
+            "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
+        ),
+        (
+            OperationLimit,
+            "Object storage is unavailable: catalog operation limit reached; retry with fewer concurrent requests (for example, 16)",
+        ),
+        (
+            UploadWaitTimeout,
+            "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit",
+        ),
+        (
+            RetainedSessionLimit,
+            "Object storage is unavailable: retained upload session limit reached; wait for expired sessions to be reclaimed or use single-request media uploads",
+        ),
+        (
+            OutboxLimit,
+            "Object storage is unavailable: notification outbox limit reached; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery, then retry with generation preconditions",
+        ),
+        (
+            FinalizationTimeout,
+            "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)",
+        ),
+        (
+            CopyDeadline,
+            "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)",
+        ),
+        (
+            SessionBusy,
+            "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session",
+        ),
+        (
+            MissingCompletion,
+            "Object storage is unavailable: internal storage failure (private backend details withheld)",
+        ),
+    ];
+    let mut failures: Vec<_> = cases
+        .into_iter()
+        .flat_map(|(cause, message)| {
+            [
+                (object_unavailable(cause), message),
+                (ObjectError::from(unavailable(cause)), message),
+            ]
+        })
+        .collect();
+    for (failure, guidance) in crate::storage::catalog::test_fixtures::guidance_source_failures() {
+        failures.push((
+            failure,
+            cases.iter().find(|(kind, _)| *kind == guidance).unwrap().1,
+        ));
+    }
+    for error in [
+        crate::server::copy::CheckpointError::ObserverDropped,
+        crate::server::copy::CheckpointError::Abandoned,
+    ] {
+        let message = "Object storage is unavailable: internal storage failure (private backend details withheld)";
+        failures.push((ObjectError::backend(error), message));
+        failures.push((
+            ObjectError::from(unavailable(ObjectError::backend(error))),
+            message,
+        ));
     }
     failures
 }

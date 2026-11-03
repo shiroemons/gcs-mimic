@@ -20,30 +20,11 @@ use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock, Semaphore};
 
 type Activity = OwnedRwLockReadGuard<()>;
 
-#[cfg(test)]
-pub(in crate::storage) fn guidance_source_failures() -> Vec<(crate::object::ObjectError, usize)> {
-    use crate::{object::ObjectError, storage::failure::object_unavailable};
-    vec![
-        (
-            ObjectError::from(unavailable(executor::ExecutorError::Closed)),
-            0,
-        ),
-        (
-            ObjectError::from(unavailable(ConnectionUnavailable::Closed)),
-            0,
-        ),
-        (object_unavailable(executor::ExecutorError::Closed), 0),
-        (object_unavailable(ConnectionUnavailable::Closed), 0),
-        (
-            ObjectError::from(unavailable(tokio::sync::TryAcquireError::Closed)),
-            0,
-        ),
-        (
-            ObjectError::from(unavailable(tokio::sync::TryAcquireError::NoPermits)),
-            1,
-        ),
-        (ObjectError::from(notification_outbox::full_test_cause()), 4),
-    ]
+fn admission_error(error: &tokio::sync::TryAcquireError) -> CatalogError {
+    unavailable(match error {
+        tokio::sync::TryAcquireError::Closed => BackendFailure::CatalogClosed,
+        tokio::sync::TryAcquireError::NoPermits => BackendFailure::OperationLimit,
+    })
 }
 
 #[cfg(test)]
@@ -1241,7 +1222,7 @@ impl Catalog {
             .clone()
             .try_acquire_owned()
             // A closed catalog is not full: reporting a limit would invite retries at shutdown.
-            .map_err(unavailable)?;
+            .map_err(|error| admission_error(&error))?;
         self.run_admitted(admission, operation).await
     }
 

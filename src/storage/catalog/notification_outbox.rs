@@ -113,11 +113,6 @@ pub(super) fn published(
     )
 }
 
-#[cfg(test)]
-pub(super) fn full_test_cause() -> CatalogError {
-    unavailable(crate::storage::failure::BackendFailure::OutboxLimit)
-}
-
 fn insert(
     connection: &Connection,
     topic: &str,

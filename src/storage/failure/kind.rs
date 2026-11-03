@@ -12,10 +12,6 @@ pub(crate) enum BackendFailure {
     CopyDeadline,
     SessionBusy,
     MissingCompletion,
-    #[cfg(test)]
-    CopyObserverDropped,
-    #[cfg(test)]
-    CopyAbandoned,
 }
 
 impl BackendFailure {
@@ -30,10 +26,6 @@ impl BackendFailure {
             Self::CopyDeadline => "copy request deadline exceeded",
             Self::SessionBusy => "upload session is busy",
             Self::MissingCompletion => "Completed upload session has no stored response",
-            #[cfg(test)]
-            Self::CopyObserverDropped => "copy checkpoint observer dropped",
-            #[cfg(test)]
-            Self::CopyAbandoned => "copy checkpoint abandoned",
         }
     }
 
@@ -63,7 +55,7 @@ impl BackendFailure {
             Self::SessionBusy => {
                 "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session"
             }
-            _ => return None,
+            Self::MissingCompletion => return None,
         })
     }
 }

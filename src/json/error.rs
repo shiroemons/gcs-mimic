@@ -107,6 +107,7 @@ pub struct JsonError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ErrorKind {
+    /// Keeps the typed timeout cause available to classification tests after JSON adaptation.
     Backend(BackendFailure),
     MissingBucket,
     MissingObject,
