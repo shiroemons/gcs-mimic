@@ -808,19 +808,16 @@ impl Storage {
             .resumable_session(id, bucket)
             .await
             .map_err(session_status)?;
-        self.state
+        let allowed = self
+            .state
             .catalog
-            .list_objects(
-                crate::storage::ObjectListQuery {
-                    bucket: bucket.to_owned(),
-                    prefix: session.name.clone(),
-                    ..Default::default()
-                },
-                1,
-                &access,
-            )
+            .has_bucket_permission(bucket, &access)
             .await
+            .map_err(ObjectError::from)
             .map_err(object_status)?;
+        if !allowed {
+            return Err(object_status(ObjectError::Forbidden));
+        }
         let status = if session.state == SessionState::Complete {
             pb::query_write_status_response::WriteStatus::Resource(decode_completion(
                 session.completion.as_ref(),
