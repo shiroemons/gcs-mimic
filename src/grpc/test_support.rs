@@ -1,16 +1,11 @@
 //! Fixtures shared by gRPC adapters and authorization tests.
 
 use crate::{
-    auth::{Auth, Caller, Registry},
+    auth::{Caller, Registry},
     server::State,
-    storage::Catalog,
 };
 use std::sync::Arc;
 use tonic::{Code, Request, Status};
-
-pub(crate) fn state(catalog: Catalog, auth: Auth) -> State {
-    State::for_test(catalog, auth)
-}
 
 pub(super) fn object_record(
     bucket: &str,

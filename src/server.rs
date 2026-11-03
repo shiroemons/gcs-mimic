@@ -17,12 +17,11 @@ use hyper::{
 };
 use hyper_util::rt::TokioIo;
 use std::{
-    collections::BTreeSet,
     convert::Infallible,
     future::Future,
     io,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, UNIX_EPOCH},
@@ -35,9 +34,10 @@ use tokio::{
 };
 
 pub use crate::grpc::v2::ReadHandles;
+pub use crate::xml::CorsWarnings;
 
 pub struct State {
-    pub xml_cors_warned_buckets: Mutex<BTreeSet<String>>,
+    pub xml_cors_warned_buckets: CorsWarnings,
     pub grpc_read_handles: ReadHandles,
     pub ready: AtomicBool,
     pub clock: Arc<dyn Clock>,
