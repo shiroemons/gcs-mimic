@@ -4,6 +4,48 @@ use rusqlite::{
     Connection, OptionalExtension, Params, Row, Transaction, TransactionBehavior, types::FromSql,
 };
 
+macro_rules! text_enum {
+    ($visibility:vis $name:ty, $invalid:literal, { $($variant:ident => $value:literal),+ $(,)? }) => {
+        impl $name {
+            $visibility fn as_str(self) -> &'static str {
+                match self { $(Self::$variant => $value),+ }
+            }
+            $visibility fn parse(value: &str) -> Option<Self> {
+                match value { $($value => Some(Self::$variant)),+, _ => None }
+            }
+        }
+        impl rusqlite::ToSql for $name {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+                Ok(rusqlite::types::ToSqlOutput::Borrowed(self.as_str().into()))
+            }
+        }
+        impl rusqlite::types::FromSql for $name {
+            fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+                Self::parse(value.as_str()?).ok_or_else(|| rusqlite::types::FromSqlError::Other($invalid.into()))
+            }
+        }
+    };
+}
+
+macro_rules! integer_enum {
+    ($name:ty, { $($variant:ident => $value:literal),+ $(,)? }) => {
+        impl rusqlite::ToSql for $name {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+                let value: i64 = match self { $(Self::$variant => $value),+ };
+                Ok(rusqlite::types::ToSqlOutput::Owned(value.into()))
+            }
+        }
+        impl rusqlite::types::FromSql for $name {
+            fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+                let value = <i64 as rusqlite::types::FromSql>::column_result(value)?;
+                match value { $($value => Ok(Self::$variant)),+, _ => Err(rusqlite::types::FromSqlError::OutOfRange(value)) }
+            }
+        }
+    };
+}
+
+pub(super) use {integer_enum, text_enum};
+
 pub(super) fn conversion_error(
     index: usize,
     kind: rusqlite::types::Type,
@@ -64,6 +106,106 @@ pub(super) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn text_values<T: rusqlite::ToSql + FromSql + std::fmt::Debug + PartialEq>(
+        values: &[(T, &str)],
+    ) {
+        let connection = Connection::open_in_memory().unwrap();
+        for (variant, text) in values {
+            assert_eq!(
+                scalar::<String>(&connection, "SELECT ?1", [variant]).unwrap(),
+                *text
+            );
+            assert_eq!(
+                &scalar::<T>(&connection, "SELECT ?1", [text]).unwrap(),
+                variant
+            );
+        }
+        assert!(matches!(
+            scalar::<T>(&connection, "SELECT 'bogus'", []),
+            Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                _
+            ))
+        ));
+    }
+
+    fn integer_values<T: rusqlite::ToSql + FromSql + std::fmt::Debug + PartialEq>(
+        values: &[(T, i64)],
+    ) {
+        let connection = Connection::open_in_memory().unwrap();
+        for (variant, integer) in values {
+            assert_eq!(
+                scalar::<i64>(&connection, "SELECT ?1", [variant]).unwrap(),
+                *integer
+            );
+            assert_eq!(
+                &scalar::<T>(&connection, "SELECT ?1", [integer]).unwrap(),
+                variant
+            );
+        }
+        assert!(matches!(
+            scalar::<T>(&connection, "SELECT -1", []),
+            Err(rusqlite::Error::IntegralValueOutOfRange(0, -1))
+        ));
+    }
+
+    #[test]
+    fn stored_enum_values_keep_the_catalog_format() {
+        use crate::storage::catalog::{
+            admin::Origin,
+            change_journal::ChangeKind,
+            hmac_keys::HmacKeyState,
+            sync_state::{
+                observation::PathStop,
+                writeback::{Kind, Phase},
+            },
+        };
+        use crate::sync::mapping::Reason;
+        text_values(&[
+            (Origin::Api, "api"),
+            (Origin::Seed, "seed"),
+            (Origin::BucketInit, "bucket-init"),
+            (Origin::SyncIngest, "sync-ingest"),
+            (Origin::Import, "import"),
+        ]);
+        text_values(&[
+            (ChangeKind::Publish, "publish"),
+            (ChangeKind::Metadata, "metadata"),
+            (ChangeKind::Delete, "delete"),
+            (ChangeKind::BucketCreate, "bucket-create"),
+            (ChangeKind::BucketUpdate, "bucket-update"),
+            (ChangeKind::BucketDelete, "bucket-delete"),
+            (ChangeKind::Iam, "iam"),
+        ]);
+        text_values(&[
+            (HmacKeyState::Active, "ACTIVE"),
+            (HmacKeyState::Inactive, "INACTIVE"),
+            (HmacKeyState::Deleted, "DELETED"),
+        ]);
+        text_values(&[
+            (Reason::InvalidName, "invalid-name"),
+            (Reason::HostRestriction, "host-restriction"),
+            (Reason::Reserved, "reserved"),
+            (Reason::Ignored, "ignored"),
+            (Reason::Collision, "collision"),
+            (Reason::UnsafeEntry, "unsafe-entry"),
+        ]);
+        text_values(&[
+            (PathStop::ProtectedDeletion, "ProtectedDeletion"),
+            (PathStop::SourceChanging, "SourceChanging"),
+            (PathStop::IoFailure, "IoFailure"),
+        ]);
+        integer_values(&[(Kind::Publish, 0), (Kind::Remove, 1)]);
+        integer_values(&[
+            (Phase::Prepared, 0),
+            (Phase::Armed, 1),
+            (Phase::Protected, 2),
+            (Phase::Durable, 3),
+            (Phase::Complete, 4),
+        ]);
+    }
 
     #[test]
     fn unsigned_sql_values_preserve_bounds_without_wrapping() {

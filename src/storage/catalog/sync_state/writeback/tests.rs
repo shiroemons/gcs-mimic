@@ -14,6 +14,25 @@ use crate::{
 use bytes::Bytes;
 use std::{fs, io::Seek, time::Duration};
 
+#[test]
+fn complete_phase_matches_static_active_row_predicates() {
+    let connection = Connection::open_in_memory().unwrap();
+    assert!(SCHEMA.contains("WHERE phase != 4"));
+    assert!(SELECT_PENDING_PAGE.contains("phase!=4"));
+    for phase in [
+        Phase::Prepared,
+        Phase::Armed,
+        Phase::Protected,
+        Phase::Durable,
+        Phase::Complete,
+    ] {
+        assert_eq!(
+            sql::scalar::<bool>(&connection, "SELECT ?1 != 4", [phase]).unwrap(),
+            phase != Phase::Complete
+        );
+    }
+}
+
 async fn setup() -> (TestDir, TestDir, Catalog, RootLease, Writeback, BucketName) {
     let data = TestDir::new();
     let root = TestDir::new();

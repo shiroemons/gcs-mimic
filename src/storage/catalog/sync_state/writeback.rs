@@ -165,18 +165,10 @@ pub(crate) enum Phase {
     Durable,
     Complete,
 }
-impl Phase {
-    fn read(value: i64) -> rusqlite::Result<Self> {
-        match value {
-            0 => Ok(Self::Prepared),
-            1 => Ok(Self::Armed),
-            2 => Ok(Self::Protected),
-            3 => Ok(Self::Durable),
-            4 => Ok(Self::Complete),
-            _ => Err(rusqlite::Error::InvalidQuery),
-        }
-    }
-}
+sql::integer_enum!(Kind, { Publish => 0, Remove => 1 });
+sql::integer_enum!(Phase, {
+    Prepared => 0, Armed => 1, Protected => 2, Durable => 3, Complete => 4,
+});
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Token {
     catalog: CatalogId,
@@ -391,9 +383,14 @@ const SELECT_PENDING: &str = concat!(
 fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlite::Result<Pending> {
     let id: String = row.get(0)?;
     if BlobId::parse(&id).is_none() {
-        return Err(rusqlite::Error::InvalidQuery);
+        return Err(sql::conversion_error(
+            0,
+            rusqlite::types::Type::Text,
+            "invalid write-back operation ID",
+        ));
     }
-    let generation = Generation::new(row.get(7)?).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let generation = Generation::new(row.get(7)?)
+        .map_err(|error| sql::conversion_error(7, rusqlite::types::Type::Integer, error))?;
     Ok(Pending {
         token: Token {
             catalog,
@@ -408,12 +405,8 @@ fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlit
         name: row.get(5)?,
         path: row.get(6)?,
         generation,
-        kind: match row.get::<_, i64>(8)? {
-            0 => Kind::Publish,
-            1 => Kind::Remove,
-            _ => return Err(rusqlite::Error::InvalidQuery),
-        },
-        phase: Phase::read(row.get(9)?)?,
+        kind: row.get(8)?,
+        phase: row.get(9)?,
         fence: JournalFence {
             sequence: row.get(11)?,
             revision: row.get(12)?,
@@ -432,7 +425,7 @@ fn status(connection: &Connection, root: RootId) -> Result<Status, Error> {
         let epoch: Option<i64> = r.get(9)?;
         let progress = match (sequence,epoch) {
             (None,None)=>None,(Some(s),Some(e))=>Some(JournalFence {sequence:s,revision:e}),
-            _=>return Err(rusqlite::Error::InvalidQuery),
+            _=>return Err(sql::conversion_error(8,rusqlite::types::Type::Integer,"inconsistent journal progress")),
         };
         Ok(Status { limits:Limits {bytes:r.get(0)?,entries:r.get(1)?}, reserved_bytes:u128::from_be_bytes(r.get(2)?),retained_bytes:u128::from_be_bytes(r.get(3)?),entries:r.get(4)?,protected_entries:r.get(5)?,recovery:r.get(6)?,io_failure:r.get(7)?,progress,stop:Stop::Ready,conflicts:Default::default(),captured_entries:0 })
     })?;
@@ -877,7 +870,7 @@ impl Writeback {
             };
             let id=BlobId::generate().map_err(|e|Error::Admin(AdminError::backend(e)))?.to_hex();
             tx.execute("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)",
-                params![id,root.as_bytes(),owner,bucket,incarnation,name,path,generation.get(),kind as i64,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
+                params![id,root.as_bytes(),owner,bucket,incarnation,name,path,generation.get(),kind,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
             let item=load(&tx,catalog,root,&id)?;original(&tx,&item)?;
             usage.entries+=1;usage.reserved_bytes+=u128::from(reservation);save_status(&tx,root,&usage)?;tx.commit()?;Ok(item)
         }).await

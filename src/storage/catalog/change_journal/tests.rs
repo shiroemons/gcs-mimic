@@ -301,7 +301,7 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
 
 #[test]
 fn journal_migration_is_atomic_and_inventory_cannot_hide_extra_tables() {
-    assert!(ChangeKind::from_stored("unknown").is_err());
+    assert!(<ChangeKind as FromSql>::column_result(ValueRef::Text(b"unknown")).is_err());
     let mut connection = Connection::open_in_memory().unwrap();
     connection
         .execute_batch("PRAGMA user_version = 14; CREATE TABLE change_journal(sequence);")

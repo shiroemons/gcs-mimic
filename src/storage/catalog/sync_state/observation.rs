@@ -82,6 +82,12 @@ struct RetainedProjection {
     hashes: Option<RetainedHashes>,
 }
 
+enum RecoveryPhase {
+    Protected,
+    DiscardAccepted,
+}
+sql::integer_enum!(RecoveryPhase, { Protected => 0, DiscardAccepted => 1 });
+
 fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     let category: String = row.get(2)?;
     let reason: String = row.get(7)?;
@@ -89,10 +95,9 @@ fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
         let bytes: Vec<u8> = row.get(12)?;
         let observed: RetainedProjection = serde_json::from_slice(&bytes)
             .map_err(|error| sql::conversion_error(12, rusqlite::types::Type::Blob, error))?;
-        let phase = match row.get::<_, i64>(13)? {
-            0 => "protected",
-            1 => "discard_accepted",
-            _ => return Err(rusqlite::Error::InvalidQuery),
+        let phase = match row.get::<_, RecoveryPhase>(13)? {
+            RecoveryPhase::Protected => "protected",
+            RecoveryPhase::DiscardAccepted => "discard_accepted",
         };
         Some(RecoveryDetails {
             recovery_revision: row.get(10)?,

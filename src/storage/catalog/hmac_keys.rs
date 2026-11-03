@@ -42,24 +42,9 @@ pub(crate) enum HmacKeyState {
     Deleted,
 }
 
-impl HmacKeyState {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Active => "ACTIVE",
-            Self::Inactive => "INACTIVE",
-            Self::Deleted => "DELETED",
-        }
-    }
-
-    pub(crate) fn parse(value: &str) -> Option<Self> {
-        match value {
-            "ACTIVE" => Some(Self::Active),
-            "INACTIVE" => Some(Self::Inactive),
-            "DELETED" => Some(Self::Deleted),
-            _ => None,
-        }
-    }
-}
+sql::text_enum!(pub(crate) HmacKeyState, "invalid HMAC key state", {
+    Active => "ACTIVE", Inactive => "INACTIVE", Deleted => "DELETED",
+});
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyRecord {
@@ -155,14 +140,11 @@ const LIST_KEYS: &str = concat!(
 );
 
 fn record(row: &Row<'_>) -> rusqlite::Result<HmacKeyRecord> {
-    let state: String = row.get(3)?;
     Ok(HmacKeyRecord {
         access_id: row.get(0)?,
         project: row.get(1)?,
         service_account_email: row.get(2)?,
-        state: HmacKeyState::parse(&state).ok_or_else(|| {
-            sql::conversion_error(3, rusqlite::types::Type::Text, "invalid HMAC key state")
-        })?,
+        state: row.get(3)?,
         time_created: system_time_millis(row.get(4)?)?,
         updated: system_time_millis(row.get(5)?)?,
         revision: row.get(6)?,
@@ -333,7 +315,7 @@ impl Catalog {
                 return Err(HmacKeyError::Deleted);
             }
             sql::exec(&transaction,
-                    "UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3", params![state.as_str(), now, access_id])?;
+                    "UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3", params![state, now, access_id])?;
             let record = select(&transaction, &project, &access_id)?
                 .ok_or_else(|| unavailable("updated HMAC key is missing"))?;
             transaction.commit()?;
