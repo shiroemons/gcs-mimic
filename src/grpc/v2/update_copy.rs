@@ -2084,7 +2084,7 @@ mod tests {
             .unwrap();
         assert_eq!(read.metadata.len(), 1);
         assert_eq!(read.metadata["replace"], "yes");
-        assert_eq!(read.temporary_hold, Some(true));
+        assert_eq!(read.temporary_hold.as_bool(), Some(true));
         s.state.catalog.close().await.unwrap();
     }
 

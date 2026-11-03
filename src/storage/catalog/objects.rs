@@ -6,7 +6,7 @@ use crate::{
     hashing::{Hasher, Hashes},
     notification::NotificationMode,
     object::{
-        ExpectedHashes, HashAlgorithm, HashMismatch, ObjectConditions, ObjectError,
+        ExpectedHashes, HashAlgorithm, HashMismatch, Hold, ObjectConditions, ObjectError,
         ObjectMetadataUpdate, ObjectRecord, ObjectTarget, UploadChunk,
     },
 };
@@ -136,8 +136,12 @@ impl PublicationDefaults {
             time_deleted: None,
             soft_delete_time: None,
             hard_delete_time: None,
-            event_based_hold: self.event_based_hold.then_some(true),
-            temporary_hold: None,
+            event_based_hold: if self.event_based_hold {
+                Hold::Held
+            } else {
+                Hold::Unset
+            },
+            temporary_hold: Hold::Unset,
             custom_time: None,
             retention_expiration_time: None,
             retention: None,
@@ -1342,7 +1346,7 @@ impl Catalog {
             let override_unlocked = update.override_unlocked_retention;
             update.reject_past_retention(clock.now())?;
             update.apply_to_existing(&mut record)?;
-            if record.event_based_hold == Some(true) && previous_event_hold != Some(true) && record.retention.is_some() {
+            if record.event_based_hold.is_held() && !previous_event_hold.is_held() && record.retention.is_some() {
                 return Err(ObjectError::InvalidFixedMetadata(
                     "Retention and event based holds cannot be configured together.".into(),
                 ));

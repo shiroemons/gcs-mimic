@@ -141,8 +141,8 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
         time_deleted: record.time_deleted.map(Into::into),
         // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
         // the three states exist only in the JSON resource.
-        event_based_hold: Some(record.event_based_hold == Some(true)),
-        temporary_hold: record.temporary_hold == Some(true),
+        event_based_hold: Some(record.event_based_hold.is_held()),
+        temporary_hold: record.temporary_hold.is_held(),
         retention_expiration_time: record.retention_expiration_time.map(Into::into),
         ..Default::default()
     })
@@ -167,8 +167,8 @@ mod tests {
         ] {
             record.storage_class = class.parse().unwrap();
             for (hold, expected) in [(None, false), (Some(false), false), (Some(true), true)] {
-                record.event_based_hold = hold;
-                record.temporary_hold = hold;
+                record.event_based_hold = hold.into();
+                record.temporary_hold = hold.into();
                 let output = object(&record).unwrap();
                 assert_eq!(output.storage_class, class, "{class} {hold:?}");
                 assert_eq!(output.event_based_hold, Some(expected), "{class} {hold:?}");

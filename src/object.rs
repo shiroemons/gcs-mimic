@@ -11,6 +11,46 @@ pub(crate) mod owner;
 pub(crate) mod retention;
 pub(crate) mod unix_nanos;
 
+/// Unset holds are omitted from JSON; a released hold keeps its explicit false value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "Option<bool>", into = "Option<bool>")]
+pub enum Hold {
+    #[default]
+    Unset,
+    Released,
+    Held,
+}
+
+impl Hold {
+    pub fn as_bool(self) -> Option<bool> {
+        match self {
+            Self::Unset => None,
+            Self::Released => Some(false),
+            Self::Held => Some(true),
+        }
+    }
+
+    pub(crate) fn is_held(self) -> bool {
+        self == Self::Held
+    }
+}
+
+impl From<Option<bool>> for Hold {
+    fn from(value: Option<bool>) -> Self {
+        match value {
+            None => Self::Unset,
+            Some(false) => Self::Released,
+            Some(true) => Self::Held,
+        }
+    }
+}
+
+impl From<Hold> for Option<bool> {
+    fn from(value: Hold) -> Self {
+        value.as_bool()
+    }
+}
+
 /// Multipart uploads retain an internal digest without exposing an MD5 checksum.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Md5Availability {
@@ -55,11 +95,10 @@ pub struct ObjectRecord {
     pub time_deleted: Option<SystemTime>,
     pub soft_delete_time: Option<SystemTime>,
     pub hard_delete_time: Option<SystemTime>,
-    /// Three states, as Cloud Storage reports them: `None` (never set, omitted on the wire),
-    /// `Some(false)` (set before and released, reported as `false`) and `Some(true)`. Only
-    /// `Some(true)` blocks deletion and overwrite; use `has_hold` instead of reading these.
-    pub event_based_hold: Option<bool>,
-    pub temporary_hold: Option<bool>,
+    #[serde(default)]
+    pub event_based_hold: Hold,
+    #[serde(default)]
+    pub temporary_hold: Hold,
     pub custom_time: Option<String>,
     /// Bucket retention policy expiration only; object retention is kept in `retention`.
     pub retention_expiration_time: Option<SystemTime>,
@@ -76,12 +115,12 @@ impl ObjectRecord {
     /// A PUT replaces the resource, so a hold it does not name returns to never set (recorded:
     /// a PUT of only `metadata` under a temporary hold answered without the hold, not `false`).
     pub(crate) fn clear_holds(&mut self) {
-        self.event_based_hold = None;
-        self.temporary_hold = None;
+        self.event_based_hold = Hold::Unset;
+        self.temporary_hold = Hold::Unset;
     }
 
     pub(crate) fn has_hold(&self) -> bool {
-        self.event_based_hold == Some(true) || self.temporary_hold == Some(true)
+        self.event_based_hold.is_held() || self.temporary_hold.is_held()
     }
 
     /// Guards removing this generation permanently (or soft deleting it). With both a bucket
@@ -110,7 +149,7 @@ impl ObjectRecord {
             return Err(ObjectError::ActiveHold(Box::new(HeldObject {
                 bucket: self.bucket.clone(),
                 name: self.name.clone(),
-                kind: if self.temporary_hold == Some(true) {
+                kind: if self.temporary_hold.is_held() {
                     HoldKind::Temporary
                 } else {
                     HoldKind::EventBased
@@ -317,10 +356,10 @@ impl ObjectMetadataUpdate {
             record.custom_time = Some(value);
         }
         if let Some(hold) = self.event_based_hold {
-            record.event_based_hold = Some(hold);
+            record.event_based_hold = Hold::from(Some(hold));
         }
         if let Some(hold) = self.temporary_hold {
-            record.temporary_hold = Some(hold);
+            record.temporary_hold = Hold::from(Some(hold));
         }
         if let Some(retention) = self.retention {
             record.retention = retention;

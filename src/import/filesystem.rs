@@ -808,7 +808,7 @@ async fn verify_committed(
                     != attributes.content_language
                 || target.cache_control.as_deref().unwrap_or_default() != attributes.cache_control
                 || target.metadata != attributes.metadata.clone().unwrap_or_default()
-                || target.event_based_hold == Some(true)
+                || target.event_based_hold.is_held()
                 || target.storage_class.as_str() != attributes.storage_class
                 || target.custom_time != request.metadata.custom_time.flatten()
             {

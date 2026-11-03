@@ -4,7 +4,7 @@ use super::{InvalidOptions, ResumableOptions};
 use crate::{
     auth::{Identity, OBJECTS_CREATE},
     bucket::BucketAccess,
-    object::{ExpectedHashes, ObjectConditions, ObjectMetadataUpdate},
+    object::{ExpectedHashes, Hold, ObjectConditions, ObjectMetadataUpdate},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -24,8 +24,10 @@ struct Field<T> {
 #[serde(rename_all = "camelCase")]
 struct Metadata<T, C> {
     replace: Option<bool>,
-    event_based_hold: Option<bool>,
-    temporary_hold: Option<bool>,
+    #[serde(default)]
+    event_based_hold: Hold,
+    #[serde(default)]
+    temporary_hold: Hold,
     custom_time: Option<T>,
     content_type: Option<T>,
     content_encoding: Option<T>,
@@ -51,8 +53,8 @@ impl<T, C> Metadata<T, C> {
         Ok(ObjectMetadataUpdate {
             acl: None,
             replace: self.replace.unwrap_or(false),
-            event_based_hold: self.event_based_hold,
-            temporary_hold: self.temporary_hold,
+            event_based_hold: self.event_based_hold.into(),
+            temporary_hold: self.temporary_hold.into(),
             custom_time: self.custom_time.map(&string),
             content_type: self.content_type.map(&string),
             content_encoding: self.content_encoding.map(&string),
@@ -105,8 +107,8 @@ impl StoredOptions {
         let field = |value: &Option<Option<String>>| value.clone().map(|value| Field { value });
         let metadata = Metadata {
             replace: Some(m.replace),
-            event_based_hold: m.event_based_hold,
-            temporary_hold: m.temporary_hold,
+            event_based_hold: m.event_based_hold.into(),
+            temporary_hold: m.temporary_hold.into(),
             custom_time: field(&m.custom_time),
             content_type: field(&m.content_type),
             content_encoding: field(&m.content_encoding),

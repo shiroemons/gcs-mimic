@@ -7,6 +7,7 @@
 //! objects table; the state is `held` for 1, `released` for 0 with the flag, otherwise unset.
 
 use super::sql;
+use crate::object::Hold;
 use rusqlite::{Row, types::Type};
 
 /// Schema 48. Rows written earlier read as unset (0) or held (1): a stored 0 cannot show
@@ -17,11 +18,11 @@ ALTER TABLE objects ADD COLUMN event_based_hold_released INTEGER NOT NULL DEFAUL
 PRAGMA user_version = 48;";
 
 /// The column pair (`hold`, `hold_released`) that stores a state.
-pub(super) fn columns(state: Option<bool>) -> (bool, bool) {
-    (state == Some(true), state == Some(false))
+pub(super) fn columns(state: Hold) -> (bool, bool) {
+    (state.is_held(), state == Hold::Released)
 }
 
-pub(super) fn read(row: &Row<'_>, hold: usize, released: usize) -> rusqlite::Result<Option<bool>> {
+pub(super) fn read(row: &Row<'_>, hold: usize, released: usize) -> rusqlite::Result<Hold> {
     let flag = |index: usize| -> rusqlite::Result<bool> {
         match row.get::<_, i64>(index)? {
             0 => Ok(false),
@@ -34,9 +35,9 @@ pub(super) fn read(row: &Row<'_>, hold: usize, released: usize) -> rusqlite::Res
         }
     };
     Ok(match (flag(hold)?, flag(released)?) {
-        (true, _) => Some(true),
-        (false, true) => Some(false),
-        (false, false) => None,
+        (true, _) => Hold::Held,
+        (false, true) => Hold::Released,
+        (false, false) => Hold::Unset,
     })
 }
 
@@ -65,7 +66,7 @@ mod tests {
             .prepare("SELECT name, temporary_hold, temporary_hold_released, event_based_hold, event_based_hold_released FROM objects ORDER BY name")
             .unwrap()
             .query_map([], |row| {
-                Ok((row.get(0)?, read(row, 1, 2)?, read(row, 3, 4)?))
+                Ok((row.get(0)?, read(row, 1, 2)?.as_bool(), read(row, 3, 4)?.as_bool()))
             })
             .unwrap()
             .collect::<Result<_, _>>()
@@ -111,7 +112,7 @@ mod tests {
             (Some(false), "event"),
             (Some(true), "temporary"),
         ] {
-            let (hold, released) = columns(state);
+            let (hold, released) = columns(state.into());
             connection
                 .execute(
                     "UPDATE objects SET temporary_hold = ?1, temporary_hold_released = ?2 WHERE name = ?3",

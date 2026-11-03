@@ -318,10 +318,10 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversi
                 key_sha256_bytes: sha256.to_vec(),
             }),
         component_count: crate::grpc::convert::component_count(record.component_count)?,
-        temporary_hold: record.temporary_hold == Some(true),
+        temporary_hold: record.temporary_hold.is_held(),
         // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
         // the three states exist only in the JSON resource.
-        event_based_hold: Some(record.event_based_hold == Some(true)),
+        event_based_hold: Some(record.event_based_hold.is_held()),
         // Cloud Storage returned retention_expire_time at millisecond precision while
         // retention.retain_until_time kept its nanoseconds (observed 2026-10-31).
         retention_expire_time: record
@@ -398,8 +398,8 @@ mod tests {
                 (Some(false), Some(serde_json::json!(false)), false),
                 (Some(true), Some(serde_json::json!(true)), true),
             ] {
-                record.event_based_hold = hold;
-                record.temporary_hold = hold;
+                record.event_based_hold = hold.into();
+                record.temporary_hold = hold.into();
                 let resource =
                     json::object_resource(&record, "http://localhost", Projection::NoAcl).unwrap();
                 assert_eq!(resource["storageClass"], class, "{class} {hold:?}");

@@ -223,7 +223,7 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
                 .unwrap();
             assert_eq!(live.generation, 7);
             assert_eq!(live.storage_class.as_str(), "NEARLINE");
-            assert_eq!(live.event_based_hold, None);
+            assert_eq!(live.event_based_hold.as_bool(), None);
             let archived = admin
                 .get_object(
                     &bucket,
