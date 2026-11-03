@@ -85,11 +85,7 @@ impl Streaming {
         }
     }
 
-    pub(crate) async fn verify_chunk(
-        &mut self,
-        hash: &[u8],
-        signature: &[u8],
-    ) -> Result<(), VerificationError> {
+    pub(crate) fn verify_chunk(&mut self, hash: &[u8], signature: &[u8]) -> Result<(), Failure> {
         let message = format!(
             "AWS4-HMAC-SHA256-PAYLOAD\n{}\n{}\n{}\n{}\n{}",
             self.date,
@@ -185,14 +181,11 @@ mod tests {
             let hash = digest::digest(&digest::SHA256, &vec![b'a'; size]);
             state
                 .verify_chunk(hash.as_ref(), &unhex(signature).unwrap())
-                .await
                 .unwrap();
         }
         assert!(matches!(
-            state
-                .verify_chunk(digest::digest(&digest::SHA256, b"").as_ref(), &[0; 32])
-                .await,
-            Err(VerificationError::Signature(Failure::Mismatch))
+            state.verify_chunk(digest::digest(&digest::SHA256, b"").as_ref(), &[0; 32]),
+            Err(Failure::Mismatch)
         ));
     }
 }
