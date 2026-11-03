@@ -2726,6 +2726,33 @@ mod tests {
             Err(ObjectError::PreconditionFailed)
         );
         assert_eq!(fault::pending(&data.0), 0);
+        for step in [Step::BodyWrite, Step::BodyFlush, Step::BodySync] {
+            fault::arm(
+                &data.0,
+                step,
+                0,
+                fault::Fault::Io(io::ErrorKind::StorageFull),
+            );
+            fault::arm(
+                &data.0,
+                Step::AdminCleanupSync,
+                0,
+                fault::Fault::Io(io::ErrorKind::PermissionDenied),
+            );
+            let error = catalog
+                .put_object_prechecked(
+                    permissive_upload("bucket", "object", 1000),
+                    body(b"new"),
+                    catalog.admit_object_upload().unwrap(),
+                )
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, ObjectError::Io(ref cause) if cause.kind() == io::ErrorKind::StorageFull),
+                "{step:?}: {error}"
+            );
+            assert_eq!(fault::pending(&data.0), 0, "{step:?}");
+        }
         assert_eq!(
             catalog
                 .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
