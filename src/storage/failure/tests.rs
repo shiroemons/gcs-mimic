@@ -1,5 +1,49 @@
 use super::*;
 
+#[test]
+fn object_access_rejections_keep_their_domain_status() {
+    for (input, expected) in [
+        (CatalogError::Forbidden, ObjectError::Forbidden),
+        (CatalogError::NotFound, ObjectError::BucketNotFound),
+        (
+            CatalogError::PublicAccessPrevention,
+            ObjectError::PublicAccessPrevention,
+        ),
+        (
+            CatalogError::InvalidMetadata("invalid".into()),
+            ObjectError::InvalidFixedMetadata("invalid".into()),
+        ),
+        (
+            CatalogError::UnsupportedMetadata("unsupported".into()),
+            ObjectError::UnsupportedMetadata("unsupported".into()),
+        ),
+    ] {
+        assert_eq!(object_access_error(input), expected);
+    }
+    assert_eq!(
+        ObjectError::from(CatalogError::Forbidden),
+        ObjectError::Forbidden
+    );
+}
+
+#[test]
+fn contextual_recovery_failures_keep_classification_and_sources() {
+    let error = object_unavailable(BackendCause::with_source(
+        "staging cleanup",
+        io::Error::from(io::ErrorKind::StorageFull),
+    ));
+    assert!(
+        matches!(error, ObjectError::Io(ref cause) if cause.kind() == io::ErrorKind::StorageFull)
+    );
+    assert!(crate::error::causes(&error).any(|error| error.downcast_ref::<io::Error>().is_some()));
+    let corrupt = object_unavailable(sqlite_failure(rusqlite::ffi::SQLITE_CORRUPT));
+    let error = object_unavailable(BackendCause::with_source("deletion journal", corrupt));
+    assert!(matches!(error, ObjectError::Corrupt(_)));
+    assert!(
+        crate::error::causes(&error).any(|error| error.downcast_ref::<rusqlite::Error>().is_some())
+    );
+}
+
 fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
     use BackendFailure::*;
     let cases = [

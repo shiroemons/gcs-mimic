@@ -51,7 +51,7 @@ impl Catalog {
             let id=blob;
             let mut file=catalog.0.backend.stage(&id).await?;
             let result=async {
-                let (size,md5,crc32c,_)=objects::write_body(&mut file,request.expected,budget,body,cancellation,&catalog).await?;
+                let (size,md5,crc32c,_)=objects::write_stream(&mut file,request.expected,budget,body,cancellation,&catalog).await?;
                 #[cfg(test)]
                 let data_dir=catalog.0.data_dir.clone();
                 let target=lease.upload.target.clone();

@@ -1398,7 +1398,7 @@ mod tests {
         let transfer = ready(&catalog, "empty").await;
         objects::publish_blob(
             &stage_path(&path, &transfer.id),
-            &objects::blob_path(&path, &transfer.id),
+            &transfer.id.blob_path(&path),
         )
         .unwrap();
         catalog.close().await.unwrap();
@@ -2114,7 +2114,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let blob = objects::blob_path(&path, &id);
+        let blob = id.blob_path(&path);
         let failed_blob = blob.clone();
         let transfer = ready(&catalog, "source").await;
         catalog

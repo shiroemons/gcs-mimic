@@ -68,7 +68,7 @@ pub(crate) fn validate_restore(
     binding
         .authority
         .authorize(tx, binding.root)
-        .map_err(authority_error)?;
+        .map_err(crate::storage::failure::object_access_error)?;
     let owner = check_original(
         tx,
         &binding.binding,
@@ -106,7 +106,7 @@ pub(crate) fn complete_restore(
     binding
         .authority
         .authorize(tx, binding.root)
-        .map_err(authority_error)?;
+        .map_err(crate::storage::failure::object_access_error)?;
     super::super::matching(tx, &binding.binding, &record.bucket)?;
     active_restore(tx, binding)?;
     if record.bucket != binding.binding.bucket || record.name != binding.name.as_str() {
@@ -124,13 +124,6 @@ pub(crate) fn complete_restore(
     )
     .map_err(objects::object_unavailable)?;
     Ok(())
-}
-
-fn authority_error(error: CatalogError) -> ObjectError {
-    match error {
-        CatalogError::Forbidden => ObjectError::Forbidden,
-        error => objects::object_unavailable(error),
-    }
 }
 
 struct Selected {

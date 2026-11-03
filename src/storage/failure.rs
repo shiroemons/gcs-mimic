@@ -259,6 +259,44 @@ impl StorageCause for CatalogError {
     }
 }
 
+impl StorageCause for BackendCause {
+    fn into_cause(self) -> BackendCause {
+        self
+    }
+
+    fn classify(self) -> Classified {
+        let mut io_kind = None;
+        let mut corrupt = false;
+        for error in crate::error::causes(&self) {
+            if let Some(error) = error.downcast_ref::<io::Error>() {
+                io_kind = Some(error.kind());
+                break;
+            }
+            if let Some(ObjectError::Io(cause)) = error.downcast_ref::<ObjectError>() {
+                io_kind = Some(cause.kind());
+                break;
+            }
+            if matches!(
+                error.downcast_ref::<ObjectError>(),
+                Some(ObjectError::Corrupt(_))
+            ) {
+                corrupt = true;
+                break;
+            }
+        }
+        if let Some(kind) = io_kind {
+            return Classified::Io(IoCause {
+                kind,
+                source: Some(Arc::new(self)),
+            });
+        }
+        if corrupt {
+            return Classified::Corrupt(self);
+        }
+        Classified::Unavailable(self)
+    }
+}
+
 impl StorageCause for ObjectError {
     fn into_cause(self) -> BackendCause {
         BackendCause::from_error(self)
@@ -353,6 +391,18 @@ pub(crate) fn unavailable(cause: impl StorageCause) -> CatalogError {
 /// Maps an object failure to `ObjectError`, classifying corrupt and I/O causes.
 pub(crate) fn object_unavailable(cause: impl StorageCause) -> ObjectError {
     cause.classify().into()
+}
+
+/// Keeps access and metadata rejections consistent across object publication paths.
+pub(crate) fn object_access_error(error: CatalogError) -> ObjectError {
+    match error {
+        CatalogError::Forbidden => ObjectError::Forbidden,
+        CatalogError::PublicAccessPrevention => ObjectError::PublicAccessPrevention,
+        CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
+        CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason),
+        CatalogError::NotFound => ObjectError::BucketNotFound,
+        error => object_unavailable(error),
+    }
 }
 
 macro_rules! classified_from {
