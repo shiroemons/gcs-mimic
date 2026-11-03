@@ -96,6 +96,8 @@ pub(crate) enum InputKind {
     Native,
     /// A known fake-gcs-server flag or `FAKE_GCS_*` variable, as supplied.
     Legacy,
+    /// An unrecognized `FAKE_GCS_*` variable, diagnosed without interpreting its value.
+    UnknownLegacy,
     /// A native setting translated from `Legacy` inputs; its key names the legacy input.
     Alias,
 }
@@ -278,16 +280,19 @@ impl Inputs {
                     Err(_) => (String::new(), Some(InputError::Encoding)),
                 }
             };
+            let kind = if legacy {
+                InputKind::Legacy
+            } else if suffix.is_some() {
+                InputKind::UnknownLegacy
+            } else {
+                InputKind::Native
+            };
             if !self.push(Input {
                 source: DiagnosticSource::Environment,
                 key,
                 name,
                 value,
-                kind: if legacy {
-                    InputKind::Legacy
-                } else {
-                    InputKind::Native
-                },
+                kind,
                 invalid,
             }) {
                 break;
@@ -329,7 +334,7 @@ impl Inputs {
                     fix.push_str(" The supplied value is not UTF-8; correct or remove it.");
                 }
                 errors.push(Diagnostic::new(input.source, &input.key, fix));
-            } else if input.key.starts_with("FAKE_GCS_") {
+            } else if input.kind == InputKind::UnknownLegacy {
                 warnings.push(unknown_legacy_warning(input));
             }
         }
@@ -380,14 +385,13 @@ impl Inputs {
                         legacy_fix(&input.name, &values),
                     )),
                 }
-            } else if input.key.starts_with("FAKE_GCS_") {
+            } else if input.kind == InputKind::UnknownLegacy {
                 warnings.push(unknown_legacy_warning(input));
             }
         }
         for alias in aliases.values() {
             let overridden = self.entries.iter().any(|native| {
                 native.kind == InputKind::Native
-                    && !native.key.starts_with("FAKE_GCS_")
                     && native.source == alias.source
                     && native.name == alias.name
                     && native.value != alias.value

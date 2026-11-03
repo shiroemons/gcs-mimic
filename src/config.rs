@@ -347,7 +347,6 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
             i.name == "config"
                 && i.kind == InputKind::Native
                 && i.source != DiagnosticSource::Config
-                && !i.key.starts_with("FAKE_GCS_")
         })
         .max_by_key(|i| {
             if i.source == DiagnosticSource::Cli {
@@ -426,9 +425,8 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
                         other.source == source && other.key == "GCS_MIMIC_PUBSUB_EMULATOR_HOST"
                     }))
                 && match i.kind {
-                    InputKind::Native => !i.key.starts_with("FAKE_GCS_"),
-                    InputKind::Alias => true,
-                    InputKind::Legacy => false,
+                    InputKind::Native | InputKind::Alias => true,
+                    InputKind::Legacy | InputKind::UnknownLegacy => false,
                 }
         }) {
             if source == DiagnosticSource::Cli
