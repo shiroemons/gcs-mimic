@@ -245,7 +245,9 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     if let Some(class) = single(headers, "x-goog-storage-class")? {
         let class =
             crate::object::validate_object_storage_class(class).map_err(|error| match error {
-                ObjectError::UnsupportedMetadata(reason) => Error::unsupported(&reason),
+                ObjectError::Metadata(error) if error.unsupported() => {
+                    Error::unsupported(&error.to_string())
+                }
                 _ => Error::invalid(
                     "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
                 ),

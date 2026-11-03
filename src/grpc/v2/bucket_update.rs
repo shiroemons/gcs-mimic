@@ -22,41 +22,15 @@ pub(super) fn from_proto(
     Ok(update)
 }
 
-pub(super) fn input_error(mut error: CatalogError) -> Status {
-    match &mut error {
-        CatalogError::InvalidMetadata(message) | CatalogError::UnsupportedMetadata(message) => {
-            for (json, proto) in [
-                (
-                    "terminalStorageClassUpdateTime",
-                    "terminal_storage_class_update_time",
-                ),
-                ("terminalStorageClass", "terminal_storage_class"),
-                ("storageClass", "storage_class"),
-                ("retentionPolicy", "retention_policy"),
-                ("retentionPeriod", "retention_duration"),
-                ("softDeletePolicy", "soft_delete_policy"),
-                ("retentionDurationSeconds", "retention_duration"),
-                ("uniformBucketLevelAccess", "uniform_bucket_level_access"),
-                ("publicAccessPrevention", "public_access_prevention"),
-                ("iamConfiguration", "iam_config"),
-                ("defaultEventBasedHold", "default_event_based_hold"),
-                ("maxAgeSeconds", "max_age_seconds"),
-                ("responseHeader", "response_header"),
-                ("condition.age", "condition.age_days"),
-                ("lifecycle age;", "lifecycle age_days;"),
-                ("createdBefore", "created_before"),
-                ("customTimeBefore", "custom_time_before"),
-                ("daysSinceCustomTime", "days_since_custom_time"),
-                ("daysSinceNoncurrentTime", "days_since_noncurrent_time"),
-                ("isLive", "is_live"),
-                ("matchesPrefix", "matches_prefix"),
-                ("matchesStorageClass", "matches_storage_class"),
-                ("matchesSuffix", "matches_suffix"),
-                ("noncurrentTimeBefore", "noncurrent_time_before"),
-                ("numNewerVersions", "num_newer_versions"),
-            ] {
-                *message = message.replace(json, proto);
-            }
+pub(super) fn input_error(error: CatalogError) -> Status {
+    match &error {
+        CatalogError::Metadata(reason) => {
+            let message = reason.message(proto_field);
+            return if reason.unsupported() {
+                JsonError::unsupported(&message).into()
+            } else {
+                Status::invalid_argument(message)
+            };
         }
         CatalogError::RetentionPolicyLocked(period) => {
             let message = format!(
@@ -74,6 +48,33 @@ pub(super) fn input_error(mut error: CatalogError) -> Status {
         _ => {}
     }
     error.into()
+}
+
+pub(super) fn proto_field(field: &str) -> &str {
+    match field {
+        "contentType" => "content_type",
+        "contentEncoding" => "content_encoding",
+        "contentDisposition" => "content_disposition",
+        "contentLanguage" => "content_language",
+        "cacheControl" => "cache_control",
+        "customTime" => "custom_time",
+        "storageClass" => "storage_class",
+        "terminalStorageClass" => "terminal_storage_class",
+        "uniformBucketLevelAccess" => "uniform_bucket_level_access",
+        "age" => "age_days",
+        "createdBefore" => "created_before",
+        "customTimeBefore" => "custom_time_before",
+        "daysSinceCustomTime" => "days_since_custom_time",
+        "daysSinceNoncurrentTime" => "days_since_noncurrent_time",
+        "isLive" => "is_live",
+        "matchesPrefix" => "matches_prefix",
+        "matchesStorageClass" => "matches_storage_class",
+        "matchesStorageClass for bucket location" => "matches_storage_class for bucket location",
+        "matchesSuffix" => "matches_suffix",
+        "noncurrentTimeBefore" => "noncurrent_time_before",
+        "numNewerVersions" => "num_newer_versions",
+        field => field,
+    }
 }
 
 fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> Result<(), Status> {
@@ -265,6 +266,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn invalid_storage_classes_keep_client_values_verbatim() {
+        for value in [
+            "storageClass",
+            "isLive",
+            "storageClass.isLive",
+            "terminalStorageClass",
+        ] {
+            let bucket = pb::Bucket {
+                storage_class: value.into(),
+                ..Default::default()
+            };
+            let error = from_proto(&bucket, &["storage_class".into()]).unwrap_err();
+            assert_eq!(error.code(), tonic::Code::InvalidArgument);
+            assert_eq!(
+                error.message(),
+                format!("Invalid storage class \"{value}\"")
+            );
+            let json = JsonError::from(bucket::validate_update_storage_class(value).unwrap_err());
+            assert_eq!(json.message, error.message());
+        }
+    }
+
+    #[test]
     fn bucket_update_errors_name_proto_fields() {
         let bucket = pb::Bucket {
             storage_class: "RAPID".into(),
@@ -278,9 +302,7 @@ mod tests {
         for input in [
             CatalogError::RetentionPolicyLocked(60),
             CatalogError::RetentionPolicyNotSet,
-            CatalogError::InvalidMetadata(
-                "autoclass.terminalStorageClass requires autoclass.enabled=true".into(),
-            ),
+            CatalogError::Metadata(crate::metadata_error::MetadataError::AutoclassDisabled),
         ] {
             let error = input_error(input);
             assert_eq!(error.code(), tonic::Code::InvalidArgument);

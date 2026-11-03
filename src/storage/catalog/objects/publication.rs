@@ -193,6 +193,7 @@ pub(in crate::storage::catalog) fn expiration_after(
 pub(in crate::storage::catalog) fn acl_update_error(error: CatalogError) -> ObjectError {
     match error {
         CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
+        CatalogError::Metadata(error) => ObjectError::Metadata(error),
         CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason),
         error => error.into(),
     }

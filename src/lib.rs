@@ -20,6 +20,7 @@ mod http_conditions;
 pub mod import;
 pub mod json;
 mod match_glob;
+mod metadata_error;
 pub mod mime;
 mod notification;
 pub mod object;

@@ -56,8 +56,8 @@ impl FromStr for StorageClass {
             "ARCHIVE" => Ok(Self::Archive),
             "MULTI_REGIONAL" => Ok(Self::MultiRegional),
             "DURABLE_REDUCED_AVAILABILITY" => Ok(Self::DurableReducedAvailability),
-            "REGIONAL" | "RAPID" => Err(CatalogError::UnsupportedMetadata(
-                "storageClass requires a region or zone".into(),
+            "REGIONAL" | "RAPID" => Err(CatalogError::Metadata(
+                crate::metadata_error::MetadataError::StorageClassRequiresLocation,
             )),
             _ => Err(CatalogError::InvalidMetadata(
                 "The storage class you specified is not valid.".into(),
@@ -436,9 +436,9 @@ pub(crate) fn validate_storage_class(storage_class: &str) -> Result<StorageClass
 
 pub(crate) fn validate_update_storage_class(class: &str) -> Result<StorageClass, CatalogError> {
     validate_storage_class(class).map_err(|error| match error {
-        CatalogError::InvalidMetadata(_) => {
-            CatalogError::InvalidMetadata(format!("Invalid storage class \"{class}\""))
-        }
+        CatalogError::InvalidMetadata(_) => CatalogError::Metadata(
+            crate::metadata_error::MetadataError::InvalidUpdateStorageClass(class.into()),
+        ),
         error => error,
     })
 }
@@ -487,8 +487,8 @@ fn storage_class_validation_keeps_exact_errors() {
     for class in ["REGIONAL", "RAPID"] {
         assert_eq!(
             validate_storage_class(class),
-            Err(CatalogError::UnsupportedMetadata(
-                "storageClass requires a region or zone".into()
+            Err(CatalogError::Metadata(
+                crate::metadata_error::MetadataError::StorageClassRequiresLocation
             )),
             "{class}"
         );
@@ -519,6 +519,7 @@ pub enum CatalogError {
     RetentionPolicyLocked(u64),
     RetentionPolicyNotSet,
     InvalidMetadata(String),
+    Metadata(crate::metadata_error::MetadataError),
     UnsupportedMetadata(String),
     Io(IoCause),
     Corrupt(BackendCause),
@@ -558,6 +559,7 @@ impl fmt::Display for CatalogError {
                 formatter,
                 "unsupported catalog schema version {version}; this release supports schema {supported} and older"
             ),
+            Self::Metadata(error) => error.fmt(formatter),
             Self::InvalidMetadata(reason) | Self::UnsupportedMetadata(reason) => {
                 formatter.write_str(reason)
             }
@@ -571,6 +573,7 @@ impl std::error::Error for CatalogError {
         match self {
             Self::Io(cause) => cause.source(),
             Self::Corrupt(cause) | Self::Unavailable(cause) => cause.source(),
+            Self::Metadata(error) => Some(error),
             _ => None,
         }
     }

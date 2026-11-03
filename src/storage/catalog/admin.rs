@@ -335,6 +335,7 @@ impl From<CatalogError> for AdminError {
             CatalogError::PreconditionFailed => Self::Precondition,
             CatalogError::NotFound => Self::NotFound,
             CatalogError::Forbidden | CatalogError::PublicAccessPrevention => Self::Forbidden,
+            CatalogError::Metadata(error) => Self::Invalid(error.to_string()),
             error @ (CatalogError::RetentionPolicyLocked(_)
             | CatalogError::RetentionPolicyNotSet) => Self::Invalid(error.to_string()),
             CatalogError::InvalidMetadata(reason) | CatalogError::UnsupportedMetadata(reason) => {
@@ -349,6 +350,7 @@ impl From<ObjectError> for AdminError {
         match error {
             ObjectError::Io(cause) => Self::from_io(cause),
             ObjectError::Corrupt(cause) => Self::Corrupt(cause),
+            ObjectError::Metadata(error) => Self::Invalid(error.to_string()),
             ObjectError::InvalidFixedMetadata(reason)
             | ObjectError::UnsupportedMetadata(reason) => Self::Invalid(reason),
             ObjectError::PreconditionFailed => Self::Precondition,

@@ -1635,7 +1635,9 @@ fn apply_uniform_access(
         }
         (false, Some(locked_time)) => {
             if now >= locked_time {
-                return Err(CatalogError::InvalidMetadata("Uniform bucket-level access has been enabled for 90 consecutive days and cannot be disabled; keep uniformBucketLevelAccess.enabled=true".into()));
+                return Err(CatalogError::Metadata(
+                    crate::metadata_error::MetadataError::UniformAccessLocked,
+                ));
             }
             record.uniform_bucket_level_access_locked_time = None;
         }

@@ -37,6 +37,13 @@ Autoclass, lifecycle and retention failures raised by the mutation transaction.
 JSON responses retain their existing vocabulary and messages. Locked-retention
 guidance uses retention_policy.retention_duration without a JSON body example.
 
+Field-dependent metadata diagnostics carry typed reasons and render adapter field
+names without rewriting client values. UpdateObject rejects masks combining
+`metadata` and `metadata.KEY` in either order, with guidance to choose one form.
+Unsupported IAM roles and principal kinds recommend supported policy inputs;
+switching transports does not make those inputs supported. Convenience project
+members and JSON project queries share one identifier validator.
+
 Object masks: `metadata`, `metadata.KEY`, the five fixed serving metadata strings, `custom_time`, `temporary_hold` and `event_based_hold`. `create_time` is ignored as an output-only path because the pinned Go SDK sends it for ordinary empty updates. `acl` replaces the object ACL and `retention` sets or removes object retention ([SDK parity](grpc-v2-sdk-parity.md)). `*`, contexts and other masks return UNIMPLEMENTED. Whole metadata and label maps are replaced in the shared mutation transaction without adding preconditions; explicit client preconditions remain enforced. Key-level mutations merge individual entries in that transaction.
 
 UpdateObject constructs `ObjectMetadataUpdate` directly, including typed ACL and

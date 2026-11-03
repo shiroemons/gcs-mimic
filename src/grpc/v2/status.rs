@@ -34,7 +34,7 @@ pub(super) fn list_query_status(error: crate::storage::ListQueryError) -> Status
 }
 
 pub(super) fn glob_status(error: &crate::match_glob::GlobError) -> Status {
-    Status::invalid_argument(error.to_string().replace("matchGlob", "match_glob"))
+    Status::invalid_argument(error.message("match_glob"))
 }
 
 impl From<crate::object::ObjectError> for Status {
@@ -67,7 +67,12 @@ impl From<crate::auth::policy_input::PolicyInputError> for Status {
                 Status::invalid_argument(message)
             }
             crate::auth::policy_input::PolicyInputError::UnsupportedInput(message) => {
-                unsupported(&message)
+                unsupported_with_remedy(
+                    format!(
+                        "gcs-mimic does not support IAM policy {message}; omit it, for example use roles/storage.objectViewer with user: members"
+                    ),
+                    "Omit the unsupported IAM policy input; use roles/storage.objectViewer with user: members",
+                )
             }
         }
     }
@@ -127,16 +132,20 @@ pub(crate) fn unsupported(method: &str) -> Status {
 
 /// JSON unsupported messages already include a remedy and must not be wrapped again.
 fn unsupported_message(message: String) -> Status {
+    unsupported_with_remedy(
+        message,
+        "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event",
+    )
+}
+
+fn unsupported_with_remedy(message: String, remedy: &str) -> Status {
     let info = ErrorInfo {
         // Preserve the existing unsupported JSON contract's reason and domain.
         reason: "badRequest".into(),
         domain: "global".into(),
         metadata: [
             ("service".into(), "gcs-mimic".into()),
-            (
-                "remedy".into(),
-                "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event".into(),
-            ),
+            ("remedy".into(), remedy.into()),
         ]
         .into(),
     };
@@ -204,6 +213,30 @@ mod tests {
 
     fn rpc_status(status: &Status) -> RpcStatus {
         RpcStatus::decode(status.details()).unwrap()
+    }
+
+    #[test]
+    fn unsupported_iam_inputs_offer_supported_policy_members() {
+        use crate::auth::policy_input::{validate_member, validate_role};
+        for error in [
+            validate_role("roles/owner").unwrap_err(),
+            validate_member("group:team@example.invalid").unwrap_err(),
+        ] {
+            let status = Status::from(error);
+            assert_eq!(status.code(), Code::Unimplemented);
+            assert!(status.message().contains("omit it"));
+            assert!(
+                status
+                    .message()
+                    .contains("roles/storage.objectViewer with user: members")
+            );
+            assert!(!status.message().contains("JSON API"));
+            let rpc = rpc_status(&status);
+            assert_eq!(rpc.message, status.message());
+            let info = ErrorInfo::decode(rpc.details[0].value.as_slice()).unwrap();
+            assert!(!info.metadata["remedy"].contains("JSON API"));
+            assert!(info.metadata["remedy"].contains("Omit"));
+        }
     }
 
     #[test]

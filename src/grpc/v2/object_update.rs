@@ -14,6 +14,13 @@ pub(super) fn from_proto(
     object: &pb::Object,
     paths: &[String],
 ) -> Result<ObjectMetadataUpdate, Status> {
+    if paths.iter().any(|path| path == "metadata")
+        && paths.iter().any(|path| path.starts_with("metadata."))
+    {
+        return Err(Status::invalid_argument(
+            "Use either metadata or metadata.KEY in update_mask",
+        ));
+    }
     let mut update = ObjectMetadataUpdate::default();
     for path in paths {
         match path.as_str() {
@@ -80,18 +87,14 @@ pub(super) fn validate(update: &ObjectMetadataUpdate) -> Result<(), Status> {
     update.validate().map_err(input_error)
 }
 
-pub(super) fn input_error(mut error: ObjectError) -> Status {
-    if let ObjectError::InvalidFixedMetadata(message) | ObjectError::UnsupportedMetadata(message) =
-        &mut error
-    {
-        *message = message
-            .replace("contentType", "content_type")
-            .replace("contentEncoding", "content_encoding")
-            .replace("contentDisposition", "content_disposition")
-            .replace("contentLanguage", "content_language")
-            .replace("cacheControl", "cache_control")
-            .replace("customTime", "custom_time")
-            .replace("storageClass", "storage_class");
+pub(super) fn input_error(error: ObjectError) -> Status {
+    if let ObjectError::Metadata(error) = error {
+        let message = error.message(super::bucket_update::proto_field);
+        return if error.unsupported() {
+            super::status::unsupported(&format!("unsupported metadata change: {message}"))
+        } else {
+            Status::invalid_argument(message)
+        };
     }
     super::object_io::object_status(error)
 }
@@ -170,6 +173,21 @@ pub(super) fn inherited(source: &ObjectRecord) -> ObjectMetadataUpdate {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn overlapping_metadata_masks_are_actionable_in_both_orders() {
+        for paths in [
+            ["metadata", "metadata.missing"],
+            ["metadata.missing", "metadata"],
+        ] {
+            let error = super::from_proto(&super::pb::Object::default(), &paths.map(String::from))
+                .unwrap_err();
+            assert_eq!(error.code(), tonic::Code::InvalidArgument);
+            assert_eq!(
+                error.message(),
+                "Use either metadata or metadata.KEY in update_mask"
+            );
+        }
+    }
     use super::*;
     use prost::Message;
 

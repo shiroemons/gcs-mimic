@@ -4,6 +4,12 @@
 
 対象はRPC-STORAGE-005〜010、012、017、021、024とBEHAVIOR-RPC-002です。正本は[英語の契約](../en/slices/grpc-v2-update-copy.md)です。全行をPARTIALとし、未対応範囲を台帳に残します。
 
+フィールドを含む検証エラーは型付きの理由を持ち、JSONとgRPCでそれぞれのフィールド名を使います。
+エラーに含めるクライアントの入力値は変更しません。UpdateObjectのmaskに`metadata`と`metadata.KEY`を
+混在させると、どちらかを選ぶよう案内してINVALID_ARGUMENTを返します。
+未対応のIAMロール・メンバー種別には、対応するポリシー入力を案内します。
+convenience memberとJSONクエリのプロジェクトIDは、同じ検証処理を使います。
+
 UpdateBucket・UpdateObject・TestIamPermissionsの再現精度は、共有するJSONの行と同じLOCAL_SIMULATIONです。ほかの実装済み範囲はEXACTですが、未対応のケースを残したPARTIALであり、API全体の一致は主張しません。
 
 バケット・オブジェクトのfield mask更新、バケットIAMの取得・保存・権限検査、保持ポリシーのロック、rewrite・compose・同一バケット内の原子的なmove・soft delete世代のrestoreを、JSONと同じカタログ・認可・検証で処理します。JSONで用意したデータへのgRPC更新を、JSONで確認できます。本文上限は既存設定を使い、共有処理が64 KiBのバッファで転送します。新しい設定や依存は追加しません。

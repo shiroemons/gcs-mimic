@@ -1,6 +1,7 @@
 //! Validated lifecycle metadata; execution belongs to the maintenance scheduler.
 
 use super::{CatalogError, validate_storage_class};
+use crate::metadata_error::{LifecycleExample, MetadataError};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -118,16 +119,22 @@ impl LifecycleRule {
     }
 }
 
-fn invalid(field: &str, example: &str) -> CatalogError {
-    CatalogError::InvalidMetadata(format!("Invalid lifecycle {field}; use {example}"))
+fn invalid(field: &str, example: impl Into<LifecycleExample>) -> CatalogError {
+    CatalogError::Metadata(MetadataError::Lifecycle {
+        field: field.into(),
+        example: example.into(),
+    })
 }
 
 fn validate_class(value: &str, field: &str) -> Result<(), CatalogError> {
     validate_storage_class(value)
         .map(|_| ())
         .map_err(|error| match error {
-            CatalogError::UnsupportedMetadata(reason) => {
-                CatalogError::UnsupportedMetadata(format!("lifecycle.{field}={value}: {reason}"))
+            CatalogError::Metadata(error) if error.unsupported() => {
+                CatalogError::Metadata(MetadataError::LifecycleClass {
+                    field: field.into(),
+                    value: value.into(),
+                })
             }
             CatalogError::InvalidMetadata(_) => {
                 invalid(field, "a supported bucket class, for example COLDLINE")
@@ -202,7 +209,7 @@ pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
         return Err(invalid("rule count (maximum 100)", "100 or fewer rules"));
     }
     if serde_json::to_string(rules)
-        .map_err(|error| invalid("rules", &error.to_string()))?
+        .map_err(|error| invalid("rules", error.to_string().as_str()))?
         .len()
         > 64 * 1024
     {
@@ -241,13 +248,13 @@ pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
         } else if action.contains_key("storageClass") {
             return Err(invalid(
                 "action.storageClass",
-                "storageClass only with SetStorageClass",
+                LifecycleExample::StorageClassAction,
             ));
         }
         let condition = rule
             .get("condition")
             .and_then(Value::as_object)
-            .ok_or_else(|| invalid("condition", "{\"age\":30}"))?;
+            .ok_or_else(|| invalid("condition", LifecycleExample::AgeCondition))?;
         let mut count = 0;
         for (field, value) in condition {
             if matches!(
@@ -259,10 +266,7 @@ pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
                 )));
             }
             if !CONDITIONS.contains(&field.as_str()) {
-                return Err(invalid(
-                    field,
-                    "a documented lifecycle condition, for example age",
-                ));
+                return Err(invalid(field, LifecycleExample::DocumentedCondition));
             }
             count += 1;
             if kind == "AbortIncompleteMultipartUpload"
@@ -270,16 +274,13 @@ pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
             {
                 return Err(invalid(
                     "AbortIncompleteMultipartUpload condition",
-                    "age, matchesPrefix or matchesSuffix",
+                    LifecycleExample::AbortCondition,
                 ));
             }
             prefixes_suffixes += validate_condition(field, value, rule_index)?;
         }
         if count == 0 {
-            return Err(invalid(
-                "empty condition",
-                "at least one condition, for example {\"age\":30}",
-            ));
+            return Err(invalid("empty condition", LifecycleExample::EmptyCondition));
         }
     }
     if prefixes_suffixes > 1000 {

@@ -543,7 +543,7 @@ pub(super) fn check_object_fields(
     }
     if let Err(error) = crate::bucket::validate_storage_class(&attrs.storage_class) {
         let (field, reason) = match error {
-            crate::bucket::CatalogError::UnsupportedMetadata(_) => (
+            crate::bucket::CatalogError::Metadata(error) if error.unsupported() => (
                 ObjectField::StorageClassUnsupported,
                 "object storageClass requires a region or zone",
             ),
