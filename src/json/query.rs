@@ -6,6 +6,25 @@ use std::collections::BTreeMap;
 
 pub(crate) const MAX_QUERY_BYTES: usize = 16 * 1024;
 
+/// Reads an advisory parameter with the same decoding as the validating route parser.
+pub(crate) fn query_param<'a>(query: &'a str, name: &str) -> Option<std::borrow::Cow<'a, str>> {
+    fn component(raw: &str) -> Option<std::borrow::Cow<'_, str>> {
+        if raw.contains(['%', '+']) {
+            decode(raw, Decoding::Form)
+                .ok()
+                .map(std::borrow::Cow::Owned)
+        } else {
+            Some(std::borrow::Cow::Borrowed(raw))
+        }
+    }
+    query.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        (component(key)? == name)
+            .then(|| component(value))
+            .flatten()
+    })
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Projection {
     #[default]
