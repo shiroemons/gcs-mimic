@@ -68,8 +68,8 @@ pub(super) async fn respond(
     }
 }
 
-async fn execute(
-    request: Request<RequestBody>,
+async fn execute<B: Body<Data = Bytes> + Unpin>(
+    request: Request<B>,
     ctx: RequestCtx<'_>,
 ) -> Result<Response<BatchBody>, JsonError> {
     if request.method() != Method::POST {
@@ -79,17 +79,16 @@ async fn execute(
     if request.headers().contains_key("content-encoding") {
         return Err(invalid("Compressed batch envelopes are unsupported"));
     }
-    let admission = ctx
-        .state
-        .pools
-        .batches
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| {
-            JsonError::service_unavailable(
-                "Batch capacity is busy; retry after an active response finishes",
-            )
-        })?;
+    let deadline = ctx.start_object_deadline(super::DeadlineWatch::CatalogOnly);
+    let admission =
+        tokio::time::timeout_at(deadline, ctx.state.pools.batches.clone().acquire_owned())
+            .await
+            .map_err(|_| {
+                JsonError::service_unavailable(
+                    "Timed out waiting for batch capacity; retry after an active response finishes",
+                )
+            })?
+            .map_err(|_| JsonError::service_unavailable("Batch admission is unavailable"))?;
     let (outer, mut body) = request.into_parts();
     if body.size_hint().lower() >= REQUEST_LIMIT as u64 {
         return Err(too_large());
@@ -269,6 +268,12 @@ mod tests {
             server::{ObjectActivity, State},
             storage::Catalog,
         };
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        use std::time::Duration;
+        use tonic::codegen::tokio_stream::StreamExt;
         let dir = crate::test_support::TestDir::new();
         let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
         let config = Config::default();
@@ -283,6 +288,21 @@ mod tests {
             endpoints: &endpoints,
             activity: &activity,
         };
+        let request = |read: Arc<AtomicBool>| {
+            let frame = Ok::<_, Infallible>(Frame::data(Bytes::from_static(
+                b"--test\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\nGET /storage/v1/b?project=local HTTP/1.1\r\n\r\n\r\n--test--\r\n",
+            )));
+            let stream = tonic::codegen::tokio_stream::iter([frame]).map(move |frame| {
+                read.store(true, Ordering::Release);
+                frame
+            });
+            Request::builder()
+                .method("POST")
+                .uri("/batch/storage/v1")
+                .header("content-type", "multipart/mixed; boundary=test")
+                .body(http_body_util::StreamBody::new(stream))
+                .unwrap()
+        };
         let permits = state
             .pools
             .batches
@@ -290,18 +310,48 @@ mod tests {
             .acquire_many_owned(2)
             .await
             .unwrap();
-        let request = Request::builder()
-            .method("POST")
-            .uri("/batch/storage/v1")
-            .header("content-type", "multipart/mixed; boundary=test")
-            .body(RequestBody::Buffered(Full::new(Bytes::from_static(
-                b"invalid envelope",
-            ))))
+        let read = Arc::new(AtomicBool::new(false));
+        let waiting = execute(request(read.clone()), ctx);
+        tokio::pin!(waiting);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), &mut waiting)
+                .await
+                .is_err()
+        );
+        assert!(!read.load(Ordering::Acquire));
+        drop(permits);
+        let response = waiting.await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(read.load(Ordering::Acquire));
+        drop(response);
+
+        let short = Config {
+            object_request_timeout_ms: 1,
+            ..config.clone()
+        };
+        let permits = state
+            .pools
+            .batches
+            .clone()
+            .acquire_many_owned(2)
+            .await
             .unwrap();
+        let read = Arc::new(AtomicBool::new(false));
         assert_eq!(
-            execute(request, ctx).await.err().unwrap().status,
+            execute(
+                request(read.clone()),
+                RequestCtx {
+                    config: &short,
+                    ..ctx
+                }
+            )
+            .await
+            .err()
+            .unwrap()
+            .status,
             StatusCode::SERVICE_UNAVAILABLE
         );
+        assert!(!read.load(Ordering::Acquire));
         drop(permits);
         state.catalog.close().await.unwrap();
     }
