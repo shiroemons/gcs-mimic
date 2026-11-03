@@ -30,6 +30,65 @@ fn blob_count(dir: &std::path::Path) -> usize {
         .sum()
 }
 
+#[cfg(unix)]
+async fn cleanup_snapshot(power_loss: bool, synced: bool) {
+    use crate::storage::catalog::fault::{self, Fault, Step};
+    let (dir, catalog, admin, _, _) = setup().await;
+    let staged = admin
+        .stage_from_file(
+            source(&dir.0, b"private bytes"),
+            ExpectedHashes::default(),
+            1024,
+        )
+        .await
+        .unwrap();
+    let id = staged.id.unwrap();
+    catalog.0.backend.publish_draft(&id).unwrap();
+    let snapshot = crate::test_support::TestDir::new();
+    let fault = if power_loss {
+        Fault::PowerLoss(snapshot.0.clone())
+    } else {
+        Fault::Snapshot(snapshot.0.clone())
+    };
+    catalog.inject(Step::AfterCommit, 0, fault);
+    if synced {
+        cleanup(&catalog, id).await.unwrap();
+    } else {
+        catalog.0.backend.remove(&id).unwrap();
+    }
+    fault::hit(&dir.0, Step::AfterCommit).unwrap();
+    assert_eq!(catalog.pending_faults(), 0);
+    let path = id.blob_path(&snapshot.0);
+    let exists = path.exists();
+    let bytes = exists.then(|| fs::read(&path).unwrap());
+    staged.discard().await.unwrap();
+    catalog.close().await.unwrap();
+    assert_eq!(exists, power_loss && !synced);
+    if let Some(bytes) = bytes {
+        assert_eq!(bytes, b"private bytes");
+    }
+    let recovered = Catalog::open(&snapshot.0).await.unwrap();
+    assert_eq!(blob_count(&snapshot.0), 0);
+    assert_eq!(fs::read_dir(snapshot.0.join("staging")).unwrap().count(), 0);
+    recovered.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cleanup_unlink_is_volatile_until_directory_sync() {
+    for power_loss in [false, true] {
+        cleanup_snapshot(power_loss, false).await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cleanup_directory_sync_survives_crash_and_power_loss() {
+    for power_loss in [false, true] {
+        cleanup_snapshot(power_loss, true).await;
+    }
+}
+
 #[tokio::test]
 async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
     for restriction in ["invalid", "uniform", "public-prevention"] {

@@ -222,7 +222,7 @@ impl BlobBackend {
             && let Some(shard) = id.blob_path(root).parent()
             && shard.exists()
         {
-            crate::fsutil::sync_dir(shard)?;
+            objects::sync_dir(shard)?;
         }
         Ok(())
     }
@@ -429,27 +429,7 @@ pub(super) fn restore_disk_draft(root: &Path, id: &BlobId) -> io::Result<()> {
 }
 
 fn unlink_synced(path: &Path, #[cfg(all(test, unix))] data_dir: &Path) -> io::Result<()> {
-    #[cfg(all(test, unix))]
-    let retained = if super::fault::pending(data_dir) > 0 {
-        match fs::File::open(path) {
-            Ok(file) => Some(file),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error),
-        }
-    } else {
-        None
-    };
-    match fs::remove_file(path) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Ok(()) =>
-        {
-            #[cfg(all(test, unix))]
-            if let Some(file) = retained {
-                super::fault::unlinked(path, &file)?;
-            }
-        }
-        Err(error) => return Err(error),
-    }
+    objects::unlink(path)?;
     #[cfg(unix)]
     if let Some(parent) = path.parent()
         && parent.exists()

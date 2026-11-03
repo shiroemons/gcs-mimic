@@ -408,12 +408,21 @@ impl Catalog {
 }
 
 pub(super) fn unlink(path: &Path) -> io::Result<()> {
+    #[cfg(all(test, unix))]
+    let retained = fault::retain_before_unlink(path)?;
     // Windows may defer removal until the final reader closes. Recovery also
     // scans unreferenced blobs, so a deferred deletion cannot become live data.
-    match fs::remove_file(path) {
+    let result = match fs::remove_file(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         result => result,
+    };
+    #[cfg(all(test, unix))]
+    if result.is_ok()
+        && let Some(file) = retained
+    {
+        fault::unlinked(path, &file)?;
     }
+    result
 }
 
 fn os_metadata(entry: &fs::DirEntry) -> bool {
