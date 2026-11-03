@@ -124,7 +124,8 @@ async fn media(
         return Ok(boxed(response));
     }
     // Cloud Storage refused a ranged read of several ranges instead of ignoring the header.
-    if multiple_ranges(request.headers()) {
+    let requested_range = json::range_request(request.headers());
+    if matches!(requested_range, json::RangeRequest::Multiple(_)) {
         return Ok(boxed(multiple_ranges_response(&headers)));
     }
     // A media HEAD sends the GET headers without reading the object (observed 2026-10-31).
@@ -144,7 +145,7 @@ async fn media(
     if !head {
         compressed_headers(&record, &mut reader, &mut headers).await?;
     }
-    let range = match json::object_media_range(request.headers(), record.size) {
+    let range = match requested_range.resolve(record.size) {
         Ok(range) => range,
         Err(error) => {
             // The JSON HEAD 416 states no length: the omitted HTML body is not measured
@@ -307,19 +308,6 @@ fn multiple_ranges_response(representation: &HeaderMap) -> Response<Full<Bytes>>
         HeaderValue::from_static(crate::json::MEDIA_ERROR_CACHE_CONTROL),
     );
     response
-}
-
-/// Whether the request asks for several byte ranges at once.
-fn multiple_ranges(headers: &HeaderMap) -> bool {
-    let mut values = headers.get_all("range").iter();
-    match (values.next(), values.next()) {
-        (Some(value), None) => value.to_str().ok().is_some_and(|value| {
-            value.trim().split_once('=').is_some_and(|(unit, ranges)| {
-                unit.eq_ignore_ascii_case("bytes") && ranges.contains(',')
-            })
-        }),
-        _ => false,
-    }
 }
 
 /// Fields the JSON API sends on every media response beyond the representation headers

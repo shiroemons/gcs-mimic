@@ -22,6 +22,72 @@ fn grant(server: &Server, member: &str, role: &str) -> Value {
     .json()
 }
 
+#[test]
+fn xml_cache_validators_authorize_before_comparing_one_selected_generation() {
+    let (_config, _data, server) = fixture();
+    xml_error(
+        &server.get("If-None-Match: *\r\n", OBJECT),
+        401,
+        "AuthenticationRequired",
+    );
+    grant(&server, "allUsers", "roles/storage.objectViewer");
+    let selected = server.get("", OBJECT);
+    selected.success();
+    let etag = &selected.headers["etag"];
+    let modified = &selected.headers["last-modified"];
+    for method in ["GET", "HEAD"] {
+        for condition in [
+            format!("If-None-Match: W/{etag}\r\n"),
+            format!("If-Modified-Since: {modified}\r\n"),
+        ] {
+            let response = server.request(method, OBJECT, &condition, b"");
+            response.expect(304);
+            assert!(response.body.is_empty());
+            assert_eq!(&response.headers["etag"], etag);
+            assert_eq!(response.headers["cache-control"], "public, max-age=3600");
+            assert_eq!(&response.headers["last-modified"], modified);
+        }
+        server
+            .request(
+                method,
+                OBJECT,
+                &format!("If-Match: \"other\"\r\nIf-None-Match: {etag}\r\n"),
+                b"",
+            )
+            .expect(412);
+    }
+    server
+        .get(
+            "If-None-Match: \"other\"\r\nIf-Modified-Since: Sun, 06 Nov 2094 08:49:37 GMT\r\n",
+            OBJECT,
+        )
+        .success();
+    let generation = server.get(ADMIN, JSON_OBJECT).success().json()["generation"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/iam-bucket",
+            ADMIN,
+            br#"{"versioning":{"enabled":true}}"#,
+        )
+        .success();
+    server
+        .upload(ADMIN, "iam-bucket", "object", b"new generation")
+        .success();
+    server
+        .get(&format!("If-None-Match: {etag}\r\n"), OBJECT)
+        .success();
+    server
+        .get(
+            &format!("If-None-Match: {etag}\r\n"),
+            &format!("{OBJECT}?generation={generation}"),
+        )
+        .expect(304);
+}
+
 use crate::common::errors::xml_error_with_content_type as xml_error;
 
 #[test]
@@ -813,10 +879,6 @@ fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
     for header in [
         "x-goog-encryption-kms-key-name: key",
         "x-goog-user-project: p",
-        "If-Match: *",
-        "If-None-Match: *",
-        "If-Modified-Since: Fri, 19 Feb 2010 22:04:23 GMT",
-        "If-Unmodified-Since: Fri, 19 Feb 2010 22:04:23 GMT",
         "If-Range: *",
         "x-goog-if-generation-not-match: 1",
     ] {
@@ -825,6 +887,24 @@ fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
             400,
             "InvalidArgument",
         );
+    }
+    for header in [
+        "If-Match: *",
+        "If-None-Match: *",
+        "If-Modified-Since: Fri, 19 Feb 2010 22:04:23 GMT",
+        "If-Unmodified-Since: Fri, 19 Feb 2010 22:04:23 GMT",
+    ] {
+        for (method, path) in [
+            ("DELETE", OBJECT),
+            ("PUT", OBJECT),
+            ("GET", "/iam-bucket?prefix=object"),
+        ] {
+            xml_error(
+                &server.request(method, path, &format!("{ADMIN}{header}\r\n"), b""),
+                400,
+                "InvalidArgument",
+            );
+        }
     }
     server.get("Unknown-Header: ignored\r\n", OBJECT).success();
     server

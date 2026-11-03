@@ -82,10 +82,11 @@ pub(crate) use objects::{
     object_media_transcoding, validate_read_condition_headers,
 };
 pub(crate) use objects::{
-    ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, UploadRequest,
-    add_derived_owner, declared_hashes, object_media_headers, object_media_range, object_resource,
-    parse_object_upload_headers, route_object, route_object_with_profile, unsupported_upload_type,
-    validate_keyed_object_headers, validate_object_get_headers, validate_object_name,
+    ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, RangeRequest,
+    UploadRequest, add_derived_owner, declared_hashes, object_media_headers, object_resource,
+    parse_object_upload_headers, range_request, route_object, route_object_with_profile,
+    unsupported_upload_type, validate_keyed_object_headers, validate_object_get_headers,
+    validate_object_name,
 };
 pub(crate) use page_token::{
     decode_all_projects_page_token, decode_object_page_token, decode_page_token,

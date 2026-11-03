@@ -228,7 +228,7 @@ impl ErrorBody {
 }
 
 impl Error {
-    fn invalid(message: impl Into<String>) -> Self {
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
         Self::new(XmlCode::InvalidArgument, message)
     }
 
@@ -238,6 +238,10 @@ impl Error {
             message: message.into(),
             details: None,
         }
+    }
+
+    pub(crate) fn precondition_failed() -> Self {
+        Self::new(XmlCode::PreconditionFailed, PRECONDITION_NOT_HELD)
     }
 
     pub(crate) fn status(&self) -> StatusCode {
@@ -439,6 +443,7 @@ fn legacy_virtual_bucket(
     endpoints: &EndpointSnapshot,
 ) -> (Option<String>, bool) {
     let host = authority.host().to_ascii_lowercase();
+    // Strip only for domain classification; trailing-dot hosts still route path-style.
     let host = host.strip_suffix('.').unwrap_or(&host);
     let domain = endpoints.xml_virtual_host_domains.iter().find(|domain| {
         host == domain.as_str()
@@ -748,11 +753,11 @@ const RECOGNIZED_UNSUPPORTED_GOOG_HEADERS: &[&str] = &[
     "x-goog-user-project",
 ];
 
-/// How request validation treats an `x-goog-` header it does not recognize.
+/// Reads allow unknown x-goog headers and evaluate HTTP validators after authorization.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum UnknownGoogHeaders {
-    Reject,
-    Ignore,
+pub(crate) enum HeaderPolicy {
+    Strict,
+    Read,
 }
 
 // Ignoring these HTTP conditions would serve an object without checking its preconditions.
@@ -779,7 +784,7 @@ fn is_common_object_header(name: &str) -> bool {
 /// Validates an XML object request's headers and returns their preconditions.
 pub(crate) fn headers(
     headers: &HeaderMap,
-    unknown: UnknownGoogHeaders,
+    policy: HeaderPolicy,
 ) -> Result<ObjectConditions, Error> {
     if let Some(hash) = crate::auth::signature::payload_hash(headers)
         .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration."))?
@@ -816,15 +821,16 @@ pub(crate) fn headers(
         // Headers of other protocols and the HTTP conditions carry semantics this adapter
         // does not implement, and ignoring them would be a false success.
         if (key.starts_with("x-goog-")
-            && unknown == UnknownGoogHeaders::Ignore
+            && policy == HeaderPolicy::Read
             && RECOGNIZED_UNSUPPORTED_GOOG_HEADERS.contains(&key))
             || (key.starts_with("x-goog-")
-                && unknown == UnknownGoogHeaders::Reject
+                && policy == HeaderPolicy::Strict
                 && !is_common_object_header(key)
                 && !crate::auth::signature::authentication_header(key)
                 && key != "x-goog-content-sha256")
             || (key.starts_with("x-amz-") && !crate::auth::signature::authentication_header(key))
-            || HTTP_PRECONDITION_HEADERS.contains(&key)
+            || (HTTP_PRECONDITION_HEADERS.contains(&key)
+                && (policy == HeaderPolicy::Strict || key == "if-range"))
         {
             return Err(Error::unsupported(key));
         }
@@ -894,7 +900,7 @@ pub(crate) enum CacheScope {
     Private,
 }
 
-fn object_etag(record: &ObjectRecord) -> String {
+pub(crate) fn object_etag(record: &ObjectRecord) -> String {
     // MD5 ETags apply only to objects without customer-supplied encryption. Other objects quote
     // the JSON validator, because XML entity tags are always quoted; Cloud Storage's XML ETag for
     // composite and encrypted objects has not been recorded.
@@ -986,6 +992,17 @@ pub(crate) fn insert_hashes(headers: &mut HeaderMap, record: &ObjectRecord) {
             headers.append("x-goog-hash", value);
         }
     }
+}
+
+pub(crate) fn not_modified(source: &HeaderMap) -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(Bytes::new()));
+    *response.status_mut() = StatusCode::NOT_MODIFIED;
+    for name in ["cache-control", "etag", "expires", "vary", "last-modified"] {
+        for value in source.get_all(name) {
+            response.headers_mut().append(name, value.clone());
+        }
+    }
+    response
 }
 
 /// Moves every value of the named fields, so a field sent once per algorithm keeps them all.
