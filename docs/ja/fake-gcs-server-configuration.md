@@ -1,5 +1,11 @@
 # 設定・環境変数の対応
 
+管理APIに接続する公開DNS名は`admin_allowed_hosts`で追加できます。
+CLIは`--admin-allowed-hosts`、環境変数は`GCS_MIMIC_ADMIN_ALLOWED_HOSTS`です。
+ポートを含まないDNS名をカンマで区切り、最大32件指定します。
+Origin付きなど、ブラウザー由来の管理リクエストは403で拒否します。
+[HTTPの境界](http-adapter-boundaries.md)に許可するホストと認可条件をまとめています。
+
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
 fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応させます。

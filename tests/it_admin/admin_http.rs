@@ -22,6 +22,62 @@ const ADMIN: &str = "Authorization: Bearer admin\r\n";
 const OBJECT: &str = "/storage/v1/b/test-bucket/o/value";
 
 #[test]
+fn management_routes_refuse_page_initiated_requests_without_mutation() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--admin-enabled", "true"]);
+    server.populate();
+    let before = server.request("GET", OBJECT, "", b"").json_ok();
+    for (method, path, body) in [
+        (
+            "PUT",
+            "/_internal/config",
+            br#"{"externalUrl":"http://changed.invalid"}"#.as_slice(),
+        ),
+        ("POST", "/_internal/objects", b""),
+        ("POST", "/_internal/reset", br#"{"confirm":"gcs-mimic"}"#),
+        ("POST", "/_internal/delete_all", b""),
+        ("POST", "/_internal/reseed", b""),
+        ("POST", "/_internal/sync/approve", b"{}"),
+    ] {
+        for headers in [
+            "Origin: https://evil.example\r\n",
+            "Origin: null\r\n",
+            "Sec-Fetch-Site: cross-site\r\n",
+            "Sec-Fetch-Site: same-site\r\n",
+            "Sec-Fetch-Site: same-origin\r\n",
+        ] {
+            server.request(method, path, headers, body).expect(403);
+            assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), before);
+        }
+    }
+    assert_eq!(
+        server.method_status_with_host("PUT", "/_internal/config", "evil.example.com", "", b"{}"),
+        421
+    );
+    for host in [
+        "localhost:49152",
+        "127.0.0.1",
+        "[::1]",
+        "gcs:4443",
+        "host.docker.internal",
+    ] {
+        assert_eq!(
+            server.method_status_with_host("PUT", "/_internal/config", host, "", b"{}"),
+            200
+        );
+    }
+    server
+        .request(
+            "POST",
+            "/_internal/delete_all",
+            "Sec-Fetch-Site: none\r\n",
+            b"",
+        )
+        .expect(200);
+    server.request("GET", OBJECT, "", b"").expect(404);
+}
+
+#[test]
 fn server_drop_preserves_original_panic_for_running_and_exited_children() {
     for graceful in [false, true] {
         for exited in [false, true] {
@@ -978,6 +1034,8 @@ fn strict_config_authorization_and_raw_signed_host_survive_public_host_updates()
             &[
                 "--admin-enabled",
                 "true",
+                "--admin-principal",
+                "admin@example.invalid",
                 "--auth-mode",
                 "strict",
                 "--identity-file",

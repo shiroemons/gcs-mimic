@@ -159,6 +159,7 @@ pub struct Config {
     /// Local management routes are disabled unless the operator explicitly enables them.
     pub admin_enabled: bool,
     pub admin_principal: Option<String>,
+    pub admin_allowed_hosts: Vec<String>,
     /// Email recorded as the creator (owner and ACL OWNER entry) of objects written without
     /// authentication; empty disables it. Never an authorization input.
     pub local_creator_email: String,
@@ -216,6 +217,7 @@ impl Default for Config {
             public_base_url: None,
             admin_enabled: false,
             admin_principal: None,
+            admin_allowed_hosts: Vec::new(),
             local_creator_email: DEFAULT_LOCAL_CREATOR_EMAIL.into(),
             runtime_endpoints: RuntimeEndpoints::default(),
             pubsub_emulator_host: None,
@@ -520,6 +522,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::DefaultSoftDeleteRetentionSeconds
         | Setting::BucketsFile => apply_storage_setting(config, setting, &value),
         Setting::AdminPrincipal
+        | Setting::AdminAllowedHosts
         | Setting::LocalCreatorEmail
         | Setting::AdminEnabled
         | Setting::AuthMode
@@ -697,6 +700,7 @@ fn apply_access_setting(
     value: &str,
 ) -> Result<(), SettingFix> {
     match setting {
+        Setting::AdminAllowedHosts => config.admin_allowed_hosts = admin_hosts(value)?,
         Setting::AdminPrincipal => {
             if value.is_empty() || value.len() > 254 || value.chars().any(char::is_control) {
                 return Err(
@@ -731,6 +735,27 @@ fn apply_access_setting(
         _ => return Err(unknown_setting()),
     }
     Ok(())
+}
+
+fn admin_hosts(value: &str) -> Result<Vec<String>, SettingFix> {
+    let mut hosts = Vec::new();
+    if value.is_empty() {
+        return Ok(hosts);
+    }
+    for host in value.split(',') {
+        let host = host.trim().to_ascii_lowercase();
+        let host = host.strip_suffix('.').unwrap_or(&host).to_owned();
+        validate_dns_name(&host).map_err(
+            |_| "admin_allowed_hosts requires comma-separated DNS names without ports or schemes",
+        )?;
+        if hosts.len() == 32 {
+            return Err("admin_allowed_hosts supports at most 32 names".into());
+        }
+        if !hosts.contains(&host) {
+            hosts.push(host);
+        }
+    }
+    Ok(hosts)
 }
 
 fn apply_limit_setting(
@@ -1039,6 +1064,7 @@ impl ConfigurationReport {
     }
 
     fn check_auth(&mut self, settings: &Settings) {
+        self.check_admin_auth(settings);
         let config = &self.config;
         // Reject mismatched profiles so a registry is never silently ignored or missing.
         match (config.auth_mode, &config.identity_file) {
@@ -1055,6 +1081,17 @@ impl ConfigurationReport {
                 self.invalid.insert("identity_file".into());
             }
             _ => {}
+        }
+    }
+
+    fn check_admin_auth(&mut self, settings: &Settings) {
+        if self.config.auth_mode == AuthMode::Strict
+            && self.config.admin_enabled
+            && self.config.admin_principal.is_none()
+            && let Some(input) = settings.get("admin_enabled")
+        {
+            self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
+                "admin_enabled in strict mode requires admin_principal; set --admin-principal to the registered instance administrator"));
         }
     }
 }
@@ -1190,6 +1227,44 @@ mod tests {
     use super::test_support::{assert_precedence, assert_rejected};
     use super::*;
     use crate::test_support::TestDir;
+
+    #[test]
+    fn strict_admin_requires_an_instance_principal_and_hosts_are_validated() {
+        let args = [
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            "identities.json",
+            "--admin-enabled",
+            "true",
+        ]
+        .map(str::to_owned);
+        let error = Config::load(&args, &BTreeMap::new()).unwrap_err();
+        assert!(error.to_string().contains("admin_principal"));
+        let mut configured = args.to_vec();
+        configured.extend(["--admin-principal".into(), "admin".into()]);
+        Config::load(&configured, &BTreeMap::new()).unwrap();
+        let args = [
+            "--admin-allowed-hosts",
+            "Dev.Example.com.,other.example.com",
+        ]
+        .map(str::to_owned);
+        assert_eq!(
+            Config::load(&args, &BTreeMap::new())
+                .unwrap()
+                .admin_allowed_hosts,
+            ["dev.example.com", "other.example.com"]
+        );
+        for value in [
+            "http://example.com",
+            "example.com:1234",
+            "*.example.com",
+            "example.com,",
+        ] {
+            let args = ["--admin-allowed-hosts", value].map(str::to_owned);
+            assert!(Config::load(&args, &BTreeMap::new()).is_err(), "{value}");
+        }
+    }
 
     #[test]
     fn legacy_json_members_remain_ignored_without_environment_warnings() {

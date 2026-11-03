@@ -57,6 +57,15 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                 let auth = if signed || public { "" } else { ADMIN };
                 let whole = send(&server, method, &url, auth);
                 whole.success();
+                let cached = send(
+                    &server,
+                    method,
+                    &url,
+                    &format!("{auth}If-None-Match: {}\r\n", whole.headers["etag"]),
+                );
+                cached.expect(304);
+                assert!(cached.body.is_empty());
+                assert_eq!(cached.headers["etag"], whole.headers["etag"]);
                 assert_eq!(whole.headers["content-type"], "text/csv");
                 assert_eq!(whole.headers["content-length"], "11");
                 assert_eq!(

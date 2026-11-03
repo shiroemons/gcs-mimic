@@ -6,9 +6,7 @@
 //! handler from re-deriving them and keeps errors, mutations and reads consistent. Media
 //! downloads and the XML API carry their own headers and are left alone.
 
-use super::{
-    Decoding, NO_STORE_CACHE_CONTROL, decode, error::MEDIA_ERROR_CACHE_CONTROL, http_date,
-};
+use super::{NO_STORE_CACHE_CONTROL, error::MEDIA_ERROR_CACHE_CONTROL, http_date};
 use hyper::{
     Method, Response, StatusCode,
     header::{self, HeaderValue},
@@ -53,14 +51,7 @@ impl Call {
         let query = request.uri().query().unwrap_or_default();
         // Names and values are compared decoded, because `alt=%6Dedia` is `alt=media` to the
         // handlers; a malformed escape never matches and the handler reports it.
-        let param = |name: &str| {
-            query.split('&').find_map(|pair| {
-                let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-                (decode(key, Decoding::Form).ok()? == name)
-                    .then(|| decode(value, Decoding::Form).ok())
-                    .flatten()
-            })
-        };
+        let param = |name: &str| super::query::query_param(query, name);
         if request.uri().path().starts_with("/upload/") {
             let boundary_missing = param("uploadType").as_deref() == Some("multipart")
                 && !request
@@ -69,7 +60,7 @@ impl Call {
                     .and_then(|value| value.to_str().ok())
                     .is_some_and(|value| value.contains("boundary="));
             let unknown_type = param("uploadType")
-                .is_some_and(|kind| !matches!(kind.as_str(), "media" | "multipart" | "resumable"));
+                .is_some_and(|kind| !matches!(kind.as_ref(), "media" | "multipart" | "resumable"));
             if param("upload_id").or_else(|| param("uploadId")).is_some()
                 || boundary_missing
                 || unknown_type

@@ -56,7 +56,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --api-base-url URL           Derived from bound listener (fixed advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --admin-enabled BOOL         false (local management API; isolate the listener when enabled)
-  --admin-principal ID         none (strict local fixture administration; independent of Google IAM)
+  --admin-principal ID         none (strict instance administrator for local management except sync; required with --admin-enabled in strict mode)
+  --admin-allowed-hosts LIST   none (comma-separated DNS names allowed to reach /_internal management; at most 32)
   --local-creator-email EMAIL local-user@gcs-mimic.invalid (permissive native: creator recorded as owner and ACL OWNER of new objects; empty disables; grants nothing)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
@@ -856,7 +857,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "912f78244a1733e7e4c0d13a393bce8fa25f22d92df912134edfdce5b5c109a9"
+            "e40d807d299f26010a3e430483b9a77cca442863a67945e55f3347f470f4a6ab"
         );
     }
 

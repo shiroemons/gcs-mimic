@@ -4,6 +4,22 @@ use hyper::{HeaderMap, Method, StatusCode, header::HeaderName};
 use serde_json::json;
 use std::time::{Duration, UNIX_EPOCH};
 
+#[test]
+fn range_classification_is_shared_and_ignores_repeated_fields() {
+    for (value, expected) in [
+        ("bytes=0-1,3-4", RangeRequest::Multiple("bytes=0-1,3-4")),
+        ("BYTES=0-1", RangeRequest::Single("0-1")),
+        ("items=0-1", RangeRequest::Whole),
+    ] {
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("range", value.parse().unwrap());
+        assert_eq!(range_request(&headers), expected);
+        headers.append("range", "bytes=2-3".parse().unwrap());
+        assert_eq!(range_request(&headers), RangeRequest::Whole);
+        assert_eq!(range_request(&headers).resolve(10).unwrap(), None);
+    }
+}
+
 #[track_caller]
 fn request(method: Method, path: &str) -> Result<ObjectRequest, JsonError> {
     route_object(&method, &path.parse().unwrap()).expect("object route")

@@ -16,6 +16,9 @@ use crate::{
 };
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
 
+#[cfg(test)]
+mod tests;
+
 pub(super) async fn respond(
     mut request: Request<Incoming>,
     operation: xml::ReadRequest,
@@ -37,9 +40,9 @@ pub(super) async fn respond(
     let conditions = xml::headers(
         request.headers(),
         if delete {
-            xml::UnknownGoogHeaders::Reject
+            xml::HeaderPolicy::Strict
         } else {
-            xml::UnknownGoogHeaders::Ignore
+            xml::HeaderPolicy::Read
         },
     )?;
     if delete
@@ -60,6 +63,31 @@ pub(super) async fn respond(
         return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
     }
     read(&request, operation, conditions, ctx, &access, key).await
+}
+
+fn conditional_read(
+    request: &HeaderMap,
+    record: &ObjectRecord,
+    headers: &mut HeaderMap,
+) -> Result<Option<Response<ResponseBody>>, xml::Error> {
+    use crate::http_conditions::{ReadCondition, Validators, evaluate_read};
+    let validators = Validators {
+        etag: &xml::object_etag(record),
+        last_modified: record.updated,
+    };
+    match evaluate_read(request, &validators) {
+        Ok(ReadCondition::Proceed) => Ok(None),
+        Ok(ReadCondition::NotModified) => {
+            if json::object_media_negotiable(record) {
+                gzip::insert_negotiated_vary(headers);
+            }
+            Ok(Some(boxed(xml::not_modified(headers))))
+        }
+        Ok(ReadCondition::PreconditionFailed) => Err(xml::Error::precondition_failed()),
+        Err(_) => Err(xml::Error::invalid(
+            "Invalid entity tag in a conditional header.",
+        )),
+    }
 }
 
 async fn read(
@@ -105,6 +133,9 @@ async fn read(
     if !reveal {
         headers.remove("x-goog-hash");
     }
+    if let Some(response) = conditional_read(request.headers(), &record, &mut headers)? {
+        return Ok(response);
+    }
     if json::object_media_negotiable(&record) {
         // The XML API varies every representation of a stored-gzip object, gunzipped or not,
         // and a compressed HEAD states no length (observed 2026-10-31).
@@ -131,7 +162,8 @@ async fn read(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
     // Cloud Storage rejects a multi-range request with 400 instead of serving the first range.
-    if requested.trim().to_ascii_lowercase().starts_with("bytes=") && requested.contains(',') {
+    let requested_range = json::range_request(request.headers());
+    if let json::RangeRequest::Multiple(requested) = requested_range {
         return Ok(range_error(
             request,
             headers,
@@ -139,7 +171,7 @@ async fn read(
             ctx.state.clock.now(),
         ));
     }
-    let range = match json::object_media_range(request.headers(), record.size) {
+    let range = match requested_range.resolve(record.size) {
         Ok(range) => range,
         Err(error) if error.status == StatusCode::RANGE_NOT_SATISFIABLE => {
             return Ok(range_error(

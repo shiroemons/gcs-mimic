@@ -89,8 +89,8 @@ impl Glob {
         next
     }
 
-    fn activate(&self, active: &mut [bool], start: usize) {
-        let mut pending = vec![start];
+    fn activate(&self, active: &mut [bool], start: usize, pending: &mut Vec<usize>) {
+        pending.push(start);
         while let Some(index) = pending.pop() {
             if active[index] {
                 continue;
@@ -107,7 +107,8 @@ impl Glob {
         // NFA state sets avoid exponential backtracking and brace expansion.
         let mut active = vec![false; self.states.len()];
         let mut next = active.clone();
-        self.activate(&mut active, self.start);
+        let mut pending = Vec::with_capacity(self.states.len());
+        self.activate(&mut active, self.start, &mut pending);
         for character in name.chars() {
             next.fill(false);
             for (index, enabled) in active.iter().enumerate() {
@@ -127,7 +128,7 @@ impl Glob {
                         }
                     };
                     if matches {
-                        self.activate(&mut next, *target);
+                        self.activate(&mut next, *target, &mut pending);
                     }
                 }
             }

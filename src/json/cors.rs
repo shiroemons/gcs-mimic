@@ -30,7 +30,12 @@ pub(crate) fn origin(headers: &HeaderMap) -> Option<&HeaderValue> {
     if value != "null" {
         let uri: Uri = value.parse().ok()?;
         let (scheme, authority) = (uri.scheme_str()?, uri.authority()?);
-        if value != format!("{scheme}://{authority}") || authority.host().is_empty() {
+        if value
+            .strip_prefix(scheme)
+            .and_then(|v| v.strip_prefix("://"))
+            != Some(authority.as_str())
+            || authority.host().is_empty()
+        {
             return None;
         }
         if authority

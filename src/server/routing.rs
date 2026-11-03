@@ -6,8 +6,8 @@
 use super::RequestBody as Incoming;
 use super::{
     DeadlineWatch, RequestCtx, ResponseBody, State, acl, anonymous_error, boxed, buckets,
-    empty_response, notifications, objects, probe_or_unknown, project_resources, resumable,
-    rewrite, unsupported, xml_read,
+    empty_response, notifications, objects, probe, project_resources, resumable, rewrite,
+    unknown_route, unsupported, xml_read,
 };
 use crate::{
     auth::Caller,
@@ -129,17 +129,9 @@ async fn route(
         }
     };
     if selected.is_none()
-        && (matches!(
-            request.uri().path(),
-            "/_internal/config"
-                | "/_internal/objects"
-                | "/_internal/reset"
-                | "/_internal/reseed"
-                | "/_internal/delete_all"
-        ) || request.uri().path() == "/_internal/sync"
-            || request.uri().path().starts_with("/_internal/sync/"))
+        && let Some(route) = super::admin::AdminRoute::parse(request.uri().path())
     {
-        return super::admin::respond(request, ctx).await;
+        return super::admin::respond(route, request, ctx).await;
     }
     if selected.is_none() && request.uri().path() == "/batch/storage/v1" {
         return super::batch::respond(request, ctx).await;
@@ -439,7 +431,7 @@ async fn respond_routed(
     if let Some(parsed) = json::route_with_profile(method, uri, profile, &ctx.config.seed_project) {
         return respond_bucket(request, ctx, profile, parsed).await;
     }
-    boxed(probe_or_unknown(&request, ctx.state))
+    boxed(probe(&request, ctx.state).unwrap_or_else(|| unknown_route().into_response()))
 }
 
 fn authenticate<'a>(
@@ -773,14 +765,15 @@ fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonErro
 async fn legacy_bucket_body(response: Response<Full<Bytes>>) -> Response<Full<Bytes>> {
     let (mut parts, body) = response.into_parts();
     let Ok(collected) = body.collect().await;
-    let mut bytes = collected.to_bytes().to_vec();
+    let bytes = collected.to_bytes();
+    let mut bytes = bytes.try_into_mut().unwrap_or_else(bytes::BytesMut::from);
     if !bytes.ends_with(b"\n") {
-        bytes.push(b'\n');
+        bytes.extend_from_slice(b"\n");
     }
     parts
         .headers
         .insert("content-type", HeaderValue::from_static("application/json"));
-    Response::from_parts(parts, Full::new(Bytes::from(bytes)))
+    Response::from_parts(parts, Full::new(bytes.freeze()))
 }
 
 #[cfg(test)]
@@ -801,5 +794,8 @@ mod tests {
             cors_lookup_failure("bucket", &known)["cause"],
             "database is locked"
         );
+        let leaky = CatalogError::Io(std::io::Error::other("secret catalog filename").into());
+        let fields = cors_lookup_failure("bucket", &leaky);
+        assert!(!fields["cause"].as_str().unwrap().contains("secret"));
     }
 }

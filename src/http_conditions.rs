@@ -1,6 +1,54 @@
 //! HTTP entity-tag comparison shared by protocol adapters.
 
 use hyper::HeaderMap;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ReadCondition {
+    Proceed,
+    NotModified,
+    PreconditionFailed,
+}
+
+pub(crate) struct Validators<'a> {
+    pub(crate) etag: &'a str,
+    pub(crate) last_modified: SystemTime,
+}
+
+/// XML read conditions follow RFC 9110 section 13.2.2 on an already authorized snapshot.
+pub(crate) fn evaluate_read(
+    headers: &HeaderMap,
+    validators: &Validators<'_>,
+) -> Result<ReadCondition, EtagError> {
+    let modified = validators
+        .last_modified
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| UNIX_EPOCH + Duration::from_secs(duration.as_secs()))
+        .unwrap_or(validators.last_modified);
+    match matches_field(headers, "if-match", validators.etag, Comparison::Strong)? {
+        Some(false) => return Ok(ReadCondition::PreconditionFailed),
+        None if date_field(headers, "if-unmodified-since").is_some_and(|date| modified > date) => {
+            return Ok(ReadCondition::PreconditionFailed);
+        }
+        _ => {}
+    }
+    match matches_field(headers, "if-none-match", validators.etag, Comparison::Weak)? {
+        Some(true) => Ok(ReadCondition::NotModified),
+        None if date_field(headers, "if-modified-since").is_some_and(|date| modified <= date) => {
+            Ok(ReadCondition::NotModified)
+        }
+        _ => Ok(ReadCondition::Proceed),
+    }
+}
+
+fn date_field(headers: &HeaderMap, name: &str) -> Option<SystemTime> {
+    let mut values = headers.get_all(name).iter();
+    let value = values.next()?;
+    if values.next().is_some() {
+        return None;
+    }
+    httpdate::parse_http_date(value.to_str().ok()?).ok()
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum EtagError {
@@ -129,6 +177,82 @@ fn matches_field(
 mod tests {
     use super::*;
     use hyper::header::HeaderValue;
+
+    #[test]
+    fn xml_read_conditions_follow_rfc_precedence_and_second_precision() {
+        let modified = httpdate::parse_http_date("Sun, 06 Nov 1994 08:49:37 GMT").unwrap();
+        let validators = Validators {
+            etag: "\"selected\"",
+            last_modified: modified + Duration::from_millis(900),
+        };
+        for (fields, expected) in [
+            (
+                vec![("if-match", "\"other\"")],
+                ReadCondition::PreconditionFailed,
+            ),
+            (
+                vec![
+                    ("if-match", "\"selected\""),
+                    ("if-unmodified-since", "Sun, 06 Nov 1994 08:49:36 GMT"),
+                ],
+                ReadCondition::Proceed,
+            ),
+            (
+                vec![("if-none-match", "W/\"selected\"")],
+                ReadCondition::NotModified,
+            ),
+            (
+                vec![
+                    ("if-none-match", "\"other\""),
+                    ("if-modified-since", "Sun, 06 Nov 1994 08:49:38 GMT"),
+                ],
+                ReadCondition::Proceed,
+            ),
+            (
+                vec![("if-modified-since", "Sun, 06 Nov 1994 08:49:37 GMT")],
+                ReadCondition::NotModified,
+            ),
+            (
+                vec![("if-modified-since", "Sun, 06 Nov 1994 08:49:36 GMT")],
+                ReadCondition::Proceed,
+            ),
+            (
+                vec![("if-unmodified-since", "Sun, 06 Nov 1994 08:49:36 GMT")],
+                ReadCondition::PreconditionFailed,
+            ),
+            (
+                vec![("if-modified-since", "invalid")],
+                ReadCondition::Proceed,
+            ),
+            (
+                vec![
+                    ("if-modified-since", "Sun, 06 Nov 1994 08:49:38 GMT"),
+                    ("if-modified-since", "Sun, 06 Nov 1994 08:49:38 GMT"),
+                ],
+                ReadCondition::Proceed,
+            ),
+            (
+                vec![("if-match", "\"other\""), ("if-none-match", "\"selected\"")],
+                ReadCondition::PreconditionFailed,
+            ),
+        ] {
+            let mut headers = HeaderMap::new();
+            for (key, value) in fields {
+                headers.append(key, value.parse().unwrap());
+            }
+            assert_eq!(
+                evaluate_read(&headers, &validators),
+                Ok(expected),
+                "{headers:?}"
+            );
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert("if-none-match", "unquoted".parse().unwrap());
+        assert_eq!(
+            evaluate_read(&headers, &validators),
+            Err(EtagError::Invalid)
+        );
+    }
 
     #[test]
     fn etag_comparison_uses_http_lists_and_strong_or_weak_matching() {

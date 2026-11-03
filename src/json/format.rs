@@ -31,10 +31,10 @@ impl ResponseFormat {
             return Self::Compact;
         }
         // The spellings match the shared boolean query parser.
-        let compact = query
-            .unwrap_or_default()
-            .split('&')
-            .any(|pair| matches!(pair, "prettyPrint=false" | "prettyPrint=False"));
+        let compact = matches!(
+            super::query::query_param(query.unwrap_or_default(), "prettyPrint").as_deref(),
+            Some("false" | "False")
+        );
         if compact { Self::Compact } else { Self::Pretty }
     }
 }
@@ -67,6 +67,8 @@ mod tests {
             (Some("prettyPrint=true"), ResponseFormat::Pretty),
             (Some("alt=json&prettyPrint=false"), ResponseFormat::Compact),
             (Some("prettyPrint=False"), ResponseFormat::Compact),
+            (Some("%70rettyPrint=%66alse"), ResponseFormat::Compact),
+            (Some("prettyPrint=%46alse"), ResponseFormat::Compact),
             (Some("xprettyPrint=false"), ResponseFormat::Pretty),
         ] {
             assert_eq!(

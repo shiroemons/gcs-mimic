@@ -21,6 +21,11 @@ pub(crate) async fn read_body<B: Body + Unpin>(
         return Err(too_large());
     }
     let mut bytes = Vec::new();
+    if let Some(length) = body.size_hint().exact() {
+        bytes.try_reserve(length as usize).map_err(|_| {
+            JsonError::service_unavailable("Could not allocate request body buffer")
+        })?;
+    }
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|_| {
             JsonError::new(
@@ -34,7 +39,7 @@ pub(crate) async fn read_body<B: Body + Unpin>(
             if length > cap - bytes.len() {
                 return Err(too_large());
             }
-            bytes.try_reserve_exact(length).map_err(|_| {
+            bytes.try_reserve(length).map_err(|_| {
                 JsonError::service_unavailable("Could not allocate request body buffer")
             })?;
             while data.has_remaining() {
