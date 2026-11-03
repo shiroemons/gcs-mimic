@@ -31,7 +31,7 @@ async fn state(budget: u64) -> Arc<State> {
     )
     .unwrap();
     catalog.insert_bucket(bucket).await.unwrap();
-    Arc::new(fixtures::state(catalog, Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"reader@example.test","tokens":["reader"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}"#).unwrap())))
+    Arc::new(State::for_test(catalog, Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"reader@example.test","tokens":["reader"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}"#).unwrap())))
 }
 
 async fn rpc<S, M, R>(

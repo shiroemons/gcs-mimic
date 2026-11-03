@@ -1,6 +1,6 @@
 //! XML bucket operations reuse the shared project and bucket authorization decisions.
 
-use super::{Error, ErrorBody, ObjectPath, element, signing_parameter};
+use super::{Error, ErrorBody, ObjectPath, XmlCode, element, signing_parameter};
 use crate::{
     auth, json,
     object::ObjectConditions,
@@ -98,7 +98,7 @@ async fn execute(
             .await
             .map_err(json::JsonError::from)
             .map_err(|error| anonymous_error(error, caller))?
-            .ok_or_else(|| Error::new(StatusCode::NOT_FOUND, "NoSuchBucket", "Bucket not found"))?;
+            .ok_or_else(|| Error::new(XmlCode::NoSuchBucket, "Bucket not found"))?;
         return Ok(boxed(empty_response(StatusCode::OK)));
     }
     let project = project(request.headers())?;
@@ -135,16 +135,12 @@ fn authorize_project(
 
 fn catalog_error(error: crate::bucket::CatalogError, caller: Option<auth::Caller<'_>>) -> Error {
     match error {
-        crate::bucket::CatalogError::NotEmpty => Error::new(
-            StatusCode::CONFLICT,
-            "BucketNotEmpty",
-            "Bucket is not empty",
-        ),
-        crate::bucket::CatalogError::AlreadyExists => Error::new(
-            StatusCode::CONFLICT,
-            "BucketNameUnavailable",
-            "Bucket already exists",
-        ),
+        crate::bucket::CatalogError::NotEmpty => {
+            Error::new(XmlCode::BucketNotEmpty, "Bucket is not empty")
+        }
+        crate::bucket::CatalogError::AlreadyExists => {
+            Error::new(XmlCode::BucketNameUnavailable, "Bucket already exists")
+        }
         error => anonymous_error(json::JsonError::from(error), caller).into(),
     }
 }

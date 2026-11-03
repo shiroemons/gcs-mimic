@@ -590,7 +590,7 @@ async fn stream_chunk(
             if let Err(error)=result {
                 let _=sender.send(Err(std::io::Error::other(error.to_string()))).await;
                 drop(sender);
-                match await_session_upload(upload,progress,timeout,deadline,activity).await {Ok(_)=>{},Err(storage)if storage.reason=="badRequest"=>{},Err(storage)=>return Err(storage)}
+                match await_session_upload(upload,progress,timeout,deadline,activity).await {Ok(_)=>{},Err(storage)if storage.kind==json::ErrorKind::IncompleteBody=>{},Err(storage)=>return Err(storage)}
                 return Err(error.into());
             }
             await_session_upload(async{let _=sender.send(Ok(UploadChunk::End)).await;drop(sender);upload.await},progress,timeout,deadline,activity).await?

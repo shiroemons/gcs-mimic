@@ -1,7 +1,6 @@
 //! Bounded XML metadata parsing without DTDs, external entities or recursive expansion.
 
-use super::Error;
-use hyper::StatusCode;
+use super::{Error, XmlCode};
 use quick_xml::{
     XmlVersion,
     events::{BytesDecl, BytesStart, Event},
@@ -17,8 +16,7 @@ pub(super) struct Element {
 
 pub(super) fn malformed() -> Error {
     Error::new(
-        StatusCode::BAD_REQUEST,
-        "MalformedXML",
+        XmlCode::MalformedXml,
         "Expected one well-formed UTF-8 XML metadata document",
     )
 }

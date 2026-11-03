@@ -86,6 +86,7 @@ fn escape_html(text: &str) -> String {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JsonError {
+    pub(crate) kind: ErrorKind,
     pub status: StatusCode,
     pub reason: &'static str,
     pub message: String,
@@ -93,12 +94,32 @@ pub struct JsonError {
     /// The `locationType`/`location` pair of the error item, if any. A reference keeps the error
     /// small, which `Result` returns throughout the crate depend on.
     pub location: Option<&'static ErrorLocation>,
-    /// Whether the XML API reports this as `ObjectUnderActiveHold`.
-    pub(crate) xml_active_hold: bool,
     /// Cloud Storage answered some failures with a bare text page instead of a JSON envelope.
     pub(crate) plain: Option<&'static PlainText>,
     /// Cloud Storage's upload front end sent some JSON error envelopes as `text/html`.
     pub(crate) html_typed: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ErrorKind {
+    MissingBucket,
+    MissingObject,
+    NamedMissingObject,
+    Required,
+    RetentionNotMet,
+    ActiveHold,
+    Csek(crate::csek::CsekError),
+    Unsupported,
+    CancelledUpload,
+    IncompleteBody,
+    InvalidArgument,
+    /// Parse failures whose wire reason the legacy bucket adapter changes to `invalid`.
+    LegacyParseError,
+    MalformedJson,
+    FieldMaskSyntax,
+    PreconditionFailed,
+    NotModified,
+    Other,
 }
 
 /// A bare text error page: the front end's answer to a request no JSON handler claims.
@@ -283,21 +304,70 @@ impl JsonError {
         Self::service_unavailable(message)
     }
 
+    /// An unclassified protocol error; use a named constructor for a semantic error kind.
     pub(crate) fn new(
         status: StatusCode,
         reason: &'static str,
         message: impl Into<String>,
     ) -> Self {
         Self {
+            kind: ErrorKind::Other,
             status,
             reason,
             message: message.into(),
             allow: None,
             location: None,
-            xml_active_hold: false,
             plain: None,
             html_typed: false,
         }
+    }
+
+    fn with_kind(mut self, kind: ErrorKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    fn missing_bucket() -> Self {
+        Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
+            .with_kind(ErrorKind::MissingBucket)
+    }
+
+    fn missing_object() -> Self {
+        Self::new(StatusCode::NOT_FOUND, "notFound", OBJECT_NOT_FOUND)
+            .with_kind(ErrorKind::MissingObject)
+    }
+
+    fn named_missing_object(bucket: &str, name: &str) -> Self {
+        Self::missing_object().naming_object(bucket, name)
+    }
+
+    fn precondition_not_held() -> Self {
+        Self::new(
+            StatusCode::PRECONDITION_FAILED,
+            "conditionNotMet",
+            PRECONDITION_NOT_HELD,
+        )
+        .with_kind(ErrorKind::PreconditionFailed)
+    }
+
+    pub(crate) fn not_modified() -> Self {
+        Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
+            .with_kind(ErrorKind::NotModified)
+    }
+
+    pub(crate) fn legacy_parse_error(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "parseError", message)
+            .with_kind(ErrorKind::LegacyParseError)
+    }
+
+    pub(crate) fn unsupported_message(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "badRequest", message).with_kind(ErrorKind::Unsupported)
+    }
+
+    pub(crate) fn field_mask_syntax(message: impl Into<String>) -> Self {
+        Self::invalid_parameter(message)
+            .with_kind(ErrorKind::FieldMaskSyntax)
+            .at_parameter("fields")
     }
 
     /// Names the rejected query parameter in the error item (`locationType: parameter`). A name
@@ -319,7 +389,7 @@ impl JsonError {
     }
 
     pub(crate) fn required(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, "required", message)
+        Self::new(StatusCode::BAD_REQUEST, "required", message).with_kind(ErrorKind::Required)
     }
 
     pub(crate) fn method_not_allowed(
@@ -379,6 +449,7 @@ impl JsonError {
             "Parse Error: {reason}\n{shown}\n{}^",
             " ".repeat(column)
         ))
+        .with_kind(ErrorKind::MalformedJson)
     }
 
     /// The same JSON envelope, labelled `text/html` as the upload front end did for request
@@ -412,6 +483,7 @@ impl JsonError {
 
     pub(crate) fn invalid_argument(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalidArgument", message)
+            .with_kind(ErrorKind::InvalidArgument)
     }
 
     pub(crate) fn forbidden() -> Self {
@@ -419,23 +491,15 @@ impl JsonError {
     }
 
     pub fn unsupported(name: &str) -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "badRequest",
-            format!(
-                "gcs-mimic does not support bucket API setting {name}; omit this setting (for example, create a bucket with only name)."
-            ),
-        )
+        Self::unsupported_message(format!(
+            "gcs-mimic does not support bucket API setting {name}; omit this setting (for example, create a bucket with only name)."
+        ))
     }
 
     pub fn unsupported_object(name: &str) -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "badRequest",
-            format!(
-                "gcs-mimic does not support object API setting {name}; omit this option or header (for example, use projection=noAcl)."
-            ),
-        )
+        Self::unsupported_message(format!(
+            "gcs-mimic does not support object API setting {name}; omit this option or header (for example, use projection=noAcl)."
+        ))
     }
 
     pub(crate) fn value(&self) -> Value {
@@ -449,24 +513,24 @@ impl JsonError {
 
     /// Whether this is a missing-bucket error, in either the bucket or the object wording.
     pub(crate) fn is_missing_bucket(&self) -> bool {
-        self.status == StatusCode::NOT_FOUND
-            && self.reason == "notFound"
-            && (self.message == BUCKET_NOT_FOUND || self.message == "Bucket not found")
+        self.kind == ErrorKind::MissingBucket
     }
 
     /// Whether this is the catalog's missing-object error, before or after it names the object.
     pub(crate) fn is_missing_object(&self) -> bool {
-        self.status == StatusCode::NOT_FOUND
-            && self.reason == "notFound"
-            && (self.message == OBJECT_NOT_FOUND || self.message.starts_with(NO_SUCH_OBJECT))
+        matches!(
+            self.kind,
+            ErrorKind::MissingObject | ErrorKind::NamedMissingObject
+        )
     }
 
     /// Cloud Storage names the requested object in its not-found message, which the catalog
     /// error cannot do because it does not know which request selected the object.
     pub(crate) fn naming_object(mut self, bucket: &str, name: &str) -> Self {
         // An error that already names its object, such as a copy source, keeps that name.
-        if self.message == OBJECT_NOT_FOUND && self.status == StatusCode::NOT_FOUND {
+        if self.kind == ErrorKind::MissingObject {
             self.message = format!("{NO_SUCH_OBJECT}{bucket}/{name}");
+            self.kind = ErrorKind::NamedMissingObject;
         }
         self
     }
@@ -581,7 +645,8 @@ impl From<AuthFailure> for JsonError {
         match failure {
             // Documented status-code example for a missing credential.
             AuthFailure::LoginRequired => {
-                let mut error = Self::new(StatusCode::UNAUTHORIZED, "required", "Login Required");
+                let mut error = Self::new(StatusCode::UNAUTHORIZED, "required", "Login Required")
+                    .with_kind(ErrorKind::Required);
                 error.location = Some(&AUTHORIZATION_HEADER);
                 error
             }
@@ -599,6 +664,13 @@ impl From<AuthFailure> for JsonError {
     }
 }
 
+impl From<crate::csek::CsekError> for JsonError {
+    fn from(error: crate::csek::CsekError) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, error.reason(), error.message())
+            .with_kind(ErrorKind::Csek(error))
+    }
+}
+
 impl From<CatalogError> for JsonError {
     fn from(error: CatalogError) -> Self {
         match error {
@@ -607,9 +679,7 @@ impl From<CatalogError> for JsonError {
                 "conflict",
                 "Your previous request to create the named bucket succeeded and you already own it.",
             ),
-            CatalogError::NotFound => {
-                Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
-            }
+            CatalogError::NotFound => Self::missing_bucket(),
             // The wording is a local choice; only the "you already own it" text of a create
             // conflict was recorded.
             CatalogError::RestoreConflict => Self::new(
@@ -620,11 +690,7 @@ impl From<CatalogError> for JsonError {
             CatalogError::NotEmpty => {
                 Self::new(StatusCode::CONFLICT, "conflict", "Bucket is not empty")
             }
-            CatalogError::PreconditionFailed => Self::new(
-                StatusCode::PRECONDITION_FAILED,
-                "conditionNotMet",
-                PRECONDITION_NOT_HELD,
-            ),
+            CatalogError::PreconditionFailed => Self::precondition_not_held(),
             CatalogError::Forbidden => Self::forbidden(),
             error @ CatalogError::RetentionPolicyLocked(_) => Self::new(
                 StatusCode::BAD_REQUEST,
@@ -701,6 +767,7 @@ impl JsonError {
             "clientClosedRequest",
             "clientClosedRequest",
         )
+        .with_kind(ErrorKind::CancelledUpload)
     }
 }
 
@@ -709,11 +776,9 @@ impl From<Box<crate::object::ComponentFailure>> for JsonError {
     fn from(failure: Box<crate::object::ComponentFailure>) -> Self {
         use crate::object::ComponentFailureKind;
         match failure.kind {
-            ComponentFailureKind::NotFound => Self::new(
-                StatusCode::NOT_FOUND,
-                "notFound",
-                format!("{NO_SUCH_OBJECT}{}/{}", failure.bucket, failure.name),
-            ),
+            ComponentFailureKind::NotFound => {
+                Self::named_missing_object(&failure.bucket, &failure.name)
+            }
             ComponentFailureKind::GenerationMismatch { required, actual } => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
@@ -729,9 +794,7 @@ impl From<Box<crate::object::ComponentFailure>> for JsonError {
 impl From<ObjectError> for JsonError {
     fn from(error: ObjectError) -> Self {
         match error {
-            ObjectError::BucketNotFound => {
-                Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
-            }
+            ObjectError::BucketNotFound => Self::missing_bucket(),
             ObjectError::Component(failure) => failure.into(),
             ObjectError::InvalidMetadata => Self::invalid_argument("Custom metadata exceeds 8 KiB"),
             ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),
@@ -751,23 +814,14 @@ impl From<ObjectError> for JsonError {
             }
             ObjectError::UnsupportedMetadata(field) => Self::unsupported_object(&field),
             ObjectError::CustomerEncryption(error) => error.into(),
-            ObjectError::NotModified => {
-                Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
-            }
-            ObjectError::ObjectNotFound => {
-                Self::new(StatusCode::NOT_FOUND, "notFound", OBJECT_NOT_FOUND)
-            }
+            ObjectError::NotModified => Self::not_modified(),
+            ObjectError::ObjectNotFound => Self::missing_object(),
             ObjectError::ObjectNotSoftDeleted => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "objectNotSoftDeleted",
                 error.to_string(),
             ),
-            ObjectError::PreconditionFailed => Self::new(
-                StatusCode::PRECONDITION_FAILED,
-                "conditionNotMet",
-                PRECONDITION_NOT_HELD,
-            )
-            .at_if_match(),
+            ObjectError::PreconditionFailed => Self::precondition_not_held().at_if_match(),
             ObjectError::OverwriteForbidden | ObjectError::Forbidden => Self::forbidden(),
             ObjectError::UnlockedRetentionOverrideRequired => Self::new(
                 StatusCode::FORBIDDEN,
@@ -784,16 +838,14 @@ impl From<ObjectError> for JsonError {
                     crate::object::HoldKind::Temporary => "Temporary",
                     crate::object::HoldKind::EventBased => "Event-Based",
                 };
-                let mut error = Self::new(
+                Self::new(
                     StatusCode::FORBIDDEN,
                     "forbidden",
                     format!(
                         "Object '{}/{}' is under active {kind} hold and cannot be deleted, overwritten or archived until hold is removed.",
                         held.bucket, held.name
                     ),
-                );
-                error.xml_active_hold = true;
-                error
+                ).with_kind(ErrorKind::ActiveHold)
             }
             // Bucket retention policies and object retention share the reason and wording
             // (observed 2026-10-31, including the refused overwrite).
@@ -806,7 +858,7 @@ impl From<ObjectError> for JsonError {
                     retained.name,
                     crate::object::retention::pacific_rfc3339(retained.until)
                 ),
-            ),
+            ).with_kind(ErrorKind::RetentionNotMet),
             ObjectError::HashMismatch(mismatch) => {
                 let (label, noun) = match mismatch.algorithm {
                     crate::object::HashAlgorithm::Crc32c => ("CRC32C", "CRC32C"),
@@ -832,7 +884,7 @@ impl From<ObjectError> for JsonError {
                 StatusCode::BAD_REQUEST,
                 "badRequest",
                 "The upload request body did not complete",
-            ),
+            ).with_kind(ErrorKind::IncompleteBody),
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid(reason),
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(cause) => Self::backend(cause.message()),
@@ -897,12 +949,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn error_classification_does_not_depend_on_the_public_wording() {
+        let mut bucket = JsonError::from(CatalogError::NotFound);
+        bucket.message = "different bucket wording".into();
+        bucket.reason = "differentReason";
+        assert!(bucket.is_missing_bucket());
+        let mut object = JsonError::from(ObjectError::ObjectNotFound).naming_object("b", "o");
+        assert_eq!(object.message, "No such object: b/o");
+        object.message = "different object wording".into();
+        assert!(object.is_missing_object());
+        assert_eq!(
+            object.naming_object("other", "other").message,
+            "different object wording"
+        );
+        let unrelated = JsonError::invalid_parameter(OBJECT_NOT_FOUND);
+        assert!(!unrelated.is_missing_object());
+    }
+
+    #[test]
     fn json_parse_errors_quote_the_input_with_a_caret_like_cloud_storage() {
         let parse = |input: &str| {
             let cause = serde_json::from_slice::<Value>(input.as_bytes()).unwrap_err();
             JsonError::parse_error(input.as_bytes(), &cause)
         };
         let error = parse("{not json");
+        assert_eq!(error.kind, ErrorKind::MalformedJson);
         assert_eq!((error.status.as_u16(), error.reason), (400, "invalid"));
         assert_eq!(
             error.message,
@@ -930,7 +1001,7 @@ mod tests {
             error.message,
             "Object 'b/o' is under active Event-Based hold and cannot be deleted, overwritten or archived until hold is removed."
         );
-        assert!(error.xml_active_hold);
+        assert_eq!(error.kind, ErrorKind::ActiveHold);
         let component = |kind| {
             JsonError::from(ObjectError::Component(Box::new(ComponentFailure {
                 bucket: "b".into(),

@@ -74,7 +74,7 @@ impl Fields {
     fn parse_with(value: &str, empty_segments: EmptySegments) -> Result<Self, JsonError> {
         Self::syntax(value, empty_segments).map_err(|mut error| {
             // The FieldMask wording already quotes the whole expression.
-            if !error.message.starts_with("Invalid FieldMask") {
+            if error.kind != super::ErrorKind::FieldMaskSyntax {
                 error.message = format!("{}: {value}", error.message);
             }
             error
@@ -170,13 +170,9 @@ fn invalid(message: impl Into<String>) -> JsonError {
 }
 
 fn unsupported(name: &str) -> JsonError {
-    JsonError::new(
-        hyper::StatusCode::BAD_REQUEST,
-        "badRequest",
-        format!(
-            "gcs-mimic does not support JSON API selector {name}; omit fields or select a supported field (for example, fields=name)."
-        ),
-    )
+    JsonError::unsupported_message(format!(
+        "gcs-mimic does not support JSON API selector {name}; omit fields or select a supported field (for example, fields=name)."
+    ))
 }
 
 /// Whether an empty segment such as the middle of `name,,size` is ignored (as Cloud Storage did
@@ -233,7 +229,7 @@ impl Parser<'_> {
             self.rest = &self.rest[1..];
             let child = self.list(depth + 1)?;
             if !self.rest.starts_with(')') {
-                return Err(invalid(format!(
+                return Err(JsonError::field_mask_syntax(format!(
                     "Invalid FieldMask '{}'. Cannot find matching ')' for all '('.",
                     self.source
                 )));
@@ -370,6 +366,7 @@ mod tests {
             .apply(&mut value);
         assert_eq!(value, json!({"name":"o"}));
         let error = Fields::parse("metadata(a", "Object").unwrap_err();
+        assert_eq!(error.kind, super::super::ErrorKind::FieldMaskSyntax);
         assert_eq!(
             error.message,
             "Invalid FieldMask 'metadata(a'. Cannot find matching ')' for all '('."

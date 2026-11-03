@@ -10,15 +10,7 @@ pub(super) async fn list(
     authority: ControlAuthority,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let mut query = json::parse_query(request.uri().query().unwrap_or_default())?;
-    let limit = query
-        .remove("limit")
-        .map(|value| value.parse::<usize>())
-        .transpose()
-        .map_err(|_| JsonError::invalid_argument("limit must be 1 through 256"))?
-        .unwrap_or(256);
-    if !(1..=256).contains(&limit) {
-        return Err(JsonError::invalid_argument("limit must be 1 through 256"));
-    }
+    let limit = parse_limit(query.remove("limit"))?;
     let mut revision = query.remove("revision");
     if revision
         .as_ref()
@@ -32,19 +24,19 @@ pub(super) async fn list(
     let prefix = format!("{}{}{session}", ids.catalog_id, ids.root_id);
     let after = match query.remove("cursor") {
         None => 0,
-        Some(cursor)
-            if cursor.len() == 144 && cursor.starts_with(&prefix) && hex(&cursor[96..], 48) =>
-        {
-            if revision
-                .as_ref()
-                .is_some_and(|value| value != &cursor[96..128])
-            {
-                return Err(stale());
+        Some(cursor) => match SyncCursor::decode(&cursor, &prefix)? {
+            SyncCursor::Conflicts {
+                revision: selected,
+                ordinal,
+            } => {
+                if revision.as_ref().is_some_and(|value| value != &selected) {
+                    return Err(stale());
+                }
+                revision = Some(selected);
+                ordinal
             }
-            revision = Some(cursor[96..128].into());
-            i64::from_str_radix(&cursor[128..], 16).map_err(|_| stale())?
-        }
-        Some(_) => return Err(stale()),
+            _ => return Err(stale()),
+        },
     };
     if !query.is_empty() {
         return Err(JsonError::invalid_argument(
@@ -56,16 +48,33 @@ pub(super) async fn list(
             "GET synchronization controls do not accept a body",
         ));
     }
-    let page = root
+    let mut page = root
         .conflict_page(revision, after, limit, authority)
         .await
         .map_err(error)?;
-    let next = page
-        .next_after
-        .map(|after| format!("{prefix}{}{after:016x}", page.revision));
-    bounded(
-        &json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"revision":page.revision,"items":page.items,"quota":page.usage,"next_cursor":next}),
-    )
+    let mut truncated = false;
+    loop {
+        let next = page
+            .items
+            .last()
+            .filter(|_| page.next_after.is_some() || truncated)
+            .map(|item| {
+                SyncCursor::Conflicts {
+                    revision: page.revision.clone(),
+                    ordinal: item.ordinal,
+                }
+                .encode(&prefix)
+            });
+        let value = json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"revision":page.revision,"items":page.items,"quota":page.usage,"next_cursor":next});
+        if let Some(response) = render_within_limit(&value) {
+            return Ok(response);
+        }
+        if page.items.len() <= 1 {
+            return Err(busy());
+        }
+        page.items.truncate(page.items.len() / 2);
+        truncated = true;
+    }
 }
 
 #[derive(Deserialize)]

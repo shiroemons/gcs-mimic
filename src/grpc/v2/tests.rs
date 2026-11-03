@@ -10,7 +10,7 @@ use crate::{
 async fn grpc_auth_metadata_handoff() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    let mut state = fixtures::state(catalog, Auth::permissive());
+    let mut state = State::for_test(catalog, Auth::permissive());
     let mut request = Request::new(pb::GetBucketRequest::default());
     request
         .metadata_mut()
@@ -83,7 +83,7 @@ async fn call<M: prost::Message, R: prost::Message + Default>(
 async fn grpc_storage_control_bucket_iam() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    let state = Arc::new(fixtures::state(
+    let state = Arc::new(State::for_test(
         catalog,
         Auth::strict(registry(&[
             ("admin", "p", "roles/storage.admin"),

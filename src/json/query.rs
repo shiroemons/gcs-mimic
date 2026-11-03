@@ -98,6 +98,28 @@ pub(crate) enum BucketRequest {
     },
 }
 
+impl BucketRequest {
+    pub(crate) fn projection(&self) -> Projection {
+        match self {
+            Self::GetSoftDeleted { projection, .. } | Self::Restore { projection, .. } => {
+                *projection
+            }
+            Self::ListSoftDeleted(params) => params.projection,
+            Self::Insert(params) => params.projection,
+            Self::Get { params, .. } | Self::Patch { params, .. } | Self::Update { params, .. } => {
+                params.projection
+            }
+            Self::List(params) => params.projection,
+            Self::LockRetentionPolicy { .. }
+            | Self::Delete { .. }
+            | Self::GetIam { .. }
+            | Self::SetIam { .. }
+            | Self::TestIam { .. }
+            | Self::GetStorageLayout { .. } => Projection::NoAcl,
+        }
+    }
+}
+
 /// Match the raw URI before decoding any bucket path segment.
 #[cfg(test)]
 pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonError>> {
@@ -442,6 +464,20 @@ fn parse(
         }
         (&Method::GET, None) => parse_bucket_list(&mut query, profile, seed_project),
         (&Method::GET | &Method::PATCH | &Method::PUT, Some(bucket)) => {
+            let predefined = query.contains_key("predefinedAcl")
+                || query.contains_key("predefinedDefaultObjectAcl");
+            // Recorded 2026-10-31: native PATCH without projection returned acl, defaultObjectAcl
+            // and owner; PUT did so only with predefined ACL parameters. Insert/get default to
+            // noAcl. The legacy profile retains its earlier PUT-only full default.
+            let default_projection = if (profile == CompatProfile::LegacyEmulator
+                && *method == Method::PUT)
+                || (profile == CompatProfile::Native
+                    && (*method == Method::PATCH || (*method == Method::PUT && predefined)))
+            {
+                Projection::Full
+            } else {
+                Projection::NoAcl
+            };
             if *method == Method::GET {
                 if let Some(request) = soft_deleted_get(&mut query, &bucket)? {
                     return Ok(request);
@@ -451,14 +487,7 @@ fn parse(
                 query.remove("predefinedDefaultObjectAcl");
             }
             let conditions = conditions(&mut query)?;
-            // The legacy profile answers a PUT with the full projection by default.
-            if *method == Method::PUT
-                && profile == CompatProfile::LegacyEmulator
-                && !query.contains_key("projection")
-            {
-                query.insert("projection".into(), "full".into());
-            }
-            let projection = projection(&mut query)?;
+            let projection = projection_or(&mut query, default_projection)?;
             finish_bucket(&query, profile)?;
             let params = GetParams {
                 conditions,
@@ -624,8 +653,16 @@ pub(crate) fn validate_project(project: &str) -> Result<(), JsonError> {
 }
 
 pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Projection, JsonError> {
+    projection_or(query, Projection::NoAcl)
+}
+
+fn projection_or(
+    query: &mut BTreeMap<String, String>,
+    default: Projection,
+) -> Result<Projection, JsonError> {
     match query.remove("projection").as_deref() {
-        None | Some("noAcl") => Ok(Projection::NoAcl),
+        None => Ok(default),
+        Some("noAcl") => Ok(Projection::NoAcl),
         Some("full") => Ok(Projection::Full),
         Some(other) => Err(JsonError::invalid_parameter(format!(
             "Invalid string value: '{other}'. Allowed values: [full, noacl]"

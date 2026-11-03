@@ -602,13 +602,8 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             }
             bytes.extend_from_slice(&chunk);
         }
-        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| {
-            JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "parseError",
-                "Invalid checksum JSON",
-            )
-        })?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|_| JsonError::legacy_parse_error("Invalid checksum JSON"))?;
         let mut values = value.as_object().cloned().ok_or_else(invalid)?;
         if values
             .keys()
@@ -634,7 +629,7 @@ pub(crate) fn multipart_metadata(
         mut unchanged,
     } = parse_object_metadata(bytes, super::WriteMode::Patch).map_err(|error| {
         // The upload front end labelled a metadata part that is not JSON as `text/html`.
-        if error.message.starts_with("Parse Error") {
+        if error.kind == super::ErrorKind::MalformedJson {
             error.html_typed()
         } else {
             error

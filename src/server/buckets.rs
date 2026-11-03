@@ -50,7 +50,7 @@ pub(super) async fn respond<'a>(
     validate_request(&request, &operation)?;
     let fields = response_fields(&request, &operation)?;
     // ACL entries of a soft-deleted version are kept for restore but not rendered.
-    let acl_full = acl::bucket_full_projection(request.method(), request.uri().query(), profile)
+    let acl_full = operation.projection() == json::Projection::Full
         && !matches!(
             operation,
             BucketRequest::GetSoftDeleted { .. }
@@ -404,11 +404,7 @@ async fn write(
             .is_none_or(|value| value == record.metageneration)
         && conditions.if_metageneration_not_match == Some(record.metageneration)
     {
-        return Err(JsonError::new(
-            StatusCode::NOT_MODIFIED,
-            "notModified",
-            "Not modified",
-        ));
+        return Err(JsonError::not_modified());
     }
     let record = match mode {
         WriteMode::Replace => {

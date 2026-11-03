@@ -27,6 +27,7 @@ pub(crate) enum CsekError {
 }
 
 impl CsekError {
+    #[cfg(test)]
     const ALL: [Self; 6] = [
         Self::AlgorithmInvalid,
         Self::KeyFormatInvalid,
@@ -79,10 +80,6 @@ impl CsekError {
                 "The resource is not encrypted with a customer-supplied encryption key, but the request provided one."
             }
         }
-    }
-
-    pub(crate) fn from_reason(reason: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|error| error.reason() == reason)
     }
 }
 
@@ -337,7 +334,10 @@ mod tests {
     #[test]
     fn error_reasons_round_trip_to_xml_codes() {
         for error in CsekError::ALL {
-            assert_eq!(CsekError::from_reason(error.reason()), Some(error));
+            assert_eq!(
+                crate::json::JsonError::from(error).kind,
+                crate::json::ErrorKind::Csek(error)
+            );
             let mut code = error.reason().to_owned();
             code[..1].make_ascii_uppercase();
             assert_eq!(error.xml_code(), code);

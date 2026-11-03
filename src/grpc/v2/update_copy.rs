@@ -1153,7 +1153,7 @@ mod tests {
         }
         (
             Storage {
-                state: Arc::new(fixtures::state(catalog, Auth::permissive())),
+                state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
                 max_object_bytes: 8 * 1024 * 1024,
             },
             dir,
@@ -1817,7 +1817,7 @@ mod tests {
             .await
             .unwrap();
         let s = Storage {
-            state: Arc::new(fixtures::state(
+            state: Arc::new(crate::server::State::for_test(
                 catalog,
                 Auth::strict(registry(&[
                     ("viewer", "p", "roles/storage.objectViewer"),
@@ -1860,7 +1860,7 @@ mod tests {
         record.object_retention_enabled = true;
         catalog.insert_bucket(record).await.unwrap();
         let s = Storage {
-            state: Arc::new(fixtures::state(
+            state: Arc::new(crate::server::State::for_test(
                 catalog,
                 Auth::strict(registry(&[
                     ("admin", "p", "roles/storage.objectAdmin"),

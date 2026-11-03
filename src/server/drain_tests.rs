@@ -1,18 +1,13 @@
 use super::*;
-use crate::{clock::SystemClock, test_support::TestDir};
+use crate::test_support::TestDir;
 
 #[tokio::test]
 async fn listener_failure_drains_background_work_before_catalog_close() {
     let data = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
     let state = Arc::new(State {
-        grpc_read_handles: Default::default(),
-        ready: AtomicBool::new(true),
-        clock: Arc::new(SystemClock),
-        catalog: catalog.clone(),
         api_base_url: "http://127.0.0.1".into(),
-        default_location: "US".into(),
-        auth: Auth::permissive(),
+        ..State::for_test(catalog.clone(), Auth::permissive())
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let checked = Arc::new(AtomicBool::new(false));
@@ -66,13 +61,8 @@ async fn handler_panic_closes_only_its_connection() {
     let data = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
     let state = Arc::new(State {
-        grpc_read_handles: Default::default(),
-        ready: AtomicBool::new(true),
-        clock: Arc::new(SystemClock),
-        catalog,
         api_base_url: "http://127.0.0.1".into(),
-        default_location: "US".into(),
-        auth: Auth::permissive(),
+        ..State::for_test(catalog, Auth::permissive())
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

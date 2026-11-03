@@ -13,12 +13,17 @@ use hyper::{
 };
 
 pub(crate) mod buckets;
+mod code;
+use code::XmlCode;
 mod copy;
 mod cors;
 mod document;
 pub(crate) mod envelope;
+#[cfg(test)]
+mod error_tests;
 pub(crate) mod list;
 pub(crate) mod multipart;
+pub use cors::CorsWarnings;
 pub(crate) use cors::{cors, warn_unconfigured_cors};
 pub(crate) mod post;
 pub(crate) mod put;
@@ -67,8 +72,7 @@ pub(crate) async fn authenticate_target<'a>(
                     )
                 {
                     Error::new(
-                        StatusCode::FORBIDDEN,
-                        "RequestTimeTooSkewed",
+                        XmlCode::RequestTimeTooSkewed,
                         "The legacy signature timestamp is outside the allowed time window.",
                     )
                 } else {
@@ -88,40 +92,31 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
         VerificationError::Catalog(error) => return Error::from(JsonError::from(error)),
         VerificationError::Worker(_) => {
             return Error::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "ServiceUnavailable",
+                XmlCode::ServiceUnavailable,
                 "The signature verifier is unavailable.",
             );
         }
     };
-    let (status, code, message) = match failure {
+    let (code, message) = match failure {
         Failure::Malformed => (
-            StatusCode::BAD_REQUEST,
-            "InvalidAuthentication",
+            XmlCode::InvalidAuthentication,
             "Invalid V2/V4 signing parameters; use exactly one signing version (for example, GoogleAccessId, Expires=1793090000 and Signature for V2).",
         ),
         Failure::UnknownSigner => (
-            StatusCode::FORBIDDEN,
-            "InvalidAccessKeyId",
+            XmlCode::InvalidAccessKeyId,
             "The signing key or its registered identity is unknown or inactive.",
         ),
         Failure::Mismatch => (
-            StatusCode::FORBIDDEN,
-            "SignatureDoesNotMatch",
+            XmlCode::SignatureDoesNotMatch,
             "The request signature does not match.",
         ),
-        Failure::Expired => (
-            StatusCode::BAD_REQUEST,
-            "ExpiredToken",
-            "The request signature has expired.",
-        ),
+        Failure::Expired => (XmlCode::ExpiredToken, "The request signature has expired."),
         Failure::NotYetValid => (
-            StatusCode::FORBIDDEN,
-            "RequestTimeTooSkewed",
+            XmlCode::RequestTimeTooSkewed,
             "The request signature is not yet usable.",
         ),
     };
-    Error::new(status, code, message)
+    Error::new(code, message)
 }
 
 pub(crate) async fn authenticate_upload_target<'a>(
@@ -198,8 +193,7 @@ pub(crate) struct ReadRequest {
 
 #[derive(Debug)]
 pub(crate) struct Error {
-    pub status: StatusCode,
-    code: &'static str,
+    code: XmlCode,
     message: String,
     /// The optional `Details` element, which Cloud Storage uses to name a missing object.
     details: Option<String>,
@@ -233,21 +227,25 @@ impl ErrorBody {
 
 impl Error {
     fn invalid(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, "InvalidArgument", message)
+        Self::new(XmlCode::InvalidArgument, message)
     }
 
-    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+    fn new(code: XmlCode, message: impl Into<String>) -> Self {
         Self {
-            status,
             code,
             message: message.into(),
             details: None,
         }
     }
 
+    pub(crate) fn status(&self) -> StatusCode {
+        self.code.status()
+    }
+
     /// Names the requested object in a missing-object error, as Cloud Storage does.
     pub(crate) fn naming_object(mut self, bucket: &str, name: &str) -> Self {
-        if self.code == "NoSuchKey" && self.message == NO_SUCH_KEY && self.details.is_none() {
+        if self.code == XmlCode::NoSuchKey && self.message == NO_SUCH_KEY && self.details.is_none()
+        {
             self.details = Some(format!("No such object: {bucket}/{name}"));
         }
         self
@@ -257,8 +255,7 @@ impl Error {
     /// Cloud Storage does (observed 2026-10-31).
     pub(crate) fn unsatisfiable_range(requested: &str) -> Self {
         let mut error = Self::new(
-            StatusCode::RANGE_NOT_SATISFIABLE,
-            "InvalidRange",
+            XmlCode::InvalidRange,
             "The requested range cannot be satisfied.",
         );
         error.details = Some(requested.to_owned());
@@ -283,7 +280,7 @@ impl Error {
 
     pub(crate) fn response(self, body_mode: ErrorBody) -> Response<Full<Bytes>> {
         let mut body = format!("{DECLARATION}<Error>");
-        element(&mut body, "Code", self.code);
+        element(&mut body, "Code", self.code.as_str());
         element(&mut body, "Message", &self.message);
         if let Some(details) = &self.details {
             element(&mut body, "Details", details);
@@ -294,7 +291,7 @@ impl Error {
             ErrorBody::Omit => Bytes::new(),
             ErrorBody::Include => Bytes::from(body),
         });
-        *response.status_mut() = self.status;
+        *response.status_mut() = self.status();
         let headers = response.headers_mut();
         headers.insert("content-length", content_length);
         headers.insert(
@@ -320,27 +317,28 @@ pub(crate) const PRIVATE_CACHE_CONTROL: &str = "private, max-age=0";
 impl From<JsonError> for Error {
     fn from(error: JsonError) -> Self {
         // XML reference-status pairs invalid/unsupported auth headers with 400; 401 covers expiry.
-        let status = if error.status == StatusCode::UNAUTHORIZED && error.reason != "required" {
-            StatusCode::BAD_REQUEST
-        } else {
-            error.status
-        };
         let code = match error.status {
-            StatusCode::UNAUTHORIZED if error.reason == "required" => "AuthenticationRequired",
-            StatusCode::UNAUTHORIZED => "InvalidAuthentication",
-            StatusCode::FORBIDDEN if error.reason == "retentionPolicyNotMet" => {
-                "RetentionPolicyNotMet"
+            StatusCode::UNAUTHORIZED if error.kind == json::ErrorKind::Required => {
+                XmlCode::AuthenticationRequired
             }
-            StatusCode::FORBIDDEN if error.xml_active_hold => "ObjectUnderActiveHold",
-            StatusCode::FORBIDDEN => "AccessDenied",
-            StatusCode::NOT_FOUND if error.is_missing_bucket() => "NoSuchBucket",
-            StatusCode::NOT_FOUND => "NoSuchKey",
-            StatusCode::PRECONDITION_FAILED => "PreconditionFailed",
-            StatusCode::RANGE_NOT_SATISFIABLE => "InvalidRange",
-            StatusCode::REQUEST_TIMEOUT => "uploadBrokenConnection",
-            StatusCode::SERVICE_UNAVAILABLE => "ServiceUnavailable",
-            _ => crate::csek::CsekError::from_reason(error.reason)
-                .map_or("InvalidArgument", crate::csek::CsekError::xml_code),
+            StatusCode::UNAUTHORIZED => XmlCode::InvalidAuthentication,
+            StatusCode::FORBIDDEN if error.kind == json::ErrorKind::RetentionNotMet => {
+                XmlCode::RetentionPolicyNotMet
+            }
+            StatusCode::FORBIDDEN if error.kind == json::ErrorKind::ActiveHold => {
+                XmlCode::ObjectUnderActiveHold
+            }
+            StatusCode::FORBIDDEN => XmlCode::AccessDenied,
+            StatusCode::NOT_FOUND if error.is_missing_bucket() => XmlCode::NoSuchBucket,
+            StatusCode::NOT_FOUND => XmlCode::NoSuchKey,
+            StatusCode::PRECONDITION_FAILED => XmlCode::PreconditionFailed,
+            StatusCode::RANGE_NOT_SATISFIABLE => XmlCode::InvalidRange,
+            StatusCode::REQUEST_TIMEOUT => XmlCode::UploadBrokenConnection,
+            StatusCode::SERVICE_UNAVAILABLE => XmlCode::ServiceUnavailable,
+            _ => match error.kind {
+                json::ErrorKind::Csek(error) => XmlCode::Csek(error),
+                _ => XmlCode::forwarded(error.status),
+            },
         };
         let message = if error.is_missing_object() {
             NO_SUCH_KEY.to_owned()
@@ -350,7 +348,7 @@ impl From<JsonError> for Error {
             error.message
         };
         // shortcut: auth wording and error precedence are local choices until cloud differential evidence exists.
-        Self::new(status, code, message)
+        Self::new(code, message)
     }
 }
 
@@ -537,8 +535,7 @@ pub(crate) fn select_object_with_endpoints(
         {
             return Err(if crate::auth::signature::is_signed(uri.query()) {
                 Error::new(
-                    StatusCode::FORBIDDEN,
-                    "SignatureDoesNotMatch",
+                    XmlCode::SignatureDoesNotMatch,
                     "The request authority does not match Host.",
                 )
             } else {
@@ -782,17 +779,12 @@ pub(crate) fn headers(
     headers: &HeaderMap,
     unknown: UnknownGoogHeaders,
 ) -> Result<ObjectConditions, Error> {
-    if let Some(hash) = crate::auth::signature::payload_hash(headers).map_err(|_| {
-        Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidDigest",
-            "Invalid SHA256 declaration.",
-        )
-    })? && hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, b"").as_ref()
+    if let Some(hash) = crate::auth::signature::payload_hash(headers)
+        .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration."))?
+        && hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, b"").as_ref()
     {
         return Err(Error::new(
-            StatusCode::BAD_REQUEST,
-            "BadDigest",
+            XmlCode::BadDigest,
             "The content hash does not match the empty read body.",
         ));
     }
@@ -800,8 +792,7 @@ pub(crate) fn headers(
     if let Some(token) = tokens.next() {
         if tokens.next().is_some() {
             return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "ExcessHeaderValues",
+                XmlCode::ExcessHeaderValues,
                 "Expected a single x-goog-gcs-idempotency-token header.",
             ));
         }
@@ -853,8 +844,7 @@ pub(crate) fn headers(
         if let Some(value) = values.next() {
             if values.next().is_some() {
                 return Err(Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "ExcessHeaderValues",
+                    XmlCode::ExcessHeaderValues,
                     "Multiple precondition header values.",
                 ));
             }
@@ -875,8 +865,7 @@ where
 {
     let unexpected = || {
         Error::new(
-            StatusCode::BAD_REQUEST,
-            "UnexpectedContent",
+            XmlCode::UnexpectedContent,
             "This operation requires an empty body.",
         )
     };
@@ -942,13 +931,8 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
         CacheScope::Private => PRIVATE_CACHE_CONTROL,
     });
     let etag = object_etag(record);
-    let date = json::http_date(record.updated).map_err(|_| {
-        Error::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "ServiceUnavailable",
-            "Invalid stored timestamp.",
-        )
-    })?;
+    let date = json::http_date(record.updated)
+        .map_err(|_| Error::new(XmlCode::ServiceUnavailable, "Invalid stored timestamp."))?;
     for (key, value) in [
         ("cache-control", cache),
         ("etag", &etag),
@@ -957,13 +941,8 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
     ] {
         headers.insert(
             key,
-            HeaderValue::from_str(value).map_err(|_| {
-                Error::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "ServiceUnavailable",
-                    "Invalid stored header.",
-                )
-            })?,
+            HeaderValue::from_str(value)
+                .map_err(|_| Error::new(XmlCode::ServiceUnavailable, "Invalid stored header."))?,
         );
     }
     if let Some(count) = record.component_count {

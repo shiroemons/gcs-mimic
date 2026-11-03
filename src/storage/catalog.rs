@@ -2538,20 +2538,15 @@ mod tests {
 
     #[tokio::test]
     async fn panicked_operation_rolls_back_and_keeps_the_catalog_ready() {
-        use crate::{clock::SystemClock, server::State};
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use crate::server::State;
+        use std::sync::atomic::Ordering;
 
         let dir =
             std::env::temp_dir().join(format!("gcs-mimic-catalog-poison-{}", std::process::id()));
         let catalog = Catalog::open(&dir).await.unwrap();
         let state = State {
-            grpc_read_handles: Default::default(),
-            ready: AtomicBool::new(true),
-            clock: Arc::new(SystemClock),
-            catalog: catalog.clone(),
             api_base_url: "http://127.0.0.1:4443".into(),
-            default_location: "US".into(),
-            auth: Default::default(),
+            ..State::for_test(catalog.clone(), Default::default())
         };
         assert!(state.is_ready());
         assert!(matches!(
