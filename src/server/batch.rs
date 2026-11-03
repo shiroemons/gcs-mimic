@@ -137,9 +137,18 @@ async fn bounded_response(
     let mut bytes = Vec::new();
     while let Some(frame) = body.frame().await {
         let data = frame
-            .map_err(|_| invalid("Batched response stream failed"))?
+            .map_err(|error| {
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Error,
+                    "batch_response_stream_failed",
+                    serde_json::json!({"cause": error.kind().to_string()}),
+                );
+                JsonError::service_unavailable("Batched response stream failed")
+            })?
             .into_data()
-            .map_err(|_| invalid("Batched response trailers are unsupported"))?;
+            .map_err(|_| {
+                JsonError::service_unavailable("Batched response trailers are unsupported")
+            })?;
         if data.len() > cap.saturating_sub(bytes.len() + header_bytes) {
             return Err(response_too_large());
         }
@@ -226,6 +235,39 @@ mod tests {
             assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(error.reason, "backendError");
             assert_eq!(error.message, message);
+        }
+    }
+
+    #[tokio::test]
+    async fn inner_body_failures_are_retryable_part_errors() {
+        for (case, frame, message) in [
+            (
+                "stream",
+                Err(std::io::Error::other("private body failure")),
+                "Batched response stream failed",
+            ),
+            (
+                "trailers",
+                Ok(hyper::body::Frame::trailers(HeaderMap::new())),
+                "Batched response trailers are unsupported",
+            ),
+        ] {
+            let body = http_body_util::StreamBody::new(tonic::codegen::tokio_stream::iter([frame]));
+            let mut output = Vec::new();
+            append_response(&mut output, None, Response::new(body.boxed_unsync()), 8192).await;
+            let text = std::str::from_utf8(&output).expect(case);
+            assert!(
+                text.contains("\r\nHTTP/1.1 503 Service Unavailable\r\n"),
+                "{case}: {text}"
+            );
+            let body = text.split("\r\n\r\n").nth(2).expect(case);
+            let body: serde_json::Value = serde_json::from_str(body).expect(case);
+            assert_eq!(body["error"]["code"], 503, "{case}");
+            assert_eq!(
+                body["error"]["errors"][0]["reason"], "backendError",
+                "{case}"
+            );
+            assert_eq!(body["error"]["message"], message, "{case}");
         }
     }
 
