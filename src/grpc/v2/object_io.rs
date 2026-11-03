@@ -1,6 +1,8 @@
 use super::{
-    ResponseStream, Storage, access_status, append::Finality, convert, names, pb,
-    status::unsupported_for,
+    ResponseStream, Storage, access_status,
+    append::Finality,
+    convert, names, pb,
+    status::{read_failure, unsupported_for},
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
@@ -234,10 +236,13 @@ fn mask_object(
 /// Cloud Storage uses over gRPC.
 pub(super) fn verify_crc32c(data: &pb::ChecksummedData) -> Result<(), Status> {
     match data.crc32c {
-        Some(client) if client != crc32c::crc32c(&data.content) => {
+        Some(client) => {
+            let computed = crc32c::crc32c(&data.content);
+            if client == computed {
+                return Ok(());
+            }
             Err(Status::invalid_argument(format!(
-                "Checksummed data message crc32c mismatch: server computed: '{:08x}', client provided '{client:08x}'.",
-                crc32c::crc32c(&data.content)
+                "Checksummed data message crc32c mismatch: server computed: '{computed:08x}', client provided '{client:08x}'."
             )))
         }
         _ => Ok(()),
@@ -459,9 +464,10 @@ impl Storage {
             .map_err(named_object_status(bucket, name))?;
         check_read_offset(&record, r.read_offset)?;
         let (start, length) = read_range(record.size, r.read_offset, r.read_limit)?;
-        reader.set_range(start, length).await.map_err(|_| {
-            Status::internal("Cannot seek object data; restore a valid data directory")
-        })?;
+        reader
+            .set_range(start, length)
+            .await
+            .map_err(read_failure)?;
         let mut object = super::append::object(&record, finality)?;
         if finality == Finality::Finalized {
             self.add_owner_fields(
@@ -501,7 +507,9 @@ impl Storage {
                     | "object_checksums"
                     | "content_range" => {}
                     "metadata" => metadata = true,
-                    p if p.starts_with("metadata.") => paths.push(p[9..].to_owned()),
+                    p if let Some(field) = p.strip_prefix("metadata.") => {
+                        paths.push(field.to_owned())
+                    }
                     _ => {
                         return Err(unsupported_for(
                             &format!("ReadObject read_mask {path}"),
@@ -540,12 +548,8 @@ impl Storage {
                     Ok(Some(bytes)) => (bytes, false),
                     Ok(None) if pending.is_some() => (Default::default(), true),
                     Ok(None) => break,
-                    Err(_) => {
-                        let _ = tx
-                            .send(Err(Status::internal(
-                                "Cannot read object data; restore a valid data directory",
-                            )))
-                            .await;
+                    Err(error) => {
+                        let _ = tx.send(Err(read_failure(error))).await;
                         break;
                     }
                 };
@@ -943,6 +947,19 @@ impl Storage {
             .await
     }
 
+    /// Completion keeps the publication snapshot and adds only the caller's ACL/owner view.
+    async fn completed_resource(
+        &self,
+        completion: Option<&serde_json::Value>,
+        caller: Option<Caller<'_>>,
+        bucket: &str,
+    ) -> Result<pb::Object, Status> {
+        let mut resource = decode_completion(completion)?;
+        self.add_written_owner_fields(caller, bucket, &mut resource)
+            .await?;
+        Ok(resource)
+    }
+
     async fn receive_resumable_write<
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     >(
@@ -968,9 +985,15 @@ impl Storage {
                 .await
                 .map_err(session_status)?;
             if lease.session.state == SessionState::Complete {
-                return Err(Status::failed_precondition(
-                    "Upload already finalized; query its status or start a new write",
-                ));
+                let resource = self
+                    .completed_resource(lease.session.completion.as_ref(), caller, bucket)
+                    .await?;
+                drop(lease);
+                let result = WriteStatus::Resource(resource);
+                if let Some(tx) = responses {
+                    send_status(tx, &result).await?;
+                }
+                return Ok(result);
             }
             let mut options = lease.session.options.clone();
             options.access = access;
@@ -1038,23 +1061,29 @@ impl Storage {
             let completion = written_record.map_err(session_status)?;
             sent?;
             result = if let Some(value) = completion.as_ref() {
-                let mut resource = decode_completion(Some(value))?;
-                self.add_written_owner_fields(caller, bucket, &mut resource)
-                    .await?;
+                let resource = self.completed_resource(Some(value), caller, bucket).await?;
                 WriteStatus::Resource(resource)
             } else {
                 WriteStatus::PersistedSize(crate::grpc::convert::signed(written, "persisted_size")?)
             };
-            if let Some(tx) = responses
+            let reported = if let Some(tx) = responses
                 && (message.finish_write || message.flush || message.state_lookup)
             {
                 send_status(tx, &result).await?;
-            }
+                Reported::Yes
+            } else {
+                Reported::No
+            };
             if message.finish_write {
                 return Ok(result);
             }
             position = MessagePosition::Later;
             let Some(next) = stream.next().await.transpose()? else {
+                if let Some(tx) = responses
+                    && reported == Reported::No
+                {
+                    send_status(tx, &result).await?;
+                }
                 break;
             };
             message = next;
@@ -1144,6 +1173,12 @@ type Responses = mpsc::Sender<Result<pb::BidiWriteObjectResponse, Status>>;
 enum EndOfStream {
     Required,
     NotChecked,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reported {
+    Yes,
+    No,
 }
 
 /// Whether a resumable message is the first one of its stream, which must resume exactly at
@@ -1507,6 +1542,160 @@ mod tests {
                 EndOfStream::Required,
             )
             .await
+    }
+
+    #[tokio::test]
+    async fn grpc_io_rejects_unrestorable_names_and_accepts_tabs() {
+        let (_dir, storage) = setup(false).await;
+        for name in [".", "..", ".well-known/acme-challenge/token"] {
+            assert_code(
+                write(&storage, vec![message(name, b"x")]).await,
+                tonic::Code::InvalidArgument,
+            );
+            assert!(missing(&storage, name).await);
+        }
+        write(&storage, vec![message("a\tb", b"x")]).await.unwrap();
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_io_finalized_resume_returns_the_original_resource() {
+        let (_dir, storage) = setup(false).await;
+        let upload = start(&storage, "replayed", None).await;
+        let original = write(&storage, vec![resume(&upload, 0, b"original", true)])
+            .await
+            .unwrap();
+        write(&storage, vec![message("replayed", b"replacement")])
+            .await
+            .unwrap();
+        let replayed = write(&storage, vec![resume(&upload, 0, b"ignored", true)])
+            .await
+            .unwrap();
+        assert_eq!(replayed, original);
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
+        let (_dir, storage) = setup(false).await;
+        for (name, data, flush) in [
+            ("half-close", b"abc".as_slice(), false),
+            ("flushed", b"abc".as_slice(), true),
+            ("empty", b"".as_slice(), false),
+        ] {
+            let upload = start(&storage, name, None).await;
+            let mut message = resume(&upload, 0, data, false);
+            message.flush = flush;
+            let mut stream = tonic::codegen::tokio_stream::iter([Ok(message)]);
+            let (tx, mut rx) = mpsc::channel(2);
+            let result = storage
+                .receive_write(&mut stream, None, Some(&tx), EndOfStream::NotChecked)
+                .await
+                .unwrap();
+            assert_eq!(
+                result,
+                pb::bidi_write_object_response::WriteStatus::PersistedSize(data.len() as i64)
+            );
+            drop(tx);
+            let response = rx.recv().await.unwrap().unwrap();
+            assert_eq!(response.write_status, Some(result));
+            assert!(rx.recv().await.is_none());
+            assert!(missing(&storage, name).await);
+        }
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_io_read_failures_use_shared_storage_status() {
+        let (dir, storage) = setup(false).await;
+        write(&storage, vec![message("short-blob", b"abc")])
+            .await
+            .unwrap();
+        let shard = std::fs::read_dir(dir.0.join("blobs"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let blob = std::fs::read_dir(shard)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(blob)
+            .unwrap()
+            .set_len(0)
+            .unwrap();
+        let mut stream = storage
+            .read_object(
+                Request::new(pb::ReadObjectRequest {
+                    bucket: "projects/_/buckets/grpc-io".into(),
+                    object: "short-blob".into(),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let read_error = stream.next().await.unwrap().unwrap_err();
+        assert!(
+            read_error
+                .message()
+                .starts_with("Object storage is unavailable")
+        );
+        let read_code = read_error.code();
+        let (code, _): (_, Vec<pb::BidiReadObjectResponse>) = fixtures::rpc(
+            "/google.storage.v2.Storage/BidiReadObject",
+            None,
+            &[pb::BidiReadObjectRequest {
+                read_object_spec: Some(pb::BidiReadObjectSpec {
+                    bucket: "projects/_/buckets/grpc-io".into(),
+                    object: "short-blob".into(),
+                    ..Default::default()
+                }),
+                read_ranges: vec![pb::ReadRange {
+                    read_id: 7,
+                    ..Default::default()
+                }],
+            }],
+            async |request| {
+                super::super::dispatch(super::super::service(storage.state.clone(), 1024), request)
+                    .await
+                    .unwrap()
+            },
+        )
+        .await;
+        assert_eq!([read_code, code], [tonic::Code::Unavailable; 2]);
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
+        let (dir, storage) = setup(false).await;
+        let upload = start(&storage, "disconnected", None).await;
+        let mut stream = tonic::codegen::tokio_stream::iter([
+            Ok(resume(&upload, 0, b"abc", false)),
+            Err(Status::cancelled("client disconnected")),
+        ]);
+        assert_code(
+            storage
+                .receive_write(&mut stream, None, None, EndOfStream::Required)
+                .await,
+            tonic::Code::Cancelled,
+        );
+        assert_eq!(
+            query(&storage, &upload, None).await.unwrap(),
+            pb::query_write_status_response::WriteStatus::PersistedSize(3)
+        );
+        write(&storage, vec![resume(&upload, 3, b"def", true)])
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+        storage.state.catalog.close().await.unwrap();
     }
 
     #[test]

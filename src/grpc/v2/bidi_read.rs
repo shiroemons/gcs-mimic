@@ -301,8 +301,8 @@ async fn serve(
                     // Reposition under the same lock because reconnects share the immutable open file.
                     let mut reader = selected.reader.lock().await;
                     reader.set_range(offset.cast_unsigned(), range.read_length.cast_unsigned()).await
-                        .map_err(|_| Status::internal("Cannot seek object data; restore a valid data directory"))?;
-                    reader.next_chunk().await.map_err(|_| Status::internal("Cannot read object data; restore a valid data directory"))?
+                        .map_err(super::status::read_failure)?;
+                    reader.next_chunk().await.map_err(super::status::read_failure)?
                         .unwrap_or_default()
                 };
                 // Readers cap chunks at 64 KiB; widening the signed pointer-sized length cannot fail.

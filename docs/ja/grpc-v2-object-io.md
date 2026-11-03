@@ -8,6 +8,8 @@
 
 WriteObject と BidiWriteObject は同じ処理を使い、チェックサムを確認してから共有カタログで確定します。StartResumableWrite の upload_id で再開でき、QueryWriteStatus は永続化済みのオフセットまたは確定したメタデータを返します。オフセット不一致、CRC32C・MD5 不一致、世代条件の失敗で既存の本文を置き換えません。ReadObject は範囲と負のオフセット、CRC32C、世代指定に対応し、一覧は prefix・delimiter・ページングに対応します。
 
+確定済みのupload_idで書き込みを再試行すると、ライブオブジェクトが変わっていても、元の完了時のメタデータをOKで返します。未確定のupload_idストリームを正常にhalf-closeすると、flushやstate_lookupがなくても永続化済みサイズを返します。非再開可能な単発書き込みは、protoの指定どおり、最後のメッセージにfinish_writeが必要です。名前の検証はJSONと共通で、`.`・`..`・ACME challenge接頭辞を拒否し、タブは許可します。ストレージのI/Oエラーは共有の分類で返します。
+
 CancelResumableWrite は、JSON の session URI への DELETE と同じカタログ処理で resumable session を取り消します。書き込み途中のバイトも破棄され、オブジェクトは公開されません。取り消した後の QueryWriteStatus・WriteObject・BidiWriteObject、2 回目の取消、未知・不正な upload_id は NOT_FOUND になります。確定済みの upload は FAILED_PRECONDITION、別の書き込みが session を使用中なら再試行できる UNAVAILABLE です。strict では `storage.objects.create` が必要で、viewer は PERMISSION_DENIED、匿名は UNAUTHENTICATED になり、session はそのまま残ります。確定済み・2 回目・書き込み中の status は Google が定めていないため、ローカルで選んだ挙動です。
 
 本文の送受信は上限付きで、本文全体を集約しません。既存の 4 MiB メッセージ制限、64 KiB の本文チャンク、max_object_bytes を使い、新しい設定は追加しません。単発書き込みは resumable session の保存枠を使いません。

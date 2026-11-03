@@ -8,6 +8,16 @@ use tonic::{Code, Status};
 const NOT_MODIFIED: &str =
     "The resource you requested has not been modified according to the condition you specified.";
 
+/// Reader failures keep the storage classification and record the underlying I/O cause.
+pub(super) fn read_failure(error: std::io::Error) -> Status {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Error,
+        "grpc_object_read_failure",
+        serde_json::json!({"cause": error.to_string()}),
+    );
+    super::object_io::object_status(crate::storage::failure::object_unavailable(error))
+}
+
 impl From<crate::object::ObjectError> for Status {
     fn from(error: crate::object::ObjectError) -> Self {
         Self::from(crate::json::JsonError::from(error))

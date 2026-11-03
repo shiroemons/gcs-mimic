@@ -32923,6 +32923,12 @@
           ]
         },
         {
+          "id": "resumable_stream_completion",
+          "description": "Finalized upload retries return the original resource after overwrite; unfinished upload_id streams report persisted size on a clean half-close without flush/state_lookup; a disconnected stream releases its lease and resumes from its acknowledged offset without leaking staging files.",
+          "result": "PASS",
+          "test_ids": ["grpc_io_finalized_resume_returns_the_original_resource", "grpc_io_bidi_half_close_reports_unacknowledged_persisted_size", "grpc_io_disconnected_resumable_stream_releases_its_lease"]
+        },
+        {
           "id": "broader_rpc_semantics",
           "description": "Non-final non-resumable flush/state_lookup, concurrent streams for one upload ID, post-finish messages and exhaustive fault/resource cases remain unverified or unsupported. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
           "result": "PENDING",
@@ -32935,9 +32941,13 @@
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOWire",
-        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion",
+        "grpc_io_finalized_resume_returns_the_original_resource",
+        "grpc_io_bidi_half_close_reports_unacknowledged_persisted_size",
+        "grpc_io_disconnected_resumable_stream_releases_its_lease"
       ],
       "verification": [
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc:: -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-03", "artifact": "docs/en/slices/grpc-v2-object-io.md", "test_ids": ["grpc_io_finalized_resume_returns_the_original_resource", "grpc_io_bidi_half_close_reports_unacknowledged_persisted_size", "grpc_io_disconnected_resumable_stream_releases_its_lease"]},
         {
           "command": "cargo test --locked --offline --lib grpc::v2::object_io",
           "result": "PASS",
