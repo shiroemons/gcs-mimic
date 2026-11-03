@@ -25,10 +25,6 @@ impl Admin {
         .await
     }
 
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "import publishes each bucket once"
-    )]
     pub(crate) async fn publish_import_bucket_with_acl(
         &self,
         binding: ImportBinding,
@@ -45,10 +41,10 @@ impl Admin {
                 let transaction = sql::immediate(connection)?;
                 import_journal::check_publication(&transaction, &binding, expected_cursor)?;
                 let mut record = definition.0;
-                let exists: bool = transaction.query_row(
+                let exists: bool = sql::scalar(
+                    &transaction,
                     "SELECT EXISTS(SELECT 1 FROM buckets WHERE name = ?1)",
                     [&record.name],
-                    |row| row.get(0),
                 )?;
                 let result = if exists {
                     Err(AdminError::Precondition)

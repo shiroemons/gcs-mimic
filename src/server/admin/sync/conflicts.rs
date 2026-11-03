@@ -227,7 +227,7 @@ pub(super) fn error(error: conflicts::Error) -> JsonError {
             "conflict_capacity",
             "Resolve retained conflicts before retrying; no source body was discarded",
         ),
-        conflicts::Error::Admin(crate::storage::admin::AdminError::DiskFull) => JsonError::new(
+        conflicts::Error::Admin(crate::storage::admin::AdminError::DiskFull(_)) => JsonError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "disk_full",
             "Free disk space without deleting pending synchronization data, then retry the same operation ID",

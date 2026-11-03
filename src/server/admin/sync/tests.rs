@@ -21,7 +21,7 @@ fn nested_io_control_errors_keep_status_and_text() {
         RootError::Admin(crate::storage::admin::AdminError::Forbidden),
         RootError::Admin(crate::storage::admin::AdminError::Precondition),
         RootError::Admin(crate::storage::admin::AdminError::Corrupt("corrupt".into())),
-        RootError::Admin(AdminError::DiskFull),
+        RootError::Admin(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
         RootError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into())),
         RootError::InUse,
     ] {

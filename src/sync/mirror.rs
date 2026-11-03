@@ -584,7 +584,7 @@ fn pause_reason(error: &io::Error) -> crate::storage::sync_state::observation::P
         }
         if matches!(
             cause.downcast_ref::<AdminError>(),
-            Some(AdminError::DiskFull | AdminError::Io(_))
+            Some(AdminError::DiskFull(_) | AdminError::Io(_))
         ) {
             return PauseReason::IoFailure;
         }
@@ -1262,7 +1262,7 @@ fn retryable(error: &writeback::Error) -> bool {
         _ => return false,
     };
     match error {
-        AdminError::DiskFull => true,
+        AdminError::DiskFull(_) => true,
         AdminError::Io(cause) => matches!(
             cause.kind(),
             std::io::ErrorKind::StorageFull

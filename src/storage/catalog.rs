@@ -5,7 +5,7 @@ use crate::bucket::{
     UNIFORM_ACCESS_LOCK_PERIOD, cors_from_value, cors_value, valid_label, validate_cors,
 };
 use crate::clock::{Clock, SystemClock};
-use crate::storage::failure::{BackendFailure, unavailable};
+use crate::storage::failure::{BackendCause, BackendFailure, unavailable};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, types::Type};
 use std::{
     path::{Path, PathBuf},
@@ -88,11 +88,9 @@ pub(crate) use appendable::{AppendError, AppendWriter};
 
 mod object_move;
 pub(crate) use object_move::{MoveAccess, MoveConditions, MoveNames};
+mod bucket_soft_delete;
 mod object_owner;
 mod objects;
-#[cfg(test)]
-pub(crate) use objects::Versioning;
-mod bucket_soft_delete;
 mod soft_delete;
 pub(crate) use objects::{
     ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader, ObjectUpload,
@@ -467,10 +465,10 @@ struct Inner {
     data_dir: PathBuf,
     backend: BlobBackend,
     clock: Arc<dyn Clock>,
-    session_writers: Mutex<std::collections::HashSet<String>>,
+    session_writers: Mutex<resumable::writers::SessionWriters>,
     derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
-    maintenance_error: Mutex<Option<String>>,
+    maintenance_error: Mutex<Option<BackendCause>>,
     maintenance_started: AtomicBool,
     maintenance_health: crate::task::TaskHealth,
     /// Workers started beside the catalog whose health readiness also reports. Each worker
@@ -638,16 +636,33 @@ struct UploadState {
     closed: bool,
 }
 
+/// The admission held through publication and cleanup.
+enum UploadSlot {
+    Counted(Catalog),
+    Admin {
+        _permit: tokio::sync::OwnedSemaphorePermit,
+    },
+}
+
 pub(crate) struct UploadGuard {
-    catalog: Option<Catalog>,
-    _admin: Option<tokio::sync::OwnedSemaphorePermit>,
+    slot: UploadSlot,
     replay: Option<upload_replay::UploadReplay>,
     _activity: Activity,
 }
 
+impl UploadGuard {
+    fn admin(permit: tokio::sync::OwnedSemaphorePermit, activity: Activity) -> Self {
+        Self {
+            slot: UploadSlot::Admin { _permit: permit },
+            replay: None,
+            _activity: activity,
+        }
+    }
+}
+
 impl Drop for UploadGuard {
     fn drop(&mut self) {
-        if let Some(catalog) = &self.catalog {
+        if let UploadSlot::Counted(catalog) = &self.slot {
             let mut uploads = catalog
                 .0
                 .uploads
@@ -1434,28 +1449,6 @@ impl Catalog {
             Ok(record)
         })
         .await
-    }
-
-    /// Reads (versioning, default event-based hold) in the caller's mutation transaction.
-    pub(crate) fn bucket_settings_in_transaction(
-        transaction: &rusqlite::Transaction<'_>,
-        name: &str,
-    ) -> Result<(objects::Versioning, bool), CatalogError> {
-        sql::row(
-            transaction,
-            "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
-            [name],
-            |row| {
-                let versioning = if row.get(0)? {
-                    objects::Versioning::Enabled
-                } else {
-                    objects::Versioning::Disabled
-                };
-                Ok((versioning, row.get(1)?))
-            },
-        )
-        .optional()?
-        .ok_or(CatalogError::NotFound)
     }
 
     /// Reads the bucket and checks `access` against the owner observed by the same read.

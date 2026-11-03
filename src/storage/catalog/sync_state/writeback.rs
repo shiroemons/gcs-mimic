@@ -709,7 +709,7 @@ impl Writeback {
                 .await;
             if matches!(
                 result,
-                Err(Error::Admin(AdminError::DiskFull | AdminError::Io(_)))
+                Err(Error::Admin(AdminError::DiskFull(_) | AdminError::Io(_)))
             ) {
                 this.io_failure(token, 1).await?;
             }

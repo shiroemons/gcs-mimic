@@ -54,6 +54,9 @@ checks, MD5/CRC32C validation, file synchronization and immutable publication.
 An incremental SHA-256 over actual media bytes distinguishes conflicting bodies
 independently of MD5/CRC32C. The completion fingerprint also includes the selected
 bucket/name, content type, metadata and generation/metageneration conditions.
+The fingerprint uses a versioned canonical binary encoding with length-prefixed
+bytes, explicit optional-value tags and ordered metadata maps; diagnostic output
+and serialization-library formatting are not part of its persistent contract.
 Its versioned local representation can reject otherwise equivalent requests
 after an implementation change; it must never turn that mismatch into a second
 mutation. Multipart framing/boundaries are not object content.
@@ -104,6 +107,8 @@ query, body, key or principal is a conflicting invocation, not a new copy.
 The retained response is selected before resolving a mutable source generation.
 Thus a successful response can replay after source/destination overwrite or
 deletion and after restart, without recreating the deleted destination.
+Removing or recreating the source bucket invalidates its recorded incarnation
+and returns local 412, including at publication after an in-flight transfer.
 
 Current source-read and destination-create permissions remain mandatory on
 every retry, including inside publication. ACL visibility uses the retained

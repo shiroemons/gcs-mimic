@@ -178,7 +178,7 @@ so committed frames remain visible. Immutable preflight does not consider a hot 
 The preflight closes before a single operational
 connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
 file-backed temporary storage and a 256-page auto-checkpoint. The current catalog
-schema is version 48; later migrations are described in their slice contracts.
+schema is version 49; later migrations are described in their slice contracts.
 Schema version 7 stored buckets, live objects, unique opaque blob references, pending blob deletions,
 seed initialization, bucket IAM policies and persistent object/policy revision
 high-water marks. It retains the bucket `(project, name)`
@@ -205,9 +205,14 @@ until a later call confirms the rollback.
 
 Each operation has immediate bounded admission (32 calls), then awaits one execution
 permit before queuing its job on a dedicated catalog thread that owns no other work.
-File I/O and gzip decoding stay on the runtime's bounded blocking pool, so a
-saturated pool cannot hold the execution permit while catalog work waits for a pool
-thread. A queued job runs to completion even if its caller is cancelled, and a
+File content I/O, publication/removal, directory sync and gzip decoding stay on the
+runtime's bounded blocking pool, so a saturated pool cannot hold the execution permit
+while catalog work waits for a pool thread. A serialized metadata job may pin an
+immutable inode while selecting its source, so a concurrent purge cannot remove that
+source before publication. Pin hard links and in-transaction descriptor opens stay
+on the catalog thread because catalog serialization orders them before reclamation.
+These short namespace operations perform no content copying or synchronization.
+A queued job runs to completion even if its caller is cancelled, and a
 panicking job fails only its own call. Closing the catalog runs the last job, which
 closes the connection and releases the directory lock before close returns; the
 thread then exits. Inserts enforce globally unique local names in SQL; delete checks
@@ -319,7 +324,8 @@ Use generated, opaque blob identifiers. Object names such as Unicode strings, re
 The implemented ordinary-object write stages under a random 128-bit opaque ID on the
 data filesystem. It streams and hashes the entire body within the configured cap,
 validates declared hashes and syncs the file. It creates/syncs the blob shard's parent,
-renames the staged file into that shard and syncs the shard. Only then does a short
+renames the staged file into that shard without replacing an existing entry and syncs
+the shard. Only then does a short
 immediate SQL transaction check bucket existence and all conditions, advance the
 persistent generation high-water mark, replace the live reference and journal any
 old blob for deletion. File publication and SQL commit are separate operations.
@@ -329,8 +335,21 @@ live data must not be removed as though the write had failed.
 Delete atomically removes the live record and journals its blob. After successful commit,
 overwrite/delete return success even if reclamation fails; the diagnostic is logged and the
 journal retains deferred work for startup. Reclamation checks
-for live references, unlinks/syncs the directory and removes the journal entry. A failed
-startup retry blocks readiness until its cause is fixed and names the blob ID.
+for live references in a catalog job, unlinks/syncs on the blocking pool, then removes
+the journal entry in another catalog job. Failed upload cleanup also logs deferred work
+and preserves the publication result, including its original client error.
+Only unreferenced IDs enter the deletion journal. If a damaged journal references a live
+blob, runtime reclamation keeps it and reports the conflict while reclaiming other IDs
+in bounded batches. Startup drains the other batches before reporting that conflict;
+a failed startup retry blocks readiness until repaired and names the blob ID.
+Soft-delete expiry journals exactly the IDs deleted by its bounded transaction.
+
+Restoring a soft-deleted generation pins its immutable bytes during selection, publishes
+the pin on the blocking pool, then rechecks source retention, authorization and conditions
+in a short immediate transaction before inserting the restored generation. A supervised
+operation owns its upload slot and pin through cleanup after disconnect; close waits for
+it to settle. Ambiguous commits are probed before reclaiming the pin.
+
 An already opened file descriptor continues to serve its selected immutable generation
 after overwrite/delete on the tested Unix platforms. The Windows distribution
 profile uses file flushes and same-volume write-through publication, without a
@@ -345,9 +364,10 @@ iterators plus indexed single-ID checks remove orphan blobs without collecting t
 object catalog. Missing/truncated/non-file referenced data prevents readiness. Actual
 SIGKILL tests cover incomplete staging, a renamed blob blocked before catalog commit,
 and restart after successful commit. Fixtures cover pending deletion, orphan cleanup,
-multi-page recovery and missing/truncated live data. Individual file/directory fsync,
-deletion-journal insertion, unlink and journal-removal windows have not each been
-barrier-killed; host power loss is untested. See the
+multi-page recovery and missing/truncated live data. Abort and modeled power-loss
+snapshots cover reclamation's unlink, directory-sync and journal-removal boundaries,
+and restore's pin/publication/commit boundaries. Deletion-journal insertion and actual
+host power loss remain unverified. See the
 [integration evidence](evidence/object-media.md). This is a local recovery
 protocol, not an atomic SQLite/filesystem transaction or a production durability claim.
 Persistent resumable sessions now use reference-aware staging recovery before
@@ -493,6 +513,13 @@ earlier deadline is inserted or shutdown begins; sleep until due work, with no
 periodic polling and no timer when no work exists. Startup must run due cleanup
 before readiness and rearm the next deadline. Tests advance the injected clock
 and invoke maintenance without waiting a week.
+Each pass runs independent derived, resumable, rewrite, XML multipart and bucket
+cleanup sweeps even if another fails. The first typed failure fails the pass; later
+failures are logged, and successful deadlines are combined by their earliest value.
+Busy resumable sessions are skipped; releasing their request's writer guard wakes
+maintenance to retry them, including journaled cleanup failures.
+Session cleanup keeps its writer lease and upload slot through blocking unlink/sync
+and catalog journal removal, including after the requesting future is dropped.
 
 ## Access and URL contract
 

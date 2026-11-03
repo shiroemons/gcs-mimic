@@ -255,7 +255,7 @@ pub struct Publication {
 #[derive(Debug, PartialEq, Eq)]
 pub enum AdminError {
     Busy { retry_after: Duration },
-    DiskFull,
+    DiskFull(IoCause),
     Closed,
     Precondition,
     Hold,
@@ -276,7 +276,7 @@ impl fmt::Display for AdminError {
         f.write_str("administrative operation: ")?;
         match self {
             Self::Busy { retry_after } => write!(f, "Busy {{ retry_after: {retry_after:?} }}"),
-            Self::DiskFull => f.write_str("DiskFull"),
+            Self::DiskFull(_) => f.write_str("DiskFull"),
             Self::Closed => f.write_str("Closed"),
             Self::Precondition => f.write_str("Precondition"),
             Self::Hold => f.write_str("Hold"),
@@ -303,7 +303,7 @@ impl std::error::Error for AdminError {
             Self::BodyAborted(cause) | Self::Backend(cause) | Self::Corrupt(cause) => {
                 cause.source()
             }
-            Self::Io(cause) => cause.source(),
+            Self::Io(cause) | Self::DiskFull(cause) => cause.source(),
             _ => None,
         }
     }
@@ -321,7 +321,7 @@ impl AdminError {
 
     fn from_io(cause: IoCause) -> Self {
         if cause.kind() == io::ErrorKind::StorageFull {
-            Self::DiskFull
+            Self::DiskFull(cause)
         } else {
             Self::Io(cause)
         }
@@ -529,19 +529,15 @@ impl Admin {
             .await
     }
 
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "marks the startup seed complete once"
-    )]
     pub(crate) async fn finish_seed(&self) -> Result<(), AdminError> {
         self.catalog
             .run_admin(|connection| {
-                let transaction = connection.transaction()?;
-                transaction.execute(
+                sql::exec(
+                    connection,
                     "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
                     [],
                 )?;
-                transaction.commit().map_err(unavailable)
+                Ok(())
             })
             .await
     }
@@ -550,7 +546,11 @@ impl Admin {
         &self,
         record: BucketDefinition,
     ) -> Result<EnsureBucket, AdminError> {
-        Ok(self.ensure_buckets(vec![record]).await?.remove(0))
+        self.ensure_buckets(vec![record])
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| AdminError::Backend("missing ensured bucket".into()))
     }
 
     pub(crate) async fn ensure_buckets(
@@ -746,14 +746,12 @@ impl Admin {
                     access,
                 },
                 body,
-                super::UploadGuard {
-                    catalog: None,
-                    _admin: Some(permit),
-                    replay: None,
-                    _activity: activity,
-                },
+                super::UploadGuard::admin(permit, activity),
                 request.mode,
-                identity,
+                identity.map_or(
+                    objects::PublishIdentity::Assigned,
+                    objects::PublishIdentity::Imported,
+                ),
                 if identity.is_some() {
                     objects::OwnerAssignment::Unknown
                 } else {

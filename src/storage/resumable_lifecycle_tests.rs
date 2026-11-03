@@ -23,6 +23,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
+mod scheduler;
 mod terminal_retention;
 
 async fn setup(dir: &TestDir, clock: Arc<impl Clock + 'static>) -> Catalog {
@@ -419,12 +420,18 @@ async fn expiry_waits_for_writer_and_retries_after_lease_release() {
         .lock_resumable_session(&session.id, "bucket")
         .await
         .unwrap();
+    let catalog_io = crate::storage::catalog::fault::catalog_thread_io(&dir.0);
     clock.set(session.deadline);
-    assert!(catalog.maintain_resumable_sessions().await.is_err());
+    assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
+    assert!(catalog.resumable_maintenance_error().is_none());
     assert!(lease.staging_path().exists());
     drop(lease);
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     assert!(!session.blob_id.staging_path(&dir.0).exists());
+    assert_eq!(
+        crate::storage::catalog::fault::catalog_thread_io(&dir.0),
+        catalog_io
+    );
     catalog.close().await.unwrap();
 }
 

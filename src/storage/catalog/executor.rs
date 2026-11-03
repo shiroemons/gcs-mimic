@@ -58,6 +58,8 @@ impl Executor {
     pub(super) fn start() -> std::io::Result<Self> {
         let (jobs, mut queue) = mpsc::channel::<Job>(1);
         crate::task::spawn_thread("gcs-mimic-catalog", move || {
+            #[cfg(test)]
+            super::fault::enter_catalog_thread();
             while let Some(job) = queue.blocking_recv() {
                 if let Flow::Stop = job() {
                     break;

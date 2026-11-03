@@ -60,7 +60,11 @@ fn clean(data: &TestDir) {
     let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     let count: i64 = common::catalog::count(&connection, "objects");
     let deadline = Instant::now() + Duration::from_secs(5);
-    while files(data, "staging") != 0 || files(data, "blobs") as i64 != count {
+    // Files disappear before the separate catalog job forgets their deletion journal.
+    while files(data, "staging") != 0
+        || files(data, "blobs") as i64 != count
+        || common::catalog::count(&connection, "pending_blob_deletions") != 0
+    {
         assert!(
             Instant::now() < deadline,
             "upload artifacts were not reclaimed"
