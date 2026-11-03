@@ -41410,14 +41410,14 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "auth_mode=permissive is the default and is selected explicitly by CLI --auth-mode, GCS_MIMIC_AUTH_MODE or JSON auth_mode with the existing precedence. It ignores every Authorization header and credential query parameter and performs no permission checks; the ready event reports auth_mode. Permissive results are never counted as strict coverage. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
+      "notes": "auth_mode=permissive is the default and is selected explicitly by CLI --auth-mode, GCS_MIMIC_AUTH_MODE or JSON auth_mode with the existing precedence. It ignores Authorization credentials and performs no permission checks; historical XML V2 queries retain shape checks without signature or expiry verification, while V4 credential shape is ignored. The ready event reports auth_mode. Permissive results are never counted as strict coverage. Contract: docs/en/slices/strict-auth.md and docs/en/slices/xml-v4-signatures.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-001-DEFAULT",
-          "description": "Without auth settings the ready event reports auth_mode permissive without an identity count; anonymous, unknown bearer, Basic, GOOG4 and duplicate Authorization headers all create, read and upload successfully, and credential query parameters are ignored.",
+          "description": "Without auth settings the ready event reports auth_mode permissive without an identity count; anonymous, unknown bearer, Basic, GOOG4 and duplicate Authorization headers all create, read and upload successfully. Credentials are not verified; XML V2 queries retain their historical shape checks while V4 shape is ignored.",
           "result": "PASS",
           "test_ids": [
             "auth_http_permissive_ignores_any_authorization",
@@ -41777,7 +41777,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict mode loads a bounded (64 KiB) JSON identity registry once at startup: 1..=256 identities with a unique visible-ASCII id, 1..=16 registry-unique bearer tokens and optional project_roles (0..=64 validated project IDs, 1..=32 snapshot roles each). Unknown keys, unknown/basic roles and invalid limits fail startup without a partial load and without echoing tokens. The JSON format replaces the TOML proposal (gaps.json resolved item). The ready event reports the identity count. config/identities.json is a public local fixture mounted by compose.strict.yaml. Nothing contacts Google or the metadata server. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
+      "notes": "Strict mode loads a bounded (64 KiB) JSON identity registry once at startup: 1..=256 identities with a unique visible-ASCII id, 0..=16 registry-unique bearer tokens and optional project_roles (0..=64 validated project IDs, 1..=32 snapshot roles each). Unknown keys, unknown/basic roles, JWT-shaped tokens with three dot-separated segments and invalid limits fail startup without a partial load and without echoing tokens. The JSON format replaces the TOML proposal (gaps.json resolved item). The ready event reports the identity count. config/identities.json is a public local fixture mounted by compose.strict.yaml. Nothing contacts Google or the metadata server. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [
         "DESIGN-001"
       ],
@@ -41786,7 +41786,7 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-003-VALIDATION",
-          "description": "Malformed, non-object, oversized, empty or over-limit registries, unknown top-level/identity keys, invalid/duplicate ids, invalid/duplicate tokens, invalid projects, empty/duplicate/over-limit role lists and unknown or basic roles fail startup with an identity_file message, no readiness output and no catalog files; token values are never echoed; a file at exactly 64 KiB loads.",
+          "description": "Malformed, non-object, oversized, empty or over-limit registries, unknown top-level/identity keys, invalid/duplicate ids, invalid/duplicate or JWT-shaped tokens, invalid projects, empty/duplicate/over-limit role lists and unknown or basic roles fail startup with an identity_file message, no readiness output and no catalog files; token values are never echoed; a file at exactly 64 KiB loads.",
           "result": "PASS",
           "test_ids": [
             "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
@@ -43408,7 +43408,7 @@
         {"command":"CARGO_INCREMENTAL=0 cargo test --locked --offline --lib storage::catalog::fault::tests:: -- --nocapture","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/acl-permission-effects.md","test_ids":["storage::catalog::fault::tests::overlapping_power_loss_arms_keep_their_own_baselines_and_all_seam_updates"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Named JSON OWNER permission/projection and upload/copy snapshot subsets pass; complete ownership propagation, resumable full completion, other protocol interactions, upload-snapshot authority ceilings/rebinding, group/domain/project-team matching and complete default/canned publication remain pending. UBLA ninety-day locking and the full publication matrix require separate acceptance. A legacy copy completion without source proof requires IAM; an ACL-only reader cannot replay it. Arbitrary local IDs without canonical user aliases preserve IAM grants and immutable ownership but do not invent ACL entities. Final integrated production lint, workspace, SDK/container and physical power-loss verification are separate."],
+      "known_deviations": ["Named JSON OWNER permission/projection and upload/copy snapshot subsets pass; complete ownership propagation, resumable full completion, other protocol interactions, upload-snapshot authority ceilings/rebinding, group/domain/project-team matching and complete default/canned publication remain pending. UBLA ninety-day locking and the full publication matrix require separate acceptance. A legacy copy completion without source proof requires IAM; an ACL-only reader cannot replay it. Arbitrary local IDs without canonical user aliases preserve IAM grants and immutable ownership but do not invent ACL entities. Final integrated production lint, workspace, SDK/container and physical power-loss verification are separate.", "SPEC-PRINCIPAL-EMAIL-CASE: IAM/ACL matching folds ASCII domain case only; local parts and non-email IDs remain case-sensitive, input spelling is preserved, and ambiguous registry aliases are rejected. Provider local-part behavior remains unverified."],
       "implemented_in": null,
       "last_verified": "2026-10-31"
     },
@@ -43511,7 +43511,7 @@
       "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"],
       "verification": [{"command": "cargo test --test auth_http --locked --offline uniform_access", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]}],
       "sdk_evidence": [],
-      "known_deviations": ["Real canned ACL grants remain pending; ACL CRUD and stored-entry preservation are separately scoped in json-acl. SPEC-UBLA-EDGES records local error reason/message/precedence; remaining ACL/UBLA/PAP interactions and initialization-file uniform access are excluded from this slice."],
+      "known_deviations": ["Real canned ACL grants remain pending; ACL CRUD and stored-entry preservation are separately scoped in json-acl. SPEC-UBLA-EDGES records local error reason/message/precedence; remaining ACL/UBLA/PAP interactions and initialization-file uniform access are excluded from this slice.", "SPEC-PRINCIPAL-EMAIL-CASE: ACL-entry duplicates retain byte-exact detection while user grants ignore only domain case; local-part matching and provider duplicate behavior remain unverified."],
       "implemented_in": "d17d6127202117aaf976aa5a2269f72aa928be41",
       "last_verified": "2026-10-27"
     },
@@ -44689,7 +44689,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "GOOG4-RSA-SHA256 query verification uses bounded registered RSA SPKI public keys, startup validation, scope parsing and tamper rejection. This cryptographic gate is separate from operation permissions, canonical field families and full XML error parity. SPEC-GO-SIGNER-PORT records the pinned SDK limitation. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Every proper nonempty subset of the six signing fields fails under public grants. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "GOOG4-RSA-SHA256 query verification uses bounded registered RSA SPKI public keys, startup validation, scope parsing and tamper rejection. This cryptographic gate is separate from operation permissions, canonical field families and full XML error parity. SPEC-GO-SIGNER-PORT records the pinned SDK limitation. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Every proper nonempty subset of the six signing fields fails under public grants. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Unit signing regressions now use the production XML verifier; a live strict process verifies CLI URLs. Current focused commands and integration boundaries: docs/en/evidence/authentication-foundation.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -44951,7 +44951,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Injected Clock enforces decimal 1..604800 seconds, exact Gregorian UTC timestamp, credential-day equality, the officially documented 900-second early skew and exclusive expiry. Exact wire wording/precedence remains DESIGN-044. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Injected Clock enforces decimal 1..604800 seconds, exact Gregorian UTC timestamp, credential-day equality, the officially documented 900-second early skew and exclusive expiry. Exact wire wording/precedence remains DESIGN-044. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Clock-boundary regressions now exercise the production XML verifier; focused commands and integration boundaries: docs/en/evidence/authentication-foundation.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -46135,7 +46135,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Signed GET/HEAD/PUT bind their exact method/resource; cross-method, changed bucket/object/generation and extra query fail before body reads without mutation. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md.",
+      "notes": "Signed GET/HEAD/PUT bind their exact method/resource; cross-method, changed bucket/object/generation and extra query fail before body reads without mutation. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Unit regressions now use the production XML verifier and retain negative method/resource cases; focused commands and integration boundaries: docs/en/evidence/authentication-foundation.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -46856,13 +46856,14 @@
           "description": "CLI output verifies for final HTTPS host:port, encoded object and repeated headers. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL.",
           "result": "PASS",
           "test_ids": [
+            "signing_cli_urls_verify_through_the_live_xml_route",
             "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
             "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
           ]
         },
         {
           "id": "DESIGN-045-OPTIONS",
-          "description": "Validate required/duplicate/unknown/unpaired options, forbidden headers, durations, methods, timestamps and private-key inputs; English help.",
+          "description": "Validate required/duplicate/unknown/unpaired options, forbidden headers, existing V2/V4 signature query names regardless of case, durations, methods, timestamps and private-key inputs; English help.",
           "result": "PASS",
           "test_ids": [
             "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
@@ -46905,11 +46906,19 @@
         "signed_journey (Docker/Compose)",
         "signed_journey (native)",
         "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+        "signing_cli_urls_verify_through_the_live_xml_route",
         "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
         "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
         "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs"
       ],
       "verification": [
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --test it_xml_auth signing_cli_urls_verify_through_the_live_xml_route",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/evidence/authentication-foundation.md",
+          "test_ids": ["signing_cli_urls_verify_through_the_live_xml_route"]
+        },
         {
           "command": "cargo test --workspace --locked --offline",
           "result": "PASS",

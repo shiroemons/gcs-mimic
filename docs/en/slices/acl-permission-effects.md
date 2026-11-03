@@ -29,6 +29,13 @@ fake-gcs-server v1.56.1, revision
 
 ## Object read slice
 
+IAM and ACL user-email matching ignores ASCII domain case while preserving
+local-part and non-email ID case. Stored spelling is unchanged. Registry aliases
+that would identify two principals after domain folding are rejected. ACL-entry
+duplicate detection remains byte-exact, so domain-case variants remain accepted
+as additive entries. Google-exact local-part and duplicate behavior remains
+unverified under SPEC-PRINCIPAL-EMAIL-CASE.
+
 The catalog defers an IAM-denied object read until it selects the generation,
 then evaluates that generation's READER/OWNER entries in the same transaction
 as existence and conditions. Matching registered user identities,

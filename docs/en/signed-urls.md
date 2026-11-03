@@ -279,7 +279,10 @@ an inherited bucket effectively enforced; see the [PAP contract](slices/public-a
 Only `response-content-type` and `response-content-disposition` are supported.
 Supply literal values through repeated `url sign --query NAME=VALUE`; the helper
 encodes them before signing. These change response headers without mutating
-stored metadata. Query changes invalidate the signature. Duplicate decoded names
+stored metadata. Query changes invalidate the signature. Existing V2/V4
+signing parameter names are rejected case-insensitively,
+including `Expires`, `Signature` and `GoogleAccessId`. Query names supplied to
+`--query` are literal; percent signs are encoded like other data. Duplicate decoded names
 are rejected locally, while exact provider duplicate/validation behavior stays
 open in SPEC-SIGNING-EDGES and SPEC-XML-RESPONSE-OVERRIDES. Other response-* names
 return 501. The [signed-browser subsection](getting-started.md#signed-browser-upload-and-download)
