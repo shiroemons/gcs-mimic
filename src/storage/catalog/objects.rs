@@ -153,6 +153,7 @@ impl Catalog {
     /// The bucket's project is verified in the same call that resolves the generation and
     /// opens its blob, so the returned reader never belongs to an unauthorized bucket.
     /// Callers without a customer-supplied key cannot open objects encrypted with one.
+    #[cfg(test)]
     pub(crate) async fn open_object(
         &self,
         target: ObjectTarget,
@@ -306,14 +307,24 @@ pub(super) fn open_selected(
     conditions: ObjectConditions,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
+    let transaction = connection.transaction()?;
+    open_selected_in(&transaction, catalog, target, conditions, access)
+}
+
+pub(super) fn open_selected_in(
+    transaction: &Transaction<'_>,
+    catalog: &Catalog,
+    target: &ObjectTarget,
+    conditions: ObjectConditions,
+    access: &BucketAccess,
+) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
     let ObjectTarget {
         bucket,
         name,
         generation,
     } = target;
-    let transaction = connection.transaction()?;
     let StoredObject { record, blob: id } = selected(
-        &transaction,
+        transaction,
         bucket,
         name,
         *generation,
@@ -324,12 +335,12 @@ pub(super) fn open_selected(
     // Open under the same execution permit that serializes deletes and overwrites.
     let file = catalog.0.backend.open(&id)?;
     let remaining = record.size;
-    let publicly_readable = super::policies::read_policy(&transaction, bucket)?.allows(
+    let publicly_readable = super::policies::read_policy(transaction, bucket)?.allows(
         None,
         crate::auth::OBJECTS_GET,
-        super::policies::policy_public_access(&transaction, bucket)?,
+        super::policies::policy_public_access(transaction, bucket)?,
     ) || super::acl::object_granted(
-        &transaction,
+        transaction,
         bucket,
         name,
         record.generation,

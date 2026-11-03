@@ -1,11 +1,11 @@
-use super::{ResponseStream, Storage, append::Finality, names, pb, status::unsupported};
+use super::{ResponseStream, Storage, names, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
     grpc::validate::{self, request_conditions},
     json::JsonError,
     object::{ObjectError, ObjectRecord, ObjectTarget},
-    storage::ObjectReader,
+    storage::{Finality, ObjectReader},
 };
 use prost::Message;
 use std::{

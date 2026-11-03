@@ -1,7 +1,5 @@
 use super::{
-    ResponseStream, Storage, access_status,
-    append::Finality,
-    convert, names, pb,
+    ResponseStream, Storage, access_status, convert, names, pb,
     status::{read_failure, unsupported_for},
 };
 use crate::{
@@ -9,7 +7,9 @@ use crate::{
     grpc::validate::{self, request_conditions},
     json,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget, UploadChunk},
-    storage::{ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState},
+    storage::{
+        Finality, ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState,
+    },
 };
 use prost::Message;
 use tokio::sync::{mpsc, watch};

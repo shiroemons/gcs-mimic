@@ -32605,7 +32605,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "SPEC_BASED",
-      "notes": "Size updates and persisted-data visibility with explicit appendable semantics. gRPC GetObject, ReadObject and BidiReadObject fall back to the unfinalized generation when no finalized object matches; reads stop at the persisted size with CRC32C of the persisted bytes. Contract: docs/en/slices/grpc-v2-rapid-append.md.",
+      "notes": "Size updates and persisted-data visibility with explicit appendable semantics. gRPC GetObject, ReadObject and BidiReadObject select finalized or unfinalized state in one catalog snapshot, preserving visibility through finalization; metadata does not open the blob. DeleteObject serializes selection with finalization using the same per-object slot. Reads stop at the persisted size with CRC32C of the persisted bytes. Contract: docs/en/slices/grpc-v2-rapid-append.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -32623,6 +32623,12 @@
           ]
         },
         {
+          "id": "read_finalize_atomic",
+          "description": "Reads select finalized/appendable state from one catalog snapshot; metadata requests open no blob, and deletion holds the finalizer's slot while selecting the state on disk and RAM.",
+          "result": "PASS",
+          "test_ids": ["readable_selection_survives_appendable_finalization", "deletion_serializes_with_appendable_finalization_on_disk_and_ram"]
+        },
+        {
           "id": "tail_reads",
           "description": "BidiReadObject streams and read handles that follow later appends, and JSON/XML/ListObjects visibility of unfinalized objects, remain pending.",
           "result": "PENDING",
@@ -32634,9 +32640,12 @@
         "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
         "append_strict_requires_create_and_allows_viewer_reads",
         "appendable_size_limit_and_reader_bound_by_persisted_size",
-        "TestGRPCAppendable"
+        "TestGRPCAppendable",
+        "readable_selection_survives_appendable_finalization",
+        "deletion_serializes_with_appendable_finalization_on_disk_and_ram"
       ],
       "verification": [
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib appendable -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-rapid-append.md", "test_ids": ["readable_selection_survives_appendable_finalization", "deletion_serializes_with_appendable_finalization_on_disk_and_ram"]},
         {
           "command": "cargo test --locked --lib grpc::v2::append",
           "result": "PASS",

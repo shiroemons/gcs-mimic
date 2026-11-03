@@ -10,6 +10,56 @@ use tonic::{Code, Request};
 
 const BUCKET: &str = "projects/_/buckets/grpc-append";
 
+#[tokio::test]
+async fn readable_selection_survives_appendable_finalization() {
+    let (_dir, storage) = setup(false).await;
+    for index in 0..30 {
+        let name = format!("racing-{index}");
+        let mut writer = storage
+            .state
+            .catalog
+            .create_appendable(
+                "grpc-append",
+                &name,
+                crate::storage::ResumableOptions::new(BucketAccess::Permissive),
+            )
+            .await
+            .unwrap();
+        writer
+            .append(0, Bytes::from_static(b"persisted"), 1024)
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        let reads = async {
+            for _ in 0..20 {
+                let target = live("grpc-append", &name);
+                let (record, mut reader, _) = storage
+                    .open_readable(target.clone(), Default::default(), PERMISSIVE)
+                    .await
+                    .unwrap();
+                assert_eq!(record.size, 9);
+                assert_eq!(
+                    reader.next_chunk().await.unwrap().unwrap(),
+                    b"persisted".as_slice()
+                );
+                assert_eq!(
+                    storage
+                        .get_readable(target, Default::default(), PERMISSIVE)
+                        .await
+                        .unwrap()
+                        .0
+                        .size,
+                    9
+                );
+            }
+        };
+        let (finalized, ()) =
+            tokio::join!(writer.finalize(None, BucketAccess::Permissive, 1024), reads);
+        finalized.unwrap();
+    }
+    storage.state.catalog.close().await.unwrap();
+}
+
 async fn setup(strict: bool) -> (TestDir, Storage) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();

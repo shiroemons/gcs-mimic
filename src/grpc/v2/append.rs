@@ -11,7 +11,7 @@ use crate::{
     auth::{Caller, OBJECTS_CREATE},
     bucket::BucketAccess,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
-    storage::{AppendError, AppendWriter, ObjectReader},
+    storage::{AppendError, AppendWriter, Finality, ObjectReader},
 };
 use tokio::sync::mpsc;
 use tonic::{
@@ -28,13 +28,6 @@ pub(super) fn is_append(first: &pb::BidiWriteObjectRequest) -> bool {
         Some(FirstMessage::WriteObjectSpec(spec)) => spec.appendable == Some(true),
         _ => false,
     }
-}
-
-/// Whether a readable generation is a finalized object or a Rapid appendable one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Finality {
-    Finalized,
-    Unfinalized,
 }
 
 /// What a BidiWriteObject acknowledgement reports in its write status.
@@ -282,35 +275,23 @@ impl Storage {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, ObjectReader, Finality), ObjectError> {
-        let catalog = &self.state.catalog;
-        match catalog
-            .open_object(target.clone(), conditions, access)
+        self.state
+            .catalog
+            .open_readable(target, conditions, access)
             .await
-        {
-            Err(ObjectError::ObjectNotFound) => catalog
-                .open_appendable(target, conditions, access)
-                .await
-                .map(|(record, reader)| (record, reader, Finality::Unfinalized)),
-            other => other.map(|(record, reader)| (record, reader, Finality::Finalized)),
-        }
     }
 
-    /// Metadata-only counterpart of [`Self::open_readable`]: finalized objects do not open
-    /// their blob.
+    /// Metadata-only counterpart of [`Self::open_readable`]: neither state opens its blob.
     pub(super) async fn get_readable(
         &self,
         target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, Finality), ObjectError> {
-        let catalog = &self.state.catalog;
-        match catalog.get_object(target.clone(), conditions, access).await {
-            Err(ObjectError::ObjectNotFound) => catalog
-                .open_appendable(target, conditions, access)
-                .await
-                .map(|(record, _)| (record, Finality::Unfinalized)),
-            other => other.map(|record| (record, Finality::Finalized)),
-        }
+        self.state
+            .catalog
+            .get_readable(target, conditions, access)
+            .await
     }
 
     pub(super) async fn delete_including_appendable(
@@ -319,16 +300,10 @@ impl Storage {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        let catalog = &self.state.catalog;
-        match catalog
-            .delete_object(target.clone(), conditions, access)
+        self.state
+            .catalog
+            .delete_including_appendable(target, conditions, access)
             .await
-        {
-            Err(ObjectError::ObjectNotFound) => {
-                catalog.delete_appendable(target, conditions, access).await
-            }
-            other => other,
-        }
     }
 }
 
