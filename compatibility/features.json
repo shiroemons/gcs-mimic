@@ -27543,6 +27543,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id": "versioned_metadata_identity", "description": "Upload-v2 identity includes all metadata fields and an explicit replacement-map tag. Default Merge preserves the committed golden digest; otherwise identical Replace requests have a different identity without depending on Debug formatting.", "result": "PASS", "test_ids": ["fingerprint_encoding_has_a_stable_golden_digest", "every_metadata_field_contributes_to_request_identity", "metadata_map_modes_have_distinct_request_identities"]},
         {
           "id": "BEHAVIOR-OBJECT-009-MULTIPART-FRAMING",
           "description": "Ordered two/three-part multipart/related with RFC token/quoted boundaries, delimiter whitespace, byte-exact chunk splits, empty/binary media and bounded parser carry; malformed, missing or extra parts and truncated framing fail without publication.",
@@ -27663,6 +27664,9 @@
         }
       ],
       "test_ids": [
+        "fingerprint_encoding_has_a_stable_golden_digest",
+        "every_metadata_field_contributes_to_request_identity",
+        "metadata_map_modes_have_distinct_request_identities",
         "json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters",
         "json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split",
         "json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation",
@@ -27694,6 +27698,7 @@
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib storage::catalog::upload_replay -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/releases/upload-replay-encoding.md", "test_ids": ["fingerprint_encoding_has_a_stable_golden_digest", "every_metadata_field_contributes_to_request_identity", "metadata_map_modes_have_distinct_request_identities"]},
         {
           "command": "just pre-push",
           "result": "PASS",

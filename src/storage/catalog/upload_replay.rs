@@ -715,7 +715,7 @@ mod tests {
             override_unlocked_retention: crate::object::retention::UnlockedOverride::Requested,
             ..super::super::resumable::golden_tests::populated_options().metadata
         };
-        let digest = UploadFingerprint {
+        let request = UploadFingerprint {
             bucket: "bucket",
             name: "name",
             content_type: "text/plain",
@@ -728,26 +728,22 @@ mod tests {
             },
             size: 5,
             sha256: [7; 32],
-        }
-        .digest();
+        };
+        let digest = request.digest();
         let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
         assert_eq!(
             hex,
             "9800c73b1029a34e7809af2ace71da8e6668531db720b33ce2f448732d4735d7"
         );
-        let mut replace = metadata;
+        let mut replace = metadata.clone();
         replace.metadata_mode = crate::object::MapMode::Replace;
         assert_ne!(
             digest,
-            fingerprint(&(
-                "bucket",
-                "name",
-                "text/plain",
-                &replace,
-                ObjectConditions::default(),
-                5_u64,
-                [7_u8; 32],
-            ))
+            UploadFingerprint {
+                metadata: &replace,
+                ..request
+            }
+            .digest()
         );
     }
 }
