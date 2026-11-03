@@ -1,15 +1,10 @@
-#![expect(
-    dead_code,
-    reason = "Integration binaries use different object-effect scenarios."
-)]
-
-pub(crate) use crate::common;
+use crate::common;
 use common::http::Client;
 pub(crate) use common::http::Reply;
 use serde_json::Value;
 use std::time::Duration;
 
-common::server::declare_server!();
+common::process::declare_server!();
 impl Server {
     pub(crate) fn start(dir: &common::TestDir, strict: bool) -> Self {
         Self::start_with_catalog_wait(dir, strict, 30000)
@@ -37,7 +32,7 @@ impl Server {
     }
     /// Permissive server with extra serve arguments.
     pub(crate) fn start_with_args(dir: &common::TestDir, extra: &[&str]) -> Self {
-        let mut command = common::server::http_command(&dir.0);
+        let mut command = common::process::http_command(&dir.0);
         command
             .args(["--api-base-url", "http://127.0.0.1:4443"])
             .args(extra);
@@ -50,7 +45,7 @@ impl Server {
         request_milliseconds: u64,
         max_object_bytes: u64,
     ) -> Self {
-        let mut command = common::server::http_command(&dir.0);
+        let mut command = common::process::http_command(&dir.0);
         command
             .args(["--api-base-url", "http://127.0.0.1:4443"])
             .arg("--catalog-wait-timeout-ms")
@@ -104,7 +99,7 @@ impl Server {
             headers: "",
             timeout: Duration::from_secs(10),
         }
-        .request(
+        .request_eof(
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=multipart",
             &format!("{headers}Content-Type: multipart/related; boundary={boundary}\r\n"),
@@ -168,9 +163,9 @@ pub(crate) fn request(
         headers: "Content-Type: application/json\r\n",
         timeout: Duration::from_secs(10),
     }
-    .request(method, path, headers, body)
+    .request_eof(method, path, headers, body)
     .into_joined()
 }
 pub(crate) fn blobs(dir: &common::TestDir) -> usize {
-    common::server::blob_count(dir)
+    common::process::blob_count(dir)
 }

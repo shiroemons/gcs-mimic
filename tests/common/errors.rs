@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 
 impl Reply {
     /// A bare text page: the status, content type and the whole body are compared.
+    #[track_caller]
     pub(crate) fn plain_error(&self, status: u16, content_type: &str, body: &str) {
         self.expect(status);
         assert_eq!(self.headers["content-type"], content_type);
@@ -10,7 +11,8 @@ impl Reply {
     }
 
     /// A delete or overwrite refused by a hold: a 403 `forbidden` whose message names the hold.
-    pub(crate) fn hold_error(&self) {
+    #[track_caller]
+    pub(crate) fn hold_error_reason(&self) {
         self.json_reason(403, "forbidden");
         let message = String::from_utf8_lossy(&self.body).into_owned();
         assert!(
@@ -20,6 +22,8 @@ impl Reply {
         );
     }
 
+    #[track_caller]
+    /// Checks upload MIME types, status, code, domain, reason and matching messages.
     pub(crate) fn json_error(&self, status: u16, reason: &str) {
         self.expect(status);
         // The upload front end labelled some JSON envelopes text/html (recorded).
@@ -43,6 +47,7 @@ impl Reply {
 }
 
 impl Reply {
+    #[track_caller]
     pub(crate) fn metadata_error(&self, status: u16, reason: &str) {
         self.expect(status);
         // A missing media object is an HTML document naming the object, not a JSON error.
@@ -58,6 +63,7 @@ impl Reply {
     }
 }
 impl Reply {
+    #[track_caller]
     pub(crate) fn success(&self) -> &Self {
         assert!(
             matches!(self.status, 200 | 204),
@@ -68,6 +74,7 @@ impl Reply {
         self
     }
 
+    #[track_caller]
     pub(crate) fn auth_error(&self, status: u16, reason: &str) {
         self.expect(status);
         assert_eq!(
@@ -78,6 +85,7 @@ impl Reply {
         assert!(!self.headers.contains_key("www-authenticate"));
     }
 
+    #[track_caller]
     pub(crate) fn login_required(&self) {
         self.auth_error(401, "required");
         assert_eq!(
@@ -86,6 +94,7 @@ impl Reply {
         );
     }
 
+    #[track_caller]
     pub(crate) fn invalid_credentials(&self) {
         self.auth_error(401, "authError");
         assert_eq!(
@@ -94,6 +103,7 @@ impl Reply {
         );
     }
 
+    #[track_caller]
     pub(crate) fn forbidden(&self) {
         self.auth_error(403, "forbidden");
         assert_eq!(
@@ -104,7 +114,8 @@ impl Reply {
 }
 impl super::http::TextReply {
     /// A delete or overwrite refused by a hold: a 403 `forbidden` whose message names the hold.
-    pub(crate) fn hold_error(&self) {
+    #[track_caller]
+    pub(crate) fn hold_error_envelope(&self) {
         self.json_envelope(403, "forbidden");
         assert!(
             self.body.contains("under active Temporary hold")
@@ -114,6 +125,8 @@ impl super::http::TextReply {
         );
     }
 
+    #[track_caller]
+    /// Checks the JSON MIME prefix, status, code, domain, reason and matching messages.
     pub(crate) fn json_envelope(&self, status: u16, reason: &str) {
         self.expect(status);
         assert!(self.headers.contains("content-type: application/json"));
@@ -133,6 +146,7 @@ pub(crate) enum ContentType {
     Skip,
 }
 impl Reply {
+    #[track_caller]
     pub(crate) fn xml_error(&self, status: u16, code: &str, content_type: ContentType) {
         self.expect(status);
         if matches!(content_type, ContentType::Check) {
@@ -148,15 +162,18 @@ impl Reply {
         );
     }
 }
+#[track_caller]
 pub(crate) fn xml_error(reply: &Reply, status: u16, code: &str) {
     reply.xml_error(status, code, ContentType::Skip);
 }
+#[track_caller]
 pub(crate) fn xml_error_with_content_type(reply: &Reply, status: u16, code: &str) {
     reply.xml_error(status, code, ContentType::Check);
 }
 
 impl Reply {
-    pub(crate) fn range_error(&self, status: u16, reason: &str) {
+    #[track_caller]
+    pub(crate) fn html_or_json_error(&self, status: u16, reason: &str) {
         self.expect(status);
         // A missing media object and an unsatisfiable range are plain HTML-typed messages.
         if self.headers["content-type"] == "text/html; charset=UTF-8" {

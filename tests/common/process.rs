@@ -14,10 +14,19 @@ use std::{
 
 // Each suite adds scenario-specific methods without extending another suite's server.
 macro_rules! declare_server {
+    (graceful) => {
+        crate::common::process::declare_server!();
+        impl Server {
+            fn graceful(mut self) -> Self {
+                self.0 = self.0.graceful();
+                self
+            }
+        }
+    };
     () => {
-        pub(crate) struct Server(crate::common::server::Server);
+        pub(crate) struct Server(crate::common::process::Server);
         impl std::ops::Deref for Server {
-            type Target = crate::common::server::Server;
+            type Target = crate::common::process::Server;
             fn deref(&self) -> &Self::Target {
                 &self.0
             }
@@ -29,7 +38,7 @@ macro_rules! declare_server {
         }
         impl Server {
             fn launch(command: &mut std::process::Command) -> Self {
-                Self(crate::common::server::Server::launch(command))
+                Self(crate::common::process::Server::launch(command))
             }
         }
     };
@@ -64,7 +73,7 @@ pub(crate) use super::http::Reply;
 
 impl Reply {
     pub(crate) fn framed(stream: std::net::TcpStream) -> Self {
-        super::http::receive(stream, false).into_last()
+        super::http::receive(stream, super::http::Body::Expected).into_last()
     }
 }
 

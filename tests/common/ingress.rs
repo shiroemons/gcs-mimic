@@ -3,13 +3,11 @@ use common::http::Client;
 pub(crate) use common::http::TextReply as Reply;
 use std::{io::Write, net::TcpStream, time::Duration};
 
-common::server::declare_server!();
+common::process::declare_server!(graceful);
 
 impl Server {
     pub(crate) fn start(dir: &TestDir, options: &[&str]) -> Self {
-        let mut server = Self::launch(common::server::http_command(&dir.0).args(options));
-        server.0 = server.0.graceful();
-        server
+        Self::launch(common::process::http_command(&dir.0).args(options)).graceful()
     }
     fn client(&self) -> Client<'_> {
         Client {
@@ -21,14 +19,14 @@ impl Server {
     }
     pub(crate) fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
         self.client()
-            .request(method, path, headers, body)
+            .request_eof(method, path, headers, body)
             .into_text()
     }
     pub(crate) fn connect(&self) -> TcpStream {
         self.client().connect()
     }
     pub(crate) fn raw(&self, head: &str, body: &[u8]) -> Reply {
-        self.client().raw(head, body).into_text()
+        self.client().raw_eof(head, body).into_text()
     }
 }
 impl Reply {
