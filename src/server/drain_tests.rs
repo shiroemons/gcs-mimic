@@ -88,7 +88,7 @@ async fn exhausted_accepts_pause_and_keep_serving() {
 }
 
 #[cfg(unix)]
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn exhausted_accept_pause_still_honors_shutdown() {
     let data = TestDir::new();
     let state = Arc::new(State::for_test(
@@ -97,22 +97,34 @@ async fn exhausted_accept_pause_still_honors_shutdown() {
     ));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let faults = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(
-        vec![libc::EMFILE; 128],
+        vec![libc::EMFILE; 8],
     )));
-    let result = tokio::time::timeout(
-        Duration::from_millis(200),
-        ACCEPT_FAULTS.scope(
-            faults,
-            serve(listener, Config::default(), state, async {
-                tokio::time::sleep(Duration::from_millis(25)).await;
+    let (stop, shutdown) = tokio::sync::oneshot::channel();
+    let (draining, drained) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(ACCEPT_FAULTS.scope(
+        faults.clone(),
+        serve_with_tls_and_drain(
+            vec![(listener, None)],
+            Config::default(),
+            state,
+            async { shutdown.await.map_err(io::Error::other) },
+            async move {
+                draining.send(tokio::time::Instant::now()).unwrap();
                 Ok(())
-            }),
+            },
         ),
-    )
-    .await;
-    result
-        .expect("accept backoff must not block shutdown")
-        .unwrap();
+    ));
+    tokio::task::yield_now().await;
+    for delay in [10, 20, 40, 80, 160, 320, 640] {
+        tokio::time::advance(Duration::from_millis(delay)).await;
+        tokio::task::yield_now().await;
+    }
+    assert!(faults.lock().unwrap().is_empty());
+    let shutdown_at = tokio::time::Instant::now();
+    stop.send(()).unwrap();
+    let drain_at = drained.await.unwrap();
+    server.await.unwrap().unwrap();
+    assert!(drain_at - shutdown_at < Duration::from_secs(1));
 }
 
 #[tokio::test]
