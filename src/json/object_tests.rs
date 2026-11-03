@@ -2,6 +2,7 @@ use super::*;
 use crate::object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget};
 use hyper::{HeaderMap, Method, StatusCode, header::HeaderName};
 use serde_json::json;
+use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
 fn range_classification_is_shared_and_ignores_repeated_fields() {
@@ -18,7 +19,6 @@ fn range_classification_is_shared_and_ignores_repeated_fields() {
         assert_eq!(range_request(&headers).resolve(10).unwrap(), None);
     }
 }
-use std::time::{Duration, UNIX_EPOCH};
 
 #[track_caller]
 fn request(method: Method, path: &str) -> Result<ObjectRequest, JsonError> {
