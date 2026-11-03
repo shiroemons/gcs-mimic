@@ -1,7 +1,8 @@
-//! Zero-tolerance code-quality gate for the server's production code.
+//! Production code-quality gate with zero-tolerance and per-file ratcheted rules.
 //!
 //! `cargo xtask lint` runs Clippy on the server library and binaries with [`CLIPPY_LINTS`] and
-//! applies the text rules to production files. Any finding fails the gate. The only exceptions
+//! applies the text rules to production files. New findings fail; ratcheted rules may keep only
+//! their recorded per-file counts. The other exceptions
 //! are reasoned suppressions (`#[expect(lint, reason = "..")]` for Clippy and rustc lints,
 //! `// xtask-lint: allow(text::..) -- reason` for text rules) and the one shared error-mapping
 //! helper in [`SHARED_HELPER_FILE`]. `--target <triple>` repeats the Clippy pass for another
@@ -9,6 +10,8 @@
 //! cannot express; prefer a Clippy lint or `clippy.toml` entry for anything new.
 
 use serde_json::Value;
+
+mod ratchet;
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
@@ -36,6 +39,16 @@ pub const CLIPPY_LINTS: [&str; 9] = [
     "clippy::disallowed_methods",
 ];
 
+pub const RATCHETED_CLIPPY_LINTS: [&str; 4] = [
+    "clippy::indexing_slicing",
+    "clippy::string_slice",
+    "clippy::cast_possible_truncation",
+    "clippy::cast_sign_loss",
+];
+
+const STATIC_STR_ERROR: &str = "text::static_str_error";
+pub const RATCHETED_TEXT_RULES: [&str; 1] = [STATIC_STR_ERROR];
+
 const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 
 /// The only file that may define `fn unavailable`, the shared storage error mapping.
@@ -52,7 +65,7 @@ const STRINGIFIED_ERROR: &str = "text::stringified_error";
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 8] = [
+pub const TEXT_RULES: [&str; 9] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
@@ -61,6 +74,7 @@ pub const TEXT_RULES: [&str; 8] = [
     SYNC_WITHOUT_FLUSH,
     STRING_ERROR_VARIANT,
     STRINGIFIED_ERROR,
+    STATIC_STR_ERROR,
 ];
 
 const SUPPRESSION_MARKER: &str = "xtask-lint:";
@@ -103,8 +117,10 @@ const STRING_TYPES: [&str; 3] = ["String", "std::string::String", "alloc::string
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// Fail on any production finding.
+    /// Enforce zero-tolerance rules and the host ratchet.
     Gate,
+    /// Print the current ratcheted counts without writing a file.
+    Baseline,
     /// Run only the Clippy pass for another target triple; text rules are target-independent
     /// and already ran with the host gate.
     Target(String),
@@ -157,6 +173,7 @@ impl Scan {
 pub fn mode(args: &[String]) -> Option<Mode> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         [] => Some(Mode::Gate),
+        ["--baseline"] => Some(Mode::Baseline),
         ["--target", triple] if !triple.is_empty() && !triple.starts_with('-') => {
             Some(Mode::Target(triple.to_owned()))
         }
@@ -168,23 +185,38 @@ pub fn mode(args: &[String]) -> Option<Mode> {
 pub fn run(root: &Path, mode: &Mode) -> Result<bool> {
     match mode {
         Mode::Gate => gate(root),
-        Mode::Target(triple) => Ok(target_gate(triple, &clippy(root, Some(triple))?)),
+        Mode::Target(triple) => target_gate(root, triple, &clippy(root, Some(triple))?),
+        Mode::Baseline => {
+            let mut findings = clippy(root, None)?;
+            findings.extend(scan_tree(root)?.findings);
+            print!("{}", ratchet::Baseline::from_findings(&findings).render());
+            Ok(true)
+        }
     }
 }
 
-fn target_gate(triple: &str, violations: &[Finding]) -> bool {
-    for finding in violations {
+fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> {
+    let violations: Vec<_> = findings
+        .iter()
+        .filter(|finding| !ratchet::eligible(&finding.rule))
+        .cloned()
+        .collect();
+    let problems = ratchet::Baseline::load(root)?.check(findings, ratchet::Scope::Target);
+    for finding in &violations {
         eprintln!("error: {}: {}:{}", finding.rule, finding.file, finding.line);
     }
-    if violations.is_empty() {
+    for problem in &problems {
+        eprintln!("error: {problem}");
+    }
+    if violations.is_empty() && problems.is_empty() {
         println!("lint --target {triple}: 0 production Clippy violations");
     } else {
         eprintln!(
             "lint --target {triple} failed: {} production Clippy violations",
-            violations.len()
+            violations.len() + problems.len()
         );
     }
-    violations.is_empty()
+    Ok(violations.is_empty() && problems.is_empty())
 }
 
 fn gate(root: &Path) -> Result<bool> {
@@ -192,6 +224,15 @@ fn gate(root: &Path) -> Result<bool> {
     let scan = scan_tree(root)?;
     findings.extend(scan.findings);
     findings.sort();
+    let ratcheted_count = findings
+        .iter()
+        .filter(|finding| ratchet::eligible(&finding.rule))
+        .count();
+    let ratchet_problems = ratchet::Baseline::load(root)?.check(&findings, ratchet::Scope::Host);
+    for problem in &ratchet_problems {
+        eprintln!("error: {problem}");
+    }
+    findings.retain(|finding| !ratchet::eligible(&finding.rule));
     let suppressions = suppression_summary(&scan.suppressed);
     for problem in &scan.problems {
         eprintln!(
@@ -209,13 +250,18 @@ fn gate(root: &Path) -> Result<bool> {
     if let Some(message) = &missing_helper {
         eprintln!("error: {message}");
     }
-    let passed = violations.is_empty() && missing_helper.is_none() && scan.problems.is_empty();
+    let passed = violations.is_empty()
+        && missing_helper.is_none()
+        && scan.problems.is_empty()
+        && ratchet_problems.is_empty();
     if passed {
-        println!("lint: 0 production violations; {suppressions}");
+        println!(
+            "lint: 0 new production violations; {ratcheted_count} ratcheted findings; {suppressions}"
+        );
     } else {
         eprintln!(
             "lint failed: {} production violations, {} suppression problems; {suppressions}",
-            violations.len() + usize::from(missing_helper.is_some()),
+            violations.len() + usize::from(missing_helper.is_some()) + ratchet_problems.len(),
             scan.problems.len()
         );
         eprintln!(
@@ -273,7 +319,7 @@ fn clippy(root: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
         command.args(["--target", target]);
     }
     command.arg("--");
-    for lint in CLIPPY_LINTS {
+    for lint in CLIPPY_LINTS.into_iter().chain(RATCHETED_CLIPPY_LINTS) {
         command.args(["-W", lint]);
     }
     let output = command
@@ -313,7 +359,7 @@ pub fn clippy_findings(stream: &str) -> Vec<Finding> {
         let Some(code) = message["code"]["code"].as_str() else {
             continue;
         };
-        if !CLIPPY_LINTS.contains(&code) {
+        if !CLIPPY_LINTS.contains(&code) && !RATCHETED_CLIPPY_LINTS.contains(&code) {
             continue;
         }
         let Some(span) = message["spans"]
@@ -573,11 +619,23 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
             if returns.is_some_and(string_error_result) {
                 add(STRING_ERROR_RESULT, offset);
             }
+            if returns.is_some_and(static_str_error_result) {
+                add(STATIC_STR_ERROR, offset);
+            }
         }
     }
     for offset in words(masked, "type") {
-        if alias(masked, offset).is_some_and(string_error_result) {
-            add(STRING_ERROR_RESULT, offset);
+        if let Some((name, ty)) = alias(masked, offset) {
+            let associated_error = matches!(name, "Err" | "Error");
+            let compact: String = ty.chars().filter(|c| !c.is_whitespace()).collect();
+            if string_error_result(ty)
+                || (associated_error && STRING_TYPES.contains(&compact.as_str()))
+            {
+                add(STRING_ERROR_RESULT, offset);
+            }
+            if static_str_error_result(ty) || (associated_error && compact == "&'staticstr") {
+                add(STATIC_STR_ERROR, offset);
+            }
         }
     }
     for offset in words(masked, "format") {
@@ -899,7 +957,7 @@ fn signature(masked: &str, offset: usize) -> Option<(&str, Option<&str>)> {
 }
 
 /// The aliased type of a `type Name<..> = Type;` item at `offset` in masked text.
-fn alias(masked: &str, offset: usize) -> Option<&str> {
+fn alias(masked: &str, offset: usize) -> Option<(&str, &str)> {
     let bytes = masked.as_bytes();
     let mut i = skip_space(bytes, offset + 4);
     let start = i;
@@ -909,11 +967,12 @@ fn alias(masked: &str, offset: usize) -> Option<&str> {
     if i == start {
         return None;
     }
+    let name = &masked[start..i];
     i = skip_space(bytes, i);
     if bytes.get(i) == Some(&b'<') {
         i = skip_space(bytes, close_group(bytes, i)?);
     }
-    (bytes.get(i) == Some(&b'=')).then(|| type_until(masked, i + 1))
+    (bytes.get(i) == Some(&b'=')).then(|| (name, type_until(masked, i + 1)))
 }
 
 /// Type text from `start` up to a depth-zero `{`, `;` or `where`.
@@ -941,6 +1000,14 @@ fn type_until(masked: &str, start: usize) -> &str {
 
 /// Whether a type is `Result<T, String>` under any path.
 fn string_error_result(ty: &str) -> bool {
+    result_error_is(ty, &STRING_TYPES)
+}
+
+fn static_str_error_result(ty: &str) -> bool {
+    result_error_is(ty, &["&'staticstr"])
+}
+
+fn result_error_is(ty: &str, errors: &[&str]) -> bool {
     let ty: String = ty.chars().filter(|c| !c.is_whitespace()).collect();
     let Some(open) = ty.find('<') else {
         return false;
@@ -965,11 +1032,7 @@ fn string_error_result(ty: &str) -> bool {
         }
     }
     args.push(&inner[start..]);
-    args.len() == 2
-        && matches!(
-            args[1],
-            b"String" | b"std::string::String" | b"alloc::string::String"
-        )
+    args.len() == 2 && errors.iter().any(|error| args[1] == error.as_bytes())
 }
 
 /// Whether the `format` at `offset` is `format!` whose first argument is an SQL statement.
@@ -1288,6 +1351,22 @@ fn e() -> Result<Box<dyn Fn() -> u8>, std::string::String>;
     }
 
     #[test]
+    fn associated_string_errors_and_static_str_errors_are_detected() {
+        let text = "type Err = String;\ntype Error = std::string::String;\ntype Item = String;\ntype Output = String;\nfn a() -> Result<(), &'static str> {}\ntype B<T> = Result<T,&'static str>;\ntype Error = &'static str;\nfn c() -> Result<&'static str, Error> {}\nfn d() -> Option<&'static str> {}\nfn e() -> &'static str {}\n#[cfg(test)]\nmod tests { type Err = String; fn f() -> Result<(), &'static str> {} }\n";
+        let mut actual = rules("src/a.rs", text);
+        actual.sort();
+        let mut expected = vec![
+            (STRING_ERROR_RESULT.to_owned(), 1),
+            (STRING_ERROR_RESULT.to_owned(), 2),
+            (STATIC_STR_ERROR.to_owned(), 5),
+            (STATIC_STR_ERROR.to_owned(), 6),
+            (STATIC_STR_ERROR.to_owned(), 7),
+        ];
+        expected.sort();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn helper_attribute_and_sql_rules_match_only_code() {
         let text = "\
 fn unavailable(e: impl Display) -> Error { todo() }
@@ -1483,6 +1562,7 @@ struct ParseError(String);
     fn arguments_select_one_mode() {
         let args = |list: &[&str]| list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
         assert_eq!(mode(&args(&[])), Some(Mode::Gate));
+        assert_eq!(mode(&args(&["--baseline"])), Some(Mode::Baseline));
         assert_eq!(
             mode(&args(&["--target", "x86_64-pc-windows-msvc"])),
             Some(Mode::Target("x86_64-pc-windows-msvc".to_owned()))
@@ -1742,7 +1822,7 @@ let s = \"// xtask-lint: allow(text::nope)\";
             }
         }
         assert!(denied.contains(&"unreachable_pub"), "{denied:?}");
-        for lint in CLIPPY_LINTS {
+        for lint in CLIPPY_LINTS.into_iter().chain(RATCHETED_CLIPPY_LINTS) {
             let name = lint.trim_start_matches("clippy::");
             assert!(
                 !denied.contains(&name),

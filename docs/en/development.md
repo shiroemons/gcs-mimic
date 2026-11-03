@@ -307,8 +307,11 @@ every target.
 `cargo xtask lint` enforces the Rust implementation guardrails in
 [AGENTS.md](../../AGENTS.md#rust-implementation-guardrails). `scripts/check.sh`
 runs it after workspace Clippy, so `just check` and Foundation CI run it too.
-It is a zero-tolerance gate over server production code: any finding fails,
-and it prints every occurrence. There is no baseline. The only exceptions are:
+It prints every rejected occurrence in server production code. Existing rules
+remain zero tolerance. Indexing, string slicing, potentially truncating or
+sign-losing casts and static-string errors use per-file counts in
+`xtask/lint-baseline.txt`; no new finding may increase those counts.
+The other exceptions are:
 
 - a reasoned `#[expect(<lint>, reason = "...")]` for a Clippy or rustc lint
   (see [below](#expect-for-restriction-lints));
@@ -355,8 +358,11 @@ cannot express.
 | `clippy::allow_attributes_without_reason` | `#[allow]` or `#[expect]` without a `reason`. |
 | `clippy::allow_attributes` | Any `#[allow]`; use `#[expect]`, which fails once the lint stops firing. |
 | `clippy::disallowed_methods` | The methods listed in `clippy.toml`: unsupervised spawns (`tokio::spawn`, `tokio::task::spawn`, `tokio::task::spawn_local`, `tokio::task::spawn_blocking`, `Handle::spawn_blocking`, `Runtime::spawn_blocking`, `Handle::spawn`, `Runtime::spawn`, `std::thread::spawn`, `std::thread::Builder::spawn`) outside `src/task.rs`, and rusqlite's `Connection::execute`, `query_row`, `query_one` and `prepare`, which prepare their SQL on every call. Calls through a `Transaction` resolve to the `Connection` methods; `Statement` methods from `prepare_cached`, `execute_batch`, `JoinSet::spawn` and scoped threads are not listed. |
+| `clippy::indexing_slicing`, `clippy::string_slice` | Potential panics from indexing and slicing; per-file ratchet. |
+| `clippy::cast_possible_truncation`, `clippy::cast_sign_loss` | Silent truncation and sign loss; per-file ratchet. Casts do not themselves panic. |
 | `text::path_attribute` | `#[path]` module attributes. |
-| `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`. |
+| `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`, plus associated `type Err = String` and `type Error = String`. |
+| `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types; per-file ratchet. |
 | `text::string_error_variant` | Tuple variants `Backend(String)`, `BodyAborted(String)`, `Database(String)`, `Internal(String)`, `Io(String)`, `Other(String)`, `Sqlite(String)`, `Storage(String)` or `Unavailable(String)` in an enum named `*Error`. |
 | `text::stringified_error` | `map_err(\|e\| Path(e.to_string()))` or `map_err(\|e\| Path(format!(".. {e}")))` whose only argument stringifies the error. |
 | `text::unavailable_helper` | `fn unavailable` outside `src/storage/failure.rs`, or not exactly one there. |
@@ -382,6 +388,36 @@ reports a socket write followed by a file sync. `text::string_error_variant`
 checks only the listed variant names, so a variant that names rejected client
 input, such as `InvalidTopic(String)`, may keep its message. Review still
 applies the written rules where the tool cannot.
+
+New error types must not be `&'static str`, even for rejected client input:
+strings do not implement `Error` and cannot preserve a cause chain. Use a
+typed error with `Display` and `Error`; it may hold a static message.
+The unused `http-body-util` channel feature is disabled. Producer-driven
+response bodies use `server::chunk_body` to preserve the final queued frame.
+
+#### Per-file ratchet
+
+Each baseline row is `rule`, repository-relative file and positive count,
+separated by tabs. Blank lines and `#` comments are ignored. Counts belong to
+files rather than line numbers, so moving a line does not require an update.
+Unknown rules, duplicate pairs and malformed counts fail parsing.
+
+The host gate fails both increases and stale counts: lower a count as soon as
+a finding is fixed, deleting the row at zero. Removed files are stale too.
+The target gate fails increases but permits lower counts caused by target
+configuration. Reasoned Clippy expectations and text suppressions are excluded
+from the counts and remain subject to their existing staleness checks.
+
+`cargo xtask lint --baseline` prints sorted current counts to stdout and writes
+no files. To establish a reviewed baseline after integrating parallel changes:
+
+```sh
+cargo xtask lint --baseline > xtask/lint-baseline.txt
+cargo xtask lint
+```
+
+Review increases explicitly; ordinary fixes should only lower counts. A missing
+baseline fails the gate rather than silently accepting all existing findings.
 
 #### Reasoned suppressions
 
