@@ -12,7 +12,7 @@ use crate::{
     test_support::TestDir,
 };
 use http_body_util::BodyExt;
-use std::{fs, sync::atomic::AtomicBool, time::Duration};
+use std::{fs, time::Duration};
 
 struct AuthorizationHook {
     entered: tokio::sync::Notify,
@@ -101,13 +101,8 @@ impl Fixture {
         let task = crate::sync::start(catalog.clone(), root, &config).unwrap();
         assert!(task.rescan().await.unwrap().baseline_complete);
         let state = State {
-            grpc_read_handles: Default::default(),
-            ready: AtomicBool::new(true),
-            clock: Arc::new(SystemClock),
-            catalog,
             api_base_url: "http://localhost".into(),
-            default_location: "US".into(),
-            auth: Auth::permissive(),
+            ..State::for_test(catalog, Auth::permissive())
         };
         Self {
             _data: data,

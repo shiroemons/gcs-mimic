@@ -315,6 +315,7 @@ async fn start(
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let state = Arc::new(State {
+        xml_cors_warned_buckets: Default::default(),
         grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
         clock: Arc::new(FixedClock),
@@ -828,6 +829,7 @@ async fn shutdown_stops_accepting_on_original_listener() {
     let listener = tokio::net::TcpListener::from_std(witness.try_clone().unwrap()).unwrap();
     let config = common::http_config();
     let state = Arc::new(State {
+        xml_cors_warned_buckets: Default::default(),
         grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
         clock: Arc::new(FixedClock),
@@ -888,6 +890,7 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let config = common::http_config();
     let restarted = Arc::new(State {
+        xml_cors_warned_buckets: Default::default(),
         grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
         clock: Arc::new(FixedClock),

@@ -283,7 +283,7 @@ async fn respond_xml_cors(
     // CORS field is sent at all.
     let cors = if has_origin && !lookup_failed {
         if found && rules.is_empty() && config.cors_fallback == CorsFallback::None {
-            xml::warn_unconfigured_cors(&object.bucket, request.headers());
+            xml::warn_unconfigured_cors(state, &object.bucket, request.headers());
         }
         xml::cors(
             request.headers(),

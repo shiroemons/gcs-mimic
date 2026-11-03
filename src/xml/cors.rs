@@ -3,23 +3,26 @@ use hyper::{
     HeaderMap, Method,
     header::{HeaderName, HeaderValue},
 };
-use std::{collections::BTreeSet, sync::Mutex};
+use std::collections::BTreeSet;
 
 /// Methods the allow-all fallback grants; PATCH is omitted because no XML route accepts it.
 const ALLOW_ALL_METHODS: &str = "HEAD, GET, POST, PUT, DELETE";
 /// Bounds the remembered bucket names so the warning memory does not grow with the catalog.
 const WARNED_BUCKET_LIMIT: usize = 64;
 
-static WARNED_BUCKETS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-
 /// Browsers only report a generic CORS failure, so the server log is the one place that can say
 /// a migrated fake-gcs-server caller now needs the fallback or bucket rules.
-pub(crate) fn warn_unconfigured_cors(bucket: &str, headers: &HeaderMap) {
+pub(crate) fn warn_unconfigured_cors(
+    state: &crate::server::State,
+    bucket: &str,
+    headers: &HeaderMap,
+) {
     if crate::json::cors::origin(headers).is_none() {
         return;
     }
     let first = first_warning(
-        &mut WARNED_BUCKETS
+        &mut state
+            .xml_cors_warned_buckets
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()),
         bucket,
@@ -511,5 +514,24 @@ mod tests {
         }
         assert!(!first_warning(&mut warned, "bucket-over-limit"));
         assert_eq!(warned.len(), WARNED_BUCKET_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn warning_buckets_are_independent_for_each_server_state() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
+        let first = crate::server::State::for_test(catalog.clone(), Default::default());
+        let second = crate::server::State::for_test(catalog.clone(), Default::default());
+        let headers = request("https://app.example", None, None);
+        warn_unconfigured_cors(&first, "bucket-a", &headers);
+        assert!(second.xml_cors_warned_buckets.lock().unwrap().is_empty());
+        warn_unconfigured_cors(&second, "bucket-a", &headers);
+        for state in [&first, &second] {
+            assert_eq!(
+                *state.xml_cors_warned_buckets.lock().unwrap(),
+                BTreeSet::from(["bucket-a".into()])
+            );
+        }
+        catalog.close().await.unwrap();
     }
 }

@@ -17,11 +17,12 @@ use hyper::{
 };
 use hyper_util::rt::TokioIo;
 use std::{
+    collections::BTreeSet,
     convert::Infallible,
     future::Future,
     io,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, UNIX_EPOCH},
@@ -36,6 +37,7 @@ use tokio::{
 pub use crate::grpc::v2::ReadHandles;
 
 pub struct State {
+    pub xml_cors_warned_buckets: Mutex<BTreeSet<String>>,
     pub grpc_read_handles: ReadHandles,
     pub ready: AtomicBool,
     pub clock: Arc<dyn Clock>,
@@ -46,6 +48,20 @@ pub struct State {
 }
 
 impl State {
+    #[cfg(test)]
+    pub(crate) fn for_test(catalog: Catalog, auth: Auth) -> Self {
+        Self {
+            xml_cors_warned_buckets: Default::default(),
+            grpc_read_handles: Default::default(),
+            ready: AtomicBool::new(true),
+            clock: Arc::new(crate::clock::SystemClock),
+            catalog,
+            api_base_url: "http://localhost:4443".into(),
+            default_location: "US".into(),
+            auth,
+        }
+    }
+
     pub fn is_ready(&self) -> bool {
         if !self.catalog.is_healthy() {
             self.ready.store(false, Ordering::Release);

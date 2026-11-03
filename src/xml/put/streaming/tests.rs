@@ -18,7 +18,7 @@ use crate::{
 use http_body_util::Full;
 use hyper::Request;
 use ring::hmac;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::Arc;
 use tokio::sync::watch;
 
 fn sign(key: &hmac::Key, message: &str) -> String {
@@ -54,13 +54,9 @@ impl Fixture {
         Self {
             dir,
             state: State {
-                grpc_read_handles: Default::default(),
-                ready: AtomicBool::new(true),
                 clock,
-                catalog,
                 api_base_url: "http://localhost".into(),
-                default_location: "US".into(),
-                auth,
+                ..State::for_test(catalog, auth)
             },
             key: key.record.access_id,
             secret: key.secret,

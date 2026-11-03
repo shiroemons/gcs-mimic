@@ -2,23 +2,14 @@
 
 use crate::{
     auth::{Auth, Caller, Registry},
-    clock::SystemClock,
     server::State,
     storage::Catalog,
 };
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::Arc;
 use tonic::{Code, Request, Status};
 
 pub(crate) fn state(catalog: Catalog, auth: Auth) -> State {
-    State {
-        grpc_read_handles: Default::default(),
-        ready: AtomicBool::new(true),
-        clock: Arc::new(SystemClock),
-        catalog,
-        api_base_url: "http://localhost:4443".into(),
-        default_location: "US".into(),
-        auth,
-    }
+    State::for_test(catalog, auth)
 }
 
 pub(super) fn object_record(

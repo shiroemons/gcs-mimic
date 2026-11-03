@@ -13,10 +13,7 @@ use crate::{
 };
 use ring::hmac;
 use serde_json::json;
-use std::{
-    sync::{Arc, atomic::AtomicBool},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tokio::sync::watch;
 
 const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-private.pem");
@@ -75,13 +72,9 @@ impl Fixture {
         let (activity, _) = watch::channel(ObjectActivity::default());
         Self {
             state: State {
-                grpc_read_handles: Default::default(),
-                ready: AtomicBool::new(true),
                 clock,
-                catalog,
                 api_base_url: "http://localhost".into(),
-                default_location: "US".into(),
-                auth,
+                ..State::for_test(catalog, auth)
             },
             config,
             endpoints,
