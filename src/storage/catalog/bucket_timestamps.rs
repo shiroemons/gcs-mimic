@@ -13,7 +13,7 @@ PRAGMA user_version=39;";
 pub(super) fn read(row: &Row<'_>, micros: i64, column: &str) -> rusqlite::Result<SystemTime> {
     let index = row.as_ref().column_index(column)?;
     let remainder: u64 = row.get(column)?;
-    if !(0..=999).contains(&remainder) {
+    if remainder > 999 {
         return Err(sql::conversion_error(
             index,
             Type::Integer,

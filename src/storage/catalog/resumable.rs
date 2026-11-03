@@ -564,15 +564,16 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
     use rusqlite::types::Type;
     let id: String = row.get(0)?;
     let blob_id: String = row.get(1)?;
-    if id.len() != 64
-        || blob_id.len() != 32
-        || !id
-            .bytes()
-            .chain(blob_id.bytes())
-            .all(|b| b.is_ascii_hexdigit())
-    {
+    if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(sql::conversion_error(
             0,
+            Type::Text,
+            "invalid upload opaque ID",
+        ));
+    }
+    if blob_id.len() != 32 || !blob_id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(sql::conversion_error(
+            1,
             Type::Text,
             "invalid upload opaque ID",
         ));
