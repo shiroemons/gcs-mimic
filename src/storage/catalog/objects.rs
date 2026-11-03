@@ -1246,8 +1246,7 @@ impl Catalog {
         }
         uploads.active += 1;
         Ok(UploadGuard {
-            catalog: Some(self.clone()),
-            _admin: None,
+            slot: super::UploadSlot::Counted(self.clone()),
             replay: None,
             _activity: activity,
         })

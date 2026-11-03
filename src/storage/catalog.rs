@@ -638,16 +638,33 @@ struct UploadState {
     closed: bool,
 }
 
+/// The admission held through publication and cleanup.
+enum UploadSlot {
+    Counted(Catalog),
+    Admin {
+        _permit: tokio::sync::OwnedSemaphorePermit,
+    },
+}
+
 pub(crate) struct UploadGuard {
-    catalog: Option<Catalog>,
-    _admin: Option<tokio::sync::OwnedSemaphorePermit>,
+    slot: UploadSlot,
     replay: Option<upload_replay::UploadReplay>,
     _activity: Activity,
 }
 
+impl UploadGuard {
+    fn admin(permit: tokio::sync::OwnedSemaphorePermit, activity: Activity) -> Self {
+        Self {
+            slot: UploadSlot::Admin { _permit: permit },
+            replay: None,
+            _activity: activity,
+        }
+    }
+}
+
 impl Drop for UploadGuard {
     fn drop(&mut self) {
-        if let Some(catalog) = &self.catalog {
+        if let UploadSlot::Counted(catalog) = &self.slot {
             let mut uploads = catalog
                 .0
                 .uploads

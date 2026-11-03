@@ -746,12 +746,7 @@ impl Admin {
                     access,
                 },
                 body,
-                super::UploadGuard {
-                    catalog: None,
-                    _admin: Some(permit),
-                    replay: None,
-                    _activity: activity,
-                },
+                super::UploadGuard::admin(permit, activity),
                 request.mode,
                 identity.map_or(
                     objects::PublishIdentity::Assigned,
