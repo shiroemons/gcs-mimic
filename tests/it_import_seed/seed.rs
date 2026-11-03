@@ -7,11 +7,16 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader},
     net::{TcpListener, TcpStream},
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     time::Duration,
+};
+#[cfg(unix)]
+use std::{
+    io::{Read, Write},
+    process::Child,
 };
 
 fn command(data: &Path, seed: Option<&Path>) -> Command {
