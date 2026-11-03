@@ -110,7 +110,7 @@ impl ReadyEvent {
             event: "ready",
             executable: "gcs-mimic",
             version: env!("CARGO_PKG_VERSION"),
-            healthcheck_path: "/_internal/healthcheck",
+            healthcheck_path: Config::HEALTHCHECK_PATH,
             admin_enabled: config.admin_enabled,
             message: format!("server started at {api_base_url}"),
             listen: Some(listen),
@@ -412,6 +412,13 @@ pub(crate) async fn serve(
             return close_startup(&catalog, Err(error)).await;
         }
     };
+    let sync_task = match sync_root
+        .map(|root| gcs_mimic::sync::start(catalog.clone(), root, &config))
+        .transpose()
+    {
+        Ok(task) => task,
+        Err(error) => return close_startup(&catalog, Err(error)).await,
+    };
     catalog.start_resumable_maintenance();
     let state = Arc::new(State {
         pools: server::WorkPools::new(&config),
@@ -424,14 +431,8 @@ pub(crate) async fn serve(
         default_location: config.default_location.clone(),
         auth,
     });
+    // Readiness must follow every fallible startup step, including sync worker creation.
     println!("{ready}");
-    let sync_task = match sync_root
-        .map(|root| gcs_mimic::sync::start(state.catalog.clone(), root, &config))
-        .transpose()
-    {
-        Ok(task) => task,
-        Err(error) => return close_startup(&state.catalog, Err(error)).await,
-    };
     let background_drain = async move {
         if let Some(task) = sync_task {
             task.finish().await?;
