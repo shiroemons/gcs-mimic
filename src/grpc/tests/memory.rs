@@ -1,4 +1,5 @@
 use super::super::{generated::google::storage::v2 as pb, v1, v2};
+use crate::grpc::test_support::{self as fixtures};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::{Auth, Registry},
@@ -7,13 +8,9 @@ use crate::{
     storage::Catalog,
 };
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
 use prost::Message;
-use std::{
-    convert::Infallible,
-    sync::{Arc, atomic::AtomicBool},
-};
-use tonic::{Code, Status, codegen::Service};
+use std::{convert::Infallible, sync::Arc};
+use tonic::{Code, codegen::Service};
 
 const BUCKET: &str = "projects/_/buckets/memory-grpc";
 type V2 = pb::storage_server::StorageServer<v2::Storage>;
@@ -34,11 +31,7 @@ async fn state(budget: u64) -> Arc<State> {
     )
     .unwrap();
     catalog.insert_bucket(bucket).await.unwrap();
-    Arc::new(State {
-        ready: AtomicBool::new(true), clock: Arc::new(SystemClock), catalog,
-        api_base_url: "http://localhost:4443".into(), default_location: "US".into(),
-        auth: Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"reader@example.test","tokens":["reader"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}"#).unwrap()),
-    })
+    Arc::new(State::for_test(catalog, Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"reader@example.test","tokens":["reader"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}"#).unwrap())))
 }
 
 async fn rpc<S, M, R>(
@@ -49,59 +42,17 @@ async fn rpc<S, M, R>(
 ) -> (Code, Vec<R>)
 where
     S: Service<
-            hyper::Request<Full<Bytes>>,
+            hyper::Request<tonic::body::Body>,
             Response = hyper::Response<tonic::body::Body>,
             Error = Infallible,
         >,
     M: Message,
     R: Message + Default,
 {
-    let mut body = Vec::new();
-    for message in messages {
-        let encoded = message.encode_to_vec();
-        body.push(0);
-        body.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
-        body.extend_from_slice(&encoded);
-    }
-    let mut request = hyper::Request::builder()
-        .method("POST")
-        .uri(path)
-        .header("content-type", "application/grpc")
-        .header("te", "trailers");
-    if let Some(token) = token {
-        request = request.header("authorization", format!("Bearer {token}"));
-    }
-    let response = service
-        .call(request.body(Full::new(Bytes::from(body))).unwrap())
-        .await
-        .unwrap();
-    let mut code = Status::from_header_map(response.headers()).map(|status| status.code());
-    let mut body = response.into_body();
-    let mut encoded = Vec::new();
-    while let Some(frame) = body.frame().await {
-        match frame.unwrap().into_data() {
-            Ok(data) => {
-                assert!(encoded.len() + data.len() <= 4 * 1024 * 1024);
-                encoded.extend_from_slice(&data);
-            }
-            Err(frame) => {
-                if let Ok(trailers) = frame.into_trailers() {
-                    code = Status::from_header_map(&trailers).map(|status| status.code());
-                }
-            }
-        }
-    }
-    let mut messages = Vec::new();
-    let mut remaining = encoded.as_slice();
-    while !remaining.is_empty() {
-        assert!(remaining.len() >= 5);
-        assert_eq!(remaining[0], 0);
-        let size = u32::from_be_bytes(remaining[1..5].try_into().unwrap()) as usize;
-        assert!(remaining.len() >= 5 + size);
-        messages.push(R::decode(&remaining[5..5 + size]).unwrap());
-        remaining = &remaining[5 + size..];
-    }
-    (code.expect("terminal grpc-status"), messages)
+    fixtures::rpc(path, token, messages, async |request| {
+        service.call(request).await.unwrap()
+    })
+    .await
 }
 
 async fn call<M: Message, R: Message + Default>(
@@ -280,9 +231,7 @@ async fn ram_grpc_v2_framing_shares_io_permissions_history_and_derived_publicati
                 content_type: "application/custom".into(),
                 ..Default::default()
             }),
-            update_mask: Some(prost_types::FieldMask {
-                paths: vec!["content_type".into()],
-            }),
+            update_mask: fixtures::mask(&["content_type"]),
             if_generation_match: Some(generation),
             ..Default::default()
         }],
@@ -745,9 +694,7 @@ async fn strict_anonymous_object_denials_ask_for_credentials_on_both_grpc_versio
             content_type: "text/csv".into(),
             ..Default::default()
         }),
-        update_mask: Some(prost_types::FieldMask {
-            paths: vec!["content_type".into()],
-        }),
+        update_mask: fixtures::mask(&["content_type"]),
         ..Default::default()
     };
     // A registered principal without the grant keeps PermissionDenied.

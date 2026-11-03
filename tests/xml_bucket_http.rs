@@ -2,6 +2,7 @@ mod common;
 
 use common::TestDir;
 use common::server::{Server, http_command, write_request};
+use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use serde_json::{Value, json};
 use std::{
     io::{BufReader, Read},
@@ -76,15 +77,15 @@ impl Server {
     }
 
     fn sign(&self, method: hyper::Method, path: &str, headers: hyper::HeaderMap) -> hyper::Uri {
-        gcs_mimic::auth::signature::sign_url(
-            &format!("http://localhost{path}"),
-            &method,
-            "admin@example.invalid",
-            PRIVATE,
-            60,
-            SystemTime::now(),
+        sign_url(SignUrlRequest {
+            url: &format!("http://localhost{path}"),
+            method: &method,
+            signer: "admin@example.invalid",
+            private_key: PRIVATE,
+            expires: 60,
+            now: SystemTime::now(),
             headers,
-        )
+        })
         .unwrap()
         .parse()
         .unwrap()

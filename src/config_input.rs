@@ -2,64 +2,63 @@
 
 use crate::{
     bucket::bucket_location,
+    config::Setting,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
 };
 use std::collections::BTreeMap;
 
-pub(crate) const MAX_SETTINGS: usize = 1024;
-pub(crate) const MAX_KEY_BYTES: usize = 256;
+mod options;
+pub use options::{DurationError, Fix, PairError, UrlStyle, duration, option_pairs};
 
-pub(crate) const NATIVE_KEYS: &[&str] = &[
-    "config",
-    "log_level",
-    "listen",
-    "listen_http",
-    "grpc_listen",
-    "unix_socket",
-    "scheme",
-    "tls_cert",
-    "tls_key",
-    "tls_handshake_timeout_ms",
-    "data_dir",
-    "backend",
-    "memory_max_bytes",
-    "memory_catalog_max_bytes",
-    "seed_dir",
-    "default_seed_dir",
-    "seed_project",
-    "seed_content_type",
-    "sync_dir",
-    "sync_delete_guard",
-    "sync_reinitialize",
-    "default_location",
-    "default_soft_delete_retention_seconds",
-    "buckets_file",
-    "api_base_url",
-    "public_base_url",
-    "admin_enabled",
-    "admin_principal",
-    "local_creator_email",
-    "xml_virtual_host_domains",
-    "max_connections",
-    "max_object_bytes",
-    "worker_threads",
-    "max_blocking_threads",
-    "connection_timeout_ms",
-    "keep_alive_timeout_ms",
-    "object_request_timeout_ms",
-    "catalog_wait_timeout_ms",
-    "shutdown_timeout_ms",
-    "auth_mode",
-    "compat_profile",
-    "cors_fallback",
-    "identity_file",
-    "pubsub_emulator_host",
-    "event_pubsub_project_id",
-    "event_pubsub_topic",
-    "event_bucket",
-    "event_object_prefix",
-    "event_list",
-];
+pub(crate) const MAX_SETTINGS: usize = 1024;
+/// The extra three pairs reserve two command words and two overflow pairs; equality detects take() truncation.
+pub const MAX_CLI_ARGS: usize = 2 * (MAX_SETTINGS + 3);
+pub(crate) const MAX_KEY_BYTES: usize = 256;
+pub(crate) const LEGACY_PREFIX: &str = "FAKE_GCS_";
+
+pub(crate) fn ordered_members<'de, D, V>(
+    deserializer: D,
+    expecting: &'static str,
+    check: impl FnMut(usize, &str) -> bool,
+) -> Result<Vec<(String, V)>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    V: serde::Deserialize<'de>,
+{
+    struct Members<F, V> {
+        expecting: &'static str,
+        check: F,
+        value: std::marker::PhantomData<V>,
+    }
+    impl<'de, F: FnMut(usize, &str) -> bool, V: serde::Deserialize<'de>> serde::de::Visitor<'de>
+        for Members<F, V>
+    {
+        type Value = Vec<(String, V)>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.expecting)
+        }
+        fn visit_map<A: serde::de::MapAccess<'de>>(
+            mut self,
+            mut map: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut entries = Vec::new();
+            while let Some(key) = map.next_key::<String>()? {
+                if !(self.check)(entries.len(), &key) {
+                    return Err(serde::de::Error::custom(
+                        "configuration input limit exceeded",
+                    ));
+                }
+                entries.push((key, map.next_value()?));
+            }
+            Ok(entries)
+        }
+    }
+    deserializer.deserialize_map(Members {
+        expecting,
+        check,
+        value: std::marker::PhantomData,
+    })
+}
 
 pub(crate) const LEGACY: &[(&str, &str)] = &[
     ("PORT", "port"),
@@ -99,6 +98,8 @@ pub(crate) enum InputKind {
     Native,
     /// A known fake-gcs-server flag or `FAKE_GCS_*` variable, as supplied.
     Legacy,
+    /// An unrecognized `FAKE_GCS_*` variable, diagnosed without interpreting its value.
+    UnknownLegacy,
     /// A native setting translated from `Legacy` inputs; its key names the legacy input.
     Alias,
 }
@@ -161,8 +162,7 @@ impl Inputs {
             let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
             let name = &key[hyphens..];
             let normalized = name.replace('-', "_");
-            let native_name =
-                command == CliCommand::Serve && NATIVE_KEYS.contains(&normalized.as_str());
+            let native_name = command == CliCommand::Serve && normalized.parse::<Setting>().is_ok();
             let native = hyphens == 2 && native_name;
             let legacy = !native
                 && (1..=2).contains(&hyphens)
@@ -232,38 +232,7 @@ impl Inputs {
     }
 
     pub(crate) fn environment(&mut self, env: &BTreeMap<String, String>) {
-        for (key, value) in env {
-            if let Some(suffix) = key.strip_prefix("FAKE_GCS_") {
-                let legacy = LEGACY.iter().any(|(name, _)| *name == suffix);
-                if !self.push(Input {
-                    source: DiagnosticSource::Environment,
-                    key: key.clone(),
-                    name: suffix.to_ascii_lowercase(),
-                    value: value.clone(),
-                    kind: if legacy {
-                        InputKind::Legacy
-                    } else {
-                        InputKind::Native
-                    },
-                    invalid: None,
-                }) {
-                    break;
-                }
-            } else if let Some(suffix) = key
-                .strip_prefix("GCS_MIMIC_")
-                .or_else(|| (key == "PUBSUB_EMULATOR_HOST").then_some("PUBSUB_EMULATOR_HOST"))
-                && !self.push(Input {
-                    source: DiagnosticSource::Environment,
-                    key: key.clone(),
-                    name: suffix.to_ascii_lowercase(),
-                    value: value.clone(),
-                    kind: InputKind::Native,
-                    invalid: None,
-                })
-            {
-                break;
-            }
-        }
+        self.environment_os(env.iter().map(|(key, value)| (key.into(), value.into())));
     }
 
     pub(crate) fn environment_os(
@@ -274,7 +243,7 @@ impl Inputs {
             .into_iter()
             .filter(|(key, _)| {
                 key.as_encoded_bytes().starts_with(b"GCS_MIMIC_")
-                    || key.as_encoded_bytes().starts_with(b"FAKE_GCS_")
+                    || key.as_encoded_bytes().starts_with(LEGACY_PREFIX.as_bytes())
                     || key == "PUBSUB_EMULATOR_HOST"
             })
             .take(MAX_SETTINGS + 1)
@@ -298,7 +267,7 @@ impl Inputs {
                 ));
                 continue;
             };
-            let suffix = key.strip_prefix("FAKE_GCS_");
+            let suffix = key.strip_prefix(LEGACY_PREFIX);
             let legacy = suffix.is_some_and(|s| LEGACY.iter().any(|(known, _)| *known == s));
             let name = suffix
                 .or_else(|| key.strip_prefix("GCS_MIMIC_"))
@@ -313,16 +282,19 @@ impl Inputs {
                     Err(_) => (String::new(), Some(InputError::Encoding)),
                 }
             };
+            let kind = if legacy {
+                InputKind::Legacy
+            } else if suffix.is_some() {
+                InputKind::UnknownLegacy
+            } else {
+                InputKind::Native
+            };
             if !self.push(Input {
                 source: DiagnosticSource::Environment,
                 key,
                 name,
                 value,
-                kind: if legacy {
-                    InputKind::Legacy
-                } else {
-                    InputKind::Native
-                },
+                kind,
                 invalid,
             }) {
                 break;
@@ -364,7 +336,7 @@ impl Inputs {
                     fix.push_str(" The supplied value is not UTF-8; correct or remove it.");
                 }
                 errors.push(Diagnostic::new(input.source, &input.key, fix));
-            } else if input.key.starts_with("FAKE_GCS_") {
+            } else if input.kind == InputKind::UnknownLegacy {
                 warnings.push(unknown_legacy_warning(input));
             }
         }
@@ -415,7 +387,7 @@ impl Inputs {
                         legacy_fix(&input.name, &values),
                     )),
                 }
-            } else if input.key.starts_with("FAKE_GCS_") {
+            } else if input.kind == InputKind::UnknownLegacy {
                 warnings.push(unknown_legacy_warning(input));
             }
         }
@@ -640,7 +612,7 @@ pub fn starts_with_legacy_flag(args: &[String]) -> bool {
         let key = token.split_once('=').map_or(token.as_str(), |(key, _)| key);
         let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
         let name = &key[hyphens..];
-        let native = hyphens == 2 && NATIVE_KEYS.contains(&name.replace('-', "_").as_str());
+        let native = hyphens == 2 && name.replace('-', "_").parse::<Setting>().is_ok();
         !native && (1..=2).contains(&hyphens) && LEGACY.iter().any(|(_, flag)| *flag == name)
     })
 }
@@ -693,7 +665,7 @@ pub fn resolve_default_seed(config: &mut crate::config::Config) -> Vec<Diagnosti
             .chain(config.sync_dir.as_ref())
         {
             let other = migration_path(other)?;
-            if seed.starts_with(&other) || other.starts_with(&seed) {
+            if crate::source_tree::paths_overlap_canonical(&seed, &other) {
                 return Ok(false);
             }
         }
@@ -761,12 +733,31 @@ fn migration_path(path: &std::path::Path) -> std::io::Result<std::path::PathBuf>
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+    use crate::diagnostics::test_support::has;
     use proptest::prelude::*;
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|s| (*s).into()).collect()
+    }
+
+    #[test]
+    fn unknown_legacy_names_do_not_count_as_native_override_targets() {
+        for (key, overridden) in [("FAKE_GCS_LISTEN", false), ("GCS_MIMIC_LISTEN", true)] {
+            let env = BTreeMap::from([
+                ("FAKE_GCS_HOST".into(), "0.0.0.0".into()),
+                (key.into(), "127.0.0.1:4443".into()),
+            ]);
+            let report = crate::config::Config::preflight(&[], &env);
+            assert!(!report.diagnostics.is_err());
+            assert_eq!(
+                emitted(&report.diagnostics).contains("overrides GCS_MIMIC_LISTEN"),
+                overridden
+            );
+            if !overridden {
+                assert!(emitted(&report.diagnostics).contains("FAKE_GCS_LISTEN"));
+            }
+        }
     }
 
     /// Every error and warning as the emitted JSON lines.
@@ -1125,15 +1116,7 @@ mod tests {
             let report =
                 crate::config::Config::preflight(&strings(&[flag, "http"]), &BTreeMap::new());
             assert!(report.diagnostics.is_err(), "{flag}");
-            assert!(
-                report
-                    .diagnostics
-                    .errors
-                    .iter()
-                    .any(|d| d.key == flag && d.fix.contains("--name VALUE pairs")),
-                "{}",
-                report.diagnostics
-            );
+            has(&report.diagnostics, flag, "--name VALUE pairs");
             assert!(!report.diagnostics.to_string().contains("Legacy input"));
         }
         for object in ["---scheme", "----port", "-data", "-port", "-x"] {
@@ -1209,8 +1192,8 @@ mod tests {
 
     #[test]
     fn default_seed_is_adopted_only_when_present_and_disjoint() {
-        let root =
-            std::env::temp_dir().join(format!("gcs-mimic-default-seed-{}", std::process::id()));
+        let directory = crate::test_support::TestDir::new();
+        let root = directory.0.clone();
         std::fs::create_dir_all(root.join("legacy")).unwrap();
         std::fs::write(root.join("legacy/object"), "fixture").unwrap();
         let legacy = root.join("legacy");
@@ -1277,7 +1260,6 @@ mod tests {
         };
         assert!(resolve_default_seed(&mut unset).is_empty());
         assert_eq!(unset.seed_dir, None);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

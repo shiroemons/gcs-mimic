@@ -20,6 +20,88 @@ fn request(method: Method, path: &str) -> Result<BucketRequest, JsonError> {
 }
 
 #[test]
+fn parsed_bucket_projection_keeps_profile_defaults_and_explicit_overrides() {
+    for (profile, method, query, expected) in [
+        (CompatProfile::Native, Method::GET, "", Projection::NoAcl),
+        (CompatProfile::Native, Method::PATCH, "", Projection::Full),
+        (
+            CompatProfile::Native,
+            Method::PATCH,
+            "predefinedAcl=private",
+            Projection::Full,
+        ),
+        (CompatProfile::Native, Method::PUT, "", Projection::NoAcl),
+        (
+            CompatProfile::Native,
+            Method::PUT,
+            "predefinedAcl=private",
+            Projection::Full,
+        ),
+        (
+            CompatProfile::Native,
+            Method::PUT,
+            "predefinedDefaultObjectAcl=private",
+            Projection::Full,
+        ),
+        (
+            CompatProfile::LegacyEmulator,
+            Method::GET,
+            "",
+            Projection::NoAcl,
+        ),
+        (
+            CompatProfile::LegacyEmulator,
+            Method::PUT,
+            "predefinedAcl=private",
+            Projection::Full,
+        ),
+        (
+            CompatProfile::LegacyEmulator,
+            Method::PATCH,
+            "",
+            Projection::NoAcl,
+        ),
+        (
+            CompatProfile::LegacyEmulator,
+            Method::PUT,
+            "",
+            Projection::Full,
+        ),
+    ] {
+        for (override_value, selected) in [
+            ("", expected),
+            ("projection=full", Projection::Full),
+            ("projection=noAcl", Projection::NoAcl),
+        ] {
+            let uri: Uri = format!("/storage/v1/b/bucket?{query}&{override_value}")
+                .parse()
+                .unwrap();
+            let operation = route_with_profile(&method, &uri, profile, "project")
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                operation.projection(),
+                selected,
+                "{profile:?} {method} {uri}"
+            );
+        }
+    }
+    for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
+        for method in [Method::POST, Method::GET] {
+            let uri: Uri = "/storage/v1/b?project=project".parse().unwrap();
+            let operation = route_with_profile(&method, &uri, profile, "project")
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                operation.projection(),
+                Projection::NoAcl,
+                "{profile:?} {method}"
+            );
+        }
+    }
+}
+
+#[test]
 fn query_booleans_accept_only_lowercase_and_python_spellings() {
     for (wire, expected) in [
         ("true", true),

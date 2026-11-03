@@ -5,7 +5,7 @@ mod object_effects_support;
 
 use common::TestDir;
 use common::server::{Server, http_command, write_request};
-use gcs_mimic::auth::signature::sign_url;
+use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use gcs_mimic::config::Config;
 use hyper::{HeaderMap, Method, Uri};
 use object_effects_support::{Reply, common, request};
@@ -1077,15 +1077,15 @@ fn strict_config_authorization_and_raw_signed_host_survive_public_host_updates()
             server.request("GET", "/test-bucket/value", "", b"").status,
             401
         );
-        let url = sign_url(
-            "http://localhost/test-bucket/value",
-            &Method::GET,
-            "admin@example.invalid",
-            include_bytes!("../fixtures/signing/test-only-private.pem"),
-            60,
-            SystemTime::now(),
-            HeaderMap::new(),
-        )
+        let url = sign_url(SignUrlRequest {
+            url: "http://localhost/test-bucket/value",
+            method: &Method::GET,
+            signer: "admin@example.invalid",
+            private_key: include_bytes!("../fixtures/signing/test-only-private.pem"),
+            expires: 60,
+            now: SystemTime::now(),
+            headers: HeaderMap::new(),
+        })
         .unwrap();
         let uri: Uri = url.parse().unwrap();
         assert_eq!(

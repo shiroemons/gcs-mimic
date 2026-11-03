@@ -12,7 +12,7 @@ use crate::{
     storage::{AclChange, AclError, AclProjection, AclState},
 };
 use http_body_util::Full;
-use hyper::{Method, Request, Response, StatusCode, body::Bytes};
+use hyper::{Request, Response, StatusCode, body::Bytes};
 use serde_json::Value;
 
 /// Whether an ACL request reads or changes the ACL.
@@ -50,9 +50,7 @@ fn acl_error(error: AclError, access: AclAccess) -> JsonError {
             "An ACL can hold at most {} entries; delete an entry before adding another",
             crate::acl::MAX_ENTRIES
         )),
-        AclError::NotModified => {
-            JsonError::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
-        }
+        AclError::NotModified => JsonError::not_modified(),
     }
 }
 
@@ -222,47 +220,6 @@ pub(super) async fn respond(
         response.headers_mut().insert("etag", etag);
     }
     Ok(response)
-}
-
-/// Whether a bucket request renders `projection=full` before the body is read. Recorded on
-/// 2026-10-31: a PATCH without `projection` returned `acl`, `defaultObjectAcl` and `owner`, while a
-/// PUT did so only when it carried a predefined ACL parameter; insert and get default to noAcl.
-pub(super) fn bucket_full_projection(
-    method: &Method,
-    query: Option<&str>,
-    profile: crate::config::CompatProfile,
-) -> bool {
-    // The legacy profile keeps the earlier rule: only PUT defaults to full.
-    if profile == crate::config::CompatProfile::LegacyEmulator {
-        return full_projection_or(method, query, &[Method::PUT]);
-    }
-    let predefined = json::parse_query(query.unwrap_or_default()).is_ok_and(|query| {
-        query.contains_key("predefinedAcl") || query.contains_key("predefinedDefaultObjectAcl")
-    });
-    full_projection_or(
-        method,
-        query,
-        if predefined {
-            &[Method::PUT, Method::PATCH]
-        } else {
-            &[Method::PATCH]
-        },
-    )
-}
-
-/// Whether an object request explicitly asks for ACL and owner fields.
-pub(super) fn full_projection(method: &Method, query: Option<&str>) -> bool {
-    full_projection_or(method, query, &[])
-}
-
-fn full_projection_or(method: &Method, query: Option<&str>, default_full: &[Method]) -> bool {
-    let projection = json::parse_query(query.unwrap_or_default())
-        .ok()
-        .and_then(|mut query| query.remove("projection"));
-    match projection.as_deref() {
-        Some(projection) => projection == "full",
-        None => default_full.contains(method),
-    }
 }
 
 /// Add ACL fields to rendered bucket/object resources or lists.

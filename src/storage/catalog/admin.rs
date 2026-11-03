@@ -260,6 +260,7 @@ pub enum AdminError {
     Closed,
     Precondition,
     Hold,
+    SeedProjectMismatch,
     SourceChanged { fields: Vec<String> },
     Corrupt(BackendCause),
     Io(IoCause),
@@ -280,6 +281,9 @@ impl fmt::Display for AdminError {
             Self::Closed => f.write_str("Closed"),
             Self::Precondition => f.write_str("Precondition"),
             Self::Hold => f.write_str("Hold"),
+            Self::SeedProjectMismatch => {
+                f.write_str("Invalid(\"existing seed bucket belongs to another project\")")
+            }
             Self::SourceChanged { fields } => write!(f, "SourceChanged {{ fields: {fields:?} }}"),
             Self::Corrupt(cause) => write!(f, "Corrupt({cause:?})"),
             Self::Io(cause) => write!(f, "Io({cause:?})"),

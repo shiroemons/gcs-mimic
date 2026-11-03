@@ -1,10 +1,12 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
-use crate::fsutil::{SourceMetadataBuffer, SourceMetadataError, test_support::SourceDir};
+use crate::{
+    fsutil::{SourceMetadataBuffer, SourceMetadataError},
+    test_support::TestDir,
+};
 use std::fs::File;
 
-fn xattr_setup() -> (SourceDir, Options) {
-    let directory = SourceDir::new();
+fn xattr_setup() -> (TestDir, Options) {
+    let directory = TestDir::new();
     let source = directory.0.join("source");
     fs::create_dir_all(source.join("bucket-one")).unwrap();
     let options = Options::new(
@@ -159,21 +161,6 @@ fn source_acl_validation_rejects_unrepresentable_identity_and_ambiguous_grants()
 
 #[test]
 fn filesystem_import_xattr_revalidation_preserves_source_metadata() {
-    struct StopAfterObject(usize);
-    impl std::io::Write for StopAfterObject {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            if bytes.contains(&b'\n') {
-                self.0 += 1;
-                if self.0 == 2 {
-                    return Err(std::io::ErrorKind::BrokenPipe.into());
-                }
-            }
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
     let (dir, mut options) = xattr_setup();
     options.metadata_mode = MetadataMode::Xattr;
     let path = options.source.join("bucket-one/body");
@@ -185,7 +172,14 @@ fn filesystem_import_xattr_revalidation_preserves_source_metadata() {
         );
         return;
     }
-    assert!(execute(options.clone(), StopAfterObject(0), Vec::new()).is_err());
+    assert!(
+        execute(
+            options.clone(),
+            super::test_support::StopAfterLines(2),
+            Vec::new()
+        )
+        .is_err()
+    );
     // Identical xattr writes need not change ctime; a replacement inode guarantees drift.
     let original = file.metadata().unwrap();
     let replacement = dir.0.join("replacement");
@@ -271,7 +265,7 @@ fn unsupported<'a>(
 
 #[test]
 fn unsupported_xattr_inspection_warns_once_per_sidecar_object() {
-    let directory = SourceDir::new();
+    let directory = TestDir::new();
     let source = directory.0.join("source");
     fs::create_dir_all(source.join("bucket-one")).unwrap();
     fs::write(source.join("bucket-one/body"), b"hello").unwrap();
@@ -324,7 +318,7 @@ fn ordinary_xattr_objects_do_not_get_a_detritus_probe() {
         READS.fetch_add(1, Ordering::SeqCst);
         crate::fsutil::read_source_metadata(file, buffer)
     }
-    let directory = SourceDir::new();
+    let directory = TestDir::new();
     let source = directory.0.join("source");
     fs::create_dir_all(source.join("bucket-one")).unwrap();
     let body = source.join("bucket-one/body");

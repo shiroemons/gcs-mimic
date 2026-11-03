@@ -16,12 +16,11 @@ use crate::{
 };
 use serde::{
     Deserialize, Serialize,
-    de::{self, DeserializeOwned, MapAccess, Visitor},
+    de::{self, DeserializeOwned, Visitor},
 };
 use serde_json::{Value, json, value::RawValue};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt,
     path::Path,
     time::SystemTime,
 };
@@ -218,10 +217,7 @@ impl Collected {
             usize::MAX
         };
         if bytes > RECORD_BYTES_LIMIT {
-            let mut end = diagnostic.key.len().min(SHORT_KEY_BYTES);
-            while !diagnostic.key.is_char_boundary(end) {
-                end -= 1;
-            }
+            let end = diagnostic.key.floor_char_boundary(SHORT_KEY_BYTES);
             diagnostic.key.truncate(end);
             diagnostic.key.push_str("...");
             diagnostic.fix = format!(
@@ -575,21 +571,7 @@ struct Members<'a>(Vec<(String, &'a RawValue)>);
 
 impl<'de> Deserialize<'de> for Members<'de> {
     fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Object;
-        impl<'de> Visitor<'de> for Object {
-            type Value = Members<'de>;
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("an object")
-            }
-            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-                let mut members = Vec::new();
-                while let Some(member) = map.next_entry()? {
-                    members.push(member);
-                }
-                Ok(Members(members))
-            }
-        }
-        deserializer.deserialize_map(Object)
+        crate::config_input::ordered_members(deserializer, "an object", |_, _| true).map(Members)
     }
 }
 
@@ -1373,9 +1355,9 @@ fn records(
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+    use crate::diagnostics::test_support::has;
     use proptest::prelude::*;
     use std::{
         fs,
@@ -1631,13 +1613,8 @@ mod tests {
             r#"{{{noise},"version":1,"version":2,"buckets":null}}"#
         ))
         .unwrap_err();
-        assert!(errors.errors.iter().any(|record| record.key == "version" && record.fix.contains("Unsupported version")));
-        assert!(
-            errors
-                .errors
-                .iter()
-                .any(|record| record.key == "buckets" && record.fix.contains("Expected an array"))
-        );
+        has(&errors, "version", "Unsupported version");
+        has(&errors, "buckets", "Expected an array");
         let mut rendered = Vec::new();
         errors.write(&mut rendered).unwrap();
         assert!(rendered.len() <= DIAGNOSTIC_BYTES_LIMIT);
@@ -1716,12 +1693,7 @@ mod tests {
         );
         let noise = vec!["\"noise\":1"; 40].join(",");
         let errors = parsed(&format!(r#"{{"version":1,{noise},"bucket":[]}}"#)).unwrap_err();
-        assert!(
-            errors
-                .errors
-                .iter()
-                .any(|record| record.key == "bucket" && record.fix.contains("use buckets,"))
-        );
+        has(&errors, "bucket", "use buckets,");
         assert!(errors.errors.iter().any(|record| record.key == "buckets"));
     }
 
@@ -2032,12 +2004,7 @@ mod tests {
             r#"{{"version":1,"buckets":[{entry},{{"name":"other-bucket","location":"invalid"}}]}}"#
         ))
         .unwrap_err();
-        assert!(
-            errors
-                .errors
-                .iter()
-                .any(|error| error.key == "buckets[0]" && error.fix.contains("Encoded"))
-        );
+        has(&errors, "buckets[0]", "Encoded");
         assert!(
             errors
                 .errors
@@ -2146,11 +2113,7 @@ mod tests {
     #[test]
     fn repeated_members_at_every_depth_and_decoded_global_names_are_reported() {
         let errors = parsed(r#"{"version":1,"buckets":[{"name":"first-bucket","name":"second-bucket"},{"name":"first-bucket"}]}"#).unwrap_err();
-        assert!(
-            errors.errors.iter().any(
-                |error| error.key == "buckets[1].name" && error.fix.contains("buckets[0].name")
-            )
-        );
+        has(&errors, "buckets[1].name", "buckets[0].name");
         let document = r#"{"version":1,"version":1,"buckets":[
             {"name":"example-bucket","project":"one","project":"one","labels":{"env":"dev","env":"test"},
              "versioning":{"enabled":true,"enabled":false},"cors":[{"origin":[],"origin":[]}],

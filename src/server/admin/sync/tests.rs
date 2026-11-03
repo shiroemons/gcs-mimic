@@ -12,7 +12,7 @@ use crate::{
     test_support::TestDir,
 };
 use http_body_util::BodyExt;
-use std::{fs, sync::atomic::AtomicBool, time::Duration};
+use std::{fs, time::Duration};
 
 struct AuthorizationHook {
     entered: tokio::sync::Notify,
@@ -101,12 +101,8 @@ impl Fixture {
         let task = crate::sync::start(catalog.clone(), root, &config).unwrap();
         assert!(task.rescan().await.unwrap().baseline_complete);
         let state = State {
-            ready: AtomicBool::new(true),
-            clock: Arc::new(SystemClock),
-            catalog,
             api_base_url: "http://localhost".into(),
-            default_location: "US".into(),
-            auth: Auth::permissive(),
+            ..State::for_test(catalog, Auth::permissive())
         };
         Self {
             _data: data,
@@ -169,6 +165,98 @@ async fn body(response: Response<Full<Bytes>>) -> Value {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     assert!(bytes.len() <= RESPONSE_LIMIT);
     serde_json::from_slice(&bytes).unwrap()
+}
+
+#[tokio::test]
+async fn response_limit_counts_the_exact_rendered_bytes() {
+    let overhead = json::render_body(&json!({"items": ""})).len();
+    let value = json!({"items": "x".repeat(RESPONSE_LIMIT - overhead)});
+    let bytes = bounded(&value)
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    assert_eq!(bytes.len(), RESPONSE_LIMIT);
+    assert_eq!(bytes.as_ref(), json::render_body(&value).as_bytes());
+    let oversized = json!({"items": "x".repeat(RESPONSE_LIMIT - overhead + 1)});
+    assert!(oversized.to_string().len() <= RESPONSE_LIMIT);
+    assert_eq!(
+        bounded(&oversized).unwrap_err().status,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
+#[tokio::test]
+async fn large_conflict_pages_fit_rendered_limit_and_resume_after_the_last_returned_item() {
+    use crate::storage::{admin::ObjectName, sync_state::conflicts::CaptureRequest};
+    let fixture = Fixture::new(false).await;
+    let bucket = BucketName::new("test-bucket").unwrap();
+    fixture
+        .state
+        .catalog
+        .admin(Origin::Api)
+        .ensure_bucket(
+            BucketDefinition::default_for(&bucket, &fixture.config.seed_project, &SystemClock)
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+    let binding = fixture
+        .state
+        .catalog
+        .sync_state()
+        .binding(&bucket)
+        .await
+        .unwrap();
+    let source = TestDir::new();
+    fs::write(source.0.join("body"), b"retained").unwrap();
+    let mut expected = std::collections::BTreeSet::new();
+    for index in 0..200 {
+        let name = format!("{index:04}{}", "a".repeat(1020));
+        expected.insert(name.clone());
+        root.capture_conflict(
+            CaptureRequest {
+                binding: binding.clone(),
+                name: ObjectName::new(name).unwrap(),
+                expected_generation: None,
+                source_op: None,
+            },
+            fs::File::open(source.0.join("body")).unwrap(),
+        )
+        .await
+        .unwrap();
+    }
+    let native = root
+        .conflict_page(
+            None,
+            0,
+            256,
+            ControlAuthority::new(fixture.config.seed_project.clone(), None),
+        )
+        .await
+        .unwrap();
+    assert!(serde_json::to_vec(&native.items).unwrap().len() <= 240_256);
+    assert!(json::render_body(&json!({"items":native.items})).len() > RESPONSE_LIMIT);
+    let mut found = std::collections::BTreeSet::new();
+    let mut path = "/_internal/sync/conflicts".to_owned();
+    loop {
+        let response = fixture.request("GET", &path, b"", None).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let page = body(response).await;
+        for item in page["items"].as_array().unwrap() {
+            assert!(found.insert(item["object"].as_str().unwrap().to_owned()));
+        }
+        let Some(cursor) = page["next_cursor"].as_str() else {
+            break;
+        };
+        path = format!("/_internal/sync/conflicts?cursor={cursor}");
+    }
+    assert_eq!(found, expected);
+    drop(root);
+    fixture.finish().await;
 }
 
 #[tokio::test]

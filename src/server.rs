@@ -33,7 +33,12 @@ use tokio::{
     task::JoinSet,
 };
 
+pub use crate::grpc::v2::ReadHandles;
+pub use crate::xml::CorsWarnings;
+
 pub struct State {
+    pub xml_cors_warned_buckets: CorsWarnings,
+    pub grpc_read_handles: ReadHandles,
     pub ready: AtomicBool,
     pub clock: Arc<dyn Clock>,
     pub catalog: Catalog,
@@ -43,6 +48,20 @@ pub struct State {
 }
 
 impl State {
+    #[cfg(test)]
+    pub(crate) fn for_test(catalog: Catalog, auth: Auth) -> Self {
+        Self {
+            xml_cors_warned_buckets: Default::default(),
+            grpc_read_handles: Default::default(),
+            ready: AtomicBool::new(true),
+            clock: Arc::new(crate::clock::SystemClock),
+            catalog,
+            api_base_url: "http://localhost:4443".into(),
+            default_location: "US".into(),
+            auth,
+        }
+    }
+
     pub fn is_ready(&self) -> bool {
         if !self.catalog.is_healthy() {
             self.ready.store(false, Ordering::Release);
@@ -1264,7 +1283,12 @@ pub(crate) fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
 
 /// A `200 OK` JSON API resource.
 fn json_response(value: &serde_json::Value) -> Response<Full<Bytes>> {
-    let mut response = Response::new(Full::new(Bytes::from(json::render_body(value))));
+    json_response_body(value, json::render_body(value))
+}
+
+/// `body` must be `value` rendered in the current request's JSON format.
+fn json_response_body(value: &serde_json::Value, body: String) -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(Bytes::from(body)));
     response.headers_mut().insert(
         "content-type",
         hyper::header::HeaderValue::from_static("application/json; charset=UTF-8"),

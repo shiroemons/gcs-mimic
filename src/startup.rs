@@ -5,7 +5,7 @@ use gcs_mimic::{
     clock::{Clock, SystemClock},
     config::Config,
     diagnostics::{DiagnosticSource, Diagnostics, combine_shutdown_results as merge_close_result},
-    seed::SeedOutcome,
+    seed::{SeedError, SeedOutcome},
     server::{self, State},
     storage::Catalog,
 };
@@ -98,11 +98,7 @@ impl ReadyEvent {
     ) -> Self {
         let mut listeners = vec![ReadyListener {
             listen,
-            scheme: if config.scheme == gcs_mimic::config::Scheme::Http {
-                "http"
-            } else {
-                "https"
-            },
+            scheme: config.scheme.primary(),
         }];
         if let Some(listen) = listen_http {
             listeners.push(ReadyListener {
@@ -270,108 +266,62 @@ async fn prepare_startup(
     clock: Arc<dyn Clock>,
     mut shutdown: Pin<&mut impl Future<Output = io::Result<()>>>,
 ) -> io::Result<PhaseResult<BoundStartup>> {
-    match race(
-        CancelSafe(catalog.import_journal().in_progress()),
-        shutdown.as_mut(),
-    )
-    .await?
-    {
-        PhaseResult::Complete(Ok(false)) => {}
-        PhaseResult::Complete(Ok(true)) => {
+    macro_rules! complete {
+        ($work:expr) => {
+            match race(CancelSafe($work), shutdown.as_mut()).await? {
+                PhaseResult::Complete(result) => result,
+                PhaseResult::Stopped => return Ok(PhaseResult::Stopped),
+            }
+        };
+    }
+    match complete!(catalog.import_journal().in_progress()) {
+        Ok(false) => {}
+        Ok(true) => {
             return Err(phase(
                 DiagnosticSource::Catalog,
                 "data_dir",
                 "Import is incomplete; resume the same unchanged source export with the import command before serving this destination. Do not remove the import marker.",
             ));
         }
-        PhaseResult::Complete(Err(_)) => {
+        Err(_) => {
             return Err(phase(
                 DiagnosticSource::Catalog,
                 "data_dir",
                 "Cannot inspect import state; inspect the native catalog before restarting.",
             ));
         }
-        PhaseResult::Stopped => return Ok(PhaseResult::Stopped),
     }
     // PAP's submitted SQLite job owns its execution permit until completion.
-    match race(
-        CancelSafe(configure_catalog_policy(catalog, projects)),
-        shutdown.as_mut(),
-    )
-    .await?
-    {
-        PhaseResult::Complete(result) => result?,
-        PhaseResult::Stopped => return Ok(PhaseResult::Stopped),
-    }
-    match race(
-        CancelSafe(catalog.start_notifications(config)),
-        shutdown.as_mut(),
-    )
-    .await?
-    {
-        PhaseResult::Complete(result) => result.map_err(io::Error::other)?,
-        PhaseResult::Stopped => return Ok(PhaseResult::Stopped),
-    }
+    complete!(configure_catalog_policy(catalog, projects))?;
+    complete!(catalog.start_notifications(config)).map_err(io::Error::other)?;
     // Loading has no effects; submitted administrative jobs retain their permits through close.
-    let PhaseResult::Complete(buckets_file) = race(
-        CancelSafe(gcs_mimic::bucket_init::apply(
-            catalog,
-            config,
-            clock.clone(),
-        )),
-        shutdown.as_mut(),
-    )
-    .await?
-    else {
-        return Ok(PhaseResult::Stopped);
-    };
-    let buckets_file = buckets_file?;
+    let buckets_file = complete!(gcs_mimic::bucket_init::apply(
+        catalog,
+        config,
+        clock.clone()
+    ))?;
     // Seed drops only source reads/request waits; publication and cleanup own upload permits.
-    let PhaseResult::Complete(seed) = race(
-        CancelSafe(async {
-            gcs_mimic::seed::import(catalog, config, clock.as_ref())
-                .await
-                .map_err(|error| phase(DiagnosticSource::Seed, "seed_dir", &seed_failure(&error)))
-        }),
-        shutdown.as_mut(),
-    )
-    .await?
-    else {
-        return Ok(PhaseResult::Stopped);
-    };
-    let seed = seed?;
+    let seed = complete!(async {
+        gcs_mimic::seed::import(catalog, config, clock.as_ref())
+            .await
+            .map_err(|error| phase(DiagnosticSource::Seed, "seed_dir", &seed_failure(&error)))
+    })?;
     // Activation jobs own their catalog/root leases; close drains effects after cancellation.
-    let PhaseResult::Complete(sync_root) = race(
-        CancelSafe(gcs_mimic::sync::preflight(catalog, config)),
-        shutdown.as_mut(),
-    )
-    .await?
-    else {
-        return Ok(PhaseResult::Stopped);
-    };
-    let sync_root =
-        sync_root.map_err(|error| phase(DiagnosticSource::Sync, "sync_dir", &error.to_string()))?;
+    let sync_root = complete!(gcs_mimic::sync::preflight(catalog, config))
+        .map_err(|error| phase(DiagnosticSource::Sync, "sync_dir", &error.to_string()))?;
     // Bind/TIME_WAIT has no catalog effects and owns its socket locally.
-    let PhaseResult::Complete(listeners) = race(
-        CancelSafe(async {
-            let listener = bind_primary(config).await?;
-            let listener_http = match config.effective_listen_http() {
-                Some(address) => Some(bind_configured_listener(address, "listen_http").await?),
-                None => None,
-            };
-            let listener_grpc = match config.grpc_listen {
-                Some(address) => Some(bind_configured_listener(address, "grpc_listen").await?),
-                None => None,
-            };
-            Ok::<_, io::Error>((listener, listener_http, listener_grpc))
-        }),
-        shutdown.as_mut(),
-    )
-    .await?
-    else {
-        return Ok(PhaseResult::Stopped);
-    };
-    let (listener, listener_http, listener_grpc) = listeners?;
+    let (listener, listener_http, listener_grpc) = complete!(async {
+        let listener = bind_primary(config).await?;
+        let listener_http = match config.effective_listen_http() {
+            Some(address) => Some(bind_configured_listener(address, "listen_http").await?),
+            None => None,
+        };
+        let listener_grpc = match config.grpc_listen {
+            Some(address) => Some(bind_configured_listener(address, "grpc_listen").await?),
+            None => None,
+        };
+        Ok::<_, io::Error>((listener, listener_http, listener_grpc))
+    })?;
     Ok(PhaseResult::Complete(BoundStartup {
         listener,
         listener_http,
@@ -464,6 +414,8 @@ pub(crate) async fn serve(
     };
     catalog.start_resumable_maintenance();
     let state = Arc::new(State {
+        xml_cors_warned_buckets: Default::default(),
+        grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
         clock,
         catalog,
@@ -569,27 +521,25 @@ pub(crate) fn phase(source: DiagnosticSource, key: &str, fix: &str) -> io::Error
     io::Error::other(Diagnostics::error(source, key, fix))
 }
 
-fn seed_failure(error: &io::Error) -> String {
-    let message = error.to_string();
-    if message.contains("administrative operation: Hold") {
-        return "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry.".into();
-    }
-    let reason = [
-        "top-level entries",
-        "Invalid bucket name",
-        "Invalid object name",
-        "max_object_bytes",
-        "must not overlap",
-        "32 directory levels",
-        "10000 entries",
-        "only regular files",
-        "not a symlink",
-        "must be UTF-8",
-        "belongs to another project",
-    ]
-    .into_iter()
-    .find(|reason| message.contains(reason))
-    .unwrap_or("unreadable or invalid fixture input");
+fn seed_failure(error: &SeedError) -> String {
+    use gcs_mimic::storage::admin::AdminError;
+    let reason = match error {
+        SeedError::Import(source) | SeedError::Entry { source, .. } => return seed_failure(source),
+        SeedError::Admin(AdminError::Hold) => {
+            return "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry.".into();
+        }
+        SeedError::BucketName(_) => "Invalid bucket name",
+        SeedError::ObjectName(_) => "Invalid object name",
+        SeedError::FileLimit => "max_object_bytes",
+        SeedError::Overlap => "must not overlap",
+        SeedError::DepthLimit => "32 directory levels",
+        SeedError::EntryLimit => "10000 entries",
+        SeedError::UnsupportedFile => "only regular files",
+        SeedError::NotDirectory => "not a symlink",
+        SeedError::NonUtf8Name => "must be UTF-8",
+        SeedError::Admin(AdminError::SeedProjectMismatch) => "belongs to another project",
+        _ => "unreadable or invalid fixture input",
+    };
     format!(
         "seed import: {reason}; correct seed_dir fixtures and their permissions, names, project, overlap and configured limits before restarting."
     )
@@ -643,14 +593,7 @@ async fn bind_after_time_wait(
     }
     // Wait out TIME_WAIT without weakening exclusive binding or waiting indefinitely.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(65);
-    let mut probe = address;
-    if address.ip().is_unspecified() {
-        probe.set_ip(if address.is_ipv4() {
-            std::net::Ipv4Addr::LOCALHOST.into()
-        } else {
-            std::net::Ipv6Addr::LOCALHOST.into()
-        });
-    }
+    let probe = gcs_mimic::config::loopback_if_unspecified(address);
     let mut logged = false;
     loop {
         let connected = tokio::time::timeout_at(
@@ -698,6 +641,66 @@ mod tests {
         task::Poll,
         time::{Duration, SystemTime},
     };
+
+    #[test]
+    fn seed_diagnostics_follow_typed_causes_through_context() {
+        use gcs_mimic::storage::admin::AdminError;
+        for (error, reason) in [
+            (SeedError::EntryLimit, "10000 entries"),
+            (SeedError::DepthLimit, "32 directory levels"),
+            (SeedError::NotDirectory, "not a symlink"),
+            (SeedError::Overlap, "must not overlap"),
+            (SeedError::NonUtf8Name, "must be UTF-8"),
+            (SeedError::UnsupportedFile, "only regular files"),
+            (SeedError::FileLimit, "max_object_bytes"),
+            (
+                SeedError::Admin(AdminError::SeedProjectMismatch),
+                "belongs to another project",
+            ),
+            (
+                SeedError::BucketName(AdminError::Invalid("Invalid bucket name".into())),
+                "Invalid bucket name",
+            ),
+            (
+                SeedError::WalkStopped,
+                "unreadable or invalid fixture input",
+            ),
+        ] {
+            let error = SeedError::Import(Box::new(SeedError::Entry {
+                label: "fixture".into(),
+                source: Box::new(error),
+            }));
+            assert_eq!(
+                seed_failure(&error),
+                format!(
+                    "seed import: {reason}; correct seed_dir fixtures and their permissions, names, project, overlap and configured limits before restarting."
+                )
+            );
+        }
+        assert_eq!(
+            seed_failure(&SeedError::Admin(AdminError::Hold)),
+            "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry."
+        );
+        let error = SeedError::Io(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
+        let error = SeedError::Import(Box::new(error));
+        use std::error::Error;
+        assert!(
+            matches!(error.source().unwrap().downcast_ref::<SeedError>(), Some(SeedError::Io(cause)) if cause.kind() == io::ErrorKind::PermissionDenied)
+        );
+        assert!(error.source().unwrap().source().is_none());
+    }
+
+    #[test]
+    fn seed_io_diagnostics_ignore_words_in_fixture_paths() {
+        let error = SeedError::Entry {
+            label: "bucket/max_object_bytes".into(),
+            source: Box::new(SeedError::Io(io::ErrorKind::PermissionDenied.into())),
+        };
+        assert_eq!(
+            seed_failure(&error),
+            "seed import: unreadable or invalid fixture input; correct seed_dir fixtures and their permissions, names, project, overlap and configured limits before restarting."
+        );
+    }
 
     #[tokio::test]
     #[cfg(unix)]

@@ -1,6 +1,6 @@
 //! XML copy parsing; byte transfer, integrity and atomic publication use the shared engine.
 
-use super::{Error, MinValue, ReadRequest, element, number, put};
+use super::{Error, MinValue, ReadRequest, XmlCode, element, number, put};
 use crate::{
     auth,
     bucket::BucketAccess,
@@ -12,7 +12,7 @@ use crate::{
     },
     storage::DerivedDestination,
 };
-use hyper::{HeaderMap, Request, Response, StatusCode};
+use hyper::{HeaderMap, Request, Response};
 
 const SOURCE_FIELDS: &[&str] = &[
     "x-goog-copy-source",
@@ -130,8 +130,7 @@ fn options(headers: &HeaderMap, signing: put::Signing) -> Result<put::Headers, E
         hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, b"").as_ref()
     }) {
         return Err(Error::new(
-            StatusCode::BAD_REQUEST,
-            "BadDigest",
+            XmlCode::BadDigest,
             "Copy requires an empty request body",
         ));
     }

@@ -80,6 +80,23 @@ pub(crate) enum ObjectRequest {
     },
 }
 
+impl ObjectRequest {
+    pub(crate) fn projection(&self) -> Projection {
+        match self {
+            Self::Move(params) => params.projection,
+            Self::Copy(params) => params.projection,
+            Self::List(params) => params.projection,
+            Self::Update(params) => params.projection,
+            Self::Insert(request) => request.params.projection,
+            Self::Multipart(request) => request.params.projection,
+            Self::Resumable { params, .. } => params.projection,
+            Self::Get { params, .. } => params.projection,
+            // Restore validates projection but deliberately omits ACLs, as observed on the wire.
+            Self::Restore { .. } | Self::Compose { .. } | Self::Delete { .. } => Projection::NoAcl,
+        }
+    }
+}
+
 /// Match raw path segments before decoding object names exactly once.
 pub(crate) fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, JsonError>> {
     route_object_with_profile(method, uri, CompatProfile::Native)

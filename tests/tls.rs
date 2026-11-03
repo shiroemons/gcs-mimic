@@ -3,6 +3,7 @@
 mod common;
 
 use common::{TestDir, closed_by_server};
+use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
@@ -172,15 +173,15 @@ fn signed_private_download_uses_the_https_listener_host_and_port() {
         ],
         "/upload/storage/v1/b/signed-bucket/o?uploadType=media&name=object",
     ));
-    let url = gcs_mimic::auth::signature::sign_url(
-        &format!("{}/signed-bucket/object", server.origin),
-        &hyper::Method::GET,
-        "local-viewer@example.invalid",
-        include_bytes!("../fixtures/signing/test-only-private.pem"),
-        60,
-        std::time::SystemTime::now(),
-        hyper::HeaderMap::new(),
-    )
+    let url = sign_url(SignUrlRequest {
+        url: &format!("{}/signed-bucket/object", server.origin),
+        method: &hyper::Method::GET,
+        signer: "local-viewer@example.invalid",
+        private_key: include_bytes!("../fixtures/signing/test-only-private.pem"),
+        expires: 60,
+        now: std::time::SystemTime::now(),
+        headers: hyper::HeaderMap::new(),
+    })
     .unwrap();
     let uri: hyper::Uri = url.parse().unwrap();
     let path = uri.path_and_query().unwrap().as_str();
@@ -265,15 +266,15 @@ fn virtual_host_https_requires_a_matching_supplied_certificate() {
         ),
         (hyper::Method::GET, vec![]),
     ] {
-        let signed = gcs_mimic::auth::signature::sign_url(
-            &url,
-            &method,
-            "local-admin@example.invalid",
-            include_bytes!("../fixtures/signing/test-only-private.pem"),
-            60,
-            std::time::SystemTime::now(),
-            hyper::HeaderMap::new(),
-        )
+        let signed = sign_url(SignUrlRequest {
+            url: &url,
+            method: &method,
+            signer: "local-admin@example.invalid",
+            private_key: include_bytes!("../fixtures/signing/test-only-private.pem"),
+            expires: 60,
+            now: std::time::SystemTime::now(),
+            headers: hyper::HeaderMap::new(),
+        })
         .unwrap();
         let output = Command::new("curl")
             .args([

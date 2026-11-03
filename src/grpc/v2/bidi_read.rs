@@ -2,16 +2,13 @@ use super::{ResponseStream, Storage, append::Finality, names, pb, status::unsupp
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
+    grpc::validate::{self, request_conditions},
     json::JsonError,
-    object::{ObjectConditions, ObjectRecord, ObjectTarget},
-    server::State,
+    object::{ObjectRecord, ObjectTarget},
     storage::ObjectReader,
 };
 use prost::Message;
-use std::{
-    collections::VecDeque,
-    sync::{Arc, OnceLock, Weak},
-};
+use std::{collections::VecDeque, sync::Arc};
 use tokio::sync::{Mutex, mpsc};
 use tonic::{Request, Response, Status, Streaming};
 
@@ -27,9 +24,22 @@ struct Selected {
 
 struct Handle {
     token: Vec<u8>,
-    state: Weak<State>,
     project: Option<String>,
     selected: Arc<Selected>,
+}
+
+/// Read snapshots belong to one server state and survive individual gRPC connections.
+#[derive(Default)]
+pub struct ReadHandles(Mutex<VecDeque<Handle>>);
+
+impl ReadHandles {
+    async fn insert(&self, handle: Handle) {
+        let mut entries = self.0.lock().await;
+        if entries.len() == MAX_HANDLES {
+            entries.pop_front();
+        }
+        entries.push_back(handle);
+    }
 }
 
 fn project(access: &BucketAccess) -> Option<&str> {
@@ -48,35 +58,15 @@ fn check_handle_project(expected: Option<&str>, access: &BucketAccess) -> Result
     Ok(())
 }
 
-fn handles() -> &'static Mutex<VecDeque<Handle>> {
-    static HANDLES: OnceLock<Mutex<VecDeque<Handle>>> = OnceLock::new();
-    HANDLES.get_or_init(Mutex::default)
-}
-
-fn error(error: impl Into<JsonError>, caller: Option<Caller<'_>>) -> Status {
-    super::access_status(error.into(), caller)
-}
-
 #[expect(
     deprecated,
     reason = "the deprecated read_mask field must still be rejected when a client sets it"
 )]
 fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<(), Status> {
-    if spec.generation < 0
-        || [
-            spec.if_generation_match,
-            spec.if_generation_not_match,
-            spec.if_metageneration_match,
-            spec.if_metageneration_not_match,
-        ]
-        .into_iter()
-        .flatten()
-        .any(|value| value < 0)
-    {
-        return Err(Status::invalid_argument(
-            "Generation conditions must be nonnegative; use generation 0 for the live object",
-        ));
-    }
+    const MESSAGE: &str =
+        "Generation conditions must be nonnegative; use generation 0 for the live object";
+    validate::generation(spec.generation, MESSAGE)?;
+    validate::lenient_conditions(request_conditions!(spec), MESSAGE)?;
     if spec
         .common_object_request_params
         .as_ref()
@@ -118,12 +108,10 @@ impl Storage {
             Status::invalid_argument("Missing read_handle; reopen without read_handle")
         })?;
         let (bucket, object) = names::object_name(&spec.bucket, &spec.object)?;
-        let entries = handles().lock().await;
+        let entries = self.state.grpc_read_handles.0.lock().await;
         let entry = entries
             .iter()
-            .find(|entry| {
-                entry.token == handle.handle && entry.state.ptr_eq(&Arc::downgrade(&self.state))
-            })
+            .find(|entry| entry.token == handle.handle)
             .ok_or_else(|| {
                 Status::failed_precondition(
                     "Read handle is unknown or expired; reopen without read_handle",
@@ -145,7 +133,7 @@ impl Storage {
             .catalog
             .authorize_object_snapshot(&selected.record, access)
             .await
-            .map_err(|failure| error(failure, caller))?;
+            .map_err(|failure| super::access_status(failure, caller))?;
         Ok((selected, token))
     }
 
@@ -179,12 +167,7 @@ impl Storage {
         let (selected, token) = if resumed {
             self.resume_read_handle(&spec, &access, caller).await?
         } else {
-            let conditions = ObjectConditions {
-                if_generation_match: spec.if_generation_match,
-                if_generation_not_match: spec.if_generation_not_match,
-                if_metageneration_match: spec.if_metageneration_match,
-                if_metageneration_not_match: spec.if_metageneration_not_match,
-            };
+            let conditions = request_conditions!(spec);
             let target = ObjectTarget::new(
                 bucket,
                 object,
@@ -193,7 +176,9 @@ impl Storage {
             let (record, reader, finality) = self
                 .open_readable(target, conditions, &access)
                 .await
-                .map_err(|e| error(JsonError::from(e).naming_object(bucket, object), caller))?;
+                .map_err(|e| {
+                    super::access_status(JsonError::from(e).naming_object(bucket, object), caller)
+                })?;
             let selected = Arc::new(Selected {
                 record,
                 reader: Mutex::new(reader),
@@ -202,17 +187,14 @@ impl Storage {
             let mut token = vec![0; 32];
             getrandom::fill(&mut token)
                 .map_err(|_| Status::internal("Cannot create read handle; retry the read"))?;
-            let mut entries = handles().lock().await;
-            entries.retain(|entry| entry.state.strong_count() != 0);
-            if entries.len() == MAX_HANDLES {
-                entries.pop_front();
-            }
-            entries.push_back(Handle {
-                token: token.clone(),
-                state: Arc::downgrade(&self.state),
-                project: project(&access).map(str::to_owned),
-                selected: selected.clone(),
-            });
+            self.state
+                .grpc_read_handles
+                .insert(Handle {
+                    token: token.clone(),
+                    project: project(&access).map(str::to_owned),
+                    selected: selected.clone(),
+                })
+                .await;
             (selected, token)
         };
         let mut ranges = VecDeque::new();
@@ -261,21 +243,11 @@ fn add_ranges(
                 "Duplicate outstanding read_id; assign a different read_id to each range",
             ));
         }
-        let offset = if range.read_offset < 0 {
-            size.saturating_sub(range.read_offset.unsigned_abs())
-        } else {
-            range.read_offset as u64
-        };
-        if offset > size || range.read_length < 0 {
-            return Err(range_error(range.read_id));
-        }
-        let remaining = size - offset;
-        range.read_offset = offset as i64;
-        range.read_length = if range.read_length == 0 {
-            remaining
-        } else {
-            remaining.min(range.read_length as u64)
-        } as i64;
+        let (offset, length) =
+            crate::grpc::validate::resolve_range(size, range.read_offset, range.read_length)
+                .ok_or_else(|| range_error(range.read_id))?;
+        range.read_offset = crate::grpc::convert::signed(offset);
+        range.read_length = crate::grpc::convert::signed(length);
         queue.push_back(range);
     }
     Ok(())
@@ -294,18 +266,11 @@ fn range_error(read_id: i64) -> Status {
             }),
         }],
     };
-    let status = RpcStatus {
-        code: tonic::Code::OutOfRange as i32,
-        message: message.into(),
-        details: vec![prost_types::Any {
-            type_url: "type.googleapis.com/google.storage.v2.BidiReadObjectError".into(),
-            value: details.encode_to_vec(),
-        }],
-    };
-    Status::with_details(
+    super::status::with_detail(
         tonic::Code::OutOfRange,
-        message,
-        status.encode_to_vec().into(),
+        message.into(),
+        "type.googleapis.com/google.storage.v2.BidiReadObjectError",
+        details.encode_to_vec(),
     )
 }
 
@@ -335,12 +300,13 @@ async fn serve(
                 let data = {
                     // Reposition under the same lock because reconnects share the immutable open file.
                     let mut reader = selected.reader.lock().await;
-                    reader.set_range(offset as u64, range.read_length as u64).await
+                    reader.set_range(offset.cast_unsigned(), range.read_length.cast_unsigned()).await
                         .map_err(|_| Status::internal("Cannot seek object data; restore a valid data directory"))?;
                     reader.next_chunk().await.map_err(|_| Status::internal("Cannot read object data; restore a valid data directory"))?
                         .unwrap_or_default()
                 };
-                let length = data.len() as i64;
+                // Readers cap chunks at 64 KiB; widening the signed pointer-sized length cannot fail.
+                let length = data.len().cast_signed() as i64;
                 range.read_offset += length;
                 range.read_length -= length;
                 let range_end = range.read_length == 0;
@@ -362,11 +328,154 @@ async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::test_support::assert_code;
+    use crate::grpc::v2::access_status;
     use crate::storage::test_fixtures::PERMISSIVE;
+
+    async fn readable_state() -> Arc<crate::server::State> {
+        use crate::{
+            auth::Auth,
+            clock::SystemClock,
+            storage::{Catalog, admin::LocalAdmin},
+        };
+        let catalog = Catalog::open_memory_for_server(
+            1024 * 1024,
+            1024 * 1024,
+            Arc::new(SystemClock),
+            LocalAdmin::Enabled,
+        )
+        .await
+        .unwrap();
+        catalog
+            .insert_bucket(crate::storage::test_fixtures::bucket("handle-bucket", "p"))
+            .await
+            .unwrap();
+        let (tx, rx) = mpsc::channel(2);
+        tx.send(Ok(crate::object::UploadChunk::Data(
+            bytes::Bytes::from_static(b"handle data"),
+        )))
+        .await
+        .unwrap();
+        tx.send(Ok(crate::object::UploadChunk::End)).await.unwrap();
+        drop(tx);
+        catalog
+            .put_object(
+                crate::storage::test_fixtures::permissive_upload("handle-bucket", "object", 1024),
+                rx,
+            )
+            .await
+            .unwrap();
+        Arc::new(crate::server::State::for_test(catalog, Auth::permissive()))
+    }
+
+    #[tokio::test]
+    async fn read_handles_are_isolated_by_state_and_survive_reconnection() {
+        use crate::grpc::test_support::{rpc, storage_with};
+        let states = [readable_state().await, readable_state().await];
+        let mut selected = Vec::new();
+        let mut handles = Vec::new();
+        for state in &states {
+            let request = pb::BidiReadObjectRequest {
+                read_object_spec: Some(pb::BidiReadObjectSpec {
+                    bucket: "projects/_/buckets/handle-bucket".into(),
+                    object: "object".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let (code, responses): (_, Vec<pb::BidiReadObjectResponse>) = rpc(
+                "/google.storage.v2.Storage/BidiReadObject",
+                None,
+                &[request],
+                async |request| {
+                    crate::grpc::v2::dispatch(
+                        crate::grpc::v2::service(state.clone(), 1024),
+                        request,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
+            .await;
+            assert_eq!(code, tonic::Code::Ok);
+            assert_eq!(responses.len(), 1);
+            let token = responses[0].read_handle.as_ref().unwrap().handle.clone();
+            let entries = state.grpc_read_handles.0.lock().await;
+            selected.push(
+                entries
+                    .iter()
+                    .find(|entry| entry.token == token)
+                    .unwrap()
+                    .selected
+                    .clone(),
+            );
+            handles.push(token);
+        }
+        for token in 0..=MAX_HANDLES {
+            states[1]
+                .grpc_read_handles
+                .insert(Handle {
+                    token: token.to_le_bytes().to_vec(),
+                    project: None,
+                    selected: selected[1].clone(),
+                })
+                .await;
+        }
+        let retained: Vec<_> = states[1]
+            .grpc_read_handles
+            .0
+            .lock()
+            .await
+            .iter()
+            .map(|entry| entry.token.clone())
+            .collect();
+        assert_eq!(
+            retained,
+            (1..=MAX_HANDLES)
+                .map(|token| token.to_le_bytes().to_vec())
+                .collect::<Vec<_>>()
+        );
+        let spec = pb::BidiReadObjectSpec {
+            bucket: "projects/_/buckets/handle-bucket".into(),
+            object: "object".into(),
+            read_handle: Some(pb::BidiReadHandle {
+                handle: handles[0].clone(),
+            }),
+            ..Default::default()
+        };
+        let reconnected = storage_with(states[0].clone(), 1024);
+        let (resumed, token) = reconnected
+            .resume_read_handle(&spec, PERMISSIVE, None)
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(&resumed, &selected[0]));
+        assert_eq!(token, handles[0]);
+        assert_eq!(
+            resumed
+                .reader
+                .lock()
+                .await
+                .next_chunk()
+                .await
+                .unwrap()
+                .unwrap(),
+            b"handle data".as_slice()
+        );
+        let other = storage_with(states[1].clone(), 1024);
+        assert_code(
+            other.resume_read_handle(&spec, PERMISSIVE, None).await,
+            tonic::Code::FailedPrecondition,
+        );
+        drop(resumed);
+        drop(selected);
+        for state in states {
+            state.catalog.close().await.unwrap();
+        }
+    }
 
     #[test]
     fn bidi_shared_error_status() {
-        let unsupported = error(
+        let unsupported = access_status(
             JsonError::new(
                 hyper::StatusCode::NOT_IMPLEMENTED,
                 "notImplemented",
@@ -377,7 +486,7 @@ mod tests {
         assert_eq!(unsupported.code(), tonic::Code::Unimplemented);
         assert!(!unsupported.details().is_empty());
         assert_eq!(
-            error(
+            access_status(
                 JsonError::new(
                     hyper::StatusCode::SERVICE_UNAVAILABLE,
                     "backendError",
@@ -397,11 +506,9 @@ mod tests {
             permission: auth::Permission::ObjectsGet,
             project: Some("new-project".into()),
         };
-        assert_eq!(
-            check_handle_project(Some("original-project"), &access)
-                .unwrap_err()
-                .code(),
-            tonic::Code::FailedPrecondition
+        assert_code(
+            check_handle_project(Some("original-project"), &access),
+            tonic::Code::FailedPrecondition,
         );
         assert!(check_handle_project(Some("new-project"), &access).is_ok());
         assert!(check_handle_project(None, PERMISSIVE).is_ok());
@@ -430,19 +537,17 @@ mod tests {
             assert_eq!((range.read_offset, range.read_length), expected);
         }
         for (offset, length) in [(16, 0), (0, -1)] {
-            assert_eq!(
+            assert_code(
                 add_ranges(
                     &mut ranges,
                     vec![pb::ReadRange {
                         read_offset: offset,
                         read_length: length,
-                        read_id: 1
+                        read_id: 1,
                     }],
-                    15
-                )
-                .unwrap_err()
-                .code(),
-                tonic::Code::OutOfRange
+                    15,
+                ),
+                tonic::Code::OutOfRange,
             );
         }
         let range = pb::ReadRange {
@@ -450,15 +555,13 @@ mod tests {
             ..Default::default()
         };
         add_ranges(&mut ranges, vec![range], 15).unwrap();
-        assert_eq!(
-            add_ranges(&mut ranges, vec![range], 15).unwrap_err().code(),
-            tonic::Code::InvalidArgument
+        assert_code(
+            add_ranges(&mut ranges, vec![range], 15),
+            tonic::Code::InvalidArgument,
         );
-        assert_eq!(
-            add_ranges(&mut ranges, vec![range; 101], 15)
-                .unwrap_err()
-                .code(),
-            tonic::Code::InvalidArgument
+        assert_code(
+            add_ranges(&mut ranges, vec![range; 101], 15),
+            tonic::Code::InvalidArgument,
         );
         ranges.clear();
         add_ranges(

@@ -1,11 +1,11 @@
 use super::*;
-use crate::fsutil::test_support::SourceDir;
+use crate::test_support::TestDir;
 use std::{fs, time::Duration};
 
 #[tokio::test]
 async fn native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling()
  {
-    let root = SourceDir::new();
+    let root = TestDir::new();
     fs::create_dir_all(root.0.join("bucket/nested")).unwrap();
     let body = root.0.join("bucket/nested/body");
     fs::write(&body, b"initial").unwrap();
@@ -43,8 +43,8 @@ async fn native_watch_observes_nested_writes_atomic_replacement_and_directory_ch
 
 #[tokio::test]
 async fn native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity() {
-    let root = SourceDir::new();
-    let outside = SourceDir::new();
+    let root = TestDir::new();
+    let outside = TestDir::new();
     fs::write(outside.0.join("body"), b"outside").unwrap();
     std::os::unix::fs::symlink(&outside.0, root.0.join("link")).unwrap();
     let directory = fsutil::open_directory_nofollow(&root.0).unwrap();

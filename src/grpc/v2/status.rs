@@ -8,37 +8,47 @@ use tonic::{Code, Status};
 const NOT_MODIFIED: &str =
     "The resource you requested has not been modified according to the condition you specified.";
 
-/// The message of the JSON object error for a failed generation or metageneration condition.
-const JSON_PRECONDITION_FAILED: &str = "Precondition failed";
+impl From<crate::object::ObjectError> for Status {
+    fn from(error: crate::object::ObjectError) -> Self {
+        Self::from(crate::json::JsonError::from(error))
+    }
+}
 
-pub(crate) fn from_json(mut error: crate::json::JsonError) -> Status {
-    match (error.status.as_u16(), error.reason) {
-        // The JSON object error words a failed precondition shorter; gRPC carries the recorded
-        // text of bucket RPCs. Other 412s (public access prevention, a bucket that is not empty)
-        // keep their own message: they are not failed preconditions.
-        (412, "conditionNotMet") if error.message == JSON_PRECONDITION_FAILED => {
-            error.message = crate::json::PRECONDITION_NOT_HELD.into();
+impl From<crate::bucket::CatalogError> for Status {
+    fn from(error: crate::bucket::CatalogError) -> Self {
+        Self::from(crate::json::JsonError::from(error))
+    }
+}
+
+impl From<crate::auth::AuthFailure> for Status {
+    fn from(error: crate::auth::AuthFailure) -> Self {
+        Self::from(crate::json::JsonError::from(error))
+    }
+}
+
+impl From<crate::json::JsonError> for Status {
+    fn from(mut error: crate::json::JsonError) -> Self {
+        if error.kind == crate::json::ErrorKind::NotModified {
+            error.message = NOT_MODIFIED.into();
         }
-        (304, "notModified") => error.message = NOT_MODIFIED.into(),
-        _ => {}
-    }
-    if error.message.starts_with("gcs-mimic does not support ") {
-        return unsupported(&error.message);
-    }
-    match error.status.as_u16() {
-        400 => Status::invalid_argument(error.message),
-        401 => Status::unauthenticated(error.message),
-        403 => Status::permission_denied(error.message),
-        404 => Status::not_found(error.message),
-        409 => Status::already_exists(error.message),
-        304 | 410 | 412 => Status::failed_precondition(error.message),
-        413 | 429 => Status::resource_exhausted(error.message),
-        416 => Status::out_of_range(error.message),
-        499 => Status::cancelled(error.message),
-        501 => unsupported(&error.message),
-        503 => Status::unavailable(error.message),
-        504 => Status::deadline_exceeded(error.message),
-        _ => Status::internal(error.message),
+        if error.kind == crate::json::ErrorKind::Unsupported {
+            return unsupported(&error.message);
+        }
+        match error.status.as_u16() {
+            400 => Status::invalid_argument(error.message),
+            401 => Status::unauthenticated(error.message),
+            403 => Status::permission_denied(error.message),
+            404 => Status::not_found(error.message),
+            409 => Status::already_exists(error.message),
+            304 | 410 | 412 => Status::failed_precondition(error.message),
+            413 | 429 => Status::resource_exhausted(error.message),
+            416 => Status::out_of_range(error.message),
+            499 => Status::cancelled(error.message),
+            501 => unsupported(&error.message),
+            503 => Status::unavailable(error.message),
+            504 => Status::deadline_exceeded(error.message),
+            _ => Status::internal(error.message),
+        }
     }
 }
 
@@ -48,7 +58,7 @@ pub(crate) fn anonymous(status: Status, caller: Option<crate::auth::Caller<'_>>)
     if matches!(caller, Some(crate::auth::Caller::Anonymous))
         && status.code() == Code::PermissionDenied
     {
-        from_json(crate::auth::AuthFailure::LoginRequired.into())
+        crate::auth::AuthFailure::LoginRequired.into()
     } else {
         status
     }
@@ -123,7 +133,7 @@ pub(crate) fn invalid_field(message: &str) -> Status {
     )
 }
 
-fn with_detail(code: Code, message: String, type_url: &str, value: Vec<u8>) -> Status {
+pub(super) fn with_detail(code: Code, message: String, type_url: &str, value: Vec<u8>) -> Status {
     let details = RpcStatus {
         code: code as i32,
         message: message.clone(),
@@ -170,24 +180,16 @@ mod tests {
 
     #[test]
     fn precondition_failures_use_the_grpc_wording() {
-        let failed = from_json(crate::json::JsonError::new(
-            StatusCode::PRECONDITION_FAILED,
-            "conditionNotMet",
-            "Precondition failed",
-        ));
+        let failed = Status::from(crate::object::ObjectError::PreconditionFailed);
         assert_eq!(failed.code(), Code::FailedPrecondition);
         assert_eq!(failed.message(), crate::json::PRECONDITION_NOT_HELD);
-        let unmodified = from_json(crate::json::JsonError::new(
-            StatusCode::NOT_MODIFIED,
-            "notModified",
-            "Not modified",
-        ));
+        let unmodified = Status::from(crate::object::ObjectError::NotModified);
         assert_eq!(unmodified.message(), NOT_MODIFIED);
         // A 412 that is not a failed condition keeps its own message.
-        let pap = from_json(crate::bucket::CatalogError::PublicAccessPrevention.into());
+        let pap = Status::from(crate::bucket::CatalogError::PublicAccessPrevention);
         assert_eq!(pap.code(), Code::FailedPrecondition);
         assert_eq!(pap.message(), "Public access prevention is enforced");
-        let not_empty = from_json(crate::json::JsonError::new(
+        let not_empty = Status::from(crate::json::JsonError::new(
             StatusCode::PRECONDITION_FAILED,
             "conditionNotMet",
             "bucket must be empty prior to deletion",

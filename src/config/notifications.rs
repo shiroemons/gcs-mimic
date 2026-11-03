@@ -1,21 +1,27 @@
-use super::{Config, ConfigurationReport, Diagnostic, DiagnosticSource, SettingFix, Settings};
+use super::{
+    Config, ConfigurationReport, Diagnostic, DiagnosticSource, Setting, SettingFix, Settings,
+};
 use crate::notification::{self, Endpoint, GlobalConfig, NotificationConfig, Runtime};
 use std::{collections::BTreeMap, io};
 
-pub(super) fn apply(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
-    match key {
-        "pubsub_emulator_host" => {
+pub(super) fn apply(
+    config: &mut Config,
+    setting: Setting,
+    value: String,
+) -> Result<(), SettingFix> {
+    match setting {
+        Setting::PubsubEmulatorHost => {
             if !value.is_empty() {
                 Endpoint::parse(&value)
                     .map_err(|_| SettingFix::from(notification::publisher::INVALID_ENDPOINT))?;
             }
             config.pubsub_emulator_host = (!value.is_empty()).then_some(value);
         }
-        "event_pubsub_project_id" => config.event_pubsub_project_id = value,
-        "event_pubsub_topic" => config.event_pubsub_topic = value,
-        "event_bucket" => config.event_bucket = value,
-        "event_object_prefix" => config.event_object_prefix = value,
-        "event_list" => config.event_list = value,
+        Setting::EventPubsubProjectId => config.event_pubsub_project_id = value,
+        Setting::EventPubsubTopic => config.event_pubsub_topic = value,
+        Setting::EventBucket => config.event_bucket = value,
+        Setting::EventObjectPrefix => config.event_object_prefix = value,
+        Setting::EventList => config.event_list = value,
         _ => return Err(super::unknown_setting()),
     }
     Ok(())

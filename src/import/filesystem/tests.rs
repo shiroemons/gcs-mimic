@@ -9,7 +9,7 @@ fn unknown_stored_values_make_import_failures_terminal() {
         .unwrap_err();
     let error: AdminError = unavailable(error).into();
     assert!(matches!(error, AdminError::Corrupt(_)));
-    assert!(terminal(&error));
+    assert!(terminal(&error.into()));
     let query_error: AdminError = unavailable(rusqlite::Error::InvalidQuery).into();
-    assert!(!terminal(&query_error));
+    assert!(!terminal(&query_error.into()));
 }

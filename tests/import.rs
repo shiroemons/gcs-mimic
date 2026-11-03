@@ -280,9 +280,9 @@ fn escaped_bucket_aliases_invalid_escapes_suffix_collisions_and_platform_rules_b
     invalid.source_platform = SourcePlatform::Windows;
     invalid.metadata_mode = MetadataMode::Xattr;
     let error = import::inspect(invalid, Vec::new(), Vec::new()).unwrap_err();
-    let diagnostics = error
-        .downcast_ref::<gcs_mimic::diagnostics::Diagnostics>()
-        .unwrap();
+    let import::ImportError::Diagnostics(diagnostics) = error else {
+        panic!("expected import validation diagnostics: {error}");
+    };
     assert_eq!(diagnostics.errors.len(), 1);
     assert_eq!(diagnostics.errors[0].key, "--metadata-mode");
     assert!(

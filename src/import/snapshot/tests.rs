@@ -1,18 +1,15 @@
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, version};
 use crate::{
-    fsutil::test_support::SourceDir,
     import::{self, MetadataMode, SourceFormat, SourcePlatform},
     storage::{
         Catalog,
         admin::{BucketName, Generation, ObjectName, Origin},
     },
+    test_support::TestDir,
 };
 use serde_json::{Value, json};
-use std::{
-    fs,
-    io::{self, Read, Write},
-};
+use std::{fs, io::Read};
 
 #[test]
 fn pinned_source_export_imports_selected_bodies_and_metadata_after_restart() {
@@ -156,8 +153,8 @@ fn object(name: &str, generation: i64, membership: &str) -> Value {
         "blob":"", "size":5, "attributes":attributes})
 }
 
-fn fixture(mut objects: Vec<Value>) -> (SourceDir, Options) {
-    let dir = SourceDir::new();
+fn fixture(mut objects: Vec<Value>) -> (TestDir, Options) {
+    let dir = TestDir::new();
     let source = dir.0.join("source");
     fs::create_dir_all(source.join("blobs")).unwrap();
     let mut options = Options::new(
@@ -192,22 +189,6 @@ fn fixture(mut objects: Vec<Value>) -> (SourceDir, Options) {
     (dir, options)
 }
 
-struct Interrupt(usize);
-impl Write for Interrupt {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.contains(&b'\n') {
-            self.0 -= 1;
-            if self.0 == 0 {
-                return Err(io::ErrorKind::BrokenPipe.into());
-            }
-        }
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 #[test]
 fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_restart() {
     let name = "a//../é/";
@@ -219,7 +200,14 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
     let manifest = fs::read(options.source.join("snapshot.jsonl")).unwrap();
     let before =
         Fingerprint::of(&fs::metadata(options.source.join("snapshot.jsonl")).unwrap()).unwrap();
-    assert!(import::execute(options.clone(), Interrupt(3), Vec::new()).is_err());
+    assert!(
+        import::execute(
+            options.clone(),
+            super::super::test_support::StopAfterLines(3),
+            Vec::new()
+        )
+        .is_err()
+    );
     let summary = import::execute(options.clone(), Vec::new(), Vec::new()).unwrap();
     assert!(summary.complete && summary.bodies_verified);
     assert_eq!(summary.objects, 3);

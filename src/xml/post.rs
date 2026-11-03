@@ -4,7 +4,7 @@
 //! through the shared object write path, so generations, checksums and catalog
 //! admission are the same as for an XML PUT.
 
-use super::{Error, ObjectPath, put::storage_error};
+use super::{Error, ObjectPath, XmlCode, put::storage_error};
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth::{
@@ -47,8 +47,7 @@ const CUSTOM_METADATA_CAP: usize = 8192;
 /// Cloud Storage reports unmet conditions as InvalidPolicyDocument with this wording.
 fn policy_error(details: impl std::fmt::Display) -> Error {
     Error::new(
-        StatusCode::BAD_REQUEST,
-        "InvalidPolicyDocument",
+        XmlCode::InvalidPolicyDocument,
         format!(
             "The content of the form does not meet the conditions specified in the policy document. {details}"
         ),
@@ -61,21 +60,18 @@ fn signature_error(failure: signature::VerificationError) -> Error {
         signature::VerificationError::Catalog(error) => return Error::from(JsonError::from(error)),
         signature::VerificationError::Worker(_) => {
             return Error::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "ServiceUnavailable",
+                XmlCode::ServiceUnavailable,
                 "The policy verifier is unavailable.",
             );
         }
     };
     match failure {
         Failure::UnknownSigner => Error::new(
-            StatusCode::FORBIDDEN,
-            "InvalidAccessKeyId",
+            XmlCode::InvalidAccessKeyId,
             "The policy signing key or its registered identity is unknown or inactive.",
         ),
         Failure::Mismatch => Error::new(
-            StatusCode::FORBIDDEN,
-            "SignatureDoesNotMatch",
+            XmlCode::SignatureDoesNotMatch,
             "The policy signature does not match.",
         ),
         Failure::Malformed | Failure::Expired | Failure::NotYetValid => Error::invalid(
@@ -551,8 +547,7 @@ fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpda
         > CUSTOM_METADATA_CAP
     {
         return Err(Error::new(
-            StatusCode::BAD_REQUEST,
-            "MetadataTooLarge",
+            XmlCode::MetadataTooLarge,
             "Custom metadata exceeds 8 KiB.",
         ));
     }
@@ -745,8 +740,7 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
                 .ok_or_else(|| storage_error(ObjectError::TooLarge, None))?;
             if range.is_some_and(|(_, max)| size > max) {
                 return Err(Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "EntityTooLarge",
+                    XmlCode::EntityTooLarge,
                     "The file exceeds the policy content-length-range maximum.",
                 ));
             }
@@ -762,8 +756,7 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
         }
         if range.is_some_and(|(min, _)| size < min) {
             return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "EntityTooSmall",
+                XmlCode::EntityTooSmall,
                 "The file is smaller than the policy content-length-range minimum.",
             ));
         }
@@ -907,7 +900,7 @@ mod tests {
     }
 
     fn details(error: Error) -> (StatusCode, &'static str, String) {
-        (error.status, error.code, error.message)
+        (error.status(), error.code.as_str(), error.message)
     }
 
     #[test]
@@ -985,7 +978,8 @@ mod tests {
             assert_eq!(
                 check_policy(&encoded, &sdk_fields(), "b", at(NOW), None, Version::V4)
                     .unwrap_err()
-                    .code,
+                    .code
+                    .as_str(),
                 "InvalidPolicyDocument",
                 "{encoded}"
             );
@@ -1078,7 +1072,7 @@ mod tests {
                 Version::V4,
             )
             .unwrap_err();
-            assert_eq!(error.code, "InvalidPolicyDocument");
+            assert_eq!(error.code.as_str(), "InvalidPolicyDocument");
             assert!(error.message.contains(expected), "{}", error.message);
         }
     }
@@ -1119,7 +1113,8 @@ mod tests {
                     Version::V4
                 )
                 .unwrap_err()
-                .code,
+                .code
+                .as_str(),
                 "InvalidPolicyDocument",
                 "{range}"
             );
@@ -1226,7 +1221,7 @@ mod tests {
         ] {
             let error = plan(&form(&pairs, filename), "b").err();
             assert_eq!(
-                error.map(|error| error.status),
+                error.map(|error| error.status()),
                 Some(StatusCode::BAD_REQUEST),
                 "{pairs:?}"
             );
@@ -1295,7 +1290,7 @@ mod tests {
             "--b\r\nContent-Type: text/plain\r\n\r\na\r\n--b--\r\n",
         ] {
             assert_eq!(
-                parse_form(body).await.unwrap_err().status,
+                parse_form(body).await.unwrap_err().status(),
                 StatusCode::BAD_REQUEST
             );
         }

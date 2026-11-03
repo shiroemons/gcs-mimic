@@ -1,4 +1,7 @@
 //! Storage transports share domain state, never JSON wire representations.
+mod convert;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub(crate) mod v1;
 pub(crate) mod v2;
 mod validate;

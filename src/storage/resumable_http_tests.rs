@@ -21,7 +21,7 @@ use gcs_mimic::{
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -258,12 +258,9 @@ impl Harness {
             Auth::permissive()
         };
         let state = Arc::new(State {
-            ready: AtomicBool::new(true),
             clock: clock.clone(),
-            catalog,
             api_base_url: base.trim_end_matches('/').into(),
-            default_location: "US".into(),
-            auth,
+            ..State::for_test(catalog, auth)
         });
         let config = Config {
             scheme: gcs_mimic::config::Scheme::Http,
@@ -2217,14 +2214,14 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
     h.address = listener.local_addr().unwrap().to_string();
     h.base = format!("http://{}", h.address);
     h.state = Arc::new(State {
-        ready: AtomicBool::new(true),
         clock: h.clock.clone(),
-        catalog: Catalog::open_with_clock(&h.dir.0, h.clock.clone())
-            .await
-            .unwrap(),
         api_base_url: h.base.clone(),
-        default_location: "US".into(),
-        auth: Auth::permissive(),
+        ..State::for_test(
+            Catalog::open_with_clock(&h.dir.0, h.clock.clone())
+                .await
+                .unwrap(),
+            Auth::permissive(),
+        )
     });
     let config = Config {
         scheme: gcs_mimic::config::Scheme::Http,

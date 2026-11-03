@@ -1,6 +1,10 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "Clippy does not exempt platform-gated test modules; fixture unwraps must fail the test"
+)]
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::sync::test_support::hooked_worker;
 use crate::{
     object::{ObjectMetadataUpdate, UploadChunk},
     storage::admin::Origin,
@@ -9,19 +13,7 @@ use crate::{
 use std::{collections::BTreeMap, fs, sync::Arc, time::Duration};
 
 async fn fixture() -> (TestDir, TestDir, Catalog, RootLease, Config) {
-    let data = TestDir::new();
-    let tree = TestDir::new();
-    let catalog = Catalog::open(&data.0).await.unwrap();
-    let config = Config {
-        data_dir: data.0.clone(),
-        sync_dir: Some(tree.0.clone()),
-        ..Default::default()
-    };
-    let root = crate::sync::preflight(&catalog, &config)
-        .await
-        .unwrap()
-        .unwrap();
-    (data, tree, catalog, root, config)
+    crate::sync::test_support::fixture(None).await
 }
 
 async fn scan(catalog: &Catalog, root: &RootLease, config: &Config) -> Reconciliation {
@@ -481,20 +473,13 @@ async fn ingest_preserves_metadata_patch_and_api_body_racing_publication() {
         fs::write(tree.0.join("test-bucket/object"), b"old").unwrap();
         scan(&catalog, &root, &config).await;
         fs::write(tree.0.join("test-bucket/object"), b"external-edit").unwrap();
-        let hook = Arc::new(Hook {
-            phase: "publish",
-            entered: Default::default(),
-            release: Default::default(),
-        });
         let worker_catalog = catalog.clone();
         let worker_root = root.clone();
         let worker_config = config.clone();
-        let worker = tokio::spawn(HOOK.scope(hook.clone(), async move {
+        let (hook, worker) = hooked_worker(&HOOK, "publish", async move {
             scan(&worker_catalog, &worker_root, &worker_config).await
-        }));
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
-            .await
-            .unwrap();
+        })
+        .await;
         if body_race {
             api_put(&catalog, "test-bucket/object", b"api-winner").await;
         } else {
@@ -545,17 +530,10 @@ async fn ingest_defers_partial_and_replacement_saves_then_resumes_activation() {
     let worker_catalog = catalog.clone();
     let worker_root = root.clone();
     let worker_config = config.clone();
-    let hook = Arc::new(Hook {
-        phase: "settle",
-        entered: Default::default(),
-        release: Default::default(),
-    });
-    let worker = tokio::spawn(HOOK.scope(hook.clone(), async move {
+    let (hook, worker) = hooked_worker(&HOOK, "settle", async move {
         scan(&worker_catalog, &worker_root, &worker_config).await
-    }));
-    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
-        .await
-        .unwrap();
+    })
+    .await;
     fs::write(tree.0.join("test-bucket/object~"), b"completed").unwrap();
     fs::rename(
         tree.0.join("test-bucket/object~"),
@@ -609,22 +587,15 @@ async fn ingest_shutdown_finishes_the_active_publication_before_restart() {
     fs::write(tree.0.join("test-bucket/first"), b"first").unwrap();
     fs::write(tree.0.join("test-bucket/second"), b"second").unwrap();
     let (stop, stopping) = tokio::sync::watch::channel(false);
-    let hook = Arc::new(Hook {
-        phase: "publish",
-        entered: Default::default(),
-        release: Default::default(),
-    });
     let worker_catalog = catalog.clone();
     let worker_root = root.clone();
     let worker_config = config.clone();
-    let worker = tokio::spawn(HOOK.scope(hook.clone(), async move {
+    let (hook, worker) = hooked_worker(&HOOK, "publish", async move {
         rescan(&worker_catalog, &worker_root, &worker_config, &stopping)
             .await
             .unwrap()
-    }));
-    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
-        .await
-        .unwrap();
+    })
+    .await;
     stop.send_replace(true);
     hook.release.notify_one();
     assert_eq!(worker.await.unwrap().ingested, 1);

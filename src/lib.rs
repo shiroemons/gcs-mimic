@@ -14,6 +14,7 @@ pub mod diagnostics;
 pub mod fsutil;
 mod grpc;
 mod hashing;
+mod hex;
 mod http_conditions;
 pub mod import;
 pub mod json;

@@ -218,13 +218,8 @@ fn validate_service_account_email(email: &str) -> Result<(), JsonError> {
 /// unrecognized fields are ignored like other metadata updates, so read-modify-write clients
 /// can send back the whole resource.
 pub(crate) fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonError> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "HMAC key metadata must be valid JSON",
-        )
-    })?;
+    let value: Value = serde_json::from_slice(bytes)
+        .map_err(|_| JsonError::legacy_parse_error("HMAC key metadata must be valid JSON"))?;
     let body = value
         .as_object()
         .ok_or_else(|| JsonError::invalid_argument("HMAC key metadata must be a JSON object"))?;

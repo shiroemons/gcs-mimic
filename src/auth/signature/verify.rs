@@ -264,7 +264,7 @@ mod tests {
             })
             .await
             .unwrap_err();
-            assert_eq!(xml.status, hyper::StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(xml.status(), hyper::StatusCode::SERVICE_UNAVAILABLE);
         }
     }
 

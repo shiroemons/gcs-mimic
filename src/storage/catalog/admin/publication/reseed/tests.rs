@@ -9,6 +9,29 @@ use crate::{
 };
 use std::fs;
 
+#[tokio::test]
+async fn seed_project_mismatch_preserves_the_existing_diagnostic() {
+    let (_dir, catalog, admin, _, _) = setup().await;
+    let mut batch = admin.seed_batch().unwrap();
+    batch
+        .bucket(
+            BucketDefinition::default_for(
+                &BucketName::new("test-bucket").unwrap(),
+                "other-project",
+                &SystemClock,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let error = batch.commit(SeedMode::Merge).await.err().unwrap();
+    assert_eq!(error, AdminError::SeedProjectMismatch);
+    assert_eq!(
+        error.to_string(),
+        "administrative operation: Invalid(\"existing seed bucket belongs to another project\")"
+    );
+    catalog.close().await.unwrap();
+}
+
 async fn add(batch: &mut SeedBatch, dir: &Path, name: &str, bytes: &[u8]) {
     let path = dir.join("source");
     fs::write(&path, bytes).unwrap();

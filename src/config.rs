@@ -1,9 +1,10 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+use crate::config_input::Fix as SettingFix;
 use crate::{
     auth::AuthMode,
     bucket::bucket_location,
-    config_input::{CliCommand, Input, InputError, InputKind, Inputs, NATIVE_KEYS},
+    config_input::{CliCommand, Input, InputError, InputKind, Inputs, LEGACY_PREFIX},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     url::PublicOrigin,
 };
@@ -15,11 +16,15 @@ use std::{
 
 mod notifications;
 mod runtime;
+mod setting;
 mod storage;
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod unix_tests;
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{EndpointError, EndpointSnapshot};
+pub(crate) use setting::Setting;
 pub use storage::Backend;
 
 /// Reserved-domain (RFC 2606) address, so it can never name a real Google account.
@@ -29,17 +34,31 @@ const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
 macro_rules! string_enum {
-    ($(#[$meta:meta])* pub enum $name:ident {
+    ($(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:literal) => {
+    } $error:expr) => {
+        $crate::config::string_enum! { @impl [Default] $(#[$meta])* $vis enum $name {
+            $($(#[$variant_meta])* $variant => $value),+
+        } $error }
+    };
+    (no_default $(#[$meta:meta])* $vis:vis enum $name:ident {
+        $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
+    } $error:expr) => {
+        $crate::config::string_enum! { @impl [] $(#[$meta])* $vis enum $name {
+            $($(#[$variant_meta])* $variant => $value),+
+        } $error }
+    };
+    (@impl [$($derive:ident),*] $(#[$meta:meta])* $vis:vis enum $name:ident {
+        $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
+    } $error:expr) => {
         $(#[$meta])*
-        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-        pub enum $name {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, $($derive),*)]
+        $vis enum $name {
             $($(#[$variant_meta])* $variant),+
         }
 
         impl $name {
-            pub fn as_str(self) -> &'static str {
+            $vis fn as_str(self) -> &'static str {
                 match self { $(Self::$variant => $value),+ }
             }
         }
@@ -86,6 +105,26 @@ string_enum! {
         Both => "both",
     }
     "scheme must be http, https or both"
+}
+
+impl Scheme {
+    pub fn primary(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https | Self::Both => "https",
+        }
+    }
+}
+
+pub fn loopback_if_unspecified(mut address: SocketAddr) -> SocketAddr {
+    if address.ip().is_unspecified() {
+        address.set_ip(if address.is_ipv4() {
+            std::net::Ipv4Addr::LOCALHOST.into()
+        } else {
+            std::net::Ipv6Addr::LOCALHOST.into()
+        });
+    }
+    address
 }
 
 #[derive(Clone, Debug)]
@@ -208,20 +247,13 @@ impl Default for Config {
 
 impl Config {
     pub fn healthcheck_url(&self) -> String {
-        let mut listen = self.effective_listen_http().unwrap_or(self.listen);
-        if listen.ip().is_unspecified() {
-            listen.set_ip(if listen.is_ipv4() {
-                std::net::Ipv4Addr::LOCALHOST.into()
-            } else {
-                std::net::Ipv6Addr::LOCALHOST.into()
-            });
-        }
-        let scheme = if self.scheme == Scheme::Https {
-            "https"
+        let listen = loopback_if_unspecified(self.effective_listen_http().unwrap_or(self.listen));
+        let scheme = if self.scheme == Scheme::Both {
+            Scheme::Http
         } else {
-            "http"
+            self.scheme
         };
-        format!("{scheme}://{listen}/_internal/ready")
+        format!("{}://{listen}/_internal/ready", scheme.as_str())
     }
 
     pub fn effective_listen_http(&self) -> Option<SocketAddr> {
@@ -233,23 +265,10 @@ impl Config {
 
     pub fn effective_api_base_url(&self, bound: SocketAddr) -> String {
         self.api_base_url.clone().unwrap_or_else(|| {
-            let ip = match bound.ip() {
-                std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
-                    std::net::Ipv4Addr::LOCALHOST.into()
-                }
-                std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
-                    std::net::Ipv6Addr::LOCALHOST.into()
-                }
-                ip => ip,
-            };
             format!(
                 "{}://{}",
-                if self.scheme == Scheme::Http {
-                    "http"
-                } else {
-                    "https"
-                },
-                SocketAddr::new(ip, bound.port())
+                self.scheme.primary(),
+                loopback_if_unspecified(SocketAddr::new(bound.ip(), bound.port()))
             )
         })
     }
@@ -330,7 +349,6 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
             i.name == "config"
                 && i.kind == InputKind::Native
                 && i.source != DiagnosticSource::Config
-                && !i.key.starts_with("FAKE_GCS_")
         })
         .max_by_key(|i| {
             if i.source == DiagnosticSource::Cli {
@@ -362,7 +380,11 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
                     key: key.clone(),
                     name: key.clone(),
                     value: text.clone().unwrap_or_default(),
-                    kind: InputKind::Native,
+                    kind: if key.starts_with(LEGACY_PREFIX) {
+                        InputKind::UnknownLegacy
+                    } else {
+                        InputKind::Native
+                    },
                     invalid: None,
                 }) {
                     break;
@@ -409,9 +431,8 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
                         other.source == source && other.key == "GCS_MIMIC_PUBSUB_EMULATOR_HOST"
                     }))
                 && match i.kind {
-                    InputKind::Native => !i.key.starts_with("FAKE_GCS_"),
-                    InputKind::Alias => true,
-                    InputKind::Legacy => false,
+                    InputKind::Native | InputKind::Alias => true,
+                    InputKind::Legacy | InputKind::UnknownLegacy => false,
                 }
         }) {
             if source == DiagnosticSource::Cli
@@ -424,7 +445,7 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
                     "Duplicate option; supply each --name VALUE option exactly once.",
                 ));
             }
-            if !NATIVE_KEYS.contains(&input.name.as_str())
+            if input.name.parse::<Setting>().is_err()
                 || (input.name == "config" && source == DiagnosticSource::Config)
                 || (input.name == "sync_reinitialize" && source != DiagnosticSource::Cli)
             {
@@ -461,108 +482,124 @@ fn rejected_setting_fix(name: &str) -> &'static str {
     }
 }
 
-/// The user-facing fix for a rejected setting value; it becomes the diagnostic text verbatim.
-#[derive(Debug)]
-struct SettingFix(String);
-
-impl From<String> for SettingFix {
-    fn from(fix: String) -> Self {
-        Self(fix)
-    }
-}
-
-impl From<&str> for SettingFix {
-    fn from(fix: &str) -> Self {
-        Self(fix.to_owned())
-    }
-}
-
 /// Parses one setting into `config`. A rejected value may leave `config` partly updated, so the
 /// caller applies it to a candidate copy and keeps the copy only on success.
 fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
-    match key {
-        "backend" | "memory_max_bytes" | "memory_catalog_max_bytes" => {
-            return storage::apply(config, key, &value);
+    let setting = key.parse::<Setting>().map_err(|_| unknown_setting())?;
+    match setting {
+        Setting::Backend | Setting::MemoryMaxBytes | Setting::MemoryCatalogMaxBytes => {
+            storage::apply(config, setting, &value)
         }
-        "pubsub_emulator_host"
-        | "event_pubsub_project_id"
-        | "event_pubsub_topic"
-        | "event_bucket"
-        | "event_object_prefix"
-        | "event_list" => return notifications::apply(config, key, value),
-        _ => {}
-    }
-    // Ok(true) owns the key; Ok(false) lets the next applier try it.
-    for apply in [
-        apply_network_setting,
-        apply_url_setting,
-        apply_storage_setting,
-        apply_access_setting,
-        apply_limit_setting,
-    ] {
-        if apply(config, key, &value)? {
-            return Ok(());
+        Setting::PubsubEmulatorHost
+        | Setting::EventPubsubProjectId
+        | Setting::EventPubsubTopic
+        | Setting::EventBucket
+        | Setting::EventObjectPrefix
+        | Setting::EventList => notifications::apply(config, setting, value),
+        Setting::LogLevel
+        | Setting::Scheme
+        | Setting::Listen
+        | Setting::ListenHttp
+        | Setting::GrpcListen
+        | Setting::UnixSocket
+        | Setting::TlsCert
+        | Setting::TlsKey
+        | Setting::TlsHandshakeTimeoutMs => apply_network_setting(config, setting, &value),
+        Setting::ApiBaseUrl | Setting::PublicBaseUrl | Setting::XmlVirtualHostDomains => {
+            apply_url_setting(config, setting, &value)
         }
+        Setting::DataDir
+        | Setting::SeedDir
+        | Setting::DefaultSeedDir
+        | Setting::SyncDir
+        | Setting::SyncDeleteGuard
+        | Setting::SyncReinitialize
+        | Setting::SeedProject
+        | Setting::SeedContentType
+        | Setting::DefaultLocation
+        | Setting::DefaultSoftDeleteRetentionSeconds
+        | Setting::BucketsFile => apply_storage_setting(config, setting, &value),
+        Setting::AdminPrincipal
+        | Setting::LocalCreatorEmail
+        | Setting::AdminEnabled
+        | Setting::AuthMode
+        | Setting::CompatProfile
+        | Setting::CorsFallback
+        | Setting::IdentityFile => apply_access_setting(config, setting, &value),
+        Setting::MaxConnections
+        | Setting::MaxObjectBytes
+        | Setting::WorkerThreads
+        | Setting::MaxBlockingThreads
+        | Setting::ConnectionTimeoutMs
+        | Setting::KeepAliveTimeoutMs
+        | Setting::ObjectRequestTimeoutMs
+        | Setting::CatalogWaitTimeoutMs
+        | Setting::ShutdownTimeoutMs => apply_limit_setting(config, setting, &value),
+        Setting::Config => Err(unknown_setting()),
     }
-    Err(unknown_setting())
 }
 
 fn unknown_setting() -> SettingFix {
-    "Unknown setting; remove it and use --help.".into()
+    setting::UNKNOWN_SETTING.into()
 }
 
-fn apply_network_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "log_level" => config.log_level = value.parse()?,
-        "scheme" => config.scheme = value.parse()?,
-        "listen" => {
+fn apply_network_setting(
+    config: &mut Config,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
+    let key = setting.as_str();
+    match setting {
+        Setting::LogLevel => config.log_level = value.parse()?,
+        Setting::Scheme => config.scheme = value.parse()?,
+        Setting::Listen => {
             config.listen = value
                 .parse()
                 .map_err(|_| "listen must be an IP:port socket address")?
         }
-        "listen_http" => {
+        Setting::ListenHttp => {
             config.listen_http = Some(value.parse().map_err(
                 |_| "listen_http must be an IP socket address, for example 127.0.0.1:8000",
             )?);
         }
-        "grpc_listen" => {
+        Setting::GrpcListen => {
             config.grpc_listen = Some(value.parse().map_err(|_| {
                 "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port"
             })?);
         }
-        "unix_socket" => config.unix_socket = Some(PathBuf::from(non_empty(key, value)?)),
-        "tls_cert" | "tls_key" => {
+        Setting::UnixSocket => config.unix_socket = Some(PathBuf::from(non_empty(key, value)?)),
+        Setting::TlsCert | Setting::TlsKey => {
             if value.is_empty() {
                 return Err(format!("{key} must not be empty").into());
             }
-            if key == "tls_cert" {
+            if setting == Setting::TlsCert {
                 config.tls_cert = Some(PathBuf::from(value));
             } else {
                 config.tls_key = Some(PathBuf::from(value));
             }
         }
-        "tls_handshake_timeout_ms" => {
-            config.tls_handshake_timeout_ms = bounded(key, value, 1, 60_000)?
+        Setting::TlsHandshakeTimeoutMs => {
+            config.tls_handshake_timeout_ms = setting.integer(value)?
         }
-        _ => return Ok(false),
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
-fn apply_url_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "api_base_url" => {
+fn apply_url_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
+    match setting {
+        Setting::ApiBaseUrl => {
             config.api_base_url = Some(
                 crate::url::normalize_base_url(value)
                     .map_err(|error| format!("api_base_url: {error}"))?,
             );
         }
-        "public_base_url" => {
+        Setting::PublicBaseUrl => {
             config.public_base_url = Some(
                 PublicOrigin::parse(value).map_err(|error| format!("public_base_url: {error}"))?,
             );
         }
-        "xml_virtual_host_domains" => {
+        Setting::XmlVirtualHostDomains => {
             if !value.is_empty() {
                 for domain in value.split(',') {
                     let domain = domain.trim().to_ascii_lowercase();
@@ -586,19 +623,24 @@ fn apply_url_setting(config: &mut Config, key: &str, value: &str) -> Result<bool
                     .sort_by_key(|d| std::cmp::Reverse(d.len()));
             }
         }
-        _ => return Ok(false),
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
-fn apply_storage_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "data_dir" => config.data_dir = PathBuf::from(non_empty(key, value)?),
-        "seed_dir" => config.seed_dir = Some(PathBuf::from(non_empty(key, value)?)),
-        "default_seed_dir" => {
+fn apply_storage_setting(
+    config: &mut Config,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
+    let key = setting.as_str();
+    match setting {
+        Setting::DataDir => config.data_dir = PathBuf::from(non_empty(key, value)?),
+        Setting::SeedDir => config.seed_dir = Some(PathBuf::from(non_empty(key, value)?)),
+        Setting::DefaultSeedDir => {
             config.default_seed_dir = Some(PathBuf::from(non_empty(key, value)?));
         }
-        "sync_dir" => {
+        Setting::SyncDir => {
             if value.is_empty() {
                 return Err(
                     "sync_dir must not be empty; supply an existing writable directory".into(),
@@ -606,29 +648,29 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: &str) -> Result<
             }
             config.sync_dir = Some(PathBuf::from(value));
         }
-        "sync_delete_guard" => {
+        Setting::SyncDeleteGuard => {
             config.sync_delete_guard = value
                 .parse::<bool>()
                 .map_err(|_| "sync_delete_guard must be true or false")?
         }
-        "sync_reinitialize" => {
+        Setting::SyncReinitialize => {
             config.sync_reinitialize =
                 Some(crate::sync::parse_catalog_id(value).map_err(|error| error.to_string())?)
         }
-        "seed_project" => {
+        Setting::SeedProject => {
             crate::json::validate_project(value)
                 .map_err(|error| format!("seed_project: {}", error.message))?;
             config.seed_project = value.to_owned();
         }
-        "seed_content_type" => config.seed_content_type = value.parse()?,
-        "default_location" => {
+        Setting::SeedContentType => config.seed_content_type = value.parse()?,
+        Setting::DefaultLocation => {
             let value = if value.is_empty() { "US" } else { value };
             config.default_location = bucket_location(value)
                 .map_err(|_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1")?
                 .0
                 .to_owned();
         }
-        "default_soft_delete_retention_seconds" => {
+        Setting::DefaultSoftDeleteRetentionSeconds => {
             // Cloud Storage accepts 0 (disabled) or 7 to 90 days.
             config.default_soft_delete_retention_seconds = value
                 .parse::<u64>()
@@ -636,7 +678,7 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: &str) -> Result<
                 .filter(|seconds| *seconds == 0 || (604_800..=7_776_000).contains(seconds))
                 .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 604800..=7776000; use 604800 for the Cloud Storage default")?;
         }
-        "buckets_file" => {
+        Setting::BucketsFile => {
             if value.is_empty() {
                 return Err(
                     "buckets_file must not be empty; use buckets.json or omit the setting".into(),
@@ -644,14 +686,18 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: &str) -> Result<
             }
             config.buckets_file = Some(PathBuf::from(value));
         }
-        _ => return Ok(false),
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
-fn apply_access_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "admin_principal" => {
+fn apply_access_setting(
+    config: &mut Config,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
+    match setting {
+        Setting::AdminPrincipal => {
             if value.is_empty() || value.len() > 254 || value.chars().any(char::is_control) {
                 return Err(
                     "admin_principal must be a nonempty local principal ID of at most 254 bytes"
@@ -660,7 +706,7 @@ fn apply_access_setting(config: &mut Config, key: &str, value: &str) -> Result<b
             }
             config.admin_principal = Some(value.to_owned());
         }
-        "local_creator_email" => {
+        Setting::LocalCreatorEmail => {
             if !value.is_empty() {
                 crate::auth::validate_local_creator_email(value).map_err(|reason| {
                     format!(
@@ -671,42 +717,41 @@ fn apply_access_setting(config: &mut Config, key: &str, value: &str) -> Result<b
             }
             config.local_creator_email = value.to_owned();
         }
-        "admin_enabled" => {
+        Setting::AdminEnabled => {
             config.admin_enabled = value
                 .parse::<bool>()
                 .map_err(|_| "admin_enabled must be true or false")?;
         }
-        "auth_mode" => config.auth_mode = value.parse()?,
-        "compat_profile" => config.compat_profile = value.parse()?,
-        "cors_fallback" => config.cors_fallback = value.parse()?,
-        "identity_file" => config.identity_file = Some(PathBuf::from(non_empty(key, value)?)),
-        _ => return Ok(false),
+        Setting::AuthMode => config.auth_mode = value.parse()?,
+        Setting::CompatProfile => config.compat_profile = value.parse()?,
+        Setting::CorsFallback => config.cors_fallback = value.parse()?,
+        Setting::IdentityFile => {
+            config.identity_file = Some(PathBuf::from(non_empty(setting.as_str(), value)?))
+        }
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
-fn apply_limit_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "max_connections" => config.max_connections = bounded(key, value, 1, 1024)? as usize,
-        "max_object_bytes" => {
-            config.max_object_bytes = bounded(key, value, 1, 5 * 1024_u64.pow(4))?
-        }
-        "worker_threads" => config.worker_threads = bounded(key, value, 1, 32)? as usize,
-        "max_blocking_threads" => {
-            config.max_blocking_threads = bounded(key, value, 1, 32)? as usize
-        }
-        "connection_timeout_ms" => config.connection_timeout_ms = bounded(key, value, 1, 60_000)?,
-        "keep_alive_timeout_ms" => config.keep_alive_timeout_ms = bounded(key, value, 1, 600_000)?,
-        "object_request_timeout_ms" => {
-            config.object_request_timeout_ms = bounded(key, value, 1, 86_400_000)?
-        }
-        "catalog_wait_timeout_ms" => {
-            config.catalog_wait_timeout_ms = bounded(key, value, 1, 60_000)?
-        }
-        "shutdown_timeout_ms" => config.shutdown_timeout_ms = bounded(key, value, 1, 60_000)?,
-        _ => return Ok(false),
+fn apply_limit_setting(
+    config: &mut Config,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
+    let value = setting.integer(value)?;
+    match setting {
+        Setting::MaxConnections => config.max_connections = value as usize,
+        Setting::MaxObjectBytes => config.max_object_bytes = value,
+        Setting::WorkerThreads => config.worker_threads = value as usize,
+        Setting::MaxBlockingThreads => config.max_blocking_threads = value as usize,
+        Setting::ConnectionTimeoutMs => config.connection_timeout_ms = value,
+        Setting::KeepAliveTimeoutMs => config.keep_alive_timeout_ms = value,
+        Setting::ObjectRequestTimeoutMs => config.object_request_timeout_ms = value,
+        Setting::CatalogWaitTimeoutMs => config.catalog_wait_timeout_ms = value,
+        Setting::ShutdownTimeoutMs => config.shutdown_timeout_ms = value,
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
 fn non_empty<'a>(key: &str, value: &'a str) -> Result<&'a str, SettingFix> {
@@ -1014,38 +1059,6 @@ impl ConfigurationReport {
     }
 }
 
-struct ConfigEntries(Vec<(String, serde_json::Value)>);
-
-impl<'de> serde::Deserialize<'de> for ConfigEntries {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Entries;
-        impl<'de> serde::de::Visitor<'de> for Entries {
-            type Value = ConfigEntries;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a flat configuration object")
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                mut map: A,
-            ) -> Result<Self::Value, A::Error> {
-                let mut entries = Vec::new();
-                while let Some(key) = map.next_key::<String>()? {
-                    if entries.len() > crate::config_input::MAX_SETTINGS
-                        || key.len() > crate::config_input::MAX_KEY_BYTES
-                    {
-                        return Err(serde::de::Error::custom(
-                            "configuration input limit exceeded",
-                        ));
-                    }
-                    entries.push((key, map.next_value()?));
-                }
-                Ok(ConfigEntries(entries))
-            }
-        }
-        deserializer.deserialize_map(Entries)
-    }
-}
-
 /// Read only an explicitly selected helper config, without server-side validation or resources.
 pub fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
     let entries = read_config(path).map_err(|error| {
@@ -1110,18 +1123,25 @@ fn read_config(path: &str) -> Result<Vec<(String, serde_json::Value)>, ConfigRea
             crate::bounded_file::ReadError::Limit => ConfigReadError::TooLarge,
             crate::bounded_file::ReadError::Io(_) => ConfigReadError::Unreadable,
         })?;
-    serde_json::from_slice::<ConfigEntries>(&bytes)
-        .map(|entries| entries.0)
-        .map_err(|error| {
-            if error
-                .to_string()
-                .starts_with("configuration input limit exceeded")
-            {
-                ConfigReadError::InputLimit
-            } else {
-                ConfigReadError::Malformed
-            }
-        })
+    let mut limited = false;
+    let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
+    crate::config_input::ordered_members(
+        &mut deserializer,
+        "a flat configuration object",
+        |count, key| {
+            limited = count > crate::config_input::MAX_SETTINGS
+                || key.len() > crate::config_input::MAX_KEY_BYTES;
+            !limited
+        },
+    )
+    .and_then(|entries| deserializer.end().map(|()| entries))
+    .map_err(|_| {
+        if limited {
+            ConfigReadError::InputLimit
+        } else {
+            ConfigReadError::Malformed
+        }
+    })
 }
 
 /// A host or virtual-host domain that is not a plain DNS name.
@@ -1167,83 +1187,108 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::test_support::{assert_precedence, assert_rejected};
     use super::*;
+    use crate::test_support::TestDir;
+
+    #[test]
+    fn legacy_json_members_remain_ignored_without_environment_warnings() {
+        let dir = crate::test_support::TestDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(
+            &file,
+            r#"{"FAKE_GCS_HOST":"0.0.0.0","FAKE_GCS_LISTEN":"unused"}"#,
+        )
+        .unwrap();
+        let args = ["--config".into(), file.to_str().unwrap().into()];
+        let report = Config::preflight(&args, &BTreeMap::new());
+        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        assert!(report.diagnostics.warnings.is_empty());
+        assert_eq!(report.config.listen, Config::default().listen);
+    }
+
+    #[test]
+    fn advertised_ipv6_origin_drops_listener_scope_and_flow_information() {
+        let bound = SocketAddr::V6(std::net::SocketAddrV6::new(
+            "fe80::1".parse().unwrap(),
+            4443,
+            7,
+            3,
+        ));
+        assert_eq!(
+            Config::default().effective_api_base_url(bound),
+            "https://[fe80::1]:4443"
+        );
+        assert_eq!(
+            Config::default().effective_api_base_url(SocketAddr::V6(std::net::SocketAddrV6::new(
+                std::net::Ipv6Addr::UNSPECIFIED,
+                4443,
+                7,
+                3
+            ))),
+            "https://[::1]:4443"
+        );
+    }
 
     #[test]
     fn grpc_listener_configuration_precedence_and_diagnostics() {
-        let empty = BTreeMap::new();
-        assert!(Config::load(&[], &empty).unwrap().grpc_listen.is_none());
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"grpc_listen":"127.0.0.1:4444"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(
-            Config::load(&args, &empty)
-                .unwrap()
-                .grpc_listen
-                .unwrap()
-                .port(),
-            4444
-        );
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_GRPC_LISTEN".into(), "127.0.0.1:5555".into())]);
-        assert_eq!(
-            Config::load(&args, &env)
-                .unwrap()
-                .grpc_listen
-                .unwrap()
-                .port(),
-            5555
+        assert_precedence(
+            &args,
+            &env,
+            &["--grpc-listen", "127.0.0.1:0"],
+            [None, Some(4444), Some(5555), Some(0)],
+            Config::load,
+            |config| config.grpc_listen.map(|address| address.port()),
         );
-        args.extend(["--grpc-listen".into(), "127.0.0.1:0".into()]);
-        assert_eq!(
-            Config::load(&args, &env)
-                .unwrap()
-                .grpc_listen
-                .unwrap()
-                .port(),
-            0
+        assert_rejected(
+            "grpc_listen",
+            &[
+                "",
+                "localhost:4444",
+                "http://127.0.0.1:4444",
+                "127.0.0.1:65536",
+            ],
+            "127.0.0.1:4444",
         );
-        for value in [
-            "",
-            "localhost:4444",
-            "http://127.0.0.1:4444",
-            "127.0.0.1:65536",
-        ] {
-            let env = BTreeMap::from([("GCS_MIMIC_GRPC_LISTEN".into(), value.into())]);
-            let error = Config::load(&[], &env).unwrap_err().to_string();
-            assert!(
-                error.contains("GCS_MIMIC_GRPC_LISTEN") && error.contains("127.0.0.1:4444"),
-                "{error}"
-            );
-        }
     }
 
     #[test]
     fn cors_fallback_defaults_to_none_with_precedence_in_both_profiles() {
         let empty = BTreeMap::new();
         let load = |args: &[String], env| Config::load(args, env).unwrap().cors_fallback;
-        assert_eq!(load(&[], &empty), CorsFallback::None);
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"cors_fallback":"allow-all"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(load(&args, &empty), CorsFallback::AllowAll);
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_CORS_FALLBACK".into(), "none".into())]);
-        assert_eq!(load(&args, &env), CorsFallback::None);
-        args.extend(["--cors-fallback".into(), "allow-all".into()]);
-        assert_eq!(load(&args, &env), CorsFallback::AllowAll);
+        let args = assert_precedence(
+            &args,
+            &env,
+            &["--cors-fallback", "allow-all"],
+            [
+                CorsFallback::None,
+                CorsFallback::AllowAll,
+                CorsFallback::None,
+                CorsFallback::AllowAll,
+            ],
+            Config::load,
+            |config| config.cors_fallback,
+        );
         for profile in ["native", "legacy-emulator"] {
             let args =
                 ["--cors-fallback", "allow-all", "--compat-profile", profile].map(str::to_owned);
             assert_eq!(load(&args, &empty), CorsFallback::AllowAll);
         }
-        for value in ["", "true", "allow_all", "ALLOW-ALL", "*"] {
-            let env = BTreeMap::from([("GCS_MIMIC_CORS_FALLBACK".into(), value.into())]);
-            let errors = Config::load(&[], &env).unwrap_err();
-            assert_eq!(errors.errors[0].key, "GCS_MIMIC_CORS_FALLBACK");
-            assert!(errors.to_string().contains("none or allow-all"));
-        }
+        assert_rejected(
+            "cors_fallback",
+            &["", "true", "allow_all", "ALLOW-ALL", "*"],
+            "none or allow-all",
+        );
         std::fs::write(&file, r#"{"cors_fallback":true}"#).unwrap();
         assert!(Config::load(&args[..2], &empty).is_err());
         // A bare flag names the accepted value instead of an unrelated example.
@@ -1327,25 +1372,27 @@ mod tests {
     #[test]
     fn default_location_validates_precedence_and_native_profile() {
         let empty = BTreeMap::new();
-        assert_eq!(Config::load(&[], &empty).unwrap().default_location, "US");
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"default_location":"EU"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(Config::load(&args, &empty).unwrap().default_location, "EU");
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), "ASIA".into())]);
+        assert_precedence(
+            &args,
+            &env,
+            &["--default-location", "US"],
+            ["US".to_owned(), "EU".into(), "ASIA".into(), "US".into()],
+            Config::load,
+            |config| config.default_location,
+        );
         std::fs::write(&file, r#"{"default_location":null}"#).unwrap();
         assert_eq!(Config::load(&args, &empty).unwrap().default_location, "US");
         std::fs::write(&file, r#"{"default_location":"EU"}"#).unwrap();
-        let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), "ASIA".into())]);
-        assert_eq!(Config::load(&args, &env).unwrap().default_location, "ASIA");
-        args.extend(["--default-location".into(), "US".into()]);
-        assert_eq!(Config::load(&args, &env).unwrap().default_location, "US");
-        for value in [" EU", "EU ", "unknown", "MARS-CENTRAL1"] {
-            let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), value.into())]);
-            let errors = Config::load(&[], &env).unwrap_err();
-            assert_eq!(errors.errors[0].key, "GCS_MIMIC_DEFAULT_LOCATION");
-            assert!(errors.to_string().contains("US or ASIA-NORTHEAST1"));
-        }
+        assert_rejected(
+            "default_location",
+            &[" EU", "EU ", "unknown", "MARS-CENTRAL1"],
+            "US or ASIA-NORTHEAST1",
+        );
         for value in ["US", "EU", "ASIA", "ASIA-NORTHEAST1", "EUR4", "NAM4"] {
             let args = ["--default-location", value].map(str::to_owned);
             assert_eq!(Config::load(&args, &empty).unwrap().default_location, value);
@@ -1383,55 +1430,36 @@ mod tests {
 
     #[test]
     fn log_level_defaults_precedence_alias_and_invalid_values() {
-        let empty = BTreeMap::new();
-        assert_eq!(Config::load(&[], &empty).unwrap().log_level, LogLevel::Info);
-        let directory = PublicConfigDir::new();
+        let directory = TestDir::new();
         let file = directory.0.join("settings.json");
         std::fs::write(&file, r#"{"log_level":"debug"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(
-            Config::load(&args, &empty).unwrap().log_level,
-            LogLevel::Debug
-        );
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_LOG_LEVEL".into(), "error".into())]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().log_level,
-            LogLevel::Error
+        let args = assert_precedence(
+            &args,
+            &env,
+            &["--log-level", "warning"],
+            [
+                LogLevel::Info,
+                LogLevel::Debug,
+                LogLevel::Error,
+                LogLevel::Warn,
+            ],
+            Config::load,
+            |config| config.log_level,
         );
-        args.extend(["--log-level".into(), "warning".into()]);
-        assert_eq!(Config::load(&args, &env).unwrap().log_level, LogLevel::Warn);
+        assert_rejected(
+            "log_level",
+            &["", "trace", "off", "fatal", "INFO", "secret\n"],
+            "log_level must",
+        );
         for invalid in ["", "trace", "off", "fatal", "INFO", "secret\n"] {
             std::fs::write(&file, serde_json::json!({"log_level":invalid}).to_string()).unwrap();
-            let config_args = vec!["--config".into(), file.to_str().unwrap().into()];
-            assert!(Config::load(&config_args, &empty).is_err());
-            assert!(Config::load(&["--log-level".into(), invalid.into()], &empty).is_err());
             let env = BTreeMap::from([("GCS_MIMIC_LOG_LEVEL".into(), invalid.into())]);
             let report = Config::preflight(&[], &env);
             assert_eq!(report.diagnostics.errors[0].key, "GCS_MIMIC_LOG_LEVEL");
             assert!(!report.diagnostics.to_string().contains("secret"));
             assert_eq!(Config::load(&args, &env).unwrap().log_level, LogLevel::Warn);
-        }
-    }
-
-    struct PublicConfigDir(PathBuf);
-
-    impl PublicConfigDir {
-        fn new() -> Self {
-            let mut suffix = [0u8; 8];
-            getrandom::fill(&mut suffix).unwrap();
-            let path = std::env::temp_dir().join(format!(
-                "gcs-mimic-public-config-{}-{:x}",
-                std::process::id(),
-                u64::from_ne_bytes(suffix)
-            ));
-            std::fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for PublicConfigDir {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap();
         }
     }
 
@@ -1504,16 +1532,20 @@ mod tests {
             assert!(errors.errors[0].fix.contains("must not be empty"));
         }
         std::fs::write(&file, r#"{"buckets_file":"file.json"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE".into(), "env.json".into())]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().buckets_file,
-            Some("env.json".into())
-        );
-        args.extend(["--buckets-file".into(), "cli.json".into()]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().buckets_file,
-            Some("cli.json".into())
+        assert_precedence(
+            &args,
+            &env,
+            &["--buckets-file", "cli.json"],
+            [
+                None,
+                Some("file.json".into()),
+                Some("env.json".into()),
+                Some("cli.json".into()),
+            ],
+            Config::load,
+            |config| config.buckets_file,
         );
         assert_eq!(Config::default().buckets_file, None);
     }
@@ -1566,10 +1598,8 @@ mod tests {
 
     #[test]
     fn config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources() {
-        let file = std::env::temp_dir().join(format!(
-            "gcs-mimic-config-count-{}.json",
-            std::process::id()
-        ));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         let args = ["--config".into(), file.to_str().unwrap().into()];
         for (count, accepted) in [(1023, true), (1024, false), (1025, false), (1026, false)] {
             let fields = vec!["\"max_connections\":32"; count].join(",");
@@ -1639,7 +1669,7 @@ mod tests {
 
     #[test]
     fn config_file_diagnostics_keep_the_selected_source_and_field() {
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let missing = dir.0.join("missing.json");
         let report = Config::preflight(
             &[],
@@ -1664,36 +1694,36 @@ mod tests {
 
     #[test]
     fn public_origin_merges_bounded_domains_and_preserves_input_precedence() {
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"public_base_url":"http://file.invalid"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([(
             "GCS_MIMIC_PUBLIC_BASE_URL".into(),
             "https://Env.Invalid:443/".into(),
         )]);
-        assert_eq!(
-            Config::load(&args, &BTreeMap::new())
-                .unwrap()
-                .public_base_url
-                .as_ref()
-                .map(PublicOrigin::as_str),
-            Some("http://file.invalid")
+        let mut args = assert_precedence(
+            &args,
+            &env,
+            &[
+                "--public-base-url",
+                "http://Storage.Invalid:80/",
+                "--xml-virtual-host-domains",
+                "invalid,storage.invalid",
+            ],
+            [
+                None,
+                Some("http://file.invalid".into()),
+                Some("https://env.invalid".into()),
+                Some("http://storage.invalid".into()),
+            ],
+            Config::load,
+            |config| {
+                config
+                    .public_base_url
+                    .map(|origin| origin.as_str().to_owned())
+            },
         );
-        assert_eq!(
-            Config::load(&args, &env)
-                .unwrap()
-                .public_base_url
-                .as_ref()
-                .map(PublicOrigin::as_str),
-            Some("https://env.invalid")
-        );
-        args.extend([
-            "--public-base-url".into(),
-            "http://Storage.Invalid:80/".into(),
-            "--xml-virtual-host-domains".into(),
-            "invalid,storage.invalid".into(),
-        ]);
         let config = Config::load(&args, &env).unwrap();
         assert_eq!(
             config.public_base_url.as_ref().map(PublicOrigin::as_str),
@@ -1799,37 +1829,29 @@ mod tests {
 
     #[test]
     fn virtual_host_domains_are_opt_in_bounded_and_follow_precedence() {
-        assert!(
-            Config::load(&[], &BTreeMap::new())
-                .unwrap()
-                .xml_virtual_host_domains
-                .is_empty()
-        );
-        let file =
-            std::env::temp_dir().join(format!("gcs-mimic-host-config-{}.json", std::process::id()));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"xml_virtual_host_domains":"file.invalid"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(
-            Config::load(&args, &BTreeMap::new())
-                .unwrap()
-                .xml_virtual_host_domains,
-            ["file.invalid"]
-        );
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([(
             "GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS".into(),
             "env.invalid".into(),
         )]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().xml_virtual_host_domains,
-            ["env.invalid"]
-        );
-        args.extend([
-            "--xml-virtual-host-domains".into(),
-            "EXAMPLE.invalid, storage.example.invalid".into(),
-        ]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().xml_virtual_host_domains,
-            ["storage.example.invalid", "example.invalid"]
+        let mut args = assert_precedence(
+            &args,
+            &env,
+            &[
+                "--xml-virtual-host-domains",
+                "EXAMPLE.invalid, storage.example.invalid",
+            ],
+            [
+                vec![],
+                vec!["file.invalid".into()],
+                vec!["env.invalid".into()],
+                vec!["storage.example.invalid".into(), "example.invalid".into()],
+            ],
+            Config::load,
+            |config| config.xml_virtual_host_domains,
         );
         *args.last_mut().unwrap() = String::new();
         assert!(
@@ -1910,15 +1932,12 @@ mod tests {
         );
         assert_eq!(load_http(&[], &BTreeMap::new()).unwrap().api_base_url, None);
         assert_eq!(defaults.tls_handshake_timeout_ms, 5_000);
-        let file =
-            std::env::temp_dir().join(format!("gcs-mimic-tls-config-{}.json", std::process::id()));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"scheme":"https","tls_cert":"file-cert.pem","tls_key":"file-key.pem","tls_handshake_timeout_ms":100}"#).unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let loaded = Config::load(&args, &BTreeMap::new()).unwrap();
         assert_eq!(loaded.scheme, Scheme::Https);
-        assert_eq!(loaded.tls_cert.as_deref(), Some(Path::new("file-cert.pem")));
-        assert_eq!(loaded.tls_key.as_deref(), Some(Path::new("file-key.pem")));
-        assert_eq!(loaded.tls_handshake_timeout_ms, 100);
         assert_eq!(loaded.api_base_url, None);
         let env = BTreeMap::from([
             ("GCS_MIMIC_TLS_CERT".into(), "env-cert.pem".into()),
@@ -1930,29 +1949,40 @@ mod tests {
             ),
         ]);
         let loaded = Config::load(&args, &env).unwrap();
-        assert_eq!(loaded.tls_cert.as_deref(), Some(Path::new("env-cert.pem")));
-        assert_eq!(loaded.tls_key.as_deref(), Some(Path::new("env-key.pem")));
-        assert_eq!(loaded.tls_handshake_timeout_ms, 200);
         assert_eq!(
             loaded.api_base_url.as_deref(),
             Some("http://proxy.invalid/base")
         );
-        let cli = [
-            args,
-            vec![
-                "--tls-cert".into(),
-                "cli-cert.pem".into(),
-                "--tls-key".into(),
-                "cli-key.pem".into(),
-                "--tls-handshake-timeout-ms".into(),
-                "300".into(),
+        let cli = assert_precedence(
+            &args,
+            &env,
+            &[
+                "--tls-cert",
+                "cli-cert.pem",
+                "--tls-key",
+                "cli-key.pem",
+                "--tls-handshake-timeout-ms",
+                "300",
             ],
-        ]
-        .concat();
-        let loaded = Config::load(&cli, &env).unwrap();
-        assert_eq!(loaded.tls_cert.as_deref(), Some(Path::new("cli-cert.pem")));
-        assert_eq!(loaded.tls_key.as_deref(), Some(Path::new("cli-key.pem")));
-        assert_eq!(loaded.tls_handshake_timeout_ms, 300);
+            [
+                (None, None, 5_000),
+                (
+                    Some("file-cert.pem".into()),
+                    Some("file-key.pem".into()),
+                    100,
+                ),
+                (Some("env-cert.pem".into()), Some("env-key.pem".into()), 200),
+                (Some("cli-cert.pem".into()), Some("cli-key.pem".into()), 300),
+            ],
+            Config::load,
+            |config| {
+                (
+                    config.tls_cert,
+                    config.tls_key,
+                    config.tls_handshake_timeout_ms,
+                )
+            },
+        );
         for args in [
             vec!["--scheme", "HTTPS"],
             vec!["--scheme", "https", "--tls-cert", "cert.pem"],
@@ -2093,38 +2123,29 @@ mod tests {
     #[test]
     fn compat_profile_precedence_and_validation() {
         assert_eq!(Config::default().compat_profile, CompatProfile::Native);
-        let path = std::env::temp_dir().join(format!(
-            "gcs-mimic-compat-config-{}.json",
-            std::process::id()
-        ));
+        let dir = TestDir::new();
+        let path = dir.0.join("config.json");
         std::fs::write(&path, r#"{"compat_profile":"legacy-emulator"}"#).unwrap();
         let args = vec!["--config".into(), path.to_str().unwrap().into()];
-        assert_eq!(
-            load_http(&args, &BTreeMap::new()).unwrap().compat_profile,
-            CompatProfile::LegacyEmulator
-        );
         let env = BTreeMap::from([("GCS_MIMIC_COMPAT_PROFILE".into(), "native".into())]);
-        assert_eq!(
-            load_http(&args, &env).unwrap().compat_profile,
-            CompatProfile::Native
+        let args = assert_precedence(
+            &args,
+            &env,
+            &["--compat-profile", "legacy-emulator"],
+            [
+                CompatProfile::Native,
+                CompatProfile::LegacyEmulator,
+                CompatProfile::Native,
+                CompatProfile::LegacyEmulator,
+            ],
+            load_http,
+            |config| config.compat_profile,
         );
-        let args = [
-            args,
-            vec!["--compat-profile".into(), "legacy-emulator".into()],
-        ]
-        .concat();
-        assert_eq!(
-            load_http(&args, &env).unwrap().compat_profile,
-            CompatProfile::LegacyEmulator
+        assert_rejected(
+            "compat_profile",
+            &["", "NATIVE", "legacy_emulator", "permissive", "unknown"],
+            "compat_profile",
         );
-        for value in ["", "NATIVE", "legacy_emulator", "permissive", "unknown"] {
-            assert!(
-                load_http(&["--compat-profile".into(), value.into()], &BTreeMap::new())
-                    .unwrap_err()
-                    .to_string()
-                    .contains("compat_profile")
-            );
-        }
         for body in [
             r#"{"compat_profile":false}"#,
             r#"{"compat_profile":null}"#,
@@ -2143,8 +2164,8 @@ mod tests {
             ("catalog_wait_timeout_ms", 30_000, 60_000),
             ("keep_alive_timeout_ms", 120_000, 600_000),
         ] {
-            let file = std::env::temp_dir()
-                .join(format!("gcs-mimic-{setting}-{}.json", std::process::id()));
+            let dir = TestDir::new();
+            let file = dir.0.join("config.json");
             let value = |config: Config| match setting {
                 "object_request_timeout_ms" => config.object_request_timeout_ms,
                 "catalog_wait_timeout_ms" => config.catalog_wait_timeout_ms,
@@ -2154,24 +2175,25 @@ mod tests {
             let key = format!("GCS_MIMIC_{}", setting.to_ascii_uppercase());
             let args = vec!["--config".into(), file.to_str().unwrap().into()];
             std::fs::write(&file, format!(r#"{{"{setting}":100}}"#)).unwrap();
-            assert_eq!(value(load_http(&[], &BTreeMap::new()).unwrap()), default);
-            assert_eq!(value(load_http(&args, &BTreeMap::new()).unwrap()), 100);
             let env = BTreeMap::from([(key.clone(), "200".into())]);
-            assert_eq!(value(load_http(&args, &env).unwrap()), 200);
-            let mut cli = args.clone();
-            cli.extend([flag.clone(), "300".into()]);
-            assert_eq!(value(load_http(&cli, &env).unwrap()), 300);
-            for invalid in [
-                "0".into(),
-                "-1".into(),
-                (maximum + 1).to_string(),
-                "unlimited".into(),
-            ] {
-                assert!(load_http(&[flag.clone(), invalid.clone()], &BTreeMap::new()).is_err());
-                assert!(load_http(&[], &BTreeMap::from([(key.clone(), invalid.clone())])).is_err());
-                std::fs::write(&file, format!(r#"{{"{setting}":"{invalid}"}}"#)).unwrap();
-                assert!(load_http(&args, &BTreeMap::new()).is_err());
-            }
+            assert_precedence(
+                &args,
+                &env,
+                &[&flag, "300"],
+                [default, 100, 200, 300],
+                load_http,
+                value,
+            );
+            assert_rejected(
+                setting,
+                &[
+                    "0".into(),
+                    "-1".into(),
+                    (maximum + 1).to_string(),
+                    "unlimited".into(),
+                ],
+                "must be an integer",
+            );
             for bound in [1, maximum] {
                 assert_eq!(
                     value(load_http(&[flag.clone(), bound.to_string()], &BTreeMap::new()).unwrap()),
@@ -2184,33 +2206,24 @@ mod tests {
 
     #[test]
     fn object_limit_precedence_and_bounds() {
-        let file = std::env::temp_dir().join(format!(
-            "gcs-mimic-object-config-{}.json",
-            std::process::id()
-        ));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"max_object_bytes":64}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_MAX_OBJECT_BYTES".into(), "128".into())]);
-        assert_eq!(
-            load_http(&[], &BTreeMap::new()).unwrap().max_object_bytes,
-            1_073_741_824
+        assert_precedence(
+            &args,
+            &env,
+            &["--max-object-bytes", "256"],
+            [1_073_741_824, 64, 128, 256],
+            load_http,
+            |config| config.max_object_bytes,
         );
-        assert_eq!(
-            load_http(&args, &BTreeMap::new()).unwrap().max_object_bytes,
-            64
+        assert_rejected(
+            "max_object_bytes",
+            &["0", "-1", "5497558138881", "unlimited"],
+            "must be an integer",
         );
-        assert_eq!(load_http(&args, &env).unwrap().max_object_bytes, 128);
-        args.extend(["--max-object-bytes".into(), "256".into()]);
-        assert_eq!(load_http(&args, &env).unwrap().max_object_bytes, 256);
-        for value in ["0", "-1", "5497558138881", "unlimited"] {
-            assert!(
-                load_http(
-                    &["--max-object-bytes".into(), value.into()],
-                    &BTreeMap::new()
-                )
-                .is_err()
-            );
-        }
         assert_eq!(
             load_http(
                 &["--max-object-bytes".into(), "5497558138880".into()],
@@ -2303,8 +2316,8 @@ mod tests {
 
     #[test]
     fn authentication_profile_precedence_and_validation() {
-        let file =
-            std::env::temp_dir().join(format!("gcs-mimic-auth-config-{}.json", std::process::id()));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let defaults = load_http(&[], &BTreeMap::new()).unwrap();
         assert_eq!(defaults.auth_mode, AuthMode::Permissive);
@@ -2316,20 +2329,19 @@ mod tests {
         .unwrap();
         let loaded = load_http(&args, &BTreeMap::new()).unwrap();
         assert_eq!(loaded.auth_mode, AuthMode::Strict);
-        assert_eq!(
-            loaded.identity_file.as_deref(),
-            Some(Path::new("file-ids.json"))
-        );
         let env = BTreeMap::from([("GCS_MIMIC_IDENTITY_FILE".into(), "env-ids.json".into())]);
-        assert_eq!(
-            load_http(&args, &env).unwrap().identity_file.as_deref(),
-            Some(Path::new("env-ids.json"))
-        );
-        let mut cli = args.clone();
-        cli.extend(["--identity-file".into(), "cli-ids.json".into()]);
-        assert_eq!(
-            load_http(&cli, &env).unwrap().identity_file.as_deref(),
-            Some(Path::new("cli-ids.json"))
+        assert_precedence(
+            &args,
+            &env,
+            &["--identity-file", "cli-ids.json"],
+            [
+                None,
+                Some("file-ids.json".into()),
+                Some("env-ids.json".into()),
+                Some("cli-ids.json".into()),
+            ],
+            load_http,
+            |config| config.identity_file,
         );
         // A higher-precedence permissive mode with a lower-precedence registry is a conflict.
         let permissive_env = BTreeMap::from([("GCS_MIMIC_AUTH_MODE".into(), "permissive".into())]);
@@ -2360,12 +2372,7 @@ mod tests {
             .to_string()
             .contains("identity_file requires auth_mode=strict")
         );
-        for invalid in ["", "Strict", "none", "STRICT"] {
-            assert!(
-                load_http(&["--auth-mode".into(), invalid.into()], &BTreeMap::new()).is_err(),
-                "{invalid}"
-            );
-        }
+        assert_rejected("auth_mode", &["", "Strict", "none", "STRICT"], "auth_mode");
         assert!(
             load_http(
                 &[
@@ -2383,39 +2390,25 @@ mod tests {
 
     #[test]
     fn data_directory_precedence_and_validation() {
-        let file =
-            std::env::temp_dir().join(format!("gcs-mimic-data-config-{}.json", std::process::id()));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"data_dir":"file-data"}"#).unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_DATA_DIR".into(), "env-data".into())]);
-        assert_eq!(
-            load_http(&[], &BTreeMap::new()).unwrap().data_dir,
-            Path::new("data")
+        assert_precedence(
+            &args,
+            &env,
+            &["--data-dir", "cli-data"],
+            [
+                "data".into(),
+                "file-data".into(),
+                "env-data".into(),
+                "cli-data".into(),
+            ],
+            load_http,
+            |config| config.data_dir,
         );
-        assert_eq!(
-            load_http(&args, &BTreeMap::new()).unwrap().data_dir,
-            Path::new("file-data")
-        );
-        assert_eq!(
-            load_http(&args, &env).unwrap().data_dir,
-            Path::new("env-data")
-        );
-        let mut cli_args = args.clone();
-        cli_args.extend(["--data-dir".into(), "cli-data".into()]);
-        assert_eq!(
-            load_http(&cli_args, &env).unwrap().data_dir,
-            Path::new("cli-data")
-        );
-        assert!(load_http(&["--data-dir".into(), "".into()], &BTreeMap::new()).is_err());
-        assert!(
-            load_http(
-                &[],
-                &BTreeMap::from([("GCS_MIMIC_DATA_DIR".into(), "".into())])
-            )
-            .is_err()
-        );
-        std::fs::write(&file, r#"{"data_dir":""}"#).unwrap();
-        assert!(load_http(&args, &BTreeMap::new()).is_err());
+        assert_rejected("data_dir", &[""], "must not be empty");
         std::fs::remove_file(file).unwrap();
     }
 }

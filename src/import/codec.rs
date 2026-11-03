@@ -330,7 +330,6 @@ pub(crate) fn is_unset_time(input: &str) -> Result<bool, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use proptest::prelude::*;
     #[test]

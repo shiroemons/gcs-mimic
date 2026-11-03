@@ -46,13 +46,8 @@ pub(super) async fn respond(
     let period = super::super::put::single(request.headers(), "x-goog-bucket-retention-period")?
         .map(|raw| super::super::number(raw, super::super::MinValue::One))
         .transpose()?;
-    let sha = auth::signature::payload_hash(request.headers()).map_err(|_| {
-        Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidDigest",
-            "Invalid SHA256 declaration",
-        )
-    })?;
+    let sha = auth::signature::payload_hash(request.headers())
+        .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration"))?;
     let md5 = super::super::put::single(request.headers(), "content-md5")?
         .map(json::decode_hash::<16>)
         .transpose()?;
@@ -61,8 +56,7 @@ pub(super) async fn respond(
         hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref()
     }) {
         return Err(Error::new(
-            StatusCode::BAD_REQUEST,
-            "BadDigest",
+            XmlCode::BadDigest,
             "The body SHA256 does not match",
         ));
     }
@@ -71,8 +65,7 @@ pub(super) async fn respond(
         hasher.update(&bytes);
         if hasher.finish().md5 != expected {
             return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "BadDigest",
+                XmlCode::BadDigest,
                 "The body MD5 does not match",
             ));
         }

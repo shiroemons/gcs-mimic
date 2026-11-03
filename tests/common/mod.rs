@@ -7,6 +7,10 @@ use std::{
 pub(crate) mod server;
 
 #[path = "../../src/test_support.rs"]
+#[expect(
+    dead_code,
+    reason = "Each integration suite uses a subset of the shared fixtures"
+)]
 pub(super) mod input_fixtures;
 pub(crate) type TestDir = input_fixtures::TestDir;
 

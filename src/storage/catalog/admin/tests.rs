@@ -26,6 +26,10 @@ fn administrative_diagnostics_keep_their_existing_messages() {
         ),
         (AdminError::Hold, "administrative operation: Hold"),
         (
+            AdminError::SeedProjectMismatch,
+            "administrative operation: Invalid(\"existing seed bucket belongs to another project\")",
+        ),
+        (
             AdminError::SourceChanged {
                 fields: vec!["size".into()],
             },

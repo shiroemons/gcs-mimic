@@ -151,7 +151,7 @@ pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
                 effective_time: Some(policy.effective_time.into()),
                 is_locked: policy.is_locked,
                 retention_duration: Some(Duration {
-                    seconds: policy.retention_period as i64,
+                    seconds: crate::grpc::convert::signed(policy.retention_period),
                     nanos: 0,
                 }),
             }
@@ -160,7 +160,7 @@ pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
             pb::bucket::SoftDeletePolicy {
                 effective_time: Some(policy.effective_time.into()),
                 retention_duration: Some(Duration {
-                    seconds: policy.retention_duration_seconds as i64,
+                    seconds: crate::grpc::convert::signed(policy.retention_duration_seconds),
                     nanos: 0,
                 }),
             }
@@ -193,7 +193,7 @@ fn millis(time: std::time::SystemTime) -> Timestamp {
 pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status> {
     let custom_time = record.custom_time.as_ref().map(|time| {
         crate::object::custom_time_key(time)
-            .map(|(seconds, nanos)| Timestamp { seconds, nanos: nanos as i32 })
+            .map(|(seconds, nanos)| Timestamp { seconds, nanos: i32::try_from(nanos).unwrap_or_default() })
             .map_err(|_| tonic::Status::internal("Stored customTime is invalid; repair the catalog or restore a valid backup"))
     }).transpose()?;
     Ok(pb::Object {
@@ -203,7 +203,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         etag: crate::json::object_etag(record),
         generation: record.generation,
         metageneration: record.metageneration,
-        size: record.size as i64,
+        size: crate::grpc::convert::signed(record.size),
         storage_class: record.storage_class.clone(),
         content_type: record.content_type.clone(),
         content_encoding: record.content_encoding.clone().unwrap_or_default(),
@@ -242,7 +242,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
                 encryption_algorithm: crate::csek::ALGORITHM.into(),
                 key_sha256_bytes: sha256.to_vec(),
             }),
-        component_count: record.component_count.unwrap_or_default() as i32,
+        component_count: crate::grpc::convert::component_count(record.component_count),
         temporary_hold: record.temporary_hold == Some(true),
         // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
         // the three states exist only in the JSON resource.
@@ -256,7 +256,8 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
             mode: match retention.mode {
                 RetentionMode::Unlocked => pb::object::retention::Mode::Unlocked,
                 RetentionMode::Locked => pb::object::retention::Mode::Locked,
-            } as i32,
+            }
+            .into(),
             retain_until_time: Some(unix_nanos_timestamp(retention.retain_until)),
         }),
         custom_time,
@@ -283,27 +284,15 @@ pub(crate) fn object_acl(
         .map(|entry| {
             // The base URL only reaches `selfLink`, which the protobuf resource does not carry.
             let value = crate::json::acl::acl_entry_resource("", owner, entry);
-            let text = |value: &serde_json::Value| value.as_str().unwrap_or_default().to_owned();
-            let team = value.get("projectTeam").map(|team| pb::ProjectTeam {
-                project_number: text(&team["projectNumber"]),
-                team: text(&team["team"]),
-            });
-            pb::ObjectAccessControl {
-                role: text(&value["role"]),
-                id: text(&value["id"]),
-                entity: text(&value["entity"]),
-                entity_id: text(&value["entityId"]),
-                etag: text(&value["etag"]),
-                email: text(&value["email"]),
-                domain: text(&value["domain"]),
-                // Cloud Storage repeats a project-team entity under the project ID (observed
-                // 2026-11-01).
-                entity_alt: team
-                    .as_ref()
-                    .map(|team| format!("project-{}-{project}", team.team))
-                    .unwrap_or_default(),
-                project_team: team,
-            }
+            let mut acl = object_access_control(&value);
+            // Cloud Storage repeats a project-team entity under the project ID (observed
+            // 2026-11-01).
+            acl.entity_alt = acl
+                .project_team
+                .as_ref()
+                .map(|team| format!("project-{}-{project}", team.team))
+                .unwrap_or_default();
+            acl
         })
         .collect()
 }
@@ -406,36 +395,7 @@ mod tests {
         assert_eq!(proto.create_time.unwrap().nanos, 123_456_000);
         assert!(proto.acl.is_empty() && proto.lifecycle.is_none() && proto.encryption.is_none());
 
-        let record = ObjectRecord {
-            bucket: bucket_record.name,
-            name: "folder/%2F.txt".into(),
-            generation: 42,
-            metageneration: 2,
-            owner: None,
-            content_type: "text/plain".into(),
-            content_encoding: Some("gzip".into()),
-            content_disposition: None,
-            content_language: Some("en".into()),
-            cache_control: Some("private".into()),
-            metadata: BTreeMap::from([("key".into(), "value".into())]),
-            size: 5,
-            md5: [3; 16],
-            md5_availability: Default::default(),
-            crc32c: 123,
-            component_count: None,
-            storage_class: "STANDARD".into(),
-            time_created: now,
-            updated: now,
-            time_deleted: None,
-            soft_delete_time: None,
-            hard_delete_time: None,
-            event_based_hold: None,
-            temporary_hold: Some(true),
-            custom_time: Some("2026-10-20T01:02:03.123456789Z".into()),
-            retention_expiration_time: None,
-            retention: None,
-            customer_key_sha256: None,
-        };
+        let record = crate::grpc::test_support::object_record(&bucket_record.name, now);
         let value = json::object_resource(&record, "http://localhost", Projection::NoAcl).unwrap();
         let proto = object(&record).unwrap();
         assert_eq!(proto.name, value["name"]);
