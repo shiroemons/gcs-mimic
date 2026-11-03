@@ -652,19 +652,16 @@ fn container_server_args() -> Vec<String> {
 
 fn probe(args: &[String], url: &str) -> io::Result<()> {
     let mut options = BTreeMap::new();
+    let syntax = || {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "healthcheck accepts [--url URL] [--ca-cert PATH]",
+        )
+    };
     for pair in option_pairs(args) {
-        let syntax = || {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "healthcheck accepts [--url URL] [--ca-cert PATH]",
-            )
-        };
         let (name, value) = pair.map_err(|_| syntax())?;
         if !matches!(name, "--url" | "--ca-cert") {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "healthcheck accepts [--url URL] [--ca-cert PATH]",
-            ));
+            return Err(syntax());
         }
         if value.is_empty() || options.insert(name, value).is_some() {
             return Err(io::Error::new(
@@ -806,6 +803,44 @@ async fn probe_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signing_durations_preserve_the_cli_grammar() {
+        for (duration, accepted) in [
+            ("+5s", false),
+            ("5ms", false),
+            ("", false),
+            ("s", false),
+            ("18446744073709551615m", false),
+            ("300", true),
+            ("5d", true),
+        ] {
+            let args = [
+                "--base-url",
+                "https://localhost:4443",
+                "--bucket",
+                "example-bucket",
+                "--object",
+                "body",
+                "--method",
+                "GET",
+                "--expires",
+                duration,
+                "--signer",
+                "local-viewer@example.invalid",
+                "--private-key",
+                "fixtures/signing/test-only-private.pem",
+                "--timestamp",
+                "20261023T120000Z",
+            ]
+            .map(str::to_owned);
+            let result = url_sign(&args, None);
+            assert_eq!(result.is_ok(), accepted, "{duration}: {result:?}");
+            if !accepted {
+                assert_eq!(result.unwrap_err().0, "invalid signing duration");
+            }
+        }
+    }
 
     #[test]
     fn help_output_keeps_its_exact_bytes() {

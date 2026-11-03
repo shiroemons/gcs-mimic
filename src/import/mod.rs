@@ -645,10 +645,9 @@ pub fn cli(args: &[String]) -> Result<(), ImportError> {
             "--verify-bodies" if !verify => verify = true,
             "--source" | "--data-dir" | "--metadata-mode" | "--source-platform"
             | "--source-format" => {
-                let value = crate::config_input::option_pairs(&args[index..])
-                    .next()
-                    .and_then(Result::ok)
-                    .map(|(_, value)| value)
+                let value = args
+                    .get(index + 1)
+                    .map(String::as_str)
                     .filter(|v| !v.is_empty() && !v.starts_with("--"))
                     .ok_or_else(|| {
                         invalid(

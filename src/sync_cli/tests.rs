@@ -10,6 +10,32 @@ fn parse(args: &[&str]) -> io::Result<Options> {
 }
 
 #[test]
+fn timeout_durations_preserve_cli_units_bounds_and_leading_plus() {
+    for (value, fix) in [
+        ("0ms", Some("--timeout must be 1ms through 60s")),
+        ("60001ms", Some("--timeout must be 1ms through 60s")),
+        (
+            "5x",
+            Some("--timeout requires an integer with ms or s suffix"),
+        ),
+        ("+5s", None),
+    ] {
+        let result = parse(&[
+            "status",
+            "--endpoint",
+            "http://127.0.0.1:4443",
+            "--timeout",
+            value,
+        ]);
+        if let Some(fix) = fix {
+            assert!(result.err().unwrap().to_string().contains(fix), "{value}");
+        } else {
+            assert_eq!(result.unwrap().timeout, Duration::from_secs(5));
+        }
+    }
+}
+
+#[test]
 fn approval_requires_an_explicit_exact_revision() {
     let revision = "0123456789abcdef0123456789abcdef";
     let options = parse(&[
