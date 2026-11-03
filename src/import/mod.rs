@@ -2,6 +2,7 @@
 //! Read-only inspection of pinned fake-gcs-server durable filesystem snapshots.
 
 pub(crate) mod codec;
+mod error;
 mod filesystem;
 mod reader;
 mod snapshot;
@@ -13,6 +14,7 @@ use crate::{
     hashing::Hashes,
     source_tree,
 };
+pub use error::{CleanupOperation, ImportError};
 pub use filesystem::execute;
 pub use reader::{BodyStream, ChangedField, Fingerprint, ImportFailure};
 use ring::digest::{Context, SHA256};
@@ -461,7 +463,7 @@ pub fn inspect(
     options: Options,
     mut output: impl Write,
     mut diagnostics: impl Write,
-) -> Result<Summary, Box<dyn std::error::Error>> {
+) -> Result<Summary, ImportError> {
     inspect_with_xattr(
         options,
         &mut output,
@@ -475,7 +477,7 @@ fn inspect_with_xattr(
     mut output: impl Write,
     mut diagnostics: impl Write,
     xattr: reader::XattrReader,
-) -> Result<Summary, Box<dyn std::error::Error>> {
+) -> Result<Summary, ImportError> {
     options.validate()?;
     serde_json::to_writer(
         &mut output,
@@ -628,7 +630,7 @@ fn spawn_scan(
     Ok(worker)
 }
 
-pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+pub fn cli(args: &[String]) -> Result<(), ImportError> {
     if args == ["--help"] {
         println!("{HELP}");
         return Ok(());

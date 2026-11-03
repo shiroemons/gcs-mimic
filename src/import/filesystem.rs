@@ -1,6 +1,9 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use super::{ImportFailure, Options, Page, Record, Summary, codec, scan_with_baseline};
+use super::{
+    CleanupOperation, ImportError as Failure, ImportFailure, Options, Page, Record, Summary, codec,
+    scan_with_baseline,
+};
 use crate::{
     object::{ExpectedHashes, ObjectMetadataUpdate},
     storage::{
@@ -19,8 +22,6 @@ use std::{
     path::Path,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-
-type Failure = Box<dyn std::error::Error>;
 
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
@@ -403,13 +404,10 @@ pub fn execute(
         Ok(()) => (),
         Err(error) if error.kind() == io::ErrorKind::NotFound => (),
         Err(error) => {
-            return Err(io::Error::other(match result {
-                Ok(_) => format!("remove temporary import observations: {error}"),
-                Err(original) => {
-                    format!("{original}; remove temporary import observations also failed: {error}")
-                }
-            })
-            .into());
+            return Err(match result {
+                Ok(_) => Failure::ObservationCleanup(error),
+                Err(original) => original.with_cleanup(CleanupOperation::Observations, error),
+            });
         }
     }
     result
@@ -454,13 +452,14 @@ async fn run(
             }
             import(options, &catalog, &binding, &preflight, baseline, output, diagnostics).await
         }.await;
-        if let Err(error) = &imported
-            && terminal(error.as_ref())
-            && let Some(state) = journal.progress().await?.filter(|state| state.active && state.binding.source == source)
-        {
-            journal.fail(state.binding, error.to_string()).await.map_err(|recording| {
-                io::Error::other(format!("{error}; persist terminal import failure also failed: {recording}"))
-            })?;
+        if let Err(error) = imported {
+            if terminal(&error)
+                && let Some(state) = journal.progress().await?.filter(|state| state.active && state.binding.source == source)
+                && let Err(recording) = journal.fail(state.binding, error.to_string()).await
+            {
+                return Err(error.with_cleanup(CleanupOperation::TerminalFailure, recording));
+            }
+            return Err(error);
         }
         imported
     }.await;
@@ -468,21 +467,19 @@ async fn run(
     match (result, closed) {
         (result, Ok(())) => result,
         (Ok(_), Err(error)) => Err(error.into()),
-        (Err(original), Err(close)) => {
-            Err(io::Error::other(format!("{original}; catalog close also failed: {close}")).into())
-        }
+        (Err(original), Err(close)) => Err(original.with_cleanup(CleanupOperation::Catalog, close)),
     }
 }
 
-fn terminal(error: &(dyn std::error::Error + 'static)) -> bool {
-    if let Some(error) = error.downcast_ref::<AdminError>() {
-        if let AdminError::SourceChanged { fields } = error {
-            return fields.is_empty()
+fn terminal(error: &Failure) -> bool {
+    match error {
+        Failure::Admin(AdminError::SourceChanged { fields }) => {
+            fields.is_empty()
                 || fields
                     .iter()
-                    .any(|field| !matches!(field.as_str(), "device" | "inode" | "ctime_ns"));
+                    .any(|field| !matches!(field.as_str(), "device" | "inode" | "ctime_ns"))
         }
-        return matches!(
+        Failure::Admin(error) => matches!(
             error,
             AdminError::Checksum
                 | AdminError::Corrupt(_)
@@ -491,15 +488,69 @@ fn terminal(error: &(dyn std::error::Error + 'static)) -> bool {
                 | AdminError::Hold
                 | AdminError::TooLarge
                 | AdminError::NotFound
-        );
+        ),
+        Failure::Source(error) => {
+            !error.retryable_stat_drift()
+                && !matches!(error, ImportFailure::Io(_) | ImportFailure::ReportClosed)
+        }
+        Failure::Io(error) => error.kind() == io::ErrorKind::InvalidData,
+        _ => false,
     }
-    if let Some(error) = error.downcast_ref::<ImportFailure>() {
-        return !error.retryable_stat_drift()
-            && !matches!(error, ImportFailure::Io(_) | ImportFailure::ReportClosed);
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_classification_preserves_retryable_identity_drift_and_io_failures() {
+        for (error, expected) in [
+            (AdminError::Hold.into(), true),
+            (AdminError::Invalid("invalid metadata".into()).into(), true),
+            (
+                AdminError::Busy {
+                    retry_after: Duration::from_secs(1),
+                }
+                .into(),
+                false,
+            ),
+            (
+                AdminError::SourceChanged {
+                    fields: vec!["inode".into(), "ctime_ns".into()],
+                }
+                .into(),
+                false,
+            ),
+            (
+                AdminError::SourceChanged {
+                    fields: vec!["size".into()],
+                }
+                .into(),
+                true,
+            ),
+            (
+                ImportFailure::SourceChanged {
+                    fields: vec![super::super::ChangedField::Inode],
+                }
+                .into(),
+                false,
+            ),
+            (
+                ImportFailure::SourceChanged {
+                    fields: vec![super::super::ChangedField::Metadata],
+                }
+                .into(),
+                true,
+            ),
+            (io::Error::from(io::ErrorKind::InvalidData).into(), true),
+            (
+                io::Error::from(io::ErrorKind::PermissionDenied).into(),
+                false,
+            ),
+        ] {
+            assert_eq!(terminal(&error), expected, "{error}");
+        }
     }
-    error
-        .downcast_ref::<io::Error>()
-        .is_some_and(|error| error.kind() == io::ErrorKind::InvalidData)
 }
 
 async fn import(

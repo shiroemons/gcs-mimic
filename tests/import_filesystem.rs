@@ -49,7 +49,7 @@ fn fixture() -> (TestDir, Options) {
     (dir, options)
 }
 
-fn execute(options: Options) -> Result<import::Summary, Box<dyn std::error::Error>> {
+fn execute(options: Options) -> Result<import::Summary, import::ImportError> {
     import::execute(options, Vec::new(), Vec::new())
 }
 

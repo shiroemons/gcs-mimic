@@ -142,12 +142,17 @@ enum CliError {
     Diagnostics(Diagnostics),
     /// A failure that may carry diagnostics as its inner error, as startup phases do.
     Io(io::Error),
+    Import(gcs_mimic::import::ImportError),
 }
 
 impl CliError {
     fn diagnostics(&self) -> Option<&Diagnostics> {
         match self {
             Self::Diagnostics(diagnostics) => Some(diagnostics),
+            Self::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics)) => {
+                Some(diagnostics)
+            }
+            Self::Import(_) => None,
             Self::Io(error) => error.get_ref().and_then(|inner| {
                 inner.downcast_ref::<Diagnostics>().or_else(|| {
                     inner
@@ -157,17 +162,6 @@ impl CliError {
             }),
         }
     }
-
-    /// Keeps the diagnostics of a dynamically typed failure, such as the importer's.
-    fn from_boxed(error: Box<dyn std::error::Error>) -> Self {
-        match error.downcast::<Diagnostics>() {
-            Ok(diagnostics) => Self::Diagnostics(*diagnostics),
-            Err(error) => match error.downcast::<io::Error>() {
-                Ok(error) => Self::Io(*error),
-                Err(error) => Self::Io(io::Error::other(error.to_string())),
-            },
-        }
-    }
 }
 
 impl std::fmt::Display for CliError {
@@ -175,6 +169,7 @@ impl std::fmt::Display for CliError {
         match self {
             Self::Diagnostics(diagnostics) => diagnostics.fmt(f),
             Self::Io(error) => error.fmt(f),
+            Self::Import(error) => error.fmt(f),
         }
     }
 }
@@ -184,6 +179,7 @@ impl std::error::Error for CliError {
         match self {
             Self::Diagnostics(diagnostics) => Some(diagnostics),
             Self::Io(error) => Some(error),
+            Self::Import(error) => Some(error),
         }
     }
 }
@@ -197,6 +193,12 @@ impl From<Diagnostics> for CliError {
 impl From<io::Error> for CliError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl From<gcs_mimic::import::ImportError> for CliError {
+    fn from(error: gcs_mimic::import::ImportError) -> Self {
+        Self::Import(error)
     }
 }
 
@@ -231,7 +233,7 @@ fn run() -> Result<(), CliError> {
             return sync_cli::run(rest);
         }
         [command, kind, rest @ ..] if command == "import" && kind == "fake-gcs-server" => {
-            return gcs_mimic::import::cli(rest).map_err(CliError::from_boxed);
+            return gcs_mimic::import::cli(rest).map_err(CliError::from);
         }
         _ => (),
     }
