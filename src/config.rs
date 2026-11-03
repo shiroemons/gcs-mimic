@@ -19,6 +19,8 @@ mod runtime;
 mod setting;
 mod storage;
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod unix_tests;
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{EndpointError, EndpointSnapshot};
@@ -1185,6 +1187,7 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix
 
 #[cfg(test)]
 mod tests {
+    use super::test_support::{assert_precedence, assert_rejected};
     use super::*;
     use crate::test_support::TestDir;
 
@@ -1229,78 +1232,63 @@ mod tests {
 
     #[test]
     fn grpc_listener_configuration_precedence_and_diagnostics() {
-        let empty = BTreeMap::new();
-        assert!(Config::load(&[], &empty).unwrap().grpc_listen.is_none());
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"grpc_listen":"127.0.0.1:4444"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(
-            Config::load(&args, &empty)
-                .unwrap()
-                .grpc_listen
-                .unwrap()
-                .port(),
-            4444
-        );
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_GRPC_LISTEN".into(), "127.0.0.1:5555".into())]);
-        assert_eq!(
-            Config::load(&args, &env)
-                .unwrap()
-                .grpc_listen
-                .unwrap()
-                .port(),
-            5555
+        assert_precedence(
+            &args,
+            &env,
+            &["--grpc-listen", "127.0.0.1:0"],
+            [None, Some(4444), Some(5555), Some(0)],
+            Config::load,
+            |config| config.grpc_listen.map(|address| address.port()),
         );
-        args.extend(["--grpc-listen".into(), "127.0.0.1:0".into()]);
-        assert_eq!(
-            Config::load(&args, &env)
-                .unwrap()
-                .grpc_listen
-                .unwrap()
-                .port(),
-            0
+        assert_rejected(
+            "grpc_listen",
+            &[
+                "",
+                "localhost:4444",
+                "http://127.0.0.1:4444",
+                "127.0.0.1:65536",
+            ],
+            "127.0.0.1:4444",
         );
-        for value in [
-            "",
-            "localhost:4444",
-            "http://127.0.0.1:4444",
-            "127.0.0.1:65536",
-        ] {
-            let env = BTreeMap::from([("GCS_MIMIC_GRPC_LISTEN".into(), value.into())]);
-            let error = Config::load(&[], &env).unwrap_err().to_string();
-            assert!(
-                error.contains("GCS_MIMIC_GRPC_LISTEN") && error.contains("127.0.0.1:4444"),
-                "{error}"
-            );
-        }
     }
 
     #[test]
     fn cors_fallback_defaults_to_none_with_precedence_in_both_profiles() {
         let empty = BTreeMap::new();
         let load = |args: &[String], env| Config::load(args, env).unwrap().cors_fallback;
-        assert_eq!(load(&[], &empty), CorsFallback::None);
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"cors_fallback":"allow-all"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(load(&args, &empty), CorsFallback::AllowAll);
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_CORS_FALLBACK".into(), "none".into())]);
-        assert_eq!(load(&args, &env), CorsFallback::None);
-        args.extend(["--cors-fallback".into(), "allow-all".into()]);
-        assert_eq!(load(&args, &env), CorsFallback::AllowAll);
+        let args = assert_precedence(
+            &args,
+            &env,
+            &["--cors-fallback", "allow-all"],
+            [
+                CorsFallback::None,
+                CorsFallback::AllowAll,
+                CorsFallback::None,
+                CorsFallback::AllowAll,
+            ],
+            Config::load,
+            |config| config.cors_fallback,
+        );
         for profile in ["native", "legacy-emulator"] {
             let args =
                 ["--cors-fallback", "allow-all", "--compat-profile", profile].map(str::to_owned);
             assert_eq!(load(&args, &empty), CorsFallback::AllowAll);
         }
-        for value in ["", "true", "allow_all", "ALLOW-ALL", "*"] {
-            let env = BTreeMap::from([("GCS_MIMIC_CORS_FALLBACK".into(), value.into())]);
-            let errors = Config::load(&[], &env).unwrap_err();
-            assert_eq!(errors.errors[0].key, "GCS_MIMIC_CORS_FALLBACK");
-            assert!(errors.to_string().contains("none or allow-all"));
-        }
+        assert_rejected(
+            "cors_fallback",
+            &["", "true", "allow_all", "ALLOW-ALL", "*"],
+            "none or allow-all",
+        );
         std::fs::write(&file, r#"{"cors_fallback":true}"#).unwrap();
         assert!(Config::load(&args[..2], &empty).is_err());
         // A bare flag names the accepted value instead of an unrelated example.
@@ -1384,25 +1372,27 @@ mod tests {
     #[test]
     fn default_location_validates_precedence_and_native_profile() {
         let empty = BTreeMap::new();
-        assert_eq!(Config::load(&[], &empty).unwrap().default_location, "US");
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"default_location":"EU"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(Config::load(&args, &empty).unwrap().default_location, "EU");
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), "ASIA".into())]);
+        assert_precedence(
+            &args,
+            &env,
+            &["--default-location", "US"],
+            ["US".to_owned(), "EU".into(), "ASIA".into(), "US".into()],
+            Config::load,
+            |config| config.default_location,
+        );
         std::fs::write(&file, r#"{"default_location":null}"#).unwrap();
         assert_eq!(Config::load(&args, &empty).unwrap().default_location, "US");
         std::fs::write(&file, r#"{"default_location":"EU"}"#).unwrap();
-        let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), "ASIA".into())]);
-        assert_eq!(Config::load(&args, &env).unwrap().default_location, "ASIA");
-        args.extend(["--default-location".into(), "US".into()]);
-        assert_eq!(Config::load(&args, &env).unwrap().default_location, "US");
-        for value in [" EU", "EU ", "unknown", "MARS-CENTRAL1"] {
-            let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), value.into())]);
-            let errors = Config::load(&[], &env).unwrap_err();
-            assert_eq!(errors.errors[0].key, "GCS_MIMIC_DEFAULT_LOCATION");
-            assert!(errors.to_string().contains("US or ASIA-NORTHEAST1"));
-        }
+        assert_rejected(
+            "default_location",
+            &[" EU", "EU ", "unknown", "MARS-CENTRAL1"],
+            "US or ASIA-NORTHEAST1",
+        );
         for value in ["US", "EU", "ASIA", "ASIA-NORTHEAST1", "EUR4", "NAM4"] {
             let args = ["--default-location", value].map(str::to_owned);
             assert_eq!(Config::load(&args, &empty).unwrap().default_location, value);
@@ -1440,28 +1430,31 @@ mod tests {
 
     #[test]
     fn log_level_defaults_precedence_alias_and_invalid_values() {
-        let empty = BTreeMap::new();
-        assert_eq!(Config::load(&[], &empty).unwrap().log_level, LogLevel::Info);
         let directory = TestDir::new();
         let file = directory.0.join("settings.json");
         std::fs::write(&file, r#"{"log_level":"debug"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(
-            Config::load(&args, &empty).unwrap().log_level,
-            LogLevel::Debug
-        );
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_LOG_LEVEL".into(), "error".into())]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().log_level,
-            LogLevel::Error
+        let args = assert_precedence(
+            &args,
+            &env,
+            &["--log-level", "warning"],
+            [
+                LogLevel::Info,
+                LogLevel::Debug,
+                LogLevel::Error,
+                LogLevel::Warn,
+            ],
+            Config::load,
+            |config| config.log_level,
         );
-        args.extend(["--log-level".into(), "warning".into()]);
-        assert_eq!(Config::load(&args, &env).unwrap().log_level, LogLevel::Warn);
+        assert_rejected(
+            "log_level",
+            &["", "trace", "off", "fatal", "INFO", "secret\n"],
+            "log_level must",
+        );
         for invalid in ["", "trace", "off", "fatal", "INFO", "secret\n"] {
             std::fs::write(&file, serde_json::json!({"log_level":invalid}).to_string()).unwrap();
-            let config_args = vec!["--config".into(), file.to_str().unwrap().into()];
-            assert!(Config::load(&config_args, &empty).is_err());
-            assert!(Config::load(&["--log-level".into(), invalid.into()], &empty).is_err());
             let env = BTreeMap::from([("GCS_MIMIC_LOG_LEVEL".into(), invalid.into())]);
             let report = Config::preflight(&[], &env);
             assert_eq!(report.diagnostics.errors[0].key, "GCS_MIMIC_LOG_LEVEL");
@@ -1539,16 +1532,20 @@ mod tests {
             assert!(errors.errors[0].fix.contains("must not be empty"));
         }
         std::fs::write(&file, r#"{"buckets_file":"file.json"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE".into(), "env.json".into())]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().buckets_file,
-            Some("env.json".into())
-        );
-        args.extend(["--buckets-file".into(), "cli.json".into()]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().buckets_file,
-            Some("cli.json".into())
+        assert_precedence(
+            &args,
+            &env,
+            &["--buckets-file", "cli.json"],
+            [
+                None,
+                Some("file.json".into()),
+                Some("env.json".into()),
+                Some("cli.json".into()),
+            ],
+            Config::load,
+            |config| config.buckets_file,
         );
         assert_eq!(Config::default().buckets_file, None);
     }
@@ -1700,33 +1697,33 @@ mod tests {
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"public_base_url":"http://file.invalid"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([(
             "GCS_MIMIC_PUBLIC_BASE_URL".into(),
             "https://Env.Invalid:443/".into(),
         )]);
-        assert_eq!(
-            Config::load(&args, &BTreeMap::new())
-                .unwrap()
-                .public_base_url
-                .as_ref()
-                .map(PublicOrigin::as_str),
-            Some("http://file.invalid")
+        let mut args = assert_precedence(
+            &args,
+            &env,
+            &[
+                "--public-base-url",
+                "http://Storage.Invalid:80/",
+                "--xml-virtual-host-domains",
+                "invalid,storage.invalid",
+            ],
+            [
+                None,
+                Some("http://file.invalid".into()),
+                Some("https://env.invalid".into()),
+                Some("http://storage.invalid".into()),
+            ],
+            Config::load,
+            |config| {
+                config
+                    .public_base_url
+                    .map(|origin| origin.as_str().to_owned())
+            },
         );
-        assert_eq!(
-            Config::load(&args, &env)
-                .unwrap()
-                .public_base_url
-                .as_ref()
-                .map(PublicOrigin::as_str),
-            Some("https://env.invalid")
-        );
-        args.extend([
-            "--public-base-url".into(),
-            "http://Storage.Invalid:80/".into(),
-            "--xml-virtual-host-domains".into(),
-            "invalid,storage.invalid".into(),
-        ]);
         let config = Config::load(&args, &env).unwrap();
         assert_eq!(
             config.public_base_url.as_ref().map(PublicOrigin::as_str),
@@ -1832,37 +1829,29 @@ mod tests {
 
     #[test]
     fn virtual_host_domains_are_opt_in_bounded_and_follow_precedence() {
-        assert!(
-            Config::load(&[], &BTreeMap::new())
-                .unwrap()
-                .xml_virtual_host_domains
-                .is_empty()
-        );
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"xml_virtual_host_domains":"file.invalid"}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-        assert_eq!(
-            Config::load(&args, &BTreeMap::new())
-                .unwrap()
-                .xml_virtual_host_domains,
-            ["file.invalid"]
-        );
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([(
             "GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS".into(),
             "env.invalid".into(),
         )]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().xml_virtual_host_domains,
-            ["env.invalid"]
-        );
-        args.extend([
-            "--xml-virtual-host-domains".into(),
-            "EXAMPLE.invalid, storage.example.invalid".into(),
-        ]);
-        assert_eq!(
-            Config::load(&args, &env).unwrap().xml_virtual_host_domains,
-            ["storage.example.invalid", "example.invalid"]
+        let mut args = assert_precedence(
+            &args,
+            &env,
+            &[
+                "--xml-virtual-host-domains",
+                "EXAMPLE.invalid, storage.example.invalid",
+            ],
+            [
+                vec![],
+                vec!["file.invalid".into()],
+                vec!["env.invalid".into()],
+                vec!["storage.example.invalid".into(), "example.invalid".into()],
+            ],
+            Config::load,
+            |config| config.xml_virtual_host_domains,
         );
         *args.last_mut().unwrap() = String::new();
         assert!(
@@ -1949,9 +1938,6 @@ mod tests {
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let loaded = Config::load(&args, &BTreeMap::new()).unwrap();
         assert_eq!(loaded.scheme, Scheme::Https);
-        assert_eq!(loaded.tls_cert.as_deref(), Some(Path::new("file-cert.pem")));
-        assert_eq!(loaded.tls_key.as_deref(), Some(Path::new("file-key.pem")));
-        assert_eq!(loaded.tls_handshake_timeout_ms, 100);
         assert_eq!(loaded.api_base_url, None);
         let env = BTreeMap::from([
             ("GCS_MIMIC_TLS_CERT".into(), "env-cert.pem".into()),
@@ -1963,29 +1949,40 @@ mod tests {
             ),
         ]);
         let loaded = Config::load(&args, &env).unwrap();
-        assert_eq!(loaded.tls_cert.as_deref(), Some(Path::new("env-cert.pem")));
-        assert_eq!(loaded.tls_key.as_deref(), Some(Path::new("env-key.pem")));
-        assert_eq!(loaded.tls_handshake_timeout_ms, 200);
         assert_eq!(
             loaded.api_base_url.as_deref(),
             Some("http://proxy.invalid/base")
         );
-        let cli = [
-            args,
-            vec![
-                "--tls-cert".into(),
-                "cli-cert.pem".into(),
-                "--tls-key".into(),
-                "cli-key.pem".into(),
-                "--tls-handshake-timeout-ms".into(),
-                "300".into(),
+        let cli = assert_precedence(
+            &args,
+            &env,
+            &[
+                "--tls-cert",
+                "cli-cert.pem",
+                "--tls-key",
+                "cli-key.pem",
+                "--tls-handshake-timeout-ms",
+                "300",
             ],
-        ]
-        .concat();
-        let loaded = Config::load(&cli, &env).unwrap();
-        assert_eq!(loaded.tls_cert.as_deref(), Some(Path::new("cli-cert.pem")));
-        assert_eq!(loaded.tls_key.as_deref(), Some(Path::new("cli-key.pem")));
-        assert_eq!(loaded.tls_handshake_timeout_ms, 300);
+            [
+                (None, None, 5_000),
+                (
+                    Some("file-cert.pem".into()),
+                    Some("file-key.pem".into()),
+                    100,
+                ),
+                (Some("env-cert.pem".into()), Some("env-key.pem".into()), 200),
+                (Some("cli-cert.pem".into()), Some("cli-key.pem".into()), 300),
+            ],
+            Config::load,
+            |config| {
+                (
+                    config.tls_cert,
+                    config.tls_key,
+                    config.tls_handshake_timeout_ms,
+                )
+            },
+        );
         for args in [
             vec!["--scheme", "HTTPS"],
             vec!["--scheme", "https", "--tls-cert", "cert.pem"],
@@ -2130,32 +2127,25 @@ mod tests {
         let path = dir.0.join("config.json");
         std::fs::write(&path, r#"{"compat_profile":"legacy-emulator"}"#).unwrap();
         let args = vec!["--config".into(), path.to_str().unwrap().into()];
-        assert_eq!(
-            load_http(&args, &BTreeMap::new()).unwrap().compat_profile,
-            CompatProfile::LegacyEmulator
-        );
         let env = BTreeMap::from([("GCS_MIMIC_COMPAT_PROFILE".into(), "native".into())]);
-        assert_eq!(
-            load_http(&args, &env).unwrap().compat_profile,
-            CompatProfile::Native
+        let args = assert_precedence(
+            &args,
+            &env,
+            &["--compat-profile", "legacy-emulator"],
+            [
+                CompatProfile::Native,
+                CompatProfile::LegacyEmulator,
+                CompatProfile::Native,
+                CompatProfile::LegacyEmulator,
+            ],
+            load_http,
+            |config| config.compat_profile,
         );
-        let args = [
-            args,
-            vec!["--compat-profile".into(), "legacy-emulator".into()],
-        ]
-        .concat();
-        assert_eq!(
-            load_http(&args, &env).unwrap().compat_profile,
-            CompatProfile::LegacyEmulator
+        assert_rejected(
+            "compat_profile",
+            &["", "NATIVE", "legacy_emulator", "permissive", "unknown"],
+            "compat_profile",
         );
-        for value in ["", "NATIVE", "legacy_emulator", "permissive", "unknown"] {
-            assert!(
-                load_http(&["--compat-profile".into(), value.into()], &BTreeMap::new())
-                    .unwrap_err()
-                    .to_string()
-                    .contains("compat_profile")
-            );
-        }
         for body in [
             r#"{"compat_profile":false}"#,
             r#"{"compat_profile":null}"#,
@@ -2185,24 +2175,25 @@ mod tests {
             let key = format!("GCS_MIMIC_{}", setting.to_ascii_uppercase());
             let args = vec!["--config".into(), file.to_str().unwrap().into()];
             std::fs::write(&file, format!(r#"{{"{setting}":100}}"#)).unwrap();
-            assert_eq!(value(load_http(&[], &BTreeMap::new()).unwrap()), default);
-            assert_eq!(value(load_http(&args, &BTreeMap::new()).unwrap()), 100);
             let env = BTreeMap::from([(key.clone(), "200".into())]);
-            assert_eq!(value(load_http(&args, &env).unwrap()), 200);
-            let mut cli = args.clone();
-            cli.extend([flag.clone(), "300".into()]);
-            assert_eq!(value(load_http(&cli, &env).unwrap()), 300);
-            for invalid in [
-                "0".into(),
-                "-1".into(),
-                (maximum + 1).to_string(),
-                "unlimited".into(),
-            ] {
-                assert!(load_http(&[flag.clone(), invalid.clone()], &BTreeMap::new()).is_err());
-                assert!(load_http(&[], &BTreeMap::from([(key.clone(), invalid.clone())])).is_err());
-                std::fs::write(&file, format!(r#"{{"{setting}":"{invalid}"}}"#)).unwrap();
-                assert!(load_http(&args, &BTreeMap::new()).is_err());
-            }
+            assert_precedence(
+                &args,
+                &env,
+                &[&flag, "300"],
+                [default, 100, 200, 300],
+                load_http,
+                value,
+            );
+            assert_rejected(
+                setting,
+                &[
+                    "0".into(),
+                    "-1".into(),
+                    (maximum + 1).to_string(),
+                    "unlimited".into(),
+                ],
+                "must be an integer",
+            );
             for bound in [1, maximum] {
                 assert_eq!(
                     value(load_http(&[flag.clone(), bound.to_string()], &BTreeMap::new()).unwrap()),
@@ -2218,28 +2209,21 @@ mod tests {
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"max_object_bytes":64}"#).unwrap();
-        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_MAX_OBJECT_BYTES".into(), "128".into())]);
-        assert_eq!(
-            load_http(&[], &BTreeMap::new()).unwrap().max_object_bytes,
-            1_073_741_824
+        assert_precedence(
+            &args,
+            &env,
+            &["--max-object-bytes", "256"],
+            [1_073_741_824, 64, 128, 256],
+            load_http,
+            |config| config.max_object_bytes,
         );
-        assert_eq!(
-            load_http(&args, &BTreeMap::new()).unwrap().max_object_bytes,
-            64
+        assert_rejected(
+            "max_object_bytes",
+            &["0", "-1", "5497558138881", "unlimited"],
+            "must be an integer",
         );
-        assert_eq!(load_http(&args, &env).unwrap().max_object_bytes, 128);
-        args.extend(["--max-object-bytes".into(), "256".into()]);
-        assert_eq!(load_http(&args, &env).unwrap().max_object_bytes, 256);
-        for value in ["0", "-1", "5497558138881", "unlimited"] {
-            assert!(
-                load_http(
-                    &["--max-object-bytes".into(), value.into()],
-                    &BTreeMap::new()
-                )
-                .is_err()
-            );
-        }
         assert_eq!(
             load_http(
                 &["--max-object-bytes".into(), "5497558138880".into()],
@@ -2345,20 +2329,19 @@ mod tests {
         .unwrap();
         let loaded = load_http(&args, &BTreeMap::new()).unwrap();
         assert_eq!(loaded.auth_mode, AuthMode::Strict);
-        assert_eq!(
-            loaded.identity_file.as_deref(),
-            Some(Path::new("file-ids.json"))
-        );
         let env = BTreeMap::from([("GCS_MIMIC_IDENTITY_FILE".into(), "env-ids.json".into())]);
-        assert_eq!(
-            load_http(&args, &env).unwrap().identity_file.as_deref(),
-            Some(Path::new("env-ids.json"))
-        );
-        let mut cli = args.clone();
-        cli.extend(["--identity-file".into(), "cli-ids.json".into()]);
-        assert_eq!(
-            load_http(&cli, &env).unwrap().identity_file.as_deref(),
-            Some(Path::new("cli-ids.json"))
+        assert_precedence(
+            &args,
+            &env,
+            &["--identity-file", "cli-ids.json"],
+            [
+                None,
+                Some("file-ids.json".into()),
+                Some("env-ids.json".into()),
+                Some("cli-ids.json".into()),
+            ],
+            load_http,
+            |config| config.identity_file,
         );
         // A higher-precedence permissive mode with a lower-precedence registry is a conflict.
         let permissive_env = BTreeMap::from([("GCS_MIMIC_AUTH_MODE".into(), "permissive".into())]);
@@ -2389,12 +2372,7 @@ mod tests {
             .to_string()
             .contains("identity_file requires auth_mode=strict")
         );
-        for invalid in ["", "Strict", "none", "STRICT"] {
-            assert!(
-                load_http(&["--auth-mode".into(), invalid.into()], &BTreeMap::new()).is_err(),
-                "{invalid}"
-            );
-        }
+        assert_rejected("auth_mode", &["", "Strict", "none", "STRICT"], "auth_mode");
         assert!(
             load_http(
                 &[
@@ -2417,34 +2395,20 @@ mod tests {
         std::fs::write(&file, r#"{"data_dir":"file-data"}"#).unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_DATA_DIR".into(), "env-data".into())]);
-        assert_eq!(
-            load_http(&[], &BTreeMap::new()).unwrap().data_dir,
-            Path::new("data")
+        assert_precedence(
+            &args,
+            &env,
+            &["--data-dir", "cli-data"],
+            [
+                "data".into(),
+                "file-data".into(),
+                "env-data".into(),
+                "cli-data".into(),
+            ],
+            load_http,
+            |config| config.data_dir,
         );
-        assert_eq!(
-            load_http(&args, &BTreeMap::new()).unwrap().data_dir,
-            Path::new("file-data")
-        );
-        assert_eq!(
-            load_http(&args, &env).unwrap().data_dir,
-            Path::new("env-data")
-        );
-        let mut cli_args = args.clone();
-        cli_args.extend(["--data-dir".into(), "cli-data".into()]);
-        assert_eq!(
-            load_http(&cli_args, &env).unwrap().data_dir,
-            Path::new("cli-data")
-        );
-        assert!(load_http(&["--data-dir".into(), "".into()], &BTreeMap::new()).is_err());
-        assert!(
-            load_http(
-                &[],
-                &BTreeMap::from([("GCS_MIMIC_DATA_DIR".into(), "".into())])
-            )
-            .is_err()
-        );
-        std::fs::write(&file, r#"{"data_dir":""}"#).unwrap();
-        assert!(load_http(&args, &BTreeMap::new()).is_err());
+        assert_rejected("data_dir", &[""], "must not be empty");
         std::fs::remove_file(file).unwrap();
     }
 }

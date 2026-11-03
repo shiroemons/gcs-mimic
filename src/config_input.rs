@@ -740,6 +740,17 @@ mod tests {
         values.iter().map(|s| (*s).into()).collect()
     }
 
+    #[track_caller]
+    fn has(errors: &Diagnostics, key: &str, fix: &str) {
+        assert!(
+            errors
+                .errors
+                .iter()
+                .any(|error| error.key == key && error.fix.contains(fix)),
+            "{errors}"
+        );
+    }
+
     #[test]
     fn unknown_legacy_names_do_not_count_as_native_override_targets() {
         for (key, overridden) in [("FAKE_GCS_LISTEN", false), ("GCS_MIMIC_LISTEN", true)] {
@@ -1115,15 +1126,7 @@ mod tests {
             let report =
                 crate::config::Config::preflight(&strings(&[flag, "http"]), &BTreeMap::new());
             assert!(report.diagnostics.is_err(), "{flag}");
-            assert!(
-                report
-                    .diagnostics
-                    .errors
-                    .iter()
-                    .any(|d| d.key == flag && d.fix.contains("--name VALUE pairs")),
-                "{}",
-                report.diagnostics
-            );
+            has(&report.diagnostics, flag, "--name VALUE pairs");
             assert!(!report.diagnostics.to_string().contains("Legacy input"));
         }
         for object in ["---scheme", "----port", "-data", "-port", "-x"] {
@@ -1199,8 +1202,8 @@ mod tests {
 
     #[test]
     fn default_seed_is_adopted_only_when_present_and_disjoint() {
-        let root =
-            std::env::temp_dir().join(format!("gcs-mimic-default-seed-{}", std::process::id()));
+        let directory = crate::test_support::TestDir::new();
+        let root = directory.0.clone();
         std::fs::create_dir_all(root.join("legacy")).unwrap();
         std::fs::write(root.join("legacy/object"), "fixture").unwrap();
         let legacy = root.join("legacy");
@@ -1267,7 +1270,6 @@ mod tests {
         };
         assert!(resolve_default_seed(&mut unset).is_empty());
         assert_eq!(unset.seed_dir, None);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
