@@ -1,4 +1,5 @@
 use super::RequestBody as Incoming;
+use super::upload_drive::{CatalogWait, UploadEnd, UploadSender, drive_upload, upload_channel};
 use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, stream_upload};
 use crate::{
     bucket::BucketAccess,
@@ -6,7 +7,7 @@ use crate::{
         self, JsonError, ObjectInsertParams,
         resumable::{self, Range},
     },
-    object::{ObjectError, ObjectRecord, UploadChunk},
+    object::{ObjectError, ObjectRecord},
     storage::{
         ResumableChunk, ResumableOptions, SessionState,
         failure::{BackendFailure, object_unavailable},
@@ -15,7 +16,7 @@ use crate::{
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, header::HeaderValue};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 
 pub(super) async fn initiate(
     request: Request<Incoming>,
@@ -519,7 +520,7 @@ pub(crate) async fn transfer(
         options,
         catalog_wait,
     };
-    let (sender, body) = mpsc::channel(2);
+    let (sender, body) = upload_channel();
     let upload = state
         .catalog
         .write_resumable_session(lease, chunk, body, permit, render);
@@ -569,39 +570,37 @@ async fn stream_chunk(
     body: Incoming,
     ctx: ObjectCtx<'_>,
     upload: impl std::future::Future<Output = Result<Option<serde_json::Value>, JsonError>>,
-    sender: mpsc::Sender<Result<UploadChunk, std::io::Error>>,
+    sender: UploadSender,
     progress: watch::Receiver<bool>,
 ) -> Result<Option<serde_json::Value>, JsonError> {
-    let ObjectCtx {
-        config,
-        activity,
-        deadline,
-        ..
-    } = ctx;
-    tokio::pin!(upload);
-    let timeout = ctx.catalog_timeout();
-    let result = tokio::select! {
-        result=&mut upload=>result?,
-        result=stream_upload(body,&sender,config.max_object_bytes,activity,None)=>{
-            if let Err(error)=result {
-                let _=sender.send(Err(std::io::Error::other(error.to_string()))).await;
-                drop(sender);
-                match await_session_upload(upload,progress,timeout,deadline,activity).await {Ok(_)=>{},Err(storage)if storage.kind==json::ErrorKind::IncompleteBody=>{},Err(storage)=>return Err(storage)}
-                return Err(error.into());
-            }
-            await_session_upload(async{let _=sender.send(Ok(UploadChunk::End)).await;drop(sender);upload.await},progress,timeout,deadline,activity).await?
-        }
+    let producer = async {
+        stream_upload(
+            body,
+            &sender,
+            ctx.config.max_object_bytes,
+            ctx.activity,
+            None,
+        )
+        .await
+        .map(|()| UploadEnd::Eof)
     };
-    Ok(result)
+    drive_upload(
+        CatalogWait::Session { ctx, progress },
+        upload,
+        &sender,
+        producer,
+    )
+    .await
+    .map_err(|error| error.into_error::<JsonError>())
 }
 
-async fn await_session_upload<T>(
-    operation: impl std::future::Future<Output = Result<T, JsonError>>,
+pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
+    operation: impl std::future::Future<Output = Result<T, E>>,
     mut progress: watch::Receiver<bool>,
     timeout: std::time::Duration,
     deadline: tokio::time::Instant,
     activity: &watch::Sender<ObjectActivity>,
-) -> Result<T, JsonError> {
+) -> Result<T, E> {
     super::begin_catalog_wait(activity).await;
     tokio::pin!(operation);
     let result = loop {

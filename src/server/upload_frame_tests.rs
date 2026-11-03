@@ -3,6 +3,7 @@
 use super::*;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use tokio::sync::mpsc;
 
 #[test]
 fn body_presence_compares_content_length_numerically() {

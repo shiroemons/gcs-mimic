@@ -32,7 +32,7 @@ use std::{
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
-    sync::{mpsc, Semaphore, watch},
+    sync::{Semaphore, watch},
     task::JoinSet,
 };
 
@@ -111,6 +111,7 @@ mod routing;
 mod transport;
 #[cfg(unix)]
 pub mod unix;
+pub(crate) mod upload_drive;
 mod xml_read;
 pub(crate) use context::{DeadlineWatch, ObjectCtx, RequestCtx};
 pub(crate) use ingress::RequestBody;
@@ -1145,7 +1146,7 @@ async fn validate_bodyless_post(
 
 pub(crate) async fn stream_upload(
     mut body: RequestBody,
-    sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
+    sender: &upload_drive::UploadSender,
     max_bytes: u64,
     activity: &watch::Sender<ObjectActivity>,
     expected_sha256: Option<[u8; 32]>,
