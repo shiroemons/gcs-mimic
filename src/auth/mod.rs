@@ -44,6 +44,7 @@ static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);
 pub(crate) const BUCKETS_ENABLE_OBJECT_RETENTION: &str = "storage.buckets.enableObjectRetention";
 
 // Optional constants serve call sites that authorize by permission name.
+// `untestable` excludes a permission from bucket testIamPermissions, not authorization.
 macro_rules! permissions {
     ($($variant:ident $(($constant:ident))? => $name:literal $([$untestable:ident])?),+ $(,)?) => {
         $($(pub(crate) const $constant: &str = $name;)?)+
@@ -130,6 +131,11 @@ permissions! {
     MultipartList => "storage.multipartUploads.list",
     MultipartListParts => "storage.multipartUploads.listParts",
     BucketsEnableObjectRetention => "storage.buckets.enableObjectRetention" [untestable],
+    HmacKeysCreate => "storage.hmacKeys.create" [untestable],
+    HmacKeysDelete => "storage.hmacKeys.delete" [untestable],
+    HmacKeysGet => "storage.hmacKeys.get" [untestable],
+    HmacKeysList => "storage.hmacKeys.list" [untestable],
+    HmacKeysUpdate => "storage.hmacKeys.update" [untestable],
 }
 
 const _: () = assert!(Permission::ALL.len() <= 32);
@@ -1025,6 +1031,30 @@ mod tests {
             Permission::from_name(BUCKETS_ENABLE_OBJECT_RETENTION),
             Some(Permission::BucketsEnableObjectRetention)
         );
+    }
+
+    #[test]
+    fn compact_grants_preserve_hmac_key_management_permissions() {
+        let registry = Registry::parse(br#"{"identities":[{"id":"hmac","tokens":[],"project_roles":{"project":["roles/storage.hmacKeyAdmin"]}}]}"#).unwrap();
+        let identity = &registry.identities[0];
+        for permission in [
+            "storage.hmacKeys.create",
+            "storage.hmacKeys.delete",
+            "storage.hmacKeys.get",
+            "storage.hmacKeys.list",
+            "storage.hmacKeys.update",
+        ] {
+            assert!(identity.allows(permission, "project"), "{permission}");
+            assert!(Permission::parse_testable(permission).is_none());
+            let query = format!("permissions={permission}");
+            let error = crate::json::test_permissions_query(Some(&query)).unwrap_err();
+            assert_eq!(error.status, hyper::StatusCode::BAD_REQUEST);
+            assert_eq!(error.reason, "badRequest");
+            let object_uri = format!("/storage/v1/b/bucket/o/object/iam/testPermissions?{query}")
+                .parse()
+                .unwrap();
+            assert!(crate::json::route_object(&hyper::Method::GET, &object_uri).is_none());
+        }
     }
 
     #[test]
