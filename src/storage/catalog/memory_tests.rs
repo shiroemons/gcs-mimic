@@ -14,13 +14,23 @@ mod appendable_tests;
 mod resumable_tests;
 mod xml_multipart_tests;
 
-async fn setup(budget: u64, versioning: bool) -> Catalog {
+enum Versioning {
+    Off,
+    On,
+}
+
+enum BodyEnd {
+    Complete,
+    Aborted,
+}
+
+async fn setup(budget: u64, versioning: Versioning) -> Catalog {
     setup_with_clock(budget, versioning, Arc::new(SystemClock)).await
 }
 
 async fn setup_with_clock(
     budget: u64,
-    versioning: bool,
+    versioning: Versioning,
     clock: Arc<dyn crate::clock::Clock>,
 ) -> Catalog {
     let catalog = Catalog::open_memory_for_server(
@@ -35,7 +45,7 @@ async fn setup_with_clock(
     let mut record = BucketDefinition::default_for(&name, "local", &*clock)
         .unwrap()
         .into_record();
-    record.versioning_enabled = versioning;
+    record.versioning_enabled = matches!(versioning, Versioning::On);
     catalog
         .admin(admin::Origin::Seed)
         .ensure_bucket(BucketDefinition::new(record).unwrap())
@@ -44,12 +54,12 @@ async fn setup_with_clock(
     catalog
 }
 
-fn body(complete: bool) -> mpsc::Receiver<Result<UploadChunk, std::io::Error>> {
+fn body(end: BodyEnd) -> mpsc::Receiver<Result<UploadChunk, std::io::Error>> {
     let (sender, receiver) = mpsc::channel(2);
     sender
         .try_send(Ok(UploadChunk::Data(Bytes::from_static(b"data"))))
         .unwrap();
-    if complete {
+    if matches!(end, BodyEnd::Complete) {
         sender.try_send(Ok(UploadChunk::End)).unwrap();
     }
     receiver
@@ -58,7 +68,7 @@ fn body(complete: bool) -> mpsc::Receiver<Result<UploadChunk, std::io::Error>> {
 async fn put(
     catalog: &Catalog,
     condition: ObjectConditions,
-    complete: bool,
+    end: BodyEnd,
 ) -> Result<crate::object::ObjectRecord, ObjectError> {
     catalog
         .put_object(
@@ -66,7 +76,7 @@ async fn put(
                 conditions: condition,
                 ..permissive_upload("test-bucket", "value", 1024)
             },
-            body(complete),
+            body(end),
         )
         .await
 }
@@ -93,8 +103,10 @@ fn ram_destination(name: &str) -> derived::DerivedDestination {
 
 #[tokio::test]
 async fn ram_derived_pins_survive_source_delete_and_checkpoints_share_hash_and_publication() {
-    let catalog = setup(4096, false).await;
-    let source = put(&catalog, Default::default(), true).await.unwrap();
+    let catalog = setup(4096, Versioning::Off).await;
+    let source = put(&catalog, Default::default(), BodyEnd::Complete)
+        .await
+        .unwrap();
     let transfer = ram_transfer(&catalog).await;
     assert_eq!(
         catalog
@@ -155,8 +167,10 @@ async fn ram_derived_pins_survive_source_delete_and_checkpoints_share_hash_and_p
 
 #[tokio::test]
 async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_old_destination() {
-    let catalog = setup(8192, true).await;
-    let original = put(&catalog, Default::default(), true).await.unwrap();
+    let catalog = setup(8192, Versioning::On).await;
+    let original = put(&catalog, Default::default(), BodyEnd::Complete)
+        .await
+        .unwrap();
     let transfer = ram_transfer(&catalog).await;
     catalog.advance_derived(&transfer.id, 2).await.unwrap();
     let memory = catalog.0.backend.memory().unwrap();
@@ -241,7 +255,7 @@ async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_o
 
 #[tokio::test]
 async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination_conditions() {
-    let catalog = setup(8192, true).await;
+    let catalog = setup(8192, Versioning::On).await;
     catalog
         .insert_notification(
             "test-bucket",
@@ -256,7 +270,9 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
         )
         .await
         .unwrap();
-    let original = put(&catalog, Default::default(), true).await.unwrap();
+    let original = put(&catalog, Default::default(), BodyEnd::Complete)
+        .await
+        .unwrap();
     let initial = catalog.next_notification().await.unwrap().unwrap();
     catalog.acknowledge_notification(initial.id).await.unwrap();
     let first = ram_transfer(&catalog).await;
@@ -344,8 +360,10 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
 
 #[tokio::test]
 async fn ram_derived_cancel_expiry_and_abandoned_begin_reclaim_their_owned_state() {
-    let catalog = setup(4096, false).await;
-    put(&catalog, Default::default(), true).await.unwrap();
+    let catalog = setup(4096, Versioning::Off).await;
+    put(&catalog, Default::default(), BodyEnd::Complete)
+        .await
+        .unwrap();
     let transfer = ram_transfer(&catalog).await;
     catalog.advance_derived(&transfer.id, 2).await.unwrap();
     catalog.cancel_derived(&transfer.id).await.unwrap();
@@ -413,11 +431,11 @@ async fn ram_derived_cancel_expiry_and_abandoned_begin_reclaim_their_owned_state
 
 #[tokio::test]
 async fn ram_history_and_readers_hold_capacity_until_the_last_byte_reference_drops() {
-    let catalog = setup(520, true).await;
-    let first = put(&catalog, ObjectConditions::default(), true)
+    let catalog = setup(520, Versioning::On).await;
+    let first = put(&catalog, ObjectConditions::default(), BodyEnd::Complete)
         .await
         .unwrap();
-    put(&catalog, ObjectConditions::default(), true)
+    put(&catalog, ObjectConditions::default(), BodyEnd::Complete)
         .await
         .unwrap();
     let (_, mut reader) = catalog
@@ -439,12 +457,12 @@ async fn ram_history_and_readers_hold_capacity_until_the_last_byte_reference_dro
         .unwrap();
     drop(reader);
     assert!(
-        put(&catalog, ObjectConditions::default(), true)
+        put(&catalog, ObjectConditions::default(), BodyEnd::Complete)
             .await
             .is_err()
     );
     drop(response_chunk);
-    put(&catalog, ObjectConditions::default(), true)
+    put(&catalog, ObjectConditions::default(), BodyEnd::Complete)
         .await
         .unwrap();
     catalog.close().await.unwrap();
@@ -452,12 +470,12 @@ async fn ram_history_and_readers_hold_capacity_until_the_last_byte_reference_dro
 
 #[tokio::test]
 async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state() {
-    let catalog = setup(200_000, false).await;
-    let first = put(&catalog, ObjectConditions::default(), true)
+    let catalog = setup(200_000, Versioning::Off).await;
+    let first = put(&catalog, ObjectConditions::default(), BodyEnd::Complete)
         .await
         .unwrap();
     assert!(matches!(
-        put(&catalog, ObjectConditions::default(), false).await,
+        put(&catalog, ObjectConditions::default(), BodyEnd::Aborted).await,
         Err(ObjectError::BodyAborted(_))
     ));
     assert_eq!(
@@ -472,8 +490,8 @@ async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state
         ..Default::default()
     };
     let (left, right) = tokio::join!(
-        put(&catalog, condition, true),
-        put(&catalog, condition, true)
+        put(&catalog, condition, BodyEnd::Complete),
+        put(&catalog, condition, BodyEnd::Complete)
     );
     assert_ne!(left.is_ok(), right.is_ok());
     assert!(matches!(
@@ -493,8 +511,8 @@ async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state
 
 #[tokio::test]
 async fn ram_catalog_pages_are_bounded_without_limiting_another_catalog() {
-    let catalog = setup(1024, false).await;
-    let original = put(&catalog, ObjectConditions::default(), true)
+    let catalog = setup(1024, Versioning::Off).await;
+    let original = put(&catalog, ObjectConditions::default(), BodyEnd::Complete)
         .await
         .unwrap();
     let admin = catalog.admin(admin::Origin::Seed);
@@ -523,8 +541,8 @@ async fn ram_catalog_pages_are_bounded_without_limiting_another_catalog() {
         .ensure_bucket(BucketDefinition::default_for(&name, "local", &SystemClock).unwrap())
         .await
         .unwrap();
-    let other = setup(1024, false).await;
-    put(&other, ObjectConditions::default(), true)
+    let other = setup(1024, Versioning::Off).await;
+    put(&other, ObjectConditions::default(), BodyEnd::Complete)
         .await
         .unwrap();
     other.close().await.unwrap();
@@ -558,7 +576,7 @@ async fn exhaust_catalog_pages(admin: &admin::Admin) {
 
 #[tokio::test]
 async fn ram_full_catalog_resets_many_objects_without_growing_a_deletion_journal() {
-    let catalog = setup(1024 * 1024, false).await;
+    let catalog = setup(1024 * 1024, Versioning::Off).await;
     let admin = catalog.admin(admin::Origin::Seed);
     let bucket = BucketName::new("test-bucket").unwrap();
     for index in 0..200 {
@@ -567,7 +585,7 @@ async fn ram_full_catalog_resets_many_objects_without_growing_a_deletion_journal
                 &bucket,
                 &admin::ObjectName::new(format!("object-{index:04}")).unwrap(),
                 publication(1024),
-                body(true),
+                body(BodyEnd::Complete),
             )
             .await
             .unwrap();
@@ -594,7 +612,7 @@ async fn ram_full_catalog_resets_many_objects_without_growing_a_deletion_journal
         .ensure_bucket(BucketDefinition::default_for(&bucket, "local", &SystemClock).unwrap())
         .await
         .unwrap();
-    put(&catalog, ObjectConditions::default(), true)
+    put(&catalog, ObjectConditions::default(), BodyEnd::Complete)
         .await
         .unwrap();
     drop(reader);
@@ -673,7 +691,7 @@ async fn ram_default_budgets_accept_one_thousand_small_objects_and_report_databa
 
 #[tokio::test]
 async fn ram_last_catalog_drop_wakes_and_releases_an_idle_notification_publisher() {
-    let catalog = setup(1024, false).await;
+    let catalog = setup(1024, Versioning::Off).await;
     let wake = Arc::downgrade(&catalog.0.notification_wake);
     let (release, held) = std::sync::mpsc::channel();
     let (entered, running) = tokio::sync::oneshot::channel();
@@ -724,7 +742,7 @@ async fn ram_last_catalog_drop_wakes_and_releases_an_idle_notification_publisher
 
 #[tokio::test]
 async fn ram_pragmas_keep_main_and_temp_page_limits_and_memory_journaling() {
-    let catalog = setup(1024, false).await;
+    let catalog = setup(1024, Versioning::Off).await;
     catalog
         .run::<_, CatalogError>(|connection| {
             for schema in [None, Some("temp")] {
@@ -778,7 +796,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
         .ensure_bucket(BucketDefinition::new(record).unwrap())
         .await
         .unwrap();
-    let first = put(&catalog, ObjectConditions::default(), true)
+    let first = put(&catalog, ObjectConditions::default(), BodyEnd::Complete)
         .await
         .unwrap();
     let (_, mut reader) = catalog
@@ -868,7 +886,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
 #[tokio::test]
 async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
     for budget in [400, 520] {
-        let catalog = setup(budget, false).await;
+        let catalog = setup(budget, Versioning::Off).await;
         catalog
             .run::<_, ObjectError>(|connection| {
                 let policy = crate::bucket::SoftDeletePolicy {
@@ -884,7 +902,9 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
             })
             .await
             .unwrap();
-        let first = put(&catalog, Default::default(), true).await.unwrap();
+        let first = put(&catalog, Default::default(), BodyEnd::Complete)
+            .await
+            .unwrap();
         catalog
             .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
