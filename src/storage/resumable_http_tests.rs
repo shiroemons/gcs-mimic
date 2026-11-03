@@ -31,6 +31,29 @@ use tokio::{
     task::JoinHandle,
 };
 
+enum AuthProfile {
+    Permissive,
+    Strict,
+}
+
+fn strict_auth() -> Auth {
+    Auth::strict(
+        Registry::parse(
+            json!({"identities": [
+                {"id": "admin@example.test", "tokens": ["admin"],
+                 "project_roles": {"project": ["roles/storage.admin"]}},
+                {"id": "creator@example.test", "tokens": ["creator"],
+                 "project_roles": {"project": ["roles/storage.objectCreator"]}},
+                {"id": "viewer@example.test", "tokens": ["viewer"],
+                 "project_roles": {"project": ["roles/storage.objectViewer"]}}
+            ]})
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap(),
+    )
+}
+
 struct Harness {
     address: String,
     base: String,
@@ -51,7 +74,7 @@ struct Reply {
 #[tokio::test]
 async fn completed_retries_reject_new_checksums_without_invalidating_completion() {
     for declared in [false, true] {
-        let h = Harness::start(1000, false, None).await;
+        let h = Harness::start(1000, AuthProfile::Permissive, None).await;
         let metadata = if declared {
             br#"{"md5Hash":"kAFQmDzST7DWlj99KOF/cg=="}"#.as_slice()
         } else {
@@ -106,7 +129,7 @@ async fn completed_retries_reject_new_checksums_without_invalidating_completion(
 #[tokio::test]
 async fn conflicting_final_hash_preserves_error_and_session_invalidation() {
     let size = 8 * 1024 * 1024 + 1;
-    let h = Harness::start(size, false, None).await;
+    let h = Harness::start(size, AuthProfile::Permissive, None).await;
     let init = h
         .initiate(
             "name=conflict",
@@ -137,7 +160,7 @@ async fn conflicting_final_hash_preserves_error_and_session_invalidation() {
 
 #[tokio::test]
 async fn oversized_final_hash_request_retains_body_size_limit() {
-    let h = Harness::start(1000, false, None).await;
+    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
     let init = h
         .initiate(
             "name=conflict",
@@ -200,12 +223,12 @@ impl Reply {
     }
 }
 impl Harness {
-    async fn start(max: u64, strict: bool, base: Option<&str>) -> Self {
-        Self::start_with_catalog_wait(max, strict, base, 30000).await
+    async fn start(max: u64, auth: AuthProfile, base: Option<&str>) -> Self {
+        Self::start_with_catalog_wait(max, auth, base, 30000).await
     }
     async fn start_with_catalog_wait(
         max: u64,
-        strict: bool,
+        auth: AuthProfile,
         base: Option<&str>,
         catalog_wait_timeout_ms: u64,
     ) -> Self {
@@ -220,10 +243,9 @@ impl Harness {
             .await
             .unwrap();
         seed_bucket(&catalog).await;
-        let auth = if strict {
-            Auth::strict(Registry::parse(json!({"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"creator@example.test","tokens":["creator"],"project_roles":{"project":["roles/storage.objectCreator"]}},{"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}).to_string().as_bytes()).unwrap())
-        } else {
-            Auth::permissive()
+        let auth = match auth {
+            AuthProfile::Strict => strict_auth(),
+            AuthProfile::Permissive => Auth::permissive(),
         };
         let state = Arc::new(State {
             clock: clock.clone(),
@@ -465,7 +487,7 @@ fn assert_catalog_wait_timeout(reply: &Reply) {
 
 #[tokio::test]
 async fn obj_http_resumable_independent_empty_and_multichunk_checksum_vectors() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     // Expected values use OpenSSL MD5 and an independent bitwise Castagnoli reference.
     for (size, md5, crc32c) in [
         (0, "1B2M2Y8AsgTpgAmY7PhCfg==", "AAAAAA=="),
@@ -530,7 +552,7 @@ async fn obj_http_resumable_independent_empty_and_multichunk_checksum_vectors() 
 
 #[tokio::test]
 async fn obj_http_resumable_failed_overwrites_preserve_metadata_bytes_and_files() {
-    let h = Harness::start(32, false, None).await;
+    let h = Harness::start(32, AuthProfile::Permissive, None).await;
     h.request(
         "POST",
         "/upload/storage/v1/b/bucket/o?uploadType=media&name=object",
@@ -663,7 +685,12 @@ async fn obj_http_resumable_failed_overwrites_preserve_metadata_bytes_and_files(
 
 #[tokio::test]
 async fn initiation_returns_opaque_fixed_location_and_status_without_publication() {
-    let h = Harness::start(1000, false, Some("https://configured.invalid/proxy///")).await;
+    let h = Harness::start(
+        1000,
+        AuthProfile::Permissive,
+        Some("https://configured.invalid/proxy///"),
+    )
+    .await;
     let reply = h
         .initiate("name=hello", "Origin: https://client.invalid\r\n", b"")
         .await;
@@ -702,7 +729,7 @@ async fn initiation_returns_opaque_fixed_location_and_status_without_publication
 
 #[tokio::test]
 async fn initiation_preserves_encoded_names_metadata_and_query_precedence() {
-    let h = Harness::start(1000, false, None).await;
+    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
     let reply=h.initiate("name=%E6%97%A5%2F%25&contentEncoding=gzip&projection=full","Content-Type: application/json\r\nX-Upload-Content-Type: image/png\r\nX-Upload-Content-Length: 0\r\n",br#"{"name":"ignored","bucket":null,"contentType":"application/test","metadata":{"key":"value"}}"#).await;
     assert_eq!(
         reply.status,
@@ -738,7 +765,7 @@ async fn initiation_preserves_encoded_names_metadata_and_query_precedence() {
 
 #[tokio::test]
 async fn invalid_initiation_and_status_leave_no_session_or_file() {
-    let h = Harness::start(10, false, None).await;
+    let h = Harness::start(10, AuthProfile::Permissive, None).await;
     for (query, headers, body, status) in [
         (
             "name=a",
@@ -846,7 +873,7 @@ async fn invalid_initiation_and_status_leave_no_session_or_file() {
 
 #[tokio::test]
 async fn initiation_checks_strict_create_and_overwrite_permissions_before_staging() {
-    let h = Harness::start(1000, true, None).await;
+    let h = Harness::start(1000, AuthProfile::Strict, None).await;
     for (token, status) in [("", 401), ("invalid", 401), ("viewer", 403)] {
         let headers = if token.is_empty() {
             String::new()
@@ -894,7 +921,7 @@ async fn initiation_checks_strict_create_and_overwrite_permissions_before_stagin
 
 #[tokio::test]
 async fn initiation_session_cap_and_status_prefix_are_bounded() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let reply = h.initiate("name=object", "", b"").await;
     let path = h.path(&reply);
     let id = reply.headers["location"]
@@ -942,7 +969,7 @@ async fn initiation_session_cap_and_status_prefix_are_bounded() {
 #[tokio::test]
 async fn sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion() {
     use md5::{Digest, Md5};
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let metadata=br#"{"contentType":"application/test","contentDisposition":"inline","metadata":{"first":"kept","replace":"old"}}"#;
     let init = h
         .initiate(
@@ -1030,7 +1057,7 @@ async fn sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_a
 
 #[tokio::test]
 async fn unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let init = h.initiate("name=object", "", b"").await;
     let path = h.path(&init);
     let chunk = vec![b'a'; 256 * 1024];
@@ -1082,7 +1109,7 @@ async fn unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefi
 
 #[tokio::test]
 async fn single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     for (name, body, range) in [
         ("single", b"hello".as_slice(), ""),
         ("empty", b"", "Content-Range: bytes */0\r\n"),
@@ -1137,7 +1164,7 @@ async fn single_empty_and_exact_multiple_uploads_replay_original_completion_afte
 
 #[tokio::test]
 async fn malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     for headers in [
         "Content-Range: bytes 1-262144/524288\r\n",
         "Content-Range: bytes 9-1/524288\r\n",
@@ -1217,7 +1244,7 @@ async fn malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix() {
 
 #[tokio::test]
 async fn object_caps_apply_to_known_unknown_and_streamed_lengths() {
-    let h = Harness::start(256 * 1024, false, None).await;
+    let h = Harness::start(256 * 1024, AuthProfile::Permissive, None).await;
     let init = h.initiate("name=exact", "", b"").await;
     let path = h.path(&init);
     assert_eq!(
@@ -1262,7 +1289,7 @@ async fn object_caps_apply_to_known_unknown_and_streamed_lengths() {
 
 #[tokio::test]
 async fn checksum_and_final_metadata_failures_preserve_the_previous_full_resource() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let original = h
         .request(
             "POST",
@@ -1364,7 +1391,7 @@ async fn checksum_and_final_metadata_failures_preserve_the_previous_full_resourc
 
 #[tokio::test]
 async fn all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let original = h
         .request(
             "POST",
@@ -1502,7 +1529,7 @@ async fn all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_r
 
 #[tokio::test]
 async fn two_create_if_absent_sessions_have_one_finalization_winner() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let a = h.initiate("name=raced&ifGenerationMatch=0", "", b"").await;
     let a = h.path(&a);
     let b = h.initiate("name=raced&ifGenerationMatch=0", "", b"").await;
@@ -1526,7 +1553,7 @@ async fn two_create_if_absent_sessions_have_one_finalization_winner() {
 
 #[tokio::test]
 async fn capability_delegate_uses_initiator_grants_and_rechecks_overwrite_and_revocation() {
-    let h = Harness::start(1024 * 1024, true, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Strict, None).await;
     let init = h
         .initiate("name=delegated", "Authorization: Bearer creator\r\n", b"")
         .await;
@@ -1611,7 +1638,7 @@ async fn capability_delegate_uses_initiator_grants_and_rechecks_overwrite_and_re
     );
     assert_eq!(h.request("PUT", &path, "", b"must fail").await.status, 403);
     h.stop().await;
-    let h = Harness::start(1024 * 1024, true, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Strict, None).await;
     let init = h
         .initiate("name=recreated", "Authorization: Bearer admin\r\n", b"")
         .await;
@@ -1644,7 +1671,7 @@ async fn capability_delegate_uses_initiator_grants_and_rechecks_overwrite_and_re
 
 #[tokio::test]
 async fn interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let init = h.initiate("name=object", "", b"").await;
     let path = h.path(&init);
     let chunk = vec![b'a'; 256 * 1024];
@@ -1694,7 +1721,7 @@ async fn interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes
 
 #[tokio::test]
 async fn busy_session_rejects_competing_writer_while_other_sessions_progress() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let init = h.initiate("name=busy", "", b"").await;
     let path = h.path(&init);
     let mut stream = TcpStream::connect(&h.address).await.unwrap();
@@ -1732,7 +1759,7 @@ async fn busy_session_rejects_competing_writer_while_other_sessions_progress() {
 
 #[tokio::test]
 async fn sdk_initiation_accepts_one_retry_token_without_generation_conditions() {
-    let h = Harness::start(1000, false, None).await;
+    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
     for _ in 0..2 {
         let r=h.initiate("name=object&alt=json&prettyPrint=false&projection=full","Content-Type: application/json\r\nX-Upload-Content-Type: application/octet-stream\r\nX-Goog-Gcs-Idempotency-Token: initiation-retry\r\n",b"{}").await;
         assert_eq!(r.status, 200);
@@ -1757,7 +1784,7 @@ async fn sdk_initiation_accepts_one_retry_token_without_generation_conditions() 
 #[tokio::test]
 async fn host_follows_returned_location_and_streams_large_body_in_small_buffers() {
     let size = 8 * 1024 * 1024;
-    let h = Harness::start(size, false, None).await;
+    let h = Harness::start(size, AuthProfile::Permissive, None).await;
     let init = h.initiate("name=streamed", "", b"").await;
     let uri: hyper::Uri = init.headers["location"].parse().unwrap();
     let mut stream = TcpStream::connect(uri.authority().unwrap().as_str())
@@ -1806,7 +1833,7 @@ async fn host_follows_returned_location_and_streams_large_body_in_small_buffers(
 
 #[tokio::test]
 async fn chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots() {
-    let h = Harness::start(256 * 1024, false, None).await;
+    let h = Harness::start(256 * 1024, AuthProfile::Permissive, None).await;
     let mut stalled = Vec::new();
     for i in 0..8 {
         let init = h.initiate(&format!("name=stalled{i}"), "", b"").await;
@@ -1866,7 +1893,7 @@ async fn chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots(
 
 #[tokio::test]
 async fn final_metadata_and_completion_snapshot_survive_catalog_restart() {
-    let h = Harness::start(1000, false, None).await;
+    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
     let init = h
         .initiate(
             "name=object",
@@ -1911,7 +1938,7 @@ async fn final_metadata_and_completion_snapshot_survive_catalog_restart() {
 
 #[tokio::test]
 async fn session_deadline_during_transfer_returns_not_found_without_acknowledging_tail() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let init = h.initiate("name=expired", "", b"").await;
     let path = h.path(&init);
     let id = path.split("upload_id=").nth(1).unwrap();
@@ -1946,7 +1973,7 @@ async fn session_deadline_during_transfer_returns_not_found_without_acknowledgin
 
 #[tokio::test]
 async fn strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline() {
-    let h = Harness::start(1000, true, None).await;
+    let h = Harness::start(1000, AuthProfile::Strict, None).await;
     let init = h
         .initiate("name=cancelled", "Authorization: Bearer admin\r\n", b"")
         .await;
@@ -2003,7 +2030,7 @@ async fn strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadl
 
 #[tokio::test]
 async fn cancellation_racing_append_respects_writer_and_prevents_later_publication() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let init = h.initiate("name=append", "", b"").await;
     let path = h.path(&init);
     let id = path.split("upload_id=").nth(1).unwrap();
@@ -2051,7 +2078,7 @@ async fn cancellation_racing_append_respects_writer_and_prevents_later_publicati
 
 #[tokio::test]
 async fn cancellation_racing_finalization_has_one_terminal_winner_and_preserves_live_bytes() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     for index in 0..8 {
         let name = format!("race-{index}");
         let init = h.initiate(&format!("name={name}"), "", b"").await;
@@ -2102,7 +2129,7 @@ async fn cancellation_racing_finalization_has_one_terminal_winner_and_preserves_
 
 #[tokio::test]
 async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() {
-    let h = Harness::start(1000, false, None).await;
+    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
     h.state.catalog.start_resumable_maintenance();
     for cancel in [false, true] {
         let init = h.initiate(&format!("name=cleanup-{cancel}"), "", b"").await;
@@ -2168,7 +2195,7 @@ async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() 
 
 #[tokio::test]
 async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail() {
-    let mut h = Harness::start(1024 * 1024, false, None).await;
+    let mut h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let init = h.initiate("name=resumed", "", b"").await;
     let path = h.path(&init);
     let chunk = vec![b'a'; 256 * 1024];
@@ -2267,7 +2294,7 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
 #[tokio::test]
 async fn retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation() {
     for fail_commit in [false, true] {
-        let h = Harness::start(1024 * 1024, false, None).await;
+        let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
         let init = h.initiate("name=retry", "", b"").await;
         let path = h.path(&init);
         let id = path.split("upload_id=").nth(1).unwrap();
@@ -2367,7 +2394,7 @@ async fn retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_
 
 #[tokio::test]
 async fn contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_session() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let init = h.initiate("name=length", "", b"").await;
     let path = h.path(&init);
     let id = path.split("upload_id=").nth(1).unwrap();
@@ -2403,7 +2430,7 @@ async fn final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget() {
     // budget end to end; catalog steps that exceed it on a loaded runner are
     // retried because a completed upload may still commit.
     let size = 32 * 1024 * 1024;
-    let h = Harness::start_with_catalog_wait(size, false, None, 200).await;
+    let h = Harness::start_with_catalog_wait(size, AuthProfile::Permissive, None, 200).await;
     let init = retry_unavailable(|| h.initiate("name=hash-scan", "", b"")).await;
     let path = h.path(&init);
     let bytes = vec![b'h'; size as usize];
@@ -2448,7 +2475,7 @@ async fn final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget() {
 async fn finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout() {
     // Only the blocked finalization is under test; earlier steps may also exceed
     // the short budget on a loaded runner, so retry their transient 503s.
-    let h = Harness::start_with_catalog_wait(1024 * 1024, false, None, 250).await;
+    let h = Harness::start_with_catalog_wait(1024 * 1024, AuthProfile::Permissive, None, 250).await;
     let init = retry_unavailable(|| h.initiate("name=sql-wait", "", b"")).await;
     let path = h.path(&init);
     let bytes = vec![b's'; 256 * 1024];
@@ -2501,7 +2528,7 @@ async fn finalization_catalog_wait_is_bounded_and_publication_may_finish_after_t
 #[cfg(unix)]
 #[tokio::test]
 async fn checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried() {
-    let h = Harness::start(1000, false, None).await;
+    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
     let init = h
         .initiate("name=bad-checksum", "X-Goog-Hash: crc32c=AAAAAA==\r\n", b"")
         .await;
