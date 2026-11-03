@@ -388,9 +388,8 @@ pub(crate) fn bucket_for_authority(host: &str, domains: &[String]) -> Option<Str
         return None;
     }
     let host = authority.host().to_ascii_lowercase();
-    let host = host.strip_suffix('.').unwrap_or(&host);
     for domain in domains {
-        if host == domain {
+        if host == *domain {
             return None;
         }
         if let Some(bucket) = host.strip_suffix(domain).and_then(|s| s.strip_suffix('.')) {
