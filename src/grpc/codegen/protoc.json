@@ -1,0 +1,9 @@
+{
+  "version": "36.2",
+  "checked_at": "2026-11-04",
+  "source_url": "https://github.com/protocolbuffers/protobuf/releases/tag/v36.2",
+  "license": "BSD-3-Clause",
+  "purpose": "Development-only regeneration check; ordinary and release builds use committed generated Rust without protoc.",
+  "linux_x86_64_sha256": "121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278",
+  "osx_aarch_64_sha256": "9cd98a532c5c5e0c4161314de0225de27e4c8a323917b6ea7b1b714d3ae23466"
+}

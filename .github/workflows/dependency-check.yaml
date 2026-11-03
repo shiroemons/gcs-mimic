@@ -19,6 +19,28 @@ jobs:
           rustup toolchain install "$pin" --profile minimal
           echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
       - run: cargo fetch --locked
+      - name: Install digest-pinned protobuf compiler
+        run: |
+          version=$(jq -r .version src/grpc/codegen/protoc.json)
+          digest=$(jq -r .linux_x86_64_sha256 src/grpc/codegen/protoc.json)
+          archive="$RUNNER_TEMP/protoc.zip"
+          curl --disable --fail --location --proto '=https' --max-time 60 --max-filesize 16777216 \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${version}/protoc-${version}-linux-x86_64.zip" --output "$archive"
+          printf '%s  %s\n' "$digest" "$archive" | sha256sum --check
+          unzip -q "$archive" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+      - name: Verify committed gRPC generation
+        run: bash scripts/check-grpc-codegen.sh
+      - name: Check protobuf compiler freshness
+        run: |
+          version=$(jq -r .version src/grpc/codegen/protoc.json)
+          latest=$(gh api repos/protocolbuffers/protobuf/releases/latest --jq .tag_name)
+          if [[ "$latest" != "v$version" ]]; then
+            echo "Protobuf compiler update available: pinned v$version, latest $latest; update protoc.json and regenerate gRPC sources" >&2
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: cargo fetch --locked --manifest-path sdk-tests/rust/Cargo.toml
       - name: Check application, all SDK ecosystems, toolchains, Actions and containers
         run: cargo xtask dependencies check

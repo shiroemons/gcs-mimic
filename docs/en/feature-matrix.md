@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
 | behavior | 201 | 89 | 0 | 73 | 39 | 0 | 0 |
-| project_requirement | 95 | 25 | 0 | 40 | 30 | 0 | 0 |
+| project_requirement | 95 | 24 | 0 | 41 | 30 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
 | behavior | 90 | 68 | 39 | 4 | 0 | 0 |
-| project_requirement | 25 | 0 | 0 | 0 | 1 | 69 |
+| project_requirement | 24 | 0 | 0 | 0 | 1 | 70 |
 
 ## api_operation
 
@@ -920,7 +920,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-093 | Evidence-gated implemented status | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-094 | English primary contribution language | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-095 | Optional Japanese planning companion with shared feature IDs | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-096 | API schema/protobuf source drift tracking | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-096 | API schema/protobuf source drift tracking | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-097 | Separate method and behavior coverage | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-098 | Independent conformance and property tests | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-099 | Docker and generated-document CI gates | PARTIAL | P0 | PROJECT | PROJECT | 0 |

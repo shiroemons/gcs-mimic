@@ -54632,23 +54632,30 @@
       "interface": "Project validation",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
-      "source_urls": [],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project requirement. Pin retrieved revisions/checksums and add newly discovered features as NOT_STARTED.",
+      "actual_fidelity": "PROJECT",
+      "source_urls": ["https://github.com/protocolbuffers/protobuf/releases/tag/v36.2"],
+      "source_checked_at": "2026-11-04",
+      "source_evidence": "PROJECT_POLICY",
+      "notes": "Foundation CI verifies pinned protobuf digests. Daily CI uses digest-pinned protoc, compares regenerated v1/v2 Rust with committed output and detects newer stable compiler releases. Ordinary builds need no protoc. Automatic upstream API/Discovery schema discovery remains pending. Commands and verified boundaries: docs/en/development.md#protobuf-generation-checks.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "committed_proto_integrity", "description": "Pinned protobuf digests and regenerated Rust are checked; changed sources and stale output fail the offline fixture; generator output arguments reject invalid forms.", "result": "PASS", "test_ids": ["output_directory_defaults_and_rejects_invalid_arguments", "scripts/test-grpc-codegen.sh", "scripts/check-grpc-codegen.sh"]},
+        {"id": "upstream_schema_discovery", "description": "Automatic upstream API/Discovery schema drift discovery and inventory reconciliation remain pending; the new daily compiler check alone does not establish that scope.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["output_directory_defaults_and_rejects_invalid_arguments", "scripts/test-grpc-codegen.sh", "scripts/check-grpc-codegen.sh"],
+      "verification": [
+        {"command": "cargo test -p grpc-codegen", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/development.md", "test_ids": ["output_directory_defaults_and_rejects_invalid_arguments"]},
+        {"command": "bash scripts/test-grpc-codegen.sh", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/development.md", "test_ids": ["scripts/test-grpc-codegen.sh"]},
+        {"command": "CARGO_BUILD_JOBS=4 bash scripts/check-grpc-codegen.sh", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/development.md", "test_ids": ["scripts/check-grpc-codegen.sh"]}
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": ["Automatic upstream API/Discovery schema change detection and reconciliation of newly discovered features remain unimplemented; compiler freshness and local regeneration integrity alone do not cover upstream API changes."],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-11-04"
     },
     {
       "id": "DESIGN-097",

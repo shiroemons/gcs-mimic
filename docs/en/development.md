@@ -460,6 +460,27 @@ and `#[cfg(test)]` modules, but not helper functions of integration tests.
 2. Remove it from `CLIPPY_LINTS` in `xtask/src/lint.rs`.
 3. Run `just check`.
 
+## Protobuf generation checks
+
+Foundation CI checks `src/grpc/proto/SHA256SUMS` and exercises the offline
+hash/drift rejection fixture. Daily dependency CI installs the digest-pinned
+compiler from `src/grpc/codegen/protoc.json`, regenerates v1 then v2 into a
+temporary directory and compares it with committed generated Rust. It also
+compares the compiler pin with the latest stable official protobuf release.
+Ordinary application and release builds still require no protoc.
+
+```sh
+bash scripts/test-grpc-codegen.sh
+CARGO_BUILD_JOBS=4 bash scripts/check-grpc-codegen.sh
+cargo run --locked --offline -p grpc-codegen -- --out-dir <output-directory>
+```
+
+Use protoc 36.2, whose version and Linux/macOS archive SHA-256 values were verified
+against the [official release](https://github.com/protocolbuffers/protobuf/releases/tag/v36.2)
+on 2026-11-04. Update the pin and regenerate when daily freshness detects a newer
+stable compiler. This checks local source integrity and regeneration drift;
+automatic discovery of upstream API schema changes remains pending.
+
 ## Direct verification commands
 
 Native archive preparation and the release CI matrix are documented in the
