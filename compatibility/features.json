@@ -50332,7 +50332,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Opt-in live management, isolated fixture administration, reset and atomic seed/reseed use dedicated local authority outside Google API namespaces. Source checkout only; scope: docs/en/slices/local-fixture-administration.md, docs/en/slices/local-instance-reset.md and docs/en/slices/atomic-seed-reseed.md. Final combined SDK/container acceptance remains pending.",
+      "notes": "Opt-in live management, isolated fixture administration, reset and atomic seed/reseed use dedicated local authority outside Google API namespaces. Config updates require the same admin_principal; strict opt-in requires that setting at startup. All management routes, including separately authorized sync controls, reject page-initiated requests with 403 and unapproved public DNS hosts with 421; admin_allowed_hosts supplies explicit DNS exceptions. Contract and adapter tests: docs/en/slices/http-adapter-boundaries.md. Source checkout only; scope: docs/en/slices/local-fixture-administration.md, docs/en/slices/local-instance-reset.md and docs/en/slices/atomic-seed-reseed.md. Final combined SDK/container acceptance remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",

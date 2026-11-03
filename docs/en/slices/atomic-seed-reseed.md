@@ -6,6 +6,11 @@ Scope: the whole-tree publication and direct-fixture subset of DESIGN-062 and DE
 
 ## Contract and source boundary
 
+Management requests with Origin or Sec-Fetch-Site other than `none` return 403;
+unapproved public DNS hosts return 421. Non-browser tools keep the existing
+multipart fixture and empty-body helper formats. See the
+[management request boundaries](http-adapter-boundaries.md).
+
 The reference is fake-gcs-server v1.56.1, commit `896ece51e49eed0946089f3089f6343855c0d106`. Its pinned [server implementation](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go), git blob `da158fa063131002fa06dc43d4a26c4f250f6681`, registers POST/PUT `/_internal/reseed` and POST `/_internal/delete_all`. Reseed reads the configured Seed directory; its filesystem backend merges fixtures, while its memory backend constructs a replacement namespace. The [source manifest](../../../compatibility/upstream/source-storage-contract.json) retains the other source identities. Inspection was refreshed on 2026-10-30 UTC.
 
 Google's current [Object resource](https://docs.cloud.google.com/storage/docs/json_api/v1/objects), [object ACL resource](https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls), and [retention configuration](https://docs.cloud.google.com/storage/docs/object-lock) govern ordinary metadata, permission restrictions and protection. Explicit creation times and generations remain local fixture extensions. No Google seeding/reset method is inferred from Discovery presence. Existing Google compatibility gaps remain open.

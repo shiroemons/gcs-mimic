@@ -1,5 +1,19 @@
 # HTTP adapter boundaries
 
+Management routes, including sync controls, refuse every Origin header and every
+Sec-Fetch-Site value other than `none` with 403 before route-specific gates.
+Tools that send neither header keep working, including multipart fixtures and
+the empty-body delete_all alias. A public DNS Host receives 421 unless it is a
+configured API/public host, virtual-host base domain or `admin_allowed_hosts`
+entry. IP literals, single-label service names and reserved local DNS suffixes
+are allowed independently of ports. Host matching is case-insensitive and strips
+one trailing dot only for this guard; XML routing keeps its separate contract.
+Duplicate Host headers and invalid authorities receive 400. This protects
+against browser CSRF and DNS rebinding without changing Google API permissions.
+
+`admin_allowed_hosts` accepts up to 32 comma-separated DNS names. Configure it
+through `--admin-allowed-hosts`, `GCS_MIMIC_ADMIN_ALLOWED_HOSTS` or flat JSON.
+
 Unknown shared-listener routes return a JSON `404 notFound` envelope with
 `error.code`, `error.message` and `error.errors` entries. Invalid XML bucket
 paths retain this JSON boundary. Health and readiness probes retain their local

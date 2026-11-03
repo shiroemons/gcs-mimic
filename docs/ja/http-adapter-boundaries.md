@@ -1,5 +1,13 @@
 # HTTPアダプターの境界
 
+管理ルートはsync操作も含め、Originがあるリクエストと、Sec-Fetch-Siteが
+`none`以外のリクエストを403で拒否します。
+公開DNSのHostは、設定したAPI・公開ホスト・virtual-hostの基底ドメインか
+`admin_allowed_hosts`の項目に一致しなければ421になります。
+IPリテラル、1ラベルのサービス名、予約されたローカルDNS接尾辞は許可します。
+通常のcurl、Go facade、sync CLIは変更せずに使えます。
+`admin_allowed_hosts`はポートを含まないDNS名をカンマで区切って最大32件指定します。
+
 未知の共有リスナールートは、`error.code`、`error.message`、
 `error.errors`を含むJSONの`404 notFound`を返します。
 無効なXMLバケットパスも、このJSONエラー境界を維持します。
