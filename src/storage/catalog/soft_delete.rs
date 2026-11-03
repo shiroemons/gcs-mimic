@@ -239,12 +239,12 @@ impl Catalog {
                 purge_expired(connection, &selection.target.bucket, now.micros)?;
                 let transaction = connection.transaction()?;
                 let (source, _) = restore_candidate(&transaction, &selection, now)?;
-                backend.pin(&source.blob, &id)?;
-                Ok(source.blob)
+                Ok(backend.pin(&source.blob, &id).map(|()| source.blob))
             })
             .await;
+        let pin_attempted = pinned.is_ok();
         let outcome = async {
-            let source = pinned?;
+            let source = pinned??;
             #[cfg(test)]
             super::fault::hit(&self.0.data_dir, super::fault::Step::BeforePublish)
                 .map_err(object_unavailable)?;
@@ -262,7 +262,7 @@ impl Catalog {
             .await
         }
         .await;
-        if outcome.is_err() {
+        if pin_attempted && outcome.is_err() {
             self.discard_staged(objects::StagedBlob::pin(
                 &self.0.backend,
                 &self.0.data_dir,

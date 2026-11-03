@@ -142,6 +142,48 @@ async fn restore_errors_preserve_retained_bytes_and_ambiguous_commits() {
     }
 }
 
+#[tokio::test]
+async fn restore_rejections_before_pinning_do_not_discard_unused_blob_ids() {
+    for expected in [
+        ObjectError::Forbidden,
+        ObjectError::ObjectNotFound,
+        ObjectError::PreconditionFailed,
+    ] {
+        let data = TestDir::new();
+        let (catalog, mut target, _) = retained(&data.0).await;
+        let denied = BucketAccess::Policy {
+            identity: None,
+            permission: crate::auth::Permission::ObjectsRestore,
+            project: None,
+        };
+        let access = if expected == ObjectError::Forbidden {
+            RestoreAccess {
+                restore: &denied,
+                create: PERMISSIVE,
+            }
+        } else {
+            PERMISSIVE_RESTORE
+        };
+        let mut conditions = ObjectConditions::default();
+        if expected == ObjectError::ObjectNotFound {
+            target.name = "missing".into();
+        } else if expected == ObjectError::PreconditionFailed {
+            conditions.if_generation_match = Some(123);
+        }
+        fault::arm(&data.0, Step::DiscardProbe, 0, Fault::Busy);
+        assert_eq!(
+            catalog.restore_object(target, conditions, access).await,
+            Err(expected)
+        );
+        assert_eq!(fault::pending(&data.0), 1);
+        // Consume the unused fault only after proving cleanup never reached its probe.
+        assert!(fault::hit(&data.0, Step::DiscardProbe).is_err());
+        assert_eq!(blob_count(&data.0), 1);
+        assert_eq!(fs::read_dir(data.0.join("staging")).unwrap().count(), 0);
+        catalog.close().await.unwrap();
+    }
+}
+
 #[test]
 fn restore_owns_blocking_publication_through_disconnect_and_close() {
     for disconnect in [false, true] {
