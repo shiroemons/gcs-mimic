@@ -10,6 +10,21 @@ use crate::{
 };
 use std::{fs, time::Duration};
 
+#[cfg(unix)]
+pub(super) enum Journal {
+    Disabled,
+    Enabled,
+}
+
+#[cfg(unix)]
+impl Journal {
+    pub(super) async fn restore(self, catalog: &Catalog) {
+        if matches!(self, Self::Enabled) {
+            catalog.enable_change_journal().await.unwrap();
+        }
+    }
+}
+
 async fn setup() -> (TestDir, Catalog, Admin, BucketName) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();

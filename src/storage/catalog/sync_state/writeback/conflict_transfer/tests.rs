@@ -4,6 +4,7 @@
 )]
 
 use super::*;
+use crate::storage::catalog::sync_state::tests::Journal;
 use crate::{
     clock::SystemClock,
     storage::{
@@ -138,26 +139,19 @@ impl Fixture {
         assert_eq!(bytes, b"api winner");
     }
     async fn close(self) {
+        self.shut_down().await;
+    }
+    async fn shut_down(self) -> (TestDir, TestDir, BucketName, crate::object::ObjectRecord) {
         drop(self.writeback);
         drop(self.lease);
         self.catalog.close().await.unwrap();
+        (self.data, self.tree, self.bucket, self.record)
     }
-    async fn restart(self) -> Self {
+    async fn restart(self, journal: Journal) -> Self {
         let limits = self.writeback.status().await.unwrap().limits;
-        let Self {
-            data,
-            tree,
-            catalog,
-            lease,
-            writeback,
-            bucket,
-            record,
-        } = self;
-        drop(writeback);
-        drop(lease);
-        catalog.close().await.unwrap();
+        let (data, tree, bucket, record) = self.shut_down().await;
         let catalog = Catalog::open(&data.0).await.unwrap();
-        catalog.enable_change_journal().await.unwrap();
+        journal.restore(&catalog).await;
         let lease = catalog
             .sync_state()
             .activate_root(&tree.0, Activation::Open)

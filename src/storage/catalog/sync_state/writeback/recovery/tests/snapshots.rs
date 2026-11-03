@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::catalog::fault::{Fault, Step};
+use crate::storage::catalog::fault::{Crash, Fault, Step};
 
 fn restore_tree(snapshot: &std::path::Path, tree: &std::path::Path) {
     let workspace = tree.join(mapping::WORKSPACE);
@@ -55,7 +55,7 @@ async fn recovery_failures_keep_intents_and_retry_without_double_quota_release()
         if step == Step::SyncRecoveryUnlink {
             assert_eq!(fs::read(&owned).unwrap(), b"short");
         }
-        let fixture = fixture.restart().await;
+        let fixture = fixture.restart(Journal::Disabled).await;
         let usage = fixture.writeback.recover_pending().await.unwrap();
         assert_eq!(
             (
@@ -86,7 +86,7 @@ async fn recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancel
         Step::SyncRecoveryComplete,
         Step::SyncRecoveryCompleted,
     ] {
-        for power_loss in [false, true] {
+        for &crash in Crash::ALL {
             let fixture = Fixture::new().await;
             let item = fixture.prepare().await;
             fs::write(
@@ -108,16 +108,7 @@ async fn recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancel
             let snapshots = TestDir::new();
             let data = snapshots.0.join("catalog");
             let tree = snapshots.0.join("tree");
-            fault::arm(
-                &fixture.tree.0,
-                step,
-                0,
-                if power_loss {
-                    Fault::PowerLoss(tree.clone())
-                } else {
-                    Fault::Snapshot(tree.clone())
-                },
-            );
+            fault::arm(&fixture.tree.0, step, 0, crash.fault(tree.clone()));
             fixture
                 .catalog
                 .inject(step, 0, Fault::Snapshot(data.clone()));
@@ -125,20 +116,9 @@ async fn recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancel
                 fixture.writeback.recover_pending().await.unwrap().stop,
                 Stop::Ready
             );
-            assert_eq!(fixture.catalog.pending_faults(), 0);
-            assert_eq!(fault::pending(&fixture.tree.0), 0);
-            let Fixture {
-                data: original_data,
-                tree: original_tree,
-                catalog,
-                lease,
-                writeback,
-                record,
-                ..
-            } = fixture;
-            drop(writeback);
-            drop(lease);
-            catalog.close().await.unwrap();
+            assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
+            assert_eq!(fault::pending(&fixture.tree.0), 0, "{step:?} {crash:?}");
+            let (original_data, original_tree, _, record) = fixture.shut_down().await;
             restore_tree(&tree, &original_tree.0);
             let recovered = Catalog::open(&data).await.unwrap();
             assert_api(&recovered, &record).await;
@@ -155,7 +135,7 @@ async fn recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancel
             assert_eq!(
                 (usage.entries, usage.reserved_bytes, usage.stop),
                 (0, 0, Stop::Ready),
-                "{step:?} {power_loss}"
+                "{step:?} {crash:?}"
             );
             assert!(
                 !original_tree
@@ -189,22 +169,13 @@ async fn live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack() {
         Step::SyncCopyInstalled,
         Step::SyncCopyCommit,
     ] {
-        for power_loss in [false, true] {
+        for &crash in Crash::ALL {
             let fixture = Fixture::new().await;
             fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
             let snapshots = TestDir::new();
             let data = snapshots.0.join("catalog");
             let tree = snapshots.0.join("tree");
-            fault::arm(
-                &fixture.tree.0,
-                step,
-                0,
-                if power_loss {
-                    Fault::PowerLoss(tree.clone())
-                } else {
-                    Fault::Snapshot(tree.clone())
-                },
-            );
+            fault::arm(&fixture.tree.0, step, 0, crash.fault(tree.clone()));
             fixture
                 .catalog
                 .inject(step, 0, Fault::Snapshot(data.clone()));
@@ -221,20 +192,9 @@ async fn live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack() {
                 }
             }
             drop(operation);
-            assert_eq!(fixture.catalog.pending_faults(), 0);
-            assert_eq!(fault::pending(&fixture.tree.0), 0);
-            let Fixture {
-                data: original_data,
-                tree: original_tree,
-                catalog,
-                lease,
-                writeback,
-                record,
-                ..
-            } = fixture;
-            drop(writeback);
-            drop(lease);
-            catalog.close().await.unwrap();
+            assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
+            assert_eq!(fault::pending(&fixture.tree.0), 0, "{step:?} {crash:?}");
+            let (original_data, original_tree, _, record) = fixture.shut_down().await;
             restore_tree(&tree, &original_tree.0);
             let recovered = Catalog::open(&data).await.unwrap();
             assert_api(&recovered, &record).await;
@@ -250,7 +210,7 @@ async fn live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack() {
             assert_eq!(
                 writeback.recover_pending().await.unwrap().stop,
                 Stop::Ready,
-                "{step:?} {power_loss}"
+                "{step:?} {crash:?}"
             );
             if matches!(step, Step::SyncCopyInstalled | Step::SyncCopyCommit) {
                 assert_eq!(
@@ -275,7 +235,7 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
         authority::ControlAuthority,
         conflicts::{Action, Confirmation, RecoveryTarget, ResolveRequest, ResolveTarget},
     };
-    for power_loss in [false, true] {
+    for &crash in Crash::ALL {
         let fixture = Fixture::new().await;
         let item = fixture
             .writeback
@@ -295,16 +255,7 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
         let data = snapshots.0.join("catalog");
         let tree = snapshots.0.join("tree");
         let step = Step::SyncRecoveryProtected;
-        fault::arm(
-            &fixture.tree.0,
-            step,
-            0,
-            if power_loss {
-                Fault::PowerLoss(tree.clone())
-            } else {
-                Fault::Snapshot(tree.clone())
-            },
-        );
+        fault::arm(&fixture.tree.0, step, 0, crash.fault(tree.clone()));
         fixture
             .catalog
             .inject(step, 0, Fault::Snapshot(data.clone()));
@@ -312,20 +263,9 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
             fixture.writeback.recover_pending().await.unwrap().stop,
             Stop::ProtectedBody
         );
-        assert_eq!(fixture.catalog.pending_faults(), 0);
-        assert_eq!(fault::pending(&fixture.tree.0), 0);
-        let Fixture {
-            data: original_data,
-            tree: original_tree,
-            catalog,
-            lease,
-            writeback,
-            record,
-            ..
-        } = fixture;
-        drop(writeback);
-        drop(lease);
-        catalog.close().await.unwrap();
+        assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
+        assert_eq!(fault::pending(&fixture.tree.0), 0, "{step:?} {crash:?}");
+        let (original_data, original_tree, _, record) = fixture.shut_down().await;
         restore_tree(&tree, &original_tree.0);
         let recovered = Catalog::open(&data).await.unwrap();
         assert_api(&recovered, &record).await;

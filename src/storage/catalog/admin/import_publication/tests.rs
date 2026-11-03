@@ -89,10 +89,12 @@ async fn entry(
 
 #[tokio::test]
 async fn import_batch_rejects_missing_hashes_and_nonreplace_modes_before_binding() {
-    let (dir, catalog, admin, source) = setup(2).await;
+    let (dir, catalog, admin, source) = setup(3).await;
     bucket(&admin, &source).await;
     for field in ["hashes", "mode"] {
-        let mut item = entry(&dir, &admin, 2, "object", b"imported").await;
+        let progress = catalog.import_journal().progress().await.unwrap();
+        let valid = entry(&dir, &admin, 2, "valid", b"valid").await;
+        let mut item = entry(&dir, &admin, 3, "object", b"imported").await;
         let message = if field == "hashes" {
             item.publication.request.expected = Default::default();
             "imported publication requires MD5 and CRC32C"
@@ -101,9 +103,27 @@ async fn import_batch_rejects_missing_hashes_and_nonreplace_modes_before_binding
             "imported publication requires Replace mode"
         };
         let result = admin
-            .publish_import_objects(source.clone(), 1, vec![item])
+            .publish_import_objects(source.clone(), 1, vec![valid, item])
             .await;
-        assert!(matches!(result, Err(AdminError::Invalid(ref actual)) if actual == message));
+        assert_eq!(
+            result.err(),
+            Some(AdminError::Invalid(message.into())),
+            "{field}"
+        );
+        assert_eq!(
+            catalog.import_journal().progress().await.unwrap(),
+            progress,
+            "{field}"
+        );
+        assert_eq!(
+            catalog
+                .import_journal()
+                .page(source.clone(), 0, 256)
+                .await
+                .unwrap(),
+            vec![element(1)],
+            "{field}"
+        );
         assert_eq!(
             catalog
                 .import_journal()
@@ -112,18 +132,22 @@ async fn import_batch_rejects_missing_hashes_and_nonreplace_modes_before_binding
                 .unwrap()
                 .unwrap()
                 .cursor,
-            1
+            1,
+            "{field}"
         );
-        assert_eq!(
-            admin
-                .get_object(
-                    &BucketName::new("test-bucket").unwrap(),
-                    &ObjectName::new("object").unwrap(),
-                    None
-                )
-                .await,
-            Err(AdminError::NotFound)
-        );
+        for name in ["valid", "object"] {
+            assert_eq!(
+                admin
+                    .get_object(
+                        &BucketName::new("test-bucket").unwrap(),
+                        &ObjectName::new(name).unwrap(),
+                        None
+                    )
+                    .await,
+                Err(AdminError::NotFound),
+                "{field}: {name}"
+            );
+        }
     }
     catalog.close().await.unwrap();
     assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);

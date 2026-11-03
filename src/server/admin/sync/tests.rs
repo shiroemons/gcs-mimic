@@ -7,7 +7,8 @@ use crate::{
     server::{ObjectActivity, State},
     storage::{
         Catalog,
-        admin::{BucketDefinition, BucketName, Origin},
+        admin::{BucketDefinition, BucketName, Generation, ObjectName, Origin},
+        sync_state::writeback::{Kind, Limits, Writeback},
     },
     test_support::TestDir,
 };
@@ -19,6 +20,7 @@ fn nested_io_control_errors_keep_status_and_text() {
     for error in [
         RootError::Admin(crate::storage::admin::AdminError::Forbidden),
         RootError::Admin(crate::storage::admin::AdminError::Precondition),
+        RootError::Admin(crate::storage::admin::AdminError::Corrupt("corrupt".into())),
         RootError::InUse,
     ] {
         let expected = root_error(&error);
@@ -26,6 +28,18 @@ fn nested_io_control_errors_keep_status_and_text() {
         assert_eq!(actual.status, expected.status);
         assert_eq!(actual.message, expected.message);
     }
+}
+
+#[test]
+fn corrupt_control_causes_require_restoring_the_data_directory() {
+    let actual = control_error(&io::Error::other(io::Error::other(
+        crate::storage::admin::AdminError::Corrupt("corrupt".into()),
+    )));
+    assert_eq!(actual.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        actual.message,
+        "Object storage is unavailable: stored data is corrupt; restore a valid data directory"
+    );
 }
 
 #[test]
@@ -96,11 +110,27 @@ struct Fixture {
     config: Config,
     task: crate::sync::Task,
 }
+
+enum Tree {
+    Empty,
+    LongNames,
+}
+
+struct ArmedWorkspace {
+    root: Arc<RootLease>,
+    writeback: Writeback,
+    bucket: BucketName,
+    name: ObjectName,
+    winner: crate::object::ObjectRecord,
+    id: String,
+    path: std::path::PathBuf,
+}
+
 impl Fixture {
-    async fn new(long_names: bool) -> Self {
+    async fn new(shape: Tree) -> Self {
         let data = TestDir::new();
         let tree = TestDir::new();
-        if long_names {
+        if matches!(shape, Tree::LongNames) {
             let component = format!("{}{}", "a".repeat(100), "\"".repeat(100));
             let prefix = tree
                 .0
@@ -184,10 +214,73 @@ impl Fixture {
         )
         .await
     }
+
+    async fn armed_workspace(&self, bytes: &[u8]) -> ArmedWorkspace {
+        fs::create_dir(self.tree.0.join("test-bucket")).unwrap();
+        fs::write(self.tree.0.join("test-bucket/body"), b"API winner").unwrap();
+        self.task.rescan().await.unwrap();
+        let (_, root) = self.state.catalog.sync_controls().unwrap().unwrap();
+        let bucket = BucketName::new("test-bucket").unwrap();
+        let name = ObjectName::new("body").unwrap();
+        let winner = self
+            .state
+            .catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &name, None)
+            .await
+            .unwrap();
+        let writeback = root
+            .writeback(
+                Limits::new(
+                    crate::sync::CONFLICT_MAX_BYTES,
+                    crate::sync::CONFLICT_MAX_ENTRIES,
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let fence = self
+            .state
+            .catalog
+            .read_changes(None, None, 1)
+            .await
+            .unwrap()
+            .fence;
+        let pending = writeback
+            .prepare(
+                &bucket,
+                &name,
+                Generation::new(winner.generation).unwrap(),
+                Kind::Publish,
+                fence,
+            )
+            .await
+            .unwrap();
+        let pending = writeback.arm(pending.token).await.unwrap();
+        let id = pending.workspace_entry.name().to_owned();
+        let path = self.tree.0.join(crate::sync::mapping::WORKSPACE).join(&id);
+        fs::write(&path, bytes).unwrap();
+        writeback.inspect(pending.token).await.unwrap();
+        ArmedWorkspace {
+            root,
+            writeback,
+            bucket,
+            name,
+            winner,
+            id,
+            path,
+        }
+    }
+
     async fn finish(self) {
         self.task.finish().await.unwrap();
         self.state.catalog.close().await.unwrap();
     }
+}
+
+#[track_caller]
+fn status_of(result: Result<Response<Full<Bytes>>, JsonError>) -> StatusCode {
+    result.unwrap_err().status
 }
 
 async fn body(response: Response<Full<Bytes>>) -> Value {
@@ -212,7 +305,7 @@ async fn response_limit_counts_the_exact_rendered_bytes() {
     let oversized = json!({"items": "x".repeat(RESPONSE_LIMIT - overhead + 1)});
     assert!(oversized.to_string().len() <= RESPONSE_LIMIT);
     assert_eq!(
-        bounded(&oversized).unwrap_err().status,
+        status_of(bounded(&oversized)),
         StatusCode::SERVICE_UNAVAILABLE
     );
 }
@@ -220,7 +313,7 @@ async fn response_limit_counts_the_exact_rendered_bytes() {
 #[tokio::test]
 async fn large_conflict_pages_fit_rendered_limit_and_resume_after_the_last_returned_item() {
     use crate::storage::{admin::ObjectName, sync_state::conflicts::CaptureRequest};
-    let fixture = Fixture::new(false).await;
+    let fixture = Fixture::new(Tree::Empty).await;
     let bucket = BucketName::new("test-bucket").unwrap();
     fixture
         .state
@@ -290,7 +383,7 @@ async fn large_conflict_pages_fit_rendered_limit_and_resume_after_the_last_retur
 
 #[tokio::test]
 async fn unmappable_source_entries_have_a_durable_root_finding_until_repaired() {
-    let fixture = Fixture::new(false).await;
+    let fixture = Fixture::new(Tree::Empty).await;
     fs::create_dir(fixture.tree.0.join("INVALID-BUCKET")).unwrap();
     fs::write(
         fixture.tree.0.join("INVALID-BUCKET/body"),
@@ -320,11 +413,7 @@ async fn unmappable_source_entries_have_a_durable_root_finding_until_repaired() 
         b"source survives"
     );
     assert_eq!(
-        fixture
-            .request("GET", &path, b"", None)
-            .await
-            .unwrap_err()
-            .status,
+        status_of(fixture.request("GET", &path, b"", None).await),
         StatusCode::CONFLICT
     );
     assert!(fixture.status().await["observation"]["scan_stop"].is_null());
@@ -333,59 +422,16 @@ async fn unmappable_source_entries_have_a_durable_root_finding_until_repaired() 
 
 #[tokio::test]
 async fn live_rescan_registers_a_protected_workspace_before_resuming_intake() {
-    use crate::storage::{
-        admin::{Generation, ObjectName},
-        sync_state::writeback::{Kind, Limits},
-    };
-    let fixture = Fixture::new(false).await;
-    fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
-    fs::write(fixture.tree.0.join("test-bucket/body"), b"API winner").unwrap();
-    fixture.task.rescan().await.unwrap();
-    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
-    let bucket = BucketName::new("test-bucket").unwrap();
-    let name = ObjectName::new("body").unwrap();
-    let winner = fixture
-        .state
-        .catalog
-        .admin(Origin::Api)
-        .get_object(&bucket, &name, None)
-        .await
-        .unwrap();
-    let writeback = root
-        .writeback(
-            Limits::new(
-                crate::sync::CONFLICT_MAX_BYTES,
-                crate::sync::CONFLICT_MAX_ENTRIES,
-            )
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    let fence = fixture
-        .state
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
-    let pending = writeback
-        .prepare(
-            &bucket,
-            &name,
-            Generation::new(winner.generation).unwrap(),
-            Kind::Publish,
-            fence,
-        )
-        .await
-        .unwrap();
-    let pending = writeback.arm(pending.token).await.unwrap();
-    let path = fixture
-        .tree
-        .0
-        .join(crate::sync::mapping::WORKSPACE)
-        .join(pending.workspace_entry.name());
-    fs::write(&path, b"retained external source").unwrap();
-    writeback.inspect(pending.token).await.unwrap();
+    let fixture = Fixture::new(Tree::Empty).await;
+    let ArmedWorkspace {
+        root,
+        writeback,
+        bucket,
+        name,
+        winner,
+        path,
+        ..
+    } = fixture.armed_workspace(b"retained external source").await;
     fixture.task.rescan().await.unwrap();
     assert!(!path.exists());
     assert_eq!(writeback.status().await.unwrap().entries, 0);
@@ -446,60 +492,16 @@ async fn live_rescan_registers_a_protected_workspace_before_resuming_intake() {
 #[tokio::test]
 async fn recovery_http_refreshes_changed_workspace_identity_and_requires_exact_discard_confirmation()
  {
-    use crate::storage::{
-        admin::{Generation, ObjectName},
-        sync_state::writeback::{Kind, Limits},
-    };
-    let fixture = Fixture::new(false).await;
-    fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
-    fs::write(fixture.tree.0.join("test-bucket/body"), b"API winner").unwrap();
-    fixture.task.rescan().await.unwrap();
-    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
-    let bucket = BucketName::new("test-bucket").unwrap();
-    let name = ObjectName::new("body").unwrap();
-    let winner = fixture
-        .state
-        .catalog
-        .admin(Origin::Api)
-        .get_object(&bucket, &name, None)
-        .await
-        .unwrap();
-    let writeback = root
-        .writeback(
-            Limits::new(
-                crate::sync::CONFLICT_MAX_BYTES,
-                crate::sync::CONFLICT_MAX_ENTRIES,
-            )
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    let fence = fixture
-        .state
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
-    let pending = writeback
-        .prepare(
-            &bucket,
-            &name,
-            Generation::new(winner.generation).unwrap(),
-            Kind::Publish,
-            fence,
-        )
-        .await
-        .unwrap();
-    let pending = writeback.arm(pending.token).await.unwrap();
-    let id = pending.workspace_entry.name().to_owned();
-    let path = fixture
-        .tree
-        .0
-        .join(crate::sync::mapping::WORKSPACE)
-        .join(&id);
-    fs::write(&path, b"protected old body").unwrap();
-    writeback.inspect(pending.token).await.unwrap();
+    let fixture = Fixture::new(Tree::Empty).await;
+    let ArmedWorkspace {
+        root,
+        writeback,
+        bucket,
+        name,
+        winner,
+        id,
+        path,
+    } = fixture.armed_workspace(b"protected old body").await;
     let old = fixture.status().await;
     let old_revision = old["findings_revision"].as_str().unwrap();
     let old_path = format!("/_internal/sync?view=findings&revision={old_revision}");
@@ -516,11 +518,7 @@ async fn recovery_http_refreshes_changed_workspace_identity_and_requires_exact_d
     let fresh = fixture.status().await;
     assert_ne!(fresh["findings_revision"], old["findings_revision"]);
     assert_eq!(
-        fixture
-            .request("GET", &old_path, b"", None)
-            .await
-            .unwrap_err()
-            .status,
+        status_of(fixture.request("GET", &old_path, b"", None).await),
         StatusCode::CONFLICT
     );
     let page_path = format!(
@@ -550,17 +548,43 @@ async fn recovery_http_refreshes_changed_workspace_identity_and_requires_exact_d
             )
             .await
             .unwrap_err();
-        assert_eq!(rejected.status, StatusCode::BAD_REQUEST);
-        assert_eq!(rejected.reason, "recovery_confirmation_required");
+        assert_eq!(
+            rejected.status,
+            StatusCode::BAD_REQUEST,
+            "confirmation=null: {explicit_null}"
+        );
+        assert_eq!(
+            rejected.reason, "recovery_confirmation_required",
+            "confirmation=null: {explicit_null}"
+        );
         assert_eq!(
             rejected.message,
-            "Confirm backup_verified or discard_without_backup for the exact inspected recovery identity"
+            "Confirm backup_verified or discard_without_backup for the exact inspected recovery identity",
+            "confirmation=null: {explicit_null}"
         );
     }
     payload["confirmation"] = json!("discard_without_backup");
     for mixed in ["conflict_id", "expected_generation"] {
         payload[mixed] = Value::Null;
         assert_eq!(
+            status_of(
+                fixture
+                    .request(
+                        "POST",
+                        "/_internal/sync/resolve",
+                        &serde_json::to_vec(&payload).unwrap(),
+                        None
+                    )
+                    .await
+            ),
+            StatusCode::BAD_REQUEST,
+            "{mixed}"
+        );
+        payload.as_object_mut().unwrap().remove(mixed);
+    }
+    payload["target_identity"] = original["target_identity"].clone();
+    assert_eq!(
+        status_of(
             fixture
                 .request(
                     "POST",
@@ -569,24 +593,7 @@ async fn recovery_http_refreshes_changed_workspace_identity_and_requires_exact_d
                     None
                 )
                 .await
-                .unwrap_err()
-                .status,
-            StatusCode::BAD_REQUEST
-        );
-        payload.as_object_mut().unwrap().remove(mixed);
-    }
-    payload["target_identity"] = original["target_identity"].clone();
-    assert_eq!(
-        fixture
-            .request(
-                "POST",
-                "/_internal/sync/resolve",
-                &serde_json::to_vec(&payload).unwrap(),
-                None
-            )
-            .await
-            .unwrap_err()
-            .status,
+        ),
         StatusCode::CONFLICT
     );
     assert_eq!(fs::read(&path).unwrap(), b"changed protected body");
@@ -635,7 +642,7 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
         object::UploadChunk,
         storage::admin::{Generation, ObjectName, Publication},
     };
-    let mut fixture = Fixture::new(false).await;
+    let mut fixture = Fixture::new(Tree::Empty).await;
     let bucket = BucketName::new("test-bucket").unwrap();
     let name = ObjectName::new("object").unwrap();
     let admin = fixture.state.catalog.admin(Origin::Api);
@@ -693,22 +700,20 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
         {"id":"reader","tokens":["reader"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.objectViewer"]}},
         {"id":"admin","tokens":["admin"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"]}}
     ]})).unwrap()).unwrap());
-    assert_eq!(
-        fixture
-            .request("GET", "/_internal/sync/conflicts", b"", None)
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::UNAUTHORIZED
-    );
-    assert_eq!(
-        fixture
-            .request("GET", "/_internal/sync/conflicts", b"", Some("reader"))
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::FORBIDDEN
-    );
+    for (token, expected) in [
+        (None, StatusCode::UNAUTHORIZED),
+        (Some("reader"), StatusCode::FORBIDDEN),
+    ] {
+        assert_eq!(
+            status_of(
+                fixture
+                    .request("GET", "/_internal/sync/conflicts", b"", token)
+                    .await
+            ),
+            expected,
+            "{token:?}"
+        );
+    }
     let page = body(
         fixture
             .request(
@@ -729,6 +734,24 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
     for mixed in ["recovery_id", "target_identity", "confirmation"] {
         payload[mixed] = Value::Null;
         assert_eq!(
+            status_of(
+                fixture
+                    .request(
+                        "POST",
+                        "/_internal/sync/resolve",
+                        &serde_json::to_vec(&payload).unwrap(),
+                        Some("admin")
+                    )
+                    .await
+            ),
+            StatusCode::BAD_REQUEST,
+            "{mixed}"
+        );
+        payload.as_object_mut().unwrap().remove(mixed);
+    }
+    payload["expected_generation"] = json!(winner.generation + 1);
+    assert_eq!(
+        status_of(
             fixture
                 .request(
                     "POST",
@@ -737,24 +760,7 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
                     Some("admin")
                 )
                 .await
-                .unwrap_err()
-                .status,
-            StatusCode::BAD_REQUEST
-        );
-        payload.as_object_mut().unwrap().remove(mixed);
-    }
-    payload["expected_generation"] = json!(winner.generation + 1);
-    assert_eq!(
-        fixture
-            .request(
-                "POST",
-                "/_internal/sync/resolve",
-                &serde_json::to_vec(&payload).unwrap(),
-                Some("admin")
-            )
-            .await
-            .unwrap_err()
-            .status,
+        ),
         StatusCode::CONFLICT
     );
     assert_eq!(
@@ -790,16 +796,16 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
     assert_eq!(&bytes, b"retained\0\xff");
     payload["action"] = json!("discard");
     assert_eq!(
-        fixture
-            .request(
-                "POST",
-                "/_internal/sync/resolve",
-                &serde_json::to_vec(&payload).unwrap(),
-                Some("admin")
-            )
-            .await
-            .unwrap_err()
-            .status,
+        status_of(
+            fixture
+                .request(
+                    "POST",
+                    "/_internal/sync/resolve",
+                    &serde_json::to_vec(&payload).unwrap(),
+                    Some("admin")
+                )
+                .await
+        ),
         StatusCode::CONFLICT
     );
     assert_eq!(
@@ -812,7 +818,7 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
 
 #[tokio::test]
 async fn unknown_stored_pause_reasons_fail_status_and_findings_with_service_unavailable() {
-    let fixture = Fixture::new(false).await;
+    let fixture = Fixture::new(Tree::Empty).await;
     let status = fixture.status().await;
     let findings = format!(
         "/_internal/sync?view=findings&revision={}",
@@ -838,8 +844,12 @@ async fn unknown_stored_pause_reasons_fail_status_and_findings_with_service_unav
             .await
             .unwrap_err()
             .into_response();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(body(response).await["error"]["message"], busy().message);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        assert_eq!(
+            body(response).await["error"]["message"],
+            "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
+            "{path}"
+        );
     }
     drop(root);
     fixture.finish().await;
@@ -847,7 +857,7 @@ async fn unknown_stored_pause_reasons_fail_status_and_findings_with_service_unav
 
 #[tokio::test]
 async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
-    let fixture = Fixture::new(false).await;
+    let fixture = Fixture::new(Tree::Empty).await;
     let (registration, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
     root.observation_pause(Some(PauseReason::ObserverFailure))
         .await
@@ -870,11 +880,7 @@ async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
         .await
         .unwrap();
     assert_eq!(
-        fixture
-            .request("GET", &path, b"", None)
-            .await
-            .unwrap_err()
-            .status,
+        status_of(fixture.request("GET", &path, b"", None).await),
         StatusCode::CONFLICT
     );
     let current = fixture.status().await;
@@ -889,16 +895,16 @@ async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
         &current_revision[32..]
     );
     assert_eq!(
-        fixture
-            .request(
-                "GET",
-                &format!("/_internal/sync?view=findings&revision={foreign}"),
-                b"",
-                None
-            )
-            .await
-            .unwrap_err()
-            .status,
+        status_of(
+            fixture
+                .request(
+                    "GET",
+                    &format!("/_internal/sync?view=findings&revision={foreign}"),
+                    b"",
+                    None
+                )
+                .await
+        ),
         StatusCode::CONFLICT
     );
     root.observation_pause(None).await.unwrap();
@@ -908,7 +914,7 @@ async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
 
 #[tokio::test]
 async fn protected_findings_pages_cover_every_target_with_a_final_null_cursor() {
-    let fixture = Fixture::new(false).await;
+    let fixture = Fixture::new(Tree::Empty).await;
     let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
     let owner = fixture.config.seed_project.clone();
     let bucket = BucketName::new("test-bucket").unwrap();
@@ -973,16 +979,16 @@ async fn protected_findings_pages_cover_every_target_with_a_final_null_cursor() 
     .await
     .unwrap();
     assert_eq!(
-        fixture
-            .request(
-                "GET",
-                &format!("/_internal/sync?view=findings&revision={revision}"),
-                b"",
-                None
-            )
-            .await
-            .unwrap_err()
-            .status,
+        status_of(
+            fixture
+                .request(
+                    "GET",
+                    &format!("/_internal/sync?view=findings&revision={revision}"),
+                    b"",
+                    None
+                )
+                .await
+        ),
         StatusCode::CONFLICT
     );
     drop(root);
@@ -991,7 +997,7 @@ async fn protected_findings_pages_cover_every_target_with_a_final_null_cursor() 
 
 #[tokio::test]
 async fn controls_reject_invalid_input_unsupported_routes_and_excess_admission() {
-    let fixture = Fixture::new(false).await;
+    let fixture = Fixture::new(Tree::Empty).await;
     assert_eq!(fixture.status().await["auth_mode"], "permissive");
     for query in [
         "?limit=1",
@@ -1001,79 +1007,78 @@ async fn controls_reject_invalid_input_unsupported_routes_and_excess_admission()
         "?view=deletions&revision=0123456789abcdef0123456789abcdef&limit=1&limit=2",
     ] {
         assert_eq!(
-            fixture
-                .request("GET", &format!("/_internal/sync{query}"), b"", None)
-                .await
-                .unwrap_err()
-                .status,
-            StatusCode::BAD_REQUEST
+            status_of(
+                fixture
+                    .request("GET", &format!("/_internal/sync{query}"), b"", None)
+                    .await
+            ),
+            StatusCode::BAD_REQUEST,
+            "{query}"
         );
     }
-    assert_eq!(
-        fixture
-            .request("GET", "/_internal/sync", b"x", None)
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        fixture
-            .request("PUT", "/_internal/sync", b"", None)
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::METHOD_NOT_ALLOWED
-    );
-    assert_eq!(
-        fixture
-            .request(
-                "POST",
-                "/_internal/sync/rescan",
-                br#"{"override":true}"#,
-                None
-            )
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        fixture
-            .request("POST", "/_internal/sync/approve", &vec![b' '; 65_537], None)
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::PAYLOAD_TOO_LARGE
-    );
-    assert_eq!(
-        fixture
-            .request("GET", "/_internal/sync/conflicts", b"x", None)
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        fixture
-            .request("POST", "/_internal/sync/resolve", b"{}", None)
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
-    for body in [
-        br#"{"timeout_ms":0}"#.as_slice(),
-        br#"{"timeout_ms":60001}"#,
-        br#"{"unknown":1}"#,
+    let oversized = vec![b' '; 65_537];
+    for (method, path, bytes, expected) in [
+        (
+            "GET",
+            "/_internal/sync",
+            b"x".as_slice(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "PUT",
+            "/_internal/sync",
+            b"",
+            StatusCode::METHOD_NOT_ALLOWED,
+        ),
+        (
+            "POST",
+            "/_internal/sync/rescan",
+            br#"{"override":true}"#,
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            "/_internal/sync/approve",
+            oversized.as_slice(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+        (
+            "GET",
+            "/_internal/sync/conflicts",
+            b"x",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            "/_internal/sync/resolve",
+            b"{}",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            "/_internal/sync/wait",
+            br#"{"timeout_ms":0}"#,
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            "/_internal/sync/wait",
+            br#"{"timeout_ms":60001}"#,
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            "/_internal/sync/wait",
+            br#"{"unknown":1}"#,
+            StatusCode::BAD_REQUEST,
+        ),
     ] {
         assert_eq!(
-            fixture
-                .request("POST", "/_internal/sync/wait", body, None)
-                .await
-                .unwrap_err()
-                .status,
-            StatusCode::BAD_REQUEST
+            status_of(fixture.request(method, path, bytes, None).await),
+            expected,
+            "{method} {path}, body length {}: {:?}",
+            bytes.len(),
+            &bytes[..bytes.len().min(64)]
         );
     }
     let waited = body(
@@ -1095,11 +1100,7 @@ async fn controls_reject_invalid_input_unsupported_routes_and_excess_admission()
         .await
         .unwrap();
     assert_eq!(
-        fixture
-            .request("GET", "/_internal/sync", b"", None)
-            .await
-            .unwrap_err()
-            .status,
+        status_of(fixture.request("GET", "/_internal/sync", b"", None).await),
         StatusCode::SERVICE_UNAVAILABLE
     );
     drop(permits);
@@ -1114,7 +1115,7 @@ async fn controls_reject_invalid_input_unsupported_routes_and_excess_admission()
 
 #[tokio::test]
 async fn status_rechecks_the_owner_union_after_admission_authorization() {
-    let mut fixture = Fixture::new(false).await;
+    let mut fixture = Fixture::new(Tree::Empty).await;
     fixture.state.auth=Auth::strict(Registry::parse(&serde_json::to_vec(&json!({"identities":[
         {"id":"seed","tokens":["seed"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"]}},
         {"id":"admin","tokens":["admin"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"],"other-project":["roles/storage.admin"]}}
@@ -1148,7 +1149,7 @@ async fn status_rechecks_the_owner_union_after_admission_authorization() {
             )
         })
         .await;
-    assert_eq!(response.unwrap_err().status, StatusCode::FORBIDDEN);
+    assert_eq!(status_of(response), StatusCode::FORBIDDEN);
     assert_eq!(
         fixture
             .request("GET", "/_internal/sync", b"", Some("admin"))
@@ -1162,7 +1163,7 @@ async fn status_rechecks_the_owner_union_after_admission_authorization() {
 
 #[tokio::test]
 async fn strict_control_authority_precedes_body_parsing_and_requires_each_explicit_project_admin() {
-    let mut fixture = Fixture::new(false).await;
+    let mut fixture = Fixture::new(Tree::Empty).await;
     fixture
         .state
         .catalog
@@ -1181,40 +1182,21 @@ async fn strict_control_authority_precedes_body_parsing_and_requires_each_explic
         {"id":"seed","tokens":["seed"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"]}},
         {"id":"admin","tokens":["admin"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"],"other-project":["roles/storage.admin"]}}
     ]})).unwrap()).unwrap());
-    assert_eq!(
-        fixture
-            .request("POST", "/_internal/sync/approve", b"invalid json", None)
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::UNAUTHORIZED
-    );
-    assert_eq!(
-        fixture
-            .request(
-                "POST",
-                "/_internal/sync/approve",
-                b"invalid json",
-                Some("seed")
-            )
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        fixture
-            .request(
-                "POST",
-                "/_internal/sync/approve",
-                b"invalid json",
-                Some("admin")
-            )
-            .await
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
+    for (token, expected) in [
+        (None, StatusCode::UNAUTHORIZED),
+        (Some("seed"), StatusCode::FORBIDDEN),
+        (Some("admin"), StatusCode::BAD_REQUEST),
+    ] {
+        assert_eq!(
+            status_of(
+                fixture
+                    .request("POST", "/_internal/sync/approve", b"invalid json", token)
+                    .await
+            ),
+            expected,
+            "{token:?}"
+        );
+    }
     assert_eq!(
         body(
             fixture
@@ -1230,7 +1212,7 @@ async fn strict_control_authority_precedes_body_parsing_and_requires_each_explic
 
 #[tokio::test]
 async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all_members() {
-    let fixture = Fixture::new(true).await;
+    let fixture = Fixture::new(Tree::LongNames).await;
     fs::remove_dir_all(fixture.tree.0.join("test-bucket")).unwrap();
     let response = fixture
         .request("POST", "/_internal/sync/rescan", b"{}", None)
@@ -1270,16 +1252,16 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
         .await
         .unwrap();
     assert_eq!(
-        fixture
-            .request(
-                "GET",
-                &format!("/_internal/sync?view=deletions&revision={old}&cursor={cursor}"),
-                b"",
-                None
-            )
-            .await
-            .unwrap_err()
-            .status,
+        status_of(
+            fixture
+                .request(
+                    "GET",
+                    &format!("/_internal/sync?view=deletions&revision={old}&cursor={cursor}"),
+                    b"",
+                    None
+                )
+                .await
+        ),
         StatusCode::CONFLICT
     );
     fixture
@@ -1318,11 +1300,11 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
         StatusCode::ACCEPTED
     );
     assert_eq!(
-        fixture
-            .request("POST", "/_internal/sync/approve", &payload, None)
-            .await
-            .unwrap_err()
-            .status,
+        status_of(
+            fixture
+                .request("POST", "/_internal/sync/approve", &payload, None)
+                .await
+        ),
         StatusCode::CONFLICT
     );
     tokio::time::timeout(Duration::from_secs(20), async {

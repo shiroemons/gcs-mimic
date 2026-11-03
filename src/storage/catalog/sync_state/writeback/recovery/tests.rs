@@ -4,6 +4,7 @@
 )]
 
 use super::*;
+use crate::storage::catalog::sync_state::tests::Journal;
 use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::SystemClock,
@@ -113,20 +114,10 @@ impl Fixture {
             .await
             .unwrap()
     }
-    async fn restart(self) -> Self {
-        let Self {
-            data,
-            tree,
-            catalog,
-            lease,
-            writeback,
-            bucket,
-            record,
-        } = self;
-        drop(writeback);
-        drop(lease);
-        catalog.close().await.unwrap();
+    async fn restart(self, journal: Journal) -> Self {
+        let (data, tree, bucket, record) = self.shut_down().await;
         let catalog = Catalog::open(&data.0).await.unwrap();
+        journal.restore(&catalog).await;
         let lease = catalog
             .sync_state()
             .activate_root(&tree.0, super::super::super::root::Activation::Open)
@@ -147,9 +138,13 @@ impl Fixture {
         assert_api(&self.catalog, &self.record).await;
     }
     async fn close(self) {
+        self.shut_down().await;
+    }
+    async fn shut_down(self) -> (TestDir, TestDir, BucketName, crate::object::ObjectRecord) {
         drop(self.writeback);
         drop(self.lease);
         self.catalog.close().await.unwrap();
+        (self.data, self.tree, self.bucket, self.record)
     }
 }
 fn limits() -> Limits {
@@ -207,7 +202,7 @@ async fn restart_cancels_only_unarmed_owned_copies_including_short_and_zero_byte
             b"new external target",
         )
         .unwrap();
-        let fixture = fixture.restart().await;
+        let fixture = fixture.restart(Journal::Disabled).await;
         let status = fixture.writeback.recover_pending().await.unwrap();
         assert_eq!(
             (status.entries, status.reserved_bytes, status.stop),
@@ -251,7 +246,7 @@ async fn restart_armed_and_durable_absence_preserves_the_current_target() {
         }
         fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
         fs::write(fixture.tree.0.join("test-bucket/object"), b"later writer").unwrap();
-        let fixture = fixture.restart().await;
+        let fixture = fixture.restart(Journal::Disabled).await;
         assert_eq!(
             fixture.writeback.recover_pending().await.unwrap().stop,
             Stop::Ready
@@ -295,7 +290,7 @@ async fn restart_protects_actual_armed_and_durable_bodies_without_quota_eviction
                 .await
                 .unwrap();
         }
-        let fixture = fixture.restart().await;
+        let fixture = fixture.restart(Journal::Disabled).await;
         let usage = fixture.writeback.recover_pending().await.unwrap();
         assert_eq!(
             (
@@ -339,7 +334,7 @@ async fn restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries() 
                 .unwrap();
         }
         drop(operation);
-        let fixture = fixture.restart().await;
+        let fixture = fixture.restart(Journal::Disabled).await;
         assert_eq!(
             fixture.writeback.recover_pending().await.unwrap().stop,
             Stop::Ready
@@ -394,7 +389,7 @@ async fn recovery_keyset_pages_drain_more_than_one_page_without_skipping_cancell
             .unwrap();
     }
     assert_eq!(fixture.writeback.status().await.unwrap().entries, 257);
-    let fixture = fixture.restart().await;
+    let fixture = fixture.restart(Journal::Disabled).await;
     let usage = fixture.writeback.recover_pending().await.unwrap();
     assert_eq!(
         (usage.entries, usage.reserved_bytes, usage.stop),
@@ -467,7 +462,7 @@ async fn recovery_keeps_the_original_owner_after_api_change_delete_and_bucket_re
         )
         .await
         .unwrap();
-    let fixture = fixture.restart().await;
+    let fixture = fixture.restart(Journal::Disabled).await;
     let usage = fixture.writeback.recover_pending().await.unwrap();
     assert_eq!((usage.stop, usage.retained_bytes), (Stop::ProtectedBody, 8));
     let pending = fixture.writeback.page(0, 1).await.unwrap().pop().unwrap();
@@ -538,7 +533,7 @@ async fn restart_after_arming_a_live_copy_retains_the_uninstalled_body() {
             .is_err()
     );
     drop(operation);
-    let fixture = fixture.restart().await;
+    let fixture = fixture.restart(Journal::Disabled).await;
     let usage = fixture.writeback.recover_pending().await.unwrap();
     assert_eq!(
         (usage.stop, usage.retained_bytes),

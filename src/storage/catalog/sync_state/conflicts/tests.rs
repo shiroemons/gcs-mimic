@@ -4,6 +4,7 @@
 )]
 
 use super::*;
+use crate::storage::catalog::sync_state::tests::Journal;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     clock::SystemClock,
@@ -139,8 +140,30 @@ impl Fixture {
         bytes
     }
     async fn close(self) {
+        self.shut_down().await;
+    }
+    async fn shut_down(self) -> (TestDir, TestDir, BucketName, ObjectRecord) {
         drop(self.lease);
         self.catalog.close().await.unwrap();
+        (self.data, self.tree, self.bucket, self.winner)
+    }
+    async fn restart(self, journal: Journal) -> Self {
+        let (data, tree, bucket, winner) = self.shut_down().await;
+        let catalog = Catalog::open(&data.0).await.unwrap();
+        journal.restore(&catalog).await;
+        let lease = catalog
+            .sync_state()
+            .activate_root(&tree.0, Activation::Open)
+            .await
+            .unwrap();
+        Self {
+            data,
+            tree,
+            catalog,
+            lease,
+            bucket,
+            winner,
+        }
     }
 }
 

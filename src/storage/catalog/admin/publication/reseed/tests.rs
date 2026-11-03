@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(unix)]
+use crate::storage::catalog::fault::Crash;
 use crate::{
     clock::SystemClock,
     storage::catalog::{
@@ -253,22 +255,14 @@ async fn atomic_seed_power_loss_and_process_crash_snapshots_recover_whole_namesp
         Step::BeforeCommit,
         Step::AfterCommit,
     ] {
-        for power_loss in [false, true] {
+        for &crash in Crash::ALL {
             let (dir, catalog, admin, _, _) = setup().await;
             let mut initial = admin.seed_batch().unwrap();
             add(&mut initial, &dir.0, "object", b"old").await;
             initial.commit(SeedMode::Merge).await.unwrap();
             let snapshot = TestDir::new();
             let path = snapshot.0.join("snapshot");
-            catalog.inject(
-                step,
-                0,
-                if power_loss {
-                    Fault::PowerLoss(path.clone())
-                } else {
-                    Fault::Snapshot(path.clone())
-                },
-            );
+            catalog.inject(step, 0, crash.fault(path.clone()));
             let mut batch = admin.seed_batch().unwrap();
             add(&mut batch, &dir.0, "object", b"new").await;
             add(&mut batch, &dir.0, "second", b"new").await;
@@ -281,7 +275,7 @@ async fn atomic_seed_power_loss_and_process_crash_snapshots_recover_whole_namesp
             assert_eq!(
                 bytes(&admin, "object").await,
                 if committed { b"new" } else { b"old" },
-                "{step:?} {power_loss}"
+                "{step:?} {crash:?}"
             );
             assert_eq!(
                 admin

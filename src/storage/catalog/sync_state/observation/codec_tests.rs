@@ -23,6 +23,7 @@ fn finding_rows_reject_unknown_persisted_reasons_instead_of_using_a_remedy_fallb
     assert!(matches!(unavailable(error), CatalogError::Corrupt(_)));
 }
 
+#[track_caller]
 fn text_values<
     T: rusqlite::ToSql + rusqlite::types::FromSql + serde::Serialize + std::fmt::Debug + PartialEq,
 >(
@@ -32,20 +33,26 @@ fn text_values<
     for (variant, stored) in values {
         assert_eq!(
             sql::scalar::<String>(&connection, "SELECT ?1", [variant]).unwrap(),
-            *stored
+            *stored,
+            "{stored}"
         );
         assert_eq!(
             &sql::scalar::<T>(&connection, "SELECT ?1", [stored]).unwrap(),
-            variant
+            variant,
+            "{stored}"
         );
         assert_eq!(
             serde_json::to_vec(variant).unwrap(),
-            format!("\"{stored}\"").as_bytes()
+            format!("\"{stored}\"").as_bytes(),
+            "{stored}"
         );
     }
     for query in ["SELECT 'unknown'", "SELECT 1", "SELECT NULL"] {
         let error = sql::scalar::<T>(&connection, query, []).unwrap_err();
-        assert!(matches!(unavailable(error), CatalogError::Corrupt(_)));
+        assert!(
+            matches!(unavailable(error), CatalogError::Corrupt(_)),
+            "{query}"
+        );
     }
 }
 
