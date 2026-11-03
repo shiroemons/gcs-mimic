@@ -36,28 +36,9 @@ fn project_name(resource: &str) -> Result<&str, Status> {
     Ok(project)
 }
 
-fn bucket_mask(
-    bucket: pb::Bucket,
-    mask: Option<&prost_types::FieldMask>,
-) -> Result<pb::Bucket, Status> {
-    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty()) else {
-        return Ok(bucket);
-    };
-    if mask.paths.iter().any(|path| path == "*") {
-        if mask.paths.len() == 1 {
-            return Ok(bucket);
-        }
-        return Err(super::status::unsupported(
-            "mixed wildcard bucket read_mask",
-        ));
-    }
-    let mut selected = pb::Bucket::default();
-    for path in &mask.paths {
-        macro_rules! select { ($($field:ident),* $(,)?) => { match path.as_str() {
-            $(stringify!($field) => selected.$field = bucket.$field.to_owned(),)*
-            _ => return Err(super::status::unsupported(&format!("bucket read_mask {path}"))),
-        } }; }
-        select!(
+macro_rules! bucket_fields {
+    ($handler:ident) => {
+        $handler!(
             name,
             bucket_id,
             etag,
@@ -81,7 +62,47 @@ fn bucket_mask(
             acl,
             default_object_acl,
             owner
-        );
+        )
+    };
+}
+
+fn validate_bucket_mask(mask: Option<&prost_types::FieldMask>) -> Result<(), Status> {
+    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty()) else {
+        return Ok(());
+    };
+    if mask.paths.iter().any(|path| path == "*") {
+        if mask.paths.len() == 1 {
+            return Ok(());
+        }
+        return Err(super::status::unsupported(
+            "mixed wildcard bucket read_mask",
+        ));
+    }
+    for path in &mask.paths {
+        macro_rules! validate { ($($field:ident),* $(,)?) => { match path.as_str() {
+            $(stringify!($field) => (),)*
+            _ => return Err(super::status::unsupported(&format!("bucket read_mask {path}"))),
+        } }; }
+        bucket_fields!(validate);
+    }
+    Ok(())
+}
+
+fn bucket_mask(
+    bucket: pb::Bucket,
+    mask: Option<&prost_types::FieldMask>,
+) -> Result<pb::Bucket, Status> {
+    validate_bucket_mask(mask)?;
+    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty() && mask.paths[0] != "*") else {
+        return Ok(bucket);
+    };
+    let mut selected = pb::Bucket::default();
+    for path in &mask.paths {
+        macro_rules! select { ($($field:ident),* $(,)?) => { match path.as_str() {
+            $(stringify!($field) => selected.$field = bucket.$field.to_owned(),)*
+            _ => return Err(super::status::unsupported(&format!("bucket read_mask {path}"))),
+        } }; }
+        bucket_fields!(select);
     }
     Ok(selected)
 }
@@ -329,7 +350,7 @@ impl Storage {
     ) -> Result<Response<pb::Bucket>, Status> {
         let request = request.into_inner();
         let name = self.bucket_id(&request.name)?;
-        bucket_mask(pb::Bucket::default(), request.read_mask.as_ref())?;
+        validate_bucket_mask(request.read_mask.as_ref())?;
         let access = self.access(caller, name, crate::auth::BUCKETS_GET).await?;
         let record = self
             .state
@@ -439,7 +460,7 @@ impl Storage {
         if request.prefix.len() > 222 {
             return Err(invalid_list());
         }
-        bucket_mask(pb::Bucket::default(), request.read_mask.as_ref())?;
+        validate_bucket_mask(request.read_mask.as_ref())?;
         let start = if request.page_token.is_empty() {
             None
         } else {
