@@ -1,8 +1,10 @@
 use super::{Storage, common, conditions, convert, metadata, pb, projection, unsupported};
 use crate::{
     auth::Caller,
-    grpc::validate::request_conditions,
-    hashing::Hasher,
+    grpc::{
+        upload::{self, EndMarker, Intake, IntakeError, IntakePiece, Resend},
+        validate::request_conditions,
+    },
     object::{ExpectedHashes, UploadChunk},
     storage::ObjectUpload,
 };
@@ -88,8 +90,9 @@ impl Storage {
             permit,
         );
         let receive = receive_upload(first, stream, sender, self.max_object_bytes);
-        let result = tokio::try_join!(async { write.await.map_err(Status::from) }, receive)?;
-        Ok(convert::object(&result.0)?)
+        let (sent, written) = tokio::join!(receive, write);
+        let record = upload::completed(sent, written, Status::from)?;
+        Ok(convert::object(&record)?)
     }
 }
 
@@ -101,10 +104,13 @@ async fn receive_upload(
     max_object_bytes: u64,
 ) -> Result<(), Status> {
     let mut next = Some(first);
-    let mut offset = 0_u64;
     let mut finished = false;
-    let mut expected = ExpectedHashes::default();
-    let mut hasher = Hasher::default();
+    let mut intake = Intake::new(
+        ExpectedHashes::default(),
+        max_object_bytes,
+        None,
+        Resend::Reject,
+    );
     while let Some(message) = next {
         if finished {
             return Err(Status::invalid_argument(
@@ -120,73 +126,78 @@ async fn receive_upload(
                 "insert_object_spec is only allowed in the first message",
             ));
         }
-        if message.write_offset < 0 || message.write_offset.cast_unsigned() != offset {
+        if message.write_offset < 0 || message.write_offset.cast_unsigned() != intake.offset() {
             return Err(Status::invalid_argument(
                 "write_offset must equal bytes already sent",
             ));
         }
-        if message.object_checksums.is_some() && offset != 0 && !message.finish_write {
+        if message.object_checksums.is_some() && intake.offset() != 0 && !message.finish_write {
             return Err(Status::invalid_argument(
                 "object_checksums belong in the first or final message",
             ));
         }
         let hashes = checksums(message.object_checksums)?;
-        expected =
-            crate::grpc::validate::merge_hashes(expected, hashes, "Conflicting object checksums")?;
-        if let Some(data) = message.data {
-            let data = match data {
+        intake.checksums(hashes).map_err(intake_status)?;
+        let data = match message.data {
+            Some(data) => match data {
                 pb::insert_object_request::Data::ChecksummedData(data) => data,
                 _ => {
                     return Err(unsupported(
                         "legacy reference upload data; send checksummed_data",
                     ));
                 }
-            };
-            if data
-                .crc32c
-                .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
-            {
-                return Err(Status::invalid_argument(
-                    "Chunk CRC32C mismatch; recompute checksummed_data.crc32c",
-                ));
-            }
-            offset = u64::try_from(data.content.len())
-                .ok()
-                .and_then(|length| offset.checked_add(length))
-                .filter(|v| *v <= max_object_bytes)
-                .ok_or_else(|| {
-                    Status::resource_exhausted("Upload exceeds max_object_bytes; reduce the body")
-                })?;
-            hasher.update(&data.content);
-            for part in crate::grpc::upload_chunks(&data.content) {
-                sender
-                    .send(Ok(UploadChunk::Data(part)))
-                    .await
-                    .map_err(|_| Status::cancelled("Upload staging stopped"))?;
-            }
-        }
+            },
+            None => pb::ChecksummedData::default(),
+        };
+        intake
+            .accept(
+                IntakePiece {
+                    offset: message.write_offset.cast_unsigned(),
+                    content: data.content,
+                    crc32c: data.crc32c,
+                    finish: message.finish_write,
+                },
+                &sender,
+            )
+            .await
+            .map_err(intake_status)?;
         finished = message.finish_write;
-        next = stream.message().await?;
+        next = upload::next(&mut stream, &sender)
+            .await
+            .map_err(intake_status)?
+            .transpose()?;
     }
     if !finished {
         return Err(Status::invalid_argument(
             "Final message requires finish_write=true; resend the complete object",
         ));
     }
-    let actual = hasher.finish();
-    if expected.md5.is_some_and(|v| v != actual.md5)
-        || expected.crc32c.is_some_and(|v| v != actual.crc32c)
-    {
-        return Err(Status::invalid_argument(
-            "Object checksum mismatch; recompute object_checksums",
-        ));
-    }
-    sender
-        .send(Ok(UploadChunk::EndWithHashes(expected)))
+    intake
+        .finish(&sender, EndMarker::WithHashes)
         .await
-        .map_err(|_| Status::cancelled("Upload staging stopped"))?;
-    drop(sender);
-    Ok::<_, Status>(())
+        .map_err(intake_status)
+}
+
+fn intake_status(error: IntakeError) -> Status {
+    match error {
+        IntakeError::Offset => {
+            Status::invalid_argument("write_offset must equal bytes already sent")
+        }
+        IntakeError::ChunkCrc { .. } => {
+            Status::invalid_argument("Chunk CRC32C mismatch; recompute checksummed_data.crc32c")
+        }
+        IntakeError::Overflow | IntakeError::TooLarge => {
+            Status::resource_exhausted("Upload exceeds max_object_bytes; reduce the body")
+        }
+        IntakeError::SizeMismatch => Status::out_of_range("Written bytes do not match object_size"),
+        IntakeError::ObjectChecksum => {
+            Status::invalid_argument("Object checksum mismatch; recompute object_checksums")
+        }
+        IntakeError::ConflictingChecksums => {
+            Status::invalid_argument("Conflicting object checksums")
+        }
+        IntakeError::ConsumerStopped => Status::cancelled("Upload staging stopped"),
+    }
 }
 
 #[cfg(test)]

@@ -4,7 +4,10 @@ use super::{
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
-    grpc::validate::{self, request_conditions},
+    grpc::{
+        upload::{self, EndMarker, Intake, IntakeError, IntakePiece, Resend},
+        validate::{self, request_conditions},
+    },
     json,
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, UploadChunk,
@@ -234,17 +237,31 @@ fn mask_object(
 /// Rejects a data message whose CRC32C differs from its content, with the wording and hex form
 /// Cloud Storage uses over gRPC.
 pub(super) fn verify_crc32c(data: &pb::ChecksummedData) -> Result<(), Status> {
-    match data.crc32c {
-        Some(client) => {
-            let computed = crc32c::crc32c(&data.content);
-            if client == computed {
-                return Ok(());
-            }
-            Err(Status::invalid_argument(format!(
-                "Checksummed data message crc32c mismatch: server computed: '{computed:08x}', client provided '{client:08x}'."
-            )))
-        }
-        _ => Ok(()),
+    upload::verify_crc32c(&data.content, data.crc32c).map_err(intake_status)
+}
+
+fn intake_status(error: IntakeError) -> Status {
+    match error {
+        IntakeError::Offset => Status::out_of_range(
+            "write_offset exceeds received bytes; start at 0 and continue at the received byte count",
+        ),
+        IntakeError::ChunkCrc { computed, client } => Status::invalid_argument(format!(
+            "Checksummed data message crc32c mismatch: server computed: '{computed:08x}', client provided '{client:08x}'."
+        )),
+        IntakeError::Overflow => Status::out_of_range("Object size overflow"),
+        IntakeError::TooLarge => Status::resource_exhausted(
+            "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
+        ),
+        IntakeError::SizeMismatch => Status::out_of_range(
+            "Written bytes do not match object_size; start a new upload with the correct size",
+        ),
+        IntakeError::ObjectChecksum => Status::invalid_argument(
+            "object_checksums mismatch; send checksums for the complete object",
+        ),
+        IntakeError::ConflictingChecksums => Status::invalid_argument(
+            "Conflicting object_checksums; use the same digest in each message",
+        ),
+        IntakeError::ConsumerStopped => Status::cancelled("Upload consumer stopped"),
     }
 }
 
@@ -1146,18 +1163,7 @@ impl Storage {
             permit,
         );
         let (sent, written) = tokio::join!(producer, write);
-        let record = match written {
-            Ok(record) => {
-                sent?;
-                record
-            }
-            Err(error) => {
-                if matches!(error, ObjectError::BodyAborted(_)) {
-                    sent?;
-                }
-                return Err(object_status(error));
-            }
-        };
+        let record = upload::completed(sent, written, object_status)?;
         let resource = self.written_object(&record, caller).await?;
         let result = pb::bidi_write_object_response::WriteStatus::Resource(resource);
         if let Some(tx) = responses {
@@ -1244,12 +1250,7 @@ async fn stage(
     tx: &mpsc::Sender<Result<UploadChunk, std::io::Error>>,
     content: &bytes::Bytes,
 ) -> Result<(), Status> {
-    for bytes in crate::grpc::upload_chunks(content) {
-        tx.send(Ok(UploadChunk::Data(bytes)))
-            .await
-            .map_err(|_| Status::cancelled("Upload consumer stopped"))?;
-    }
-    Ok(())
+    upload::stage(tx, content).await.map_err(intake_status)
 }
 
 fn check_resumable_message(
@@ -1333,10 +1334,13 @@ async fn produce_single_write<
     caller: Option<Caller<'_>>,
     end: EndOfStream,
 ) -> Result<(), Status> {
-    let mut offset = 0_u64;
     let mut position = MessagePosition::First;
-    let mut expected = limits.expected;
-    let mut hasher = crate::hashing::Hasher::default();
+    let mut intake = Intake::new(
+        limits.expected,
+        limits.max_object_bytes,
+        limits.total,
+        Resend::DiscardOverlap,
+    );
     loop {
         common(message.common_object_request_params.as_ref())?;
         if message.first_message.is_some() {
@@ -1350,76 +1354,64 @@ async fn produce_single_write<
                 caller,
             ));
         }
-        if message.object_checksums.is_some() {
-            if position == MessagePosition::Later && !message.finish_write {
-                return Err(Status::invalid_argument(
-                    "object_checksums is allowed only in the first or final message",
-                ));
-            }
-            expected = merge_hashes(expected, hashes(message.object_checksums.as_ref())?)?;
+        if message.object_checksums.is_some()
+            && position == MessagePosition::Later
+            && !message.finish_write
+        {
+            return Err(Status::invalid_argument(
+                "object_checksums is allowed only in the first or final message",
+            ));
         }
+        let checksums = hashes(message.object_checksums.as_ref())?;
+        intake.checksums(checksums).map_err(intake_status)?;
         let start = u64::try_from(message.write_offset).map_err(|_| {
             Status::out_of_range("write_offset must be nonnegative; use 0 for the first message")
         })?;
-        if start > offset || (position == MessagePosition::First && start != 0) {
-            return Err(Status::out_of_range(
-                "write_offset exceeds received bytes; start at 0 and continue at the received byte count",
-            ));
-        }
         let data = match message.data.take() {
             Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
             None => pb::ChecksummedData::default(),
         };
-        verify_crc32c(&data)?;
-        let discard = usize::try_from(offset - start)
-            .unwrap_or(usize::MAX)
-            .min(data.content.len());
-        let added = data.content.slice(discard..);
-        offset = u64::try_from(added.len())
-            .ok()
-            .and_then(|length| offset.checked_add(length))
-            .ok_or_else(|| Status::out_of_range("Object size overflow"))?;
-        if offset > limits.max_object_bytes {
-            return Err(Status::resource_exhausted(
-                "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
-            ));
-        }
-        if limits
-            .total
-            .is_some_and(|total| offset > total || (message.finish_write && offset != total))
-        {
-            return Err(Status::out_of_range(
-                "Written bytes do not match object_size; start a new upload with the correct size",
-            ));
-        }
-        hasher.update(&added);
-        stage(&tx, &added).await?;
+        intake
+            .accept(
+                IntakePiece {
+                    offset: start,
+                    content: data.content,
+                    crc32c: data.crc32c,
+                    finish: message.finish_write,
+                },
+                &tx,
+            )
+            .await
+            .map_err(intake_status)?;
         if message.finish_write {
             break;
         }
-        message = stream.next().await.transpose()?.ok_or_else(|| {
-            Status::invalid_argument(
-                "Non-resumable write requires finish_write=true on its final message",
-            )
-        })?;
+        message = upload::next(stream, &tx)
+            .await
+            .map_err(intake_status)?
+            .transpose()?
+            .ok_or_else(|| {
+                Status::invalid_argument(
+                    "Non-resumable write requires finish_write=true on its final message",
+                )
+            })?;
         position = MessagePosition::Later;
     }
-    if end == EndOfStream::Required && stream.next().await.transpose()?.is_some() {
+    if end == EndOfStream::Required
+        && upload::next(stream, &tx)
+            .await
+            .map_err(intake_status)?
+            .transpose()?
+            .is_some()
+    {
         return Err(Status::invalid_argument(
             "A message followed finish_write; finish_write must be the final message",
         ));
     }
-    let actual = hasher.finish();
-    if expected.crc32c.is_some_and(|crc| crc != actual.crc32c)
-        || expected.md5.is_some_and(|md5| md5 != actual.md5)
-    {
-        return Err(Status::invalid_argument(
-            "object_checksums mismatch; send checksums for the complete object",
-        ));
-    }
-    tx.send(Ok(UploadChunk::End))
+    intake
+        .finish(&tx, EndMarker::Plain)
         .await
-        .map_err(|_| Status::cancelled("Upload consumer stopped"))
+        .map_err(intake_status)
 }
 
 #[cfg(test)]

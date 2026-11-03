@@ -44,6 +44,14 @@ The pinned [reference server](https://github.com/fsouza/fake-gcs-server/blob/896
 
 The reference's first-message-only upload and incomplete responses are not safety contracts. InsertObject consumes all messages with bounded staging and requires finish_write plus transport EOF. No new configuration, dependency, storage interface or startup phase is introduced. The existing explicit grpc_listen h2c endpoint serves both services.
 
+Storage v1 and v2 share typed single-shot intake for offsets, chunk CRC32C,
+whole-object hashes, size limits and staging. Legacy requests reject overlapping
+offsets and decode hexadecimal MD5; v2 discards overlapping received bytes and
+decodes binary MD5. Both await producer and catalog completion: a root storage
+error wins, while BodyAborted retains the producer's input error. A stopped
+consumer also wakes a producer awaiting another client message. The publication
+protocol and durable steps are unchanged.
+
 Request/response protobufs retain the foundation's 4 MiB limit. Upload metadata is capped at 8 KiB; body messages feed two 64 KiB queue slots. The existing max_object_bytes bounds total body size. No catalog transaction spans network input. Conditions and current permissions are checked again by the shared publication transaction. No catalog scan, new timer or polling loop is added.
 
 Bucket responses expose name/ID, metageneration, location/type, class, labels, creation/update times, versioning and default hold. Object responses expose names, generations, size/class, fixed/custom metadata, checksums, component count, timestamps, holds and retention expiry. Unrepresented fields remain empty; numeric project resolution, complete ACL/lifecycle/encryption response parity and metadata-heavy response pagination are not claimed. Shared JSON checksum rendering is reused without copying v2 conversion code. No v2 adapter or existing v2 generated file is changed.
@@ -75,6 +83,15 @@ git diff -- src/grpc/generated
 The generator emits legacy first and foundation last to preserve the foundation's common generated packages. The legacy module includes only google.storage.v1.rs. On 2026-10-28, official Rust stable metadata confirmed 1.99.1; the official Cargo sparse index confirmed tonic/tonic-prost/tonic-prost-build 0.14.7 and prost/prost-types 0.14.4 as the latest non-yanked stable releases. No dependency version or lockfile changes are needed. The existing Go graph pins genproto v0.0.0-20260715232425-e75dac1f907d, grpc-go v1.85.0 and protobuf v1.36.12. The raw client promotes the already present genproto requirement to direct; no new Go module is added.
 
 ## Verification
+
+On 2026-11-04, all 123 gRPC library tests passed with shared intake. Four new
+intake tests cover overlap modes, hash/size/CRC rejection before staging,
+consumer-close cancellation and producer/storage error precedence. The 46 tests
+selected by `cargo test --lib upload_ -- --test-threads=4` passed, including failed
+write/flush/sync, crash and PowerLoss publication coverage and the unchanged
+upload replay fingerprint golden value. Workspace checking, Clippy, production
+lint, formatting and compatibility rendering passed. No SDK suite was run for
+this intake change.
 
 Acceptance was recorded before implementation. The first new-test run stopped during compilation because the initial generation order replaced shared IAM output; that generator defect was repaired and all existing generated files returned to their original content. A red baseline wire result was therefore not established. The first completed v1 journey then exposed incorrect empty-string conversion on metadata replacement; mapping empty strings to shared null-clearing semantics repaired it.
 

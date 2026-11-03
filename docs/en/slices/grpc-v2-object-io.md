@@ -1,5 +1,11 @@
 # Storage v2 object I/O
 
+Single-shot writes use the typed intake shared with legacy v1 for offsets,
+CRC32C, complete hashes, size limits and bounded staging. Protocol-specific
+validation and messages stay in each adapter. Both adapters await producer and
+catalog completion, preserving root storage failures and the producer's error
+when storage reports only BodyAborted; closed consumers interrupt input waits.
+
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Scope: RPC-STORAGE-011, RPC-STORAGE-014, RPC-STORAGE-015, RPC-STORAGE-018, RPC-STORAGE-019, RPC-STORAGE-020, RPC-STORAGE-022, RPC-STORAGE-023 and BEHAVIOR-RPC-003, plus the later CancelResumableWrite addition (RPC-STORAGE-013). RestoreObject and Rapid append are excluded.

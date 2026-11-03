@@ -1635,7 +1635,7 @@
       "acceptance_cases": [
         {
           "id": "legacy_rpc_journey",
-          "description": "InsertObject succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "description": "InsertObject uses the same bounded typed intake as Storage v2 for offsets, chunk CRC32C, complete hashes, body limits and staging. Legacy offsets reject overlap and MD5 remains hexadecimal. Both adapters await producer and storage cleanup, preferring a root storage error unless it only reports the producer's aborted body; JSON and v1 share catalog state.",
           "result": "PASS",
           "test_ids": [
             "TestGRPCV1Legacy"
