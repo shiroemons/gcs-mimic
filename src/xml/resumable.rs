@@ -45,7 +45,8 @@ pub(crate) fn route(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<R
 fn target(object: &ObjectPath, ctx: ObjectCtx<'_>) -> Result<String, Error> {
     json::validate_bucket_name_for_profile(&object.bucket, ctx.config.compat_profile)?;
     let name = json::decode(object.name(), json::Decoding::Path)?;
-    json::validate_object_name(&name)?;
+    crate::object::name::validate(&name)
+        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
     Ok(name)
 }
 

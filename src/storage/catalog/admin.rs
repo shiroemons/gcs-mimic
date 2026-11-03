@@ -107,8 +107,8 @@ pub struct ObjectName(String);
 impl ObjectName {
     pub fn new(value: impl Into<String>) -> Result<Self, AdminError> {
         let value = value.into();
-        crate::json::validate_object_name(&value)
-            .map_err(|error| AdminError::Invalid(error.message))?;
+        crate::object::name::validate(&value)
+            .map_err(|_| AdminError::Invalid("Invalid object name".into()))?;
         Ok(Self(value))
     }
     pub(crate) fn as_str(&self) -> &str {

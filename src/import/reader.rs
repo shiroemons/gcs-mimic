@@ -748,7 +748,7 @@ fn object(
         name,
         parent_eligible,
     } = input;
-    crate::json::validate_object_name(name).map_err(|_| ImportFailure::corrupt("name", "unrepresentable object name", "Restore a valid UTF-8 object name of at most 1024 bytes without CR/LF or reserved ACME prefixes."))?;
+    crate::object::name::validate(name).map_err(|_| ImportFailure::corrupt("name", "unrepresentable object name", "Restore a valid UTF-8 object name of at most 1024 bytes without CR/LF or reserved ACME prefixes."))?;
     if options.source_platform == SourcePlatform::Windows && name.contains('\\') {
         return Err(ImportFailure::corrupt(
             "name",

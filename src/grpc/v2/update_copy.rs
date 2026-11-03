@@ -40,7 +40,7 @@ fn iam_bucket(resource: &str) -> Result<&str, Status> {
         .and_then(|rest| rest.split_once('/'))
         && (child.starts_with("managedFolders/") || child.starts_with("objects/"))
     {
-        names::bucket_name(&format!("projects/_/buckets/{bucket}"))?;
+        json::validate_bucket_name(bucket)?;
         return Err(unsupported(
             "managed folder and object IAM policies; use a bucket resource such as projects/_/buckets/example-bucket",
         ));
@@ -481,8 +481,10 @@ impl<'a> RewriteTarget<'a> {
         } else {
             &r.destination_name
         };
-        names::object_name(&format!("projects/_/buckets/{sb}"), sn)?;
-        names::object_name(&format!("projects/_/buckets/{db}"), dn)?;
+        json::validate_bucket_name(sb)?;
+        json::validate_bucket_name(db)?;
+        names::object(sn)?;
+        names::object(dn)?;
         Ok(Self {
             source_bucket: sb,
             source_object: sn,

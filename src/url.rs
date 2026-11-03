@@ -2,8 +2,8 @@
 //! the URL is servable depends entirely on IAM/ACL state at request time.
 
 use crate::{
-    config::InvalidDnsName,
-    json::{validate_bucket_name, validate_object_name},
+    config::InvalidDnsName, json::validate_bucket_name,
+    object::name::validate as validate_object_name,
 };
 use std::fmt;
 
@@ -217,7 +217,8 @@ pub(crate) fn normalize_public_base_url(value: &str) -> Result<String, UrlError>
 pub fn public_object_url(base_url: &str, bucket: &str, object: &str) -> Result<String, UrlError> {
     let base = normalize_base_url(base_url)?;
     validate_bucket_name(bucket).map_err(|e| UrlError::InvalidBucket(e.message))?;
-    validate_object_name(object).map_err(|e| UrlError::InvalidObject(e.message))?;
+    validate_object_name(object)
+        .map_err(|_| UrlError::InvalidObject("Invalid object name".into()))?;
     let path = format!("/{bucket}/{}", encode_object_name(object));
     if crate::xml::reserved_path(&path) {
         return Err(UrlError::ReservedNamespace);
@@ -233,7 +234,8 @@ pub fn virtual_host_object_url(
 ) -> Result<String, UrlError> {
     let base = normalize_base_url(base_url)?;
     validate_bucket_name(bucket).map_err(|e| UrlError::InvalidBucket(e.message))?;
-    validate_object_name(object).map_err(|e| UrlError::InvalidObject(e.message))?;
+    validate_object_name(object)
+        .map_err(|_| UrlError::InvalidObject("Invalid object name".into()))?;
     let uri: hyper::Uri = base.parse().map_err(|_| UrlError::InvalidBaseUrl)?;
     if uri.path() != "/" && !uri.path().is_empty() {
         return Err(UrlError::VirtualHostPathPrefix);

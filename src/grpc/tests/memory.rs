@@ -15,6 +15,83 @@ use tonic::{Code, codegen::Service};
 const BUCKET: &str = "projects/_/buckets/memory-grpc";
 type V2 = pb::storage_server::StorageServer<v2::Storage>;
 
+#[tokio::test]
+async fn ram_grpc_reserved_destinations_never_create_objects() {
+    let state = state(1024 * 1024).await;
+    let mut service = v2::service(state.clone(), 1024);
+    let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
+        &mut service,
+        "WriteObject",
+        Some("admin"),
+        &[write("..", b"x")],
+    )
+    .await;
+    assert_eq!(code, Code::InvalidArgument);
+    let (code, _): (_, Vec<pb::StartResumableWriteResponse>) = call(
+        &mut service,
+        "StartResumableWrite",
+        Some("admin"),
+        &[pb::StartResumableWriteRequest {
+            write_object_spec: Some(spec("..")),
+            ..Default::default()
+        }],
+    )
+    .await;
+    assert_eq!(code, Code::InvalidArgument);
+    let (code, _): (_, Vec<pb::Object>) = call(
+        &mut service,
+        "ComposeObject",
+        Some("admin"),
+        &[pb::ComposeObjectRequest {
+            destination: spec("..").resource,
+            ..Default::default()
+        }],
+    )
+    .await;
+    assert_eq!(code, Code::InvalidArgument);
+    let (code, _): (_, Vec<pb::RewriteResponse>) = call(
+        &mut service,
+        "RewriteObject",
+        Some("admin"),
+        &[pb::RewriteObjectRequest {
+            source_bucket: BUCKET.into(),
+            source_object: "source".into(),
+            destination_bucket: BUCKET.into(),
+            destination_name: "..".into(),
+            ..Default::default()
+        }],
+    )
+    .await;
+    assert_eq!(code, Code::InvalidArgument);
+    let (code, _): (_, Vec<pb::Object>) = call(
+        &mut service,
+        "MoveObject",
+        Some("admin"),
+        &[pb::MoveObjectRequest {
+            bucket: BUCKET.into(),
+            source_object: "source".into(),
+            destination_object: "..".into(),
+            ..Default::default()
+        }],
+    )
+    .await;
+    assert_eq!(code, Code::InvalidArgument);
+    let page = state
+        .catalog
+        .list_objects(
+            crate::storage::ObjectListQuery {
+                bucket: "memory-grpc".into(),
+                ..Default::default()
+            },
+            1000,
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert!(page.items.is_empty());
+    state.catalog.close().await.unwrap();
+}
+
 async fn state(budget: u64) -> Arc<State> {
     let catalog = Catalog::open_memory_for_server(
         budget,

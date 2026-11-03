@@ -23,15 +23,18 @@ pub(crate) fn object_name<'a>(
     object: &'a str,
 ) -> Result<(&'a str, &'a str), Status> {
     let bucket = bucket_name(bucket)?;
-    if object.is_empty() {
-        return Err(super::status::invalid_field("No object name"));
-    }
-    if crate::json::validate_object_name(object).is_err() {
-        return Err(Status::invalid_argument(
-            "Invalid object name; use a nonempty name of at most 1024 UTF-8 bytes, for example folder/object.txt",
-        ));
-    }
+    self::object(object)?;
     Ok((bucket, object))
+}
+
+pub(crate) fn object(name: &str) -> Result<(), Status> {
+    use crate::object::name::InvalidObjectName;
+    crate::object::name::validate(name).map_err(|error| match error {
+        InvalidObjectName::Empty => super::status::invalid_field("No object name"),
+        _ => Status::invalid_argument(
+            "Invalid object name; use a nonempty name of at most 1024 UTF-8 bytes without CR/LF, '.', '..' or the .well-known/acme-challenge/ prefix, for example folder/object.txt",
+        ),
+    })
 }
 
 #[cfg(test)]

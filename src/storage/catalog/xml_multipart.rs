@@ -205,7 +205,7 @@ impl Catalog {
         stored.content_type = options.content_type;
         stored.metadata = options.metadata;
         let mut options = stored;
-        crate::json::validate_object_name(name)
+        crate::object::name::validate(name)
             .map_err(|_| ObjectError::InvalidDerivedArgument("Invalid object name".into()))?;
         options.metadata.validate()?;
         crate::object::validate_fixed_metadata("contentType", &options.content_type)?;

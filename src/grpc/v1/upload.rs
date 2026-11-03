@@ -60,7 +60,8 @@ impl Storage {
         let bucket = object.bucket.clone();
         let name = object.name.clone();
         let content_type = object.content_type.clone();
-        crate::json::validate_object_name(&name)?;
+        crate::object::name::validate(&name)
+            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let metadata = metadata(object, crate::json::WriteMode::Patch)?;
         let conditions = request_conditions!(conditions, spec)?;
         let access = self

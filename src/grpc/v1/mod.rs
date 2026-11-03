@@ -277,7 +277,8 @@ impl Storage {
             mut object,
             write,
         } = update;
-        json::validate_object_name(name)?;
+        crate::object::name::validate(name)
+            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let access = self
             .access(caller, bucket, crate::auth::OBJECTS_UPDATE)
             .await?;
@@ -539,7 +540,8 @@ impl pb::storage_server::Storage for Storage {
             r.common_object_request_params.as_ref(),
         )?;
         projection(r.projection)?;
-        json::validate_object_name(&r.object)?;
+        crate::object::name::validate(&r.object)
+            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let access = self
             .access(caller, &r.bucket, crate::auth::OBJECTS_GET)
             .await?;
@@ -563,7 +565,8 @@ impl pb::storage_server::Storage for Storage {
             r.common_request_params.as_ref(),
             r.common_object_request_params.as_ref(),
         )?;
-        json::validate_object_name(&r.object)?;
+        crate::object::name::validate(&r.object)
+            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let access = self
             .access(caller, &r.bucket, crate::auth::OBJECTS_DELETE)
             .await?;
@@ -690,7 +693,8 @@ impl pb::storage_server::Storage for Storage {
         if r.destination_predefined_acl != 0 || !r.kms_key_name.is_empty() {
             return Err(unsupported("legacy compose ACL or KMS; omit these fields"));
         }
-        json::validate_object_name(&r.destination_object)?;
+        crate::object::name::validate(&r.destination_object)
+            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let access = self
             .access(caller, &r.destination_bucket, crate::auth::OBJECTS_CREATE)
             .await?;
@@ -708,7 +712,8 @@ impl pb::storage_server::Storage for Storage {
             .source_objects
             .into_iter()
             .map(|s| {
-                json::validate_object_name(&s.name)?;
+                crate::object::name::validate(&s.name)
+                    .map_err(|_| Status::invalid_argument("Invalid object name"))?;
                 let condition = s.object_preconditions.and_then(|p| p.if_generation_match);
                 conditions(ObjectConditions {
                     if_generation_match: condition,
