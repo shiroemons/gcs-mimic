@@ -37,14 +37,14 @@ pub(super) fn acl(
                 "ACL auxiliary identity fields cannot be preserved; retain the source snapshot",
             ));
         }
-        entries.push(crate::acl::AclEntry {
+        entries.push(crate::acl::AclEntryInput {
             entity: source.entity.clone(),
             role: source.role.clone(),
         });
     }
-    crate::acl::validate_entries(kind, &entries)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-    Ok(Some(entries))
+    crate::acl::parse_entries(kind, entries)
+        .map(Some)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
 pub(super) fn retention(
@@ -332,6 +332,64 @@ pub(crate) fn is_unset_time(input: &str) -> Result<bool, &'static str> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn source_acl_validation_keeps_count_and_entity_ahead_of_role_errors() {
+        for (count, entity, expected) in [
+            (101, "allUsers", crate::acl::AclError::TooManyEntries),
+            (1, "bad", crate::acl::AclError::InvalidEntity("bad".into())),
+        ] {
+            let entries = (0..count)
+                .map(|_| SourceAcl {
+                    entity: entity.into(),
+                    role: "invalid".into(),
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>();
+            let error = acl(Some(&entries), crate::acl::AclKind::Object).unwrap_err();
+            assert_eq!(
+                error.kind(),
+                std::io::ErrorKind::InvalidData,
+                "{count} {entity}"
+            );
+            assert_eq!(
+                error
+                    .get_ref()
+                    .unwrap()
+                    .downcast_ref::<crate::acl::AclError>(),
+                Some(&expected),
+                "{count} {entity}"
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_acl_and_storage_class_keep_source_spelling() {
+        for class in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ] {
+            let input = format!(
+                r#"{{"StorageClass":"{class}","ACL":[{{"Entity":"allUsers","Role":"READER"}}]}}"#
+            );
+            let attrs: ObjectAttrs = serde_json::from_str(&input).unwrap();
+            let encoded = serde_json::to_value(&attrs).unwrap();
+            assert_eq!(encoded["StorageClass"], class, "{class}");
+            assert_eq!(encoded["ACL"][0]["Role"], "READER", "{class}");
+            let entries = acl(attrs.acl.as_deref(), crate::acl::AclKind::Object)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::to_string(&entries).unwrap(),
+                r#"[{"entity":"allUsers","role":"READER"}]"#,
+                "{class}"
+            );
+        }
+    }
     #[test]
     fn bucket_versioning_distinguishes_absent_and_false_without_accepting_null() {
         for (input, expected) in [

@@ -24,7 +24,7 @@ fn populated_request_keeps_its_json_bytes() {
             expected: options.expected,
             conditions: options.conditions,
             access: BucketAccess::Permissive,
-            storage_class: Some("COLDLINE".into()),
+            storage_class: Some(crate::bucket::StorageClass::Coldline),
             component_count: Some(2),
         },
         source_conditions: ObjectConditions {
@@ -84,6 +84,29 @@ fn populated_request_keeps_its_json_bytes() {
         "00000000000000000000000000000002"
     );
     assert_eq!(session.budget, start.budget);
+    for class in ["unknown", "REGIONAL", "RAPID"] {
+        let mut invalid: Value = serde_json::from_str(&encoded).unwrap();
+        invalid["class"] = json!(class);
+        let error = connection
+            .query_row(
+                "SELECT ?1,?2,NULL,?3,0,8,604801000,NULL,?1",
+                params![
+                    "00000000000000000000000000000003",
+                    "0".repeat(64),
+                    invalid.to_string()
+                ],
+                read,
+            )
+            .err()
+            .unwrap();
+        assert!(
+            matches!(
+                crate::storage::failure::unavailable(error),
+                CatalogError::Corrupt(_)
+            ),
+            "{class}"
+        );
+    }
     let mut invalid: Value = serde_json::from_str(&encoded).unwrap();
     invalid["budget"] = 0.into();
     let error = connection

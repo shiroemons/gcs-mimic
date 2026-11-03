@@ -92,7 +92,7 @@ pub(crate) fn bucket(name: &str, project: &str) -> BucketRecord {
         project: project.into(),
         location: "US".into(),
         location_type: "multi-region".into(),
-        storage_class: "STANDARD".into(),
+        storage_class: crate::bucket::StorageClass::Standard,
         autoclass: None,
         labels: Default::default(),
         versioning_enabled: false,

@@ -4,12 +4,75 @@ use crate::storage::failure::{BackendCause, IoCause};
 use std::{
     collections::BTreeMap,
     fmt,
+    str::FromStr,
     time::{Duration, SystemTime},
 };
 
 pub(crate) mod lifecycle;
 
 pub(crate) mod autoclass;
+
+#[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(try_from = "String")]
+pub enum StorageClass {
+    Standard,
+    Nearline,
+    Coldline,
+    Archive,
+    MultiRegional,
+    DurableReducedAvailability,
+}
+
+impl StorageClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "STANDARD",
+            Self::Nearline => "NEARLINE",
+            Self::Coldline => "COLDLINE",
+            Self::Archive => "ARCHIVE",
+            Self::MultiRegional => "MULTI_REGIONAL",
+            Self::DurableReducedAvailability => "DURABLE_REDUCED_AVAILABILITY",
+        }
+    }
+}
+
+crate::serde_util::serialize_as_str!(StorageClass);
+
+// Upload fingerprints include the former String's quoted Debug representation.
+impl fmt::Debug for StorageClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+
+impl FromStr for StorageClass {
+    type Err = CatalogError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "STANDARD" => Ok(Self::Standard),
+            "NEARLINE" => Ok(Self::Nearline),
+            "COLDLINE" => Ok(Self::Coldline),
+            "ARCHIVE" => Ok(Self::Archive),
+            "MULTI_REGIONAL" => Ok(Self::MultiRegional),
+            "DURABLE_REDUCED_AVAILABILITY" => Ok(Self::DurableReducedAvailability),
+            "REGIONAL" | "RAPID" => Err(CatalogError::UnsupportedMetadata(
+                "storageClass requires a region or zone".into(),
+            )),
+            _ => Err(CatalogError::InvalidMetadata(
+                "The storage class you specified is not valid.".into(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<String> for StorageClass {
+    type Error = CatalogError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
 
 pub(crate) const UNIFORM_ACCESS_LOCK_PERIOD: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 
@@ -104,7 +167,7 @@ pub struct BucketRecord {
     pub project: String,
     pub location: String,
     pub location_type: String,
-    pub storage_class: String,
+    pub storage_class: StorageClass,
     pub(crate) autoclass: Option<autoclass::Autoclass>,
     pub labels: BTreeMap<String, String>,
     pub(crate) cors: Vec<CorsRule>,
@@ -149,7 +212,7 @@ pub(crate) struct BucketMetadataUpdate {
     /// An echoed `objectRetention` value; it must match the stored state.
     pub object_retention_enabled: Option<bool>,
     pub labels: Option<Option<BTreeMap<String, Option<String>>>>,
-    pub storage_class: Option<String>,
+    pub storage_class: Option<StorageClass>,
     pub autoclass: Option<autoclass::AutoclassUpdate>,
     pub versioning_enabled: Option<bool>,
     pub(crate) versioning_configured: Option<bool>,
@@ -365,20 +428,39 @@ pub(crate) fn valid_label(value: &str, part: LabelPart) -> bool {
         })
 }
 
-pub(crate) fn validate_storage_class(storage_class: &str) -> Result<(), CatalogError> {
-    match storage_class {
-        "STANDARD"
-        | "NEARLINE"
-        | "COLDLINE"
-        | "ARCHIVE"
-        | "MULTI_REGIONAL"
-        | "DURABLE_REDUCED_AVAILABILITY" => Ok(()),
-        "REGIONAL" | "RAPID" => Err(CatalogError::UnsupportedMetadata(
-            "storageClass requires a region or zone".into(),
-        )),
-        _ => Err(CatalogError::InvalidMetadata(
-            "The storage class you specified is not valid.".into(),
-        )),
+pub(crate) fn validate_storage_class(storage_class: &str) -> Result<StorageClass, CatalogError> {
+    storage_class.parse()
+}
+
+#[test]
+fn storage_class_validation_keeps_exact_errors() {
+    for class in [
+        "STANDARD",
+        "NEARLINE",
+        "COLDLINE",
+        "ARCHIVE",
+        "MULTI_REGIONAL",
+        "DURABLE_REDUCED_AVAILABILITY",
+    ] {
+        assert!(validate_storage_class(class).is_ok(), "{class}");
+    }
+    for class in ["REGIONAL", "RAPID"] {
+        assert_eq!(
+            validate_storage_class(class),
+            Err(CatalogError::UnsupportedMetadata(
+                "storageClass requires a region or zone".into()
+            )),
+            "{class}"
+        );
+    }
+    for class in ["standard", "", "UNKNOWN", " STANDARD"] {
+        assert_eq!(
+            validate_storage_class(class),
+            Err(CatalogError::InvalidMetadata(
+                "The storage class you specified is not valid.".into()
+            )),
+            "{class}"
+        );
     }
 }
 

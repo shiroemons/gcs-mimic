@@ -9,15 +9,17 @@ fn invalid(field: &str, example: &str) -> CatalogError {
 }
 
 fn validate_class(value: &str, field: &str) -> Result<(), CatalogError> {
-    validate_storage_class(value).map_err(|error| match error {
-        CatalogError::UnsupportedMetadata(reason) => {
-            CatalogError::UnsupportedMetadata(format!("lifecycle.{field}={value}: {reason}"))
-        }
-        CatalogError::InvalidMetadata(_) => {
-            invalid(field, "a supported bucket class, for example COLDLINE")
-        }
-        error => error,
-    })
+    validate_storage_class(value)
+        .map(|_| ())
+        .map_err(|error| match error {
+            CatalogError::UnsupportedMetadata(reason) => {
+                CatalogError::UnsupportedMetadata(format!("lifecycle.{field}={value}: {reason}"))
+            }
+            CatalogError::InvalidMetadata(_) => {
+                invalid(field, "a supported bucket class, for example COLDLINE")
+            }
+            error => error,
+        })
 }
 
 pub(crate) fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {

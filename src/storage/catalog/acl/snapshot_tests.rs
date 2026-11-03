@@ -10,6 +10,32 @@ use crate::{
 use bytes::Bytes;
 use std::sync::Arc;
 
+#[test]
+fn unknown_stored_acl_role_is_catalog_corruption() {
+    for role in ["unknown", "reader", "", "FULL_CONTROL"] {
+        let encoded = serde_json::json!([{"entity":"allUsers","role":role}]).to_string();
+        assert!(
+            matches!(
+                decode(&encoded, AclKind::Bucket),
+                Err(CatalogError::Corrupt(_))
+            ),
+            "{role}"
+        );
+    }
+}
+
+#[test]
+fn stored_writer_role_is_only_valid_for_bucket_acls() {
+    let encoded = r#"[{"entity":"allUsers","role":"WRITER"}]"#;
+    assert!(decode(encoded, AclKind::Bucket).is_ok());
+    for kind in [AclKind::Object, AclKind::DefaultObject] {
+        assert!(
+            matches!(decode(encoded, kind), Err(CatalogError::Corrupt(_))),
+            "{kind:?}"
+        );
+    }
+}
+
 async fn setup(data: &TestDir, backend: &str) -> (Catalog, Auth, crate::object::ObjectRecord) {
     let auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"uploader@example.test","tokens":[],"project_roles":{"local":["roles/storage.objectCreator"]}},{"id":"delegate@example.test","tokens":[]}]}"#).unwrap());
     let catalog = if backend == "disk" {
@@ -85,7 +111,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 target.clone(),
                 AclChange::Upsert {
                     entity: "user-delegate@example.test".into(),
-                    role: Some("OWNER".into()),
+                    role: Some(crate::acl::AclRole::Owner),
                 },
                 PERMISSIVE,
             )

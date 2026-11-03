@@ -31,7 +31,7 @@ fn combine_sources(
     clock: &dyn Clock,
     destination: &mut DerivedDestination,
 ) -> Result<SourceKeys, ObjectError> {
-    let class = sources[0].object.storage_class.clone();
+    let class = sources[0].object.storage_class;
     let mut crc = 0;
     let mut count = 0_i64;
     let mut keys = BTreeSet::new();

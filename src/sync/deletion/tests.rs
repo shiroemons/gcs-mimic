@@ -83,7 +83,7 @@ async fn protected_external_deletion_restores_bytes_and_versioned_removal_keeps_
         .await
         .unwrap();
     assert_eq!(protected.generation, original.generation);
-    assert_eq!(protected.temporary_hold, Some(true));
+    assert_eq!(protected.temporary_hold.as_bool(), Some(true));
     let observation = root.observation().await.unwrap();
     assert_eq!(observation.path_stops, 1);
     assert_eq!(

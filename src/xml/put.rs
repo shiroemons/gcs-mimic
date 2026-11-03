@@ -16,6 +16,26 @@ use tokio::sync::mpsc;
 
 mod streaming;
 
+#[test]
+fn storage_class_header_keeps_error_contracts() {
+    for class in ["REGIONAL", "standard", "UNKNOWN"] {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-goog-storage-class", class.parse().unwrap());
+        let error = metadata(&headers).unwrap_err();
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{class}");
+        assert_eq!(error.code, XmlCode::InvalidArgument, "{class}");
+        assert_eq!(
+            error.message,
+            if class == "REGIONAL" {
+                "gcs-mimic does not support XML API storageClass=REGIONAL: storageClass requires a region or zone; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
+            } else {
+                "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE."
+            },
+            "{class}"
+        );
+    }
+}
+
 pub(super) struct Headers {
     pub(super) content_type: String,
     pub(super) expected: ExpectedHashes,
@@ -224,13 +244,14 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
         *field = single(headers, name)?.map(|value| Some(value.to_owned()));
     }
     if let Some(class) = single(headers, "x-goog-storage-class")? {
-        crate::object::validate_object_storage_class(class).map_err(|error| match error {
-            ObjectError::UnsupportedMetadata(reason) => Error::unsupported(&reason),
-            _ => Error::invalid(
-                "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
-            ),
-        })?;
-        metadata.storage_class = Some(class.to_owned());
+        let class =
+            crate::object::validate_object_storage_class(class).map_err(|error| match error {
+                ObjectError::UnsupportedMetadata(reason) => Error::unsupported(&reason),
+                _ => Error::invalid(
+                    "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
+                ),
+            })?;
+        metadata.storage_class = Some(class);
     }
     let mut custom = BTreeMap::new();
     let mut custom_bytes = 0usize;

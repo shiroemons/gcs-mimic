@@ -35,7 +35,7 @@ fn resumable_retention_overflow_returns_the_publication_metadata_error() {
             options.clone(),
             1,
             objects::PublicationDefaults {
-                storage_class: "STANDARD".into(),
+                storage_class: crate::bucket::StorageClass::Standard,
                 time: UNIX_EPOCH + Duration::from_secs(1),
                 event_based_hold: false,
                 owner: None,

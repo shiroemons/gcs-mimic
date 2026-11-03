@@ -198,7 +198,10 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Impo
         metadata: ObjectMetadataUpdate {
             retention: Some(codec::retention(attrs)?),
             acl: codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Object)?,
-            storage_class: Some(attrs.storage_class.clone()),
+            storage_class: Some(
+                crate::bucket::validate_storage_class(&attrs.storage_class)
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
+            ),
             custom_time: Some(
                 if codec::is_unset_time(&attrs.custom_time).map_err(invalid)? {
                     None
@@ -805,8 +808,8 @@ async fn verify_committed(
                     != attributes.content_language
                 || target.cache_control.as_deref().unwrap_or_default() != attributes.cache_control
                 || target.metadata != attributes.metadata.clone().unwrap_or_default()
-                || target.event_based_hold == Some(true)
-                || target.storage_class != attributes.storage_class
+                || target.event_based_hold.is_held()
+                || target.storage_class.as_str() != attributes.storage_class
                 || target.custom_time != request.metadata.custom_time.flatten()
             {
                 return Err(invalid("committed object differs from the source binding").into());

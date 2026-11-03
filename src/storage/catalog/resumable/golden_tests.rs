@@ -1,5 +1,59 @@
 use super::*;
 
+#[test]
+fn unknown_stored_storage_class_is_catalog_corruption() {
+    let connection = Connection::open_in_memory().unwrap();
+    for class in ["unknown", "REGIONAL", "RAPID"] {
+        let mut options = encode_options(&populated_options());
+        options["metadata"]["storageClass"] = json!(class);
+        let error = connection.query_row("SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,0,0,604800000,'ACTIVE',NULL", params!["0".repeat(64), "0".repeat(32), options.to_string()], read_session).unwrap_err();
+        assert!(
+            matches!(
+                crate::storage::failure::unavailable(error),
+                CatalogError::Corrupt(_)
+            ),
+            "{class}"
+        );
+    }
+}
+
+#[test]
+fn hold_update_states_keep_their_stored_json_presence() {
+    for (hold, expected) in [
+        (None, json!(null)),
+        (Some(false), json!(false)),
+        (Some(true), json!(true)),
+    ] {
+        let mut options = populated_options();
+        options.metadata.event_based_hold = hold;
+        options.metadata.temporary_hold = hold;
+        let encoded = encode_options(&options);
+        assert_eq!(
+            encoded["metadata"].get("eventBasedHold"),
+            Some(&expected),
+            "{hold:?}"
+        );
+        assert_eq!(
+            encoded["metadata"].get("temporaryHold"),
+            Some(&expected),
+            "{hold:?}"
+        );
+        assert_eq!(decode_options(&encoded).unwrap(), options, "{hold:?}");
+        if hold.is_none() {
+            let mut absent = encoded;
+            absent["metadata"]
+                .as_object_mut()
+                .unwrap()
+                .remove("eventBasedHold");
+            absent["metadata"]
+                .as_object_mut()
+                .unwrap()
+                .remove("temporaryHold");
+            assert_eq!(decode_options(&absent).unwrap(), options, "omitted holds");
+        }
+    }
+}
+
 pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
     let identity = crate::auth::Identity::from_upload_snapshot(&json!({"id":"uploader","projects":{"project":["storage.objects.create","storage.objects.delete"]}})).unwrap();
     ResumableOptions {
@@ -27,7 +81,7 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
             })),
             override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
             customer_key_sha256: Some([2; 32]),
-            storage_class: Some("NEARLINE".into()),
+            storage_class: Some(crate::bucket::StorageClass::Nearline),
         },
         expected: ExpectedHashes {
             md5: Some([1; 16]),

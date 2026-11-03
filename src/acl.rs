@@ -5,7 +5,7 @@
 //! for a bucket created without `predefinedAcl` and its default object ACL.
 
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 /// The documented per-resource ACL entry limit.
 pub(crate) const MAX_ENTRIES: usize = 100;
@@ -60,15 +60,102 @@ impl AclTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct AclEntry {
     pub entity: String,
+    pub role: AclRole,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AclEntryInput {
+    pub entity: String,
     pub role: String,
 }
 
-pub(crate) fn bucket_iam_role(role: &str) -> Option<&'static str> {
+pub(crate) fn parse_entries(
+    kind: AclKind,
+    input: Vec<AclEntryInput>,
+) -> Result<Vec<AclEntry>, AclError> {
+    if input.len() > MAX_ENTRIES {
+        return Err(AclError::TooManyEntries);
+    }
+    let mut entities = std::collections::BTreeSet::new();
+    let mut entries = Vec::with_capacity(input.len());
+    for entry in input {
+        Entity::parse(&entry.entity)?;
+        let role = validate_role(kind, &entry.role)?;
+        if !entities.insert(entry.entity.clone()) {
+            return Err(AclError::DuplicateEntity(entry.entity));
+        }
+        entries.push(AclEntry {
+            entity: entry.entity,
+            role,
+        });
+    }
+    Ok(entries)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(try_from = "String")]
+pub(crate) enum AclRole {
+    Reader,
+    Writer,
+    Owner,
+}
+
+impl AclRole {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Reader => "READER",
+            Self::Writer => "WRITER",
+            Self::Owner => "OWNER",
+        }
+    }
+}
+
+crate::serde_util::serialize_as_str!(AclRole);
+
+// Persisted upload fingerprints include the former String's quoted Debug representation.
+impl fmt::Debug for AclRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct InvalidAclRole;
+
+impl fmt::Display for InvalidAclRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid ACL role")
+    }
+}
+
+impl std::error::Error for InvalidAclRole {}
+
+impl FromStr for AclRole {
+    type Err = InvalidAclRole;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "READER" => Ok(Self::Reader),
+            "WRITER" => Ok(Self::Writer),
+            "OWNER" => Ok(Self::Owner),
+            _ => Err(InvalidAclRole),
+        }
+    }
+}
+
+impl TryFrom<String> for AclRole {
+    type Error = InvalidAclRole;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+pub(crate) fn bucket_iam_role(role: AclRole) -> &'static str {
     match role {
-        "READER" => Some("roles/storage.legacyBucketReader"),
-        "WRITER" => Some("roles/storage.legacyBucketWriter"),
-        "OWNER" => Some("roles/storage.legacyBucketOwner"),
-        _ => None,
+        AclRole::Reader => "roles/storage.legacyBucketReader",
+        AclRole::Writer => "roles/storage.legacyBucketWriter",
+        AclRole::Owner => "roles/storage.legacyBucketOwner",
     }
 }
 
@@ -83,10 +170,10 @@ pub(crate) fn object_permission(permission: crate::auth::Permission) -> bool {
     )
 }
 
-pub(crate) fn object_role_allows(role: &str, permission: crate::auth::Permission) -> bool {
+pub(crate) fn object_role_allows(role: AclRole, permission: crate::auth::Permission) -> bool {
     object_permission(permission)
-        && (role == "OWNER"
-            || (role == "READER" && permission == crate::auth::Permission::ObjectsGet))
+        && (role == AclRole::Owner
+            || (role == AclRole::Reader && permission == crate::auth::Permission::ObjectsGet))
 }
 
 /// A rejected ACL entry or entry list. `Display` is the client-visible JSON error message.
@@ -125,7 +212,7 @@ pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<()
     let mut entities = std::collections::BTreeSet::new();
     for entry in entries {
         Entity::parse(&entry.entity)?;
-        validate_role(kind, &entry.role)?;
+        validate_role(kind, entry.role.as_str())?;
         if !entities.insert(&entry.entity) {
             return Err(AclError::DuplicateEntity(entry.entity.clone()));
         }
@@ -239,9 +326,12 @@ fn valid_domain(domain: &str) -> bool {
         })
 }
 
-pub(crate) fn validate_role(kind: AclKind, role: &str) -> Result<(), AclError> {
+pub(crate) fn validate_role(kind: AclKind, role: &str) -> Result<AclRole, AclError> {
     if kind.roles().contains(&role) {
-        return Ok(());
+        return role.parse().map_err(|_| AclError::InvalidRole {
+            kind,
+            role: role.to_owned(),
+        });
     }
     Err(AclError::InvalidRole {
         kind,
@@ -263,14 +353,14 @@ pub(crate) fn project_number(project: &str) -> String {
 pub(crate) fn project_private(project: &str) -> Vec<AclEntry> {
     let number = project_number(project);
     [
-        ("owners", "OWNER"),
-        ("editors", "OWNER"),
-        ("viewers", "READER"),
+        ("owners", AclRole::Owner),
+        ("editors", AclRole::Owner),
+        ("viewers", AclRole::Reader),
     ]
     .into_iter()
     .map(|(team, role)| AclEntry {
         entity: format!("project-{team}-{number}"),
-        role: role.to_owned(),
+        role,
     })
     .collect()
 }
@@ -335,18 +425,15 @@ impl PredefinedObjectAcl {
     /// The canned entries apart from the object owner's OWNER grant, which publication adds
     /// from the object's recorded owner. The bucket owner is the owning project's owners team.
     pub(crate) fn entries(self, project: &str) -> Vec<AclEntry> {
-        let entry = |entity: String, role: &str| AclEntry {
-            entity,
-            role: role.to_owned(),
-        };
+        let entry = |entity: String, role| AclEntry { entity, role };
         let owners = || format!("project-owners-{}", project_number(project));
         match self {
-            Self::AuthenticatedRead => vec![entry("allAuthenticatedUsers".into(), "READER")],
-            Self::BucketOwnerFullControl => vec![entry(owners(), "OWNER")],
-            Self::BucketOwnerRead => vec![entry(owners(), "READER")],
+            Self::AuthenticatedRead => vec![entry("allAuthenticatedUsers".into(), AclRole::Reader)],
+            Self::BucketOwnerFullControl => vec![entry(owners(), AclRole::Owner)],
+            Self::BucketOwnerRead => vec![entry(owners(), AclRole::Reader)],
             Self::Private => Vec::new(),
             Self::ProjectPrivate => project_private(project),
-            Self::PublicRead => vec![entry("allUsers".into(), "READER")],
+            Self::PublicRead => vec![entry("allUsers".into(), AclRole::Reader)],
         }
     }
 }
@@ -385,22 +472,22 @@ impl PredefinedBucketAcl {
     }
 
     pub(crate) fn entries(self, project: &str) -> Vec<AclEntry> {
-        let entry = |entity: String, role: &str| AclEntry {
-            entity,
-            role: role.to_owned(),
-        };
+        let entry = |entity: String, role| AclEntry { entity, role };
         let owners = entry(
             format!("project-owners-{}", project_number(project)),
-            "OWNER",
+            AclRole::Owner,
         );
         match self {
             Self::ProjectPrivate => project_private(project),
             Self::Private => vec![owners],
             Self::AuthenticatedRead => {
-                vec![owners, entry("allAuthenticatedUsers".into(), "READER")]
+                vec![
+                    owners,
+                    entry("allAuthenticatedUsers".into(), AclRole::Reader),
+                ]
             }
-            Self::PublicRead => vec![owners, entry("allUsers".into(), "READER")],
-            Self::PublicReadWrite => vec![owners, entry("allUsers".into(), "WRITER")],
+            Self::PublicRead => vec![owners, entry("allUsers".into(), AclRole::Reader)],
+            Self::PublicReadWrite => vec![owners, entry("allUsers".into(), AclRole::Writer)],
         }
     }
 }
@@ -430,7 +517,7 @@ mod tests {
             PredefinedObjectAcl::BucketOwnerRead.entries("local"),
             vec![AclEntry {
                 entity: "project-owners-0".into(),
-                role: "READER".into()
+                role: crate::acl::AclRole::Reader
             }]
         );
         assert_eq!(
@@ -513,15 +600,15 @@ mod tests {
             vec![
                 AclEntry {
                     entity: "project-owners-123".into(),
-                    role: "OWNER".into()
+                    role: crate::acl::AclRole::Owner
                 },
                 AclEntry {
                     entity: "project-editors-123".into(),
-                    role: "OWNER".into()
+                    role: crate::acl::AclRole::Owner
                 },
                 AclEntry {
                     entity: "project-viewers-123".into(),
-                    role: "READER".into()
+                    role: crate::acl::AclRole::Reader
                 },
             ]
         );

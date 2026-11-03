@@ -22,7 +22,7 @@ impl DestinationLocation {
 
 pub(crate) fn derived_component_count(
     source: &ObjectRecord,
-    destination_class: &str,
+    destination_class: crate::bucket::StorageClass,
     location: DestinationLocation,
 ) -> Option<i64> {
     source.component_count.map(|count| {
@@ -39,7 +39,14 @@ pub(crate) fn derived_component_count(
 pub(crate) fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
-) -> Result<(ObjectMetadataUpdate, Option<String>, ExpectedHashes), JsonError> {
+) -> Result<
+    (
+        ObjectMetadataUpdate,
+        Option<crate::bucket::StorageClass>,
+        ExpectedHashes,
+    ),
+    JsonError,
+> {
     // An absent, `null` or empty-object resource keeps the source metadata (recorded for `{}`).
     if bytes.is_empty()
         || std::str::from_utf8(bytes)
@@ -61,7 +68,7 @@ pub(crate) fn derived_metadata(
                 )),
                 ..Default::default()
             },
-            Some(source.storage_class.clone()),
+            Some(source.storage_class),
             ExpectedHashes::default(),
         ));
     }
@@ -104,8 +111,7 @@ pub(crate) fn derived_metadata(
             let class = value
                 .as_str()
                 .ok_or_else(|| JsonError::invalid_argument("storageClass must be a string"))?;
-            crate::bucket::validate_storage_class(class).map_err(JsonError::from)?;
-            Ok::<_, JsonError>(class.to_owned())
+            crate::bucket::validate_storage_class(class).map_err(JsonError::from)
         })
         .transpose()?;
     let mut expected = ExpectedHashes::default();
@@ -132,11 +138,168 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bucket_class_patch_keeps_error_contracts() {
+        for (class, reason, message) in [
+            (
+                "REGIONAL",
+                "badRequest",
+                "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name).",
+            ),
+            ("standard", "invalid", "Invalid storage class \"standard\""),
+            ("UNKNOWN", "invalid", "Invalid storage class \"UNKNOWN\""),
+        ] {
+            let body = serde_json::json!({"storageClass":class}).to_string();
+            let error = super::super::buckets::parse_bucket_patch(
+                body.as_bytes(),
+                crate::config::CompatProfile::Native,
+            )
+            .unwrap_err();
+            assert_eq!(error.status.as_u16(), 400, "{class}");
+            assert_eq!(error.reason, reason, "{class}");
+            assert_eq!(error.message, message, "{class}");
+        }
+    }
+
+    #[test]
+    fn storage_class_callers_keep_error_contracts() {
+        let source = crate::json::object_tests::record();
+        let mut snapshots = Vec::new();
+        for class in ["REGIONAL", "standard", "UNKNOWN"] {
+            let insert = serde_json::json!({"name":"bucket","storageClass":class}).to_string();
+            let lifecycle = serde_json::json!({"name":"bucket","lifecycle":{"rule":[{"action":{"type":"SetStorageClass","storageClass":class},"condition":{"age":1}}]}}).to_string();
+            let rewrite = serde_json::json!({"storageClass":class}).to_string();
+            for (caller, error) in [
+                (
+                    "insert",
+                    super::super::parse_insert(insert.as_bytes(), "project", std::time::UNIX_EPOCH)
+                        .unwrap_err(),
+                ),
+                (
+                    "lifecycle",
+                    super::super::parse_insert(
+                        lifecycle.as_bytes(),
+                        "project",
+                        std::time::UNIX_EPOCH,
+                    )
+                    .unwrap_err(),
+                ),
+                (
+                    "rewrite",
+                    derived_metadata(rewrite.as_bytes(), &source).unwrap_err(),
+                ),
+                (
+                    "object",
+                    JsonError::from(
+                        crate::object::validate_object_storage_class(class).unwrap_err(),
+                    ),
+                ),
+            ] {
+                snapshots.push(serde_json::json!([
+                    caller,
+                    class,
+                    error.status.as_u16(),
+                    error.reason,
+                    error.message
+                ]));
+            }
+        }
+        assert_eq!(
+            serde_json::json!(snapshots),
+            serde_json::json!([
+                [
+                    "insert",
+                    "REGIONAL",
+                    400,
+                    "badRequest",
+                    "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
+                ],
+                [
+                    "lifecycle",
+                    "REGIONAL",
+                    400,
+                    "badRequest",
+                    "gcs-mimic does not support bucket API setting lifecycle.rule[0].action.storageClass=REGIONAL: storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
+                ],
+                [
+                    "rewrite",
+                    "REGIONAL",
+                    400,
+                    "badRequest",
+                    "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
+                ],
+                [
+                    "object",
+                    "REGIONAL",
+                    400,
+                    "badRequest",
+                    "gcs-mimic does not support object API setting storageClass=REGIONAL: storageClass requires a region or zone; omit this option or header (for example, use projection=noAcl)."
+                ],
+                [
+                    "insert",
+                    "standard",
+                    400,
+                    "invalid",
+                    "The storage class you specified is not valid."
+                ],
+                [
+                    "lifecycle",
+                    "standard",
+                    400,
+                    "invalid",
+                    "Invalid lifecycle rule[0].action.storageClass; use a supported bucket class, for example COLDLINE"
+                ],
+                [
+                    "rewrite",
+                    "standard",
+                    400,
+                    "invalid",
+                    "The storage class you specified is not valid."
+                ],
+                [
+                    "object",
+                    "standard",
+                    400,
+                    "invalid",
+                    "Invalid object storageClass; use STANDARD, NEARLINE, COLDLINE or ARCHIVE"
+                ],
+                [
+                    "insert",
+                    "UNKNOWN",
+                    400,
+                    "invalid",
+                    "The storage class you specified is not valid."
+                ],
+                [
+                    "lifecycle",
+                    "UNKNOWN",
+                    400,
+                    "invalid",
+                    "Invalid lifecycle rule[0].action.storageClass; use a supported bucket class, for example COLDLINE"
+                ],
+                [
+                    "rewrite",
+                    "UNKNOWN",
+                    400,
+                    "invalid",
+                    "The storage class you specified is not valid."
+                ],
+                [
+                    "object",
+                    "UNKNOWN",
+                    400,
+                    "invalid",
+                    "Invalid object storageClass; use STANDARD, NEARLINE, COLDLINE or ARCHIVE"
+                ]
+            ])
+        );
+    }
+
+    #[test]
     fn empty_body_inherits_and_explicit_resource_replaces_metadata_without_source_holds() {
         assert!(derived_metadata(b"\x0bnull", &crate::json::object_tests::record()).is_err());
         let mut source = crate::json::object_tests::record();
         source.metadata.insert("source".into(), "value".into());
-        source.event_based_hold = Some(true);
+        source.event_based_hold = crate::object::Hold::Held;
         let (inherit, class, _) = derived_metadata(b"", &source).unwrap();
         assert_eq!(
             derived_metadata(b" \nnull\t", &source).unwrap(),
@@ -144,22 +307,26 @@ mod tests {
         );
         source.component_count = Some(3);
         assert_eq!(
-            derived_component_count(&source, &source.storage_class, DestinationLocation::Same),
+            derived_component_count(&source, source.storage_class, DestinationLocation::Same),
             Some(3)
         );
         assert_eq!(
-            derived_component_count(&source, "NEARLINE", DestinationLocation::Same),
+            derived_component_count(
+                &source,
+                crate::bucket::StorageClass::Nearline,
+                DestinationLocation::Same
+            ),
             Some(1)
         );
         assert_eq!(
             derived_component_count(
                 &source,
-                &source.storage_class,
+                source.storage_class,
                 DestinationLocation::Different
             ),
             Some(1)
         );
-        assert_eq!(class, Some(source.storage_class.clone()));
+        assert_eq!(class, Some(source.storage_class));
         assert_eq!(inherit.event_based_hold, None);
         let (replace, class, _) = derived_metadata(
             br#"{"metadata":{"destination":"value"},"name":"overridden"}"#,

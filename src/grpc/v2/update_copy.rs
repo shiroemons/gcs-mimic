@@ -658,10 +658,7 @@ impl Storage {
             .await?
             .ok_or_else(|| Status::not_found("Destination bucket not found"))?;
         let multiple = source_bucket.location != destination_bucket.location
-            || class
-                .as_deref()
-                .unwrap_or(&destination_bucket.storage_class)
-                != source.object.storage_class;
+            || class.unwrap_or(destination_bucket.storage_class) != source.object.storage_class;
         let budget = if multiple {
             if max_bytes_rewritten_per_call == 0 {
                 8 * 1024 * 1024
@@ -2087,7 +2084,7 @@ mod tests {
             .unwrap();
         assert_eq!(read.metadata.len(), 1);
         assert_eq!(read.metadata["replace"], "yes");
-        assert_eq!(read.temporary_hold, Some(true));
+        assert_eq!(read.temporary_hold.as_bool(), Some(true));
         s.state.catalog.close().await.unwrap();
     }
 

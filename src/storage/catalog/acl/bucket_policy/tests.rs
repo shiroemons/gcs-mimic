@@ -6,6 +6,58 @@ use crate::{
 };
 use serde_json::json;
 
+#[test]
+fn overlapping_legacy_roles_keep_the_highest_grant_in_both_orders() {
+    for roles in [
+        [
+            "roles/storage.legacyBucketReader",
+            "roles/storage.legacyBucketOwner",
+        ],
+        [
+            "roles/storage.legacyBucketOwner",
+            "roles/storage.legacyBucketReader",
+        ],
+        [
+            "roles/storage.legacyBucketReader",
+            "roles/storage.legacyBucketWriter",
+        ],
+        [
+            "roles/storage.legacyBucketWriter",
+            "roles/storage.legacyBucketReader",
+        ],
+        [
+            "roles/storage.legacyBucketWriter",
+            "roles/storage.legacyBucketOwner",
+        ],
+        [
+            "roles/storage.legacyBucketOwner",
+            "roles/storage.legacyBucketWriter",
+        ],
+    ] {
+        let policy = Policy {
+            bindings: roles
+                .iter()
+                .map(|role| Binding {
+                    role: (*role).into(),
+                    members: vec!["allUsers".into()],
+                })
+                .collect(),
+            etag: None,
+        };
+        let entries = policy_entries(&policy, "project", None);
+        let expected = if roles.contains(&"roles/storage.legacyBucketOwner") {
+            "OWNER"
+        } else {
+            "WRITER"
+        };
+        assert_eq!(
+            serde_json::to_string(&entries).unwrap(),
+            format!(r#"[{{"entity":"allUsers","role":"{expected}"}}]"#),
+            "{roles:?}"
+        );
+    }
+}
+
 async fn fixture() -> (TestDir, Catalog) {
     let data = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
@@ -102,11 +154,11 @@ async fn legacy_reconciliation_rejects_invalid_or_oversized_acls_and_rolls_back_
             let transaction = connection.transaction().unwrap();
             assert!(reconcile(&transaction, "bucket", &Profile::TrustedLocal, 1).is_err());
             if case == 2 {
-                let staged = stored_bucket_entries(&transaction, "bucket", "bucket").unwrap().unwrap();
+                let staged = stored_bucket_entries(&transaction, "bucket", AclKind::Bucket).unwrap().unwrap();
                 assert_ne!(serde_json::to_string(&staged).unwrap(), before_acl);
             }
             drop(transaction);
-            let after = stored_bucket_entries(connection, "bucket", "bucket").unwrap().unwrap();
+            let after = stored_bucket_entries(connection, "bucket", AclKind::Bucket).unwrap().unwrap();
             assert_eq!(serde_json::to_string(&after).unwrap(), before_acl);
             assert_eq!(policies::read_policy(connection, "bucket").unwrap(), before_policy);
             assert!(!bucket_row(connection, "bucket").unwrap().unwrap().policy_bound);

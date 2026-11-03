@@ -3,7 +3,6 @@ use crate::auth::{Identity, OBJECTS_DELETE, Policy};
 use crate::bucket::{
     BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError, LabelPart,
     UNIFORM_ACCESS_LOCK_PERIOD, cors_from_value, cors_value, valid_label, validate_cors,
-    validate_storage_class,
 };
 use crate::clock::{Clock, SystemClock};
 use crate::storage::failure::{BackendFailure, unavailable};
@@ -1773,7 +1772,6 @@ fn apply_plain_settings(
     update: &mut BucketMetadataUpdate,
 ) -> Result<(), CatalogError> {
     if let Some(class) = update.storage_class.take() {
-        validate_storage_class(&class)?;
         record.storage_class = class;
     }
     if let Some(enabled) = update.versioning_enabled {
@@ -2134,6 +2132,204 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
 mod tests {
     use super::*;
     use crate::storage::test_fixtures::PERMISSIVE;
+
+    #[tokio::test]
+    async fn unknown_catalog_classes_fail_bucket_and_object_read_paths() {
+        use crate::object::{ObjectError, UploadChunk};
+        use crate::storage::test_fixtures::{bucket, live, permissive_upload};
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        let (sender, body) = tokio::sync::mpsc::channel(1);
+        sender.try_send(Ok(UploadChunk::End)).unwrap();
+        catalog
+            .put_object_prechecked(
+                permissive_upload("bucket", "object", 1),
+                body,
+                catalog.admit_object_upload().unwrap(),
+            )
+            .await
+            .unwrap();
+        catalog
+            .run(|connection| {
+                sql::exec(
+                    connection,
+                    "UPDATE buckets SET storage_class='bogus' WHERE name='bucket'",
+                    [],
+                )?;
+                Ok::<_, CatalogError>(())
+            })
+            .await
+            .unwrap();
+        let error = catalog.get_bucket("bucket", PERMISSIVE).await.unwrap_err();
+        assert!(matches!(error, CatalogError::Corrupt(_)));
+        assert_eq!(
+            crate::json::JsonError::from(error).message,
+            "Bucket catalog is unavailable"
+        );
+        let error = catalog
+            .run(|connection| objects::authorized_bucket(connection, "bucket", PERMISSIVE))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ObjectError::Corrupt(_)));
+        catalog
+            .run(|connection| {
+                sql::exec(
+                    connection,
+                    "UPDATE buckets SET storage_class='STANDARD' WHERE name='bucket'",
+                    [],
+                )?;
+                sql::exec(
+                    connection,
+                    "UPDATE objects SET storage_class='bogus' WHERE bucket='bucket'",
+                    [],
+                )?;
+                Ok::<_, CatalogError>(())
+            })
+            .await
+            .unwrap();
+        let error = catalog
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ObjectError::Corrupt(_)));
+        assert_eq!(
+            crate::json::JsonError::from(error).message,
+            "Object storage is unavailable: stored data is corrupt; restore a valid data directory"
+        );
+        let error = catalog
+            .open_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(error, ObjectError::Corrupt(_)));
+        catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn publication_keeps_unset_holds_and_default_object_acl_json() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog
+            .insert_bucket(crate::storage::test_fixtures::bucket("bucket", "project"))
+            .await
+            .unwrap();
+        let entries = vec![crate::acl::AclEntry {
+            entity: "allUsers".into(),
+            role: crate::acl::AclRole::Reader,
+        }];
+        catalog
+            .patch_bucket(
+                "bucket",
+                BucketMetadataUpdate {
+                    default_object_acl: Some(entries),
+                    ..Default::default()
+                },
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        let (sender, body) = tokio::sync::mpsc::channel(1);
+        sender
+            .try_send(Ok(crate::object::UploadChunk::End))
+            .unwrap();
+        let record = catalog
+            .put_object_prechecked(
+                crate::storage::test_fixtures::permissive_upload("bucket", "object", 1),
+                body,
+                catalog.admit_object_upload().unwrap(),
+            )
+            .await
+            .unwrap();
+        let resource = crate::json::object_resource(
+            &record,
+            "http://localhost",
+            crate::json::Projection::NoAcl,
+        )
+        .unwrap();
+        assert!(resource.get("eventBasedHold").is_none());
+        assert!(resource.get("temporaryHold").is_none());
+        let stored = catalog.run(|connection| {
+            let default: String = sql::scalar(connection, "SELECT entries FROM acl_bucket_entries WHERE bucket='bucket' AND scope='defaultObject'", [])?;
+            let object: String = sql::scalar(connection, "SELECT entries FROM acl_object_entries WHERE bucket='bucket' AND name='object'", [])?;
+            Ok::<_, CatalogError>((default, object))
+        }).await.unwrap();
+        assert_eq!(stored.0, r#"[{"entity":"allUsers","role":"READER"}]"#);
+        assert_eq!(
+            stored.1,
+            r#"[{"entity":"project-owners-0","role":"OWNER"},{"entity":"allUsers","role":"READER"}]"#
+        );
+        catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn acl_and_storage_class_keep_catalog_text() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        for (index, class) in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let name = format!("bucket-{index}");
+            let mut record = crate::storage::test_fixtures::bucket(&name, "project");
+            record.storage_class = class.parse().unwrap();
+            catalog.insert_bucket(record).await.unwrap();
+            for role in ["READER", "WRITER", "OWNER"] {
+                catalog
+                    .change_acl(
+                        crate::acl::AclTarget::Bucket(name.clone()),
+                        acl::AclChange::Upsert {
+                            entity: "allUsers".into(),
+                            role: Some(role.parse().unwrap()),
+                        },
+                        PERMISSIVE,
+                    )
+                    .await
+                    .unwrap();
+                let selected = name.clone();
+                let stored = catalog
+                    .run(move |connection| {
+                        let class: String = sql::scalar(
+                            connection,
+                            "SELECT storage_class FROM buckets WHERE name=?1",
+                            [&selected],
+                        )?;
+                        let entries: String = sql::scalar(
+                            connection,
+                            "SELECT entries FROM acl_bucket_entries WHERE bucket=?1 AND scope='bucket'",
+                            [&selected],
+                        )?;
+                        Ok::<_, CatalogError>((class, entries))
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(stored.0, class, "{class} {role}");
+                let entries: serde_json::Value = serde_json::from_str(&stored.1).unwrap();
+                assert_eq!(
+                    entries
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|entry| entry["entity"] == "allUsers")
+                        .unwrap(),
+                    &serde_json::json!({"entity":"allUsers","role":role}),
+                    "{class} {role}"
+                );
+            }
+        }
+        catalog.close().await.unwrap();
+    }
 
     /// Shutdown must not look like overload: only a full catalog asks the client to retry.
     #[tokio::test]

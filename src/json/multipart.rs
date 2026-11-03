@@ -680,8 +680,8 @@ pub(crate) fn multipart_metadata(
         let class = class
             .as_str()
             .ok_or_else(|| JsonError::invalid_argument("storageClass must be a string or null"))?;
-        crate::object::validate_object_storage_class(class).map_err(JsonError::from)?;
-        update.storage_class = Some(class.to_owned());
+        update.storage_class =
+            Some(crate::object::validate_object_storage_class(class).map_err(JsonError::from)?);
     }
     let expected = merge_hashes(&mut unchanged, expected)?;
     if let Some((key, _)) = unchanged.into_iter().next() {

@@ -13,7 +13,7 @@ pub(super) fn bucket(record: &BucketRecord) -> pb::Bucket {
         metageneration: record.metageneration,
         location: record.location.clone(),
         location_type: record.location_type.clone(),
-        storage_class: record.storage_class.clone(),
+        storage_class: record.storage_class.as_str().into(),
         labels: record.labels.clone().into_iter().collect(),
         default_event_based_hold: record.default_event_based_hold,
         versioning: Some(pb::bucket::Versioning {
@@ -119,7 +119,7 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
         generation: record.generation,
         metageneration: record.metageneration,
         size: crate::grpc::convert::signed(record.size, "size")?,
-        storage_class: record.storage_class.clone(),
+        storage_class: record.storage_class.as_str().into(),
         content_type: record.content_type.clone(),
         content_encoding: record.content_encoding.clone().unwrap_or_default(),
         content_disposition: record.content_disposition.clone().unwrap_or_default(),
@@ -141,8 +141,8 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
         time_deleted: record.time_deleted.map(Into::into),
         // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
         // the three states exist only in the JSON resource.
-        event_based_hold: Some(record.event_based_hold == Some(true)),
-        temporary_hold: record.temporary_hold == Some(true),
+        event_based_hold: Some(record.event_based_hold.is_held()),
+        temporary_hold: record.temporary_hold.is_held(),
         retention_expiration_time: record.retention_expiration_time.map(Into::into),
         ..Default::default()
     })
@@ -153,6 +153,29 @@ mod tests {
     use super::*;
     use crate::grpc::test_support::assert_code;
     use crate::json::{self, Projection};
+
+    #[test]
+    fn storage_class_and_holds_keep_legacy_wire_values() {
+        let mut record = crate::grpc::test_support::object_record("bucket", std::time::UNIX_EPOCH);
+        for class in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ] {
+            record.storage_class = class.parse().unwrap();
+            for (hold, expected) in [(None, false), (Some(false), false), (Some(true), true)] {
+                record.event_based_hold = hold.into();
+                record.temporary_hold = hold.into();
+                let output = object(&record).unwrap();
+                assert_eq!(output.storage_class, class, "{class} {hold:?}");
+                assert_eq!(output.event_based_hold, Some(expected), "{class} {hold:?}");
+                assert_eq!(output.temporary_hold, expected, "{class} {hold:?}");
+            }
+        }
+    }
 
     #[test]
     fn md5_hash_matches_json_visibility() {

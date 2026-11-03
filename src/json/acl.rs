@@ -11,7 +11,7 @@ use super::{
     validate_bucket_name_for_profile, validate_object_name,
 };
 use crate::{
-    acl::{AclEntry, AclKind, AclTarget, Entity, project_number, validate_role},
+    acl::{AclEntry, AclKind, AclRole, AclTarget, Entity, project_number, validate_role},
     bucket::BucketConditions,
     config::CompatProfile,
 };
@@ -174,15 +174,14 @@ fn parse_route(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AclBody {
     pub entity: String,
-    pub role: Option<String>,
+    pub role: Option<AclRole>,
 }
 
 pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry>, JsonError> {
-    let entries: Vec<AclEntry> = serde_json::from_value(value.clone()).map_err(|_| {
+    let input = serde_json::from_value(value.clone()).map_err(|_| {
         JsonError::invalid("ACL must be an array of objects with entity and role strings")
     })?;
-    crate::acl::validate_entries(kind, &entries)?;
-    Ok(entries)
+    crate::acl::parse_entries(kind, input).map_err(JsonError::from)
 }
 
 /// Validate an insert, patch or update body against the path entity and resource kind.
@@ -236,9 +235,10 @@ pub(crate) fn parse_acl_body(
     if role.is_none() && !matches!(operation, AclOperation::Patch(_)) {
         return Err(required("role"));
     }
-    if let Some(role) = &role {
-        validate_role(kind, role)?;
-    }
+    let role = role
+        .as_deref()
+        .map(|role| validate_role(kind, role))
+        .transpose()?;
     Ok(AclBody { entity, role })
 }
 
@@ -414,6 +414,41 @@ pub(crate) fn add_object_acl_fields(resource: &mut Value, base_url: &str, acl: &
 mod tests {
     use super::*;
 
+    #[test]
+    fn acl_role_errors_keep_validation_order_and_text() {
+        for (kind, input, expected) in [
+            (
+                AclKind::Bucket,
+                r#"[{"entity":"allUsers","role":"reader"}]"#,
+                "Invalid value for: reader is not a valid value",
+            ),
+            (
+                AclKind::Object,
+                r#"[{"entity":"allUsers","role":"WRITER"}]"#,
+                "Invalid value for: WRITER is not a valid value",
+            ),
+            (
+                AclKind::DefaultObject,
+                r#"[{"entity":"allUsers","role":"WRITER"}]"#,
+                "Invalid value for: WRITER is not a valid value",
+            ),
+            (
+                AclKind::Bucket,
+                r#"[{"entity":"bad","role":"bad"}]"#,
+                "Scope text \"bad\" is not valid.",
+            ),
+            (
+                AclKind::Bucket,
+                r#"[{"entity":"allUsers","role":1}]"#,
+                "ACL must be an array of objects with entity and role strings",
+            ),
+        ] {
+            let error = parse_entries(&serde_json::from_str(input).unwrap(), kind).unwrap_err();
+            assert_eq!(error.status, hyper::StatusCode::BAD_REQUEST, "{input}");
+            assert_eq!(error.message, expected, "{input}");
+        }
+    }
+
     fn route(method: Method, path: &str) -> Option<Result<AclRequest, JsonError>> {
         route_acl(&method, &path.parse().unwrap(), CompatProfile::Native)
     }
@@ -516,7 +551,7 @@ mod tests {
             ),
             Ok(AclBody {
                 entity: "allUsers".into(),
-                role: Some("READER".into())
+                role: Some(crate::acl::AclRole::Reader)
             })
         );
         let patch = AclOperation::Patch("allUsers".into());
@@ -592,7 +627,7 @@ mod tests {
     fn resources_follow_the_discovery_schemas() {
         let entry = |entity: &str| AclEntry {
             entity: entity.into(),
-            role: "OWNER".into(),
+            role: crate::acl::AclRole::Owner,
         };
         let bucket = AclOwner {
             kind: AclKind::Bucket,

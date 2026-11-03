@@ -36,11 +36,11 @@ impl ObjectOwner {
     pub(crate) fn preserve_grant(&self, entries: &mut Vec<AclEntry>) {
         let Some(entity) = self.entity() else { return };
         if let Some(entry) = entries.iter_mut().find(|entry| entry.entity == entity) {
-            entry.role = "OWNER".into();
+            entry.role = crate::acl::AclRole::Owner;
         } else {
             let grant = AclEntry {
                 entity,
-                role: "OWNER".into(),
+                role: crate::acl::AclRole::Owner,
             };
             // Cloud Storage lists the project owners team first on an object, ahead of the
             // other project teams (recorded 2026-10-31); any other owner follows them.

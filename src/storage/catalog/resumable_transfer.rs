@@ -364,7 +364,7 @@ impl Catalog {
                 let storage_class = super::bucket_autoclass::object_storage_class(
                     &transaction,
                     &session.bucket,
-                    options.metadata.storage_class.clone(),
+                    options.metadata.storage_class,
                     storage_class,
                 )?;
                 let (versioning, default_hold) =

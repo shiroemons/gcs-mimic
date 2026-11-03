@@ -2,7 +2,7 @@
 
 use super::unavailable;
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CatalogError,
+    BucketMetadataUpdate, BucketRecord, CatalogError, StorageClass,
     autoclass::{self, AUTOCLASS_STORAGE_CLASS, Autoclass},
 };
 use crate::storage::catalog::sql;
@@ -58,7 +58,7 @@ pub(super) fn insert(
     }
     autoclass::validate_bucket(
         record.autoclass.as_ref(),
-        &record.storage_class,
+        record.storage_class,
         &record.lifecycle,
     )?;
     store(transaction, &record.name, record.autoclass.as_ref())
@@ -76,13 +76,13 @@ pub(super) fn update(
         let (config, newly_enabled) = autoclass::apply(record.autoclass.as_ref(), requested, now)?;
         if newly_enabled {
             if update.storage_class.is_none() {
-                record.storage_class = AUTOCLASS_STORAGE_CLASS.to_owned();
+                record.storage_class = AUTOCLASS_STORAGE_CLASS;
             }
             // Enabling moves every object except soft-deleted ones to STANDARD storage.
             sql::exec(
                 transaction,
                 "UPDATE objects SET storage_class = ?2 WHERE bucket = ?1 AND soft_delete_time IS NULL AND storage_class != ?2",
-                [record.name.as_str(), AUTOCLASS_STORAGE_CLASS],
+                rusqlite::params![record.name, AUTOCLASS_STORAGE_CLASS],
             )?;
         }
         if config != record.autoclass {
@@ -92,10 +92,7 @@ pub(super) fn update(
     }
     autoclass::validate_bucket(
         record.autoclass.as_ref(),
-        update
-            .storage_class
-            .as_deref()
-            .unwrap_or(&record.storage_class),
+        update.storage_class.unwrap_or(record.storage_class),
         update.lifecycle.as_deref().unwrap_or(&record.lifecycle),
     )
 }
@@ -104,9 +101,9 @@ pub(super) fn update(
 pub(crate) fn object_storage_class(
     connection: &Connection,
     bucket: &str,
-    requested: Option<String>,
-    bucket_default: String,
-) -> Result<String, CatalogError> {
+    requested: Option<StorageClass>,
+    bucket_default: StorageClass,
+) -> Result<StorageClass, CatalogError> {
     let config = sql::row(
         connection,
         "SELECT autoclass FROM buckets WHERE name = ?1",

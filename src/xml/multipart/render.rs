@@ -18,8 +18,8 @@ fn class(upload: &storage::Upload) -> &str {
         .options
         .metadata
         .storage_class
-        .as_deref()
-        .unwrap_or("STANDARD")
+        .unwrap_or(crate::bucket::StorageClass::Standard)
+        .as_str()
 }
 
 pub(super) async fn list(

@@ -14,6 +14,9 @@ macro_rules! text_enum {
                 match value { $($value => Some(Self::$variant)),+, _ => None }
             }
         }
+        $crate::storage::catalog::sql::text_enum!($name, $invalid, Self::parse);
+    };
+    ($name:ty, $invalid:literal, $parse:expr) => {
         impl rusqlite::ToSql for $name {
             fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
                 Ok(rusqlite::types::ToSqlOutput::Borrowed(self.as_str().into()))
@@ -21,7 +24,7 @@ macro_rules! text_enum {
         }
         impl rusqlite::types::FromSql for $name {
             fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
-                Self::parse(value.as_str()?).ok_or_else(|| rusqlite::types::FromSqlError::Other($invalid.into()))
+                ($parse)(value.as_str()?).ok_or_else(|| rusqlite::types::FromSqlError::Other($invalid.into()))
             }
         }
     };
@@ -45,6 +48,12 @@ macro_rules! integer_enum {
 }
 
 pub(super) use {integer_enum, text_enum};
+
+text_enum!(
+    crate::bucket::StorageClass,
+    "invalid stored storage class",
+    |value: &str| value.parse().ok()
+);
 
 pub(super) fn conversion_error(
     index: usize,
@@ -107,6 +116,24 @@ pub(super) fn validate(
 mod tests {
     use super::*;
 
+    #[test]
+    fn unknown_stored_storage_class_is_catalog_corruption() {
+        let connection = Connection::open_in_memory().unwrap();
+        for class in ["unknown", "standard", "REGIONAL", "RAPID", ""] {
+            let error = row(&connection, "SELECT ?1", [class], |row| {
+                row.get::<_, crate::bucket::StorageClass>(0)
+            })
+            .unwrap_err();
+            assert!(
+                matches!(
+                    super::super::unavailable(error),
+                    crate::bucket::CatalogError::Corrupt(_)
+                ),
+                "{class}"
+            );
+        }
+    }
+
     fn text_values<T: rusqlite::ToSql + FromSql + std::fmt::Debug + PartialEq>(
         values: &[(T, &str)],
     ) {
@@ -161,6 +188,7 @@ mod tests {
 
     #[test]
     fn stored_enum_values_keep_the_catalog_format() {
+        use crate::bucket::StorageClass;
         use crate::storage::catalog::{
             admin::Origin,
             change_journal::ChangeKind,
@@ -171,6 +199,17 @@ mod tests {
             },
         };
         use crate::sync::mapping::Reason;
+        text_values(&[
+            (StorageClass::Standard, "STANDARD"),
+            (StorageClass::Nearline, "NEARLINE"),
+            (StorageClass::Coldline, "COLDLINE"),
+            (StorageClass::Archive, "ARCHIVE"),
+            (StorageClass::MultiRegional, "MULTI_REGIONAL"),
+            (
+                StorageClass::DurableReducedAvailability,
+                "DURABLE_REDUCED_AVAILABILITY",
+            ),
+        ]);
         text_values(&[
             (Origin::Api, "api"),
             (Origin::Seed, "seed"),

@@ -991,7 +991,7 @@ mod tests {
                         let mut entries = crate::acl::project_private("project");
                         entries.reverse();
                         if !same {
-                            entries[0].role = "OWNER".into();
+                            entries[0].role = crate::acl::AclRole::Owner;
                         }
                         let mut update = BucketMetadataUpdate {
                             labels: Some(Some(BTreeMap::from([(
@@ -1181,11 +1181,11 @@ mod tests {
                 vec![
                     crate::acl::AclEntry {
                         entity: "project-owners-0".into(),
-                        role: "OWNER".into()
+                        role: crate::acl::AclRole::Owner
                     },
                     crate::acl::AclEntry {
                         entity: "user-new@example.test".into(),
-                        role: "OWNER".into()
+                        role: crate::acl::AclRole::Owner
                     },
                 ]
             );

@@ -388,14 +388,14 @@ fn record(
     connection: &Connection,
     bucket: &str,
     name: &str,
-    bucket_class: String,
+    bucket_class: crate::bucket::StorageClass,
     row: &Row,
     profile: Option<&super::principals::Profile>,
 ) -> Result<ObjectRecord, ObjectError> {
     let storage_class = super::bucket_autoclass::object_storage_class(
         connection,
         bucket,
-        row.options.metadata.storage_class.clone(),
+        row.options.metadata.storage_class,
         bucket_class,
     )?;
     let defaults = PublicationDefaults {
@@ -865,7 +865,7 @@ impl Catalog {
             let transaction = sql::immediate(connection)?;
             let (storage_class, _) = authorized_bucket(&transaction, &bucket, &options.access)?;
             let (current, stale) = match select(&transaction, &bucket, &name)? {
-                Lookup::Live(row) => (Some(record(&transaction, &bucket, &name, storage_class.clone(), &row, principals.as_ref())?), None),
+                Lookup::Live(row) => (Some(record(&transaction, &bucket, &name, storage_class, &row, principals.as_ref())?), None),
                 Lookup::Stale(id) => (None, Some(id)),
                 Lookup::Absent => (None, None),
             };

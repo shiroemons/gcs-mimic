@@ -240,7 +240,7 @@ fn destination(
         .metadata
         .storage_class
         .take()
-        .or_else(|| Some(source.storage_class.clone()));
+        .or(Some(source.storage_class));
     let mut metadata = if matches!(directive, MetadataDirective::Replace) {
         options.metadata.replace = true;
         options.metadata.content_type = Some(Some(if options.content_type.is_empty() {

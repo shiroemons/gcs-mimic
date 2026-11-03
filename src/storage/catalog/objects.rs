@@ -1,12 +1,12 @@
 use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
 use crate::storage::{BlobId, catalog::sql};
 use crate::{
-    bucket::{BucketAccess, CatalogError},
+    bucket::{BucketAccess, CatalogError, StorageClass},
     clock::Clock,
     hashing::{Hasher, Hashes},
     notification::NotificationMode,
     object::{
-        ExpectedHashes, HashAlgorithm, HashMismatch, ObjectConditions, ObjectError,
+        ExpectedHashes, HashAlgorithm, HashMismatch, Hold, ObjectConditions, ObjectError,
         ObjectMetadataUpdate, ObjectRecord, ObjectTarget, UploadChunk,
     },
 };
@@ -89,7 +89,7 @@ pub(super) struct NewVersion<'a> {
 }
 
 pub(super) struct PublicationDefaults {
-    pub(super) storage_class: String,
+    pub(super) storage_class: StorageClass,
     pub(super) event_based_hold: bool,
     pub(super) time: std::time::SystemTime,
     pub(super) owner: Option<crate::object::owner::ObjectOwner>,
@@ -136,8 +136,12 @@ impl PublicationDefaults {
             time_deleted: None,
             soft_delete_time: None,
             hard_delete_time: None,
-            event_based_hold: self.event_based_hold.then_some(true),
-            temporary_hold: None,
+            event_based_hold: if self.event_based_hold {
+                Hold::Held
+            } else {
+                Hold::Unset
+            },
+            temporary_hold: Hold::Unset,
             custom_time: None,
             retention_expiration_time: None,
             retention: None,
@@ -848,7 +852,7 @@ impl UploadCommit {
         let storage_class = super::bucket_autoclass::object_storage_class(
             &transaction,
             &self.bucket,
-            self.metadata.storage_class.clone(),
+            self.metadata.storage_class,
             storage_class,
         )?;
         let (versioning, default_hold) =
@@ -1342,7 +1346,7 @@ impl Catalog {
             let override_unlocked = update.override_unlocked_retention;
             update.reject_past_retention(clock.now())?;
             update.apply_to_existing(&mut record)?;
-            if record.event_based_hold == Some(true) && previous_event_hold != Some(true) && record.retention.is_some() {
+            if record.event_based_hold.is_held() && !previous_event_hold.is_held() && record.retention.is_some() {
                 return Err(ObjectError::InvalidFixedMetadata(
                     "Retention and event based holds cannot be configured together.".into(),
                 ));
@@ -2095,8 +2099,8 @@ pub(super) fn authorized_bucket(
     connection: &Connection,
     bucket: &str,
     access: &BucketAccess,
-) -> Result<(String, DeletePermission), ObjectError> {
-    let (storage_class, project): (String, String) = sql::row(
+) -> Result<(StorageClass, DeletePermission), ObjectError> {
+    let (storage_class, project): (StorageClass, String) = sql::row(
         connection,
         "SELECT storage_class, project FROM buckets WHERE name = ?1",
         [bucket],
@@ -3598,7 +3602,7 @@ mod tests {
                     target.clone(),
                     AclChange::Upsert {
                         entity: "user-reader".into(),
-                        role: Some("READER".into()),
+                        role: Some(crate::acl::AclRole::Reader),
                     },
                     PERMISSIVE,
                 )

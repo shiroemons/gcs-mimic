@@ -151,7 +151,7 @@ pub(crate) fn bucket(record: &BucketRecord) -> Result<pb::Bucket, tonic::Status>
         metageneration: record.metageneration,
         location: record.location.clone(),
         location_type: record.location_type.clone(),
-        storage_class: record.storage_class.clone(),
+        storage_class: record.storage_class.as_str().into(),
         autoclass: record
             .autoclass
             .as_ref()
@@ -279,7 +279,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversi
         generation: record.generation,
         metageneration: record.metageneration,
         size: crate::grpc::convert::signed(record.size, "size")?,
-        storage_class: record.storage_class.clone(),
+        storage_class: record.storage_class.as_str().into(),
         content_type: record.content_type.clone(),
         content_encoding: record.content_encoding.clone().unwrap_or_default(),
         content_disposition: record.content_disposition.clone().unwrap_or_default(),
@@ -318,10 +318,10 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversi
                 key_sha256_bytes: sha256.to_vec(),
             }),
         component_count: crate::grpc::convert::component_count(record.component_count)?,
-        temporary_hold: record.temporary_hold == Some(true),
+        temporary_hold: record.temporary_hold.is_held(),
         // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
         // the three states exist only in the JSON resource.
-        event_based_hold: Some(record.event_based_hold == Some(true)),
+        event_based_hold: Some(record.event_based_hold.is_held()),
         // Cloud Storage returned retention_expire_time at millisecond precision while
         // retention.retain_until_time kept its nanoseconds (observed 2026-10-31).
         retention_expire_time: record
@@ -380,6 +380,86 @@ mod tests {
         collections::BTreeMap,
         time::{Duration as StdDuration, UNIX_EPOCH},
     };
+
+    #[test]
+    fn enum_wire_values_keep_json_xml_and_grpc_output() {
+        let mut record = crate::grpc::test_support::object_record("bucket", UNIX_EPOCH);
+        for class in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ] {
+            record.storage_class = class.parse().unwrap();
+            for (hold, json_hold, grpc_hold) in [
+                (None, None, false),
+                (Some(false), Some(serde_json::json!(false)), false),
+                (Some(true), Some(serde_json::json!(true)), true),
+            ] {
+                record.event_based_hold = hold.into();
+                record.temporary_hold = hold.into();
+                let resource =
+                    json::object_resource(&record, "http://localhost", Projection::NoAcl).unwrap();
+                assert_eq!(resource["storageClass"], class, "{class} {hold:?}");
+                assert_eq!(
+                    resource.get("eventBasedHold"),
+                    json_hold.as_ref(),
+                    "{class} {hold:?}"
+                );
+                assert_eq!(
+                    resource.get("temporaryHold"),
+                    json_hold.as_ref(),
+                    "{class} {hold:?}"
+                );
+                let headers =
+                    crate::xml::media_headers(&record, crate::xml::CacheScope::Private).unwrap();
+                assert_eq!(headers["x-goog-storage-class"], class, "{class} {hold:?}");
+                assert!(
+                    !headers.contains_key("x-goog-temporary-hold"),
+                    "{class} {hold:?}"
+                );
+                assert!(
+                    !headers.contains_key("x-goog-event-based-hold"),
+                    "{class} {hold:?}"
+                );
+                let output = object(&record).unwrap();
+                assert_eq!(output.storage_class, class, "{class} {hold:?}");
+                assert_eq!(output.event_based_hold, Some(grpc_hold), "{class} {hold:?}");
+                assert_eq!(output.temporary_hold, grpc_hold, "{class} {hold:?}");
+            }
+        }
+        for (kind, role) in [
+            (AclKind::Bucket, "WRITER"),
+            (AclKind::Bucket, "OWNER"),
+            (AclKind::Object, "READER"),
+            (AclKind::Object, "OWNER"),
+        ] {
+            let entry = AclEntry {
+                entity: "allUsers".into(),
+                role: role.parse().unwrap(),
+            };
+            let value = crate::json::acl::acl_entry_resource(
+                "http://localhost",
+                AclOwner {
+                    kind,
+                    bucket: "bucket",
+                    object: Some(("object", 7)),
+                    metageneration: 1,
+                },
+                &entry,
+            );
+            assert_eq!(value["role"], role, "{kind:?} {role}");
+            assert_eq!(bucket_access_control(&value).role, role, "{kind:?} {role}");
+            assert_eq!(object_access_control(&value).role, role, "{kind:?} {role}");
+            assert_eq!(
+                serde_json::to_string(&entry).unwrap(),
+                format!(r#"{{"entity":"allUsers","role":"{role}"}}"#),
+                "{kind:?} {role}"
+            );
+        }
+    }
 
     #[test]
     fn out_of_range_bucket_durations_keep_catalog_corruption_guidance() {
@@ -453,7 +533,7 @@ mod tests {
             project: "123".into(),
             location: "US".into(),
             location_type: "multi-region".into(),
-            storage_class: "STANDARD".into(),
+            storage_class: crate::bucket::StorageClass::Standard,
             autoclass: None,
             labels: BTreeMap::from([("team".into(), "dev".into())]),
             cors: vec![crate::bucket::CorsRule {

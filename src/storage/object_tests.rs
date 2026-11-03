@@ -29,7 +29,7 @@ async fn setup(dir: &TestDir) -> Catalog {
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     catalog
         .insert_bucket(BucketRecord {
-            storage_class: "NEARLINE".into(),
+            storage_class: crate::bucket::StorageClass::Nearline,
             ..bucket("bucket", "project")
         })
         .await
@@ -163,7 +163,7 @@ async fn round_trip_exact_hashes_opaque_names_and_restart() {
     assert_eq!(record.size, 9);
     assert_eq!(record.generation, 1_234_567);
     assert_eq!(record.metageneration, 1);
-    assert_eq!(record.storage_class, "NEARLINE");
+    assert_eq!(record.storage_class.as_str(), "NEARLINE");
     assert_eq!(record.content_type, "application/test");
     assert_eq!(
         record.time_created,
@@ -1567,14 +1567,14 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         md5_availability: Default::default(),
         crc32c: crc,
         component_count: None,
-        storage_class: "NEARLINE".into(),
+        storage_class: crate::bucket::StorageClass::Nearline,
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
         updated: UNIX_EPOCH + Duration::from_millis(1234),
         time_deleted: None,
         soft_delete_time: None,
         hard_delete_time: None,
-        event_based_hold: None,
-        temporary_hold: None,
+        event_based_hold: crate::object::Hold::Unset,
+        temporary_hold: crate::object::Hold::Unset,
         custom_time: None,
         retention_expiration_time: None,
         retention: None,

@@ -270,12 +270,12 @@ async fn finalization_inherits_default_acl_and_autoclass_class() {
         .unwrap();
     // Autoclass places new objects in STANDARD whatever class the writer requests.
     let mut requested = options();
-    requested.metadata.storage_class = Some("NEARLINE".into());
+    requested.metadata.storage_class = Some(crate::bucket::StorageClass::Nearline);
     let mut writer = catalog
         .create_appendable("auto", "classed", requested)
         .await
         .unwrap();
-    assert_eq!(writer.record().storage_class, "STANDARD");
+    assert_eq!(writer.record().storage_class.as_str(), "STANDARD");
     writer
         .append(0, Bytes::from_static(b"x"), 1024)
         .await
@@ -284,7 +284,7 @@ async fn finalization_inherits_default_acl_and_autoclass_class() {
         .finalize(None, BucketAccess::Permissive, 1024)
         .await
         .unwrap();
-    assert_eq!(record.storage_class, "STANDARD");
+    assert_eq!(record.storage_class.as_str(), "STANDARD");
     let generation = record.generation;
     let inherited: String = catalog
         .run_upload(move |connection| {

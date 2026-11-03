@@ -1,6 +1,6 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CatalogError, CorsRule, SoftDeletedBucket,
+    BucketMetadataUpdate, BucketRecord, CatalogError, CorsRule, SoftDeletedBucket, StorageClass,
     UNIFORM_ACCESS_LOCK_PERIOD, bucket_location, cors_from_value, cors_value, valid_label,
     validate_storage_class,
 };
@@ -292,7 +292,7 @@ pub(crate) fn parse_insert_with_profile(
     } else {
         insert_string(body, "storageClass", Some("STANDARD"))?
     };
-    validate_storage_class(&storage_class)?;
+    let storage_class = validate_storage_class(&storage_class)?;
     // Ruby sends disabled Autoclass even when no option was supplied; that stays unconfigured.
     let autoclass = body
         .get("autoclass")
@@ -593,7 +593,7 @@ fn reject_unsupported_update_fields(
 fn update_storage_class(
     body: &serde_json::Map<String, Value>,
     profile: CompatProfile,
-) -> Result<Option<String>, JsonError> {
+) -> Result<Option<StorageClass>, JsonError> {
     let class = match body.get("storageClass") {
         None => return Ok(None),
         Some(Value::Null) if profile == CompatProfile::Native => return Ok(None),
@@ -601,13 +601,13 @@ fn update_storage_class(
             .as_str()
             .ok_or_else(|| JsonError::invalid("storageClass must be a string"))?,
     };
-    validate_storage_class(class).map_err(|error| match error {
+    let class = validate_storage_class(class).map_err(|error| match error {
         CatalogError::InvalidMetadata(_) => {
             JsonError::invalid(format!("Invalid storage class \"{class}\""))
         }
         error => error.into(),
     })?;
-    Ok(Some(class.to_owned()))
+    Ok(Some(class))
 }
 
 /// Whether a PATCH or PUT member counts as a change even when it changes no stored value. Cloud

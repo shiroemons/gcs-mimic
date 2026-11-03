@@ -4,6 +4,37 @@ use crate::storage::test_fixtures::PERMISSIVE;
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 
+#[test]
+fn owner_acl_reconciliation_rejects_corrupt_stored_roles_and_json() {
+    let connection = Connection::open_in_memory().unwrap();
+    connection.execute_batch("CREATE TABLE acl_object_entries(bucket TEXT,name TEXT,generation INTEGER,entries TEXT);").unwrap();
+    let owner = ObjectOwner::Principal {
+        id: "owner".into(),
+        entity: Some("user-old@example.test".into()),
+    };
+    for stored in [
+        r#"[{"entity":"user-old@example.test","role":"UNKNOWN"}]"#,
+        "not-json",
+    ] {
+        connection
+            .execute("DELETE FROM acl_object_entries", [])
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO acl_object_entries VALUES ('bucket','object',1,?1)",
+                [stored],
+            )
+            .unwrap();
+        assert!(
+            matches!(
+                reconcile_grant(&connection, ("bucket", "object", 1), &owner, &owner),
+                Err(CatalogError::Corrupt(_))
+            ),
+            "{stored}"
+        );
+    }
+}
+
 fn strict(identities: serde_json::Value) -> Profile {
     let auth = Auth::strict(
         Registry::parse(json!({"identities":identities}).to_string().as_bytes()).unwrap(),

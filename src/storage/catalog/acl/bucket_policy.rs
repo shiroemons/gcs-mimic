@@ -5,7 +5,7 @@ use super::{
 };
 use crate::storage::catalog::sql;
 use crate::{
-    acl::{AclKind, bucket_iam_role, project_number, project_private, validate_entries},
+    acl::{AclKind, AclRole, bucket_iam_role, project_number, project_private, validate_entries},
     auth::{Binding, Policy},
     storage::catalog::{policies, principals::Profile, unavailable},
 };
@@ -15,11 +15,11 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 mod tests;
 
-fn acl_role(role: &str) -> Option<&'static str> {
+fn acl_role(role: &str) -> Option<AclRole> {
     match role {
-        "roles/storage.legacyBucketReader" => Some("READER"),
-        "roles/storage.legacyBucketWriter" => Some("WRITER"),
-        "roles/storage.legacyBucketOwner" => Some("OWNER"),
+        "roles/storage.legacyBucketReader" => Some(AclRole::Reader),
+        "roles/storage.legacyBucketWriter" => Some(AclRole::Writer),
+        "roles/storage.legacyBucketOwner" => Some(AclRole::Owner),
         _ => None,
     }
 }
@@ -79,16 +79,8 @@ fn iam_member(entity: &str, project: &str) -> Result<String, CatalogError> {
     })
 }
 
-fn rank(role: &str) -> u8 {
-    match role {
-        "OWNER" => 3,
-        "WRITER" => 2,
-        _ => 1,
-    }
-}
-
 fn policy_entries(policy: &Policy, project: &str, principals: Option<&Profile>) -> Vec<AclEntry> {
-    let mut entries: BTreeMap<String, &str> = BTreeMap::new();
+    let mut entries: BTreeMap<String, AclRole> = BTreeMap::new();
     for binding in &policy.bindings {
         let Some(role) = acl_role(&binding.role) else {
             continue;
@@ -96,7 +88,7 @@ fn policy_entries(policy: &Policy, project: &str, principals: Option<&Profile>) 
         for member in &binding.members {
             if let Some(entity) = member_entity(member, project, principals) {
                 let current = entries.entry(entity).or_insert(role);
-                if rank(role) > rank(current) {
+                if role > *current {
                     *current = role;
                 }
             }
@@ -104,10 +96,7 @@ fn policy_entries(policy: &Policy, project: &str, principals: Option<&Profile>) 
     }
     entries
         .into_iter()
-        .map(|(entity, role)| AclEntry {
-            entity,
-            role: role.into(),
-        })
+        .map(|(entity, role)| AclEntry { entity, role })
         .collect()
 }
 
@@ -129,8 +118,7 @@ fn merge_stored_grants(
     validate_entries(AclKind::Bucket, entries)?;
     let mut changed = false;
     for entry in entries {
-        let role = bucket_iam_role(&entry.role)
-            .ok_or_else(|| CatalogError::Corrupt("invalid bucket ACL role".into()))?;
+        let role = bucket_iam_role(entry.role);
         let present = policy.bindings.iter().any(|binding| {
             binding.role == role
                 && binding.members.iter().any(|member| {
@@ -157,7 +145,7 @@ pub(super) fn replace_policy(
 ) -> Result<(), CatalogError> {
     let row = bucket_row(connection, bucket)?.ok_or(CatalogError::NotFound)?;
     let mut policy = policies::read_policy(connection, bucket)?;
-    let previous = stored_bucket_entries(connection, bucket, "bucket")?
+    let previous = stored_bucket_entries(connection, bucket, AclKind::Bucket)?
         .unwrap_or_else(|| project_private(&row.project));
     let initialized = if row.policy_bound {
         false
@@ -207,8 +195,7 @@ pub(super) fn replace_policy(
         if !changed.contains(&entry.entity) {
             continue;
         }
-        let role = bucket_iam_role(&entry.role)
-            .ok_or_else(|| CatalogError::Corrupt("invalid bucket ACL role".into()))?;
+        let role = bucket_iam_role(entry.role);
         // An ACL edit must not turn a stable IAM local ID into its changeable user alias.
         let grantees = members.remove(&entry.entity).unwrap_or_default();
         if grantees.is_empty() {
@@ -243,7 +230,7 @@ pub(in super::super) fn replace_from_policy(
     let row = bucket_row(connection, bucket)?.ok_or(CatalogError::NotFound)?;
     let entries = policy_entries(policy, &row.project, principals);
     validate_entries(AclKind::Bucket, &entries)?;
-    let mut current = stored_bucket_entries(connection, bucket, "bucket")?
+    let mut current = stored_bucket_entries(connection, bucket, AclKind::Bucket)?
         .unwrap_or_else(|| project_private(&row.project));
     let stored_order = current.clone();
     current.sort_by(|left, right| left.entity.cmp(&right.entity));
@@ -275,7 +262,7 @@ pub(in super::super) fn reconcile(
     let mut policy = policies::read_policy(connection, bucket)?;
     let changed = if row.policy_bound {
         false
-    } else if let Some(entries) = stored_bucket_entries(connection, bucket, "bucket")? {
+    } else if let Some(entries) = stored_bucket_entries(connection, bucket, AclKind::Bucket)? {
         merge_stored_grants(&mut policy, &entries, &row.project, Some(principals))?
     } else {
         false

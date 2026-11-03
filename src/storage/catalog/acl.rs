@@ -14,7 +14,7 @@ use super::{
 };
 use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
-    acl::{AclEntry, AclKind, AclTarget, Entity, MAX_ENTRIES, project_private},
+    acl::{AclEntry, AclKind, AclRole, AclTarget, Entity, MAX_ENTRIES, project_private},
     bucket::{BucketAccess, BucketConditions, CatalogError},
     object::{ObjectConditions, ObjectError},
 };
@@ -105,7 +105,7 @@ pub(super) fn publish_object_acl(
     let row = bucket_row(connection, bucket)?.ok_or(ObjectError::BucketNotFound)?;
     let mut entries = match mode {
         PublicationAcl::InheritDefault => {
-            let stored = stored_bucket_entries(connection, bucket, "defaultObject")?;
+            let stored = stored_bucket_entries(connection, bucket, AclKind::DefaultObject)?;
             if stored.is_none() && record.owner.is_none() {
                 return Ok(());
             }
@@ -166,7 +166,7 @@ pub(crate) enum AclChange {
     /// Insert, update and patch upsert one entity; `None` keeps an existing patch role.
     Upsert {
         entity: String,
-        role: Option<String>,
+        role: Option<AclRole>,
     },
     Delete {
         entity: String,
@@ -284,23 +284,29 @@ fn bucket_row(connection: &Connection, bucket: &str) -> Result<Option<BucketRow>
     .map_err(unavailable)
 }
 
-fn decode(entries: &str) -> Result<Vec<AclEntry>, CatalogError> {
-    serde_json::from_str(entries).map_err(|_| CatalogError::Corrupt("invalid stored ACL".into()))
+pub(super) fn decode(entries: &str, kind: AclKind) -> Result<Vec<AclEntry>, CatalogError> {
+    let entries: Vec<AclEntry> = serde_json::from_str(entries)
+        .map_err(|_| CatalogError::Corrupt("invalid stored ACL".into()))?;
+    for entry in &entries {
+        crate::acl::validate_role(kind, entry.role.as_str())
+            .map_err(|_| CatalogError::Corrupt("invalid stored ACL".into()))?;
+    }
+    Ok(entries)
 }
 
 fn stored_bucket_entries(
     connection: &Connection,
     bucket: &str,
-    scope: &str,
+    kind: AclKind,
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
     sql::row(
         connection,
         "SELECT entries FROM acl_bucket_entries WHERE bucket = ?1 AND scope = ?2",
-        params![bucket, scope],
+        params![bucket, scope(kind)],
         |row| row.get::<_, String>(0),
     )
     .optional()?
-    .map(|entries| decode(&entries))
+    .map(|entries| decode(&entries, kind))
     .transpose()
 }
 
@@ -311,13 +317,12 @@ pub(super) fn bucket_granted(
     identity: Option<&crate::auth::Identity>,
     permission: &str,
 ) -> Result<bool, CatalogError> {
-    let entries = stored_bucket_entries(connection, bucket, "bucket")?
+    let entries = stored_bucket_entries(connection, bucket, AclKind::Bucket)?
         .unwrap_or_else(|| project_private(project));
     let public = super::policies::policy_public_access(connection, bucket)?;
     // Bucket ACL roles are the same authority as legacy bucket IAM, including under UBLA.
     Ok(entries.iter().any(|entry| {
-        crate::acl::bucket_iam_role(&entry.role)
-            .and_then(crate::auth::roles::permissions)
+        crate::auth::roles::permissions(crate::acl::bucket_iam_role(entry.role))
             .is_some_and(|permissions| permissions.binary_search(&permission).is_ok())
             && Entity::parse(&entry.entity).is_ok_and(|entity| entity.matches(identity, public))
     }))
@@ -368,7 +373,7 @@ pub(super) fn object_granted(
         .unwrap_or_else(|| project_private(&row.project));
     let public = super::policies::policy_public_access(connection, bucket)?;
     Ok(entries.iter().any(|entry| {
-        crate::acl::object_role_allows(&entry.role, *permission)
+        crate::acl::object_role_allows(entry.role, *permission)
             && Entity::parse(&entry.entity)
                 .is_ok_and(|entity| entity.matches(identity.as_ref(), public))
     }))
@@ -382,7 +387,7 @@ fn stored_object_entries(
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
     const SELECT: &str = "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3";
     sql::optional_scalar::<String>(connection, SELECT, params![bucket, name, generation])?
-        .map(|entries| decode(&entries))
+        .map(|entries| decode(&entries, AclKind::Object))
         .transpose()
 }
 
@@ -486,7 +491,7 @@ pub(super) fn replace_resource_acl(
                         ResolvedAclTarget::Object {
                             name, generation, ..
                         } => stored_object_entries(connection, bucket, name, generation)?,
-                        _ => stored_bucket_entries(connection, bucket, scope(target.kind()))?,
+                        _ => stored_bucket_entries(connection, bucket, target.kind())?,
                     }
                     .unwrap_or_else(|| project_private(&row.project));
                     if let ResolvedAclTarget::Object {
@@ -576,7 +581,7 @@ fn load(
             if row.uniform_access {
                 return Err(AclError::UniformAccess);
             }
-            let entries = stored_bucket_entries(connection, bucket, scope(target.kind()))?
+            let entries = stored_bucket_entries(connection, bucket, target.kind())?
                 .unwrap_or_else(|| project_private(&row.project));
             let state = AclState {
                 entries,
@@ -755,7 +760,7 @@ impl Catalog {
                     let position = state.entries.iter().position(|entry| entry.entity == entity);
                     let role = match (role, position) {
                         (Some(role), _) => role,
-                        (None, Some(index)) => state.entries[index].role.clone(),
+                        (None, Some(index)) => state.entries[index].role,
                         (None, None) => return Err(AclError::RoleRequired),
                     };
                     let entry = AclEntry { entity, role };
@@ -901,10 +906,14 @@ impl Catalog {
             }
             Ok(Some(AclProjection {
                 uniform_access: row.uniform_access,
-                bucket: stored_bucket_entries(&transaction, &bucket, "bucket")?
+                bucket: stored_bucket_entries(&transaction, &bucket, AclKind::Bucket)?
                     .unwrap_or_else(default),
-                default_object: stored_bucket_entries(&transaction, &bucket, "defaultObject")?
-                    .unwrap_or_else(default),
+                default_object: stored_bucket_entries(
+                    &transaction,
+                    &bucket,
+                    AclKind::DefaultObject,
+                )?
+                .unwrap_or_else(default),
                 bucket_metageneration: row.metageneration,
                 objects: entries,
                 owners,

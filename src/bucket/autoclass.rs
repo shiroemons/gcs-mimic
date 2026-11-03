@@ -4,12 +4,12 @@
 //! the server-computed timestamps. Access-driven class transitions are not simulated, so every
 //! object in an enabled bucket stays in STANDARD storage.
 
-use super::CatalogError;
+use super::{CatalogError, StorageClass};
 use serde_json::Value;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The bucket default class and newly written objects are always STANDARD while enabled.
-pub(crate) const AUTOCLASS_STORAGE_CLASS: &str = "STANDARD";
+pub(crate) const AUTOCLASS_STORAGE_CLASS: StorageClass = StorageClass::Standard;
 const DEFAULT_TERMINAL_STORAGE_CLASS: &str = "NEARLINE";
 /// The official Autoclass page forbids re-enabling until one day after it was disabled.
 const REENABLE_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -174,7 +174,7 @@ pub(crate) fn apply(
 /// Reject final bucket states that the official Autoclass restrictions forbid.
 pub(crate) fn validate_bucket(
     autoclass: Option<&Autoclass>,
-    storage_class: &str,
+    storage_class: StorageClass,
     lifecycle: &[Value],
 ) -> Result<(), CatalogError> {
     if !autoclass.is_some_and(|config| config.enabled) {
@@ -199,11 +199,11 @@ pub(crate) fn validate_bucket(
 /// Storage class for a newly written object. Autoclass ignores the requested class.
 pub(crate) fn object_storage_class(
     autoclass: Option<&Autoclass>,
-    requested: Option<String>,
-    bucket_default: String,
-) -> String {
+    requested: Option<StorageClass>,
+    bucket_default: StorageClass,
+) -> StorageClass {
     if autoclass.is_some_and(|config| config.enabled) {
-        AUTOCLASS_STORAGE_CLASS.to_owned()
+        AUTOCLASS_STORAGE_CLASS
     } else {
         requested.unwrap_or(bucket_default)
     }
@@ -343,32 +343,35 @@ mod tests {
         let config = config.as_ref();
         validate_bucket(
             config,
-            "STANDARD",
+            StorageClass::Standard,
             &[json!({"action":{"type":"Delete"},"condition":{"age":1}})],
         )
         .unwrap();
         for class in ["NEARLINE", "COLDLINE", "ARCHIVE"] {
-            assert!(validate_bucket(config, class, &[]).is_err());
-            validate_bucket(None, class, &[]).unwrap();
+            assert!(validate_bucket(config, class.parse().unwrap(), &[]).is_err());
+            validate_bucket(None, class.parse().unwrap(), &[]).unwrap();
         }
         for rule in [
             json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1}}),
             json!({"action":{"type":"Delete"},"condition":{"matchesStorageClass":["STANDARD"]}}),
         ] {
-            assert!(validate_bucket(config, "STANDARD", std::slice::from_ref(&rule)).is_err());
-            validate_bucket(None, "STANDARD", &[rule]).unwrap();
+            assert!(
+                validate_bucket(config, StorageClass::Standard, std::slice::from_ref(&rule))
+                    .is_err()
+            );
+            validate_bucket(None, StorageClass::Standard, &[rule]).unwrap();
         }
         assert_eq!(
-            object_storage_class(config, Some("COLDLINE".into()), "STANDARD".into()),
-            "STANDARD"
+            object_storage_class(config, Some(StorageClass::Coldline), StorageClass::Standard),
+            StorageClass::Standard
         );
         assert_eq!(
-            object_storage_class(None, Some("COLDLINE".into()), "STANDARD".into()),
-            "COLDLINE"
+            object_storage_class(None, Some(StorageClass::Coldline), StorageClass::Standard),
+            StorageClass::Coldline
         );
         assert_eq!(
-            object_storage_class(None, None, "NEARLINE".into()),
-            "NEARLINE"
+            object_storage_class(None, None, StorageClass::Nearline),
+            StorageClass::Nearline
         );
     }
 }

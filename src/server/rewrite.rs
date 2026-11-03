@@ -250,8 +250,7 @@ async fn execute(
         let multiple = source_bucket.location != destination_bucket.location
             || destination
                 .storage_class
-                .as_deref()
-                .unwrap_or(&destination_bucket.storage_class)
+                .unwrap_or(destination_bucket.storage_class)
                 != source.object.storage_class;
         let budget = if multiple {
             operation
