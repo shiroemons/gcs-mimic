@@ -50,7 +50,7 @@ impl Error for SeedError {
         match self {
             Self::Io(error) => error.source(),
             Self::Admin(error) | Self::BucketName(error) => error.source(),
-            Self::ObjectName(error) => error.source(),
+            Self::ObjectName(error) => Some(error),
             Self::RelativePath(error) => error.source(),
             Self::Entry { source, .. } | Self::Import(source) => Some(source.as_ref()),
             _ => None,
@@ -67,5 +67,17 @@ impl From<io::Error> for SeedError {
 impl From<AdminError> for SeedError {
     fn from(error: AdminError) -> Self {
         Self::Admin(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn object_name_messages_keep_the_json_failure_in_the_cause_chain() {
+        let error = SeedError::ObjectName(crate::json::validate_object_name("").unwrap_err());
+        let cause = error.source().unwrap().downcast_ref::<JsonError>().unwrap();
+        assert_eq!(error.to_string(), cause.message);
     }
 }
