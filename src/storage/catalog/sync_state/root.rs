@@ -463,6 +463,7 @@ pub struct RootLease {
     marker_identity: FileIdentity,
     authority: Arc<super::authority::ControlAuthority>,
     stopping: Option<tokio::sync::watch::Receiver<bool>>,
+    pub(super) published_observation: super::observation::publication::Published,
 }
 impl RootLease {
     pub(crate) fn with_shutdown(mut self, stopping: tokio::sync::watch::Receiver<bool>) -> Self {
@@ -695,6 +696,7 @@ impl SyncState {
             marker_identity,
             authority: Arc::new(super::authority::ControlAuthority::Permissive),
             stopping: None,
+            published_observation: Default::default(),
         })
     }
 }

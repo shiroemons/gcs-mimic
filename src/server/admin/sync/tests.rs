@@ -291,10 +291,10 @@ impl Fixture {
             fence,
         )
         .await;
-        let id = pending.workspace_entry.name().to_owned();
+        let id = pending.token.id().to_owned();
         let path = self.tree.0.join(crate::sync::mapping::WORKSPACE).join(&id);
         fs::write(&path, bytes).unwrap();
-        writeback.inspect(pending.token).await.unwrap();
+        writeback.recover_pending().await.unwrap();
         ArmedWorkspace {
             root,
             writeback,
@@ -1241,6 +1241,58 @@ async fn strict_control_authority_precedes_body_parsing_and_requires_each_explic
         .await["auth_mode"],
         "strict"
     );
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval()
+{
+    let fixture = Fixture::new(Tree::LongNames).await;
+    fs::remove_dir_all(fixture.tree.0.join("test-bucket")).unwrap();
+    fixture.task.rescan().await.unwrap();
+    let before = fixture.status().await;
+    assert_eq!(before["state"], "DeletionApproval");
+    let revision = before["pending_deletion_revision"].as_str().unwrap();
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+
+    // Inject the exact interval between a delayed native event's invalidation and its completed scan.
+    let publication = root.begin_observation_publication().await.unwrap();
+    root.invalidate_deletions().await.unwrap();
+    let during = tokio::time::timeout(Duration::from_secs(1), fixture.status())
+        .await
+        .unwrap();
+    assert_eq!(during["state"], "DeletionApproval");
+    assert_eq!(
+        during["pending_deletion_revision"],
+        before["pending_deletion_revision"]
+    );
+    assert_eq!(
+        during["pending_deletion_count"],
+        before["pending_deletion_count"]
+    );
+    assert_eq!(during["observation"], before["observation"]);
+    assert_eq!(
+        status_of(
+            fixture
+                .request(
+                    "POST",
+                    "/_internal/sync/approve",
+                    &serde_json::to_vec(&json!({"deletion_set":revision})).unwrap(),
+                    None
+                )
+                .await
+        ),
+        StatusCode::CONFLICT
+    );
+    drop(publication);
+    fixture.task.rescan().await.unwrap();
+    let completed = fixture.status().await;
+    assert_eq!(completed["state"], "DeletionApproval");
+    assert_ne!(
+        completed["pending_deletion_revision"],
+        before["pending_deletion_revision"]
+    );
+    drop(root);
     fixture.finish().await;
 }
 

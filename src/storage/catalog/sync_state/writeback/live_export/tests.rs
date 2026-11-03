@@ -622,6 +622,205 @@ async fn live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried() {
 }
 
 #[tokio::test]
+async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
+    let fixture = Fixture::new().await;
+    let record = fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    fixture
+        .writeback
+        .advance_live_export(operation.clone())
+        .await
+        .unwrap();
+    inject_failure(fixture.root.status().root_id, "displaced-parent-sync", 1);
+    assert!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        fixture.writeback.status().await.unwrap().stop,
+        Stop::IoFailure
+    );
+    let tree = TestDir::new();
+    let root = fixture
+        .catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let other = root.default_writeback().await.unwrap();
+    let name = ObjectName::new("object").unwrap();
+    let (_, reader) = fixture
+        .catalog
+        .admin(Origin::Api)
+        .open_object(&fixture.bucket, &name, None)
+        .await
+        .unwrap();
+    let next = other
+        .begin_live_export(
+            fixture
+                .catalog
+                .sync_state()
+                .binding(&fixture.bucket)
+                .await
+                .unwrap(),
+            name,
+            Generation::new(record.generation).unwrap(),
+            None,
+            fixture
+                .catalog
+                .read_changes(None, None, 1)
+                .await
+                .unwrap()
+                .fence,
+            LiveSource::ApiCopy(reader.into_file().await.unwrap()),
+        )
+        .await
+        .unwrap();
+    for _ in 0..3 {
+        assert_eq!(
+            other.advance_live_export(next.clone()).await.unwrap(),
+            LiveResult::Pending
+        );
+    }
+    assert_eq!(
+        other.advance_live_export(next.clone()).await.unwrap(),
+        LiveResult::Complete
+    );
+    assert_eq!(
+        fixture.writeback.status().await.unwrap().stop,
+        Stop::IoFailure
+    );
+    assert!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        fixture.writeback.recover_pending().await.unwrap().stop,
+        Stop::Ready
+    );
+    assert_eq!(
+        fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
+        b"api"
+    );
+    drop(next);
+    drop(other);
+    drop(root);
+    drop(operation);
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn live_export_rejects_held_and_stale_tracked_inputs() {
+    use crate::{
+        object::ObjectMetadataUpdate,
+        storage::test_fixtures::{PERMISSIVE, live},
+    };
+    let fixture = Fixture::new().await;
+    let record = fixture.publish("object", b"api").await;
+    let name = ObjectName::new("object").unwrap();
+    let generation = Generation::new(record.generation).unwrap();
+    let binding = fixture
+        .catalog
+        .sync_state()
+        .binding(&fixture.bucket)
+        .await
+        .unwrap();
+    let fence = fixture
+        .catalog
+        .read_changes(None, None, 1)
+        .await
+        .unwrap()
+        .fence;
+    fixture
+        .catalog
+        .update_object_metadata(
+            live("test-bucket", "object"),
+            Default::default(),
+            ObjectMetadataUpdate {
+                temporary_hold: Some(true),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        fixture
+            .writeback
+            .begin_live_export(
+                binding.clone(),
+                name.clone(),
+                generation,
+                None,
+                fence,
+                LiveSource::Observe
+            )
+            .await,
+        Err(Error::Admin(AdminError::Hold))
+    ));
+    fixture
+        .catalog
+        .update_object_metadata(
+            live("test-bucket", "object"),
+            Default::default(),
+            ObjectMetadataUpdate {
+                temporary_hold: Some(false),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    let operation = fixture.begin("object").await;
+    for _ in 0..4 {
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap();
+    }
+    let mut tracked = fixture
+        .catalog
+        .sync_state()
+        .get_path(binding.clone(), "test-bucket/object".into())
+        .await
+        .unwrap()
+        .unwrap();
+    tracked.fingerprint.inode ^= 1;
+    let fence = fixture
+        .catalog
+        .read_changes(None, None, 1)
+        .await
+        .unwrap()
+        .fence;
+    assert!(matches!(
+        fixture
+            .writeback
+            .begin_live_export(
+                binding,
+                name,
+                generation,
+                Some(tracked),
+                fence,
+                LiveSource::Observe
+            )
+            .await,
+        Err(Error::Admin(AdminError::Precondition))
+    ));
+    assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);
+    drop(operation);
+    fixture.close().await;
+}
+
+#[tokio::test]
 async fn live_export_cancelled_install_serializes_other_handles_until_the_owned_job_drains() {
     use crate::storage::catalog::fault::{Fault, Step};
     use std::time::Duration;

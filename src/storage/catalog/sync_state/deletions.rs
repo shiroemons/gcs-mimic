@@ -152,7 +152,10 @@ fn matching(connection: &Connection, root: [u8; 16], revision: &str) -> Result<(
     }
 }
 
-fn read_set(connection: &Connection, root: [u8; 16]) -> Result<Option<DeletionSet>, CatalogError> {
+pub(super) fn read_set(
+    connection: &Connection,
+    root: [u8; 16],
+) -> Result<Option<DeletionSet>, CatalogError> {
     sql::row(connection, "SELECT revision,scan_revision,baseline_count,candidate_count,guard_enabled,guarded,authorization,d.sequence,d.epoch,(SELECT count(*) FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=1) FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE root_id=?1 AND valid=1 AND complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence", [root],|row|Ok(DeletionSet {
             revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get(2)?,candidate_count:row.get(3)?,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get(7)?,epoch:row.get(8)?},completed_count:row.get(9)?,
         })).optional().map_err(unavailable)

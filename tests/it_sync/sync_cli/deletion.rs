@@ -18,7 +18,7 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
     fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
     server.cli("rescan", &[], true);
     let status = server.cli("status", &[], true);
-    assert_eq!(status["state"], "DeletionApproval");
+    assert_eq!(status["state"], "DeletionApproval", "{status}");
     assert_eq!(status["pending_deletion_count"], 100);
     let old = status["pending_deletion_revision"].as_str().unwrap();
     let first = server.cli("deletions", &["--revision", old, "--limit", "37"], true);

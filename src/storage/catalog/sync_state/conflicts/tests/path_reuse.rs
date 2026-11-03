@@ -1,5 +1,43 @@
 use super::*;
 
+#[tokio::test]
+async fn capture_path_rejects_case_aliases_in_parents_and_the_selected_leaf() {
+    let fixture = Fixture::new().await;
+    let directory = fixture.tree.0.join("TEST-BUCKET");
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("Object.txt"), b"external bytes").unwrap();
+    assert!(matches!(
+        fixture.lease.capture_path(fixture.request().await).await,
+        Err(Error::TargetChanged)
+    ));
+    assert_eq!(fixture.page().await.usage.entries, 0);
+    fs::rename(directory, fixture.tree.0.join("test-bucket")).unwrap();
+    assert!(matches!(
+        fixture.lease.capture_path(fixture.request().await).await,
+        Err(Error::TargetChanged)
+    ));
+    assert_eq!(fixture.page().await.usage.entries, 0);
+    fs::rename(
+        fixture.tree.0.join("test-bucket/Object.txt"),
+        fixture.tree.0.join("test-bucket/object.txt"),
+    )
+    .unwrap();
+    let copy = fixture
+        .lease
+        .capture_path(fixture.request().await)
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read(fixture.data.0.join("sync-conflicts").join(copy.id())).unwrap(),
+        b"external bytes"
+    );
+    assert_eq!(
+        fs::read(fixture.tree.0.join("test-bucket/object.txt")).unwrap(),
+        b"external bytes"
+    );
+    fixture.close().await;
+}
+
 fn target(fixture: &Fixture) -> PathBuf {
     let directory = fixture.tree.0.join("test-bucket");
     fs::create_dir_all(&directory).unwrap();

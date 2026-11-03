@@ -471,7 +471,10 @@ async fn run_live_config(
                 _ = stopping.changed() => break,
                 observed = watcher.watch.changed() => {
                     let observed=observed?;
+                    let _publication = root.begin_observation_publication().await.map_err(io::Error::other)?;
                     root.invalidate_deletions().await.map_err(io::Error::other)?;
+                    #[cfg(test)]
+                    export_checkpoint("observation-invalidated").await;
                     // Register before scanning so edits during reconciliation cause another pass.
                     if observed==crate::source_tree::watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
                     if *stopping.borrow() { break }
@@ -746,6 +749,10 @@ async fn ingest_external_with(
     ingest_complete: &mut BaselineGate,
     baseline_complete: &mut bool,
 ) -> io::Result<Reconciliation> {
+    let _publication = root
+        .begin_observation_publication()
+        .await
+        .map_err(io::Error::other)?;
     let mut summary =
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
     *ingest_complete = BaselineGate::after_ingest(&summary);
@@ -1117,6 +1124,8 @@ impl LiveObject<'_> {
             return Ok(None);
         };
         let generation = Generation::new(record.generation).map_err(io::Error::other)?;
+        #[cfg(test)]
+        export_checkpoint("before-open").await;
         let opened = match content {
             Content::Identical => admin
                 .get_object(bucket, name, Some(generation))
@@ -1193,10 +1202,25 @@ impl LiveObject<'_> {
         };
         #[cfg(test)]
         export_checkpoint("after-prepare").await;
+        #[cfg(test)]
+        export_checkpoint("before-arm").await;
+        #[cfg(test)]
+        export_checkpoint("before-publish").await;
         let mut preserved = false;
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+        let mut durable_checkpoint = false;
         loop {
             match advance_with_retry(writeback, operation.clone()).await? {
-                LiveResult::Pending => {}
+                LiveResult::Pending => {
+                    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+                    if !durable_checkpoint
+                        && writeback::live_pending(&operation).await.phase
+                            == writeback::Phase::Armed
+                    {
+                        durable_checkpoint = true;
+                        export_checkpoint("before-durable").await;
+                    }
+                }
                 LiveResult::Complete => {
                     if plan.content == Content::Identical {
                         summary.identical += 1;
@@ -1607,99 +1631,6 @@ async fn finding(
         summary.unrepresentable += 1;
     }
     Ok(())
-}
-
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-async fn export(
-    admin: &Admin,
-    writeback: &Writeback,
-    bucket: &BucketName,
-    name: &ObjectName,
-    path: Option<PathBuf>,
-    record: &ObjectRecord,
-    fence: crate::storage::change_journal::JournalFence,
-) -> io::Result<bool> {
-    let generation = Generation::new(record.generation).map_err(io::Error::other)?;
-    #[cfg(test)]
-    export_checkpoint("before-open").await;
-    let (_, reader) = match admin.open_object(bucket, name, Some(generation)).await {
-        Ok(opened) => opened,
-        Err(AdminError::NotFound | AdminError::Precondition) => return Ok(false),
-        Err(error) => return Err(io::Error::other(error)),
-    };
-    let source = reader.into_file().await?;
-    let (pending, proof) = match writeback
-        .prepare_publish_copy(
-            bucket,
-            name,
-            generation,
-            fence,
-            path.is_some().then_some(source),
-        )
-        .await
-    {
-        Ok(prepared) => prepared,
-        Err(error) if concurrent_change(&error) => return Ok(false),
-        Err(error) => return Err(io::Error::other(error)),
-    };
-    #[cfg(test)]
-    export_checkpoint("before-arm").await;
-    let attempt = async {
-        let armed = writeback.arm(pending.token).await?;
-        #[cfg(test)]
-        export_checkpoint("before-publish").await;
-        if let Some(path) = path {
-            let entry = armed.workspace_entry.name().to_owned();
-            writeback
-                .file_job(armed.token.clone(), move |root, workspace| {
-                    let relative = path.parent().ok_or(AdminError::Precondition)?;
-                    let directory = parent(root, relative, ParentOpen::Existing)
-                        .map_err(|_| AdminError::Precondition)?;
-                    let target = path.file_name().ok_or(AdminError::Precondition)?;
-                    let result = fsutil::durable_replace_between(
-                        workspace,
-                        entry.as_ref(),
-                        &directory,
-                        target,
-                        None,
-                    )
-                    .map_err(fs_error)?;
-                    if !matches!(result, fsutil::ReplaceOutcome::Created) {
-                        return Err(AdminError::Precondition);
-                    }
-                    let current = parent(root, relative, ParentOpen::Existing)
-                        .map_err(|_| AdminError::Precondition)?;
-                    if !same_inode(&directory, &current)? {
-                        return Err(AdminError::Precondition);
-                    }
-                    Ok(())
-                })
-                .await?;
-        }
-        #[cfg(test)]
-        export_checkpoint("before-durable").await;
-        let receipt = writeback.durable(armed.token).await?;
-        writeback.acknowledge(receipt, None).await?;
-        Ok::<_, writeback::Error>(())
-    }
-    .await;
-    let completed = match attempt {
-        Ok(()) => true,
-        Err(error) if concurrent_change(&error) => {
-            match writeback.abandon_unpublished(proof.clone()).await {
-                Ok(()) => {}
-                Err(writeback::Error::Protected) => writeback
-                    .finish_obsolete_publish(proof)
-                    .await
-                    .map_err(io::Error::other)?,
-                Err(error) => return Err(io::Error::other(error)),
-            }
-            false
-        }
-        Err(error) => return Err(io::Error::other(error)),
-    };
-    writeback.resume().await.map_err(io::Error::other)?;
-    Ok(completed)
 }
 
 fn concurrent_change(error: &writeback::Error) -> bool {

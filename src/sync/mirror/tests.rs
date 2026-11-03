@@ -81,6 +81,70 @@ async fn live_fixture_with(name: &str) -> (TestDir, TestDir, Catalog, BucketName
 }
 
 #[tokio::test]
+async fn delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes() {
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    for index in 0..100 {
+        fs::write(tree.0.join(format!("test-bucket/{index:03}")), b"body").unwrap();
+    }
+    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let worker_root = root.clone();
+    let worker_catalog = catalog.clone();
+    let hook = std::sync::Arc::new(Hook {
+        phase: "idle,observation-invalidated",
+        entered: Default::default(),
+        release: Default::default(),
+    });
+    let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+        run_live(&worker_catalog, &worker_root, &mut stopping).await
+    }));
+    tokio::time::timeout(Duration::from_secs(60), hook.entered.notified())
+        .await
+        .unwrap();
+    fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+    let writeback = root.default_writeback().await.unwrap();
+    let mut gate = BaselineGate::Allowed;
+    let mut complete = true;
+    ingest_external(
+        &catalog,
+        &root,
+        &Config::default(),
+        &writeback,
+        &stop.subscribe(),
+        &mut gate,
+        &mut complete,
+    )
+    .await
+    .unwrap();
+    let before = root.deletion_set().await.unwrap().unwrap();
+    assert!(before.guarded);
+    assert_eq!(before.candidate_count, 100);
+
+    // The native deletion event was queued while the explicit scan completed.
+    hook.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        .await
+        .unwrap();
+    assert!(root.deletion_set().await.unwrap().is_none());
+    let (summary, during) = root
+        .published_observation_for(
+            crate::storage::sync_state::authority::ControlAuthority::Permissive,
+        )
+        .await
+        .unwrap();
+    assert!(summary.baseline_complete);
+    let during = during.unwrap();
+    assert_eq!(during.revision, before.revision);
+    assert_eq!(during.candidate_count, 100);
+    stop.send(true).unwrap();
+    hook.release.notify_one();
+    worker.await.unwrap().unwrap();
+    drop(writeback);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metadata_unchanged() {
     for (held, tracked) in [(false, false), (false, true), (true, false), (true, true)] {
         let (data, tree, catalog, bucket, root) = live_fixture().await;
@@ -846,12 +910,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             let pending = recovering.page(0, 256).await.unwrap();
             assert_eq!(pending.len(), 1);
             assert_eq!(
-                fs::read(
-                    tree.0
-                        .join(mapping::WORKSPACE)
-                        .join(pending[0].workspace_entry.name())
-                )
-                .unwrap(),
+                fs::read(tree.0.join(mapping::WORKSPACE).join(pending[0].token.id())).unwrap(),
                 b"before"
             );
             recovering.recover_pending().await.unwrap();
@@ -1023,14 +1082,24 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
             release: tokio::sync::Notify::new(),
         });
         let name = ObjectName::new("object").unwrap();
-        let output = (!identical).then(|| PathBuf::from("test-bucket/object"));
+        let mut summary = Reconciliation::default();
         let (result, ()) = tokio::join!(
             EXPORT_HOOK.scope(
                 hook.clone(),
-                export(&admin, &writeback, &bucket, &name, output, &record, fence)
+                reconcile_live_object(
+                    &catalog,
+                    &root,
+                    &writeback,
+                    &bucket,
+                    &name,
+                    fence,
+                    &mut summary
+                )
             ),
             async {
-                hook.entered.notified().await;
+                tokio::time::timeout(Duration::from_secs(5), hook.entered.notified())
+                    .await
+                    .unwrap();
                 match action {
                     "overwrite" => {
                         publish(&catalog, &bucket, b"new-api").await;
@@ -1052,7 +1121,11 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
                 hook.release.notify_one();
             }
         );
-        assert!(!result.unwrap(), "{phase} {action}");
+        result.unwrap();
+        assert!(
+            summary.deferred > 0 || summary.conflicting > 0,
+            "{phase} {action}"
+        );
         assert_eq!(
             writeback.status().await.unwrap().stop,
             Stop::Ready,
@@ -1060,7 +1133,26 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
         );
         assert!(writeback.page(0, 256).await.unwrap().is_empty());
         if action.starts_with("external") {
-            assert_eq!(std::fs::read(&path).unwrap(), b"external");
+            let conflicts = root
+                .conflict_page(
+                    None,
+                    0,
+                    256,
+                    crate::storage::sync_state::authority::ControlAuthority::Permissive,
+                )
+                .await
+                .unwrap();
+            assert_eq!(conflicts.items.len(), 1, "{phase} {action}");
+            assert_eq!(
+                std::fs::read(
+                    data.0
+                        .join("sync-conflicts")
+                        .join(&conflicts.items[0].conflict_id)
+                )
+                .unwrap(),
+                b"external"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), b"api");
         }
         if action == "overwrite" {
             let (_, reader) = admin.open_object(&bucket, &name, None).await.unwrap();

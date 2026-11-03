@@ -97,6 +97,18 @@ impl Fixture {
         )
         .await
     }
+    async fn durable(&self) -> Pending {
+        let operation = self.live().await;
+        for _ in 0..3 {
+            self.writeback
+                .advance_live_export(operation.clone())
+                .await
+                .unwrap();
+        }
+        let item = live_pending(&operation).await;
+        assert_eq!(item.phase, Phase::Durable);
+        item
+    }
     async fn live(&self) -> LiveExport {
         let name = ObjectName::new("object").unwrap();
         let binding = self
@@ -243,20 +255,11 @@ async fn restart_cancels_only_unarmed_owned_copies_including_short_and_zero_byte
 async fn restart_armed_and_durable_absence_preserves_the_current_target() {
     for phase in [Phase::Armed, Phase::Durable] {
         let fixture = Fixture::new().await;
-        let armed = fixture.armed().await;
-        if phase == Phase::Durable {
-            let token = armed.token;
-            fixture
-                .writeback
-                .db(move |c| {
-                    c.prepare_cached("UPDATE sync_writeback_ops SET phase=3 WHERE id=?1")?
-                        .execute([token.id])?;
-                    Ok(())
-                })
-                .await
-                .unwrap();
-        }
-        fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
+        match phase {
+            Phase::Durable => fixture.durable().await,
+            _ => fixture.armed().await,
+        };
+        fs::create_dir_all(fixture.tree.0.join("test-bucket")).unwrap();
         fs::write(fixture.tree.0.join("test-bucket/object"), b"later writer").unwrap();
         let fixture = fixture.restart(Journal::Disabled).await;
         assert_eq!(
@@ -282,25 +285,16 @@ async fn restart_protects_actual_armed_and_durable_bodies_without_quota_eviction
         (Phase::Durable, (1 << 40) + 1),
     ] {
         let fixture = Fixture::new().await;
-        let item = fixture.armed().await;
+        let item = match phase {
+            Phase::Durable => fixture.durable().await,
+            _ => fixture.armed().await,
+        };
         let path = fixture
             .tree
             .0
             .join(mapping::WORKSPACE)
             .join(item.token.id());
         File::create(&path).unwrap().set_len(size).unwrap();
-        if phase == Phase::Durable {
-            let id = item.token.id.clone();
-            fixture
-                .writeback
-                .db(move |c| {
-                    c.prepare_cached("UPDATE sync_writeback_ops SET phase=3 WHERE id=?1")?
-                        .execute([id])?;
-                    Ok(())
-                })
-                .await
-                .unwrap();
-        }
         let fixture = fixture.restart(Journal::Disabled).await;
         let usage = fixture.writeback.recover_pending().await.unwrap();
         assert_eq!(

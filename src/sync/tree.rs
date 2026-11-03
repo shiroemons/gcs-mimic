@@ -196,6 +196,7 @@ pub(crate) enum ParentOpen {
     Create,
 }
 
+#[derive(Debug)]
 pub(crate) enum ParentError {
     Finding(Reason),
     Missing,
@@ -219,7 +220,13 @@ pub(crate) fn structural_entry_error(error: &io::Error) -> bool {
 
 pub(crate) fn parent(root: &File, path: &Path, open: ParentOpen) -> Result<File, ParentError> {
     let mut directory = root.try_clone()?;
-    if path.is_absolute() {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    if path.is_absolute()
+        || !bytes.is_empty()
+            && bytes
+                .split(|byte| *byte == b'/')
+                .any(|part| matches!(part, b"" | b"." | b".."))
+    {
         return Err(ParentError::Finding(Reason::InvalidName));
     }
     for (depth, component) in path.iter().enumerate() {

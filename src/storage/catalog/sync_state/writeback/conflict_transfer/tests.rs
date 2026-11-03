@@ -108,7 +108,14 @@ impl Fixture {
             body,
         )
         .unwrap();
-        self.writeback.inspect(item.token).await.unwrap()
+        self.writeback.recover_pending().await.unwrap();
+        self.writeback
+            .page(0, 256)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|pending| pending.token.id() == item.token.id())
+            .unwrap()
     }
     async fn page(&self) -> Page {
         let page = self

@@ -700,28 +700,26 @@ async fn protected_workspace(fixture: &Fixture, size: u64) -> (writeback::Writeb
         .await
         .unwrap()
         .fence;
-    let pending = writeback
-        .prepare(
-            &fixture.bucket,
-            &ObjectName::new("object.txt").unwrap(),
-            Generation::new(fixture.winner.generation).unwrap(),
-            writeback::Kind::Publish,
-            fence,
-        )
-        .await
-        .unwrap();
-    let pending = writeback.arm(pending.token).await.unwrap();
-    let id = pending.workspace_entry.name().to_owned();
-    let name = id.clone();
-    writeback
-        .file_job(pending.token.clone(), move |_, workspace| {
-            let file = fsutil::create_regular_at(workspace, name.as_ref())?;
-            file.set_len(size)?;
-            Ok(())
-        })
-        .await
-        .unwrap();
-    writeback.inspect(pending.token).await.unwrap();
+    let pending = writeback::armed_observation(
+        &writeback,
+        &fixture.bucket,
+        &ObjectName::new("object.txt").unwrap(),
+        Generation::new(fixture.winner.generation).unwrap(),
+        fence,
+    )
+    .await;
+    let id = pending.token.id().to_owned();
+    File::create(
+        fixture
+            .tree
+            .0
+            .join(crate::sync::mapping::WORKSPACE)
+            .join(&id),
+    )
+    .unwrap()
+    .set_len(size)
+    .unwrap();
+    writeback.recover_pending().await.unwrap();
     (writeback, id)
 }
 

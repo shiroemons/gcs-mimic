@@ -377,7 +377,7 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
             assert_eq!(writeback.status().await.unwrap().entries, 0);
             assert!(!workspace.join(&id).exists());
             assert_eq!(
-                writeback.resume().await.unwrap().stop,
+                writeback.recover_pending().await.unwrap().stop,
                 writeback::Stop::Ready
             );
             drop(writeback);

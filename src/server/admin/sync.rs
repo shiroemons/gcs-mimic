@@ -356,10 +356,18 @@ async fn status(
         let Some(last) = recoveries.last() else { break };
         after = last.ordinal;
     }
-    let observation = root
-        .observation_for(authority.clone())
-        .await
-        .map_err(|error| root_error(&error))?;
+    let (observation, published_set) = if page.view == View::Findings || page.revision.is_some() {
+        (
+            root.observation_for(authority.clone())
+                .await
+                .map_err(|error| root_error(&error))?,
+            None,
+        )
+    } else {
+        root.published_observation_for(authority.clone())
+            .await
+            .map_err(|error| root_error(&error))?
+    };
     let findings_revision = format!("{session}{:016x}", observation.revision);
     if page.view == View::Findings {
         if page.revision.as_deref() != Some(&findings_revision) {
@@ -367,10 +375,13 @@ async fn status(
         }
         return findings_page(&root, page, &findings_revision, &observation, authority).await;
     }
-    let set = root
-        .deletion_set_for(authority.clone())
-        .await
-        .map_err(|error| root_error(&error))?;
+    let set = if page.revision.is_some() {
+        root.deletion_set_for(authority.clone())
+            .await
+            .map_err(|error| root_error(&error))?
+    } else {
+        published_set
+    };
     let ids = root.status();
     if let Some(revision) = &page.revision {
         let set = set
