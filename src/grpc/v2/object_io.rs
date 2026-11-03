@@ -8,10 +8,7 @@ use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     grpc::validate::{self, request_conditions},
     json,
-    object::{
-        ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget,
-        UploadChunk,
-    },
+    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget, UploadChunk},
     storage::{ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState},
 };
 use prost::Message;
@@ -839,31 +836,16 @@ impl Storage {
         } else {
             std::mem::take(&mut resource.content_type)
         };
+        let mut metadata = super::object_update::for_write(&resource);
+        metadata.replace = false;
         let storage_class = std::mem::take(&mut resource.storage_class);
-        let mut metadata = ObjectMetadataUpdate {
-            content_encoding: (!resource.content_encoding.is_empty())
-                .then(|| Some(std::mem::take(&mut resource.content_encoding))),
-            content_disposition: (!resource.content_disposition.is_empty())
-                .then(|| Some(std::mem::take(&mut resource.content_disposition))),
-            content_language: (!resource.content_language.is_empty())
-                .then(|| Some(std::mem::take(&mut resource.content_language))),
-            cache_control: (!resource.cache_control.is_empty())
-                .then(|| Some(std::mem::take(&mut resource.cache_control))),
-            metadata: Some(Some(
-                std::mem::take(&mut resource.metadata)
-                    .into_iter()
-                    .map(|(k, v)| (k, Some(v)))
-                    .collect(),
-            )),
-            temporary_hold: resource.temporary_hold.then_some(true),
-            event_based_hold: resource.event_based_hold.take(),
-            custom_time: resource
-                .custom_time
-                .take()
-                .map(|time| time.to_string())
-                .map(Some),
-            ..Default::default()
-        };
+        resource.content_encoding.clear();
+        resource.content_disposition.clear();
+        resource.content_language.clear();
+        resource.cache_control.clear();
+        resource.metadata.clear();
+        resource.event_based_hold = None;
+        resource.custom_time = None;
         resource.temporary_hold = false;
         resource.name.clear();
         resource.bucket.clear();
@@ -879,8 +861,8 @@ impl Storage {
         metadata.storage_class = (!storage_class.is_empty())
             .then(|| crate::object::validate_object_storage_class(&storage_class))
             .transpose()
-            .map_err(object_status)?;
-        metadata.validate().map_err(object_status)?;
+            .map_err(super::object_update::input_error)?;
+        super::object_update::validate(&metadata)?;
         let conditions = request_conditions!(conditions, spec)?;
         let total = spec
             .object_size
@@ -2247,13 +2229,13 @@ mod tests {
                     )
                 } else if class == "REGIONAL" {
                     ("Unimplemented", if matches!(label, "write" | "start-resumable") {
-                        "gcs-mimic does not support gRPC unsupported metadata change: storageClass=REGIONAL: storageClass requires a region or zone; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+                        "gcs-mimic does not support gRPC unsupported metadata change: storage_class=REGIONAL: storage_class requires a region or zone; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
                     } else {
                         "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
                     }.to_owned())
                 } else {
                     ("InvalidArgument", match label {
-                        "write" | "start-resumable" => "Invalid object storageClass; use STANDARD, NEARLINE, COLDLINE or ARCHIVE".into(),
+                        "write" | "start-resumable" => "Invalid object storage_class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE".into(),
                         "bucket-update" => format!("Invalid storage class \"{class}\""),
                         _ => "The storage class you specified is not valid.".into(),
                     })

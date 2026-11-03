@@ -4,7 +4,7 @@ use crate::{
     bucket::{BucketAccess, BucketConditions, BucketMetadataUpdate},
     grpc::validate::{self, bucket_conditions, request_conditions, strict_conditions},
     json::{self, JsonError},
-    object::{ComposeSource, ExpectedHashes, MapMode, ObjectConditions, ObjectTarget},
+    object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget},
     server::authorize_bucket,
     storage::{
         DerivedDestination, DerivedRequestGuard, MoveAccess, MoveConditions, MoveNames,
@@ -73,7 +73,7 @@ fn policy(policy: auth::Policy) -> Result<iam::Policy, Status> {
     })
 }
 
-fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
+fn validate_derived_fields(o: &pb::Object) -> Result<(), Status> {
     let supported = pb::Object {
         name: o.name.clone(),
         bucket: o.bucket.clone(),
@@ -94,6 +94,12 @@ fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
             "derived object fields; supply only editable JSON-supported metadata",
         ));
     }
+    Ok(())
+}
+
+// Existing rewrite tokens bind this persisted representation; metadata application is typed.
+fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
+    validate_derived_fields(o)?;
     let mut value = json!({"metadata":o.metadata});
     for (key, v) in [
         ("contentType", &o.content_type),
@@ -117,88 +123,6 @@ fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
         value["customTime"] = v.to_string().into();
     }
     Ok(value)
-}
-
-/// The JSON form of a replacement ACL. Only entity and role are writable; the shared JSON
-/// validation rejects invalid entities and roles and uniform bucket-level access.
-fn acl_entries<'a>(entries: impl Iterator<Item = (&'a String, &'a String)>) -> Value {
-    entries
-        .map(|(entity, role)| json!({"entity": entity, "role": role}))
-        .collect::<Vec<_>>()
-        .into()
-}
-
-/// The JSON form of an object retention configuration; an absent message removes it.
-fn retention(retention: Option<&pb::object::Retention>) -> Result<Value, Status> {
-    use pb::object::retention::Mode;
-    let Some(retention) = retention else {
-        return Ok(Value::Null);
-    };
-    let mode = match Mode::try_from(retention.mode) {
-        Ok(Mode::Unlocked) => "Unlocked",
-        Ok(Mode::Locked) => "Locked",
-        _ => {
-            return Err(Status::invalid_argument(
-                "retention.mode must be UNLOCKED or LOCKED",
-            ));
-        }
-    };
-    let until = retention.retain_until_time.ok_or_else(|| {
-        Status::invalid_argument("retention.retain_until_time is required with retention.mode")
-    })?;
-    Ok(json!({"mode": mode, "retainUntilTime": until.to_string()}))
-}
-
-fn object_patch(o: &pb::Object, paths: &[String]) -> Result<Value, Status> {
-    let mut body = json!({});
-    for path in paths {
-        match path.as_str() {
-            "metadata" => {
-                body["metadata"] = if o.metadata.is_empty() {
-                    Value::Null
-                } else {
-                    json!(o.metadata)
-                }
-            }
-            p if p.starts_with("metadata.") && p.len() > 9 => {
-                let key = &p[9..];
-                body["metadata"][key] = o
-                    .metadata
-                    .get(key)
-                    .map_or(Value::Null, |v| v.clone().into());
-            }
-            "temporary_hold" => body["temporaryHold"] = o.temporary_hold.into(),
-            "event_based_hold" => {
-                body["eventBasedHold"] = o.event_based_hold.unwrap_or(false).into()
-            }
-            "custom_time" => {
-                body["customTime"] = o.custom_time.map_or(Value::Null, |v| v.to_string().into())
-            }
-            "content_type" => body["contentType"] = o.content_type.clone().into(),
-            "content_encoding" => body["contentEncoding"] = o.content_encoding.clone().into(),
-            "content_disposition" => {
-                body["contentDisposition"] = o.content_disposition.clone().into()
-            }
-            "content_language" => {
-                body["contentLanguage"] = if o.content_language.is_empty() {
-                    Value::Null
-                } else {
-                    o.content_language.clone().into()
-                }
-            }
-            "cache_control" => body["cacheControl"] = o.cache_control.clone().into(),
-            // Go sends this output-only path for an ordinary empty Update.
-            "create_time" => {}
-            "acl" => body["acl"] = acl_entries(o.acl.iter().map(|e| (&e.entity, &e.role))),
-            "retention" => body["retention"] = retention(o.retention.as_ref())?,
-            _ => {
-                return Err(unsupported(&format!(
-                    "UpdateObject update_mask {path}; use metadata or content_type"
-                )));
-            }
-        }
-    }
-    Ok(body)
 }
 
 fn rewrite_error(e: RewriteError) -> Status {
@@ -345,6 +269,7 @@ struct NewRewrite<'a> {
     destination_conditions: ObjectConditions,
     parameters: Map<String, Value>,
     metadata: Option<Value>,
+    resource: Option<&'a pb::Object>,
 }
 
 impl Storage {
@@ -410,6 +335,7 @@ impl Storage {
                 destination_conditions: dc,
                 parameters,
                 metadata: body,
+                resource: r.destination.as_ref(),
             };
             let (token, guard) = self.begin_rewrite(new, &read, &create).await?;
             owner = Some(guard);
@@ -465,6 +391,7 @@ impl Storage {
             destination_conditions: dc,
             parameters,
             metadata: body,
+            resource,
         } = new;
         let generation = (source_generation != 0).then_some(source_generation);
         let source = self
@@ -472,8 +399,23 @@ impl Storage {
             .catalog
             .resolve_derived_source(ObjectTarget::new(sb, sn, generation), sc, read)
             .await?;
-        let bytes = body.as_ref().map(Value::to_string).unwrap_or_default();
-        let (metadata, class, _) = json::derived_metadata(bytes.as_bytes(), &source.object)?;
+        let mut metadata = resource
+            .map(super::object_update::for_write)
+            .unwrap_or_else(|| super::object_update::inherited(&source.object));
+        super::object_update::validate(&metadata)?;
+        if metadata.temporary_hold == Some(true)
+            || metadata.custom_time.as_ref().is_some_and(Option::is_some)
+        {
+            return Err(unsupported(
+                "RewriteObject temporary_hold/custom_time; omit these fields",
+            ));
+        }
+        let class = match resource.filter(|object| !object.storage_class.is_empty()) {
+            Some(object) => Some(crate::bucket::validate_storage_class(
+                &object.storage_class,
+            )?),
+            None => metadata.storage_class.take(),
+        };
         self.state.catalog.check_upload(db, dn, dc, create).await?;
         let source_bucket = self
             .state
@@ -730,24 +672,14 @@ impl Storage {
             ));
         }
         let paths = mask(r.update_mask.as_ref())?;
-        let body = object_patch(&o, paths)?;
+        let mut update = super::object_update::from_proto(&o, paths)?;
         let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
         let c = request_conditions!(strict_conditions, r)?;
-        // The mutation parser also accepts `acl` and `retention`, which only their own paths
-        // write; retention changes then need the same extra permissions as JSON.
-        let mut parsed = json::parse_object_metadata_mutation(
-            body.to_string().as_bytes(),
-            json::WriteMode::Patch,
-        )?;
-        if paths.iter().any(|path| path == "metadata") {
-            parsed.update.metadata_mode = MapMode::Replace;
-        }
-        parsed.update.validate()?;
         crate::server::authorize_retention_update(
             &self.state,
             &access,
             bucket,
-            &mut parsed.update,
+            &mut update,
             retention_override,
         )
         .await
@@ -758,7 +690,7 @@ impl Storage {
             .update_object_metadata(
                 ObjectTarget::new(bucket, name, (o.generation != 0).then_some(o.generation)),
                 c,
-                parsed.update,
+                update,
                 |_| Ok(()),
                 &access,
             )
@@ -791,7 +723,8 @@ impl Storage {
         })?;
         let (bucket, name) = names::object_name(&o.bucket, &o.name)?;
         let access = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
-        let body = derived_fields(&o)?;
+        validate_derived_fields(&o)?;
+        let metadata = super::object_update::for_write(&o);
         let sources = r
             .source_objects
             .iter()
@@ -817,14 +750,12 @@ impl Storage {
                 })
             })
             .collect::<Result<Vec<_>, Status>>()?;
-        let parsed =
-            json::parse_object_metadata(body.to_string().as_bytes(), json::WriteMode::Replace)?;
-        if !parsed.unchanged.is_empty() || o.temporary_hold || o.custom_time.is_some() {
+        if !o.storage_class.is_empty() || o.temporary_hold || o.custom_time.is_some() {
             return Err(unsupported(
                 "ComposeObject metadata; omit storage_class, temporary_hold and custom_time",
             ));
         }
-        parsed.update.validate()?;
+        super::object_update::validate(&metadata)?;
         let destination = DerivedDestination {
             bucket: bucket.into(),
             name: name.into(),
@@ -833,7 +764,7 @@ impl Storage {
             } else {
                 o.content_type
             },
-            metadata: parsed.update,
+            metadata,
             storage_class: None,
             expected: ExpectedHashes::default(),
             conditions: strict_conditions(ObjectConditions {
@@ -931,6 +862,7 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::super::bucket_update::from_proto as bucket_patch;
+    use super::super::object_update::from_proto as object_patch;
     use super::*;
     use crate::grpc::test_support::{self as fixtures, assert_code, caller, registry};
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
@@ -1087,14 +1019,13 @@ mod tests {
             bucket_patch(&b, &["labels.keep".into()]).unwrap().labels,
             Some(Some([("keep".into(), Some("changed".into()))].into()))
         );
-        assert_eq!(
-            object_patch(
-                &pb::Object::default(),
-                &["temporary_hold".into(), "event_based_hold".into()]
-            )
-            .unwrap(),
-            json!({"temporaryHold":false,"eventBasedHold":false})
-        );
+        let update = object_patch(
+            &pb::Object::default(),
+            &["temporary_hold".into(), "event_based_hold".into()],
+        )
+        .unwrap();
+        assert_eq!(update.temporary_hold, Some(false));
+        assert_eq!(update.event_based_hold, Some(false));
     }
 
     #[tokio::test]

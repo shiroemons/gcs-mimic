@@ -13,6 +13,9 @@ UpdateBucket・UpdateObject・TestIamPermissionsの再現精度は、共有す�
 iam_configの親maskでは、存在するUBLA・PAPだけを更新します。UBLAだけを変更してもPAPは保持し、PAPだけを変更してもUBLAは保持します。versioning・保持・soft delete・lifecycleなどの親maskも確認し、単一の編集項目やリストの明示的な解除・置換は維持します。
 
 UpdateBucketはprotoから共有の`BucketMetadataUpdate`を直接作り、JSON本文の組み立てと再解析を行いません。
+UpdateObjectも`ObjectMetadataUpdate`を直接作り、ACL・保持時刻を型付きで渡します。
+WriteObject・ComposeObject・RewriteObjectはprotoのメタデータ変換と共有検証を再利用します。
+rewrite tokenの照合用保存形式は既存互換を保ちますが、適用時のJSONパーサーは通りません。
 空の`iam_config`親maskも更新としてmetagenerationを進めますが、設定自体は保持します。
 この空更新の扱いはGoogleで未観測のため、SPEC-GRPC-EMPTY-IAM-UPDATEに記録しています。
 

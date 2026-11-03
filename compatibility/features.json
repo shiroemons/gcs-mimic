@@ -21710,7 +21710,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_update_copy_contract",
-          "description": "JSON-shared UpdateObject subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "description": "UpdateObject constructs typed shared updates directly from proto fields, with atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
           "result": "PASS",
           "test_ids": [
             "grpc_masks_reject_unsupported_and_accept_defaults",
@@ -21723,7 +21723,7 @@
         },
         {
           "id": "grpc_object_acl_mask",
-          "description": "The acl mask replaces the object ACL through the shared JSON validation and catalog, bumps the metageneration and returns the ACL; invalid entities and uniform bucket-level access return INVALID_ARGUMENT.",
+          "description": "The acl mask builds shared typed ACL entries directly, replaces them through the catalog, bumps the metageneration and returns the ACL; invalid entities and uniform bucket-level access return INVALID_ARGUMENT.",
           "result": "PASS",
           "test_ids": [
             "grpc_update_object_acl"
@@ -21731,7 +21731,7 @@
         },
         {
           "id": "grpc_object_retention_mask",
-          "description": "The retention mask sets, shortens and removes object retention through the shared JSON parser and catalog; override_unlocked_retention is required to shorten or remove an Unlocked configuration; buckets without object retention return INVALID_ARGUMENT; strict callers need storage.objects.setRetention (and overrideUnlockedRetention for an override).",
+          "description": "The retention mask constructs a shared typed nanosecond retention value directly and sets, shortens or removes it through the catalog; override_unlocked_retention is required to shorten or remove an Unlocked configuration; buckets without object retention return INVALID_ARGUMENT; strict callers need storage.objects.setRetention (and overrideUnlockedRetention for an override).",
           "result": "PASS",
           "test_ids": [
             "grpc_update_object_retention",

@@ -34,6 +34,12 @@ metageneration; this local choice remains unobserved in SPEC-GRPC-EMPTY-IAM-UPDA
 
 Object masks: `metadata`, `metadata.KEY`, the five fixed serving metadata strings, `custom_time`, `temporary_hold` and `event_based_hold`. `create_time` is ignored as an output-only path because the pinned Go SDK sends it for ordinary empty updates. `acl` replaces the object ACL and `retention` sets or removes object retention ([SDK parity](grpc-v2-sdk-parity.md)). `*`, contexts and other masks return UNIMPLEMENTED. Whole metadata and label maps are replaced in the shared mutation transaction without adding preconditions; explicit client preconditions remain enforced. Key-level mutations merge individual entries in that transaction.
 
+UpdateObject constructs `ObjectMetadataUpdate` directly, including typed ACL and
+nanosecond retention values. WriteObject, ComposeObject and RewriteObject share
+the proto metadata conversion and shared validation. Rewrite still stores its
+existing token-binding representation for compatibility, but never reparses it
+through the JSON metadata parser when applying a new request.
+
 The adapter currently accepts one match or not-match condition per generation kind; simultaneous match/not-match for the same kind returns INVALID_ARGUMENT. JSON's broader combined-condition precedence remains outside this scoped RPC acceptance.
 
 IAM supports bucket resources, unconditional predefined-role policies, versions 0/1/3 and opaque shared policy ETags. SetPolicy accepts its absent/empty default mask or `bindings,etag`; other masks, conditions, audit configs and managed-folder/object resources remain unsupported. TestPermissions reuses the JSON permission-name validation and per-permission authorization, including project grants, bucket grants and PAP. Locking requires a positive matching metageneration and uses shared irreversible emulator-local state.
@@ -49,6 +55,12 @@ Storage errors use the common `status::from_json` mapping, including expired-ses
 UpdateBucket, UpdateObject and TestIamPermissions retain LOCAL_SIMULATION achieved fidelity, matching their shared JSON operations; the remaining delivered scopes have EXACT achieved fidelity with explicit pending cases. This does not turn local principals, policy propagation or lifecycle metadata into Google infrastructure.
 
 ## Verification
+
+The typed object conversion passed all 109 gRPC library tests on 2026-11-04,
+including the class-versus-stale-condition precedence snapshot and three new
+typed update/retention tests. The three JSON derived-metadata contract tests also
+passed, including exact storage-class messages. Workspace checking, production
+lint, formatting and compatibility generation passed.
 
 On 2026-11-04, `cargo test --lib grpc::v2::update_copy -- --test-threads=4`
 passed sixteen tests. The new concurrent whole-map replacement regression failed

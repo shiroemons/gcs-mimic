@@ -6,6 +6,7 @@ mod buckets;
 pub(crate) mod convert;
 pub(crate) mod names;
 mod object_io;
+mod object_update;
 pub(crate) mod status;
 #[cfg(test)]
 mod tests;
