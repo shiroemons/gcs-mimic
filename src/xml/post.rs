@@ -457,7 +457,8 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
     } else {
         key.clone()
     };
-    json::validate_object_name(&name)?;
+    crate::object::name::validate(&name)
+        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
     let success = success_action(fields)?;
     let mut selected = HeaderMap::new();
     if let Some(value) = fields.get("content-type") {

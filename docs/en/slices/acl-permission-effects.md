@@ -81,8 +81,8 @@ The real local server cases in `tests/it_xml_auth/acl_permission_effects/` are:
 - `bidi_read_handle_reauthorizes_fixed_generation_for_each_new_rpc`:
   disk/RAM handle reuse, different principal, exact old bytes, revocation,
   public grants, PAP, UBLA and IAM authority.
-- `bidi_read_iam_handle_keeps_its_opened_snapshot_after_generation_deletion`:
-  IAM snapshot compatibility and different-principal denial.
+- `bidi_read_iam_handle_rejects_a_removed_generation`:
+  current IAM authorization, NOT_FOUND after generation deletion, and handle invalidation.
 
 Catalog coverage additionally includes
 `object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot`

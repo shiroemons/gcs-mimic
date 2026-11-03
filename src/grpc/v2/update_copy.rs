@@ -34,18 +34,20 @@ fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> 
 
 /// The bucket of an IAM resource. Managed folders and objects are valid IAM resources
 /// without a local policy store, so they are unsupported rather than malformed.
-fn iam_bucket(resource: &str) -> Result<&str, Status> {
+fn iam_bucket(resource: &str, profile: crate::config::CompatProfile) -> Result<&str, Status> {
     if let Some((bucket, child)) = resource
         .strip_prefix("projects/_/buckets/")
         .and_then(|rest| rest.split_once('/'))
         && (child.starts_with("managedFolders/") || child.starts_with("objects/"))
     {
-        names::bucket_name(&format!("projects/_/buckets/{bucket}"))?;
+        json::validate_bucket_name_for_profile(bucket, profile)?;
         return Err(unsupported(
             "managed folder and object IAM policies; use a bucket resource such as projects/_/buckets/example-bucket",
         ));
     }
-    names::bucket_name(resource)
+    let bucket = names::bucket_name(resource)?;
+    json::validate_bucket_name_for_profile(bucket, profile)?;
+    Ok(bucket)
 }
 
 fn policy(policy: auth::Policy) -> Result<iam::Policy, Status> {
@@ -73,7 +75,7 @@ fn policy(policy: auth::Policy) -> Result<iam::Policy, Status> {
     })
 }
 
-fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
+fn validate_derived_fields(o: &pb::Object) -> Result<(), Status> {
     let supported = pb::Object {
         name: o.name.clone(),
         bucket: o.bucket.clone(),
@@ -94,6 +96,12 @@ fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
             "derived object fields; supply only editable JSON-supported metadata",
         ));
     }
+    Ok(())
+}
+
+// Existing rewrite tokens bind this persisted representation; metadata application is typed.
+fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
+    validate_derived_fields(o)?;
     let mut value = json!({"metadata":o.metadata});
     for (key, v) in [
         ("contentType", &o.content_type),
@@ -117,260 +125,6 @@ fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
         value["customTime"] = v.to_string().into();
     }
     Ok(value)
-}
-
-fn lifecycle(value: &pb::bucket::Lifecycle) -> Value {
-    let rules = value
-        .rule
-        .iter()
-        .map(|rule| {
-            let mut value = json!({});
-            if let Some(action) = &rule.action {
-                value["action"] = json!({"type": action.r#type});
-                if !action.storage_class.is_empty() {
-                    value["action"]["storageClass"] = action.storage_class.clone().into();
-                }
-            }
-            if let Some(condition) = &rule.condition {
-                let mut conditions = Map::new();
-                for (key, number) in [
-                    ("age", condition.age_days),
-                    ("numNewerVersions", condition.num_newer_versions),
-                    ("daysSinceCustomTime", condition.days_since_custom_time),
-                    (
-                        "daysSinceNoncurrentTime",
-                        condition.days_since_noncurrent_time,
-                    ),
-                ] {
-                    if let Some(number) = number {
-                        conditions.insert(key.into(), number.into());
-                    }
-                }
-                if let Some(live) = condition.is_live {
-                    conditions.insert("isLive".into(), live.into());
-                }
-                for (key, date) in [
-                    ("createdBefore", &condition.created_before),
-                    ("customTimeBefore", &condition.custom_time_before),
-                    ("noncurrentTimeBefore", &condition.noncurrent_time_before),
-                ] {
-                    if let Some(date) = date {
-                        conditions.insert(
-                            key.into(),
-                            format!("{:04}-{:02}-{:02}", date.year, date.month, date.day).into(),
-                        );
-                    }
-                }
-                for (key, values) in [
-                    ("matchesStorageClass", &condition.matches_storage_class),
-                    ("matchesPrefix", &condition.matches_prefix),
-                    ("matchesSuffix", &condition.matches_suffix),
-                ] {
-                    if !values.is_empty() {
-                        conditions.insert(key.into(), json!(values));
-                    }
-                }
-                value["condition"] = conditions.into();
-            }
-            value
-        })
-        .collect::<Vec<_>>();
-    json!({"rule": rules})
-}
-
-/// The JSON form of a replacement ACL. Only entity and role are writable; the shared JSON
-/// validation rejects invalid entities and roles and uniform bucket-level access.
-fn acl_entries<'a>(entries: impl Iterator<Item = (&'a String, &'a String)>) -> Value {
-    entries
-        .map(|(entity, role)| json!({"entity": entity, "role": role}))
-        .collect::<Vec<_>>()
-        .into()
-}
-
-/// The JSON form of an object retention configuration; an absent message removes it.
-fn retention(retention: Option<&pb::object::Retention>) -> Result<Value, Status> {
-    use pb::object::retention::Mode;
-    let Some(retention) = retention else {
-        return Ok(Value::Null);
-    };
-    let mode = match Mode::try_from(retention.mode) {
-        Ok(Mode::Unlocked) => "Unlocked",
-        Ok(Mode::Locked) => "Locked",
-        _ => {
-            return Err(Status::invalid_argument(
-                "retention.mode must be UNLOCKED or LOCKED",
-            ));
-        }
-    };
-    let until = retention.retain_until_time.ok_or_else(|| {
-        Status::invalid_argument("retention.retain_until_time is required with retention.mode")
-    })?;
-    Ok(json!({"mode": mode, "retainUntilTime": until.to_string()}))
-}
-
-fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
-    let mut body = json!({});
-    for path in paths {
-        match path.as_str() {
-            "labels" => {
-                body["labels"] = if b.labels.is_empty() {
-                    Value::Null
-                } else {
-                    json!(b.labels)
-                };
-            }
-            p if p.starts_with("labels.") && p.len() > 7 => {
-                let key = &p[7..];
-                body["labels"][key] = b.labels.get(key).map_or(Value::Null, |v| v.clone().into());
-            }
-            "storage_class" => body["storageClass"] = b.storage_class.clone().into(),
-            "autoclass" | "autoclass.enabled" | "autoclass.terminal_storage_class" => {
-                let autoclass = b.autoclass.clone().unwrap_or_default();
-                if path != "autoclass.terminal_storage_class" {
-                    body["autoclass"]["enabled"] = autoclass.enabled.into();
-                }
-                if path != "autoclass.enabled"
-                    && let Some(class) = autoclass.terminal_storage_class
-                {
-                    body["autoclass"]["terminalStorageClass"] = class.into();
-                }
-            }
-            "versioning" | "versioning.enabled" => {
-                body["versioning"] =
-                    json!({"enabled": b.versioning.as_ref().is_some_and(|v| v.enabled)});
-            }
-            "default_event_based_hold" => {
-                body["defaultEventBasedHold"] = b.default_event_based_hold.into();
-            }
-            "cors" => body["cors"] = super::buckets::cors_json(&b.cors),
-            "lifecycle" | "lifecycle.rule" => {
-                body["lifecycle"] = b.lifecycle.as_ref().map_or(json!({"rule": []}), lifecycle);
-            }
-            "retention_policy" | "retention_policy.retention_duration" => {
-                body["retentionPolicy"] = b
-                    .retention_policy
-                    .as_ref()
-                    .and_then(|p| p.retention_duration)
-                    .map_or(
-                        Value::Null,
-                        |d| json!({"retentionPeriod": d.seconds.to_string()}),
-                    );
-                if b.retention_policy.as_ref().is_some_and(|p| p.is_locked) {
-                    return Err(unsupported(
-                        "retention_policy.is_locked; use LockBucketRetentionPolicy",
-                    ));
-                }
-            }
-            "soft_delete_policy" | "soft_delete_policy.retention_duration" => {
-                let duration = b
-                    .soft_delete_policy
-                    .as_ref()
-                    .and_then(|p| p.retention_duration)
-                    .unwrap_or_default();
-                if duration.nanos != 0 {
-                    return Err(unsupported(
-                        "fractional soft delete duration; use whole seconds",
-                    ));
-                }
-                body["softDeletePolicy"] =
-                    json!({"retentionDurationSeconds": duration.seconds.to_string()});
-            }
-            "iam_config" => {
-                // Go uses this parent mask even when only one IAM setting is present.
-                if let Some(iam) = &b.iam_config {
-                    if let Some(uniform) = &iam.uniform_bucket_level_access {
-                        body["iamConfiguration"]["uniformBucketLevelAccess"] =
-                            json!({"enabled": uniform.enabled});
-                    }
-                    if !iam.public_access_prevention.is_empty() {
-                        body["iamConfiguration"]["publicAccessPrevention"] =
-                            iam.public_access_prevention.clone().into();
-                    }
-                }
-            }
-            "iam_config.uniform_bucket_level_access"
-            | "iam_config.uniform_bucket_level_access.enabled" => {
-                let enabled = b
-                    .iam_config
-                    .as_ref()
-                    .and_then(|iam| iam.uniform_bucket_level_access.as_ref())
-                    .is_some_and(|uniform| uniform.enabled);
-                body["iamConfiguration"]["uniformBucketLevelAccess"] = json!({"enabled": enabled});
-            }
-            "acl" => body["acl"] = acl_entries(b.acl.iter().map(|e| (&e.entity, &e.role))),
-            "default_object_acl" => {
-                body["defaultObjectAcl"] =
-                    acl_entries(b.default_object_acl.iter().map(|e| (&e.entity, &e.role)));
-            }
-            "iam_config.public_access_prevention" => {
-                body["iamConfiguration"]["publicAccessPrevention"] = b
-                    .iam_config
-                    .as_ref()
-                    .map(|i| i.public_access_prevention.as_str())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("inherited")
-                    .into();
-            }
-            _ => {
-                return Err(unsupported(&format!(
-                    "UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"
-                )));
-            }
-        }
-    }
-    Ok(body)
-}
-
-fn object_patch(o: &pb::Object, paths: &[String]) -> Result<Value, Status> {
-    let mut body = json!({});
-    for path in paths {
-        match path.as_str() {
-            "metadata" => {
-                body["metadata"] = if o.metadata.is_empty() {
-                    Value::Null
-                } else {
-                    json!(o.metadata)
-                }
-            }
-            p if p.starts_with("metadata.") && p.len() > 9 => {
-                let key = &p[9..];
-                body["metadata"][key] = o
-                    .metadata
-                    .get(key)
-                    .map_or(Value::Null, |v| v.clone().into());
-            }
-            "temporary_hold" => body["temporaryHold"] = o.temporary_hold.into(),
-            "event_based_hold" => {
-                body["eventBasedHold"] = o.event_based_hold.unwrap_or(false).into()
-            }
-            "custom_time" => {
-                body["customTime"] = o.custom_time.map_or(Value::Null, |v| v.to_string().into())
-            }
-            "content_type" => body["contentType"] = o.content_type.clone().into(),
-            "content_encoding" => body["contentEncoding"] = o.content_encoding.clone().into(),
-            "content_disposition" => {
-                body["contentDisposition"] = o.content_disposition.clone().into()
-            }
-            "content_language" => {
-                body["contentLanguage"] = if o.content_language.is_empty() {
-                    Value::Null
-                } else {
-                    o.content_language.clone().into()
-                }
-            }
-            "cache_control" => body["cacheControl"] = o.cache_control.clone().into(),
-            // Go sends this output-only path for an ordinary empty Update.
-            "create_time" => {}
-            "acl" => body["acl"] = acl_entries(o.acl.iter().map(|e| (&e.entity, &e.role))),
-            "retention" => body["retention"] = retention(o.retention.as_ref())?,
-            _ => {
-                return Err(unsupported(&format!(
-                    "UpdateObject update_mask {path}; use metadata or content_type"
-                )));
-            }
-        }
-    }
-    Ok(body)
 }
 
 fn rewrite_error(e: RewriteError) -> Status {
@@ -460,6 +214,7 @@ impl<'a> RewriteTarget<'a> {
     fn resolve(
         r: &'a pb::RewriteObjectRequest,
         binding: Option<&'a RewriteBinding>,
+        profile: crate::config::CompatProfile,
     ) -> Result<Self, Status> {
         let sb = if r.source_bucket.is_empty() {
             binding.map_or("", |b| b.source_bucket.as_str())
@@ -481,8 +236,10 @@ impl<'a> RewriteTarget<'a> {
         } else {
             &r.destination_name
         };
-        names::object_name(&format!("projects/_/buckets/{sb}"), sn)?;
-        names::object_name(&format!("projects/_/buckets/{db}"), dn)?;
+        json::validate_bucket_name_for_profile(sb, profile)?;
+        json::validate_bucket_name_for_profile(db, profile)?;
+        names::object(sn)?;
+        names::object(dn)?;
         Ok(Self {
             source_bucket: sb,
             source_object: sn,
@@ -515,6 +272,7 @@ struct NewRewrite<'a> {
     destination_conditions: ObjectConditions,
     parameters: Map<String, Value>,
     metadata: Option<Value>,
+    resource: Option<&'a pb::Object>,
 }
 
 impl Storage {
@@ -523,6 +281,7 @@ impl Storage {
         request: Request<pb::RewriteObjectRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::RewriteResponse>, Status> {
+        let metadata = request.metadata().clone();
         let r = request.into_inner();
         check_rewrite_request(&r)?;
         let sc = request_conditions!(strict_conditions, source r)?;
@@ -549,7 +308,15 @@ impl Storage {
             )
         };
         let binding = session.as_ref().map(|s| &s.binding);
-        let target = RewriteTarget::resolve(&r, binding)?;
+        let target = RewriteTarget::resolve(&r, binding, self.compat_profile)?;
+        super::routing::check(
+            &metadata,
+            Some(&[
+                ("source_bucket", target.source_bucket),
+                ("bucket", target.destination_bucket),
+            ]),
+        )?;
+        let destination_bucket = target.destination_bucket;
         let read = self
             .access(caller, target.source_bucket, auth::OBJECTS_GET)
             .await?;
@@ -580,6 +347,7 @@ impl Storage {
                 destination_conditions: dc,
                 parameters,
                 metadata: body,
+                resource: r.destination.as_ref(),
             };
             let (token, guard) = self.begin_rewrite(new, &read, &create).await?;
             owner = Some(guard);
@@ -593,7 +361,7 @@ impl Storage {
             })
             .await
             .map_err(rewrite_error)?;
-        let resource = progress
+        let mut resource = progress
             .resource
             .map(|v| {
                 let bytes: Vec<u8> = serde_json::from_value(v["proto"].clone())
@@ -604,6 +372,10 @@ impl Storage {
             .transpose()?;
         if let Some(owner) = &mut owner {
             owner.disarm();
+        }
+        if let Some(resource) = &mut resource {
+            self.add_written_owner_fields(caller, destination_bucket, resource)
+                .await?;
         }
         Ok(Response::new(pb::RewriteResponse {
             total_bytes_rewritten: crate::grpc::convert::signed(progress.offset, "rewrite offset")?,
@@ -635,6 +407,7 @@ impl Storage {
             destination_conditions: dc,
             parameters,
             metadata: body,
+            resource,
         } = new;
         let generation = (source_generation != 0).then_some(source_generation);
         let source = self
@@ -642,8 +415,24 @@ impl Storage {
             .catalog
             .resolve_derived_source(ObjectTarget::new(sb, sn, generation), sc, read)
             .await?;
-        let bytes = body.as_ref().map(Value::to_string).unwrap_or_default();
-        let (metadata, class, _) = json::derived_metadata(bytes.as_bytes(), &source.object)?;
+        let mut metadata = resource
+            .map(super::object_update::for_write)
+            .unwrap_or_else(|| super::object_update::inherited(&source.object));
+        super::object_update::validate(&metadata)?;
+        if metadata.temporary_hold == Some(true)
+            || metadata.custom_time.as_ref().is_some_and(Option::is_some)
+        {
+            return Err(unsupported(
+                "RewriteObject temporary_hold/custom_time; omit these fields",
+            ));
+        }
+        let class = match resource.filter(|object| !object.storage_class.is_empty()) {
+            Some(object) => Some(
+                crate::bucket::validate_storage_class(&object.storage_class)
+                    .map_err(super::bucket_update::input_error)?,
+            ),
+            None => metadata.storage_class.take(),
+        };
         self.state.catalog.check_upload(db, dn, dc, create).await?;
         let source_bucket = self
             .state
@@ -716,7 +505,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
         let r = request.into_inner();
-        let bucket = names::bucket_name(&r.bucket)?;
+        let bucket = self.bucket_id(&r.bucket)?;
         strict_conditions(ObjectConditions {
             if_metageneration_match: Some(r.if_metageneration_match),
             ..Default::default()
@@ -737,7 +526,8 @@ impl Storage {
                 },
                 &access,
             )
-            .await?;
+            .await
+            .map_err(super::bucket_update::input_error)?;
         let mut result = convert::bucket(&record)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
@@ -748,7 +538,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<iam::Policy>, Status> {
         let r = request.into_inner();
-        let bucket = iam_bucket(&r.resource)?;
+        let bucket = iam_bucket(&r.resource, self.compat_profile)?;
         if r.options
             .is_some_and(|o| !matches!(o.requested_policy_version, 0 | 1 | 3))
         {
@@ -767,7 +557,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<iam::Policy>, Status> {
         let r = request.into_inner();
-        let bucket = iam_bucket(&r.resource)?;
+        let bucket = iam_bucket(&r.resource, self.compat_profile)?;
         if let Some(mask) = r.update_mask
             && !mask.paths.is_empty()
             && !(mask.paths.len() == 2
@@ -789,16 +579,29 @@ impl Storage {
                 "IAM conditions or audit configs; supply unconditional bindings",
             ));
         }
-        let mut v = json!({"version":p.version,"bindings":p.bindings.iter().map(|b|json!({"role":b.role,"members":b.members})).collect::<Vec<_>>()});
-        if !p.etag.is_empty() {
+        let etag = if !p.etag.is_empty() {
             let bytes: [u8; 8] = p.etag.try_into().map_err(|_| {
                 Status::failed_precondition(
                     "Policy etag does not match; read the current policy before updating",
                 )
             })?;
-            v["etag"] = json::policy_etag(i64::from_be_bytes(bytes)).into();
+            Some(json::policy_etag(i64::from_be_bytes(bytes)))
+        } else {
+            None
+        };
+        let p = auth::policy_input::PolicyInput {
+            version: p.version,
+            bindings: p
+                .bindings
+                .into_iter()
+                .map(|binding| auth::Binding {
+                    role: binding.role,
+                    members: binding.members,
+                })
+                .collect(),
+            etag,
         }
-        let p = json::parse_policy(v.to_string().as_bytes())?;
+        .into_policy()?;
         Ok(Response::new(policy(
             self.state.catalog.set_policy(bucket, p, &access).await?,
         )?))
@@ -809,14 +612,19 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<iam::TestIamPermissionsResponse>, Status> {
         let r = request.into_inner();
-        let bucket = iam_bucket(&r.resource)?;
-        let query = r
-            .permissions
-            .iter()
-            .map(|p| format!("permissions={}", auth::signature::encode_query_component(p)))
-            .collect::<Vec<_>>()
-            .join("&");
-        let (requested, _) = json::test_permissions_query(Some(&query))?;
+        let bucket = iam_bucket(&r.resource, self.compat_profile)?;
+        if r.permissions.is_empty() {
+            return Err(Status::invalid_argument(
+                "permissions is required; supply at least one permission",
+            ));
+        }
+        let mut requested = Vec::new();
+        for permission in r.permissions {
+            json::check_testable_permission(&permission)?;
+            if !requested.contains(&permission) {
+                requested.push(permission);
+            }
+        }
         self.state
             .catalog
             .get_policy(bucket, &BucketAccess::Permissive)
@@ -851,7 +659,7 @@ impl Storage {
         let b = r
             .bucket
             .ok_or_else(|| Status::invalid_argument("bucket is required; supply bucket.name"))?;
-        let bucket = names::bucket_name(&b.name)?;
+        let bucket = self.bucket_id(&b.name)?;
         if !r.predefined_acl.is_empty() || !r.predefined_default_object_acl.is_empty() {
             return Err(unsupported("predefined bucket ACLs; omit predefined_acl"));
         }
@@ -861,34 +669,15 @@ impl Storage {
             ..Default::default()
         })?;
         let paths = mask(r.update_mask.as_ref())?;
-        let mut body = bucket_patch(&b, paths)?;
+        let update = super::bucket_update::from_proto(&b, paths)?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
-        let mut conditions = bucket_conditions!(r);
-        if paths.iter().any(|p| p == "labels") && !b.labels.is_empty() {
-            let current = self
-                .state
-                .catalog
-                .get_bucket(bucket, &access)
-                .await?
-                .ok_or_else(|| Status::not_found("Bucket not found"))?;
-            for key in current.labels.keys().filter(|k| !b.labels.contains_key(*k)) {
-                body["labels"][key] = Value::Null;
-            }
-            conditions.if_metageneration_match = Some(
-                conditions
-                    .if_metageneration_match
-                    .unwrap_or(current.metageneration),
-            );
-        }
-        let update = json::parse_bucket_patch(
-            body.to_string().as_bytes(),
-            crate::config::CompatProfile::Native,
-        )?;
+        let conditions = bucket_conditions!(r);
         let record = self
             .state
             .catalog
             .patch_bucket(bucket, update, conditions, &access)
-            .await?;
+            .await
+            .map_err(super::bucket_update::input_error)?;
         let mut result = convert::bucket(&record)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
@@ -913,48 +702,21 @@ impl Storage {
         let o = r.object.ok_or_else(|| {
             Status::invalid_argument("object is required; supply object.bucket and object.name")
         })?;
-        let (bucket, name) = names::object_name(&o.bucket, &o.name)?;
+        let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
         if o.generation < 0 {
             return Err(Status::invalid_argument(
                 "generation must be positive or omitted",
             ));
         }
         let paths = mask(r.update_mask.as_ref())?;
-        let mut body = object_patch(&o, paths)?;
+        let mut update = super::object_update::from_proto(&o, paths)?;
         let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
-        let mut c = request_conditions!(strict_conditions, r)?;
-        if paths.iter().any(|p| p == "metadata") && !o.metadata.is_empty() {
-            let target =
-                ObjectTarget::new(bucket, name, (o.generation != 0).then_some(o.generation));
-            let current = self
-                .state
-                .catalog
-                .get_object(target, c, &access)
-                .await
-                .map_err(|e| Status::from(JsonError::from(e).naming_object(bucket, name)))?;
-            for key in current
-                .metadata
-                .keys()
-                .filter(|k| !o.metadata.contains_key(*k))
-            {
-                body["metadata"][key] = Value::Null;
-            }
-            c.if_metageneration_match =
-                Some(c.if_metageneration_match.unwrap_or(current.metageneration));
-            c.if_generation_match = Some(c.if_generation_match.unwrap_or(current.generation));
-        }
-        // The mutation parser also accepts `acl` and `retention`, which only their own paths
-        // write; retention changes then need the same extra permissions as JSON.
-        let mut parsed = json::parse_object_metadata_mutation(
-            body.to_string().as_bytes(),
-            json::WriteMode::Patch,
-        )?;
-        parsed.update.validate()?;
+        let c = request_conditions!(strict_conditions, r)?;
         crate::server::authorize_retention_update(
             &self.state,
             &access,
             bucket,
-            &mut parsed.update,
+            &mut update,
             retention_override,
         )
         .await
@@ -965,16 +727,13 @@ impl Storage {
             .update_object_metadata(
                 ObjectTarget::new(bucket, name, (o.generation != 0).then_some(o.generation)),
                 c,
-                parsed.update,
+                update,
                 |_| Ok(()),
                 &access,
             )
             .await
             .map_err(|e| Status::from(JsonError::from(e).naming_object(bucket, name)))?;
-        let mut object = convert::object(&record)?;
-        self.add_written_owner_fields(caller, bucket, &mut object)
-            .await?;
-        Ok(Response::new(object))
+        Ok(Response::new(self.written_object(&record, caller).await?))
     }
     pub(super) async fn compose_object(
         &self,
@@ -996,14 +755,15 @@ impl Storage {
         let o = r.destination.ok_or_else(|| {
             Status::invalid_argument("destination is required; supply bucket and name")
         })?;
-        let (bucket, name) = names::object_name(&o.bucket, &o.name)?;
+        let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
         let access = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
-        let body = derived_fields(&o)?;
+        validate_derived_fields(&o)?;
+        let metadata = super::object_update::for_write(&o);
         let sources = r
             .source_objects
             .iter()
             .map(|s| {
-                names::object_name(&o.bucket, &s.name)?;
+                names::object(&s.name)?;
                 if s.generation < 0 {
                     return Err(Status::invalid_argument(
                         "source generation must be positive or omitted",
@@ -1024,14 +784,12 @@ impl Storage {
                 })
             })
             .collect::<Result<Vec<_>, Status>>()?;
-        let parsed =
-            json::parse_object_metadata(body.to_string().as_bytes(), json::WriteMode::Replace)?;
-        if !parsed.unchanged.is_empty() || o.temporary_hold || o.custom_time.is_some() {
+        if !o.storage_class.is_empty() || o.temporary_hold || o.custom_time.is_some() {
             return Err(unsupported(
                 "ComposeObject metadata; omit storage_class, temporary_hold and custom_time",
             ));
         }
-        parsed.update.validate()?;
+        super::object_update::validate(&metadata)?;
         let destination = DerivedDestination {
             bucket: bucket.into(),
             name: name.into(),
@@ -1040,7 +798,7 @@ impl Storage {
             } else {
                 o.content_type
             },
-            metadata: parsed.update,
+            metadata,
             storage_class: None,
             expected: ExpectedHashes::default(),
             conditions: strict_conditions(ObjectConditions {
@@ -1065,7 +823,7 @@ impl Storage {
                 self.max_object_bytes,
             )
             .await?;
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(self.written_object(&record, caller).await?))
     }
     pub(super) async fn move_object(
         &self,
@@ -1073,8 +831,8 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
-        let (bucket, source) = names::object_name(&r.bucket, &r.source_object)?;
-        names::object_name(&r.bucket, &r.destination_object)?;
+        let (bucket, source) = self.object_name(&r.bucket, &r.source_object)?;
+        names::object(&r.destination_object)?;
         let read = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let delete = self.access(caller, bucket, auth::OBJECTS_DELETE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
@@ -1102,7 +860,7 @@ impl Storage {
                 },
             )
             .await?;
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(self.written_object(&record, caller).await?))
     }
     pub(super) async fn restore_object(
         &self,
@@ -1121,7 +879,7 @@ impl Storage {
                 "generation is required; select a positive soft-deleted generation",
             ));
         }
-        let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
+        let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let restore = self.access(caller, bucket, auth::OBJECTS_RESTORE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         let c = request_conditions!(strict_conditions, r)?;
@@ -1131,12 +889,14 @@ impl Storage {
             create: &create,
         };
         let record = self.state.catalog.restore_object(target, c, access).await?;
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(self.written_object(&record, caller).await?))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::bucket_update::from_proto as bucket_patch;
+    use super::super::object_update::from_proto as object_patch;
     use super::*;
     use crate::grpc::test_support::{self as fixtures, assert_code, caller, registry};
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
@@ -1157,6 +917,7 @@ mod tests {
         }
         (
             Storage {
+                compat_profile: crate::config::CompatProfile::Native,
                 state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
                 max_object_bytes: 8 * 1024 * 1024,
             },
@@ -1198,20 +959,14 @@ mod tests {
             "iam_config",
         ]
         .map(String::from);
-        assert_eq!(
-            bucket_patch(&bucket, &paths).unwrap(),
-            json!({
-                "autoclass": {"enabled": false},
-                "versioning": {"enabled": false},
-                "retentionPolicy": null,
-                "softDeletePolicy": {"retentionDurationSeconds": "0"},
-                "cors": [],
-                "iamConfiguration": {
-                    "publicAccessPrevention": "inherited",
-                    "uniformBucketLevelAccess": {"enabled": false},
-                },
-            })
-        );
+        let update = bucket_patch(&bucket, &paths).unwrap();
+        assert_eq!(update.autoclass.unwrap().enabled, Some(false));
+        assert_eq!(update.versioning_enabled, Some(false));
+        assert_eq!(update.retention_period, Some(None));
+        assert_eq!(update.soft_delete_retention, Some(0));
+        assert!(update.cors.unwrap().is_empty());
+        assert_eq!(update.public_access_prevention_enforced, Some(false));
+        assert_eq!(update.uniform_bucket_level_access_enabled, Some(false));
         let create = super::super::buckets::create_fields(&bucket, "").unwrap();
         for omitted in [
             "autoclass",
@@ -1296,17 +1051,16 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            bucket_patch(&b, &["labels.keep".into()]).unwrap(),
-            json!({"labels":{"keep":"changed"}})
+            bucket_patch(&b, &["labels.keep".into()]).unwrap().labels,
+            Some(Some([("keep".into(), Some("changed".into()))].into()))
         );
-        assert_eq!(
-            object_patch(
-                &pb::Object::default(),
-                &["temporary_hold".into(), "event_based_hold".into()]
-            )
-            .unwrap(),
-            json!({"temporaryHold":false,"eventBasedHold":false})
-        );
+        let update = object_patch(
+            &pb::Object::default(),
+            &["temporary_hold".into(), "event_based_hold".into()],
+        )
+        .unwrap();
+        assert_eq!(update.temporary_hold, Some(false));
+        assert_eq!(update.event_based_hold, Some(false));
     }
 
     #[tokio::test]
@@ -1320,20 +1074,37 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            bucket_patch(&autoclass(true, Some("ARCHIVE")), &["autoclass".into()]).unwrap(),
-            json!({"autoclass":{"enabled":true,"terminalStorageClass":"ARCHIVE"}})
+            bucket_patch(&autoclass(true, Some("ARCHIVE")), &["autoclass".into()])
+                .unwrap()
+                .autoclass
+                .unwrap(),
+            crate::bucket::autoclass::AutoclassUpdate {
+                enabled: Some(true),
+                terminal_storage_class: Some("ARCHIVE".into())
+            }
         );
         assert_eq!(
             bucket_patch(
                 &autoclass(true, Some("ARCHIVE")),
                 &["autoclass.terminal_storage_class".into()]
             )
+            .unwrap()
+            .autoclass
             .unwrap(),
-            json!({"autoclass":{"terminalStorageClass":"ARCHIVE"}})
+            crate::bucket::autoclass::AutoclassUpdate {
+                enabled: None,
+                terminal_storage_class: Some("ARCHIVE".into())
+            }
         );
         assert_eq!(
-            bucket_patch(&pb::Bucket::default(), &["autoclass.enabled".into()]).unwrap(),
-            json!({"autoclass":{"enabled":false}})
+            bucket_patch(&pb::Bucket::default(), &["autoclass.enabled".into()])
+                .unwrap()
+                .autoclass
+                .unwrap(),
+            crate::bucket::autoclass::AutoclassUpdate {
+                enabled: Some(false),
+                terminal_storage_class: None
+            }
         );
         let (s, _dir) = setup().await;
         let update = |bucket: pb::Bucket, paths: &[&str]| pb::UpdateBucketRequest {
@@ -1375,22 +1146,107 @@ mod tests {
         let config = disabled.autoclass.unwrap();
         assert!(!config.enabled);
         assert_eq!(config.terminal_storage_class, None);
+        let error = s
+            .update_bucket(
+                Request::new(update(
+                    autoclass(false, Some("ARCHIVE")),
+                    &["autoclass.terminal_storage_class"],
+                )),
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        assert!(error.message().contains("terminal_storage_class"));
+        assert!(!error.message().contains("terminalStorageClass"));
         s.state.catalog.close().await.unwrap();
     }
 
     #[tokio::test]
-    async fn grpc_iam_config_updates_preserve_other_setting() {
-        assert_eq!(
-            bucket_patch(&pb::Bucket::default(), &["iam_config".into()]).unwrap(),
-            json!({})
+    async fn grpc_iam_validates_typed_policy_and_permission_values() {
+        let (storage, _dir) = setup().await;
+        let resource = "projects/_/buckets/update-copy-bucket";
+        for permission in [
+            "",
+            auth::BUCKETS_CREATE,
+            "storage.invalid",
+            "storage.objects.get&permissions=storage.objects.delete",
+        ] {
+            let error = storage
+                .test_iam_permissions(
+                    Request::new(iam::TestIamPermissionsRequest {
+                        resource: resource.into(),
+                        permissions: vec![permission.into()],
+                    }),
+                    None,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), Code::InvalidArgument);
+        }
+        let response = storage
+            .test_iam_permissions(
+                Request::new(iam::TestIamPermissionsRequest {
+                    resource: resource.into(),
+                    permissions: vec![auth::OBJECTS_GET.into(); 1024],
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(response.permissions, [auth::OBJECTS_GET]);
+        assert_code(
+            storage
+                .test_iam_permissions(
+                    Request::new(iam::TestIamPermissionsRequest {
+                        resource: resource.into(),
+                        permissions: vec!["storage.anywhereCaches.create".into()],
+                    }),
+                    None,
+                )
+                .await,
+            Code::Unimplemented,
         );
+        let response = storage
+            .set_iam_policy(
+                Request::new(iam::SetIamPolicyRequest {
+                    resource: resource.into(),
+                    policy: Some(iam::Policy {
+                        version: 3,
+                        bindings: vec![iam::Binding {
+                            role: "roles/storage.objectViewer".into(),
+                            members: vec!["allUsers".into()],
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(response.bindings[0].members, ["allUsers"]);
+        assert_eq!(response.etag.len(), 8);
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_iam_config_updates_preserve_other_setting() {
+        let empty = bucket_patch(&pb::Bucket::default(), &["iam_config".into()]).unwrap();
+        assert_eq!(empty.uniform_bucket_level_access_enabled, None);
+        assert_eq!(empty.public_access_prevention_enforced, None);
+        assert!(empty.touched);
         assert_eq!(
             bucket_patch(
                 &pb::Bucket::default(),
                 &["iam_config.uniform_bucket_level_access.enabled".into()]
             )
-            .unwrap(),
-            json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}})
+            .unwrap()
+            .uniform_bucket_level_access_enabled,
+            Some(false)
         );
         let (s, _dir) = setup().await;
         let resource = "projects/_/buckets/update-copy-bucket";
@@ -1821,6 +1677,7 @@ mod tests {
             .await
             .unwrap();
         let s = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
             state: Arc::new(crate::server::State::for_test(
                 catalog,
                 Auth::strict(registry(&[
@@ -1864,6 +1721,7 @@ mod tests {
         record.object_retention_enabled = true;
         catalog.insert_bucket(record).await.unwrap();
         let s = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
             state: Arc::new(crate::server::State::for_test(
                 catalog,
                 Auth::strict(registry(&[
@@ -1997,6 +1855,65 @@ mod tests {
             Code::InvalidArgument,
         );
         s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_map_replacement_does_not_add_preconditions() {
+        let (storage, _dir) = setup().await;
+        upload(&storage, "object", 10).await;
+        for index in 0..20 {
+            let replace = pb::UpdateObjectRequest {
+                object: Some(pb::Object {
+                    bucket: "projects/_/buckets/update-copy-bucket".into(),
+                    name: "object".into(),
+                    metadata: [("value".into(), index.to_string())].into(),
+                    ..Default::default()
+                }),
+                update_mask: fixtures::mask(&["metadata"]),
+                ..Default::default()
+            };
+            let patch = pb::UpdateObjectRequest {
+                object: Some(pb::Object {
+                    bucket: "projects/_/buckets/update-copy-bucket".into(),
+                    name: "object".into(),
+                    content_type: "application/octet-stream".into(),
+                    ..Default::default()
+                }),
+                update_mask: fixtures::mask(&["content_type"]),
+                ..Default::default()
+            };
+            let (replaced, patched) = tokio::join!(
+                storage.update_object(Request::new(replace), None),
+                storage.update_object(Request::new(patch), None),
+            );
+            assert_eq!(replaced.unwrap().into_inner().metadata.len(), 1);
+            patched.unwrap();
+            let replace = pb::UpdateBucketRequest {
+                bucket: Some(pb::Bucket {
+                    name: "projects/_/buckets/update-copy-bucket".into(),
+                    labels: [("value".into(), index.to_string())].into(),
+                    ..Default::default()
+                }),
+                update_mask: fixtures::mask(&["labels"]),
+                ..Default::default()
+            };
+            let patch = pb::UpdateBucketRequest {
+                bucket: Some(pb::Bucket {
+                    name: "projects/_/buckets/update-copy-bucket".into(),
+                    default_event_based_hold: false,
+                    ..Default::default()
+                }),
+                update_mask: fixtures::mask(&["default_event_based_hold"]),
+                ..Default::default()
+            };
+            let (replaced, patched) = tokio::join!(
+                storage.update_bucket(Request::new(replace), None),
+                storage.update_bucket(Request::new(patch), None),
+            );
+            assert_eq!(replaced.unwrap().into_inner().labels.len(), 1);
+            patched.unwrap();
+        }
+        storage.state.catalog.close().await.unwrap();
     }
 
     #[tokio::test]

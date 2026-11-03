@@ -53,7 +53,8 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
     let bucket = json::decode(bucket, json::Decoding::Path)?;
     let name = json::decode(name, json::Decoding::Path)?;
     json::validate_bucket_name_for_profile(&bucket, ctx.config.compat_profile)?;
-    json::validate_object_name(&name)?;
+    crate::object::name::validate(&name)
+        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
     let generation = source_number(headers, "x-goog-copy-source-generation")?;
     let conditions = ObjectConditions {
         if_generation_match: source_number(headers, "x-goog-copy-source-if-generation-match")?,

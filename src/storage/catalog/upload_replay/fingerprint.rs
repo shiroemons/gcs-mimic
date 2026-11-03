@@ -1,4 +1,4 @@
-use crate::object::{ObjectConditions, ObjectMetadataUpdate};
+use crate::object::{MapMode, ObjectConditions, ObjectMetadataUpdate};
 use ring::digest::{Context, SHA256};
 
 /// Versioned request identity, independent of diagnostic and serialization formats.
@@ -93,6 +93,7 @@ impl Canonical {
             content_language,
             cache_control,
             metadata,
+            metadata_mode,
             event_based_hold,
             temporary_hold,
             custom_time,
@@ -150,6 +151,14 @@ impl Canonical {
         self.optional(*storage_class, |encoded, class| {
             encoded.text(class.as_str())
         });
+        // Merge keeps the original v2 bytes; only replacement adds a tagged extension.
+        match metadata_mode {
+            MapMode::Merge => {}
+            MapMode::Replace => {
+                self.bytes(b"metadata-map-mode");
+                self.bytes(b"replace");
+            }
+        }
     }
 }
 
@@ -180,7 +189,7 @@ mod tests {
         metadata.override_unlocked_retention =
             crate::object::retention::UnlockedOverride::Requested;
         let expected = request(&metadata).digest();
-        let mutations: [fn(&mut ObjectMetadataUpdate); 16] = [
+        let mutations: [fn(&mut ObjectMetadataUpdate); 17] = [
             |value| value.acl = None,
             |value| value.predefined_acl = None,
             |value| value.replace = false,
@@ -190,6 +199,7 @@ mod tests {
             |value| value.content_language = None,
             |value| value.cache_control = None,
             |value| value.metadata = None,
+            |value| value.metadata_mode = MapMode::Replace,
             |value| value.event_based_hold = None,
             |value| value.temporary_hold = None,
             |value| value.custom_time = None,
@@ -205,6 +215,21 @@ mod tests {
             let mut changed = metadata.clone();
             mutate(&mut changed);
             assert_ne!(request(&changed).digest(), expected, "field {index}");
+        }
+    }
+
+    #[test]
+    fn metadata_map_modes_have_distinct_request_identities() {
+        for metadata in [None, Some(None), Some(Some(Default::default()))] {
+            let mut update = ObjectMetadataUpdate {
+                metadata,
+                ..Default::default()
+            };
+            let default = request(&update).digest();
+            update.metadata_mode = MapMode::Merge;
+            assert_eq!(request(&update).digest(), default);
+            update.metadata_mode = MapMode::Replace;
+            assert_ne!(request(&update).digest(), default);
         }
     }
 

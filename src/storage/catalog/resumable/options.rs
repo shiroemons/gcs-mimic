@@ -62,6 +62,7 @@ impl<T, C> Metadata<T, C> {
             content_language: self.content_language.map(&string),
             cache_control: self.cache_control.map(string),
             metadata: self.metadata.map(custom),
+            metadata_mode: crate::object::MapMode::Merge,
             retention: super::super::objects::retention::from_session(&self.retention)?,
             customer_key_sha256: self.customer_key_sha256,
             storage_class: self.storage_class,

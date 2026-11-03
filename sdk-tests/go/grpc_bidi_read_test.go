@@ -283,7 +283,7 @@ func TestGRPCBidiReadWire(t *testing.T) {
 	if _, err := strictUpload(ctx, object, []byte("replacement")); err != nil {
 		t.Fatal(err)
 	}
-	// A later range and a reconnect must both retain the generation selected before overwrite.
+	// An active stream keeps its selected generation through overwrite.
 	bidiSend(t, stream, map[string]any{"readRanges": []any{map[string]any{"readId": 3, "readOffset": -5}}})
 	response, err := bidiReceive(t, stream)
 	if err != nil || len(response.ObjectDataRanges) != 1 || !response.ObjectDataRanges[0].RangeEnd || !bytes.Equal(response.ObjectDataRanges[0].ChecksummedData.Content, payload[len(payload)-5:]) {
@@ -296,13 +296,8 @@ func TestGRPCBidiReadWire(t *testing.T) {
 	resumed := bidiStream(t, ctx, endpoint)
 	resumeSpec := map[string]any{"bucket": spec["bucket"], "object": spec["object"], "generation": attrs.Generation, "readHandle": map[string]any{"handle": first.ReadHandle.Handle}}
 	bidiSend(t, resumed, map[string]any{"readObjectSpec": resumeSpec, "readRanges": []any{map[string]any{"readId": 9, "readLength": 11}}})
-	initial, err := bidiReceive(t, resumed)
-	if err != nil || initial.Metadata != nil {
-		t.Fatalf("handle reconnect metadata: %+v %v", initial, err)
-	}
-	response, err = bidiReceive(t, resumed)
-	if err != nil || !bytes.Equal(response.ObjectDataRanges[0].ChecksummedData.Content, payload[:11]) {
-		t.Fatalf("handle generation changed: %+v %v", response, err)
+	if _, err := bidiReceive(t, resumed); status.Code(err) != codes.NotFound {
+		t.Fatalf("handle must not retain a replaced nonversioned generation: %v", err)
 	}
 	resumed.CloseSend()
 	oversized := make([]any, 101)

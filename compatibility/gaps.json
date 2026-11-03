@@ -199,7 +199,7 @@
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Google documents 400 badRequest for requests incompatible with current settings and XML 400 InvalidArgument. Go v1.70.0 ShouldRetry retries all 5xx, including 501. The local contract uses JSON 400 badRequest and XML 400 InvalidArgument for recognized unsupported semantics and pinned unimplemented Google routes in both profiles; genuine missing resources and unknown paths retain 404. Acceptance: docs/en/slices/sdk-unsupported-fail-fast.md. On 2026-11-02 buckets.getStorageLayout left the rejected routes and includeFoldersAsPrefixes=true with delimiter=/ became supported (docs/en/slices/bucket-storage-layout.md); the SDK suites' fail-fast probes now send Requester Pays userProject, which stays rejected while EXT-BEH-045 is NOT_STARTED.",
       "grpc_foundation": "Pinned Storage v2 protobuf and import closure at googleapis 933dd1be8180a22bca2dc473b53d4f4297ee3b0c. The integrated v2 adapters implement scoped bucket CRUD/updates/IAM/retention locking, object metadata/media/list/delete/restore, streaming and resumable writes, rewrite/compose/move, and bidirectional ranged reads with generation-pinned handles through shared catalog and authorization; CancelResumableWrite discards shared resumable sessions. Rapid appendable objects use a separate state machine with documented limits (docs/en/slices/grpc-v2-rapid-append.md); appendable creation over an existing object, unsupported fields and unknown services/methods return immediate non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo reason badRequest/domain global and JSON API guidance. Go v1.70.0 does not retry that rejection. Shared Auth resolves strict Bearer principals; operation authorization uses the same decisions as JSON. The independently pinned legacy v1 adapter serves twelve reference-emulator RPCs on the same listener through shared catalog/publication and strict authorization. Its unsupported methods/fields return the same immediate ErrorInfo-bearing rejection; legacy migration scope does not claim Google GA/EXACT fidelity. See docs/en/slices/grpc-v1-legacy.md. Scoped contracts and evidence: docs/en/slices/grpc-v2-foundation.md, docs/en/slices/grpc-v2-buckets.md, docs/en/slices/grpc-v2-object-io.md, docs/en/slices/grpc-v2-update-copy.md and docs/en/slices/grpc-v2-bidi-read.md; statuses and remaining limitations are recorded per feature row.",
-      "required_resolution": "Retain this explicit emulator deviation while these features are unsupported. Replace each rejection with independently verified implementation in its own slice; do not claim provider-exact errors for valid Google requests."
+      "required_resolution": "Retain this explicit emulator deviation while these features are unsupported. Replace each rejection with independently verified implementation in its own slice; do not claim provider-exact errors for valid Google requests. Storage v2 finalized upload retries now return OK with their original resource and unfinished resumable bidi streams return persisted size on half-close, following the pinned proto. Non-resumable streams still require finish_write. Object names follow the shared official flat-namespace rules; local tests and error mappings do not establish provider-exact precedence or details."
     },
     {
       "id": "SPEC-UBLA-EDGES",
@@ -1445,6 +1445,61 @@
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "The official Java SDK lists objects with a read_mask that names checksums.md5_hash. By protobuf field-mask semantics a sub-path keeps only that child, so gcs-mimic accepts checksums.crc32c and checksums.md5_hash (also under the ReadObject metadata. prefix) and returns checksums with only the named digest. A composed object has no MD5, so a mask naming only checksums.md5_hash returns an empty checksums message. No real-service request was made, so whether Cloud Storage returns an empty message, omits checksums, or rejects the path is unobserved.",
       "required_resolution": "Observe Cloud Storage for a read_mask of only checksums.md5_hash on a composed object (and for the ReadObject metadata. form), then match the result."
+    },
+    {
+      "id": "SPEC-GRPC-READ-HANDLES",
+      "title": "Read handle lifetime and behavior after generation removal need provider evidence",
+      "status": "OPEN",
+      "affected_features": ["RPC-STORAGE-016", "BEHAVIOR-RPC-004"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-03",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Local read handles contain bucket/name/generation, the issued size bound and owning project, not readers or blob reservations. The local FIFO holds at most 1024 handles for ten minutes of the injected clock. Resume reopens and authorizes that generation; deletion or nonversioned replacement returns NOT_FOUND and removes the handle, while an active stream retains its original reader. An expired, evicted or removed handle returns FAILED_PRECONDITION. Appendable handles keep their issued size after later flush/finalization. The provider lifetime, capacity and removed-generation behavior have not been observed.",
+      "required_resolution": "Obtain authoritative clarification or authorized provider evidence for expiry and removed-generation reconnection before claiming provider-exact read-handle behavior. Keep the local lifetime, status and resource limits explicit."
+    },
+    {
+      "id": "SPEC-GRPC-EMPTY-IAM-UPDATE",
+      "title": "Empty gRPC bucket IAM configuration update needs provider evidence",
+      "status": "OPEN",
+      "affected_features": ["RPC-STORAGE-009"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-04",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The typed gRPC bucket update treats every accepted nonempty update_mask as a metadata update. An iam_config parent mask with no present settings preserves UBLA and PAP but advances metageneration. The provider behavior for that empty parent update has not been observed; JSON retains its separately observed empty-message behavior.",
+      "required_resolution": "Observe an empty iam_config parent update on an authorized provider fixture and match its metageneration behavior before claiming exact parity."
+    },
+    {
+      "id": "SPEC-GRPC-PENDING-RANGES",
+      "title": "Status for other pending BidiRead ranges needs provider evidence",
+      "status": "OPEN",
+      "affected_features": ["RPC-STORAGE-016", "BEHAVIOR-RPC-004"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-04",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The proto requires BidiReadObjectError to report each pending read_id when a stream fails. The local adapter preserves the failed range's status and gives every other unfinished admitted range ABORTED with retry guidance, including the remaining IDs in an otherwise admissible batch with an invalid range. Oversized batches are not admitted. Provider status values and ordering for the other pending ranges have not been observed.",
+      "required_resolution": "Observe multiple pending ranges when a provider stream fails, then align their status values and ordering before claiming exact error-detail parity."
+    },
+    {
+      "id": "SPEC-GRPC-ROUTING-NAMES",
+      "title": "Shared gRPC name rules and routing checks retain provider boundaries",
+      "status": "OPEN",
+      "affected_features": ["BEHAVIOR-RPC-001"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-04",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Every Storage v2 entry point rejects x-goog-user-project presence and checks semantic routing metadata against request resources; streaming calls check their first message and rewrite continuations check their bound names. Native invalid bucket IDs return INVALID_ARGUMENT through shared validation; legacy-emulator IDs follow that profile. The pinned routing annotations define capture keys, but provider-exact status and precedence for invalid IDs and complete SDK routing combinations have not been observed. SDK validation of the expanded checks remains a pre-integration gate: Go and Rust have gRPC harnesses; the existing Node Storage SDK harness exercises HTTP and supplies no dedicated gRPC lane.",
+      "required_resolution": "Verify provider invalid-name and conflicting-routing cases and the pinned Go and Rust gRPC lanes before claiming exact routing/error parity. Run CARGO_BUILD_JOBS=4 env -u GCS_MIMIC_GO_TEST_RUN GCS_MIMIC_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust for the available SDK harnesses. Retain explicit rejection of billing and unsupported routing tokens."
+    },
+    {
+      "id": "SPEC-GRPC-DERIVED-OWNER-VIEW",
+      "title": "Derived write owner and ACL response fields need provider evidence",
+      "status": "OPEN",
+      "affected_features": ["RPC-STORAGE-010", "RPC-STORAGE-012", "RPC-STORAGE-019", "RPC-STORAGE-021", "RPC-STORAGE-024", "BEHAVIOR-RAPID-004"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-04",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The common response view applies the owner/ACL behavior observed for WriteObject and UpdateObject on 2026-11-01 to ComposeObject, RewriteObject, MoveObject, RestoreObject and Rapid finalization. Local wire tests cover these results, ACL permission denial and UBLA suppression. No provider observation establishes these derived-method response fields; stored completion snapshots remain caller-independent.",
+      "required_resolution": "Observe the derived RPCs and Rapid finalization with and without object ACL read permission and with UBLA enabled, then align their owner/ACL views before claiming exact parity."
     },
     {
       "id": "LOCAL-RETENTION-WINDOWS-TICK",

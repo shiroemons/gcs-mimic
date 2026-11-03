@@ -6,6 +6,12 @@
 
 ## 対象RPC
 
+v1・v2の単発アップロードは、offset・チャンクCRC32C・全体ハッシュ・サイズ上限・stagingを共有処理で検査します。
+v1の重複offset拒否と16進MD5、v2の重複部分の読み飛ばしとバイナリMD5は維持します。
+両方とも受信処理とカタログ処理の終了を待ち、根本のストレージエラーを優先します。
+ストレージ側が本文の中断だけを報告した場合は、受信側の入力エラーを返します。
+書き込み側の終了時は次のクライアントメッセージを待つ受信側も終了させます。公開と永続化の手順は変更しません。
+
 比較対象はfake-gcs-serverのコミット896ece51e49eed0946089f3089f6343855c0d106にあるinternal/grpc/server.goです。そこで実装されている12 RPCだけを対応範囲とします。
 
 | 機能ID | RPC | 対応範囲 |
@@ -28,6 +34,9 @@
 本文のメッセージ上限は4 MiB、メタデータ上限は8 KiBです。共有の書き込みには64 KiBを2枠で渡し、総量には既存のmax_object_bytesを適用します。finish_writeとEOFを確認するまで公開しません。誤ったoffsetやチェックサム、finish不足は公開せず失敗します。前提条件と権限は共有処理が公開と同じトランザクションで再確認します。通信中にSQLiteのトランザクションを保持しません。
 
 ## 制限と固定方法
+
+オブジェクトのメタデータ更新とバケット置換は、protoから共有の型付き更新を直接作ります。
+省略値の解除・保持は既存のnative／legacy規則を維持します。バケット作成は共有の作成型が未整備のため、JSON insertパーサーを使います。
 
 棚卸し外のRPCは、入力やEOFを待たずにErrorInfo付きUNIMPLEMENTEDを返します。GetObjectMediaも対象外なので、本文の読み出しはJSONを使います。billing、quota、common fields、暗号化、ACL/full projection、KMS、非対応メタデータ、resumable upload ID、reference data、空でないPatchObjectのupdate_maskも同じエラーです。空のcommon設定と省略値は受け付けます。
 

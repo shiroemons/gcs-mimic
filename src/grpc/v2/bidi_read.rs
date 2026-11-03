@@ -1,31 +1,59 @@
-use super::{ResponseStream, Storage, append::Finality, names, pb, status::unsupported};
+use super::{ResponseStream, Storage, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
     grpc::validate::{self, request_conditions},
     json::JsonError,
-    object::{ObjectRecord, ObjectTarget},
-    storage::ObjectReader,
+    object::{ObjectError, ObjectRecord, ObjectTarget},
+    storage::{Finality, ObjectReader},
 };
 use prost::Message;
-use std::{collections::VecDeque, sync::Arc};
-use tokio::sync::{Mutex, mpsc};
+use std::{
+    collections::VecDeque,
+    sync::{Mutex, PoisonError},
+    time::{Duration, SystemTime},
+};
+use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
 
 const MAX_RANGES: usize = 100;
-const MAX_HANDLES: usize = 64;
+const MAX_HANDLES: usize = 1024;
+const HANDLE_TTL: Duration = Duration::from_secs(600);
+const READ_ERROR_TYPE: &str = "type.googleapis.com/google.storage.v2.BidiReadObjectError";
 
 struct Selected {
     record: ObjectRecord,
-    reader: Mutex<ObjectReader>,
+    reader: ObjectReader,
+    size: u64,
     /// An appendable generation snapshot: reads stop at the size persisted when it was opened.
     finality: Finality,
 }
 
+#[derive(Clone, Copy)]
+struct HandleToken([u8; 32]);
+
+impl HandleToken {
+    fn matches(self, other: &[u8]) -> bool {
+        other.len() == self.0.len()
+            && self
+                .0
+                .iter()
+                .zip(other)
+                .fold(0, |difference, (a, b)| difference | (a ^ b))
+                == 0
+    }
+}
+
+#[derive(Clone)]
 struct Handle {
-    token: Vec<u8>,
+    token: HandleToken,
+    bucket: String,
+    name: String,
+    generation: i64,
+    size: u64,
+    finality: Finality,
     project: Option<String>,
-    selected: Arc<Selected>,
+    expires: SystemTime,
 }
 
 /// Read snapshots belong to one server state and survive individual gRPC connections.
@@ -33,12 +61,29 @@ struct Handle {
 pub struct ReadHandles(Mutex<VecDeque<Handle>>);
 
 impl ReadHandles {
-    async fn insert(&self, handle: Handle) {
-        let mut entries = self.0.lock().await;
+    fn insert(&self, handle: Handle, now: SystemTime) {
+        let mut entries = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        entries.retain(|entry| entry.expires > now);
         if entries.len() == MAX_HANDLES {
             entries.pop_front();
         }
         entries.push_back(handle);
+    }
+
+    fn find(&self, token: &[u8], now: SystemTime) -> Option<Handle> {
+        let mut entries = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        entries.retain(|entry| entry.expires > now);
+        entries
+            .iter()
+            .find(|entry| entry.token.matches(token))
+            .cloned()
+    }
+
+    fn remove(&self, token: HandleToken) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|entry| !entry.token.matches(&token.0));
     }
 }
 
@@ -103,38 +148,56 @@ impl Storage {
         spec: &pb::BidiReadObjectSpec,
         access: &BucketAccess,
         caller: Option<Caller<'_>>,
-    ) -> Result<(Arc<Selected>, Vec<u8>), Status> {
+    ) -> Result<(Selected, HandleToken), Status> {
         let handle = spec.read_handle.as_ref().ok_or_else(|| {
             Status::invalid_argument("Missing read_handle; reopen without read_handle")
         })?;
-        let (bucket, object) = names::object_name(&spec.bucket, &spec.object)?;
-        let entries = self.state.grpc_read_handles.0.lock().await;
-        let entry = entries
-            .iter()
-            .find(|entry| entry.token == handle.handle)
+        let (bucket, object) = self.object_name(&spec.bucket, &spec.object)?;
+        let entry = self
+            .state
+            .grpc_read_handles
+            .find(&handle.handle, self.state.clock.now())
             .ok_or_else(|| {
                 Status::failed_precondition(
                     "Read handle is unknown or expired; reopen without read_handle",
                 )
             })?;
         check_handle_project(entry.project.as_deref(), access)?;
-        if entry.selected.record.bucket != bucket
-            || entry.selected.record.name != object
-            || (spec.generation != 0 && spec.generation != entry.selected.record.generation)
+        if entry.bucket != bucket
+            || entry.name != object
+            || (spec.generation != 0 && spec.generation != entry.generation)
         {
             return Err(Status::invalid_argument(
                 "Read handle does not match bucket, object or generation; use the original object or reopen without read_handle",
             ));
         }
-        let selected = entry.selected.clone();
-        let token = entry.token.clone();
-        drop(entries);
-        self.state
-            .catalog
-            .authorize_object_snapshot(&selected.record, access)
+        let target = ObjectTarget::new(bucket, object, Some(entry.generation));
+        let (record, mut reader, _) = self
+            .open_readable(target, Default::default(), access)
             .await
-            .map_err(|failure| super::access_status(failure, caller))?;
-        Ok((selected, token))
+            .map_err(|error| {
+                if matches!(
+                    error,
+                    ObjectError::ObjectNotFound | ObjectError::BucketNotFound
+                ) {
+                    self.state.grpc_read_handles.remove(entry.token);
+                }
+                super::access_status(JsonError::from(error).naming_object(bucket, object), caller)
+            })?;
+        let size = record.size.min(entry.size);
+        reader
+            .set_range(0, size)
+            .await
+            .map_err(super::status::read_failure)?;
+        Ok((
+            Selected {
+                record,
+                reader,
+                size,
+                finality: entry.finality,
+            },
+            entry.token,
+        ))
     }
 
     pub(super) async fn bidi_read_object(
@@ -149,6 +212,7 @@ impl Storage {
         {
             return Err(unsupported("BidiReadObject x-goog-fieldmask"));
         }
+        let metadata = request.metadata().clone();
         let mut input = request.into_inner();
         let first = input.message().await?.ok_or_else(|| {
             Status::invalid_argument(
@@ -161,10 +225,11 @@ impl Storage {
             )
         })?;
         validate_spec(&spec)?;
-        let (bucket, object) = names::object_name(&spec.bucket, &spec.object)?;
+        super::routing::check(&metadata, Some(&[("bucket", spec.bucket.as_str())]))?;
+        let (bucket, object) = self.object_name(&spec.bucket, &spec.object)?;
         let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let resumed = spec.read_handle.is_some();
-        let (selected, token) = if resumed {
+        let (mut selected, token) = if resumed {
             self.resume_read_handle(&spec, &access, caller).await?
         } else {
             let conditions = request_conditions!(spec);
@@ -179,33 +244,45 @@ impl Storage {
                 .map_err(|e| {
                     super::access_status(JsonError::from(e).naming_object(bucket, object), caller)
                 })?;
-            let selected = Arc::new(Selected {
+            let selected = Selected {
+                size: record.size,
                 record,
-                reader: Mutex::new(reader),
+                reader,
                 finality,
-            });
-            let mut token = vec![0; 32];
-            getrandom::fill(&mut token)
+            };
+            let mut token = HandleToken([0; 32]);
+            getrandom::fill(&mut token.0)
                 .map_err(|_| Status::internal("Cannot create read handle; retry the read"))?;
-            self.state
-                .grpc_read_handles
-                .insert(Handle {
-                    token: token.clone(),
+            let now = self.state.clock.now();
+            let expires = now.checked_add(HANDLE_TTL).ok_or_else(|| {
+                Status::internal("Cannot issue read handle: clock exceeds supported range")
+            })?;
+            self.state.grpc_read_handles.insert(
+                Handle {
+                    token,
+                    bucket: bucket.into(),
+                    name: object.into(),
+                    generation: selected.record.generation,
+                    size: selected.size,
+                    finality,
+                    expires,
                     project: project(&access).map(str::to_owned),
-                    selected: selected.clone(),
-                })
-                .await;
+                },
+                now,
+            );
             (selected, token)
         };
         let mut ranges = VecDeque::new();
-        add_ranges(&mut ranges, first.read_ranges, selected.record.size)?;
+        add_ranges(&mut ranges, first.read_ranges, selected.size)?;
         let initial = pb::BidiReadObjectResponse {
             metadata: if resumed {
                 None
             } else {
                 Some(super::append::object(&selected.record, selected.finality)?)
             },
-            read_handle: Some(pb::BidiReadHandle { handle: token }),
+            read_handle: Some(pb::BidiReadHandle {
+                handle: token.0.to_vec(),
+            }),
             ..Default::default()
         };
         let (tx, rx) = mpsc::channel(2);
@@ -214,7 +291,10 @@ impl Storage {
                 tx.send(Ok(initial))
                     .await
                     .map_err(|_| Status::cancelled("Read stream closed"))?;
-                serve(&mut input, &selected, &mut ranges, &tx).await
+                let result = serve(&mut input, &mut selected, &mut ranges, &tx).await;
+                result.map_err(|(error, failed)| {
+                    stream_error(error, failed, ranges.iter().map(|range| range.read_id))
+                })
             };
             tokio::select! {
                 _ = tx.closed() => {},
@@ -233,21 +313,41 @@ fn add_ranges(
     size: u64,
 ) -> Result<(), Status> {
     if ranges.len() > MAX_RANGES {
-        return Err(Status::invalid_argument(
-            "At most 100 ranges are allowed per message; split read_ranges across multiple messages",
+        return Err(stream_error(
+            Status::invalid_argument(
+                "At most 100 ranges are allowed per message; split read_ranges across multiple messages",
+            ),
+            None,
+            queue.iter().map(|range| range.read_id),
         ));
     }
+    let pending = queue
+        .iter()
+        .chain(&ranges)
+        .map(|range| range.read_id)
+        .collect::<Vec<_>>();
     for mut range in ranges {
         if queue.iter().any(|pending| pending.read_id == range.read_id) {
-            return Err(Status::invalid_argument(
-                "Duplicate outstanding read_id; assign a different read_id to each range",
+            return Err(stream_error(
+                Status::invalid_argument(
+                    "Duplicate outstanding read_id; assign a different read_id to each range",
+                ),
+                Some(range.read_id),
+                pending.iter().copied(),
             ));
         }
+        let invalid = || {
+            stream_error(
+                range_error(range.read_id),
+                Some(range.read_id),
+                pending.iter().copied(),
+            )
+        };
         let (offset, length) =
             crate::grpc::validate::resolve_range(size, range.read_offset, range.read_length)
-                .ok_or_else(|| range_error(range.read_id))?;
-        range.read_offset = i64::try_from(offset).map_err(|_| range_error(range.read_id))?;
-        range.read_length = i64::try_from(length).map_err(|_| range_error(range.read_id))?;
+                .ok_or_else(invalid)?;
+        range.read_offset = i64::try_from(offset).map_err(|_| invalid())?;
+        range.read_length = i64::try_from(length).map_err(|_| invalid())?;
         queue.push_back(range);
     }
     Ok(())
@@ -269,17 +369,79 @@ fn range_error(read_id: i64) -> Status {
     super::status::with_detail(
         tonic::Code::OutOfRange,
         message.into(),
-        "type.googleapis.com/google.storage.v2.BidiReadObjectError",
+        READ_ERROR_TYPE,
         details.encode_to_vec(),
+    )
+}
+
+fn stream_error(error: Status, failed: Option<i64>, pending: impl Iterator<Item = i64>) -> Status {
+    use crate::grpc::generated::google::rpc::Status as RpcStatus;
+    let mut rpc = RpcStatus::decode(error.details()).unwrap_or_default();
+    rpc.code = error.code() as i32;
+    rpc.message = error.message().into();
+    let index = rpc
+        .details
+        .iter()
+        .position(|detail| detail.type_url == READ_ERROR_TYPE);
+    let mut detail = index
+        .and_then(|index| pb::BidiReadObjectError::decode(rpc.details[index].value.as_slice()).ok())
+        .unwrap_or_default();
+    let mut ids = detail
+        .read_range_errors
+        .iter()
+        .map(|range| range.read_id)
+        .collect::<std::collections::BTreeSet<_>>();
+    if let Some(read_id) = failed
+        && ids.insert(read_id)
+    {
+        detail.read_range_errors.push(pb::ReadRangeError {
+            read_id,
+            status: Some(RpcStatus {
+                code: error.code() as i32,
+                message: error.message().into(),
+                details: vec![],
+            }),
+        });
+    }
+    for read_id in pending {
+        if ids.insert(read_id) {
+            detail.read_range_errors.push(pb::ReadRangeError {
+                read_id,
+                status: Some(RpcStatus {
+                    code: tonic::Code::Aborted as i32,
+                    message: "Read stream failed before this range completed; retry the range"
+                        .into(),
+                    details: vec![],
+                }),
+            });
+        }
+    }
+    if detail.read_range_errors.is_empty() {
+        return error;
+    }
+    let detail = prost_types::Any {
+        type_url: READ_ERROR_TYPE.into(),
+        value: detail.encode_to_vec(),
+    };
+    if let Some(index) = index {
+        rpc.details[index] = detail;
+    } else {
+        rpc.details.push(detail);
+    }
+    Status::with_details_and_metadata(
+        error.code(),
+        error.message(),
+        rpc.encode_to_vec().into(),
+        error.metadata().clone(),
     )
 }
 
 async fn serve(
     input: &mut Streaming<pb::BidiReadObjectRequest>,
-    selected: &Selected,
+    selected: &mut Selected,
     ranges: &mut VecDeque<pb::ReadRange>,
     tx: &mpsc::Sender<Result<pb::BidiReadObjectResponse, Status>>,
-) -> Result<(), Status> {
+) -> Result<(), (Status, Option<i64>)> {
     let mut eof = false;
     loop {
         if eof && ranges.is_empty() {
@@ -287,22 +449,21 @@ async fn serve(
         }
         tokio::select! {
             message = input.message(), if !eof && ranges.len() < MAX_RANGES => {
-                if let Some(message) = message? {
+                if let Some(message) = message.map_err(|error| (error, None))? {
                     if message.read_object_spec.is_some() {
-                        return Err(Status::invalid_argument("read_object_spec is only allowed in the first message; send only read_ranges afterward"));
+                        return Err((Status::invalid_argument("read_object_spec is only allowed in the first message; send only read_ranges afterward"), None));
                     }
-                    add_ranges(ranges, message.read_ranges, selected.record.size)?;
+                    add_ranges(ranges, message.read_ranges, selected.size).map_err(|error| (error, None))?;
                 } else { eof = true; }
             }
             _ = std::future::ready(()), if !ranges.is_empty() => {
                 let Some(mut range) = ranges.pop_front() else { continue };
                 let offset = range.read_offset;
                 let data = {
-                    // Reposition under the same lock because reconnects share the immutable open file.
-                    let mut reader = selected.reader.lock().await;
+                    let reader = &mut selected.reader;
                     reader.set_range(offset.cast_unsigned(), range.read_length.cast_unsigned()).await
-                        .map_err(|_| Status::internal("Cannot seek object data; restore a valid data directory"))?;
-                    reader.next_chunk().await.map_err(|_| Status::internal("Cannot read object data; restore a valid data directory"))?
+                        .map_err(|error| (super::status::read_failure(error), Some(range.read_id)))?;
+                    reader.next_chunk().await.map_err(|error| (super::status::read_failure(error), Some(range.read_id)))?
                         .unwrap_or_default()
                 };
                 // Readers cap chunks at 64 KiB; widening the signed pointer-sized length cannot fail.
@@ -331,15 +492,20 @@ mod tests {
     use crate::grpc::test_support::assert_code;
     use crate::grpc::v2::access_status;
     use crate::storage::test_fixtures::PERMISSIVE;
+    use std::sync::Arc;
 
     async fn readable_state() -> Arc<crate::server::State> {
+        readable_state_with_budget(1024 * 1024).await
+    }
+
+    async fn readable_state_with_budget(budget: u64) -> Arc<crate::server::State> {
         use crate::{
             auth::Auth,
             clock::SystemClock,
             storage::{Catalog, admin::LocalAdmin},
         };
         let catalog = Catalog::open_memory_for_server(
-            1024 * 1024,
+            budget,
             1024 * 1024,
             Arc::new(SystemClock),
             LocalAdmin::Enabled,
@@ -368,28 +534,30 @@ mod tests {
         Arc::new(crate::server::State::for_test(catalog, Auth::permissive()))
     }
 
-    #[tokio::test]
-    async fn read_handles_are_isolated_by_state_and_survive_reconnection() {
-        use crate::grpc::test_support::{rpc, storage_with};
-        let states = [readable_state().await, readable_state().await];
-        let mut selected = Vec::new();
-        let mut handles = Vec::new();
-        for state in &states {
-            let request = pb::BidiReadObjectRequest {
-                read_object_spec: Some(pb::BidiReadObjectSpec {
-                    bucket: "projects/_/buckets/handle-bucket".into(),
-                    object: "object".into(),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
-            let (code, responses): (_, Vec<pb::BidiReadObjectResponse>) = rpc(
+    async fn issued_spec(
+        state: &Arc<crate::server::State>,
+        object: &str,
+    ) -> pb::BidiReadObjectSpec {
+        let spec = pb::BidiReadObjectSpec {
+            bucket: "projects/_/buckets/handle-bucket".into(),
+            object: object.into(),
+            ..Default::default()
+        };
+        let (code, responses): (_, Vec<pb::BidiReadObjectResponse>) =
+            crate::grpc::test_support::rpc(
                 "/google.storage.v2.Storage/BidiReadObject",
                 None,
-                &[request],
+                &[pb::BidiReadObjectRequest {
+                    read_object_spec: Some(spec.clone()),
+                    ..Default::default()
+                }],
                 async |request| {
                     crate::grpc::v2::dispatch(
-                        crate::grpc::v2::service(state.clone(), 1024),
+                        crate::grpc::v2::service(
+                            state.clone(),
+                            1024 * 1024,
+                            crate::config::CompatProfile::Native,
+                        ),
                         request,
                     )
                     .await
@@ -397,68 +565,187 @@ mod tests {
                 },
             )
             .await;
-            assert_eq!(code, tonic::Code::Ok);
-            assert_eq!(responses.len(), 1);
-            let token = responses[0].read_handle.as_ref().unwrap().handle.clone();
-            let entries = state.grpc_read_handles.0.lock().await;
-            selected.push(
-                entries
-                    .iter()
-                    .find(|entry| entry.token == token)
-                    .unwrap()
-                    .selected
-                    .clone(),
-            );
-            handles.push(token);
+        assert_eq!(code, tonic::Code::Ok);
+        pb::BidiReadObjectSpec {
+            generation: responses[0].metadata.as_ref().unwrap().generation,
+            read_handle: responses[0].read_handle.clone(),
+            ..spec
         }
-        for token in 0..=MAX_HANDLES {
-            states[1]
-                .grpc_read_handles
-                .insert(Handle {
-                    token: token.to_le_bytes().to_vec(),
-                    project: None,
-                    selected: selected[1].clone(),
-                })
-                .await;
-        }
-        let retained: Vec<_> = states[1]
-            .grpc_read_handles
-            .0
-            .lock()
+    }
+
+    #[tokio::test]
+    async fn read_handle_rejects_a_deleted_generation_and_discards_the_token() {
+        let state = readable_state().await;
+        let spec = issued_spec(&state, "object").await;
+        state
+            .catalog
+            .delete_object(
+                ObjectTarget::new("handle-bucket", "object", Some(spec.generation)),
+                Default::default(),
+                PERMISSIVE,
+            )
             .await
-            .iter()
-            .map(|entry| entry.token.clone())
-            .collect();
-        assert_eq!(
-            retained,
-            (1..=MAX_HANDLES)
-                .map(|token| token.to_le_bytes().to_vec())
-                .collect::<Vec<_>>()
+            .unwrap();
+        let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
+        assert_code(
+            storage.resume_read_handle(&spec, PERMISSIVE, None).await,
+            tonic::Code::NotFound,
         );
-        let spec = pb::BidiReadObjectSpec {
-            bucket: "projects/_/buckets/handle-bucket".into(),
-            object: "object".into(),
-            read_handle: Some(pb::BidiReadHandle {
-                handle: handles[0].clone(),
-            }),
-            ..Default::default()
-        };
+        assert_code(
+            storage.resume_read_handle(&spec, PERMISSIVE, None).await,
+            tonic::Code::FailedPrecondition,
+        );
+        state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn closed_read_handles_do_not_reserve_deleted_ram_blobs() {
+        // One small blob fits with its allocation overhead; retaining it prevents a new stage.
+        let state = readable_state_with_budget(300).await;
+        let spec = issued_spec(&state, "object").await;
+        state
+            .catalog
+            .delete_object(
+                ObjectTarget::new("handle-bucket", "object", Some(spec.generation)),
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        let (tx, rx) = mpsc::channel(2);
+        tx.send(Ok(crate::object::UploadChunk::Data(
+            bytes::Bytes::from_static(b"handle data"),
+        )))
+        .await
+        .unwrap();
+        tx.send(Ok(crate::object::UploadChunk::End)).await.unwrap();
+        drop(tx);
+        state
+            .catalog
+            .put_object(
+                crate::storage::test_fixtures::permissive_upload(
+                    "handle-bucket",
+                    "replacement",
+                    1024 * 1024,
+                ),
+                rx,
+            )
+            .await
+            .unwrap();
+        state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn read_handles_expire_with_the_injected_clock() {
+        let mut state = readable_state().await;
+        let clock = Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
+        Arc::get_mut(&mut state).unwrap().clock = clock.clone();
+        let spec = issued_spec(&state, "object").await;
+        clock.advance(std::time::Duration::from_secs(600));
+        let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
+        assert_code(
+            storage.resume_read_handle(&spec, PERMISSIVE, None).await,
+            tonic::Code::FailedPrecondition,
+        );
+        state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn read_handles_reopen_only_generations_still_in_the_catalog() {
+        for versioned in [false, true] {
+            let state = readable_state().await;
+            if versioned {
+                state
+                    .catalog
+                    .patch_bucket(
+                        "handle-bucket",
+                        crate::bucket::BucketMetadataUpdate {
+                            versioning_enabled: Some(true),
+                            ..Default::default()
+                        },
+                        Default::default(),
+                        PERMISSIVE,
+                    )
+                    .await
+                    .unwrap();
+            }
+            let spec = issued_spec(&state, "object").await;
+            let (tx, rx) = mpsc::channel(2);
+            tx.send(Ok(crate::object::UploadChunk::Data(
+                bytes::Bytes::from_static(b"new"),
+            )))
+            .await
+            .unwrap();
+            tx.send(Ok(crate::object::UploadChunk::End)).await.unwrap();
+            drop(tx);
+            state
+                .catalog
+                .put_object(
+                    crate::storage::test_fixtures::permissive_upload(
+                        "handle-bucket",
+                        "object",
+                        1024,
+                    ),
+                    rx,
+                )
+                .await
+                .unwrap();
+            let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
+            let resumed = storage.resume_read_handle(&spec, PERMISSIVE, None).await;
+            if versioned {
+                let (mut opened, _) = resumed.unwrap();
+                assert_eq!(
+                    opened.reader.next_chunk().await.unwrap().unwrap(),
+                    b"handle data".as_slice()
+                );
+            } else {
+                assert_code(resumed, tonic::Code::NotFound);
+                let spec = issued_spec(&state, "object").await;
+                state
+                    .catalog
+                    .delete_object(
+                        ObjectTarget::new("handle-bucket", "object", None),
+                        Default::default(),
+                        PERMISSIVE,
+                    )
+                    .await
+                    .unwrap();
+                state
+                    .catalog
+                    .delete_bucket("handle-bucket", Default::default(), PERMISSIVE)
+                    .await
+                    .unwrap();
+                state
+                    .catalog
+                    .insert_bucket(crate::storage::test_fixtures::bucket("handle-bucket", "p"))
+                    .await
+                    .unwrap();
+                assert_code(
+                    storage.resume_read_handle(&spec, PERMISSIVE, None).await,
+                    tonic::Code::NotFound,
+                );
+            }
+            state.catalog.close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn read_handles_are_isolated_by_state_and_survive_reconnection() {
+        use crate::grpc::test_support::storage_with;
+        let states = [readable_state().await, readable_state().await];
+        let spec = issued_spec(&states[0], "object").await;
         let reconnected = storage_with(states[0].clone(), 1024);
-        let (resumed, token) = reconnected
+        let (mut resumed, token) = reconnected
             .resume_read_handle(&spec, PERMISSIVE, None)
             .await
             .unwrap();
-        assert!(Arc::ptr_eq(&resumed, &selected[0]));
-        assert_eq!(token, handles[0]);
         assert_eq!(
-            resumed
-                .reader
-                .lock()
-                .await
-                .next_chunk()
-                .await
-                .unwrap()
-                .unwrap(),
+            token.0.as_slice(),
+            spec.read_handle.as_ref().unwrap().handle
+        );
+        assert_eq!(resumed.record.generation, spec.generation);
+        assert_eq!(
+            resumed.reader.next_chunk().await.unwrap().unwrap(),
             b"handle data".as_slice()
         );
         let other = storage_with(states[1].clone(), 1024);
@@ -467,10 +754,99 @@ mod tests {
             tonic::Code::FailedPrecondition,
         );
         drop(resumed);
-        drop(selected);
         for state in states {
             state.catalog.close().await.unwrap();
         }
+    }
+
+    #[test]
+    fn read_handle_table_evicts_the_oldest_entry_at_its_bound() {
+        let handles = ReadHandles::default();
+        let now = SystemTime::now();
+        let token = |index: usize| {
+            let mut bytes = [0; 32];
+            bytes[..8].copy_from_slice(&u64::try_from(index).unwrap().to_le_bytes());
+            HandleToken(bytes)
+        };
+        for index in 0..=MAX_HANDLES {
+            handles.insert(
+                Handle {
+                    token: token(index),
+                    bucket: "bucket".into(),
+                    name: "object".into(),
+                    generation: 1,
+                    size: 0,
+                    finality: Finality::Finalized,
+                    project: None,
+                    expires: now + HANDLE_TTL,
+                },
+                now,
+            );
+        }
+        assert!(handles.find(&token(0).0, now).is_none());
+        assert!(handles.find(&token(MAX_HANDLES).0, now).is_some());
+        assert_eq!(handles.0.lock().unwrap().len(), MAX_HANDLES);
+    }
+
+    #[tokio::test]
+    async fn appendable_read_handles_keep_the_issued_size_after_flush_and_finalize() {
+        let state = readable_state().await;
+        let mut writer = state
+            .catalog
+            .create_appendable(
+                "handle-bucket",
+                "log",
+                crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
+            )
+            .await
+            .unwrap();
+        writer
+            .append(0, bytes::Bytes::from_static(b"0123456789"), 1024)
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        let spec = issued_spec(&state, "log").await;
+        writer
+            .append(10, bytes::Bytes::from_static(b"abcdefghij"), 1024)
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
+        let (mut opened, _) = storage
+            .resume_read_handle(&spec, PERMISSIVE, None)
+            .await
+            .unwrap();
+        assert_eq!(opened.size, 10);
+        assert_eq!(
+            opened.reader.next_chunk().await.unwrap().unwrap(),
+            b"0123456789".as_slice()
+        );
+        assert_code(
+            add_ranges(
+                &mut VecDeque::new(),
+                vec![pb::ReadRange {
+                    read_offset: 15,
+                    ..Default::default()
+                }],
+                opened.size,
+            ),
+            tonic::Code::OutOfRange,
+        );
+        drop(opened);
+        writer
+            .finalize(None, crate::bucket::BucketAccess::Permissive, 1024)
+            .await
+            .unwrap();
+        let (mut opened, _) = storage
+            .resume_read_handle(&spec, PERMISSIVE, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            opened.reader.next_chunk().await.unwrap().unwrap(),
+            b"0123456789".as_slice()
+        );
+        drop(opened);
+        state.catalog.close().await.unwrap();
     }
 
     #[test]
@@ -512,6 +888,101 @@ mod tests {
         );
         assert!(check_handle_project(Some("new-project"), &access).is_ok());
         assert!(check_handle_project(None, PERMISSIVE).is_ok());
+    }
+
+    #[test]
+    fn bidi_range_errors_report_every_submitted_read_id() {
+        let error = add_ranges(
+            &mut VecDeque::new(),
+            vec![
+                pb::ReadRange {
+                    read_id: 1,
+                    read_length: 1,
+                    ..Default::default()
+                },
+                pb::ReadRange {
+                    read_id: 2,
+                    read_offset: 20,
+                    ..Default::default()
+                },
+                pb::ReadRange {
+                    read_id: 3,
+                    read_length: 1,
+                    ..Default::default()
+                },
+            ],
+            10,
+        )
+        .unwrap_err();
+        let rpc = crate::grpc::generated::google::rpc::Status::decode(error.details()).unwrap();
+        assert_eq!(rpc.code, error.code() as i32);
+        assert_eq!(rpc.message, error.message());
+        let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
+        let states = detail
+            .read_range_errors
+            .into_iter()
+            .map(|range| (range.read_id, range.status.unwrap().code))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            states,
+            [
+                (1, tonic::Code::Aborted as i32),
+                (2, tonic::Code::OutOfRange as i32),
+                (3, tonic::Code::Aborted as i32)
+            ]
+            .into()
+        );
+    }
+
+    #[test]
+    fn bidi_duplicate_id_keeps_outer_error_in_details() {
+        let range = pb::ReadRange {
+            read_id: 7,
+            ..Default::default()
+        };
+        let error = add_ranges(&mut VecDeque::new(), vec![range, range], 10).unwrap_err();
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        let rpc = crate::grpc::generated::google::rpc::Status::decode(error.details()).unwrap();
+        assert_eq!(rpc.code, error.code() as i32);
+        assert_eq!(rpc.message, error.message());
+        let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
+        assert_eq!(detail.read_range_errors[0].read_id, 7);
+    }
+
+    #[test]
+    fn handle_tokens_reject_every_changed_byte_and_wrong_length() {
+        let token = HandleToken([0xa5; 32]);
+        assert!(token.matches(&token.0));
+        for index in 0..32 {
+            let mut changed = token.0;
+            changed[index] ^= 1;
+            assert!(!token.matches(&changed));
+        }
+        assert!(!token.matches(&token.0[..31]));
+        assert!(!token.matches(&[0xa5; 33]));
+    }
+
+    #[test]
+    fn stream_errors_normalize_existing_rich_status_and_preserve_details() {
+        use crate::grpc::generated::google::rpc::Status as RpcStatus;
+        let original = range_error(3);
+        let mut rpc = RpcStatus::decode(original.details()).unwrap();
+        rpc.code = 0;
+        rpc.message = "incorrect inner message".into();
+        let error = stream_error(
+            Status::with_details(
+                original.code(),
+                original.message(),
+                rpc.encode_to_vec().into(),
+            ),
+            Some(3),
+            [4].into_iter(),
+        );
+        let rpc = RpcStatus::decode(error.details()).unwrap();
+        assert_eq!(rpc.code, error.code() as i32);
+        assert_eq!(rpc.message, error.message());
+        let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
+        assert_eq!(detail.read_range_errors.len(), 2);
     }
 
     #[test]

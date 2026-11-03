@@ -107,8 +107,8 @@ pub struct ObjectName(String);
 impl ObjectName {
     pub fn new(value: impl Into<String>) -> Result<Self, AdminError> {
         let value = value.into();
-        crate::json::validate_object_name(&value)
-            .map_err(|error| AdminError::Invalid(error.message))?;
+        crate::object::name::validate(&value)
+            .map_err(|_| AdminError::Invalid("Invalid object name".into()))?;
         Ok(Self(value))
     }
     pub(crate) fn as_str(&self) -> &str {
@@ -335,6 +335,7 @@ impl From<CatalogError> for AdminError {
             CatalogError::PreconditionFailed => Self::Precondition,
             CatalogError::NotFound => Self::NotFound,
             CatalogError::Forbidden | CatalogError::PublicAccessPrevention => Self::Forbidden,
+            CatalogError::Metadata(error) => Self::Invalid(error.to_string()),
             error @ (CatalogError::RetentionPolicyLocked(_)
             | CatalogError::RetentionPolicyNotSet) => Self::Invalid(error.to_string()),
             CatalogError::InvalidMetadata(reason) | CatalogError::UnsupportedMetadata(reason) => {
@@ -349,6 +350,7 @@ impl From<ObjectError> for AdminError {
         match error {
             ObjectError::Io(cause) => Self::from_io(cause),
             ObjectError::Corrupt(cause) => Self::Corrupt(cause),
+            ObjectError::Metadata(error) => Self::Invalid(error.to_string()),
             ObjectError::InvalidFixedMetadata(reason)
             | ObjectError::UnsupportedMetadata(reason) => Self::Invalid(reason),
             ObjectError::PreconditionFailed => Self::Precondition,

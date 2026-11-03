@@ -88,7 +88,7 @@ Tests: `grpc_buckets_create_enables_object_retention`, `grpc_update_object_reten
 
 ## Soft-deleted listings
 
-ListObjects `soft_deleted=true` returned UNIMPLEMENTED. The adapter already builds a JSON listing query from the request, so it now forwards `softDeleted` to the shared JSON listing.
+ListObjects `soft_deleted=true` originally returned UNIMPLEMENTED. The adapter now constructs a typed shared catalog query directly, with the same combination validation as JSON. It preserves the established NoAcl page-token format without building a JSON URL or rendering JSON resources; input failures name proto fields.
 
 | Case | Required behavior |
 | --- | --- |

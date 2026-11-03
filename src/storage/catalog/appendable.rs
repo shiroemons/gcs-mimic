@@ -14,8 +14,8 @@
 use super::{
     Catalog,
     objects::{
-        ObjectReader, ObjectUpload, PublicationDefaults, authorized_bucket, check_conditions,
-        lookup, object_unavailable, unlink,
+        ObjectUpload, PublicationDefaults, authorized_bucket, check_conditions, lookup,
+        object_unavailable, unlink,
     },
     resumable::{ResumableOptions, decode_options, encode_options},
     system_time_micros, unix_micros,
@@ -38,7 +38,12 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+#[cfg(test)]
+use super::objects::ObjectReader;
+
 mod data;
+mod readable;
+pub(crate) use readable::Finality;
 
 pub(super) const SCHEMA: &str = "CREATE TABLE appendable_objects (
     bucket TEXT NOT NULL COLLATE BINARY,
@@ -1046,48 +1051,23 @@ impl Catalog {
     }
 
     /// Opens the persisted prefix of an unfinalized generation for reading.
+    #[cfg(test)]
     pub(crate) async fn open_appendable(
         &self,
         target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-        let ObjectTarget {
-            bucket,
-            name,
-            generation,
-        } = target;
         let access = access.clone();
-        let backend = self.0.backend.clone();
-        let principals = self.0.principals.get().cloned();
-        let (record, file) = self
-            .run(move |connection| {
-                let transaction = connection.transaction()?;
-                let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
-                let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {
-                    return Err(ObjectError::ObjectNotFound);
-                };
-                if generation.is_some_and(|generation| generation != row.generation) {
-                    return Err(ObjectError::ObjectNotFound);
-                }
-                let record = record(
-                    &transaction,
-                    &bucket,
-                    &name,
-                    storage_class,
-                    &row,
-                    principals.as_ref(),
-                )?;
-                check_conditions(Some(&record), conditions, super::objects::RequestKind::Read)?;
-                // Opened inside the transaction so finalization cannot unlink it first.
-                let file =
-                    ObjectReader::bounded_data(backend.open_appendable(&row.blob_id)?, record.size);
-                Ok((record, file))
-            })
-            .await?;
-        Ok((record, file))
+        let catalog = self.clone();
+        self.run(move |connection| {
+            let transaction = connection.transaction()?;
+            readable::open_appendable_in(&transaction, &catalog, &target, conditions, &access)
+        })
+        .await
     }
 
+    #[cfg(test)]
     pub(crate) async fn delete_appendable(
         &self,
         target: ObjectTarget,
@@ -1096,6 +1076,17 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         let slot = SlotHandle::new(self, &target.bucket, &target.name);
         let mut guard = slot.lock().await;
+        self.delete_appendable_locked(target, conditions, access, &mut guard)
+            .await
+    }
+
+    async fn delete_appendable_locked(
+        &self,
+        target: ObjectTarget,
+        conditions: ObjectConditions,
+        access: &BucketAccess,
+        guard: &mut Slot,
+    ) -> Result<(), ObjectError> {
         let ObjectTarget {
             bucket,
             name,
@@ -1140,7 +1131,6 @@ impl Catalog {
             })
             .await?;
         guard.owner = None;
-        drop(guard);
         self.release_appendable_data(id).await;
         Ok(())
     }

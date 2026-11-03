@@ -4,6 +4,64 @@ use crate::test_support::TestDir;
 
 mod owner_tests;
 
+#[tokio::test]
+async fn deletion_serializes_with_appendable_finalization_on_disk_and_ram() {
+    for memory in [false, true] {
+        let dir = TestDir::new();
+        let catalog = if memory {
+            let catalog = Catalog::open_backend(
+                dir.0.clone(),
+                Arc::new(crate::clock::SystemClock),
+                super::super::admin::LocalAdmin::Enabled,
+                Some((8192, 1024 * 1024)),
+            )
+            .await
+            .unwrap();
+            insert_bucket(&catalog).await;
+            catalog
+        } else {
+            catalog_with_bucket(&dir).await
+        };
+        for index in 0..10 {
+            let name = format!("delete-race-{index}");
+            let mut writer = catalog
+                .create_appendable("append", &name, options())
+                .await
+                .unwrap();
+            writer
+                .append(0, Bytes::from_static(b"data"), 1024)
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+            let finalize = writer.finalize(None, BucketAccess::Permissive, 1024);
+            let delete = catalog.delete_including_appendable(
+                live("append", &name),
+                Default::default(),
+                PERMISSIVE,
+            );
+            let (finalized, deleted) = if index % 2 == 0 {
+                tokio::join!(finalize, delete)
+            } else {
+                let (deleted, finalized) = tokio::join!(delete, finalize);
+                (finalized, deleted)
+            };
+            deleted.unwrap();
+            assert!(
+                matches!(finalized, Ok(_) | Err(AppendError::Superseded)),
+                "{finalized:?}"
+            );
+            assert!(matches!(
+                catalog
+                    .get_readable(live("append", &name), Default::default(), PERMISSIVE)
+                    .await,
+                Err(ObjectError::ObjectNotFound)
+            ));
+            drop(writer);
+        }
+        catalog.close().await.unwrap();
+    }
+}
+
 async fn catalog_with_bucket(dir: &TestDir) -> Catalog {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     insert_bucket(&catalog).await;

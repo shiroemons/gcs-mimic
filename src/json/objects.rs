@@ -98,6 +98,7 @@ impl ObjectRequest {
 }
 
 /// Match raw path segments before decoding object names exactly once.
+#[cfg(test)]
 pub(crate) fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, JsonError>> {
     route_object_with_profile(method, uri, CompatProfile::Native)
 }
@@ -211,15 +212,8 @@ pub(crate) fn route_object_with_profile(
 
 /// Validate the flat-namespace requirements, not optional CLI/filesystem recommendations.
 pub(crate) fn validate_object_name(name: &str) -> Result<(), JsonError> {
-    if name.is_empty()
-        || name.len() > 1024
-        || name.contains(['\r', '\n'])
-        || matches!(name, "." | "..")
-        || name.starts_with(".well-known/acme-challenge/")
-    {
-        return Err(JsonError::invalid_parameter("Invalid object name"));
-    }
-    Ok(())
+    crate::object::name::validate(name)
+        .map_err(|_| JsonError::invalid_parameter("Invalid object name"))
 }
 
 /// Parse an object request's query. `name` is `None` exactly for uploads: the router accepts

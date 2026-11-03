@@ -315,6 +315,25 @@ fn stored_bucket_entries(
     .transpose()
 }
 
+fn bucket_projection(
+    connection: &Connection,
+    bucket: &str,
+    row: &BucketRow,
+) -> Result<AclProjection, CatalogError> {
+    let default = || project_private(&row.project);
+    Ok(AclProjection {
+        uniform_access: row.uniform_access,
+        bucket: stored_bucket_entries(connection, bucket, AclKind::Bucket)?.unwrap_or_else(default),
+        default_object: stored_bucket_entries(connection, bucket, AclKind::DefaultObject)?
+            .unwrap_or_else(default),
+        bucket_metageneration: row.metageneration,
+        objects: Vec::new(),
+        owners: Vec::new(),
+        visible: Vec::new(),
+        project: row.project.clone(),
+    })
+}
+
 pub(super) fn bucket_granted(
     connection: &Connection,
     bucket: &str,
@@ -902,6 +921,36 @@ impl Catalog {
         self.projection(bucket, objects, None).await
     }
 
+    /// One snapshot keeps each listed bucket's ACL projection and permission decision together.
+    pub(crate) async fn bucket_acl_projections(
+        &self,
+        buckets: Vec<String>,
+        access: &BucketAccess,
+    ) -> Result<Vec<Option<AclProjection>>, CatalogError> {
+        if matches!(access, BucketAccess::Policy { permission, .. } if *permission != crate::auth::Permission::BucketsGetIam)
+        {
+            return Err(CatalogError::Forbidden);
+        }
+        let access = access.clone();
+        self.run(move |connection| {
+            let transaction = connection.transaction()?;
+            buckets
+                .iter()
+                .map(|bucket| {
+                    let Some(row) = bucket_row(&transaction, bucket)? else {
+                        return Ok(None);
+                    };
+                    match check_access(&transaction, bucket, &row.project, &access) {
+                        Ok(_) => bucket_projection(&transaction, bucket, &row).map(Some),
+                        Err(CatalogError::Forbidden) => Ok(None),
+                        Err(error) => Err(error),
+                    }
+                })
+                .collect()
+        })
+        .await
+    }
+
     pub(crate) async fn object_acl_projection(
         &self,
         bucket: &str,
@@ -965,22 +1014,11 @@ impl Catalog {
                 entries.push(object_entries);
                 owners.push(owner);
             }
-            Ok(Some(AclProjection {
-                uniform_access: row.uniform_access,
-                bucket: stored_bucket_entries(&transaction, &bucket, AclKind::Bucket)?
-                    .unwrap_or_else(default),
-                default_object: stored_bucket_entries(
-                    &transaction,
-                    &bucket,
-                    AclKind::DefaultObject,
-                )?
-                .unwrap_or_else(default),
-                bucket_metageneration: row.metageneration,
-                objects: entries,
-                owners,
-                visible,
-                project: row.project,
-            }))
+            let mut projection = bucket_projection(&transaction, &bucket, &row)?;
+            projection.objects = entries;
+            projection.owners = owners;
+            projection.visible = visible;
+            Ok(Some(projection))
         })
         .await
     }

@@ -33,7 +33,7 @@ Scope: BEHAVIOR-RAPID-002, BEHAVIOR-RAPID-003, BEHAVIOR-RAPID-004 and BEHAVIOR-R
 
 ## Design
 
-Standard immutable objects and the Rapid state machine are separate. `src/storage/catalog/appendable.rs` owns appendable state; `src/grpc/v2/append.rs` is the protocol adapter. Shared files change only at their entry points: BidiWriteObject routes appendable first messages to the adapter, and GetObject, ReadObject, BidiReadObject and DeleteObject fall back to the appendable store when the catalog has no matching object.
+Standard immutable objects and the Rapid state machine are separate. `src/storage/catalog/appendable.rs` owns appendable state; `src/grpc/v2/append.rs` is the protocol adapter. BidiWriteObject routes appendable first messages to the adapter. GetObject, ReadObject and BidiReadObject select finalized or appendable state in one catalog snapshot, so finalization cannot move a generation between their lookups. Metadata requests open no blob. DeleteObject holds the same per-object slot as finalization while selecting and deleting either state; the durable deletion/publication steps remain unchanged.
 
 - State: catalog schema 34 adds `appendable_objects`, one row per object name: generation, bucket incarnation, opaque blob ID, the shared resumable-options encoding of the written metadata, persisted size and CRC32C, creation/update times and the current write handle. The legacy `finalizing` column remains for schema compatibility and is normalized to zero at open. Bytes live in `<data-dir>/appendable/<blob-id>`, never in a path derived from the object name.
 - Durability boundary: the row's size. Data is written as it arrives; `flush` fsyncs the file, then commits size and CRC32C in a short transaction that also checks the write handle and the bucket incarnation. Bytes beyond the row's size were never acknowledged; readers ignore them and the next takeover truncates them. Writes and the fsync use the writer's one descriptor, because Linux may report a writeback error only to descriptors that were open when it happened. A failed fsync discards the unflushed bytes from the writer's offset, since a retried fsync can succeed after the data is lost; they must be sent again. Fault-injection tests cover a failed write, a failed fsync, and crashes before the write, before the fsync and before the size commit, each recovering the last flushed prefix.
@@ -54,6 +54,11 @@ Google documents early namespace visibility for appendable objects and no JSON w
 
 ## Limitations
 
+Rapid finalization uses the common permission-aware write owner/ACL view, with
+no fields under UBLA or without ACL read permission. This is inferred from
+ordinary write observations; provider verification remains pending in
+SPEC-GRPC-DERIVED-OWNER-VIEW.
+
 - An unfinalized object is not listed, does not block bucket deletion, and is not a source for UpdateObject, copy, rewrite, compose or move (NOT_FOUND).
 - Replacing an existing object with a new appendable generation returns UNIMPLEMENTED; delete the object first.
 - BidiReadObject reads a snapshot bounded by the size persisted when the stream or read handle opened; reopen to observe later appends.
@@ -64,6 +69,14 @@ Google documents early namespace visibility for appendable objects and no JSON w
 - No provider-exact error messages are claimed.
 
 ## Verification
+
+On 2026-11-04, `cargo test --lib appendable -- --test-threads=4` passed
+28 tests, including concurrent selection/finalization, disk/RAM deletion races,
+failed writes and syncs, crash recovery and PowerLoss on both sides of finalization.
+The concurrent read test also passed before the selection change, so no
+deterministic reproduction of the timing window is claimed. A single catalog
+transaction now excludes that interleaving; deletion shares the finalizer's slot.
+Workspace checking, production lint and formatting passed.
 
 Results on 2026-10-29 from the worktree source:
 

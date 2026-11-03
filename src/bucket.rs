@@ -56,8 +56,8 @@ impl FromStr for StorageClass {
             "ARCHIVE" => Ok(Self::Archive),
             "MULTI_REGIONAL" => Ok(Self::MultiRegional),
             "DURABLE_REDUCED_AVAILABILITY" => Ok(Self::DurableReducedAvailability),
-            "REGIONAL" | "RAPID" => Err(CatalogError::UnsupportedMetadata(
-                "storageClass requires a region or zone".into(),
+            "REGIONAL" | "RAPID" => Err(CatalogError::Metadata(
+                crate::metadata_error::MetadataError::StorageClassRequiresLocation,
             )),
             _ => Err(CatalogError::InvalidMetadata(
                 "The storage class you specified is not valid.".into(),
@@ -212,6 +212,7 @@ pub(crate) struct BucketMetadataUpdate {
     /// An echoed `objectRetention` value; it must match the stored state.
     pub object_retention_enabled: Option<bool>,
     pub labels: Option<Option<BTreeMap<String, Option<String>>>>,
+    pub(crate) labels_mode: crate::object::MapMode,
     pub storage_class: Option<StorageClass>,
     pub autoclass: Option<autoclass::AutoclassUpdate>,
     pub versioning_enabled: Option<bool>,
@@ -241,6 +242,7 @@ impl BucketMetadataUpdate {
             lock_retention_policy,
             object_retention_enabled,
             labels,
+            labels_mode: _,
             storage_class,
             autoclass,
             versioning_enabled,
@@ -432,6 +434,44 @@ pub(crate) fn validate_storage_class(storage_class: &str) -> Result<StorageClass
     storage_class.parse()
 }
 
+pub(crate) fn validate_update_storage_class(class: &str) -> Result<StorageClass, CatalogError> {
+    validate_storage_class(class).map_err(|error| match error {
+        CatalogError::InvalidMetadata(_) => CatalogError::Metadata(
+            crate::metadata_error::MetadataError::InvalidUpdateStorageClass(class.into()),
+        ),
+        error => error,
+    })
+}
+
+pub(crate) const SOFT_DELETE_RANGE_MESSAGE: &str =
+    "Soft delete policy must have a retention duration between 3 days and 90 days.";
+pub(crate) const RETENTION_RANGE_MESSAGE: &str =
+    "Retention policy must have a retention period greater than 0 and less than 100 years.";
+
+pub(crate) fn soft_delete_retention(seconds: i64) -> Result<u64, CatalogError> {
+    u64::try_from(seconds)
+        .ok()
+        .filter(|value| *value == 0 || (604800..=7776000).contains(value))
+        .ok_or_else(|| CatalogError::InvalidMetadata(SOFT_DELETE_RANGE_MESSAGE.into()))
+}
+
+pub(crate) fn retention_period(seconds: i64) -> Result<u64, CatalogError> {
+    u64::try_from(seconds)
+        .ok()
+        .filter(|value| (1..3_155_760_000).contains(value))
+        .ok_or_else(|| CatalogError::InvalidMetadata(RETENTION_RANGE_MESSAGE.into()))
+}
+
+pub(crate) fn public_access_prevention(value: &str) -> Result<bool, CatalogError> {
+    match value {
+        "enforced" => Ok(true),
+        "inherited" => Ok(false),
+        _ => Err(CatalogError::InvalidMetadata(format!(
+            "Invalid value for: {value} is not a valid value"
+        ))),
+    }
+}
+
 #[test]
 fn storage_class_validation_keeps_exact_errors() {
     for class in [
@@ -447,8 +487,8 @@ fn storage_class_validation_keeps_exact_errors() {
     for class in ["REGIONAL", "RAPID"] {
         assert_eq!(
             validate_storage_class(class),
-            Err(CatalogError::UnsupportedMetadata(
-                "storageClass requires a region or zone".into()
+            Err(CatalogError::Metadata(
+                crate::metadata_error::MetadataError::StorageClassRequiresLocation
             )),
             "{class}"
         );
@@ -479,6 +519,7 @@ pub enum CatalogError {
     RetentionPolicyLocked(u64),
     RetentionPolicyNotSet,
     InvalidMetadata(String),
+    Metadata(crate::metadata_error::MetadataError),
     UnsupportedMetadata(String),
     Io(IoCause),
     Corrupt(BackendCause),
@@ -518,6 +559,7 @@ impl fmt::Display for CatalogError {
                 formatter,
                 "unsupported catalog schema version {version}; this release supports schema {supported} and older"
             ),
+            Self::Metadata(error) => error.fmt(formatter),
             Self::InvalidMetadata(reason) | Self::UnsupportedMetadata(reason) => {
                 formatter.write_str(reason)
             }
@@ -531,6 +573,7 @@ impl std::error::Error for CatalogError {
         match self {
             Self::Io(cause) => cause.source(),
             Self::Corrupt(cause) | Self::Unavailable(cause) => cause.source(),
+            Self::Metadata(error) => Some(error),
             _ => None,
         }
     }

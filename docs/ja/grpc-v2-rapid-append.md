@@ -14,7 +14,7 @@ Go SDK v1.70.0 の `Writer.Append = true` で未確定（unfinalized）の appen
 - 作成: `WriteObjectSpec.appendable = true` で新しい世代を作る。世代は共有の採番から予約し、追記・確定で変わらない。metageneration は 1。
 - flush: 受信したデータはすぐファイルに書き、`flush` で fsync してからサイズと CRC32C を確定する。flush されていないバイトは読み手に見えず、次の書き手が切り詰める。書き込みとfsyncは書き手の1つのディスクリプターで行い、fsyncが失敗したら未flushのバイトを破棄するため、送り直す必要がある。
 - 応答: `flush`・`state_lookup`・正常な Close で `persisted_size`、`persisted_data_checksums`、`write_handle` を返す。作成中のストリームの最初の応答だけは未確定の `resource` を返し、クライアントが世代を知れるようにする。
-- 読み取り: 確定済みオブジェクトがない場合、gRPC の GetObject・ReadObject・BidiReadObject は未確定の世代を選ぶ。読み取りは永続化済みサイズまでで、MD5 と `finalize_time` は返さない。DeleteObject で削除できる。
+- 読み取り: gRPC の GetObject・ReadObject・BidiReadObject は、同じカタログのスナップショットで確定済み・未確定を選ぶ。確定が並行しても世代を見失わず、メタデータ取得ではBlobを開かない。読み取りは永続化済みサイズまでで、MD5 と `finalize_time` は返さない。DeleteObjectは確定と同じスロットロックを持って状態を選び、削除する。
 - takeover: `AppendObjectSpec` で現在の世代を開き直すと、最初のメッセージにすぐ応答し、新しい write handle を発行する。前の書き手は次の書き込みか flush で FAILED_PRECONDITION になる。古い handle では取り戻せない。
 - 確定: `finish_write` で任意の CRC32C を検証し、予約済みの世代で共有の公開処理に流す。確定後は JSON・XML・ListObjects からも見える。MD5 の指定は INVALID_ARGUMENT。`finish_write`を最初のメッセージにして、spec・データ・`object_checksums`をまとめて送ることもでき（Java SDKが小さいオブジェクトで使う）、CRC32Cは同じように検証する。
 - 永続化: 未確定状態は再起動後も残る。公開のトランザクションで行も削除するため、公開後の失敗で未確定の行が残ることはない。確定処理の途中で落ちた場合は、起動時の回復で公開済みなら行を削除し、未公開なら追記可能に戻す。
@@ -27,6 +27,9 @@ Google では appendable オブジェクトはゾーンバケット（ロケー�
 gcs-mimic はゾーンの Rapid バケットを作れず、SDK のプローブは通常のバケットで `Writer.Append` を使うため、ローカルではどのバケットでも appendable オブジェクトを受け付け、ゾーンバケットの制約は適用しない。
 
 ## 制限
+
+Rapidの確定応答も共通のowner・ACL表示処理を使い、UBLAとACL読み取り権限がない場合は返しません。
+通常の書き込みの観測からの推定であり、Googleでの確認はSPEC-GRPC-DERIVED-OWNER-VIEWに残します。
 
 - 未確定オブジェクトは JSON・XML・ListObjects に出ず、バケット削除も妨げない。UpdateObject・コピー・rewrite・compose・move の対象にもならない。
 - 既存オブジェクトを新しい appendable 世代で置き換える操作、appendable の `object_size`、CSEK は UNIMPLEMENTED。`finish_write`のないメッセージの`object_checksums`とspecの`resource.checksums`はINVALID_ARGUMENT。

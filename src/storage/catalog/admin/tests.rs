@@ -1225,7 +1225,9 @@ async fn admin_invalid_metadata_cannot_replace_a_readable_generation() {
                 body(b"bad")
             )
             .await,
-        Err(ObjectError::InvalidFixedMetadata(_))
+        Err(ObjectError::Metadata(
+            crate::metadata_error::MetadataError::FixedHeader(_)
+        ))
     ));
     catalog.close().await.unwrap();
 }

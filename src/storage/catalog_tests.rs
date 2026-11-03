@@ -163,7 +163,10 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
         )
         .await
         .unwrap_err();
-    assert!(matches!(error, CatalogError::InvalidMetadata(_)));
+    assert_eq!(
+        error,
+        CatalogError::Metadata(crate::metadata_error::MetadataError::AutoclassStorageClass)
+    );
     catalog.close().await.unwrap();
 
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -438,7 +441,12 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
                 .patch_bucket("uniform-bucket", update(false), unconditioned, PERMISSIVE)
                 .await
         };
-        assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
+        assert_eq!(
+            result,
+            Err(CatalogError::Metadata(
+                crate::metadata_error::MetadataError::UniformAccessLocked
+            ))
+        );
         assert_eq!(
             catalog
                 .get_bucket("uniform-bucket", PERMISSIVE)
@@ -717,7 +725,9 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
     ));
     assert!(matches!(
         "RAPID".parse::<crate::bucket::StorageClass>(),
-        Err(CatalogError::UnsupportedMetadata(_))
+        Err(CatalogError::Metadata(
+            crate::metadata_error::MetadataError::StorageClassRequiresLocation
+        ))
     ));
     assert_eq!(
         catalog.get_bucket("put-clock", PERMISSIVE).await.unwrap(),
