@@ -9,6 +9,7 @@ pub mod config;
 pub mod config_input;
 mod csek;
 pub mod diagnostics;
+mod error;
 // The descriptor and xattr FFI calls carry their `unsafe_code` expectations on the individual
 // wrapper functions in this module, so new unsafe code elsewhere in it still fails the lint.
 pub mod fsutil;
