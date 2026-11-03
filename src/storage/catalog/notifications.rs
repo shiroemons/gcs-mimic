@@ -69,12 +69,11 @@ pub(super) fn read_all(
     let rows = statement.query_map([bucket], |row| {
         Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
     })?;
-    let mut records = Vec::new();
-    for row in rows {
+    rows.map(|row| {
         let (id, stored) = row?;
-        records.push(record(id, &stored)?);
-    }
-    Ok(records)
+        record(id, &stored)
+    })
+    .collect()
 }
 
 /// The Pub/Sub notification documentation states that creating and deleting configurations
