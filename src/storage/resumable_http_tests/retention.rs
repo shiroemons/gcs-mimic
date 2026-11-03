@@ -1,3 +1,4 @@
+use super::AuthProfile::{Permissive, Strict};
 use super::{Harness, Reply};
 use crate::storage::test_fixtures::PERMISSIVE;
 use serde_json::{Value, json};
@@ -24,7 +25,7 @@ async fn policy(h: &Harness, value: Value) -> Value {
 
 #[tokio::test]
 async fn retention_configuration_lock_permissions_and_restart() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     for period in [
         json!("0"),
         json!("3155760000"),
@@ -183,7 +184,7 @@ async fn retention_configuration_lock_permissions_and_restart() {
 
 #[tokio::test]
 async fn retention_insert_patch_put_defaults_and_empty_policy_lock() {
-    let h = Harness::start(1024, false, None).await;
+    let h = Harness::start(1024, Permissive, None).await;
     h.request(
         "POST",
         "/storage/v1/b/bucket/lockRetentionPolicy?ifMetagenerationMatch=1",
@@ -241,7 +242,7 @@ async fn retention_insert_patch_put_defaults_and_empty_policy_lock() {
 
 #[tokio::test]
 async fn retention_all_mutation_paths_expire_with_injected_clock() {
-    let h = Harness::start(1024, false, None).await;
+    let h = Harness::start(1024, Permissive, None).await;
     h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     for name in [
         "upload", "copy", "rewrite", "compose", "move", "delete", "xml", "source",
@@ -340,7 +341,7 @@ async fn retention_all_mutation_paths_expire_with_injected_clock() {
 
 #[tokio::test]
 async fn retention_and_both_holds_are_independent() {
-    let h = Harness::start(1024, false, None).await;
+    let h = Harness::start(1024, Permissive, None).await;
     h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     for field in ["temporaryHold", "eventBasedHold"] {
         let name = format!("held-{field}");

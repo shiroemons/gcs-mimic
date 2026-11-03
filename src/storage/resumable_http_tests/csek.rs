@@ -1,5 +1,6 @@
 //! Customer-supplied encryption key behavior over the JSON and XML wire protocols.
 
+use super::AuthProfile::Permissive;
 use super::{Harness, Reply};
 use serde_json::json;
 
@@ -59,7 +60,7 @@ fn xml_code(reply: &Reply, status: u16, code: &str) {
 
 #[tokio::test]
 async fn csek_media_upload_requires_its_key_for_data_but_not_metadata() {
-    let h = Harness::start(1 << 20, false, None).await;
+    let h = Harness::start(1 << 20, Permissive, None).await;
     let created = upload(&h, "secret", &destination(&OLD), b"secret").await;
     assert_eq!(created.status, 200, "{}", created.json());
     let resource = created.json();
@@ -139,7 +140,7 @@ async fn csek_media_upload_requires_its_key_for_data_but_not_metadata() {
 
 #[tokio::test]
 async fn csek_invalid_keys_are_rejected_before_any_object_is_created() {
-    let h = Harness::start(1 << 20, false, None).await;
+    let h = Harness::start(1 << 20, Permissive, None).await;
     let valid = destination(&OLD);
     let replace = |name: &str, value: &str| {
         valid
@@ -183,7 +184,7 @@ async fn csek_invalid_keys_are_rejected_before_any_object_is_created() {
 
 #[tokio::test]
 async fn csek_multipart_and_resumable_uploads_bind_the_key() {
-    let h = Harness::start(1 << 20, false, None).await;
+    let h = Harness::start(1 << 20, Permissive, None).await;
     let body = b"--b\r\nContent-Type: application/json\r\n\r\n{\"name\":\"multi\"}\r\n--b\r\nContent-Type: text/plain\r\n\r\nmultipart\r\n--b--\r\n";
     let created = h
         .request(
@@ -244,7 +245,7 @@ async fn csek_multipart_and_resumable_uploads_bind_the_key() {
 
 #[tokio::test]
 async fn csek_metadata_update_checks_a_supplied_key_before_committing() {
-    let h = Harness::start(1 << 20, false, None).await;
+    let h = Harness::start(1 << 20, Permissive, None).await;
     assert_eq!(
         upload(&h, "patched", &destination(&OLD), b"x").await.status,
         200
@@ -285,7 +286,7 @@ async fn csek_metadata_update_checks_a_supplied_key_before_committing() {
 
 #[tokio::test]
 async fn csek_copy_rewrite_and_compose_use_source_and_destination_keys() {
-    let h = Harness::start(1 << 20, false, None).await;
+    let h = Harness::start(1 << 20, Permissive, None).await;
     assert_eq!(upload(&h, "a", &destination(&OLD), b"aa").await.status, 200);
     assert_eq!(upload(&h, "b", &destination(&OLD), b"bb").await.status, 200);
     assert_eq!(upload(&h, "p", "", b"pp").await.status, 200);
@@ -385,7 +386,7 @@ async fn csek_copy_rewrite_and_compose_use_source_and_destination_keys() {
 
 #[tokio::test]
 async fn csek_xml_put_get_and_head() {
-    let h = Harness::start(1 << 20, false, None).await;
+    let h = Harness::start(1 << 20, Permissive, None).await;
     let put = h
         .request("PUT", "/bucket/xml", &destination(&OLD), b"xml data")
         .await;

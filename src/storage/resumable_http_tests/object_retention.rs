@@ -1,5 +1,6 @@
 //! Object Retention Lock wire contract over the strict JSON API with an injected clock.
 
+use super::AuthProfile::Strict;
 use super::{Harness, Reply};
 use crate::storage::test_fixtures::PERMISSIVE;
 use serde_json::{Value, json};
@@ -78,7 +79,7 @@ async fn delete(h: &Harness, path: &str) -> Reply {
 
 #[tokio::test]
 async fn object_retention_bucket_enablement_is_create_only_and_persists() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     set_clock(&h, START);
     let created = create_bucket(&h, "locked-bucket", json!({})).await;
     assert_eq!(created["objectRetention"], json!({"mode":"Enabled"}));
@@ -195,7 +196,7 @@ async fn object_retention_bucket_enablement_is_create_only_and_persists() {
 
 #[tokio::test]
 async fn object_retention_schema_migration_and_restart() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     set_clock(&h, START);
     create_bucket(&h, "locked", json!({})).await;
     let created = multipart(
@@ -265,7 +266,7 @@ async fn object_retention_schema_migration_and_restart() {
 
 #[tokio::test]
 async fn object_retention_mode_transitions_and_injected_clock_expiry() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     set_clock(&h, START);
     create_bucket(&h, "locked", json!({})).await;
     let created = multipart(
@@ -468,7 +469,7 @@ async fn object_retention_mode_transitions_and_injected_clock_expiry() {
 
 #[tokio::test]
 async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     set_clock(&h, START);
     create_bucket(&h, "locked", json!({})).await;
     multipart(
@@ -601,7 +602,7 @@ async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
 
 #[tokio::test]
 async fn object_retention_versioning_soft_delete_and_bucket_policy() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     set_clock(&h, START);
     create_bucket(&h, "versioned", json!({"versioning":{"enabled":true}})).await;
     let first = multipart(
@@ -698,7 +699,7 @@ async fn object_retention_versioning_soft_delete_and_bucket_policy() {
 
 #[tokio::test]
 async fn object_retention_resumable_upload_and_strict_permissions() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     set_clock(&h, START);
     create_bucket(&h, "locked", json!({})).await;
     let init = h
@@ -831,7 +832,7 @@ async fn object_retention_resumable_upload_and_strict_permissions() {
 
 #[tokio::test]
 async fn an_object_whose_retention_expired_can_still_be_restored_after_deletion() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     set_clock(&h, START);
     create_bucket(
         &h,
@@ -870,7 +871,7 @@ async fn an_object_whose_retention_expired_can_still_be_restored_after_deletion(
 
 #[tokio::test]
 async fn an_object_whose_retention_expired_can_still_be_moved() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     set_clock(&h, START);
     create_bucket(&h, "moving", json!({})).await;
     multipart(

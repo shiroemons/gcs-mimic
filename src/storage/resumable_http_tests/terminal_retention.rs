@@ -1,9 +1,10 @@
+use super::AuthProfile::Permissive;
 use super::Harness;
 use std::time::Duration;
 
 #[tokio::test]
 async fn retained_completions_answer_status_and_final_retries_after_the_active_cap() {
-    let h = Harness::start(1024, false, None).await;
+    let h = Harness::start(1024, Permissive, None).await;
     let mut completed = Vec::new();
     for index in 0..130 {
         // Distinct initiation times give eviction a deterministic oldest-first order.

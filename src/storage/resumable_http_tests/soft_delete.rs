@@ -1,3 +1,4 @@
+use super::AuthProfile::{Permissive, Strict};
 use super::{Harness, Reply};
 use crate::object::ObjectTarget;
 use crate::storage::test_fixtures::{PERMISSIVE, PERMISSIVE_RESTORE};
@@ -49,7 +50,7 @@ async fn retained(h: &Harness) -> Vec<Value> {
 
 #[tokio::test]
 async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
-    let h = Harness::start(1024, true, None).await;
+    let h = Harness::start(1024, Strict, None).await;
     h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     for seconds in [None, Some(0)] {
         if let Some(seconds) = seconds {
@@ -229,7 +230,7 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
 
 #[tokio::test]
 async fn soft_delete_restore_conditions_collisions_and_restart() {
-    let h = Harness::start(1024, false, None).await;
+    let h = Harness::start(1024, Permissive, None).await;
     h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     policy(&h, 604800).await;
     let original = upload(&h, "history%2Fitem", b"original").await;
@@ -443,7 +444,7 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
 
 #[tokio::test]
 async fn soft_delete_all_overwrite_paths_and_versioned_deletion() {
-    let h = Harness::start(1024, false, None).await;
+    let h = Harness::start(1024, Permissive, None).await;
     policy(&h, 604800).await;
     for name in [
         "upload",
@@ -577,7 +578,7 @@ async fn soft_delete_all_overwrite_paths_and_versioned_deletion() {
 
 #[tokio::test]
 async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
-    let h = Harness::start(1024, false, None).await;
+    let h = Harness::start(1024, Permissive, None).await;
     h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     policy(&h, 604800).await;
     for name in ["a.txt", "a.txt", "dir%2Fb.txt", "z.log"] {
@@ -725,7 +726,7 @@ async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
 
 #[tokio::test]
 async fn soft_delete_concurrent_restore_create_if_absent_has_one_winner() {
-    let h = Harness::start(1024, false, None).await;
+    let h = Harness::start(1024, Permissive, None).await;
     policy(&h, 604800).await;
     let original = upload(&h, "race", b"bytes").await;
     assert_eq!(

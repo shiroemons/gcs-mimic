@@ -8,6 +8,8 @@
 //! keep only what the write path synced, so they also fail when an fsync goes missing.
 
 use super::*;
+#[cfg(unix)]
+use crate::storage::catalog::fault::Crash;
 use crate::storage::catalog::fault::{Fault, Step};
 use crate::storage::test_fixtures::{PERMISSIVE, live, read_all as read_body};
 use std::{io::ErrorKind, path::Path};
@@ -219,7 +221,7 @@ fn upload_failures() -> Vec<(&'static str, Step, usize, Fault)> {
 
 #[tokio::test]
 async fn single_request_upload_failures_never_publish_and_keep_the_previous_object() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     let original = h.media("target", b"old").await;
     assert_eq!(original.status, 200);
     let original = original.json();
@@ -253,7 +255,7 @@ async fn single_request_upload_failures_never_publish_and_keep_the_previous_obje
 /// committed reference instead of deleting the live blob as though the write failed.
 #[tokio::test]
 async fn ambiguous_upload_commit_error_keeps_the_committed_object_readable() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     assert_eq!(h.media("target", b"old").await.status, 200);
     h.inject(Step::AfterCommit, 0, Fault::Io(ErrorKind::Other));
     let reply = h.media("target", b"committed").await;
@@ -306,7 +308,7 @@ async fn assert_recovers_objects(snapshot: &Path, objects: &[(&str, Option<&[u8]
 #[tokio::test]
 async fn upload_crash_at_each_durable_step_recovers_the_old_or_new_object() {
     let crashes = TestDir::new();
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     assert_eq!(h.media("target", b"old").await.status, 200);
     let body = vec![b'n'; 256 * 1024];
     for (index, (case, step, new)) in [
@@ -339,7 +341,7 @@ async fn upload_crash_at_each_durable_step_recovers_the_old_or_new_object() {
 #[tokio::test]
 async fn upload_power_loss_at_each_durable_step_keeps_the_old_or_new_object() {
     let crashes = TestDir::new();
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     assert_eq!(h.media("target", b"old").await.status, 200);
     let body = vec![b'n'; 256 * 1024];
     for (index, (case, step, new)) in [
@@ -387,7 +389,7 @@ async fn assert_prefix(h: &Harness, path: &str, length: usize, case: &str) {
 
 #[tokio::test]
 async fn resumable_terminal_commit_failure_preserves_the_acknowledged_prefix() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     let chunk = vec![b'a'; 256 * 1024];
     let path = resumable_prefix(&h, "poison", &chunk).await;
     h.inject(Step::SessionFailureCommit, 0, Fault::Io(ErrorKind::Other));
@@ -408,9 +410,9 @@ async fn resumable_terminal_commit_failure_preserves_the_acknowledged_prefix() {
 #[tokio::test]
 async fn resumable_terminal_error_survives_crash_and_power_loss() {
     let crashes = TestDir::new();
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     let chunk = vec![b'a'; 256 * 1024];
-    for power_loss in [false, true] {
+    for &crash in Crash::ALL {
         for (step, committed) in [
             (Step::SessionFailureCommit, false),
             (Step::SessionFailureCommitted, true),
@@ -418,20 +420,17 @@ async fn resumable_terminal_error_survives_crash_and_power_loss() {
             let path = resumable_prefix(&h, "poison", &chunk).await;
             let id = path.split("upload_id=").nth(1).unwrap();
             let blob = session_blob(&h, &path).await;
-            let snapshot = crashes.0.join(format!("{step:?}-{power_loss}"));
-            let fault = if power_loss {
-                Fault::PowerLoss(snapshot.clone())
-            } else {
-                Fault::Snapshot(snapshot.clone())
-            };
-            h.inject(step, 0, fault);
+            let case = format!("{step:?}-{crash:?}");
+            let snapshot = crashes.0.join(&case);
+            h.inject(step, 0, crash.fault(snapshot.clone()));
             assert_eq!(
                 h.request("PUT", &path, "Content-Range: invalid\r\n", b"")
                     .await
                     .status,
-                400
+                400,
+                "{case}"
             );
-            h.assert_fired("terminal snapshot");
+            h.assert_fired(&case);
             let recovered = Catalog::open_with_clock(&snapshot, h.clock.clone())
                 .await
                 .unwrap();
@@ -439,18 +438,20 @@ async fn resumable_terminal_error_survives_crash_and_power_loss() {
             if committed {
                 assert_eq!(
                     session.unwrap_err(),
-                    crate::storage::ResumableError::InvalidContentRange
+                    crate::storage::ResumableError::InvalidContentRange,
+                    "{case}"
                 );
-                assert!(!snapshot.join("staging").join(&blob).exists());
+                assert!(!snapshot.join("staging").join(&blob).exists(), "{case}");
                 assert_eq!(
                     count(&snapshot, "SELECT count(*) FROM pending_blob_deletions"),
-                    0
+                    0,
+                    "{case}"
                 );
             } else {
-                assert_eq!(session.unwrap().offset, chunk.len() as u64);
-                assert_resumable_prefix(&snapshot, &blob, &chunk, "terminal snapshot");
+                assert_eq!(session.unwrap().offset, chunk.len() as u64, "{case}");
+                assert_resumable_prefix(&snapshot, &blob, &chunk, &case);
             }
-            assert_eq!(read_all(&recovered, "poison").await, None);
+            assert_eq!(read_all(&recovered, "poison").await, None, "{case}");
             recovered.close().await.unwrap();
         }
     }
@@ -459,7 +460,7 @@ async fn resumable_terminal_error_survives_crash_and_power_loss() {
 
 #[tokio::test]
 async fn resumable_chunk_and_finalization_failures_keep_the_acknowledged_prefix() {
-    let h = Harness::start(4 * 1024 * 1024, false, None).await;
+    let h = Harness::start(4 * 1024 * 1024, Permissive, None).await;
     let chunk = vec![b'a'; 256 * 1024];
     let path = resumable_prefix(&h, "resumable", &chunk).await;
     let id = path.split("upload_id=").nth(1).unwrap();
@@ -582,7 +583,7 @@ async fn put_open_tail(h: &Harness, path: &str, tail: &[u8]) -> Reply {
 
 #[tokio::test]
 async fn open_ended_final_chunk_failures_keep_the_acknowledged_prefix() {
-    let h = Harness::start(4 * 1024 * 1024, false, None).await;
+    let h = Harness::start(4 * 1024 * 1024, Permissive, None).await;
     let chunk = vec![b'a'; 256 * 1024];
     let path = resumable_prefix(&h, "open", &chunk).await;
     for (case, step, fault) in [
@@ -625,7 +626,7 @@ async fn open_ended_final_chunk_failures_keep_the_acknowledged_prefix() {
 #[tokio::test]
 async fn open_ended_final_chunk_power_loss_keeps_the_old_or_new_object() {
     let crashes = TestDir::new();
-    let h = Harness::start(4 * 1024 * 1024, false, None).await;
+    let h = Harness::start(4 * 1024 * 1024, Permissive, None).await;
     assert_eq!(h.media("target", b"old").await.status, 200);
     let chunk = vec![b'a'; 256 * 1024];
     let mut body = chunk.clone();
@@ -698,7 +699,7 @@ fn assert_resumable_prefix(snapshot: &Path, blob_id: &str, prefix: &[u8], case: 
 #[tokio::test]
 async fn resumable_power_loss_at_each_durable_step_keeps_the_old_or_new_object() {
     let crashes = TestDir::new();
-    let h = Harness::start(4 * 1024 * 1024, false, None).await;
+    let h = Harness::start(4 * 1024 * 1024, Permissive, None).await;
     assert_eq!(h.media("target", b"old").await.status, 200);
     let chunk = vec![b'a'; 256 * 1024];
     let mut body = chunk.clone();
@@ -762,7 +763,7 @@ async fn resumable_power_loss_at_each_durable_step_keeps_the_old_or_new_object()
 #[tokio::test]
 async fn resumable_retry_after_a_failed_checkpoint_syncs_the_rewritten_chunk() {
     let crashes = TestDir::new();
-    let h = Harness::start(4 * 1024 * 1024, false, None).await;
+    let h = Harness::start(4 * 1024 * 1024, Permissive, None).await;
     let chunk = vec![b'a'; 256 * 1024];
     let path = resumable_prefix(&h, "retried", &chunk).await;
     let blob = session_blob(&h, &path).await;
@@ -880,7 +881,7 @@ fn derived_failures() -> Vec<(&'static str, Step, usize, Fault)> {
 
 #[tokio::test]
 async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     seed_sources(&h).await;
     for operation in ["compose", "copy", "rewrite"] {
         for (case, step, skip, fault) in derived_failures() {
@@ -917,7 +918,7 @@ async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
 
 #[tokio::test]
 async fn ambiguous_derived_commit_error_keeps_the_committed_destination() {
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     seed_sources(&h).await;
     for operation in ["compose", "copy", "rewrite"] {
         h.inject(Step::AfterCommit, 0, Fault::Io(ErrorKind::Other));
@@ -946,7 +947,7 @@ async fn ambiguous_derived_commit_error_keeps_the_committed_destination() {
 #[tokio::test]
 async fn derived_crash_at_each_durable_step_recovers_without_a_partial_destination() {
     let crashes = TestDir::new();
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     seed_sources(&h).await;
     let mut index = 0;
     for operation in ["compose", "copy", "rewrite"] {
@@ -992,7 +993,7 @@ async fn derived_crash_at_each_durable_step_recovers_without_a_partial_destinati
 #[tokio::test]
 async fn derived_power_loss_at_each_durable_step_keeps_no_partial_destination() {
     let crashes = TestDir::new();
-    let h = Harness::start(1024 * 1024, false, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     seed_sources(&h).await;
     let (a, b) = (vec![b'a'; 100 * 1024], vec![b'b'; 100 * 1024]);
     let mut index = 0;
