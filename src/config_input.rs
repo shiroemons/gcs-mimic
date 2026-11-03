@@ -6,7 +6,11 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
+mod options;
+pub use options::{DurationError, Fix, PairError, UrlStyle, duration, option_pairs};
+
 pub(crate) const MAX_SETTINGS: usize = 1024;
+pub const MAX_CLI_ARGS: usize = 2 * (MAX_SETTINGS + 3);
 pub(crate) const MAX_KEY_BYTES: usize = 256;
 
 pub(crate) fn ordered_members<'de, D, V>(

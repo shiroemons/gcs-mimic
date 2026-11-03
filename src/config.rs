@@ -1,5 +1,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+use crate::config_input::Fix as SettingFix;
 use crate::{
     auth::AuthMode,
     bucket::bucket_location,
@@ -29,17 +30,31 @@ const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
 macro_rules! string_enum {
-    ($(#[$meta:meta])* pub enum $name:ident {
+    ($(#[$meta:meta])* $vis:vis enum $name:ident {
+        $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
+    } $error:literal) => {
+        $crate::config::string_enum! { @impl [Default] $(#[$meta])* $vis enum $name {
+            $($(#[$variant_meta])* $variant => $value),+
+        } $error }
+    };
+    (no_default $(#[$meta:meta])* $vis:vis enum $name:ident {
+        $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
+    } $error:literal) => {
+        $crate::config::string_enum! { @impl [] $(#[$meta])* $vis enum $name {
+            $($(#[$variant_meta])* $variant => $value),+
+        } $error }
+    };
+    (@impl [$($derive:ident),*] $(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
     } $error:literal) => {
         $(#[$meta])*
-        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-        pub enum $name {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, $($derive),*)]
+        $vis enum $name {
             $($(#[$variant_meta])* $variant),+
         }
 
         impl $name {
-            pub fn as_str(self) -> &'static str {
+            $vis fn as_str(self) -> &'static str {
                 match self { $(Self::$variant => $value),+ }
             }
         }
@@ -458,22 +473,6 @@ fn rejected_setting_fix(name: &str) -> &'static str {
         _ => {
             "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported."
         }
-    }
-}
-
-/// The user-facing fix for a rejected setting value; it becomes the diagnostic text verbatim.
-#[derive(Debug)]
-struct SettingFix(String);
-
-impl From<String> for SettingFix {
-    fn from(fix: String) -> Self {
-        Self(fix)
-    }
-}
-
-impl From<&str> for SettingFix {
-    fn from(fix: &str) -> Self {
-        Self(fix.to_owned())
     }
 }
 
