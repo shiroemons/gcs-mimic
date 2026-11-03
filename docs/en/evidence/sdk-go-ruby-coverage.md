@@ -126,6 +126,14 @@ Japanese companion: [SDK coverage (ja)](../../ja/sdk-go-ruby-coverage.md).
 | Include trailing delimiter, field selection | ✅ | — | Not probed in Ruby |
 | Include folders as prefixes | 501⏳ | 501 | |
 
+Update on 2026-11-04: the emulator's `matchGlob` listing examines at most 4096
+non-matching candidates per page and returns a continuation token when that
+budget is exhausted, including on empty pages. Follow `nextPageToken` until it
+is absent. The [official reference](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list)
+permits empty continuation pages; this scan budget is a local choice. Validation
+uses the Rust cases recorded in the [listing contract](../slices/sdk-list-glob.md);
+the SDK suites were not rerun for this update.
+
 ### Signing, authentication and transport
 
 | Area | Go | Ruby | Notes |

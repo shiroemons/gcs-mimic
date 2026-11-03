@@ -17,9 +17,11 @@ Offsets already work and retain their behavior; this slice does not add offset a
 ## Sources and local decisions
 
 Checked 2026-10-27 against the [official objects.list specification](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list), last updated 2026-10-22, and the pinned Storage v1 Discovery revision 20261020 (SHA-256 `eeb0831df501d131c9497534b2c3d130ea40f9fa215195115d011cb64e1a42bc`).
-The specification permits short/empty pages with continuation tokens but does not mandate exact internal scan boundaries. The emulator scans candidates until a matching page is full or exhausted; clients must always follow nextPageToken. Empty-pattern normalization and malformed-pattern error details are local choices recorded in SPEC-LIST-GLOB-EDGES, without real-cloud parity claims.
+Rechecked the [official objects.list reference](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list) on 2026-11-04: pages may contain fewer entries than requested, and a continuation page may be empty. Exact internal scan boundaries are unspecified. The emulator examines at most 4096 non-matching candidates per catalog job and returns the last examined cursor as nextPageToken when this budget is exhausted, including for an empty page. Matching entries remain capped by maxResults. Clients must follow nextPageToken until it is absent. Empty-pattern normalization, malformed-pattern error details and the local scan budget remain choices recorded in SPEC-LIST-GLOB-EDGES, without real-cloud parity claims.
 
 ## Verification
+
+On 2026-11-04, `CARGO_BUILD_JOBS=4 cargo test --lib glob_listing_pages_through_non_matching_rows` passes for items, delimiter prefixes and multiple generations of the same name with a three-candidate test budget. Empty continuation pages advance to the final match without duplicates, and size-one matching pages retain their continuation. `CARGO_BUILD_JOBS=4 cargo test --lib empty_glob_page_retains_its_continuation_token` passes for JSON rendering, including suppression of the absent-soft-delete-policy diagnostic on a continuation page. Existing indexed-seek tests also pass. These local storage/renderer tests do not rerun the SDK suites or establish provider-exact scan boundaries.
 
 Acceptance was recorded before implementation. On 2026-10-27, the unchanged server returned 501 notImplemented for Go Query.MatchGlob (the SDK retried until its deadline) and Ruby bucket.files(match_glob:) (UnimplementedError). Both ordinary calls pass after implementation.
 

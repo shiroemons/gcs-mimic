@@ -175,6 +175,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn empty_glob_page_retains_its_continuation_token() {
+        let params = parse_list("example-bucket".into(), "matchGlob=z*&softDeleted=true").unwrap();
+        let cursor = crate::storage::ObjectListCursor {
+            name: "a".into(),
+            is_prefix: false,
+            generation: Some(3),
+        };
+        let page = ObjectListPage {
+            items: Vec::new(),
+            prefixes: Vec::new(),
+            next: Some(cursor.clone()),
+            bucket_metageneration: None,
+        };
+        let value = object_list(&page, &params, "http://localhost:4443").unwrap();
+        assert_eq!(value["kind"], "storage#objects");
+        assert!(value.get("items").is_none());
+        assert!(value.get("prefixes").is_none());
+        assert_eq!(
+            value["nextPageToken"],
+            super::super::page_token::encode_object_page_token(
+                &params.query,
+                params.projection,
+                &cursor
+            )
+        );
+        assert!(params.empty_soft_deleted_message(&page, None).is_none());
+    }
+
+    #[test]
     fn empty_soft_deleted_listing_explains_missing_policy_only() {
         let params = parse_list("example-bucket".into(), "softDeleted=true").unwrap();
         let mut page = ObjectListPage {

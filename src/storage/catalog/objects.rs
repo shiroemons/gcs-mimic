@@ -1176,7 +1176,7 @@ impl UploadCommit {
 }
 
 impl Catalog {
-    /// Each emitted entry requires one indexed seek, independent of a grouped prefix's size.
+    /// Each examined entry requires one indexed seek; unmatched candidates have a page budget.
     pub(crate) async fn list_objects(
         &self,
         query: ObjectListQuery,
@@ -1187,6 +1187,7 @@ impl Catalog {
             (1..=1000).contains(&limit),
             "adapters validate object list limits"
         );
+        let limit = limit.clamp(1, 1000);
         let access = access.clone();
         let clock = self.0.clock.clone();
         let soft_deleted = query.soft_deleted;
@@ -1917,11 +1918,19 @@ pub(super) async fn make_durable(
 pub(super) use crate::storage::failure::object_unavailable;
 
 pub(super) fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
-    let mut end = prefix.as_bytes().to_vec();
-    let index = end.iter().rposition(|byte| *byte != u8::MAX)?;
+    let mut end = Vec::new();
+    prefix_end_into(prefix, &mut end).then_some(end)
+}
+
+fn prefix_end_into(prefix: &str, end: &mut Vec<u8>) -> bool {
+    end.clear();
+    end.extend_from_slice(prefix.as_bytes());
+    let Some(index) = end.iter().rposition(|byte| *byte != u8::MAX) else {
+        return false;
+    };
     end[index] += 1;
     end.truncate(index + 1);
-    Some(end)
+    true
 }
 
 /// Which rows a listing walks: live objects, every live generation, or soft-deleted ones.
@@ -2130,6 +2139,7 @@ fn seek_position(
     now: i64,
     cursor: Option<&ObjectListCursor>,
     lower: &mut Vec<u8>,
+    scratch: &mut Vec<u8>,
 ) -> Result<Option<SeekPosition>, ObjectError> {
     let mut position = SeekPosition {
         after: false,
@@ -2139,18 +2149,18 @@ fn seek_position(
     let Some(previous) = cursor else {
         return Ok(Some(position));
     };
-    let bound = if previous.is_prefix {
-        let Some(end) = prefix_end(&previous.name) else {
+    if previous.is_prefix {
+        if !prefix_end_into(&previous.name, scratch) {
             return Ok(None);
-        };
-        end
+        }
     } else {
-        previous.name.as_bytes().to_vec()
-    };
-    if bound < *lower {
+        scratch.clear();
+        scratch.extend_from_slice(previous.name.as_bytes());
+    }
+    if *scratch < *lower {
         return Ok(Some(position));
     }
-    *lower = bound;
+    std::mem::swap(lower, scratch);
     // A trailing marker emits an item and prefix as separate page entries.
     position.after = !previous.is_prefix && !trailing_marker(&previous.name, query);
     if (query.versions || query.soft_deleted) && !previous.is_prefix {
@@ -2208,6 +2218,19 @@ fn list_page_at(
     limit: usize,
     now: i64,
 ) -> Result<ObjectListPage, ObjectError> {
+    list_page_within(connection, query, limit, now, LIST_SCAN_BUDGET)
+}
+
+/// Unmatched candidates one page may examine before yielding the catalog worker.
+const LIST_SCAN_BUDGET: usize = 4096;
+
+fn list_page_within(
+    connection: &Connection,
+    query: &ObjectListQuery,
+    limit: usize,
+    now: i64,
+    budget: usize,
+) -> Result<ObjectListPage, ObjectError> {
     let mut page = ObjectListPage {
         items: Vec::new(),
         prefixes: Vec::new(),
@@ -2227,8 +2250,17 @@ fn list_page_at(
         UpperBound::Open
     };
     let mut statements = ListStatements::prepare(connection, ListSource::of(query), bound)?;
+    let mut scratch = Vec::new();
+    let mut examined = 0;
     loop {
-        let Some(position) = seek_position(connection, query, now, cursor.as_ref(), &mut lower)?
+        let Some(position) = seek_position(
+            connection,
+            query,
+            now,
+            cursor.as_ref(),
+            &mut lower,
+            &mut scratch,
+        )?
         else {
             break;
         };
@@ -2288,6 +2320,11 @@ fn list_page_at(
                 .then_some(record.generation),
         });
         if !matches {
+            examined += 1;
+            if examined >= budget {
+                page.next = cursor;
+                break;
+            }
             continue;
         }
         if is_prefix {
@@ -2933,6 +2970,107 @@ mod tests {
     use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::UNIX_EPOCH;
+
+    #[tokio::test]
+    async fn glob_listing_pages_through_non_matching_rows() {
+        for shape in ["items", "prefixes", "versions"] {
+            let data = crate::test_support::TestDir::new();
+            let catalog = Catalog::open(&data.0).await.unwrap();
+            create_bucket(&catalog, "project").await;
+            catalog
+                .run(|connection| {
+                    sql::exec(
+                        connection,
+                        "UPDATE buckets SET versioning_enabled = 1 WHERE name = 'bucket'",
+                        [],
+                    )?;
+                    Ok::<_, ObjectError>(())
+                })
+                .await
+                .unwrap();
+            let mut created = Vec::new();
+            for index in 0..10 {
+                let name = if index == 9 {
+                    "z".into()
+                } else if shape == "versions" {
+                    "a".into()
+                } else {
+                    format!("a{index:02}")
+                };
+                let name = if shape == "prefixes" {
+                    format!("{name}/file")
+                } else {
+                    name
+                };
+                created.push(put(&catalog, &name, b"body").await);
+            }
+            let mut query = ObjectListQuery {
+                bucket: "bucket".into(),
+                delimiter: if shape == "prefixes" {
+                    "/".into()
+                } else {
+                    String::new()
+                },
+                versions: shape == "versions",
+                match_glob: Some(crate::match_glob::Glob::parse("z**").unwrap()),
+                ..Default::default()
+            };
+            let control_query = query.clone();
+            let control = catalog
+                .run(move |connection| {
+                    list_page_within(connection, &control_query, 1000, 0, usize::MAX)
+                })
+                .await
+                .unwrap();
+            assert_eq!(control.items.len() + control.prefixes.len(), 1, "{shape}");
+            let mut items = Vec::new();
+            let mut prefixes = Vec::new();
+            let mut pages = 0;
+            loop {
+                let page_query = query.clone();
+                let page = catalog
+                    .run(move |connection| list_page_within(connection, &page_query, 1000, 0, 3))
+                    .await
+                    .unwrap();
+                if pages == 0 {
+                    assert!(page.items.is_empty() && page.prefixes.is_empty(), "{shape}");
+                    let cursor = page.next.as_ref().unwrap();
+                    assert_eq!(
+                        cursor.name,
+                        if shape == "prefixes" {
+                            "a02/"
+                        } else {
+                            &created[2].name
+                        }
+                    );
+                    assert_eq!(
+                        cursor.generation,
+                        (shape == "versions").then_some(created[2].generation)
+                    );
+                }
+                items.extend(page.items);
+                prefixes.extend(page.prefixes);
+                pages += 1;
+                assert!(pages <= 4, "continuation must advance: {shape}");
+                query.cursor = page.next;
+                if query.cursor.is_none() {
+                    break;
+                }
+            }
+            assert_eq!(pages, 4, "{shape}");
+            assert_eq!(items, control.items, "{shape}");
+            assert_eq!(prefixes, control.prefixes, "{shape}");
+            query.match_glob = None;
+            query.cursor = None;
+            let page = catalog
+                .run(move |connection| list_page_within(connection, &query, 1, 0, 3))
+                .await
+                .unwrap();
+            assert_eq!(page.items.len() + page.prefixes.len(), 1, "{shape}");
+            assert!(page.next.is_some(), "{shape}");
+            catalog.close().await.unwrap();
+        }
+    }
 
     #[test]
     fn acl_update_errors_keep_client_input_and_authorization_status() {

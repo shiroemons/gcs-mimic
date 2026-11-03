@@ -29316,21 +29316,23 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-27",
+      "source_checked_at": "2026-11-04",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "JSON matchGlob supports documented glob syntax, slash delimiter prefixes, prefix, versions and bounded pagination. Dedicated interval acceptance and context filters remain pending. Contract and final verification: docs/en/slices/sdk-list-glob.md.",
+      "notes": "JSON matchGlob supports documented glob syntax, slash delimiter prefixes, prefix, versions and bounded pagination. Each catalog page examines at most 4096 non-matching candidates and may return an empty continuation page. The scan budget is a local choice. Dedicated interval acceptance and context filters remain pending. Contract and final verification: docs/en/slices/sdk-list-glob.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id": "MATCH-GLOB-SYNTAX", "description": "Official glob operators, UTF-8 full-name matching, malformed syntax and 1024-byte boundary; local error/empty-input choices remain under SPEC-LIST-GLOB-EDGES.", "result": "PASS", "test_ids": ["official_glob_syntax", "arbitrary_patterns_do_not_panic", "match_glob_filters_items_prefixes_and_page_tokens"]},
-        {"id": "MATCH-GLOB-LIST", "description": "JSON matchGlob with prefix, delimiter, versions and bounded pagination; empty patterns are absent.", "result": "PASS", "test_ids": ["match_glob_filters_items_prefixes_and_page_tokens", "match_glob_versions_preserve_each_generation_and_page_boundary"]},
+        {"id": "MATCH-GLOB-LIST", "description": "JSON matchGlob with prefix, delimiter, versions and bounded pagination, including a 4096 non-matching-candidate scan budget and empty continuation pages; empty patterns are absent.", "result": "PASS", "test_ids": ["match_glob_filters_items_prefixes_and_page_tokens", "match_glob_versions_preserve_each_generation_and_page_boundary", "glob_listing_pages_through_non_matching_rows", "empty_glob_page_retains_its_continuation_token"]},
         {"id": "MATCH-GLOB-SDK", "description": "Ordinary Go MatchGlob and Ruby match_glob high-level listing.", "result": "PASS", "test_ids": ["TestObjectList", "ruby-match-glob"]},
         {"id": "LIST-INTERVAL-FILTER", "description": "Dedicated startOffset/endOffset acceptance and context filter support are outside this slice.", "result": "PENDING", "test_ids": []}
       ],
-      "test_ids": ["official_glob_syntax", "arbitrary_patterns_do_not_panic", "match_glob_filters_items_prefixes_and_page_tokens", "match_glob_versions_preserve_each_generation_and_page_boundary", "TestObjectList", "ruby-match-glob"],
+      "test_ids": ["official_glob_syntax", "arbitrary_patterns_do_not_panic", "match_glob_filters_items_prefixes_and_page_tokens", "match_glob_versions_preserve_each_generation_and_page_boundary", "glob_listing_pages_through_non_matching_rows", "empty_glob_page_retains_its_continuation_token", "TestObjectList", "ruby-match-glob"],
       "verification": [
         {"command": "cargo test --locked --offline --lib match_glob", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["official_glob_syntax", "arbitrary_patterns_do_not_panic"]},
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib glob_listing_pages_through_non_matching_rows", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["glob_listing_pages_through_non_matching_rows"]},
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib empty_glob_page_retains_its_continuation_token", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["empty_glob_page_retains_its_continuation_token"]},
         {"command": "cargo test --locked --offline --test object_list_http", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["match_glob_filters_items_prefixes_and_page_tokens", "match_glob_versions_preserve_each_generation_and_page_boundary"]},
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["TestObjectList", "ruby-match-glob"]}
       ],
@@ -29340,7 +29342,7 @@
       ],
       "known_deviations": ["SPEC-LIST-GLOB-EDGES: empty patterns are absent, classes exclude slash, unmatched closing delimiters are invalid; exact malformed-pattern reasons and scan boundaries lack provider evidence. Dedicated interval acceptance, context filters and XML glob support are outside this slice."],
       "implemented_in": "2ff7f13",
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-04"
     },
     {
       "id": "BEHAVIOR-OBJECT-020",
