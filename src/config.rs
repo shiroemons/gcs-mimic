@@ -264,7 +264,7 @@ impl Config {
             format!(
                 "{}://{}",
                 self.scheme.primary(),
-                loopback_if_unspecified(bound)
+                loopback_if_unspecified(SocketAddr::new(bound.ip(), bound.port()))
             )
         })
     }
@@ -1143,6 +1143,20 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn advertised_ipv6_origin_drops_listener_scope_and_flow_information() {
+        let bound = SocketAddr::V6(std::net::SocketAddrV6::new(
+            "fe80::1".parse().unwrap(),
+            4443,
+            7,
+            3,
+        ));
+        assert_eq!(
+            Config::default().effective_api_base_url(bound),
+            "https://[fe80::1]:4443"
+        );
+    }
 
     #[test]
     fn grpc_listener_configuration_precedence_and_diagnostics() {
