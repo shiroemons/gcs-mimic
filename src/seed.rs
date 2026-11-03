@@ -12,7 +12,6 @@ use crate::{
             Admin, BucketDefinition, BucketName, ObjectName, Origin, Publication, PublishMode,
             SeedBatch, SeedMode,
         },
-        failure::BackendCause,
     },
 };
 use serde::Serialize;
@@ -22,9 +21,12 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+mod error;
+pub use error::SeedError;
+
 const MAX_ENTRIES: usize = 10_000;
 const MAX_DEPTH: usize = 32;
-type Entry = io::Result<(PathBuf, std::fs::Metadata, usize)>;
+type Entry = Result<(PathBuf, std::fs::Metadata, usize), SeedError>;
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "lowercase")]
@@ -56,10 +58,10 @@ pub async fn import(
     catalog: &Catalog,
     config: &Config,
     clock: &dyn Clock,
-) -> io::Result<SeedOutcome> {
+) -> Result<SeedOutcome, SeedError> {
     let admin = catalog.admin(Origin::Seed);
     let Some(root) = &config.seed_dir else {
-        admin.finish_seed().await.map_err(io::Error::other)?;
+        admin.finish_seed().await?;
         return Ok(SeedOutcome::Disabled);
     };
     crate::diagnostics::emit(
@@ -68,23 +70,15 @@ pub async fn import(
         serde_json::json!({}),
     );
     let result = import_directory(&admin, config, clock, root, SeedMode::Merge).await;
-    result.map_err(|error| {
-        io::Error::other(BackendCause::with_source(
-            format!("seed import: {error}"),
-            error,
-        ))
-    })
+    result.map_err(|error| SeedError::Import(Box::new(error)))
 }
 
 pub(crate) async fn reseed(
     admin: &Admin,
     config: &Config,
     clock: &dyn Clock,
-) -> io::Result<SeedOutcome> {
-    let root = config
-        .seed_dir
-        .as_ref()
-        .ok_or_else(|| io::Error::other("reseed requires a configured seed_dir"))?;
+) -> Result<SeedOutcome, SeedError> {
+    let root = config.seed_dir.as_ref().ok_or(SeedError::MissingRoot)?;
     let mode = match config.backend {
         crate::config::Backend::Disk => SeedMode::Merge,
         crate::config::Backend::Memory => SeedMode::Replace,
@@ -95,14 +89,12 @@ pub(crate) async fn reseed(
     import_directory(&admin, config, clock, root, mode).await
 }
 
-fn walk_error(error: WalkError) -> io::Error {
+fn walk_error(error: WalkError) -> SeedError {
     match error {
-        WalkError::Io(error) => error,
-        WalkError::EntryLimit => io::Error::other("fixture exceeds 10000 entries"),
-        WalkError::DepthLimit => {
-            io::Error::other("fixture exceeds 32 directory levels below a bucket")
-        }
-        WalkError::NotDirectory => io::Error::other("seed_dir must be a directory, not a symlink"),
+        WalkError::Io(error) => SeedError::Io(error),
+        WalkError::EntryLimit => SeedError::EntryLimit,
+        WalkError::DepthLimit => SeedError::DepthLimit,
+        WalkError::NotDirectory => SeedError::NotDirectory,
     }
 }
 
@@ -149,26 +141,21 @@ async fn import_directory(
     clock: &dyn Clock,
     root: &Path,
     mode: SeedMode,
-) -> io::Result<SeedOutcome> {
+) -> Result<SeedOutcome, SeedError> {
     let inspected = tokio::fs::symlink_metadata(root).await?;
     if !inspected.file_type().is_dir() {
-        return Err(io::Error::other(
-            "seed_dir must be a directory, not a symlink",
-        ));
+        return Err(SeedError::NotDirectory);
     }
     #[cfg(test)]
     tests::injected_source_swap(root);
-    let batch = catalog.seed_batch().map_err(io::Error::other)?;
+    let batch = catalog.seed_batch()?;
     #[cfg(unix)]
-    let source_root = batch
-        .open_root(root.to_owned(), inspected)
-        .await
-        .map_err(io::Error::other)?;
+    let source_root = batch.open_root(root.to_owned(), inspected).await?;
     let root = tokio::fs::canonicalize(root).await?;
     if config.backend == crate::config::Backend::Disk {
         let data = tokio::fs::canonicalize(&config.data_dir).await?;
         if crate::source_tree::paths_overlap_canonical(&root, &data) {
-            return Err(io::Error::other("seed_dir and data_dir must not overlap"));
+            return Err(SeedError::Overlap);
         }
     }
     let mut entries = entries(root.clone())?;
@@ -186,14 +173,12 @@ async fn import_directory(
             Some(Walked::Done) => break,
             // The thread already reported its panic; failing here keeps the seed incomplete.
             None => {
-                return Err(io::Error::other(
-                    "seed directory walk stopped before it finished",
-                ));
+                return Err(SeedError::WalkStopped);
             }
         };
         let (path, metadata, depth) = entry?;
         // The walker only yields paths below the root it was given.
-        let relative = path.strip_prefix(&root).map_err(io::Error::other)?;
+        let relative = path.strip_prefix(&root).map_err(SeedError::RelativePath)?;
         let label = relative.display().to_string();
         let fixture = Fixture {
             path: &path,
@@ -202,14 +187,14 @@ async fn import_directory(
             metadata: &metadata,
             depth,
         };
-        seed.entry(&fixture, &mut counts).await.map_err(|error| {
-            io::Error::other(BackendCause::with_source(
-                format!("{label}: {error}"),
-                error,
-            ))
-        })?;
+        seed.entry(&fixture, &mut counts)
+            .await
+            .map_err(|error| SeedError::Entry {
+                label,
+                source: Box::new(error),
+            })?;
     }
-    let committed = seed.batch.commit(mode).await.map_err(io::Error::other)?;
+    let committed = seed.batch.commit(mode).await?;
     counts.buckets = committed.buckets;
     counts.objects = committed.objects;
     counts.replaced = committed.replaced;
@@ -243,17 +228,15 @@ struct Fixture<'a> {
 }
 
 impl Seed<'_> {
-    async fn entry(&mut self, fixture: &Fixture<'_>, counts: &mut Counts) -> io::Result<()> {
+    async fn entry(&mut self, fixture: &Fixture<'_>, counts: &mut Counts) -> Result<(), SeedError> {
         let leaf = fixture
             .path
             .file_name()
             .and_then(|name| name.to_str())
-            .ok_or_else(|| io::Error::other("fixture names must be UTF-8"))?;
+            .ok_or(SeedError::NonUtf8Name)?;
         let kind = fixture.metadata.file_type();
         if kind.is_symlink() || (!kind.is_file() && !kind.is_dir()) {
-            return Err(io::Error::other(
-                "only regular files and directories are supported",
-            ));
+            return Err(SeedError::UnsupportedFile);
         }
         if kind.is_file() && is_os_metadata(leaf) {
             counts.skipped_os_metadata += 1;
@@ -263,16 +246,13 @@ impl Seed<'_> {
         let bucket = components
             .next()
             .and_then(|part| part.to_str())
-            .ok_or_else(|| io::Error::other("fixture names must be UTF-8"))?;
+            .ok_or(SeedError::NonUtf8Name)?;
         let (bucket, name) = if fixture.depth > 0 {
             let name = components
-                .map(|part| {
-                    part.to_str()
-                        .ok_or_else(|| io::Error::other("fixture names must be UTF-8"))
-                })
-                .collect::<io::Result<Vec<_>>>()?
+                .map(|part| part.to_str().ok_or(SeedError::NonUtf8Name))
+                .collect::<Result<Vec<_>, _>>()?
                 .join("/");
-            validate_object_name(&name).map_err(|error| io::Error::other(error.message))?;
+            validate_object_name(&name).map_err(SeedError::ObjectName)?;
             (bucket.to_owned(), name)
         } else {
             // fake-gcs-server ignores top-level files, and an implicit /data mount often holds
@@ -292,18 +272,18 @@ impl Seed<'_> {
             (leaf.to_owned(), String::new())
         };
         if kind.is_file() {
-            let bucket = BucketName::new(bucket).map_err(io::Error::other)?;
-            let name = ObjectName::new(name).map_err(io::Error::other)?;
+            let bucket = BucketName::new(bucket).map_err(SeedError::BucketName)?;
+            // The string already passed validate_object_name before constructing this typed name.
+            let name = ObjectName::new(name)?;
             self.object(fixture, bucket, name, leaf).await?;
         }
         Ok(())
     }
 
-    fn bucket(&mut self, leaf: &str) -> io::Result<()> {
-        let name = BucketName::new(leaf).map_err(io::Error::other)?;
-        let record = BucketDefinition::default_for(&name, &self.config.seed_project, self.clock)
-            .map_err(io::Error::other)?;
-        self.batch.bucket(record).map_err(io::Error::other)?;
+    fn bucket(&mut self, leaf: &str) -> Result<(), SeedError> {
+        let name = BucketName::new(leaf).map_err(SeedError::BucketName)?;
+        let record = BucketDefinition::default_for(&name, &self.config.seed_project, self.clock)?;
+        self.batch.bucket(record)?;
         Ok(())
     }
 
@@ -313,7 +293,7 @@ impl Seed<'_> {
         bucket: BucketName,
         name: ObjectName,
         leaf: &str,
-    ) -> io::Result<()> {
+    ) -> Result<(), SeedError> {
         let config = self.config;
         #[cfg(test)]
         tests::injected_source_swap(fixture.path);
@@ -321,16 +301,13 @@ impl Seed<'_> {
         let file = tokio::fs::File::from_std(
             self.batch
                 .open_source(self.source_root.clone(), fixture.relative.to_owned())
-                .await
-                .map_err(io::Error::other)?,
+                .await?,
         );
         #[cfg(not(unix))]
         let file = tokio::fs::File::open(fixture.path).await?;
         let metadata = file.metadata().await?;
         if !metadata.is_file() || metadata.len() > config.max_object_bytes {
-            return Err(io::Error::other(
-                "seed file is not regular or exceeds max_object_bytes",
-            ));
+            return Err(SeedError::FileLimit);
         }
         let content_type = config.seed_content_type.for_name(leaf);
         let file = file.into_std().await;
@@ -342,10 +319,7 @@ impl Seed<'_> {
             max_bytes: config.max_object_bytes,
             mode: PublishMode::Replace,
         };
-        self.batch
-            .object(bucket, name, request, file)
-            .await
-            .map_err(io::Error::other)?;
+        self.batch.object(bucket, name, request, file).await?;
         Ok(())
     }
 }

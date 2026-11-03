@@ -53,6 +53,26 @@ pub enum WalkError {
     NotDirectory,
 }
 
+impl std::fmt::Display for WalkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => error.fmt(f),
+            Self::EntryLimit => f.write_str("source exceeds the configured entry limit"),
+            Self::DepthLimit => f.write_str("source exceeds the configured directory depth"),
+            Self::NotDirectory => f.write_str("source must be a directory, not a symlink"),
+        }
+    }
+}
+
+impl std::error::Error for WalkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => std::error::Error::source(error),
+            _ => None,
+        }
+    }
+}
+
 impl From<io::Error> for WalkError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
@@ -136,11 +156,10 @@ impl Iterator for Walker {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     #[test]
     fn root_snapshot_is_shared_with_the_walk() {
-        let directory = crate::fsutil::test_support::SourceDir::new();
+        let directory = crate::test_support::TestDir::new();
         fs::create_dir(directory.0.join("abc")).unwrap();
         let walk = Walker::new(&directory.0, 8, 2).unwrap();
         let roots: Vec<_> = walk.root_entries().map(Path::to_owned).collect();

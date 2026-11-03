@@ -1,5 +1,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 use serde::Serialize;
 use std::{
     fmt,

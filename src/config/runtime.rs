@@ -1,4 +1,4 @@
-use super::{Config, Scheme};
+use super::Config;
 use crate::url::{PublicOrigin, UrlError, normalize_base_url};
 use std::{
     fmt,
@@ -115,11 +115,7 @@ impl RuntimeEndpoints {
             if authority.as_str().contains('@') || value.contains(['/', '?', '#']) {
                 return Err(EndpointError::PublicHost);
             }
-            let scheme = if config.scheme == Scheme::Http {
-                "http"
-            } else {
-                "https"
-            };
+            let scheme = config.scheme.primary();
             candidate.public_base_url = Some(PublicOrigin::parse(&format!("{scheme}://{value}"))?);
             candidate.xml_virtual_host_domains = self
                 .declared_domains

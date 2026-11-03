@@ -2,6 +2,7 @@ use gcs_mimic::{
     auth::{Auth, Registry},
     clock::{Clock, SystemClock},
     config::Config,
+    config_input::{Fix as UrlFix, MAX_CLI_ARGS, UrlStyle, option_pairs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     tls,
 };
@@ -11,6 +12,10 @@ mod startup;
 mod sync_cli;
 // Binary tests cannot access the library's cfg(test) module.
 #[cfg(test)]
+#[expect(
+    dead_code,
+    reason = "The binary uses a subset of the shared test fixtures"
+)]
 mod test_support;
 use startup::phase;
 
@@ -141,12 +146,17 @@ enum CliError {
     Diagnostics(Diagnostics),
     /// A failure that may carry diagnostics as its inner error, as startup phases do.
     Io(io::Error),
+    Import(gcs_mimic::import::ImportError),
 }
 
 impl CliError {
     fn diagnostics(&self) -> Option<&Diagnostics> {
         match self {
             Self::Diagnostics(diagnostics) => Some(diagnostics),
+            Self::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics)) => {
+                Some(diagnostics)
+            }
+            Self::Import(_) => None,
             Self::Io(error) => error.get_ref().and_then(|inner| {
                 inner.downcast_ref::<Diagnostics>().or_else(|| {
                     inner
@@ -156,17 +166,6 @@ impl CliError {
             }),
         }
     }
-
-    /// Keeps the diagnostics of a dynamically typed failure, such as the importer's.
-    fn from_boxed(error: Box<dyn std::error::Error>) -> Self {
-        match error.downcast::<Diagnostics>() {
-            Ok(diagnostics) => Self::Diagnostics(*diagnostics),
-            Err(error) => match error.downcast::<io::Error>() {
-                Ok(error) => Self::Io(*error),
-                Err(error) => Self::Io(io::Error::other(error.to_string())),
-            },
-        }
-    }
 }
 
 impl std::fmt::Display for CliError {
@@ -174,6 +173,7 @@ impl std::fmt::Display for CliError {
         match self {
             Self::Diagnostics(diagnostics) => diagnostics.fmt(f),
             Self::Io(error) => error.fmt(f),
+            Self::Import(error) => error.fmt(f),
         }
     }
 }
@@ -183,6 +183,7 @@ impl std::error::Error for CliError {
         match self {
             Self::Diagnostics(diagnostics) => Some(diagnostics),
             Self::Io(error) => Some(error),
+            Self::Import(error) => Some(error),
         }
     }
 }
@@ -199,25 +200,16 @@ impl From<io::Error> for CliError {
     }
 }
 
-/// The fix text of a rejected `url` helper invocation, reported as its `url` diagnostic.
-struct UrlFix(String);
-
-impl From<String> for UrlFix {
-    fn from(fix: String) -> Self {
-        Self(fix)
-    }
-}
-
-impl From<&str> for UrlFix {
-    fn from(fix: &str) -> Self {
-        Self(fix.to_owned())
+impl From<gcs_mimic::import::ImportError> for CliError {
+    fn from(error: gcs_mimic::import::ImportError) -> Self {
+        Self::Import(error)
     }
 }
 
 fn cli_args() -> Result<Vec<String>, Diagnostics> {
     let args: Vec<_> = std::env::args_os()
         .skip(1)
-        .take(2054)
+        .take(MAX_CLI_ARGS)
         .map(|arg| {
             arg.into_string().map_err(|_| {
                 Diagnostics::error(
@@ -228,7 +220,7 @@ fn cli_args() -> Result<Vec<String>, Diagnostics> {
             })
         })
         .collect::<Result<_, _>>()?;
-    if args.len() == 2054 {
+    if args.len() == MAX_CLI_ARGS {
         return Err(Diagnostics::error(
             DiagnosticSource::Cli,
             "input_limit",
@@ -245,7 +237,7 @@ fn run() -> Result<(), CliError> {
             return sync_cli::run(rest);
         }
         [command, kind, rest @ ..] if command == "import" && kind == "fake-gcs-server" => {
-            return gcs_mimic::import::cli(rest).map_err(CliError::from_boxed);
+            return gcs_mimic::import::cli(rest).map_err(CliError::from);
         }
         _ => (),
     }
@@ -414,14 +406,12 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
 }
 
 fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
-    let file = args
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .find(|pair| pair[0] == "--config");
+    let file = option_pairs(args)
+        .filter_map(Result::ok)
+        .find(|(name, _)| *name == "--config");
     match file {
-        Some(pair) => {
-            gcs_mimic::config::read_public_base_url(&pair[1]).map_err(|error| Diagnostics {
+        Some((_, value)) => {
+            gcs_mimic::config::read_public_base_url(value).map_err(|error| Diagnostics {
                 errors: vec![error],
                 ..Default::default()
             })
@@ -432,20 +422,17 @@ fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
 
 fn url_public(args: &[String], configured: Option<String>) -> Result<String, UrlFix> {
     let mut options = BTreeMap::new();
-    for pair in args.chunks(2) {
-        let [name, value] = pair else {
-            return Err(format!(
-                "url public options require --name VALUE pairs\n{URL_PUBLIC_HELP}"
-            )
-            .into());
-        };
+    for pair in option_pairs(args) {
+        let (name, value) = pair.map_err(|_| {
+            format!("url public options require --name VALUE pairs\n{URL_PUBLIC_HELP}")
+        })?;
         if !matches!(
-            name.as_str(),
+            name,
             "--base-url" | "--config" | "--bucket" | "--object" | "--style"
         ) {
             return Err(format!("unknown url public option: {name}\n{URL_PUBLIC_HELP}").into());
         }
-        if options.insert(name.as_str(), value.as_str()).is_some() {
+        if options.insert(name, value).is_some() {
             return Err(format!("duplicate option: {name}").into());
         }
     }
@@ -455,10 +442,9 @@ fn url_public(args: &[String], configured: Option<String>) -> Result<String, Url
             .copied()
             .ok_or_else(|| format!("missing required option: {name}\n{URL_PUBLIC_HELP}"))
     };
-    let build = match options.get("--style").copied().unwrap_or("path") {
-        "path" => gcs_mimic::url::public_object_url,
-        "virtual-hosted" => gcs_mimic::url::virtual_host_object_url,
-        _ => return Err("style must be path or virtual-hosted".into()),
+    let build = match options.get("--style").copied().unwrap_or("path").parse()? {
+        UrlStyle::Path => gcs_mimic::url::public_object_url,
+        UrlStyle::VirtualHosted => gcs_mimic::url::virtual_host_object_url,
     };
     build(
         &url_base(&options, configured)?,
@@ -477,12 +463,9 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
     let mut options = BTreeMap::new();
     let mut headers = hyper::HeaderMap::new();
     let mut query = Vec::new();
-    for pair in args.chunks(2) {
-        let [name, value] = pair else {
-            return Err(
-                format!("url sign options require --name VALUE pairs\n{URL_SIGN_HELP}").into(),
-            );
-        };
+    for pair in option_pairs(args) {
+        let (name, value) = pair
+            .map_err(|_| format!("url sign options require --name VALUE pairs\n{URL_SIGN_HELP}"))?;
         if name == "--header" {
             let (key, value) = value.split_once(':').ok_or("header must be NAME:VALUE")?;
             let key = hyper::header::HeaderName::from_bytes(key.as_bytes())
@@ -500,7 +483,7 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
             ));
         } else {
             if !matches!(
-                name.as_str(),
+                name,
                 "--base-url"
                     | "--config"
                     | "--bucket"
@@ -514,7 +497,7 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
             ) {
                 return Err(format!("unknown url sign option: {name}").into());
             }
-            if options.insert(name.as_str(), value.as_str()).is_some() {
+            if options.insert(name, value).is_some() {
                 return Err(format!("duplicate option: {name}").into());
             }
         }
@@ -525,10 +508,9 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
             .copied()
             .ok_or_else(|| format!("missing required option: {name}\n{URL_SIGN_HELP}"))
     };
-    let build = match options.get("--style").copied().unwrap_or("path") {
-        "path" => gcs_mimic::url::public_object_url,
-        "virtual-hosted" => gcs_mimic::url::virtual_host_object_url,
-        _ => return Err("style must be path or virtual-hosted".into()),
+    let build = match options.get("--style").copied().unwrap_or("path").parse()? {
+        UrlStyle::Path => gcs_mimic::url::public_object_url,
+        UrlStyle::VirtualHosted => gcs_mimic::url::virtual_host_object_url,
     };
     let mut url = build(
         &url_base(&options, configured)?,
@@ -544,19 +526,13 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
         .parse()
         .map_err(|_| "invalid signing method")?;
     let duration = required("--expires")?;
-    let (digits, multiplier) = match duration.as_bytes().last() {
-        Some(b's') => (&duration[..duration.len() - 1], 1),
-        Some(b'm') => (&duration[..duration.len() - 1], 60),
-        Some(b'h') => (&duration[..duration.len() - 1], 3600),
-        Some(b'd') => (&duration[..duration.len() - 1], 86400),
-        _ => (duration, 1),
-    };
-    let expires = digits
-        .parse::<u64>()
-        .ok()
-        .filter(|_| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
-        .and_then(|n| n.checked_mul(multiplier))
-        .ok_or("invalid signing duration")?;
+    let expires = gcs_mimic::config_input::duration(
+        duration,
+        &[("s", 1), ("m", 60), ("h", 3600), ("d", 86400), ("", 1)],
+    )
+    .ok()
+    .filter(|_| duration.as_bytes().first().is_some_and(u8::is_ascii_digit))
+    .ok_or("invalid signing duration")?;
     let now = options
         .get("--timestamp")
         .map(|s| gcs_mimic::auth::signature::parse_timestamp(s))
@@ -606,9 +582,9 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
             ),
         )
     };
-    let explicit_url = args
-        .chunks(2)
-        .find_map(|pair| (pair.len() == 2 && pair[0] == "--url").then(|| pair[1].clone()));
+    let explicit_url = option_pairs(args)
+        .filter_map(Result::ok)
+        .find_map(|(name, value)| (name == "--url").then(|| value.to_owned()));
     if let Some(url) = explicit_url {
         return probe(args, &url).map_err(|error| failed(&url, error));
     }
@@ -680,14 +656,18 @@ fn container_server_args() -> Vec<String> {
 
 fn probe(args: &[String], url: &str) -> io::Result<()> {
     let mut options = BTreeMap::new();
-    for pair in args.chunks(2) {
-        if pair.len() != 2 || !matches!(pair[0].as_str(), "--url" | "--ca-cert") {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "healthcheck accepts [--url URL] [--ca-cert PATH]",
-            ));
+    let syntax = || {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "healthcheck accepts [--url URL] [--ca-cert PATH]",
+        )
+    };
+    for pair in option_pairs(args) {
+        let (name, value) = pair.map_err(|_| syntax())?;
+        if !matches!(name, "--url" | "--ca-cert") {
+            return Err(syntax());
         }
-        if pair[1].is_empty() || options.insert(pair[0].as_str(), pair[1].as_str()).is_some() {
+        if value.is_empty() || options.insert(name, value).is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "empty or duplicate healthcheck option",
@@ -822,4 +802,83 @@ async fn probe_response(
         return Err(io::Error::other("incomplete probe body"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signing_durations_preserve_the_cli_grammar() {
+        for (duration, accepted) in [
+            ("+5s", false),
+            ("5ms", false),
+            ("", false),
+            ("s", false),
+            ("18446744073709551615m", false),
+            ("300", true),
+            ("5d", true),
+        ] {
+            let args = [
+                "--base-url",
+                "https://localhost:4443",
+                "--bucket",
+                "example-bucket",
+                "--object",
+                "body",
+                "--method",
+                "GET",
+                "--expires",
+                duration,
+                "--signer",
+                "local-viewer@example.invalid",
+                "--private-key",
+                "fixtures/signing/test-only-private.pem",
+                "--timestamp",
+                "20261023T120000Z",
+            ]
+            .map(str::to_owned);
+            let result = url_sign(&args, None);
+            assert_eq!(result.is_ok(), accepted, "{duration}: {result:?}");
+            if !accepted {
+                assert_eq!(result.unwrap_err().0, "invalid signing duration");
+            }
+        }
+    }
+
+    #[test]
+    fn help_output_keeps_its_exact_bytes() {
+        let digest = ring::digest::digest(&ring::digest::SHA256, format!("{HELP}\n").as_bytes());
+        let digest = digest
+            .as_ref()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert_eq!(
+            digest,
+            "912f78244a1733e7e4c0d13a393bce8fa25f22d92df912134edfdce5b5c109a9"
+        );
+    }
+
+    #[test]
+    fn helper_parsers_preserve_the_first_rejected_pair_and_its_diagnostic() {
+        let args = ["--unknown", "value", "--trailing"].map(str::to_owned);
+        assert_eq!(
+            url_public(&args, None).unwrap_err().0,
+            format!("unknown url public option: --unknown\n{URL_PUBLIC_HELP}")
+        );
+        assert_eq!(
+            url_sign(&args, None).unwrap_err().0,
+            "unknown url sign option: --unknown"
+        );
+        let args = ["--bucket"].map(str::to_owned);
+        assert_eq!(
+            url_public(&args, None).unwrap_err().0,
+            format!("url public options require --name VALUE pairs\n{URL_PUBLIC_HELP}")
+        );
+        assert_eq!(
+            url_sign(&args, None).unwrap_err().0,
+            format!("url sign options require --name VALUE pairs\n{URL_SIGN_HELP}")
+        );
+    }
 }

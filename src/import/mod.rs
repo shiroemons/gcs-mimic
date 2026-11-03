@@ -2,9 +2,12 @@
 //! Read-only inspection of pinned fake-gcs-server durable filesystem snapshots.
 
 pub(crate) mod codec;
+mod error;
 mod filesystem;
 mod reader;
 mod snapshot;
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod tests;
 
@@ -13,6 +16,7 @@ use crate::{
     hashing::Hashes,
     source_tree,
 };
+pub use error::{CleanupOperation, ImportError};
 pub use filesystem::execute;
 pub use reader::{BodyStream, ChangedField, Fingerprint, ImportFailure};
 use ring::digest::{Context, SHA256};
@@ -41,25 +45,36 @@ Filesystem snapshots recover normalized disk names only; original names/history 
 Native project/default placement and ETags are generated. Snapshot format preserves declared memory history.
 No server configuration is read.";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MetadataMode {
-    Xattr,
-    Sidecar,
+crate::config::string_enum! {
+    no_default
+    #[derive(Serialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum MetadataMode {
+        Xattr => "xattr",
+        Sidecar => "sidecar",
+    }
+    "Use xattr or sidecar, matching the entire source root."
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SourcePlatform {
-    Unix,
-    Windows,
+crate::config::string_enum! {
+    no_default
+    #[derive(Serialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum SourcePlatform {
+        Unix => "unix",
+        Windows => "windows",
+    }
+    "Use unix or windows, matching the source path platform."
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SourceFormat {
-    #[default]
-    Filesystem,
-    Snapshot,
+crate::config::string_enum! {
+    #[derive(Serialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum SourceFormat {
+        #[default]
+        Filesystem => "filesystem",
+        Snapshot => "snapshot",
+    }
+    "Use filesystem or snapshot."
 }
 
 /// Whether the destination must be empty (inspection) or may hold an unfinished import to
@@ -450,7 +465,7 @@ pub fn inspect(
     options: Options,
     mut output: impl Write,
     mut diagnostics: impl Write,
-) -> Result<Summary, Box<dyn std::error::Error>> {
+) -> Result<Summary, ImportError> {
     inspect_with_xattr(
         options,
         &mut output,
@@ -464,7 +479,7 @@ fn inspect_with_xattr(
     mut output: impl Write,
     mut diagnostics: impl Write,
     xattr: reader::XattrReader,
-) -> Result<Summary, Box<dyn std::error::Error>> {
+) -> Result<Summary, ImportError> {
     options.validate()?;
     serde_json::to_writer(
         &mut output,
@@ -617,7 +632,7 @@ fn spawn_scan(
     Ok(worker)
 }
 
-pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+pub fn cli(args: &[String]) -> Result<(), ImportError> {
     if args == ["--help"] {
         println!("{HELP}");
         return Ok(());
@@ -632,9 +647,9 @@ pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             "--verify-bodies" if !verify => verify = true,
             "--source" | "--data-dir" | "--metadata-mode" | "--source-platform"
             | "--source-format" => {
-                index += 1;
                 let value = args
-                    .get(index)
+                    .get(index + 1)
+                    .map(String::as_str)
                     .filter(|v| !v.is_empty() && !v.starts_with("--"))
                     .ok_or_else(|| {
                         invalid(
@@ -642,9 +657,10 @@ pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                             "Supply exactly one nonempty value; see import fake-gcs-server --help.",
                         )
                     })?;
-                if values.insert(key.as_str(), value.as_str()).is_some() {
+                if values.insert(key.as_str(), value).is_some() {
                     return Err(invalid(key, "Remove the duplicate option.").into());
                 }
+                index += 1;
             }
             _ => {
                 return Err(invalid(
@@ -671,50 +687,31 @@ pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             )
         })
     };
-    let source_format = match values
+    let source_format = values
         .get("--source-format")
         .copied()
         .unwrap_or("filesystem")
-    {
-        "filesystem" => SourceFormat::Filesystem,
-        "snapshot" => SourceFormat::Snapshot,
-        _ => return Err(invalid("--source-format", "Use filesystem or snapshot.").into()),
-    };
+        .parse::<SourceFormat>()
+        .map_err(|fix| invalid("--source-format", &fix))?;
     if source_format == SourceFormat::Snapshot
         && (values.contains_key("--metadata-mode") || values.contains_key("--source-platform"))
     {
         return Err(invalid("--source-format", "Snapshot names and attributes are explicit; remove --metadata-mode and --source-platform.").into());
     }
-    let mode = match if source_format == SourceFormat::Snapshot {
+    let mode = if source_format == SourceFormat::Snapshot {
         "sidecar"
     } else {
         required("--metadata-mode")?
-    } {
-        "xattr" => MetadataMode::Xattr,
-        "sidecar" => MetadataMode::Sidecar,
-        _ => {
-            return Err(invalid(
-                "--metadata-mode",
-                "Use xattr or sidecar, matching the entire source root.",
-            )
-            .into());
-        }
-    };
-    let platform = match if source_format == SourceFormat::Snapshot {
+    }
+    .parse::<MetadataMode>()
+    .map_err(|fix| invalid("--metadata-mode", &fix))?;
+    let platform = if source_format == SourceFormat::Snapshot {
         "unix"
     } else {
         required("--source-platform")?
-    } {
-        "unix" => SourcePlatform::Unix,
-        "windows" => SourcePlatform::Windows,
-        _ => {
-            return Err(invalid(
-                "--source-platform",
-                "Use unix or windows, matching the source path platform.",
-            )
-            .into());
-        }
-    };
+    }
+    .parse::<SourcePlatform>()
+    .map_err(|fix| invalid("--source-platform", &fix))?;
     let mut options = Options::new(
         required("--source")?.into(),
         required("--data-dir")?.into(),

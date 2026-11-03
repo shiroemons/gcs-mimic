@@ -2,6 +2,7 @@
 
 use gcs_mimic::{
     bounded_file,
+    config_input::{DurationError, duration, option_pairs},
     diagnostics::{DiagnosticSource, Diagnostics},
     tls,
 };
@@ -309,32 +310,32 @@ impl Options {
 
 fn option_values(args: &[String]) -> io::Result<BTreeMap<&str, &str>> {
     let mut values = BTreeMap::new();
-    for pair in args.chunks(2) {
-        if pair.len() != 2
-            || !matches!(
-                pair[0].as_str(),
-                "--endpoint"
-                    | "--ca-cert"
-                    | "--token-file"
-                    | "--timeout-ms"
-                    | "--revision"
-                    | "--cursor"
-                    | "--limit"
-                    | "--conflict"
-                    | "--recovery"
-                    | "--action"
-                    | "--expected-generation"
-                    | "--target-identity"
-                    | "--operation-id"
-                    | "--confirm-backup-verified"
-                    | "--confirm-discard-without-backup"
-                    | "--deletion-set"
-                    | "--view"
-                    | "--timeout"
-            )
-            || pair[1].is_empty()
-            || pair[1].len() > 8192
-            || values.insert(pair[0].as_str(), pair[1].as_str()).is_some()
+    for pair in option_pairs(args) {
+        let (name, value) =
+            pair.map_err(|_| invalid("Use unique sync option/value pairs; see sync --help"))?;
+        if !matches!(
+            name,
+            "--endpoint"
+                | "--ca-cert"
+                | "--token-file"
+                | "--timeout-ms"
+                | "--revision"
+                | "--cursor"
+                | "--limit"
+                | "--conflict"
+                | "--recovery"
+                | "--action"
+                | "--expected-generation"
+                | "--target-identity"
+                | "--operation-id"
+                | "--confirm-backup-verified"
+                | "--confirm-discard-without-backup"
+                | "--deletion-set"
+                | "--view"
+                | "--timeout"
+        ) || value.is_empty()
+            || value.len() > 8192
+            || values.insert(name, value).is_some()
         {
             return Err(invalid(
                 "Use unique sync option/value pairs; see sync --help",
@@ -384,16 +385,13 @@ fn page_path(
 }
 
 fn timeout_millis(value: &str) -> io::Result<u64> {
-    let (number, factor) = value
-        .strip_suffix("ms")
-        .map(|v| (v, 1))
-        .or_else(|| value.strip_suffix('s').map(|v| (v, 1000)))
-        .ok_or_else(|| invalid("--timeout requires an integer with ms or s suffix"))?;
-    number
-        .parse::<u64>()
-        .ok()
-        .and_then(|n| n.checked_mul(factor))
-        .filter(|n| (1..=60000).contains(n))
+    let millis = duration(value, &[("ms", 1), ("s", 1000)]).map_err(|error| match error {
+        DurationError::Unit => invalid("--timeout requires an integer with ms or s suffix"),
+        _ => invalid("--timeout must be 1ms through 60s"),
+    })?;
+    (1..=60000)
+        .contains(&millis)
+        .then_some(millis)
         .ok_or_else(|| invalid("--timeout must be 1ms through 60s"))
 }
 

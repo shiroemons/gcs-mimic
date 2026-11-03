@@ -370,9 +370,7 @@ fn commit(
             .map_err(objects_error)?
         {
             Some(existing) if existing.project != record.project => {
-                return Err(AdminError::Invalid(
-                    "existing seed bucket belongs to another project".into(),
-                ));
+                return Err(AdminError::SeedProjectMismatch);
             }
             Some(_) => {}
             None => {
