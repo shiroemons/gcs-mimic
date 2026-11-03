@@ -41,12 +41,7 @@ pub(super) async fn initiate(
             .trim()
             .eq_ignore_ascii_case("application/json")
     });
-    let has_body = request
-        .headers()
-        .get("content-length")
-        .is_some_and(|v| v != "0")
-        || request.headers().contains_key("transfer-encoding");
-    if has_body && !json_type {
+    if super::has_body(request.headers()) && !json_type {
         return Err(JsonError::invalid_parameter(
             "Metadata requires application/json",
         ));

@@ -149,12 +149,17 @@ struct DeadlineReply {
     upload: bool,
 }
 
-fn has_body(request: &Request<Incoming>) -> bool {
-    let headers = request.headers();
+pub(crate) fn has_body(headers: &hyper::HeaderMap) -> bool {
     headers.contains_key(hyper::header::TRANSFER_ENCODING)
         || headers
             .get(hyper::header::CONTENT_LENGTH)
-            .is_some_and(|length| length != "0")
+            .is_some_and(|length| {
+                length
+                    .to_str()
+                    .ok()
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+                    .is_none_or(|length| length != 0)
+            })
 }
 
 impl DeadlineReply {
@@ -173,7 +178,7 @@ impl DeadlineReply {
         Self {
             xml,
             body: xml::ErrorBody::for_method(request.method()),
-            upload: has_body(request) && upload_route,
+            upload: has_body(headers) && upload_route,
         }
     }
 
@@ -776,7 +781,7 @@ impl ConnectionService {
             activity: activity.clone(),
             reads,
         };
-        let sent_body = has_body(&request);
+        let sent_body = has_body(request.headers());
         let endpoints = match config
             .runtime_endpoints
             .snapshot(&config, &state.api_base_url)
@@ -1154,13 +1159,17 @@ fn read_etag_not_modified(headers: &hyper::HeaderMap, etag: &str) -> Result<bool
 }
 
 fn not_modified_response(
-    etag: &hyper::header::HeaderValue,
-    cache_control: &hyper::header::HeaderValue,
+    etag: Option<&hyper::header::HeaderValue>,
+    cache_control: Option<&hyper::header::HeaderValue>,
 ) -> Response<Full<Bytes>> {
     let mut response = empty_response(StatusCode::NOT_MODIFIED);
     let headers = response.headers_mut();
-    headers.insert("etag", etag.clone());
-    headers.insert("cache-control", cache_control.clone());
+    if let Some(etag) = etag {
+        headers.insert("etag", etag.clone());
+    }
+    if let Some(cache_control) = cache_control {
+        headers.insert("cache-control", cache_control.clone());
+    }
     response
 }
 
@@ -1326,22 +1335,16 @@ fn probe_or_unknown(request: &Request<RequestBody>, state: &State) -> Response<F
         path,
         "/_internal/health" | "/_internal/ready" | "/_internal/healthcheck"
     );
-    let (status, body) = if !internal {
-        (
-            StatusCode::NOT_FOUND,
-            "{\"error\":\"route not implemented\"}".to_owned(),
-        )
-    } else if request.method() != Method::GET && request.method() != Method::HEAD {
+    if !internal {
+        return JsonError::new(StatusCode::NOT_FOUND, "notFound", "Route not found")
+            .into_response();
+    }
+    let (status, body) = if request.method() != Method::GET && request.method() != Method::HEAD {
         (
             StatusCode::METHOD_NOT_ALLOWED,
             "{\"error\":\"method not allowed\"}".to_owned(),
         )
-    } else if request.headers().contains_key("transfer-encoding")
-        || request
-            .headers()
-            .get("content-length")
-            .is_some_and(|v| v != "0")
-    {
+    } else if has_body(request.headers()) {
         (
             StatusCode::PAYLOAD_TOO_LARGE,
             "{\"error\":\"probe bodies are not supported\"}".to_owned(),

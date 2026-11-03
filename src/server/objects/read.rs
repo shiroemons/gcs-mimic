@@ -119,7 +119,7 @@ async fn media(
         || requested.if_generation_not_match == Some(record.generation)
         || requested.if_metageneration_not_match == Some(record.metageneration)
     {
-        let mut response = not_modified_response(&headers["etag"], &headers["cache-control"]);
+        let mut response = not_modified_response(headers.get("etag"), headers.get("cache-control"));
         copy_representation_headers(&headers, response.headers_mut());
         return Ok(boxed(response));
     }
