@@ -189,6 +189,110 @@ fn remove_session_stage(catalog: &Catalog, blob_id: &BlobId) -> Result<(), Catal
         .map_err(unavailable)
 }
 
+enum CreateFailure {
+    Rejected(ResumableError),
+    Ambiguous(ResumableError),
+}
+
+struct CreateSession {
+    id: String,
+    blob_id: BlobId,
+    bucket: String,
+    name: String,
+    options: ResumableOptions,
+    total: Option<u64>,
+}
+
+fn insert_session(
+    connection: &mut Connection,
+    catalog: &Catalog,
+    request: &CreateSession,
+) -> Result<ResumableSession, CreateFailure> {
+    let mut ambiguous = false;
+    let result = (|| -> Result<_, ResumableError> {
+        let transaction = sql::immediate(connection).map_err(unavailable)?;
+        let (_, delete_permission) = super::objects::authorized_bucket(
+            &transaction,
+            &request.bucket,
+            &request.options.access,
+        )?;
+        let previous = super::objects::lookup(&transaction, &request.bucket, &request.name)?;
+        let now = catalog.0.clock.now();
+        super::objects::check_publication(
+            previous.as_ref(),
+            ObjectConditions::default(),
+            delete_permission,
+            now,
+        )?;
+        let _trimmed = admit_session(&transaction, catalog)?;
+        let incarnation: String = bucket_incarnation(&transaction, &request.bucket)
+            .optional()
+            .map_err(unavailable)?
+            .ok_or(ObjectError::BucketNotFound)?;
+        let created = unix_millis(now)?;
+        let deadline = created
+            .checked_add(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?)
+            .ok_or_else(|| unavailable("upload deadline overflow"))?;
+        let encoded = encode_options(&request.options).to_string();
+        let total = request
+            .total
+            .map(i64::try_from)
+            .transpose()
+            .map_err(unavailable)?;
+        sql::exec(
+            &transaction,
+            "INSERT INTO resumable_sessions VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,'ACTIVE',NULL)",
+            params![
+                request.id,
+                request.blob_id,
+                request.bucket,
+                request.name,
+                incarnation,
+                encoded,
+                total,
+                created,
+                deadline
+            ],
+        )
+        .map_err(unavailable)?;
+        // Once commit starts, only a successful reference probe can authorize removing the draft.
+        ambiguous = true;
+        if let Err(error) = transaction.commit() {
+            if catalog.0.backend.is_memory() {
+                let retained: bool = sql::scalar(
+                    connection,
+                    "SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id=?1)",
+                    [&request.blob_id],
+                )
+                .map_err(unavailable)?;
+                ambiguous = retained;
+            }
+            return Err(unavailable(error).into());
+        }
+        #[cfg(test)]
+        super::fault::hit(&catalog.0.data_dir, super::fault::Step::SessionCreated)
+            .map_err(unavailable)?;
+        sql::row(
+            connection,
+            concat!(
+                "SELECT ",
+                session_columns!(),
+                " FROM resumable_sessions WHERE id=?1"
+            ),
+            [&request.id],
+            read_session,
+        )
+        .map_err(|error| unavailable(error).into())
+    })();
+    result.map_err(|error| {
+        if ambiguous {
+            CreateFailure::Ambiguous(error)
+        } else {
+            CreateFailure::Rejected(error)
+        }
+    })
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the schema migration backfills incarnations once"
@@ -298,40 +402,39 @@ impl Catalog {
             &options.access,
         )
         .await?;
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
+        let activity = self.activity()?;
+        let request = CreateSession {
+            id: random_id::<32>()?,
+            blob_id: BlobId::generate().map_err(unavailable)?,
+            bucket: bucket.to_owned(),
+            name: name.to_owned(),
+            options,
+            total,
+        };
         let catalog = self.clone();
-        let session = self.run_waiting(move |connection| -> Result<_,ResumableError> {
-            let transaction = sql::immediate(connection).map_err(unavailable)?;
-            let (_,delete_permission)=super::objects::authorized_bucket(&transaction,&bucket,&options.access)?;
-            let previous=super::objects::lookup(&transaction,&bucket,&name)?;
-            super::objects::check_publication(previous.as_ref(),crate::object::ObjectConditions::default(),delete_permission,catalog.0.clock.now())?;
-            let _trimmed = admit_session(&transaction, &catalog)?;
-            let incarnation: String = bucket_incarnation(&transaction, &bucket).optional().map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;
-            let id = random_id::<32>()?;
-            let blob = super::super::blob_id::BlobId::generate().map_err(unavailable)?;
-            let blob_id = blob;
-            let now = unix_millis(catalog.0.clock.now())?;
-            let deadline = now.checked_add(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?).ok_or_else(|| unavailable("upload deadline overflow"))?;
-            let encoded = encode_options(&options).to_string();
-            let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
-            create_session_bytes(&catalog, &blob_id)?;
-            let inserted = sql::exec(&transaction, "INSERT INTO resumable_sessions VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,'ACTIVE',NULL)", params![id, blob_id, bucket, name, incarnation, encoded, total, now, deadline]);
-            if let Err(error) = inserted { remove_session_stage(&catalog, &blob_id)?; return Err(unavailable(error).into()); }
-            // A failed commit can be ambiguous; retain its file for reference-aware recovery.
-            if let Err(error) = transaction.commit() {
-                if catalog.0.backend.is_memory() {
-                    let retained: bool = sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1)", [&blob_id]).map_err(unavailable)?;
-                    if !retained { remove_session_stage(&catalog, &blob_id)?; }
+        crate::task::spawn_supervised("resumable-create", async move {
+            let _activity = activity;
+            let blob_id = request.blob_id;
+            let files = catalog.clone();
+            crate::task::run_blocking("session-create", move || create_session_bytes(&files, &blob_id)).await.map_err(unavailable)??;
+            let metadata = catalog.clone();
+            let result = catalog.run_waiting(move |connection| Ok::<_, ResumableError>(insert_session(connection, &metadata, &request))).await;
+            let result = result.unwrap_or_else(|error| Err(CreateFailure::Ambiguous(error)));
+            catalog.0.maintenance_wake.notify_one();
+            match result {
+                Ok(session) => Ok(session),
+                Err(CreateFailure::Ambiguous(error)) => Err(error),
+                Err(CreateFailure::Rejected(error)) => {
+                    let files = catalog.clone();
+                    let cleanup = crate::task::run_blocking("session-reject-cleanup", move || remove_session_stage(&files, &blob_id)).await;
+                    let cleanup = cleanup.map_err(unavailable).and_then(|result| result);
+                    if let Err(error) = cleanup {
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "upload_cleanup_deferred", json!({"message":format!("rejected session draft cleanup failed: {error}")}));
+                    }
+                    Err(error)
                 }
-                return Err(unavailable(error).into());
             }
-            #[cfg(test)]
-            super::fault::hit(&catalog.0.data_dir, super::fault::Step::SessionCreated).map_err(unavailable)?;
-            sql::row(connection, concat!("SELECT ", session_columns!(), " FROM resumable_sessions WHERE id = ?1"), [&id], read_session).map_err(|e|unavailable(e).into())
-        }).await?;
-        self.0.maintenance_wake.notify_one();
-        Ok(session)
+        }).await.map_err(unavailable)?
     }
 
     pub(crate) async fn resumable_session(
@@ -583,6 +686,97 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn rejected_creation_releases_the_draft_but_post_commit_failure_retains_it() {
+        use super::super::fault::{Fault, Step};
+        for memory in [false, true] {
+            let dir = crate::test_support::TestDir::new();
+            let catalog = Catalog::open_backend(
+                dir.0.clone(),
+                std::sync::Arc::new(crate::clock::SystemClock),
+                super::super::admin::LocalAdmin::Disabled,
+                memory.then_some((8192, 1024 * 1024)),
+            )
+            .await
+            .unwrap();
+            catalog
+                .insert_bucket(crate::storage::test_fixtures::bucket("bucket", "project"))
+                .await
+                .unwrap();
+            catalog.run::<_, CatalogError>(|connection| {
+                connection.execute_batch("CREATE TEMP TRIGGER reject_session BEFORE INSERT ON resumable_sessions BEGIN SELECT RAISE(ABORT,'session rejected'); END;")?;
+                Ok(())
+            }).await.unwrap();
+            let options = ResumableOptions::new(BucketAccess::Permissive);
+            assert!(
+                catalog
+                    .create_resumable_session("bucket", "object", options.clone(), None)
+                    .await
+                    .is_err()
+            );
+            let rows: i64 = catalog
+                .run(|connection| {
+                    sql::scalar(connection, "SELECT count(*) FROM resumable_sessions", [])
+                        .map_err(unavailable)
+                })
+                .await
+                .unwrap();
+            assert_eq!(rows, 0);
+            if !memory {
+                assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+            }
+            catalog
+                .run::<_, CatalogError>(|connection| {
+                    connection.execute_batch("DROP TRIGGER reject_session")?;
+                    Ok(())
+                })
+                .await
+                .unwrap();
+            catalog.inject(
+                Step::SessionCreated,
+                0,
+                Fault::Io(std::io::ErrorKind::Other),
+            );
+            assert!(
+                catalog
+                    .create_resumable_session("bucket", "object", options, None)
+                    .await
+                    .is_err()
+            );
+            let session = catalog
+                .run(|connection| {
+                    sql::row(
+                        connection,
+                        concat!("SELECT ", session_columns!(), " FROM resumable_sessions"),
+                        [],
+                        read_session,
+                    )
+                    .map_err(unavailable)
+                })
+                .await
+                .unwrap();
+            catalog
+                .0
+                .backend
+                .open_output(
+                    &session.blob_id,
+                    0,
+                    super::super::blob_backend::ReadAccess::WriteOnly,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                catalog
+                    .resumable_session(&session.id, "bucket")
+                    .await
+                    .unwrap()
+                    .state,
+                SessionState::Active
+            );
+            catalog.close().await.unwrap();
+        }
+    }
 
     const OPTIONS_JSON: &str = r#"{"version":2,"content_type":"text/plain","metadata":{"replace":false,"eventBasedHold":null,"temporaryHold":null,"customTime":null,"contentType":null,"contentEncoding":null,"contentDisposition":null,"contentLanguage":null,"cacheControl":null,"metadata":null,"retention":null,"customerKeySha256":null},"md5":null,"crc32c":null,"conditions":[null,null,null,null],"access":null,"origin":null,"full":false,"response_fields":null}"#;
 
