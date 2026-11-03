@@ -258,7 +258,7 @@ pub(crate) enum MapMode {
 }
 
 /// Content fields reset on PUT; holds only change when explicitly supplied.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
     pub(crate) acl: Option<Vec<crate::acl::AclEntry>>,
     /// Replaces the bucket's default object ACL for a newly published generation. Only
@@ -283,6 +283,54 @@ pub struct ObjectMetadataUpdate {
     /// Requested class for a new generation; creation resolves it against the bucket's
     /// default and Autoclass. Metadata updates never change the class (rewrite does).
     pub storage_class: Option<StorageClass>,
+}
+
+// Existing replay fingerprints contain this Debug representation; merge keeps its old bytes.
+impl fmt::Debug for ObjectMetadataUpdate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            acl,
+            predefined_acl,
+            replace,
+            content_type,
+            content_encoding,
+            content_disposition,
+            content_language,
+            cache_control,
+            metadata,
+            metadata_mode,
+            event_based_hold,
+            temporary_hold,
+            custom_time,
+            retention,
+            override_unlocked_retention,
+            customer_key_sha256,
+            storage_class,
+        } = self;
+        let mut fields = formatter.debug_struct("ObjectMetadataUpdate");
+        fields
+            .field("acl", acl)
+            .field("predefined_acl", predefined_acl)
+            .field("replace", replace)
+            .field("content_type", content_type)
+            .field("content_encoding", content_encoding)
+            .field("content_disposition", content_disposition)
+            .field("content_language", content_language)
+            .field("cache_control", cache_control)
+            .field("metadata", metadata);
+        if *metadata_mode == MapMode::Replace {
+            fields.field("metadata_mode", metadata_mode);
+        }
+        fields
+            .field("event_based_hold", event_based_hold)
+            .field("temporary_hold", temporary_hold)
+            .field("custom_time", custom_time)
+            .field("retention", retention)
+            .field("override_unlocked_retention", override_unlocked_retention)
+            .field("customer_key_sha256", customer_key_sha256)
+            .field("storage_class", storage_class)
+            .finish()
+    }
 }
 
 pub(crate) fn validate_object_storage_class(class: &str) -> Result<StorageClass, ObjectError> {

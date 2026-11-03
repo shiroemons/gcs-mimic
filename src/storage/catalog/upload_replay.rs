@@ -735,5 +735,19 @@ mod tests {
             hex,
             "9800c73b1029a34e7809af2ace71da8e6668531db720b33ce2f448732d4735d7"
         );
+        let mut replace = metadata;
+        replace.metadata_mode = crate::object::MapMode::Replace;
+        assert_ne!(
+            digest,
+            fingerprint(&(
+                "bucket",
+                "name",
+                "text/plain",
+                &replace,
+                ObjectConditions::default(),
+                5_u64,
+                [7_u8; 32],
+            ))
+        );
     }
 }
