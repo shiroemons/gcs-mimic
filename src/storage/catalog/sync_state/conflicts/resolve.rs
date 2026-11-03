@@ -2,6 +2,9 @@ use super::*;
 use crate::storage::admin::{BucketName, GenerationCondition, Origin, Publication, PublishMode};
 use crate::storage::catalog::sql;
 
+#[cfg(test)]
+mod codec_tests;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Action {
