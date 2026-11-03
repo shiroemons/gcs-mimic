@@ -30,8 +30,10 @@ jobs:
           unzip -q "$archive" -d "$RUNNER_TEMP/protoc"
           echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
       - name: Verify committed gRPC generation
+        if: ${{ !cancelled() }}
         run: bash scripts/check-grpc-codegen.sh
       - name: Check protobuf compiler freshness
+        if: ${{ !cancelled() }}
         run: |
           version=$(jq -r .version src/grpc/codegen/protoc.json)
           latest=$(gh api repos/protocolbuffers/protobuf/releases/latest --jq .tag_name)
@@ -42,7 +44,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - run: cargo fetch --locked --manifest-path sdk-tests/rust/Cargo.toml
+        if: ${{ !cancelled() }}
       - name: Check application, all SDK ecosystems, toolchains, Actions and containers
+        if: ${{ !cancelled() }}
         run: cargo xtask dependencies check
         env:
           GITHUB_TOKEN: ${{ github.token }}

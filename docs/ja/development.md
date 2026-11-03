@@ -76,6 +76,8 @@ RAMディスクを作れなかった場合は警告を出し、逐次実行で�
 
 gRPCのprotoは通常CIでSHA-256を照合し、日次の依存検査で固定したprotocから再生成してコミット済みRustと比較します。
 protocの固定値は`src/grpc/codegen/protoc.json`で管理し、日次検査は公式の最新安定版との差も検出します。
+生成・protoc・SDKの取得・依存検査は`!cancelled()`で実行するため、protoc検査の失敗後も依存検査が動きます。
+どれかが失敗すればジョブは失敗し、キャンセル時は残りの検査を止めます。
 通常ビルドやリリースにはprotocを追加しません。上流APIの変更を自動発見する仕組みは未実装です。
 ローカルでは`bash scripts/test-grpc-codegen.sh`でハッシュ不一致・生成物のずれの拒否を確認し、
 protoc 36.2を用意して`CARGO_BUILD_JOBS=4 bash scripts/check-grpc-codegen.sh`で実際に再生成します。

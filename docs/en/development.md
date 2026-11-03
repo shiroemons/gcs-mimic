@@ -467,6 +467,9 @@ hash/drift rejection fixture. Daily dependency CI installs the digest-pinned
 compiler from `src/grpc/codegen/protoc.json`, regenerates v1 then v2 into a
 temporary directory and compares it with committed generated Rust. It also
 compares the compiler pin with the latest stable official protobuf release.
+Generation and compiler checks use `!cancelled()` alongside the SDK fetch and
+dependency detector, so a failed compiler check does not skip dependency detection.
+Each failed step still fails the job; cancellation stops the remaining checks.
 Ordinary application and release builds still require no protoc.
 
 ```sh
