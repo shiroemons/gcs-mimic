@@ -90,6 +90,7 @@ async fn exhausted_accepts_pause_and_keep_serving() {
 #[cfg(unix)]
 #[tokio::test(start_paused = true)]
 async fn exhausted_accept_pause_still_honors_shutdown() {
+    const FAILURES: usize = 8;
     let data = TestDir::new();
     let state = Arc::new(State::for_test(
         Catalog::open(&data.0).await.unwrap(),
@@ -97,7 +98,7 @@ async fn exhausted_accept_pause_still_honors_shutdown() {
     ));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let faults = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(
-        vec![libc::EMFILE; 8],
+        vec![libc::EMFILE; FAILURES],
     )));
     let (stop, shutdown) = tokio::sync::oneshot::channel();
     let (draining, drained) = tokio::sync::oneshot::channel();
@@ -115,16 +116,19 @@ async fn exhausted_accept_pause_still_honors_shutdown() {
         ),
     ));
     tokio::task::yield_now().await;
-    for delay in [10, 20, 40, 80, 160, 320, 640] {
-        tokio::time::advance(Duration::from_millis(delay)).await;
+    let mut backoff = transport::AcceptBackoff::default();
+    let error = io::Error::from_raw_os_error(libc::EMFILE);
+    for _ in 1..FAILURES {
+        tokio::time::advance(backoff.exhausted(&error)).await;
         tokio::task::yield_now().await;
     }
     assert!(faults.lock().unwrap().is_empty());
+    let paused_for = backoff.exhausted(&error);
     let shutdown_at = tokio::time::Instant::now();
     stop.send(()).unwrap();
     let drain_at = drained.await.unwrap();
     server.await.unwrap().unwrap();
-    assert!(drain_at - shutdown_at < Duration::from_secs(1));
+    assert!(drain_at - shutdown_at < paused_for);
 }
 
 #[tokio::test]
