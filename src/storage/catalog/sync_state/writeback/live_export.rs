@@ -344,7 +344,7 @@ impl Writeback {
                 let (owner, incarnation): (String,String) = tx.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([bucket.as_str()], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(stale)?;
                 let stored = tx.prepare_cached(super::super::SELECT_BY_NAME)?.query_row(params![bucket.as_str(),name.as_str(),incarnation],super::super::read_record).optional()?;
                 if stored != selected { return Err(stale()); }
-                let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|(record,_)| record);
+                let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|stored| stored.record);
                 let expected_generation=record.as_ref().map(|record|Generation::new(record.generation)).transpose()?;
                 let proof=proof_token.as_ref().map(|token|token.validate(&tx,root.as_bytes(),&binding,&name,expected_generation)).transpose()?;
                 let kind = if has_source || record.is_some() { Kind::Publish } else { Kind::Remove };

@@ -335,7 +335,7 @@ fn check_original(
 ) -> Result<String, Error> {
     super::matching(connection, binding, &binding.bucket)?;
     let current = objects::lookup(connection, &binding.bucket, name.as_str())?;
-    if current.as_ref().map(|(record, _)| record.generation) != expected.map(Generation::get) {
+    if current.as_ref().map(|stored| stored.record.generation) != expected.map(Generation::get) {
         return Err(Error::TargetChanged);
     }
     connection

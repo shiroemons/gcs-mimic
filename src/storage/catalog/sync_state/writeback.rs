@@ -510,7 +510,7 @@ fn original_with_protection(
         Kind::Publish => {
             let record = objects::lookup(connection, &item.bucket, &item.name)?
                 .ok_or_else(stale)?
-                .0;
+                .record;
             if record.has_hold() && protection == OriginalProtection::Enforce {
                 return Err(AdminError::Hold.into());
             }
@@ -875,7 +875,7 @@ impl Writeback {
             }
             let (owner,incarnation):(String,String)=tx.query_row("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1",[&bucket],|r|Ok((r.get(0)?,r.get(1)?)))?;
             let (size,md5,crc32c)=match kind {
-                Kind::Publish=>{let value=objects::lookup(&tx,&bucket,&name)?.ok_or_else(stale)?.0;(value.size,value.md5,value.crc32c)},
+                Kind::Publish=>{let value=objects::lookup(&tx,&bucket,&name)?.ok_or_else(stale)?.record;(value.size,value.md5,value.crc32c)},
                 Kind::Remove=>tx.query_row("SELECT size,md5,crc32c FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![bucket,name,incarnation,generation.get()],|r|Ok((r.get::<_,u64>(0)?,r.get(1)?,r.get(2)?)))?,
             };
             let id=BlobId::generate().map_err(|e|Error::Admin(AdminError::backend(e)))?.to_hex();
@@ -1086,7 +1086,7 @@ impl Writeback {
             }
             match receipt.fingerprint {
                 Some(fp)=>{let binding=SyncBinding {catalog:token.catalog,bucket:item.bucket.clone(),incarnation:item.incarnation.clone(),deletion:None,control:None};let update=SyncUpdate::new(binding,item.path.clone(),fp)?;
-                    let record=objects::lookup(&tx,&item.bucket,&item.name)?.ok_or_else(stale)?.0;super::record_in_transaction(&tx,&update,&record)?;},
+                    let record=objects::lookup(&tx,&item.bucket,&item.name)?.ok_or_else(stale)?.record;super::record_in_transaction(&tx,&update,&record)?;},
                 None=>{let count=tx.execute("DELETE FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![item.bucket,item.name,item.incarnation,item.generation.get()])?;if count!=1{return Err(stale());}},
             }
             usage.entries=usage.entries.checked_sub(1).ok_or_else(stale)?;usage.reserved_bytes=usage.reserved_bytes.checked_sub(u128::from(item.reserved_bytes)).ok_or_else(stale)?;

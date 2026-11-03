@@ -343,7 +343,7 @@ impl SyncState {
                 matching(&transaction, &update.binding, &update.binding.bucket)?;
                 let record = super::objects::lookup(&transaction, &update.binding.bucket, &name)?
                     .ok_or(ObjectError::ObjectNotFound)?
-                    .0;
+                    .record;
                 if record.generation != generation.get() {
                     return Err(ObjectError::PreconditionFailed.into());
                 }

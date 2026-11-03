@@ -905,7 +905,7 @@ fn publish_entry(
         staged.hashes.crc32c,
     ) {
         let record = previous
-            .map(|(record, _)| record)
+            .map(|stored| stored.record)
             .ok_or(ObjectError::ObjectNotFound)?;
         record_staged_state(transaction, staged, &record)?;
         return Ok(record);

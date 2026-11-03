@@ -75,7 +75,7 @@ impl RootLease {
             let tx = c.transaction()?;
             lease.control_scope().authorize(&tx)?;
             matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
-            let live = objects::lookup(&tx,&binding.bucket,name.as_str()).map_err(unavailable)?.is_some_and(|(record,_)| record.generation == generation.get());
+            let live = objects::lookup(&tx,&binding.bucket,name.as_str()).map_err(unavailable)?.is_some_and(|stored| stored.record.generation == generation.get());
             let tracked: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)", params![binding.bucket,name.as_str(),generation.get(),binding.incarnation])?;
             let valid = live || tracked;
             if valid {
@@ -103,7 +103,7 @@ impl RootLease {
             lease.control_scope().authorize(&tx)?;
             matching(&tx, &binding, &binding.bucket)?;
             let record = objects::lookup(&tx, &binding.bucket, name.as_str())?
-                .ok_or(AdminError::Precondition)?.0;
+                .ok_or(AdminError::Precondition)?.record;
             if record.generation != generation.get() {
                 return Err(AdminError::Precondition);
             }

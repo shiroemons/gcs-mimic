@@ -95,6 +95,11 @@ pub(super) struct PublicationDefaults {
     pub(super) owner: Option<crate::object::owner::ObjectOwner>,
 }
 
+pub(super) struct StoredObject {
+    pub(super) record: ObjectRecord,
+    pub(super) blob: String,
+}
+
 impl PublicationDefaults {
     pub(super) fn record(
         self,
@@ -877,7 +882,7 @@ impl UploadCommit {
             body.crc32c,
         ) {
             return previous
-                .map(|(record, _)| record)
+                .map(|stored| stored.record)
                 .ok_or(ObjectError::ObjectNotFound);
         }
         let now = self.clock.now();
@@ -1267,7 +1272,7 @@ impl Catalog {
                 RequestKind::Read,
                 &access,
             )
-            .map(|(record, _)| record)
+            .map(|stored| stored.record)
         })
         .await
     }
@@ -1324,7 +1329,7 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
-            let (mut record, _) = selected(
+            let StoredObject { mut record, .. } = selected(
                 &transaction,
                 &bucket,
                 &name,
@@ -1460,7 +1465,7 @@ pub(super) fn open_selected(
         generation,
     } = target;
     let transaction = connection.transaction()?;
-    let (record, id) = selected(
+    let StoredObject { record, blob: id } = selected(
         &transaction,
         bucket,
         name,
@@ -1520,7 +1525,7 @@ pub(super) fn delete_selected(
     authorized_bucket(connection, bucket, access)?;
     super::soft_delete::purge_expired(connection, bucket, unix_micros(clock.now())?)?;
     let transaction = sql::immediate(connection)?;
-    let (record, id) = selected(
+    let StoredObject { record, blob: id } = selected(
         &transaction,
         bucket,
         name,
@@ -1552,7 +1557,7 @@ pub(super) fn delete_selected(
     )?;
     retire_previous(
         &transaction,
-        Some(&(record, id)),
+        Some(&StoredObject { record, blob: id }),
         retirement,
         unix_micros(clock.now())?,
         super::change_journal::origin(access),
@@ -2048,7 +2053,9 @@ fn list_page_at(
             read_object,
         )
         .optional()?;
-        let Some((record, _)) = record else { break };
+        let Some(StoredObject { record, .. }) = record else {
+            break;
+        };
         let group = group_prefix(&record.name, query);
         let is_prefix = group.is_some_and(|_| {
             !trailing_marker(&record.name, query)
@@ -2146,7 +2153,7 @@ pub(super) fn lookup(
     connection: &Connection,
     bucket: &str,
     name: &str,
-) -> Result<Option<(ObjectRecord, String)>, ObjectError> {
+) -> Result<Option<StoredObject>, ObjectError> {
     sql::row(
         connection,
         SELECT_LIVE_OBJECT,
@@ -2165,7 +2172,7 @@ pub(super) fn selected(
     conditions: ObjectConditions,
     request: RequestKind,
     access: &BucketAccess,
-) -> Result<(ObjectRecord, String), ObjectError> {
+) -> Result<StoredObject, ObjectError> {
     let object_acl = object_acl_authority(connection, bucket, access)?;
     let record = if let Some(generation) = generation {
         sql::row(
@@ -2181,8 +2188,14 @@ pub(super) fn selected(
     if let Some(access) = object_acl {
         let granted = record
             .as_ref()
-            .map(|(record, _)| {
-                super::acl::object_granted(connection, bucket, name, record.generation, access)
+            .map(|stored| {
+                super::acl::object_granted(
+                    connection,
+                    bucket,
+                    name,
+                    stored.record.generation,
+                    access,
+                )
             })
             .transpose()?
             .unwrap_or(false);
@@ -2190,9 +2203,9 @@ pub(super) fn selected(
             return Err(ObjectError::Forbidden);
         }
     }
-    let (record, id) = record.ok_or(ObjectError::ObjectNotFound)?;
-    check_conditions(Some(&record), conditions, request)?;
-    Ok((record, id))
+    let stored = record.ok_or(ObjectError::ObjectNotFound)?;
+    check_conditions(Some(&stored.record), conditions, request)?;
+    Ok(stored)
 }
 
 pub(super) fn object_acl_authority<'a>(
@@ -2232,13 +2245,13 @@ pub(super) fn authorize_generation(
 
 /// Preconditions are evaluated first: a failing precondition means nothing would be replaced.
 pub(super) fn check_publication(
-    previous: Option<&(ObjectRecord, String)>,
+    previous: Option<&StoredObject>,
     conditions: ObjectConditions,
     delete_permission: DeletePermission,
     now: std::time::SystemTime,
 ) -> Result<(), ObjectError> {
     check_conditions(
-        previous.map(|(record, _)| record),
+        previous.map(|stored| &stored.record),
         conditions,
         RequestKind::Write,
     )?;
@@ -2246,15 +2259,15 @@ pub(super) fn check_publication(
         return Err(ObjectError::OverwriteForbidden);
     }
     // Object retention depends on versioning; publish_in_transaction checks it.
-    if let Some((record, _)) = previous {
-        record.check_policy_and_holds(now)?;
+    if let Some(stored) = previous {
+        stored.record.check_policy_and_holds(now)?;
     }
     Ok(())
 }
 
 pub(super) fn skip_same(
     mode: super::admin::PublishMode,
-    previous: Option<&(ObjectRecord, String)>,
+    previous: Option<&StoredObject>,
     size: u64,
     md5: [u8; 16],
     crc32c: u32,
@@ -2263,21 +2276,23 @@ pub(super) fn skip_same(
         mode,
         super::admin::PublishMode::SkipIfSameHash
             | super::admin::PublishMode::InheritAndSkipIfSameHash
-    ) && previous.is_some_and(|(record, _)| {
+    ) && previous.is_some_and(|StoredObject { record, .. }| {
         record.size == size && record.md5 == md5 && record.crc32c == crc32c
     })
 }
 
 pub(super) fn inherit_metadata(
     mode: super::admin::PublishMode,
-    previous: Option<&(ObjectRecord, String)>,
+    previous: Option<&StoredObject>,
     record: &mut ObjectRecord,
 ) {
     if matches!(
         mode,
         super::admin::PublishMode::InheritFromReplaced
             | super::admin::PublishMode::InheritAndSkipIfSameHash
-    ) && let Some((previous, _)) = previous
+    ) && let Some(StoredObject {
+        record: previous, ..
+    }) = previous
     {
         record.content_type.clone_from(&previous.content_type);
         record
@@ -2333,7 +2348,7 @@ pub(super) enum GenerationAssignment {
 /// The caller owns protocol-specific completion and commits before reclaiming retired bytes.
 pub(super) fn publish_in_transaction<T>(
     transaction: &Transaction<'_>,
-    previous: Option<&(ObjectRecord, String)>,
+    previous: Option<&StoredObject>,
     versioning: Versioning,
     version: NewVersion<'_>,
     prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
@@ -2367,7 +2382,9 @@ pub(super) fn publish_in_transaction<T>(
     let now = system_time_micros(micros)?;
     // A retained live version may become noncurrent, but it cannot be replaced outright.
     if versioning == Versioning::Disabled
-        && let Some((previous, _)) = previous
+        && let Some(StoredObject {
+            record: previous, ..
+        }) = previous
     {
         previous.check_object_retention(now)?;
     }
@@ -2584,14 +2601,14 @@ impl Catalog {
 
 pub(super) fn retire_previous(
     connection: &Connection,
-    previous: Option<&(ObjectRecord, String)>,
+    previous: Option<&StoredObject>,
     retirement: Retirement,
     micros: i64,
     origin: super::admin::Origin,
     replacement: Option<i64>,
     notification_mode: NotificationMode,
 ) -> Result<Option<String>, ObjectError> {
-    let Some((record, id)) = previous else {
+    let Some(StoredObject { record, blob: id }) = previous else {
         return Ok(None);
     };
     if origin != super::admin::Origin::Import && notification_mode == NotificationMode::Emit {
@@ -2674,13 +2691,13 @@ pub(super) fn check_conditions(
     Ok(())
 }
 
-pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
+pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<StoredObject> {
     let md5: Vec<u8> = row.get(6)?;
     let md5 = md5
         .try_into()
         .map_err(|_| sql::conversion_error(6, Type::Blob, "invalid MD5 length"))?;
-    Ok((
-        ObjectRecord {
+    Ok(StoredObject {
+        record: ObjectRecord {
             bucket: row.get(0)?,
             name: row.get(1)?,
             generation: row.get(2)?,
@@ -2723,8 +2740,8 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, Stri
             retention: retention::read(row, 25, 30)?,
             customer_key_sha256: super::customer_keys::decode(row.get(27)?)?,
         },
-        row.get(11)?,
-    ))
+        blob: row.get(11)?,
+    })
 }
 
 #[cfg(test)]

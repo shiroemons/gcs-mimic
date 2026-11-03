@@ -45,7 +45,7 @@ fn selected(
     name: &str,
     generation: i64,
     now: i64,
-) -> Result<(ObjectRecord, String), ObjectError> {
+) -> Result<objects::StoredObject, ObjectError> {
     sql::row(
         connection,
         SELECT_SOFT_DELETED_GENERATION,
@@ -72,7 +72,7 @@ impl Catalog {
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
-            let (record, _) = selected(
+            let objects::StoredObject { record, .. } = selected(
                 &transaction,
                 &bucket,
                 &name,
@@ -142,26 +142,28 @@ impl Catalog {
                     authorized_bucket(&transaction, &bucket, &restore_access)?;
                     let (_, delete_permission) =
                         authorized_bucket(&transaction, &bucket, &create_access)?;
-                    let (mut record, original) =
-                        match selected(&transaction, &bucket, &name, generation, micros) {
-                            Err(ObjectError::ObjectNotFound) => {
-                                return Err(
-                                    match objects::selected(
-                                        &transaction,
-                                        &bucket,
-                                        &name,
-                                        Some(generation),
-                                        Default::default(),
-                                        super::objects::RequestKind::Write,
-                                        &restore_access,
-                                    ) {
-                                        Ok(_) => ObjectError::ObjectNotSoftDeleted,
-                                        Err(error) => error,
-                                    },
-                                );
-                            }
-                            result => result?,
-                        };
+                    let objects::StoredObject {
+                        mut record,
+                        blob: original,
+                    } = match selected(&transaction, &bucket, &name, generation, micros) {
+                        Err(ObjectError::ObjectNotFound) => {
+                            return Err(
+                                match objects::selected(
+                                    &transaction,
+                                    &bucket,
+                                    &name,
+                                    Some(generation),
+                                    Default::default(),
+                                    super::objects::RequestKind::Write,
+                                    &restore_access,
+                                ) {
+                                    Ok(_) => ObjectError::ObjectNotSoftDeleted,
+                                    Err(error) => error,
+                                },
+                            );
+                        }
+                        result => result?,
+                    };
                     record.check_retention(now)?;
                     let previous = objects::lookup(&transaction, &bucket, &name)?;
                     objects::check_publication(

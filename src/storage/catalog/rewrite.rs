@@ -348,7 +348,7 @@ fn check_source(
             &session.binding.source_bucket,
             &session.binding.source_object,
         )?
-        .is_none_or(|(live, _)| live.generation != session.binding.source_generation);
+        .is_none_or(|stored| stored.record.generation != session.binding.source_generation);
     if live_changed
         || source.generation != session.binding.source_generation
         || source.metageneration != session.source_metageneration

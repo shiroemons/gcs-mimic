@@ -398,7 +398,7 @@ fn commit(
         let previous = objects::lookup(&transaction, entry.bucket.as_str(), entry.name.as_str())?;
         if previous
             .as_ref()
-            .is_some_and(|(live, _)| matches_seed(live, entry))
+            .is_some_and(|stored| matches_seed(&stored.record, entry))
         {
             counts.unchanged += 1;
             continue;

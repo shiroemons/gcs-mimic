@@ -130,7 +130,7 @@ fn name_component(
             match objects::lookup(connection, &source.target.bucket, &source.target.name) {
                 Ok(Some(live)) => ComponentFailureKind::GenerationMismatch {
                     required,
-                    actual: live.0.generation,
+                    actual: live.record.generation,
                 },
                 _ => return error,
             }
@@ -379,7 +379,7 @@ impl Catalog {
             super::objects::RequestKind::Write,
             access,
         )
-        .map(|value| value.0)
+        .map(|stored| stored.record)
     }
 
     /// Hard deletion is intentionally separate from versioning retirement. Any later callback
@@ -393,7 +393,10 @@ impl Catalog {
         access: &BucketAccess,
         now: std::time::SystemTime,
     ) -> Result<(), ObjectError> {
-        let (object, id) = objects::selected(
+        let objects::StoredObject {
+            record: object,
+            blob: id,
+        } = objects::selected(
             connection,
             bucket,
             name,
@@ -496,7 +499,10 @@ impl Catalog {
             sources
                 .into_iter()
                 .map(|source| {
-                    let (object, original) = objects::selected(
+                    let objects::StoredObject {
+                        record: object,
+                        blob: original,
+                    } = objects::selected(
                         &transaction,
                         &source.target.bucket,
                         &source.target.name,
@@ -2152,7 +2158,11 @@ mod tests {
         let original = put(&catalog, "source", b"bytes").await;
         let id = catalog
             .run(|connection| {
-                Ok::<_, ObjectError>(objects::lookup(connection, "bucket", "source")?.unwrap().1)
+                Ok::<_, ObjectError>(
+                    objects::lookup(connection, "bucket", "source")?
+                        .unwrap()
+                        .blob,
+                )
             })
             .await
             .unwrap();

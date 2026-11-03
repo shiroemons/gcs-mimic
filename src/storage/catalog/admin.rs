@@ -813,7 +813,7 @@ impl Admin {
                     super::objects::RequestKind::Read,
                     &access,
                 )
-                .map(|(record, _)| record)
+                .map(|stored| stored.record)
                 .map_err(AdminError::from)
             })
             .await

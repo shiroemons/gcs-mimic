@@ -132,10 +132,21 @@ mod tests {
         ] {
             assert_eq!(BlobId::parse(invalid), None);
             assert_eq!(invalid.parse::<BlobId>(), Err(InvalidBlobId));
+            let error = connection
+                .query_row("SELECT ?1", [invalid], |row| row.get::<_, BlobId>(0))
+                .unwrap_err();
             assert!(matches!(
-                connection.query_row("SELECT ?1", [invalid], |row| row.get::<_, BlobId>(0)),
-                Err(rusqlite::Error::FromSqlConversionFailure(0, _, _))
+                error,
+                rusqlite::Error::FromSqlConversionFailure(0, _, _)
+            ));
+            assert!(matches!(
+                crate::storage::failure::unavailable(error),
+                crate::bucket::CatalogError::Corrupt(_)
             ));
         }
+        assert!(matches!(
+            connection.query_row("SELECT 1", [], |row| row.get::<_, BlobId>(0)),
+            Err(rusqlite::Error::InvalidColumnType(0, _, _))
+        ));
     }
 }

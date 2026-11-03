@@ -880,7 +880,7 @@ impl Catalog {
             }
             let current = match current {
                 Some(record) => Some(record),
-                None => lookup(&transaction, &bucket, &name)?.map(|(record, _)| record),
+                None => lookup(&transaction, &bucket, &name)?.map(|stored| stored.record),
             };
             check_conditions(current.as_ref(), options.conditions, super::objects::RequestKind::Write)?;
             if current.is_some() {
