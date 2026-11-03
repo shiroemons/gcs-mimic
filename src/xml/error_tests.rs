@@ -2,6 +2,26 @@ use super::*;
 use crate::{auth::AuthFailure, bucket::CatalogError, csek::CsekError, object::ObjectError};
 
 #[test]
+fn virtual_bucket_hosts_accept_one_trailing_dot_with_or_without_a_port() {
+    let domains = vec!["storage.localhost".to_owned()];
+    for host in [
+        "bucket.storage.localhost.",
+        "bucket.storage.localhost.:4443",
+        "BUCKET.STORAGE.LOCALHOST.",
+    ] {
+        assert_eq!(
+            bucket_for_authority(host, &domains).as_deref(),
+            Some("bucket")
+        );
+    }
+    assert_eq!(
+        bucket_for_authority("bucket.storage.localhost..", &domains),
+        None
+    );
+    assert_eq!(bucket_for_authority("storage.localhost.", &domains), None);
+}
+
+#[test]
 fn xml_codes_preserve_exceptional_statuses_and_spelling() {
     for (code, status, spelling) in [
         (
