@@ -759,7 +759,7 @@
       ],
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "The XML adapter selects only a valid raw bucket segment. Invalid or percent-encoded bucket segments retain the JSON-style 404 unknown-route response; valid bucket/object paths use XML errors. tests/it_xml_auth/auth_http/xml.rs asserts this boundary, including HEAD body suppression. The checked references do not establish this shared-listener error-format choice.",
+      "observed_evidence": "The XML adapter selects only a valid raw bucket segment. Invalid or percent-encoded bucket segments retain the JSON-style 404 unknown-route response; valid bucket/object paths use XML errors. tests/it_xml_auth/auth_http/xml.rs asserts this boundary, including HEAD body suppression. Unknown routes now use a complete error.code/message/errors JSON envelope (docs/en/slices/http-adapter-boundaries.md), while the protocol-family boundary remains unchanged. The checked references do not establish this shared-listener error-format choice.",
       "required_resolution": "Keep complete XML method parity PARTIAL. Obtain authoritative routing/error-format clarification or explicitly authorized differential observations for invalid and encoded bucket segments before claiming provider parity. Preserve the negative unknown-route tests. See SPEC-XML-PREFIX and docs/en/slices/public-object-reads.md."
     },
     {

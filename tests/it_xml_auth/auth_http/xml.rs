@@ -571,7 +571,10 @@ fn xml_invalid_bucket_paths_keep_json_unknown_route_errors() {
         let reply = server.get("", path);
         reply.expect_with(404, format_args!("{path}"));
         assert_eq!(reply.headers["content-type"], "application/json");
-        assert_eq!(reply.json(), json!({"error":"route not implemented"}));
+        assert_eq!(
+            reply.json(),
+            json!({"error":{"code":404,"message":"Route not found","errors":[{"message":"Route not found","domain":"global","reason":"notFound"}]}})
+        );
     }
 }
 
@@ -627,7 +630,10 @@ fn xml_bucket_paths_reserve_only_api_namespaces() {
         let reply = server.get(ADMIN, path);
         reply.expect_with(404, format_args!("{path}"));
         assert_eq!(reply.headers["content-type"], "application/json");
-        assert_eq!(reply.json(), json!({"error":"route not implemented"}));
+        assert_eq!(
+            reply.json(),
+            json!({"error":{"code":404,"message":"Route not found","errors":[{"message":"Route not found","domain":"global","reason":"notFound"}]}})
+        );
     }
 }
 
