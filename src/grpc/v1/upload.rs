@@ -23,26 +23,41 @@ fn checksums(value: Option<pb::ObjectChecksums>) -> Result<ExpectedHashes, Statu
                 "object_checksums.md5_hash must be 32 hexadecimal characters",
             ));
         }
-        let mut digest = [0; 16];
-        for (i, pair) in value
-            .md5_hash
-            .as_bytes()
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .enumerate()
-        {
-            let text = std::str::from_utf8(pair)
-                .map_err(|_| Status::invalid_argument("Invalid hexadecimal MD5"))?;
-            digest[i] = u8::from_str_radix(text, 16)
-                .map_err(|_| Status::invalid_argument("Invalid hexadecimal MD5"))?;
-        }
+        let digest = crate::hex::decode(&value.md5_hash)
+            .ok_or_else(|| Status::invalid_argument("Invalid hexadecimal MD5"))?;
         Some(digest)
     };
     Ok(ExpectedHashes {
         crc32c: value.crc32c,
         md5,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn md5_checksums_reject_signed_hex_pairs() {
+        let error = checksums(Some(pb::ObjectChecksums {
+            md5_hash: "+0".repeat(16),
+            ..Default::default()
+        }))
+        .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        assert_eq!(error.message(), "Invalid hexadecimal MD5");
+        assert_eq!(
+            checksums(Some(pb::ObjectChecksums {
+                md5_hash: "0aAf".repeat(8),
+                ..Default::default()
+            }))
+            .unwrap()
+            .md5,
+            Some([
+                10, 175, 10, 175, 10, 175, 10, 175, 10, 175, 10, 175, 10, 175, 10, 175
+            ])
+        );
+    }
 }
 
 impl Storage {
