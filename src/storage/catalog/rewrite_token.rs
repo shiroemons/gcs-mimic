@@ -34,6 +34,8 @@ pub(crate) struct RewriteNames {
 }
 
 impl RewriteNames {
+    /// Adds the source version a call reads. There is no reverse conversion, so a version
+    /// can never be passed in and then ignored.
     pub(crate) fn source_at(&self, generation: Option<i64>) -> ObjectTarget {
         ObjectTarget::new(&self.source.bucket, &self.source.name, generation)
     }
