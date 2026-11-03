@@ -8,6 +8,8 @@
 //! keep only what the write path synced, so they also fail when an fsync goes missing.
 
 use super::*;
+#[cfg(unix)]
+use crate::storage::catalog::fault::Crash;
 use crate::storage::catalog::fault::{Fault, Step};
 use crate::storage::test_fixtures::{PERMISSIVE, live, read_all as read_body};
 use std::{io::ErrorKind, path::Path};
@@ -410,7 +412,7 @@ async fn resumable_terminal_error_survives_crash_and_power_loss() {
     let crashes = TestDir::new();
     let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
     let chunk = vec![b'a'; 256 * 1024];
-    for power_loss in [false, true] {
+    for &crash in Crash::ALL {
         for (step, committed) in [
             (Step::SessionFailureCommit, false),
             (Step::SessionFailureCommitted, true),
@@ -418,20 +420,17 @@ async fn resumable_terminal_error_survives_crash_and_power_loss() {
             let path = resumable_prefix(&h, "poison", &chunk).await;
             let id = path.split("upload_id=").nth(1).unwrap();
             let blob = session_blob(&h, &path).await;
-            let snapshot = crashes.0.join(format!("{step:?}-{power_loss}"));
-            let fault = if power_loss {
-                Fault::PowerLoss(snapshot.clone())
-            } else {
-                Fault::Snapshot(snapshot.clone())
-            };
-            h.inject(step, 0, fault);
+            let case = format!("{step:?}-{crash:?}");
+            let snapshot = crashes.0.join(&case);
+            h.inject(step, 0, crash.fault(snapshot.clone()));
             assert_eq!(
                 h.request("PUT", &path, "Content-Range: invalid\r\n", b"")
                     .await
                     .status,
-                400
+                400,
+                "{case}"
             );
-            h.assert_fired("terminal snapshot");
+            h.assert_fired(&case);
             let recovered = Catalog::open_with_clock(&snapshot, h.clock.clone())
                 .await
                 .unwrap();
@@ -439,18 +438,20 @@ async fn resumable_terminal_error_survives_crash_and_power_loss() {
             if committed {
                 assert_eq!(
                     session.unwrap_err(),
-                    crate::storage::ResumableError::InvalidContentRange
+                    crate::storage::ResumableError::InvalidContentRange,
+                    "{case}"
                 );
-                assert!(!snapshot.join("staging").join(&blob).exists());
+                assert!(!snapshot.join("staging").join(&blob).exists(), "{case}");
                 assert_eq!(
                     count(&snapshot, "SELECT count(*) FROM pending_blob_deletions"),
-                    0
+                    0,
+                    "{case}"
                 );
             } else {
-                assert_eq!(session.unwrap().offset, chunk.len() as u64);
-                assert_resumable_prefix(&snapshot, &blob, &chunk, "terminal snapshot");
+                assert_eq!(session.unwrap().offset, chunk.len() as u64, "{case}");
+                assert_resumable_prefix(&snapshot, &blob, &chunk, &case);
             }
-            assert_eq!(read_all(&recovered, "poison").await, None);
+            assert_eq!(read_all(&recovered, "poison").await, None, "{case}");
             recovered.close().await.unwrap();
         }
     }
