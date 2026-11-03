@@ -21,6 +21,34 @@ use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock, Semaphore};
 type Activity = OwnedRwLockReadGuard<()>;
 
 #[cfg(test)]
+pub(in crate::storage) fn guidance_source_failures() -> Vec<(crate::object::ObjectError, usize)> {
+    use crate::{object::ObjectError, storage::failure::object_unavailable};
+    vec![
+        (
+            ObjectError::from(unavailable(executor::ExecutorError::Closed)),
+            0,
+        ),
+        (
+            ObjectError::from(unavailable(ConnectionUnavailable::Closed)),
+            0,
+        ),
+        (object_unavailable(executor::ExecutorError::Closed), 0),
+        (object_unavailable(ConnectionUnavailable::Closed), 0),
+        (
+            ObjectError::from(CatalogError::Unavailable("catalog is closed".into())),
+            0,
+        ),
+        (
+            ObjectError::from(CatalogError::Unavailable(
+                "catalog operation limit reached".into(),
+            )),
+            1,
+        ),
+        (ObjectError::from(notification_outbox::full_test_cause()), 4),
+    ]
+}
+
+#[cfg(test)]
 mod memory_tests;
 #[cfg(test)]
 mod timestamp_tests;

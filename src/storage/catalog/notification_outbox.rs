@@ -116,6 +116,11 @@ pub(super) fn published(
 #[derive(Debug)]
 struct OutboxFull;
 
+#[cfg(test)]
+pub(super) fn full_test_cause() -> CatalogError {
+    unavailable(OutboxFull)
+}
+
 impl std::fmt::Display for OutboxFull {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("notification outbox limit reached")

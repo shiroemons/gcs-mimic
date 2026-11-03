@@ -1,7 +1,7 @@
 use super::*;
 
 fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
-    [
+    let mut failures: Vec<_> = [
         ("catalog is closed", "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying"),
         ("catalog operation limit reached", "Object storage is unavailable: catalog operation limit reached; retry with fewer concurrent requests (for example, 16)"),
         ("upload catalog wait timed out", "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit"),
@@ -13,7 +13,11 @@ fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
         ("copy checkpoint observer dropped", "Object storage is unavailable: internal storage failure (private backend details withheld)"),
         ("copy checkpoint abandoned", "Object storage is unavailable: internal storage failure (private backend details withheld)"),
         ("Completed upload session has no stored response", "Object storage is unavailable: internal storage failure (private backend details withheld)"),
-    ].into_iter().map(|(cause, message)| (ObjectError::Unavailable(cause.into()), message)).collect()
+    ].into_iter().map(|(cause, message)| (ObjectError::Unavailable(cause.into()), message)).collect();
+    for (failure, guidance) in crate::storage::catalog::guidance_source_failures() {
+        failures.push((failure, failures[guidance].1));
+    }
+    failures
 }
 
 #[tokio::test]
