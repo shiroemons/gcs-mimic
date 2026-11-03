@@ -1627,7 +1627,7 @@ mod tests {
                 .starts_with("Object storage is unavailable")
         );
         let read_code = read_error.code();
-        let (code, _): (_, Vec<pb::BidiReadObjectResponse>) = fixtures::rpc(
+        let (status, _): (_, Vec<pb::BidiReadObjectResponse>) = fixtures::rpc_status(
             "/google.storage.v2.Storage/BidiReadObject",
             None,
             &[pb::BidiReadObjectRequest {
@@ -1636,10 +1636,13 @@ mod tests {
                     object: "short-blob".into(),
                     ..Default::default()
                 }),
-                read_ranges: vec![pb::ReadRange {
-                    read_id: 7,
-                    ..Default::default()
-                }],
+                read_ranges: [7, 8, 9]
+                    .into_iter()
+                    .map(|read_id| pb::ReadRange {
+                        read_id,
+                        ..Default::default()
+                    })
+                    .collect(),
             }],
             async |request| {
                 super::super::dispatch(super::super::service(storage.state.clone(), 1024), request)
@@ -1648,7 +1651,23 @@ mod tests {
             },
         )
         .await;
-        assert_eq!([read_code, code], [tonic::Code::Unavailable; 2]);
+        assert_eq!([read_code, status.code()], [tonic::Code::Unavailable; 2]);
+        let rpc = crate::grpc::generated::google::rpc::Status::decode(status.details()).unwrap();
+        let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
+        let states = detail
+            .read_range_errors
+            .into_iter()
+            .map(|range| (range.read_id, range.status.unwrap().code))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            states,
+            [
+                (7, tonic::Code::Unavailable as i32),
+                (8, tonic::Code::Aborted as i32),
+                (9, tonic::Code::Aborted as i32)
+            ]
+            .into()
+        );
         storage.state.catalog.close().await.unwrap();
     }
 

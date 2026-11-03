@@ -24,7 +24,9 @@ versioningで残る世代は読め、進行中のストリームは上書き後�
 appendableのhandleは、追記や確定後も発行時のサイズまでしか読めない。有効期限と削除後のstatusはGoogleで未確認のローカルな規則。
 strict では所有プロジェクトも固定し、別プロジェクトで同名バケットを作り直した場合の再接続を拒否する。
 handle と前提条件の併用、暗号化、ルーティングトークン、既定以外の read mask は UNIMPLEMENTED。
-範囲エラーの詳細は不正な範囲の read_id を含むが、ほかの未完了範囲をすべて列挙する処理は未対応。
+エラー詳細には、受理した未完了範囲のread_idをすべて含める。失敗した範囲は固有のstatusを保ち、ほかの範囲は再試行を促すABORTEDにする。
+通常のバッチ内で一部の範囲が不正な場合も、バッチの全read_idを報告する。100件を超えるバッチは受理しない。
+ABORTEDの選択はGoogleで未観測のため、SPEC-GRPC-PENDING-RANGESに記録している。
 新しい設定・依存・カタログ変更・ポーリングは加えていない。
 エラーは共有の`status::from_json`を使い、JSONの503はUNAVAILABLE、
 未対応の501はErrorInfo付きUNIMPLEMENTEDへ変換する。

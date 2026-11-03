@@ -19,6 +19,7 @@ use tonic::{Request, Response, Status, Streaming};
 const MAX_RANGES: usize = 100;
 const MAX_HANDLES: usize = 1024;
 const HANDLE_TTL: Duration = Duration::from_secs(600);
+const READ_ERROR_TYPE: &str = "type.googleapis.com/google.storage.v2.BidiReadObjectError";
 
 struct Selected {
     record: ObjectRecord,
@@ -273,7 +274,10 @@ impl Storage {
                 tx.send(Ok(initial))
                     .await
                     .map_err(|_| Status::cancelled("Read stream closed"))?;
-                serve(&mut input, &mut selected, &mut ranges, &tx).await
+                let result = serve(&mut input, &mut selected, &mut ranges, &tx).await;
+                result.map_err(|(error, failed)| {
+                    stream_error(error, failed, ranges.iter().map(|range| range.read_id))
+                })
             };
             tokio::select! {
                 _ = tx.closed() => {},
@@ -292,21 +296,41 @@ fn add_ranges(
     size: u64,
 ) -> Result<(), Status> {
     if ranges.len() > MAX_RANGES {
-        return Err(Status::invalid_argument(
-            "At most 100 ranges are allowed per message; split read_ranges across multiple messages",
+        return Err(stream_error(
+            Status::invalid_argument(
+                "At most 100 ranges are allowed per message; split read_ranges across multiple messages",
+            ),
+            None,
+            queue.iter().map(|range| range.read_id),
         ));
     }
+    let pending = queue
+        .iter()
+        .chain(&ranges)
+        .map(|range| range.read_id)
+        .collect::<Vec<_>>();
     for mut range in ranges {
         if queue.iter().any(|pending| pending.read_id == range.read_id) {
-            return Err(Status::invalid_argument(
-                "Duplicate outstanding read_id; assign a different read_id to each range",
+            return Err(stream_error(
+                Status::invalid_argument(
+                    "Duplicate outstanding read_id; assign a different read_id to each range",
+                ),
+                Some(range.read_id),
+                pending.iter().copied(),
             ));
         }
+        let invalid = || {
+            stream_error(
+                range_error(range.read_id),
+                Some(range.read_id),
+                pending.iter().copied(),
+            )
+        };
         let (offset, length) =
             crate::grpc::validate::resolve_range(size, range.read_offset, range.read_length)
-                .ok_or_else(|| range_error(range.read_id))?;
-        range.read_offset = i64::try_from(offset).map_err(|_| range_error(range.read_id))?;
-        range.read_length = i64::try_from(length).map_err(|_| range_error(range.read_id))?;
+                .ok_or_else(invalid)?;
+        range.read_offset = i64::try_from(offset).map_err(|_| invalid())?;
+        range.read_length = i64::try_from(length).map_err(|_| invalid())?;
         queue.push_back(range);
     }
     Ok(())
@@ -328,8 +352,72 @@ fn range_error(read_id: i64) -> Status {
     super::status::with_detail(
         tonic::Code::OutOfRange,
         message.into(),
-        "type.googleapis.com/google.storage.v2.BidiReadObjectError",
+        READ_ERROR_TYPE,
         details.encode_to_vec(),
+    )
+}
+
+fn stream_error(error: Status, failed: Option<i64>, pending: impl Iterator<Item = i64>) -> Status {
+    use crate::grpc::generated::google::rpc::Status as RpcStatus;
+    let mut rpc = RpcStatus::decode(error.details()).unwrap_or_else(|_| RpcStatus {
+        code: error.code() as i32,
+        message: error.message().into(),
+        details: vec![],
+    });
+    let index = rpc
+        .details
+        .iter()
+        .position(|detail| detail.type_url == READ_ERROR_TYPE);
+    let mut detail = index
+        .and_then(|index| pb::BidiReadObjectError::decode(rpc.details[index].value.as_slice()).ok())
+        .unwrap_or_default();
+    let mut ids = detail
+        .read_range_errors
+        .iter()
+        .map(|range| range.read_id)
+        .collect::<std::collections::BTreeSet<_>>();
+    if let Some(read_id) = failed
+        && ids.insert(read_id)
+    {
+        detail.read_range_errors.push(pb::ReadRangeError {
+            read_id,
+            status: Some(RpcStatus {
+                code: error.code() as i32,
+                message: error.message().into(),
+                details: vec![],
+            }),
+        });
+    }
+    for read_id in pending {
+        if ids.insert(read_id) {
+            detail.read_range_errors.push(pb::ReadRangeError {
+                read_id,
+                status: Some(RpcStatus {
+                    code: tonic::Code::Aborted as i32,
+                    message: "Read stream failed before this range completed; retry the range"
+                        .into(),
+                    details: vec![],
+                }),
+            });
+        }
+    }
+    if detail.read_range_errors.is_empty() {
+        return error;
+    }
+    let detail = prost_types::Any {
+        type_url: READ_ERROR_TYPE.into(),
+        value: detail.encode_to_vec(),
+    };
+    if let Some(index) = index {
+        rpc.details[index] = detail;
+    } else {
+        rpc.details.push(detail);
+    }
+    Status::with_details_and_metadata(
+        error.code(),
+        error.message(),
+        rpc.encode_to_vec().into(),
+        error.metadata().clone(),
     )
 }
 
@@ -338,7 +426,7 @@ async fn serve(
     selected: &mut Selected,
     ranges: &mut VecDeque<pb::ReadRange>,
     tx: &mpsc::Sender<Result<pb::BidiReadObjectResponse, Status>>,
-) -> Result<(), Status> {
+) -> Result<(), (Status, Option<i64>)> {
     let mut eof = false;
     loop {
         if eof && ranges.is_empty() {
@@ -346,11 +434,11 @@ async fn serve(
         }
         tokio::select! {
             message = input.message(), if !eof && ranges.len() < MAX_RANGES => {
-                if let Some(message) = message? {
+                if let Some(message) = message.map_err(|error| (error, None))? {
                     if message.read_object_spec.is_some() {
-                        return Err(Status::invalid_argument("read_object_spec is only allowed in the first message; send only read_ranges afterward"));
+                        return Err((Status::invalid_argument("read_object_spec is only allowed in the first message; send only read_ranges afterward"), None));
                     }
-                    add_ranges(ranges, message.read_ranges, selected.size)?;
+                    add_ranges(ranges, message.read_ranges, selected.size).map_err(|error| (error, None))?;
                 } else { eof = true; }
             }
             _ = std::future::ready(()), if !ranges.is_empty() => {
@@ -359,8 +447,8 @@ async fn serve(
                 let data = {
                     let reader = &mut selected.reader;
                     reader.set_range(offset.cast_unsigned(), range.read_length.cast_unsigned()).await
-                        .map_err(super::status::read_failure)?;
-                    reader.next_chunk().await.map_err(super::status::read_failure)?
+                        .map_err(|error| (super::status::read_failure(error), Some(range.read_id)))?;
+                    reader.next_chunk().await.map_err(|error| (super::status::read_failure(error), Some(range.read_id)))?
                         .unwrap_or_default()
                 };
                 // Readers cap chunks at 64 KiB; widening the signed pointer-sized length cannot fail.
@@ -781,6 +869,48 @@ mod tests {
         );
         assert!(check_handle_project(Some("new-project"), &access).is_ok());
         assert!(check_handle_project(None, PERMISSIVE).is_ok());
+    }
+
+    #[test]
+    fn bidi_range_errors_report_every_submitted_read_id() {
+        let error = add_ranges(
+            &mut VecDeque::new(),
+            vec![
+                pb::ReadRange {
+                    read_id: 1,
+                    read_length: 1,
+                    ..Default::default()
+                },
+                pb::ReadRange {
+                    read_id: 2,
+                    read_offset: 20,
+                    ..Default::default()
+                },
+                pb::ReadRange {
+                    read_id: 3,
+                    read_length: 1,
+                    ..Default::default()
+                },
+            ],
+            10,
+        )
+        .unwrap_err();
+        let rpc = crate::grpc::generated::google::rpc::Status::decode(error.details()).unwrap();
+        let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
+        let states = detail
+            .read_range_errors
+            .into_iter()
+            .map(|range| (range.read_id, range.status.unwrap().code))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            states,
+            [
+                (1, tonic::Code::Aborted as i32),
+                (2, tonic::Code::OutOfRange as i32),
+                (3, tonic::Code::Aborted as i32)
+            ]
+            .into()
+        );
     }
 
     #[test]

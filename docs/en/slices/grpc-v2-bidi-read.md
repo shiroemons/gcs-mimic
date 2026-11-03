@@ -28,9 +28,15 @@ Each message accepts up to 100 ranges; larger messages return non-retryable INVA
 
 [Go Storage v1.70.0's multi-range reader](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/grpc_reader_multi_range.go) defaults to 500 pending ranges and its handleReconnectStreamCmd sends all remaining ranges together as rangesToResend. An interrupted SDK stream with more than 100 pending ranges can therefore violate the proto's per-message limit on retry; this is rejected with INVALID_ARGUMENT, which storage.ShouldRetry does not retry. No provider-contract exception is added for that invalid batch. Resume recovery with more than 100 pending ranges remains a client-side limitation; ordinary uninterrupted Add/Wait is covered with 600 ranges and no tuning options.
 
-Partial scope: redirects/routing tokens, encryption, nondefault read masks and combining handle reconnects with preconditions remain UNIMPLEMENTED. Apply preconditions on an initial read without a handle. Handle survival across restarts and provider-exact error parity are not claimed. Range errors carry BidiReadObjectError for the invalid range; enumerating all other outstanding ranges in error details remains pending.
+Partial scope: redirects/routing tokens, encryption, nondefault read masks and combining handle reconnects with preconditions remain UNIMPLEMENTED. Apply preconditions on an initial read without a handle. Handle survival across restarts and provider-exact error parity are not claimed. Stream errors carry BidiReadObjectError for every admitted unfinished read_id. The failing range keeps its specific status; other unfinished ranges receive ABORTED with retry guidance. A failed range within an otherwise admissible batch also reports the other submitted IDs. Oversized batches are not admitted. ABORTED is a local choice pending provider evidence in SPEC-GRPC-PENDING-RANGES.
 
 ## Verification
+
+On 2026-11-04, the eleven BidiRead library tests and the wire storage-read-failure
+test passed. The new three-range regression failed before the change with only
+the invalid ID reported, then passed with OUT_OF_RANGE for that ID and ABORTED
+for both other IDs. Truncating a stored blob verifies UNAVAILABLE for the failed
+read_id and ABORTED for both queued IDs over the wire.
 
 On 2026-11-04, `cargo test --lib grpc::v2::bidi_read -- --test-threads=4`
 passed ten tests, including deletion/invalidation, versioned and nonversioned

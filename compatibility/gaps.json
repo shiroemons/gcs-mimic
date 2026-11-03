@@ -1469,6 +1469,17 @@
       "required_resolution": "Observe an empty iam_config parent update on an authorized provider fixture and match its metageneration behavior before claiming exact parity."
     },
     {
+      "id": "SPEC-GRPC-PENDING-RANGES",
+      "title": "Status for other pending BidiRead ranges needs provider evidence",
+      "status": "OPEN",
+      "affected_features": ["RPC-STORAGE-016", "BEHAVIOR-RPC-004"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-04",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The proto requires BidiReadObjectError to report each pending read_id when a stream fails. The local adapter preserves the failed range's status and gives every other unfinished admitted range ABORTED with retry guidance, including the remaining IDs in an otherwise admissible batch with an invalid range. Oversized batches are not admitted. Provider status values and ordering for the other pending ranges have not been observed.",
+      "required_resolution": "Observe multiple pending ranges when a provider stream fails, then align their status values and ordering before claiming exact error-detail parity."
+    },
+    {
       "id": "LOCAL-RETENTION-WINDOWS-TICK",
       "title": "Object retention times keep only whole 100 ns ticks on Windows",
       "status": "OPEN",
