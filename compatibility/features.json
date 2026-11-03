@@ -20919,7 +20919,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_update_copy_contract",
-          "description": "UpdateBucket constructs typed shared updates directly from proto fields, with shared validation, atomic preconditions and whole-label-map replacement without implicit conditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract. An empty iam_config parent mask advances metageneration locally; provider evidence is pending in SPEC-GRPC-EMPTY-IAM-UPDATE.",
+          "description": "UpdateBucket constructs typed shared updates directly from proto fields, with shared validation, atomic preconditions and whole-label-map replacement without implicit conditions, supported field masks, strict authorization and default Go high-level calls. Input validation and catalog mutation errors name protobuf fields, including Autoclass/lifecycle/retention guidance; JSON messages are unchanged. An empty iam_config parent mask advances metageneration locally; provider evidence is pending in SPEC-GRPC-EMPTY-IAM-UPDATE.",
           "result": "PASS",
           "test_ids": [
             "grpc_masks_reject_unsupported_and_accept_defaults",

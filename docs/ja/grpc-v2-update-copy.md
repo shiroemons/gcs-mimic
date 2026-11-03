@@ -21,6 +21,9 @@ SetIamPolicyは共有の型付きポリシーを直接作ります。TestIamPerm
 空の`iam_config`親maskも更新としてmetagenerationを進めますが、設定自体は保持します。
 この空更新の扱いはGoogleで未観測のため、SPEC-GRPC-EMPTY-IAM-UPDATEに記録しています。
 
+バケットの共有検証で返るAutoclass・lifecycle・保持エラーも、gRPCではprotoのフィールド名で案内します。
+更新トランザクション内で検出するエラーも対象です。JSONの文言は維持し、gRPCの保持期間の案内にはJSON本文の例を入れません。
+
 rewriteは共有の継続セッションを使い、token単独での継続と直前tokenの再送に対応します。tokenはgRPC内で使い続けてください。JSONとのtoken共用は対象外です。composeは1〜32個で世代・前提条件を検査します。暗号化・派生オブジェクトのACL・条件付きIAM・明示チェックサム検証・派生オブジェクトのcustom time/temporary holdなどは未対応です。lifecycleは検証・保存の範囲であり、実行処理は追加しません。
 
 同じ種類の世代にmatchとnot-matchを同時に指定するとINVALID_ARGUMENTです。JSONの複合条件の優先順位までは、この範囲では再現しません。

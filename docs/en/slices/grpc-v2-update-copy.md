@@ -32,6 +32,11 @@ Every accepted nonempty bucket mask counts as a metadata update, including an em
 `iam_config` parent mask. The latter preserves both settings but advances the
 metageneration; this local choice remains unobserved in SPEC-GRPC-EMPTY-IAM-UPDATE.
 
+Shared bucket validation errors name protobuf fields in gRPC responses, including
+Autoclass, lifecycle and retention failures raised by the mutation transaction.
+JSON responses retain their existing vocabulary and messages. Locked-retention
+guidance uses retention_policy.retention_duration without a JSON body example.
+
 Object masks: `metadata`, `metadata.KEY`, the five fixed serving metadata strings, `custom_time`, `temporary_hold` and `event_based_hold`. `create_time` is ignored as an output-only path because the pinned Go SDK sends it for ordinary empty updates. `acl` replaces the object ACL and `retention` sets or removes object retention ([SDK parity](grpc-v2-sdk-parity.md)). `*`, contexts and other masks return UNIMPLEMENTED. Whole metadata and label maps are replaced in the shared mutation transaction without adding preconditions; explicit client preconditions remain enforced. Key-level mutations merge individual entries in that transaction.
 
 UpdateObject constructs `ObjectMetadataUpdate` directly, including typed ACL and
@@ -55,6 +60,13 @@ Storage errors use the common `status::from_json` mapping, including expired-ses
 UpdateBucket, UpdateObject and TestIamPermissions retain LOCAL_SIMULATION achieved fidelity, matching their shared JSON operations; the remaining delivered scopes have EXACT achieved fidelity with explicit pending cases. This does not turn local principals, policy propagation or lifecycle metadata into Google infrastructure.
 
 ## Verification
+
+All 92 Storage v2 library tests passed on 2026-11-04 after adapting bucket errors
+to protobuf field names. The new unsupported-class assertion failed with
+storageClass on the old response. Lifecycle negative cases and the full
+class/precondition precedence snapshot retain exact checks with the protobuf
+names; a disabled Autoclass terminal-class mutation exercises transaction errors.
+Workspace checking, production lint, formatting and compatibility rendering passed.
 
 Write results share one permission-aware owner/ACL view, including ComposeObject,
 RewriteObject, MoveObject and RestoreObject. Callers without ACL read permission

@@ -35,7 +35,7 @@ pub(super) fn lifecycle_rules(
         .flat_map(|value| &value.rule)
         .map(LifecycleRule::from)
         .collect::<Vec<_>>();
-    LifecycleRule::to_stored(&rules).map_err(Into::into)
+    LifecycleRule::to_stored(&rules).map_err(super::bucket_update::input_error)
 }
 
 impl From<&crate::grpc::generated::google::r#type::Date> for LifecycleDate {
@@ -430,14 +430,14 @@ mod tests {
         let typed = LifecycleRule::from_stored(&stored).unwrap();
         assert_eq!(pb::bucket::lifecycle::Rule::from(&typed[0]), proto.rule[0]);
         for (mut rule, field) in [
-            (proto.rule[0].clone(), "age"),
-            (proto.rule[0].clone(), "createdBefore"),
+            (proto.rule[0].clone(), "age_days"),
+            (proto.rule[0].clone(), "created_before"),
             (proto.rule[0].clone(), "action.type"),
-            (proto.rule[0].clone(), "action.storageClass"),
+            (proto.rule[0].clone(), "action.storage_class"),
         ] {
             match field {
-                "age" => rule.condition.as_mut().unwrap().age_days = Some(-1),
-                "createdBefore" => {
+                "age_days" => rule.condition.as_mut().unwrap().age_days = Some(-1),
+                "created_before" => {
                     rule.condition.as_mut().unwrap().created_before =
                         Some(crate::grpc::generated::google::r#type::Date {
                             year: 2025,

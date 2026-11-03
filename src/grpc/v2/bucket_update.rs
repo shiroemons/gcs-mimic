@@ -1,7 +1,7 @@
 use super::{convert, pb, status::unsupported};
 use crate::{
     acl::{AclEntry, AclEntryInput, AclKind},
-    bucket::{self, BucketMetadataUpdate, CorsRule, autoclass::AutoclassUpdate},
+    bucket::{self, BucketMetadataUpdate, CatalogError, CorsRule, autoclass::AutoclassUpdate},
     json::JsonError,
     object::MapMode,
 };
@@ -20,6 +20,60 @@ pub(super) fn from_proto(
         apply_path(&mut update, bucket, path)?;
     }
     Ok(update)
+}
+
+pub(super) fn input_error(mut error: CatalogError) -> Status {
+    match &mut error {
+        CatalogError::InvalidMetadata(message) | CatalogError::UnsupportedMetadata(message) => {
+            for (json, proto) in [
+                (
+                    "terminalStorageClassUpdateTime",
+                    "terminal_storage_class_update_time",
+                ),
+                ("terminalStorageClass", "terminal_storage_class"),
+                ("storageClass", "storage_class"),
+                ("retentionPolicy", "retention_policy"),
+                ("retentionPeriod", "retention_duration"),
+                ("softDeletePolicy", "soft_delete_policy"),
+                ("retentionDurationSeconds", "retention_duration"),
+                ("uniformBucketLevelAccess", "uniform_bucket_level_access"),
+                ("publicAccessPrevention", "public_access_prevention"),
+                ("iamConfiguration", "iam_config"),
+                ("defaultEventBasedHold", "default_event_based_hold"),
+                ("maxAgeSeconds", "max_age_seconds"),
+                ("responseHeader", "response_header"),
+                ("condition.age", "condition.age_days"),
+                ("lifecycle age;", "lifecycle age_days;"),
+                ("createdBefore", "created_before"),
+                ("customTimeBefore", "custom_time_before"),
+                ("daysSinceCustomTime", "days_since_custom_time"),
+                ("daysSinceNoncurrentTime", "days_since_noncurrent_time"),
+                ("isLive", "is_live"),
+                ("matchesPrefix", "matches_prefix"),
+                ("matchesStorageClass", "matches_storage_class"),
+                ("matchesSuffix", "matches_suffix"),
+                ("noncurrentTimeBefore", "noncurrent_time_before"),
+                ("numNewerVersions", "num_newer_versions"),
+            ] {
+                *message = message.replace(json, proto);
+            }
+        }
+        CatalogError::RetentionPolicyLocked(period) => {
+            let message = format!(
+                "Bucket retention policy is locked and cannot be removed or shortened; keep retention_policy.retention_duration at least {period} seconds or extend it"
+            );
+            let mut error = JsonError::from(error);
+            error.message = message;
+            return error.into();
+        }
+        CatalogError::RetentionPolicyNotSet => {
+            let mut error = JsonError::from(error);
+            error.message = "No retention policy to lock; set retention_policy.retention_duration first, for example 3600 seconds".into();
+            return error.into();
+        }
+        _ => {}
+    }
+    error.into()
 }
 
 fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> Result<(), Status> {
@@ -43,7 +97,8 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                 .insert(key.into(), b.labels.get(key).cloned());
         }
         "storage_class" => {
-            update.storage_class = Some(bucket::validate_update_storage_class(&b.storage_class)?)
+            update.storage_class =
+                Some(bucket::validate_update_storage_class(&b.storage_class).map_err(input_error)?)
         }
         "autoclass" | "autoclass.enabled" | "autoclass.terminal_storage_class" => {
             apply_autoclass(update, b.autoclass.as_ref(), path)?;
@@ -74,7 +129,7 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                 b.retention_policy
                     .as_ref()
                     .and_then(|policy| policy.retention_duration)
-                    .map(|duration| bucket::retention_period(duration.seconds))
+                    .map(|duration| bucket::retention_period(duration.seconds).map_err(input_error))
                     .transpose()?,
             );
         }
@@ -89,7 +144,8 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                     "fractional soft delete duration; use whole seconds",
                 ));
             }
-            update.soft_delete_retention = Some(bucket::soft_delete_retention(duration.seconds)?);
+            update.soft_delete_retention =
+                Some(bucket::soft_delete_retention(duration.seconds).map_err(input_error)?);
         }
         "iam_config"
         | "iam_config.uniform_bucket_level_access"
@@ -150,7 +206,7 @@ pub(super) fn cors_rules(cors: &[pb::bucket::Cors]) -> Result<Vec<CorsRule>, Sta
             max_age_seconds: Some(rule.max_age_seconds),
         })
         .collect::<Vec<_>>();
-    bucket::validate_cors(&rules)?;
+    bucket::validate_cors(&rules).map_err(input_error)?;
     Ok(rules)
 }
 
@@ -165,9 +221,10 @@ fn apply_iam(
                 update.uniform_bucket_level_access_enabled = Some(uniform.enabled);
             }
             if !config.public_access_prevention.is_empty() {
-                update.public_access_prevention_enforced = Some(bucket::public_access_prevention(
-                    &config.public_access_prevention,
-                )?);
+                update.public_access_prevention_enforced = Some(
+                    bucket::public_access_prevention(&config.public_access_prevention)
+                        .map_err(input_error)?,
+                );
             }
         }
     } else if path == "iam_config.public_access_prevention" {
@@ -175,7 +232,8 @@ fn apply_iam(
             .map(|config| config.public_access_prevention.as_str())
             .filter(|value| !value.is_empty())
             .unwrap_or("inherited");
-        update.public_access_prevention_enforced = Some(bucket::public_access_prevention(value)?);
+        update.public_access_prevention_enforced =
+            Some(bucket::public_access_prevention(value).map_err(input_error)?);
     } else {
         update.uniform_bucket_level_access_enabled = Some(
             config
@@ -205,6 +263,37 @@ pub(super) fn acl_entries<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bucket_update_errors_name_proto_fields() {
+        let bucket = pb::Bucket {
+            storage_class: "RAPID".into(),
+            ..Default::default()
+        };
+        let error = from_proto(&bucket, &["storage_class".into()]).unwrap_err();
+        assert_eq!(error.code(), tonic::Code::Unimplemented);
+        assert!(error.message().contains("storage_class"), "{error}");
+        assert!(!error.message().contains("storageClass"));
+        assert!(!error.details().is_empty());
+        for input in [
+            CatalogError::RetentionPolicyLocked(60),
+            CatalogError::RetentionPolicyNotSet,
+            CatalogError::InvalidMetadata(
+                "autoclass.terminalStorageClass requires autoclass.enabled=true".into(),
+            ),
+        ] {
+            let error = input_error(input);
+            assert_eq!(error.code(), tonic::Code::InvalidArgument);
+            assert!(!error.message().contains("retentionPolicy"));
+            assert!(!error.message().contains("retentionPeriod"));
+            assert!(!error.message().contains("terminalStorageClass"));
+            assert!(!error.message().contains('{'));
+        }
+        assert_eq!(
+            input_error(CatalogError::NotEmpty).code(),
+            tonic::Code::FailedPrecondition
+        );
+    }
 
     #[test]
     fn bucket_updates_validate_proto_fields_without_json_bodies() {

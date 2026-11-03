@@ -427,9 +427,10 @@ impl Storage {
             ));
         }
         let class = match resource.filter(|object| !object.storage_class.is_empty()) {
-            Some(object) => Some(crate::bucket::validate_storage_class(
-                &object.storage_class,
-            )?),
+            Some(object) => Some(
+                crate::bucket::validate_storage_class(&object.storage_class)
+                    .map_err(super::bucket_update::input_error)?,
+            ),
             None => metadata.storage_class.take(),
         };
         self.state.catalog.check_upload(db, dn, dc, create).await?;
@@ -525,7 +526,8 @@ impl Storage {
                 },
                 &access,
             )
-            .await?;
+            .await
+            .map_err(super::bucket_update::input_error)?;
         let mut result = convert::bucket(&record)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
@@ -674,7 +676,8 @@ impl Storage {
             .state
             .catalog
             .patch_bucket(bucket, update, conditions, &access)
-            .await?;
+            .await
+            .map_err(super::bucket_update::input_error)?;
         let mut result = convert::bucket(&record)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
@@ -1143,6 +1146,19 @@ mod tests {
         let config = disabled.autoclass.unwrap();
         assert!(!config.enabled);
         assert_eq!(config.terminal_storage_class, None);
+        let error = s
+            .update_bucket(
+                Request::new(update(
+                    autoclass(false, Some("ARCHIVE")),
+                    &["autoclass.terminal_storage_class"],
+                )),
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        assert!(error.message().contains("terminal_storage_class"));
+        assert!(!error.message().contains("terminalStorageClass"));
         s.state.catalog.close().await.unwrap();
     }
 
