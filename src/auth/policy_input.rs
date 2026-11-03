@@ -1,6 +1,6 @@
 use super::{
     Binding, Policy,
-    roles::{GrantLevel, PREDEFINED_ROLES},
+    roles::{self, GrantLevel},
 };
 use std::fmt;
 
@@ -62,12 +62,12 @@ pub(crate) fn validate_role(role: &str) -> Result<(), PolicyInputError> {
             "basic or custom role".into(),
         ));
     }
-    let Some((_, level, _)) = PREDEFINED_ROLES.iter().find(|(name, _, _)| *name == role) else {
+    let Some((level, _)) = roles::definition(role) else {
         return Err(PolicyInputError::InvalidInput(format!(
             "Role {role} is not supported for this resource."
         )));
     };
-    if *level == GrantLevel::Project {
+    if level == GrantLevel::Project {
         return Err(PolicyInputError::InvalidInput(
             "Role cannot be granted on a bucket".into(),
         ));
