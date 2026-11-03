@@ -113,6 +113,9 @@ pub(crate) enum Step {
     /// A removed entry must not reappear after its directory sync.
     #[cfg(unix)]
     SessionCleanupSynced,
+    /// Before syncing an admin cleanup's blob-directory unlink.
+    #[cfg(unix)]
+    AdminCleanupSync,
     /// After the staged file is durable, before it is renamed into `blobs/`.
     BeforePublish,
     /// After the rename and shard sync, before the catalog transaction.
@@ -387,6 +390,23 @@ pub(crate) fn file_created(path: &Path) {
 }
 
 /// Retains the removed inode only in the test model until the parent syncs.
+#[cfg(unix)]
+pub(crate) fn retain_before_unlink(path: &Path) -> io::Result<Option<fs::File>> {
+    let path = resolve(path);
+    let pending = armed()
+        .iter()
+        .any(|fault| path.starts_with(&fault.data_dir));
+    if !pending {
+        return Ok(None);
+    }
+    match fs::File::open(path) {
+        Ok(file) => Ok(Some(file)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Records the removed inode until the parent directory is synced.
 #[cfg(unix)]
 pub(crate) fn unlinked(path: &Path, file: &fs::File) -> io::Result<()> {
     let path = resolve(path);

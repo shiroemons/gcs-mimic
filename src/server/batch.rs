@@ -63,12 +63,9 @@ async fn execute(
         bytes.extend_from_slice(&data);
         super::body_progress(ctx.activity);
     }
-    let permit = PARSERS
-        .acquire()
-        .await
-        .map_err(|_| invalid("Batch parser unavailable"))?;
+    let permit = PARSERS.acquire().await.map_err(|_| parser_unavailable())?;
     let api_base_url = ctx.endpoints.api_base_url.clone();
-    let parts = tokio::task::spawn_blocking(move || {
+    let parts = crate::task::run_blocking("batch-parser", move || {
         let _permit = permit;
         parse::parts(
             &Bytes::from(bytes),
@@ -79,7 +76,7 @@ async fn execute(
         )
     })
     .await
-    .map_err(|_| invalid("Batch parser failed"))??;
+    .map_err(|_| parser_failed())??;
     let mut output = Vec::new();
     for part in parts {
         // Reserve enough space to render every remaining per-part error, even after large lists.
@@ -106,6 +103,14 @@ async fn execute(
             .map_err(|_| invalid("Batch response header failed"))?,
     );
     Ok(response)
+}
+
+fn parser_failed() -> JsonError {
+    JsonError::service_unavailable("Batch parser failed")
+}
+
+fn parser_unavailable() -> JsonError {
+    JsonError::service_unavailable("Batch parser unavailable")
 }
 
 fn too_large() -> JsonError {
@@ -203,6 +208,18 @@ async fn append_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parser_worker_failures_are_retryable_server_errors() {
+        for (error, message) in [
+            (parser_failed(), "Batch parser failed"),
+            (parser_unavailable(), "Batch parser unavailable"),
+        ] {
+            assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(error.reason, "backendError");
+            assert_eq!(error.message, message);
+        }
+    }
 
     #[tokio::test]
     async fn oversized_part_responses_keep_complete_error_framing_and_content_ids() {

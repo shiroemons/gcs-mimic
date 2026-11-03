@@ -496,7 +496,7 @@ impl AppendWriter {
         let activity = self.activity.clone();
         #[cfg(test)]
         let data_dir = self.catalog.0.data_dir.clone();
-        tokio::task::spawn_blocking(move || -> Result<(), ObjectError> {
+        crate::task::run_blocking("append-write", move || -> Result<(), ObjectError> {
             // The guard lives in the blocking job, not the future: a dropped append still
             // holds the slot until its write ends, so a takeover cannot truncate the file and
             // accept new bytes that this late write through the old descriptor overwrites.
@@ -533,7 +533,7 @@ impl AppendWriter {
         // dropped flush cannot let a takeover truncate the file under a sync in flight. The
         // size update below runs on the catalog executor, which finishes a queued job even
         // when its caller is dropped, and its write-handle check rejects a superseded writer.
-        let (guard, synced) = tokio::task::spawn_blocking(move || {
+        let (guard, synced) = crate::task::run_blocking("append-sync", move || {
             let _activity = activity;
             #[cfg(test)]
             if let Err(injected) = super::fault::hit(&data_dir, super::fault::Step::AppendSync) {
@@ -542,7 +542,8 @@ impl AppendWriter {
             (Some(guard), file.sync().map_err(object_unavailable))
         })
         .await
-        .unwrap_or_else(|error| (None, Err(object_unavailable(error))));
+        .map_err(object_unavailable)
+        .unwrap_or_else(|error| (None, Err(error)));
         let checkpoint = match synced {
             Ok(checkpoint) => checkpoint,
             Err(error) => {
@@ -619,13 +620,13 @@ impl AppendWriter {
         let size = self.record.size;
         // Bounded copy: one 64 KiB chunk is read per send, never the whole object.
         let producer = async move {
-            let mut file = tokio::task::spawn_blocking(move || data.reader())
+            let mut file = crate::task::run_blocking("append-reader", move || data.reader())
                 .await
                 .map_err(io::Error::other)??;
             let mut remaining = size;
             while remaining > 0 {
                 let length = remaining.min(COPY_CHUNK as u64) as usize;
-                let (returned, chunk) = tokio::task::spawn_blocking(move || {
+                let (returned, chunk) = crate::task::run_blocking("append-read", move || {
                     let mut buffer = vec![0; length];
                     let result = file.read_exact(&mut buffer).map(|()| buffer);
                     (file, result)
@@ -794,7 +795,7 @@ impl Catalog {
         let catalog = self.clone();
         let id = blob_id;
         let file_activity = activity.clone();
-        let file = tokio::task::spawn_blocking(move || {
+        let file = crate::task::run_blocking("append-create", move || {
             let _activity = file_activity;
             data::Data::create(&catalog.0.backend, &id)
         })
@@ -979,7 +980,7 @@ impl Catalog {
         let size = record.size;
         let file_activity = activity.clone();
         // Unflushed bytes from the previous writer were never acknowledged.
-        let (mut guard, slot, file) = tokio::task::spawn_blocking(move || {
+        let (mut guard, slot, file) = crate::task::run_blocking("append-takeover", move || {
             let _activity = file_activity;
             #[cfg(test)]
             pause_append_write(&catalog.0.data_dir);

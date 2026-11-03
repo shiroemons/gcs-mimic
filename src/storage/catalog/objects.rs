@@ -396,7 +396,11 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::BeforePublish).map_err(object_unavailable)?;
-        tokio::task::spawn_blocking(move || publish_blob(&source, &destination)).await??;
+        crate::task::run_blocking("blob-publication", move || {
+            publish_blob(&source, &destination)
+        })
+        .await?
+        .map_err(object_unavailable)?;
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::AfterPublish).map_err(object_unavailable)?;
         Ok(())
@@ -404,12 +408,21 @@ impl Catalog {
 }
 
 pub(super) fn unlink(path: &Path) -> io::Result<()> {
+    #[cfg(all(test, unix))]
+    let retained = fault::retain_before_unlink(path)?;
     // Windows may defer removal until the final reader closes. Recovery also
     // scans unreferenced blobs, so a deferred deletion cannot become live data.
-    match fs::remove_file(path) {
+    let result = match fs::remove_file(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         result => result,
+    };
+    #[cfg(all(test, unix))]
+    if result.is_ok()
+        && let Some(file) = retained
+    {
+        fault::unlinked(path, &file)?;
     }
+    result
 }
 
 fn os_metadata(entry: &fs::DirEntry) -> bool {
@@ -728,7 +741,7 @@ pub(super) async fn create_upload_stage(
     stage: PathBuf,
     published: PathBuf,
 ) -> Result<File, ObjectError> {
-    tokio::task::spawn_blocking(move || -> io::Result<File> {
+    crate::task::run_blocking("upload-stage", move || -> io::Result<File> {
         if published.try_exists()? {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -2492,7 +2505,9 @@ impl Catalog {
             }
             let backend = catalog.0.backend.clone();
             let (removed, failure) =
-                tokio::task::spawn_blocking(move || backend.reclaim_batch(ids)).await??;
+                crate::task::run_blocking("blob-reclamation", move || backend.reclaim_batch(ids))
+                    .await?
+                    .map_err(object_unavailable)?;
             catalog
                 .run_upload(move |connection| {
                     let transaction = connection.transaction()?;
@@ -2671,7 +2686,10 @@ mod tests {
 
     /// # Safety
     /// `counter` must point to a live, aligned AtomicUsize whenever SQLite can invoke this callback.
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "Test-only SQLite callbacks avoid enabling the hooks feature in the production dependency; callers keep the counter live."
+    )]
     unsafe extern "C" fn count_progress(counter: *mut std::ffi::c_void) -> std::ffi::c_int {
         // SAFETY: The caller guarantees a live, aligned AtomicUsize whenever SQLite can call us.
         let counter = unsafe { &*counter.cast::<AtomicUsize>() };
@@ -2871,8 +2889,11 @@ mod tests {
             .unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
+        #[expect(
+            unsafe_code,
+            reason = "Install the synchronous test-only progress callback while its counter is live."
+        )]
         // SAFETY: This live connection invokes the callback synchronously with the live counter.
-        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_progress_handler(
                 connection.handle(),
@@ -2901,8 +2922,11 @@ mod tests {
         let page = list_page(&connection, &query, 1).unwrap();
         assert_eq!(page.items[0].name, "z");
         assert!(page.next.is_none());
+        #[expect(
+            unsafe_code,
+            reason = "Unregister the test-only progress callback before its counter is dropped."
+        )]
         // SAFETY: Unregister on the live connection before the callback's counter is dropped.
-        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_progress_handler(
                 connection.handle(),
@@ -2997,8 +3021,11 @@ mod tests {
         }
         let counter = AtomicUsize::new(0);
         // One budget covers multiple pages and history-only prefixes, independent of history size.
+        #[expect(
+            unsafe_code,
+            reason = "Install the synchronous test-only progress callback while its counter is live."
+        )]
         // SAFETY: This live connection invokes the callback synchronously with the live counter.
-        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_progress_handler(
                 connection.handle(),
@@ -3053,8 +3080,11 @@ mod tests {
         let page = list_page(&connection, &query, 1).unwrap();
         assert_eq!(page.items[0].generation, 10000);
         assert!(page.next.is_none());
+        #[expect(
+            unsafe_code,
+            reason = "Unregister the test-only progress callback before its counter is dropped."
+        )]
         // SAFETY: Unregister on the live connection before the callback's counter is dropped.
-        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_progress_handler(
                 connection.handle(),

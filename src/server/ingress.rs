@@ -166,7 +166,7 @@ pub(super) async fn decode_metadata(
         .acquire()
         .await
         .map_err(|_| decoder_unavailable())?;
-    let decoded = tokio::task::spawn_blocking(move || {
+    let decoded = crate::task::run_blocking("json-gzip-decoder", move || {
         let _permit = permit;
         decode(&compressed, BUCKET_BODY_LIMIT)
     })

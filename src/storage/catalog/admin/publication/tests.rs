@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use super::super::tests::{body, request, setup};
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
@@ -30,6 +28,104 @@ fn blob_count(dir: &std::path::Path) -> usize {
         .unwrap()
         .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
         .sum()
+}
+
+#[cfg(unix)]
+async fn cleanup_snapshot(power_loss: bool, synced: bool) {
+    use crate::storage::catalog::fault::{self, Fault, Step};
+    let (dir, catalog, admin, _, _) = setup().await;
+    let staged = admin
+        .stage_from_file(
+            source(&dir.0, b"private bytes"),
+            ExpectedHashes::default(),
+            1024,
+        )
+        .await
+        .unwrap();
+    let id = staged.id.unwrap();
+    catalog.0.backend.publish_draft(&id).unwrap();
+    let snapshot = crate::test_support::TestDir::new();
+    let fault = if power_loss {
+        Fault::PowerLoss(snapshot.0.clone())
+    } else {
+        Fault::Snapshot(snapshot.0.clone())
+    };
+    catalog.inject(Step::AfterCommit, 0, fault);
+    if synced {
+        cleanup(&catalog, id).await.unwrap();
+    } else {
+        catalog.0.backend.remove(&id).unwrap();
+    }
+    // This explicit trigger snapshots cleanup, independently of publication transactions.
+    fault::hit(&dir.0, Step::AfterCommit).unwrap();
+    assert_eq!(catalog.pending_faults(), 0);
+    let path = id.blob_path(&snapshot.0);
+    let exists = path.exists();
+    let bytes = exists.then(|| fs::read(&path).unwrap());
+    staged.discard().await.unwrap();
+    catalog.close().await.unwrap();
+    assert_eq!(exists, power_loss && !synced);
+    if let Some(bytes) = bytes {
+        assert_eq!(bytes, b"private bytes");
+    }
+    let recovered = Catalog::open(&snapshot.0).await.unwrap();
+    assert_eq!(blob_count(&snapshot.0), 0);
+    assert_eq!(fs::read_dir(snapshot.0.join("staging")).unwrap().count(), 0);
+    recovered.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cleanup_unlink_is_volatile_until_directory_sync() {
+    for power_loss in [false, true] {
+        cleanup_snapshot(power_loss, false).await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cleanup_directory_sync_survives_crash_and_power_loss() {
+    for power_loss in [false, true] {
+        cleanup_snapshot(power_loss, true).await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cleanup_directory_sync_failure_reaches_discard_and_drop() {
+    use crate::storage::catalog::fault::{Fault, Step};
+    for explicit in [true, false] {
+        let (dir, catalog, admin, _, _) = setup().await;
+        let staged = admin
+            .stage_from_file(
+                source(&dir.0, b"private bytes"),
+                ExpectedHashes::default(),
+                1024,
+            )
+            .await
+            .unwrap();
+        let id = staged.id.unwrap();
+        catalog.0.backend.publish_draft(&id).unwrap();
+        catalog.inject(Step::AdminCleanupSync, 0, Fault::Io(io::ErrorKind::Other));
+        if explicit {
+            let error = staged.discard().await.unwrap_err();
+            assert_eq!(
+                crate::error::causes(&error)
+                    .find_map(|cause| cause.downcast_ref::<io::Error>())
+                    .unwrap()
+                    .kind(),
+                io::ErrorKind::Other
+            );
+        } else {
+            drop(staged);
+        }
+        catalog.close().await.unwrap();
+        assert_eq!(catalog.pending_faults(), 0);
+        assert!(!id.blob_path(&dir.0).exists());
+        let recovered = Catalog::open(&dir.0).await.unwrap();
+        assert_eq!(blob_count(&dir.0), 0);
+        recovered.close().await.unwrap();
+    }
 }
 
 #[tokio::test]

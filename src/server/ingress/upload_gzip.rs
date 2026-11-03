@@ -161,7 +161,7 @@ async fn stream(
     let (mut compressed, mut expanded) = (0_u64, 0_u64);
     loop {
         let permit = super::DECODERS.acquire().await.map_err(io::Error::other)?;
-        let (next, output) = tokio::task::spawn_blocking(move || {
+        let (next, output) = crate::task::run_blocking("upload-gzip-decoder", move || {
             let _permit = permit;
             let mut output = vec![0; CHUNK_BYTES];
             let result = decoder.read(&mut output).map(|length| {

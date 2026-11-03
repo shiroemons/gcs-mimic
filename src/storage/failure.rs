@@ -301,6 +301,7 @@ unavailable_cause!(
     tokio::sync::TryLockError,
     tokio::sync::oneshot::error::RecvError,
     tokio::task::JoinError,
+    crate::task::BlockingFailed,
     crate::fsutil::FsError,
     crate::storage::admin::AdminError,
 );
@@ -353,7 +354,12 @@ macro_rules! classified_from {
     };
 }
 
-classified_from!(rusqlite::Error, io::Error, tokio::task::JoinError);
+classified_from!(
+    rusqlite::Error,
+    io::Error,
+    tokio::task::JoinError,
+    crate::task::BlockingFailed
+);
 
 #[cfg(test)]
 mod tests;

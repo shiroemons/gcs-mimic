@@ -1018,7 +1018,7 @@ pub async fn apply(
     };
     let project = config.seed_project.clone();
     let default_location = config.default_location.clone();
-    let records = tokio::task::spawn_blocking(move || {
+    let records = crate::task::run_blocking("bucket-initializer", move || {
         load(&path, &project, clock.as_ref(), &default_location)
     })
     .await

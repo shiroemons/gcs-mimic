@@ -117,13 +117,71 @@ pub(crate) fn catch_job<T>(name: &'static str, job: impl FnOnce() -> T) -> Resul
     })
 }
 
-/// Run an admitted CPU job on the runtime's bounded blocking pool, reporting its panic.
-pub(crate) fn spawn_blocking<F, T>(name: &'static str, job: F) -> JoinHandle<Result<T, JobPanicked>>
+/// Spawns a supervised blocking job on a retained runtime, including from `Drop`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The shared blocking entry point reports panics through catch_job."
+)]
+pub(crate) fn spawn_blocking_on<F, T>(
+    runtime: &tokio::runtime::Handle,
+    name: &'static str,
+    job: F,
+) -> JoinHandle<Result<T, JobPanicked>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(move || catch_job(name, job))
+    runtime.spawn_blocking(move || catch_job(name, job))
+}
+
+/// A blocking job that was cancelled before execution or panicked while running.
+#[derive(Debug)]
+pub(crate) enum BlockingFailed {
+    Cancelled(tokio::task::JoinError),
+    Panicked(JobPanicked),
+}
+
+impl std::fmt::Display for BlockingFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cancelled(_) => f.write_str("blocking job cancelled"),
+            Self::Panicked(_) => f.write_str("blocking job panicked"),
+        }
+    }
+}
+
+impl std::error::Error for BlockingFailed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Cancelled(error) => Some(error),
+            Self::Panicked(error) => Some(error),
+        }
+    }
+}
+
+/// Awaits a supervised blocking job with one typed worker-failure result.
+pub(crate) async fn run_blocking<F, T>(name: &'static str, job: F) -> Result<T, BlockingFailed>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    run_blocking_on(&tokio::runtime::Handle::current(), name, job).await
+}
+
+/// Awaits a supervised job on the runtime that owns the resource being cleaned up.
+pub(crate) async fn run_blocking_on<F, T>(
+    runtime: &tokio::runtime::Handle,
+    name: &'static str,
+    job: F,
+) -> Result<T, BlockingFailed>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    spawn_blocking_on(runtime, name, job)
+        .await
+        .map_err(BlockingFailed::Cancelled)?
+        .map_err(BlockingFailed::Panicked)
 }
 
 /// Whether a background task is doing its work, as readiness reports it.
@@ -310,6 +368,26 @@ pub(crate) mod tests {
     };
 
     static PANICS: Mutex<Vec<(&'static str, String)>> = Mutex::new(Vec::new());
+
+    #[tokio::test]
+    async fn blocking_job_reports_panics_to_the_caller() {
+        let error = run_blocking("blocking-panic-test", || panic!("blocking job failed"))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            BlockingFailed::Panicked(JobPanicked("blocking-panic-test"))
+        ));
+        assert!(
+            std::error::Error::source(&error)
+                .unwrap()
+                .is::<JobPanicked>()
+        );
+        assert_eq!(
+            reported_panics("blocking-panic-test"),
+            ["blocking job failed"]
+        );
+    }
 
     pub(super) fn record_panic(name: &'static str, message: &str) {
         PANICS
