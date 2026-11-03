@@ -1196,6 +1196,15 @@ mod tests {
             Config::default().effective_api_base_url(bound),
             "https://[fe80::1]:4443"
         );
+        assert_eq!(
+            Config::default().effective_api_base_url(SocketAddr::V6(std::net::SocketAddrV6::new(
+                std::net::Ipv6Addr::UNSPECIFIED,
+                4443,
+                7,
+                3
+            ))),
+            "https://[::1]:4443"
+        );
     }
 
     #[test]
