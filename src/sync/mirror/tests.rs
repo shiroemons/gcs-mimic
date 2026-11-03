@@ -1928,7 +1928,27 @@ async fn a_mirror_stopped_by_shutdown_stays_ready() {
 async fn native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root() {
     use std::{os::unix::fs::PermissionsExt, time::Duration};
     let (_data, tree, catalog, task) = started_mirror(None).await;
-    task.rescan().await.unwrap();
+    // Drain startup exports before attributing an unhealthy observer to the permission change.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let (reply, response) = tokio::sync::oneshot::channel();
+    task.rescan
+        .send(Command::Wait {
+            deadline,
+            settling: Default::default(),
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout_at(deadline, response)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .reason,
+        crate::sync::control::WaitReason::Ready
+    );
     let bucket = tree.0.join("test-bucket");
     std::fs::set_permissions(&bucket, std::fs::Permissions::from_mode(0o0)).unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
