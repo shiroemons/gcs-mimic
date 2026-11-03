@@ -400,7 +400,7 @@ impl Storage {
         if !bucket_conditions!(request).hold(record.metageneration) {
             return Err(catalog_error(CatalogError::PreconditionFailed, caller));
         }
-        let mut bucket = convert::bucket(&record);
+        let mut bucket = convert::bucket(&record)?;
         if wants_acl(request.read_mask.as_ref(), AclDefault::Include) {
             self.add_bucket_acl(caller, &mut bucket).await?;
         }
@@ -472,7 +472,7 @@ impl Storage {
             .insert_bucket(record)
             .await
             .map_err(|error| catalog_error(error, caller))?;
-        let mut bucket = convert::bucket(&record);
+        let mut bucket = convert::bucket(&record)?;
         self.add_bucket_acl(caller, &mut bucket).await?;
         Ok(Response::new(bucket))
     }
@@ -534,7 +534,7 @@ impl Storage {
         let acl = wants_acl(request.read_mask.as_ref(), AclDefault::Exclude);
         let mut buckets = Vec::with_capacity(page.items.len());
         for record in &page.items {
-            let mut bucket = convert::bucket(record);
+            let mut bucket = convert::bucket(record)?;
             if acl {
                 self.add_bucket_acl(caller, &mut bucket).await?;
             }

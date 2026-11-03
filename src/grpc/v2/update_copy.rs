@@ -4,7 +4,7 @@ use crate::{
     bucket::{BucketAccess, BucketConditions, BucketMetadataUpdate},
     grpc::validate::{self, bucket_conditions, request_conditions, strict_conditions},
     json::{self, JsonError},
-    object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget},
+    object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget},
     server::authorize_bucket,
     storage::{
         DerivedDestination, DerivedRequestGuard, MoveAccess, MoveConditions, MoveNames,
@@ -585,7 +585,7 @@ impl Storage {
             owner = Some(guard);
             token
         };
-        let progress=self.state.catalog.continue_rewrite(&token,read,create,|record|Ok(json!({"proto":prost::Message::encode_to_vec(&convert::object(record).map_err(|_|ObjectError::InvalidMetadata)?)}))).await.map_err(rewrite_error)?;
+        let progress=self.state.catalog.continue_rewrite(&token,read,create,|record|Ok(json!({"proto":prost::Message::encode_to_vec(&convert::completion_object(record)?)}))).await.map_err(rewrite_error)?;
         let resource = progress
             .resource
             .map(|v| {
@@ -599,8 +599,8 @@ impl Storage {
             owner.disarm();
         }
         Ok(Response::new(pb::RewriteResponse {
-            total_bytes_rewritten: crate::grpc::convert::signed(progress.offset),
-            object_size: crate::grpc::convert::signed(progress.total),
+            total_bytes_rewritten: crate::grpc::convert::signed(progress.offset, "rewrite offset")?,
+            object_size: crate::grpc::convert::signed(progress.total, "rewrite total")?,
             done: progress.token.is_none(),
             rewrite_token: progress.token.unwrap_or_default(),
             resource,
@@ -734,7 +734,7 @@ impl Storage {
                 &access,
             )
             .await?;
-        let mut result = convert::bucket(&record);
+        let mut result = convert::bucket(&record)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
     }
@@ -885,7 +885,7 @@ impl Storage {
             .catalog
             .patch_bucket(bucket, update, conditions, &access)
             .await?;
-        let mut result = convert::bucket(&record);
+        let mut result = convert::bucket(&record)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
     }

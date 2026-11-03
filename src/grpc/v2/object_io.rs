@@ -476,9 +476,14 @@ impl Storage {
             metadata: Some(object.clone()),
             object_checksums: object.checksums,
             content_range: (r.read_offset != 0 || r.read_limit != 0).then_some(pb::ContentRange {
-                start: crate::grpc::convert::signed(start),
-                end: crate::grpc::convert::signed(start + length),
-                complete_length: crate::grpc::convert::signed(record.size),
+                start: crate::grpc::convert::signed(start, "read range start")?,
+                end: crate::grpc::convert::signed(
+                    start.checked_add(length).ok_or_else(|| {
+                        ObjectError::Corrupt("Stored read range end overflows".into())
+                    })?,
+                    "read range end",
+                )?,
+                complete_length: crate::grpc::convert::signed(record.size, "size")?,
             }),
             ..Default::default()
         };
@@ -782,7 +787,7 @@ impl Storage {
             )?)
         } else {
             pb::query_write_status_response::WriteStatus::PersistedSize(
-                crate::grpc::convert::signed(session.offset),
+                crate::grpc::convert::signed(session.offset, "upload session offset")?,
             )
         };
         Ok(Response::new(pb::QueryWriteStatusResponse {
@@ -1022,8 +1027,7 @@ impl Storage {
                 self.state
                     .catalog
                     .write_resumable_session(lease, chunk, rx, permit, |record| {
-                        let resource =
-                            convert::object(record).map_err(|_| ObjectError::InvalidMetadata)?;
+                        let resource = convert::completion_object(record)?;
                         serde_json::to_value(resource.encode_to_vec())
                             .map_err(|_| ObjectError::InvalidMetadata)
                     });
@@ -1036,7 +1040,7 @@ impl Storage {
                     .await?;
                 WriteStatus::Resource(resource)
             } else {
-                WriteStatus::PersistedSize(crate::grpc::convert::signed(written))
+                WriteStatus::PersistedSize(crate::grpc::convert::signed(written, "persisted_size")?)
             };
             if let Some(tx) = responses
                 && (message.finish_write || message.flush || message.state_lookup)
@@ -1253,6 +1257,7 @@ fn resumable_piece(
     let (length, end) = u64::try_from(data.content.len())
         .ok()
         .and_then(|length| offset.checked_add(length).map(|end| (length, end)))
+        .filter(|(_, end)| i64::try_from(*end).is_ok())
         .ok_or_else(|| Status::out_of_range("write_offset plus content length overflows"))?;
     let end = end.max(persisted.offset);
     if end > max_object_bytes {
@@ -1384,6 +1389,42 @@ mod tests {
     use crate::storage::test_fixtures::{PERMISSIVE, live};
     use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
     use std::sync::Arc;
+
+    #[test]
+    fn resumable_message_end_must_fit_the_wire_offset() {
+        let max = i64::MAX.cast_unsigned();
+        for (offset, accepted) in [(i64::MAX - 1, true), (i64::MAX, false)] {
+            let mut message = pb::BidiWriteObjectRequest {
+                write_offset: offset,
+                data: Some(pb::bidi_write_object_request::Data::ChecksummedData(
+                    pb::ChecksummedData {
+                        content: bytes::Bytes::from_static(b"x"),
+                        ..Default::default()
+                    },
+                )),
+                ..Default::default()
+            };
+            let result = resumable_piece(
+                &mut message,
+                Persisted {
+                    offset: offset.cast_unsigned(),
+                    total: None,
+                },
+                MessagePosition::First,
+                u64::MAX,
+            );
+            if accepted {
+                assert_eq!(result.unwrap().written, max);
+            } else {
+                let error = result.err().unwrap();
+                assert_eq!(error.code(), tonic::Code::OutOfRange);
+                assert_eq!(
+                    error.message(),
+                    "write_offset plus content length overflows"
+                );
+            }
+        }
+    }
 
     #[test]
     fn object_errors_keep_the_v2_unsupported_metadata_wording() {

@@ -1,4 +1,4 @@
-use super::{Storage, common, conditions, metadata, pb, projection, unsupported};
+use super::{Storage, common, conditions, convert, metadata, pb, projection, unsupported};
 use crate::{
     auth::Caller,
     grpc::validate::request_conditions,
@@ -88,7 +88,7 @@ impl Storage {
         );
         let receive = receive_upload(first, stream, sender, self.max_object_bytes);
         let result = tokio::try_join!(async { write.await.map_err(Status::from) }, receive)?;
-        Ok(pb::Object::from(&result.0))
+        Ok(convert::object(&result.0)?)
     }
 }
 

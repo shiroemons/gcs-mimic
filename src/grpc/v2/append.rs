@@ -89,7 +89,10 @@ fn status_response(
             None,
         ),
         Acknowledgement::PersistedSize => (
-            WriteStatus::PersistedSize(crate::grpc::convert::signed(writer.persisted_size())),
+            WriteStatus::PersistedSize(crate::grpc::convert::signed(
+                writer.persisted_size(),
+                "persisted_size",
+            )?),
             Some(pb::ObjectChecksums {
                 crc32c: Some(record.crc32c),
                 md5_hash: Vec::new(),

@@ -3,7 +3,7 @@ use crate::{
     acl::{AclEntry, AclKind},
     bucket::BucketRecord,
     json::acl::AclOwner,
-    object::{ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
+    object::{ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
 };
 use prost_types::{Duration, Timestamp};
 use serde_json::Value;
@@ -104,8 +104,41 @@ macro_rules! access_control {
 access_control!(bucket_access_control, pb::BucketAccessControl);
 access_control!(object_access_control, pb::ObjectAccessControl);
 
-pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
-    pb::Bucket {
+pub(crate) fn bucket(record: &BucketRecord) -> Result<pb::Bucket, tonic::Status> {
+    let retention_policy = record
+        .retention_policy
+        .as_ref()
+        .map(|policy| {
+            Ok::<_, ObjectError>(pb::bucket::RetentionPolicy {
+                effective_time: Some(policy.effective_time.into()),
+                is_locked: policy.is_locked,
+                retention_duration: Some(Duration {
+                    seconds: crate::grpc::convert::signed(
+                        policy.retention_period,
+                        "retention_period",
+                    )?,
+                    nanos: 0,
+                }),
+            })
+        })
+        .transpose()?;
+    let soft_delete_policy = record
+        .soft_delete_policy
+        .as_ref()
+        .map(|policy| {
+            Ok::<_, ObjectError>(pb::bucket::SoftDeletePolicy {
+                effective_time: Some(policy.effective_time.into()),
+                retention_duration: Some(Duration {
+                    seconds: crate::grpc::convert::signed(
+                        policy.retention_duration_seconds,
+                        "retention_duration_seconds",
+                    )?,
+                    nanos: 0,
+                }),
+            })
+        })
+        .transpose()?;
+    Ok(pb::Bucket {
         name: format!("projects/_/buckets/{}", record.name),
         bucket_id: record.name.clone(),
         etag: crate::json::bucket_etag(record),
@@ -146,25 +179,8 @@ pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
                 max_age_seconds: rule.max_age_seconds.unwrap_or_default(),
             })
             .collect(),
-        retention_policy: record.retention_policy.as_ref().map(|policy| {
-            pb::bucket::RetentionPolicy {
-                effective_time: Some(policy.effective_time.into()),
-                is_locked: policy.is_locked,
-                retention_duration: Some(Duration {
-                    seconds: crate::grpc::convert::signed(policy.retention_period),
-                    nanos: 0,
-                }),
-            }
-        }),
-        soft_delete_policy: record.soft_delete_policy.as_ref().map(|policy| {
-            pb::bucket::SoftDeletePolicy {
-                effective_time: Some(policy.effective_time.into()),
-                retention_duration: Some(Duration {
-                    seconds: crate::grpc::convert::signed(policy.retention_duration_seconds),
-                    nanos: 0,
-                }),
-            }
-        }),
+        retention_policy,
+        soft_delete_policy,
         object_retention: record
             .object_retention_enabled
             .then_some(pb::bucket::ObjectRetention { enabled: true }),
@@ -183,7 +199,7 @@ pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
             }),
         }),
         ..Default::default()
-    }
+    })
 }
 
 fn millis(time: std::time::SystemTime) -> Timestamp {
@@ -196,6 +212,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
             .map(|(seconds, nanos)| Timestamp { seconds, nanos: i32::try_from(nanos).unwrap_or_default() })
             .map_err(|_| tonic::Status::internal("Stored customTime is invalid; repair the catalog or restore a valid backup"))
     }).transpose()?;
+    let (size, component_count) = object_integers(record)?;
     Ok(pb::Object {
         name: record.name.clone(),
         bucket: format!("projects/_/buckets/{}", record.bucket),
@@ -203,7 +220,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         etag: crate::json::object_etag(record),
         generation: record.generation,
         metageneration: record.metageneration,
-        size: crate::grpc::convert::signed(record.size),
+        size,
         storage_class: record.storage_class.clone(),
         content_type: record.content_type.clone(),
         content_encoding: record.content_encoding.clone().unwrap_or_default(),
@@ -242,7 +259,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
                 encryption_algorithm: crate::csek::ALGORITHM.into(),
                 key_sha256_bytes: sha256.to_vec(),
             }),
-        component_count: crate::grpc::convert::component_count(record.component_count),
+        component_count,
         temporary_hold: record.temporary_hold == Some(true),
         // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
         // the three states exist only in the JSON resource.
@@ -263,6 +280,19 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         custom_time,
         ..Default::default()
     })
+}
+
+fn object_integers(record: &ObjectRecord) -> Result<(i64, i32), ObjectError> {
+    Ok((
+        crate::grpc::convert::signed(record.size, "size")?,
+        crate::grpc::convert::component_count(record.component_count)?,
+    ))
+}
+
+/// Completion callbacks must keep storage corruption distinct from rejected metadata.
+pub(super) fn completion_object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
+    object_integers(record)?;
+    object(record).map_err(|_| ObjectError::InvalidMetadata)
 }
 
 /// Object ACL entries rendered by the shared JSON renderer, so IDs, etags and entity details
@@ -307,6 +337,37 @@ mod tests {
     };
 
     #[test]
+    fn completion_encoders_keep_integer_corruption_and_metadata_errors_distinct() {
+        let record = crate::grpc::test_support::object_record("bucket", std::time::UNIX_EPOCH);
+        for invalid in [
+            ObjectRecord {
+                size: u64::MAX,
+                ..record.clone()
+            },
+            ObjectRecord {
+                component_count: Some(i64::MAX),
+                ..record.clone()
+            },
+        ] {
+            assert!(matches!(
+                completion_object(&invalid),
+                Err(ObjectError::Corrupt(_))
+            ));
+            assert_eq!(
+                object(&invalid).unwrap_err().code(),
+                tonic::Code::Unavailable
+            );
+        }
+        assert!(matches!(
+            completion_object(&ObjectRecord {
+                custom_time: Some("corrupt".into()),
+                ..record
+            }),
+            Err(ObjectError::InvalidMetadata)
+        ));
+    }
+
+    #[test]
     fn grpc_record_conversion() {
         let now = UNIX_EPOCH + StdDuration::new(1_700_000_000, 123_456_000);
         let bucket_record = BucketRecord {
@@ -346,14 +407,14 @@ mod tests {
         };
         let value =
             json::bucket_resource(&bucket_record, "http://localhost", Projection::NoAcl).unwrap();
-        let proto = bucket(&bucket_record);
+        let proto = bucket(&bucket_record).unwrap();
         assert_eq!(proto.project, "projects/123");
         let named = BucketRecord {
             project: "local-project".into(),
             ..bucket_record.clone()
         };
         // SDKs parse the project as a number, so an ID with no registered number renders as 0.
-        assert_eq!(bucket(&named).project, "projects/0");
+        assert_eq!(bucket(&named).unwrap().project, "projects/0");
         assert_eq!(proto.bucket_id, value["name"]);
         assert_eq!(proto.storage_class, value["storageClass"]);
         assert_eq!(proto.location, value["location"]);

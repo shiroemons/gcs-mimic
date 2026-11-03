@@ -246,8 +246,8 @@ fn add_ranges(
         let (offset, length) =
             crate::grpc::validate::resolve_range(size, range.read_offset, range.read_length)
                 .ok_or_else(|| range_error(range.read_id))?;
-        range.read_offset = crate::grpc::convert::signed(offset);
-        range.read_length = crate::grpc::convert::signed(length);
+        range.read_offset = i64::try_from(offset).map_err(|_| range_error(range.read_id))?;
+        range.read_length = i64::try_from(length).map_err(|_| range_error(range.read_id))?;
         queue.push_back(range);
     }
     Ok(())
