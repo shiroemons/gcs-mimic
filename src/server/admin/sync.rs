@@ -521,10 +521,7 @@ fn root_error(error: &RootError) -> JsonError {
     }
 }
 fn control_error(error: &io::Error) -> JsonError {
-    let mut cause = error
-        .get_ref()
-        .map(|error| error as &(dyn std::error::Error + 'static));
-    while let Some(error) = cause {
+    for error in crate::error::causes(error) {
         if let Some(root) = error.downcast_ref::<RootError>() {
             return root_error(root);
         }
@@ -543,13 +540,6 @@ fn control_error(error: &io::Error) -> JsonError {
         ) {
             return stale();
         }
-        cause = if let Some(error) = error.downcast_ref::<io::Error>() {
-            error
-                .get_ref()
-                .map(|error| error as &(dyn std::error::Error + 'static))
-        } else {
-            error.source()
-        };
     }
     busy()
 }

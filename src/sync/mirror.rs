@@ -144,10 +144,7 @@ fn watch_retryable(error: &io::Error) -> bool {
     if is_transient(error) {
         return true;
     }
-    std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |cause| {
-        cause.source()
-    })
-    .any(|cause| {
+    crate::error::causes(error).any(|cause| {
         cause
             .downcast_ref::<io::Error>()
             .is_some_and(|error| error.kind() == io::ErrorKind::PermissionDenied)
@@ -198,14 +195,7 @@ fn is_transient(error: &io::Error) -> bool {
                 | io::ErrorKind::ResourceBusy
         )
     }
-    if transient_kind(error.kind()) {
-        return true;
-    }
-    // `io::Error::source` skips a wrapped error itself, so start the walk at the wrapped one.
-    let first = error
-        .get_ref()
-        .map(|inner| inner as &(dyn std::error::Error + 'static));
-    std::iter::successors(first, |cause| cause.source()).any(|cause| {
+    crate::error::causes(error).any(|cause| {
         if let Some(admin) = cause.downcast_ref::<AdminError>() {
             match admin {
                 AdminError::Busy { .. } => true,
@@ -568,16 +558,7 @@ struct Initialized {
 
 fn pause_reason(error: &io::Error) -> crate::storage::sync_state::observation::PauseReason {
     use crate::storage::sync_state::observation::PauseReason;
-    for cause in std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |cause| {
-        cause
-            .downcast_ref::<io::Error>()
-            .and_then(|error| {
-                error
-                    .get_ref()
-                    .map(|cause| cause as &(dyn std::error::Error + 'static))
-            })
-            .or_else(|| cause.source())
-    }) {
+    for cause in crate::error::causes(error) {
         if matches!(
             cause.downcast_ref::<crate::storage::sync_state::conflicts::Error>(),
             Some(crate::storage::sync_state::conflicts::Error::Capacity)

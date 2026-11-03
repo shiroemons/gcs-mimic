@@ -1,12 +1,5 @@
 use std::{error::Error, io};
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "classification callers are migrated in a separate commit"
-    )
-)]
 pub(crate) fn causes<'a>(
     error: &'a (dyn Error + 'static),
 ) -> impl Iterator<Item = &'a (dyn Error + 'static)> {

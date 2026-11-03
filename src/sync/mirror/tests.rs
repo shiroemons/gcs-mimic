@@ -1501,6 +1501,55 @@ fn only_contention_and_timeouts_are_transient() {
     }
 }
 
+#[test]
+fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
+    use crate::storage::sync_state::observation::PauseReason;
+    for error in [
+        io::Error::other(AdminError::Busy {
+            retry_after: Duration::from_secs(1),
+        }),
+        io::Error::other(CatalogError::Unavailable("database is locked".into())),
+        io::Error::other(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            None,
+        )),
+        io::Error::other(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_LOCKED),
+            None,
+        )),
+        io::Error::other(io::Error::from(io::ErrorKind::Interrupted)),
+    ] {
+        let nested = io::Error::other(error);
+        assert!(is_transient(&nested), "{nested:?}");
+        assert!(watch_retryable(&nested), "{nested:?}");
+    }
+    let denied = io::Error::other(io::Error::other(io::Error::from(
+        io::ErrorKind::PermissionDenied,
+    )));
+    assert!(watch_retryable(&denied));
+    assert!(!is_transient(&denied));
+    for (error, reason) in [
+        (
+            io::Error::other(writeback::Error::Capacity),
+            PauseReason::ConflictCapacity,
+        ),
+        (
+            io::Error::other(writeback::Error::Protected),
+            PauseReason::RecoveryRequired,
+        ),
+        (
+            io::Error::other(AdminError::DiskFull),
+            PauseReason::IoFailure,
+        ),
+        (
+            io::Error::other(AdminError::Forbidden),
+            PauseReason::ObserverFailure,
+        ),
+    ] {
+        assert_eq!(pause_reason(&io::Error::other(error)), reason);
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_mirror_stopped_by_shutdown_stays_ready() {
     let (_data, _tree, catalog, task) = started_mirror(None).await;
