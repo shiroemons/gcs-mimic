@@ -1056,12 +1056,12 @@ pub async fn apply(
         .into_iter()
         .map(BucketDefinition::new)
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| failure(&error))?;
+        .map_err(|error| initialization_failure(&error))?;
     let results = catalog
         .admin(Origin::BucketInit)
         .ensure_buckets(definitions)
         .await
-        .map_err(|error| failure(&error))?;
+        .map_err(|error| initialization_failure(&error))?;
     let mut created = 0;
     let mut existing = 0;
     let mut diagnostics = Diagnostics::default();
@@ -1087,7 +1087,7 @@ pub async fn apply(
     })
 }
 
-fn failure(error: &AdminError) -> std::io::Error {
+fn initialization_failure(error: &AdminError) -> std::io::Error {
     let reason = match error {
         AdminError::DiskFull => "disk full",
         AdminError::Busy { .. } => "administrative admission timed out",
@@ -2187,12 +2187,15 @@ mod tests {
     }
 
     #[test]
-    fn shared_renderer_preserves_complete_sorted_escaped_batches() {
-        assert!(
-            failure(&AdminError::Corrupt("invalid stored enum".into()))
-                .to_string()
-                .contains("catalog corrupt")
+    fn initialization_failure_reports_catalog_corruption() {
+        assert_eq!(
+            initialization_failure(&AdminError::Corrupt("invalid stored enum".into())).to_string(),
+            "buckets_file: Cannot initialize buckets (catalog corrupt); inspect the native catalog and available disk space, then restart to retry create-missing."
         );
+    }
+
+    #[test]
+    fn shared_renderer_preserves_complete_sorted_escaped_batches() {
         let errors = parsed(r#"{"version":1,"buckets":[{"name":"example-bucket","z\n\"secret-field":1,"storageClas":"secret-value","name":"bad name","name":"also bad"}]}"#).unwrap_err();
         let mut output = Vec::new();
         errors.write(&mut output).unwrap();
