@@ -991,10 +991,10 @@ impl UploadCommit {
     /// unchanged record.
     fn commit(self, connection: &mut Connection) -> Result<CommitOutcome, ObjectError> {
         let transaction = sql::immediate(connection)?;
+        let now = PublicationTime::read(self.clock.as_ref())?;
         let (storage_class, delete_permission) =
             authorized_bucket(&transaction, &self.bucket, &self.access)?;
-        let now = self.clock.now();
-        let micros = unix_micros(now)?;
+        let micros = now.micros;
         let fingerprint = self.replay.as_ref().map(|_| self.fingerprint());
         if let (Some(replay), Some(fingerprint)) = (&self.replay, &fingerprint) {
             replay.check_incarnation(&transaction, &self.bucket)?;
@@ -1013,7 +1013,12 @@ impl UploadCommit {
             Catalog::bucket_settings_in_transaction(&transaction, &self.bucket)?;
         let previous = lookup(&transaction, &self.bucket, &self.name)?;
         // Rechecked under the write lock so a concurrent create cannot be overwritten.
-        check_publication(previous.as_ref(), self.conditions, delete_permission, now)?;
+        check_publication(
+            previous.as_ref(),
+            self.conditions,
+            delete_permission,
+            now.time,
+        )?;
         let body = &self.body;
         if skip_same(
             self.mode,
@@ -1026,15 +1031,10 @@ impl UploadCommit {
                 .map(|stored| CommitOutcome::Unchanged(stored.record))
                 .ok_or(ObjectError::ObjectNotFound);
         }
-        if self.identity.checks_past_retention() {
-            now.duration_since(std::time::UNIX_EPOCH)
-                .map_err(object_unavailable)?;
-        }
-        let time = system_time_micros(micros)?;
         let defaults = PublicationDefaults {
             storage_class,
             event_based_hold: default_hold,
-            time,
+            time: now.time,
             owner: match &self.owner {
                 OwnerAssignment::Request => Some(super::object_owner::for_publication(
                     &transaction,
