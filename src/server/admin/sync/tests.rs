@@ -21,12 +21,49 @@ fn nested_io_control_errors_keep_status_and_text() {
         RootError::Admin(crate::storage::admin::AdminError::Forbidden),
         RootError::Admin(crate::storage::admin::AdminError::Precondition),
         RootError::Admin(crate::storage::admin::AdminError::Corrupt("corrupt".into())),
+        RootError::Admin(AdminError::DiskFull),
+        RootError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into())),
         RootError::InUse,
     ] {
+        let label = format!("{error:?}");
         let expected = root_error(&error);
         let actual = control_error(&io::Error::other(io::Error::other(error)));
-        assert_eq!(actual.status, expected.status);
-        assert_eq!(actual.message, expected.message);
+        assert_eq!(actual.status, expected.status, "{label}");
+        assert_eq!(actual.message, expected.message, "{label}");
+    }
+}
+
+#[test]
+fn storage_failures_require_capacity_or_access_repairs() {
+    for (kind, reason, message) in [
+        (
+            io::ErrorKind::StorageFull,
+            "disk_full",
+            "Free disk space without deleting synchronization data, then retry",
+        ),
+        (
+            io::ErrorKind::PermissionDenied,
+            "io_failure",
+            "Restore storage access, then retry",
+        ),
+    ] {
+        for (path, actual) in [
+            ("root", root_error(&RootError::from(io::Error::from(kind)))),
+            (
+                "control",
+                control_error(&io::Error::other(io::Error::other(AdminError::from(
+                    io::Error::from(kind),
+                )))),
+            ),
+        ] {
+            assert_eq!(
+                actual.status,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{reason} {path}"
+            );
+            assert_eq!(actual.reason, reason, "{reason} {path}");
+            assert_eq!(actual.message, message, "{reason} {path}");
+        }
     }
 }
 

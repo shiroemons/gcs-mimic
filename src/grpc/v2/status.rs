@@ -32,7 +32,7 @@ impl From<crate::json::JsonError> for Status {
             error.message = NOT_MODIFIED.into();
         }
         if error.kind == crate::json::ErrorKind::Unsupported {
-            return unsupported(&error.message);
+            return unsupported_message(error.message);
         }
         match error.status.as_u16() {
             400 => Status::invalid_argument(error.message),
@@ -75,6 +75,11 @@ pub(crate) fn unsupported(method: &str) -> Status {
     let message = format!(
         "gcs-mimic does not support gRPC {method}; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
     );
+    unsupported_message(message)
+}
+
+/// JSON unsupported messages already include a remedy and must not be wrapped again.
+fn unsupported_message(message: String) -> Status {
     let info = ErrorInfo {
         // Preserve the existing unsupported JSON contract's reason and domain.
         reason: "badRequest".into(),
@@ -176,6 +181,57 @@ mod tests {
             info.metadata["remedy"],
             "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event"
         );
+    }
+
+    #[test]
+    fn unsupported_json_errors_keep_their_messages_and_details() {
+        for (label, error, message) in [
+            (
+                "bucket",
+                crate::json::JsonError::unsupported("storageClass requires a region or zone"),
+                "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name).",
+            ),
+            (
+                "object",
+                crate::json::JsonError::unsupported_object("metadata"),
+                "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).",
+            ),
+            (
+                "custom",
+                crate::json::JsonError::unsupported_message(
+                    "gcs-mimic does not support this setting; omit it.",
+                ),
+                "gcs-mimic does not support this setting; omit it.",
+            ),
+            (
+                "plain 501",
+                crate::json::JsonError::new(
+                    StatusCode::NOT_IMPLEMENTED,
+                    "notImplemented",
+                    "Unsupported object option",
+                ),
+                "gcs-mimic does not support gRPC Unsupported object option; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event.",
+            ),
+        ] {
+            let actual = Status::from(error);
+            let expected = unsupported("example");
+            assert_eq!(actual.code(), expected.code(), "{label}");
+            assert_eq!(actual.message(), message, "{label}");
+            let actual = rpc_status(&actual);
+            assert_eq!(actual.message, message, "{label}");
+            assert_eq!(actual.code, Code::Unimplemented as i32, "{label}");
+            assert_eq!(actual.details.len(), 1, "{label}");
+            let expected = rpc_status(&expected);
+            assert_eq!(
+                actual.details[0].type_url, expected.details[0].type_url,
+                "{label}"
+            );
+            assert_eq!(
+                ErrorInfo::decode(actual.details[0].value.as_slice()).unwrap(),
+                ErrorInfo::decode(expected.details[0].value.as_slice()).unwrap(),
+                "{label}"
+            );
+        }
     }
 
     #[test]

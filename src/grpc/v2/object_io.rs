@@ -1984,7 +1984,7 @@ mod tests {
                     ("Unimplemented", if matches!(label, "write" | "start-resumable") {
                         "gcs-mimic does not support gRPC unsupported metadata change: storageClass=REGIONAL: storageClass requires a region or zone; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
                     } else {
-                        "gcs-mimic does not support gRPC gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name).; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+                        "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
                     }.to_owned())
                 } else {
                     ("InvalidArgument", match label {

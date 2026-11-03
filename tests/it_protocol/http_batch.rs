@@ -71,7 +71,11 @@ fn batch_dispatches_metadata_conditions_and_individual_errors_without_self_conne
     ]);
     let reply = server.request("POST", "/batch/storage/v1", TYPE, &body);
     reply.status(200);
-    assert!(reply.headers.contains("multipart/mixed; boundary="));
+    assert!(
+        reply
+            .headers
+            .contains("content-type: multipart/mixed; boundary=gcs_mimic_batch_response\r\n")
+    );
     let statuses: Vec<_> = reply
         .body
         .lines()
