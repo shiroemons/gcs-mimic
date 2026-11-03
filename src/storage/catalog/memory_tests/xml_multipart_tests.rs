@@ -93,25 +93,17 @@ async fn reclaimed(catalog: &Catalog) {
 
 #[tokio::test]
 async fn ram_xml_multipart_part_eof_sql_failure_and_replacement_keep_selected_bytes() {
-    let catalog = setup(1100, Versioning::Off).await;
-    let original = put(&catalog, Default::default(), BodyEnd::Complete)
-        .await
-        .unwrap();
+    let catalog = setup(1100, Off).await;
+    let original = put(&catalog, Default::default(), Complete).await.unwrap();
     let target = begin(&catalog).await;
-    let first = part(&catalog, &target, b"first", BodyEnd::Complete)
-        .await
-        .unwrap();
-    assert!(
-        part(&catalog, &target, b"aborted", BodyEnd::Aborted)
-            .await
-            .is_err()
-    );
+    let first = part(&catalog, &target, b"first", Complete).await.unwrap();
+    assert!(part(&catalog, &target, b"aborted", Aborted).await.is_err());
     catalog.run::<_, ObjectError>(|connection| {
         connection.execute_batch("CREATE TEMP TRIGGER reject_ram_part BEFORE INSERT ON xml_multipart_parts BEGIN SELECT RAISE(ABORT, 'injected part checkpoint failure'); END;").unwrap();
         Ok(())
     }).await.unwrap();
     assert!(
-        part(&catalog, &target, b"rejected", BodyEnd::Complete)
+        part(&catalog, &target, b"rejected", Complete)
             .await
             .is_err()
     );
@@ -134,15 +126,9 @@ async fn ram_xml_multipart_part_eof_sql_failure_and_replacement_keep_selected_by
         .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
         .await
         .unwrap();
-    assert!(
-        part(&catalog, &target, b"race", BodyEnd::Complete)
-            .await
-            .is_err()
-    );
+    assert!(part(&catalog, &target, b"race", Complete).await.is_err());
     drop(lease);
-    let replacement = part(&catalog, &target, b"other", BodyEnd::Complete)
-        .await
-        .unwrap();
+    let replacement = part(&catalog, &target, b"other", Complete).await.unwrap();
     assert_ne!(replacement.etag, first.etag);
     assert!(matches!(
         complete(&catalog, &target, &first.etag).await,
@@ -170,20 +156,16 @@ async fn ram_xml_multipart_part_eof_sql_failure_and_replacement_keep_selected_by
 
 #[tokio::test]
 async fn ram_xml_multipart_quota_preserves_parts_and_old_destination_for_retry() {
-    let catalog = setup(900, Versioning::Off).await;
-    let original = put(&catalog, Default::default(), BodyEnd::Complete)
-        .await
-        .unwrap();
+    let catalog = setup(900, Off).await;
+    let original = put(&catalog, Default::default(), Complete).await.unwrap();
     let target = begin(&catalog).await;
-    let first = part(&catalog, &target, b"first", BodyEnd::Complete)
-        .await
-        .unwrap();
+    let first = part(&catalog, &target, b"first", Complete).await.unwrap();
     let mut reservations = Vec::new();
     while let Ok(stage) = catalog.0.backend.memory().unwrap().stage() {
         reservations.push(stage);
     }
     assert!(
-        part(&catalog, &target, b"new part", BodyEnd::Complete)
+        part(&catalog, &target, b"new part", Complete)
             .await
             .is_err()
     );
@@ -213,11 +195,9 @@ async fn ram_xml_multipart_quota_preserves_parts_and_old_destination_for_retry()
 
 #[tokio::test]
 async fn ram_xml_multipart_abort_expiry_and_reset_release_owned_hidden_parts() {
-    let catalog = setup(8192, Versioning::Off).await;
+    let catalog = setup(8192, Off).await;
     let target = begin(&catalog).await;
-    part(&catalog, &target, b"hidden", BodyEnd::Complete)
-        .await
-        .unwrap();
+    part(&catalog, &target, b"hidden", Complete).await.unwrap();
     let lease = catalog
         .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
         .await
@@ -234,7 +214,7 @@ async fn ram_xml_multipart_abort_expiry_and_reset_release_owned_hidden_parts() {
         Err(Error::NoSuchUpload)
     ));
     let expired = begin(&catalog).await;
-    part(&catalog, &expired, b"expired", BodyEnd::Complete)
+    part(&catalog, &expired, b"expired", Complete)
         .await
         .unwrap();
     catalog.maintain_xml_multipart(i64::MAX).await.unwrap();
@@ -245,9 +225,7 @@ async fn ram_xml_multipart_abort_expiry_and_reset_release_owned_hidden_parts() {
         Err(Error::NoSuchUpload)
     ));
     let reset = begin(&catalog).await;
-    part(&catalog, &reset, b"reset", BodyEnd::Complete)
-        .await
-        .unwrap();
+    part(&catalog, &reset, b"reset", Complete).await.unwrap();
     catalog.admin(admin::Origin::Seed).reset().await.unwrap();
     assert!(
         catalog
@@ -260,10 +238,8 @@ async fn ram_xml_multipart_abort_expiry_and_reset_release_owned_hidden_parts() {
 
 #[tokio::test]
 async fn ram_xml_multipart_publication_failure_rolls_back_session_parts_and_outbox() {
-    let catalog = setup(8192, Versioning::On).await;
-    let original = put(&catalog, Default::default(), BodyEnd::Complete)
-        .await
-        .unwrap();
+    let catalog = setup(8192, On).await;
+    let original = put(&catalog, Default::default(), Complete).await.unwrap();
     catalog
         .insert_notification(
             "test-bucket",
@@ -279,7 +255,7 @@ async fn ram_xml_multipart_publication_failure_rolls_back_session_parts_and_outb
         .await
         .unwrap();
     let target = begin(&catalog).await;
-    let selected = part(&catalog, &target, b"assembled", BodyEnd::Complete)
+    let selected = part(&catalog, &target, b"assembled", Complete)
         .await
         .unwrap();
     assert!(catalog.next_notification().await.unwrap().is_none());
@@ -335,7 +311,7 @@ async fn ram_xml_multipart_publication_failure_rolls_back_session_parts_and_outb
 
 #[tokio::test]
 async fn ram_xml_multipart_close_wakes_stalled_parts_without_publishing_them() {
-    let catalog = setup(200_000, Versioning::Off).await;
+    let catalog = setup(200_000, Off).await;
     let target = begin(&catalog).await;
     let lease = catalog
         .lease_xml_multipart(target, BucketAccess::Permissive)
@@ -379,14 +355,10 @@ async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_repl
     let clock = Arc::new(crate::clock::ManualClock::new(
         std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000),
     ));
-    let catalog = setup_with_clock(8192, Versioning::Off, clock.clone()).await;
-    let original = put(&catalog, Default::default(), BodyEnd::Complete)
-        .await
-        .unwrap();
+    let catalog = setup_with_clock(8192, Off, clock.clone()).await;
+    let original = put(&catalog, Default::default(), Complete).await.unwrap();
     let target = begin(&catalog).await;
-    let old = part(&catalog, &target, b"first", BodyEnd::Complete)
-        .await
-        .unwrap();
+    let old = part(&catalog, &target, b"first", Complete).await.unwrap();
     let upload = target.id.clone();
     let identity = catalog.run::<_, ObjectError>(move |connection| {
         connection.prepare_cached("SELECT blob_id,size,md5,crc32c FROM xml_multipart_parts WHERE upload_id=?1 AND number=1").unwrap()

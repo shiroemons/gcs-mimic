@@ -6,7 +6,7 @@ const MEDIA: &str = "/upload/storage/v1/b/bucket/o?uploadType=media&name=object"
 
 #[tokio::test]
 async fn cancelled_sessions_repeat_the_json_499_envelope() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     let init = h.initiate("name=cancelled", "", b"").await;
     let path = h.path(&init);
     for (method, headers) in [
@@ -35,7 +35,7 @@ async fn cancelled_sessions_repeat_the_json_499_envelope() {
 
 #[tokio::test]
 async fn bad_ranges_poison_sessions_but_small_nonfinal_chunks_remain_retryable() {
-    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     let init = h.initiate("name=small", "", b"").await;
     let path = h.path(&init);
     let small = h
@@ -89,7 +89,7 @@ async fn bad_ranges_poison_sessions_but_small_nonfinal_chunks_remain_retryable()
 
 #[tokio::test]
 async fn semantic_range_errors_and_duplicate_headers_leave_sessions_retryable() {
-    let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
     for header in [
         "Content-Range: bytes 0-4/4\r\n",
         "Content-Range: bytes 4-0/*\r\n",
@@ -123,7 +123,7 @@ async fn semantic_range_errors_and_duplicate_headers_leave_sessions_retryable() 
 
 #[tokio::test]
 async fn media_upload_ignores_declared_hashes_and_stores_the_computed_ones() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     for headers in [
         "X-Goog-Hash: crc32c=AAAAAA==\r\n",
         "X-Goog-Hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n",
@@ -142,7 +142,7 @@ async fn media_upload_ignores_declared_hashes_and_stores_the_computed_ones() {
 
 #[tokio::test]
 async fn multipart_metadata_hash_mismatch_names_both_digests() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     let body = "--b\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"name\":\"o\",\"crc32c\":\"AAAAAA==\"}\r\n--b\r\nContent-Type: text/plain\r\n\r\nhello\r\n--b--";
     let reply = h
         .request(
@@ -162,7 +162,7 @@ async fn multipart_metadata_hash_mismatch_names_both_digests() {
 
 #[tokio::test]
 async fn multipart_upload_content_types_must_agree_and_plain_bodies_are_media() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     let mismatch = "--b\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"name\":\"o\",\"contentType\":\"application/json\"}\r\n--b\r\nContent-Type: text/plain\r\n\r\nhello\r\n--b--";
     let reply = h
         .request(
@@ -208,7 +208,7 @@ async fn multipart_upload_content_types_must_agree_and_plain_bodies_are_media() 
 
 #[tokio::test]
 async fn media_conditionals_keep_the_representation_headers() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     let created = h
         .request("POST", MEDIA, "Content-Type: text/plain\r\n", b"hello")
         .await
@@ -250,7 +250,7 @@ async fn media_conditionals_keep_the_representation_headers() {
 
 #[tokio::test]
 async fn metadata_writes_ignore_unknown_members_and_release_holds_on_put() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     h.request("POST", MEDIA, "", b"hello").await;
     let object = "/storage/v1/b/bucket/o/object";
     let json = "Content-Type: application/json\r\n";
@@ -285,7 +285,7 @@ async fn metadata_writes_ignore_unknown_members_and_release_holds_on_put() {
 
 #[tokio::test]
 async fn failed_conditional_media_read_of_a_public_object_is_never_cacheable() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     let created = h
         .request(
             "POST",

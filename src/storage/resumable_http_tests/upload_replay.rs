@@ -3,7 +3,7 @@ use crate::storage::test_fixtures::{PERMISSIVE, live};
 
 #[tokio::test]
 async fn copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_capacity() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     let key = |prefix, bytes: &[u8; 32]| {
         crate::csek::key_headers(prefix, bytes)
             .iter()
@@ -66,7 +66,7 @@ async fn copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_ca
 
 #[tokio::test]
 async fn copy_replay_oversized_completion_rolls_back_destination_and_generation() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     assert_eq!(
         h.request(
             "POST",
@@ -121,12 +121,7 @@ async fn copy_replay_oversized_completion_rolls_back_destination_and_generation(
 
 #[tokio::test]
 async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
-    let h = Harness::start(
-        1000,
-        AuthProfile::Permissive,
-        Some("http://example.invalid"),
-    )
-    .await;
+    let h = Harness::start(1000, Permissive, Some("http://example.invalid")).await;
     let path = "/upload/storage/v1/b/bucket/o?uploadType=media&name=profile&ifGenerationMatch=0";
     let original = h
         .request(
@@ -198,7 +193,7 @@ async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
 
 #[tokio::test]
 async fn upload_replay_capacity_expiry_and_current_permissions() {
-    let h = Harness::start(1000, AuthProfile::Strict, Some("http://example.invalid")).await;
+    let h = Harness::start(1000, Strict, Some("http://example.invalid")).await;
     let path = "/upload/storage/v1/b/bucket/o?uploadType=media&name=replay";
     let headers = "Authorization: Bearer creator\r\nX-Goog-Gcs-Idempotency-Token: creator\r\n";
     let original = h.request("POST", path, headers, b"original").await;
@@ -302,7 +297,7 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
 
 #[tokio::test]
 async fn upload_replay_full_projection_retains_acl_after_mutation_and_deletion() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     let path = "/upload/storage/v1/b/bucket/o?uploadType=media&name=acl&projection=full&fields=name,generation,acl,owner";
     let token = "X-Goog-Gcs-Idempotency-Token: acl\r\n";
     let original = h.request("POST", path, token, b"data").await;
@@ -339,7 +334,7 @@ async fn upload_replay_full_projection_retains_acl_after_mutation_and_deletion()
 
 #[tokio::test]
 async fn upload_replay_full_projection_rechecks_revoked_acl_permission() {
-    let h = Harness::start(1000, AuthProfile::Strict, None).await;
+    let h = Harness::start(1000, Strict, None).await;
     let admin = "Authorization: Bearer admin\r\nContent-Type: application/json\r\n";
     assert_eq!(h.request("PUT", "/storage/v1/b/bucket/iam", admin, br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["user:viewer@example.test"]}]}"#).await.status, 200);
     let mut completions = Vec::new();
@@ -412,7 +407,7 @@ async fn upload_replay_full_projection_rechecks_revoked_acl_permission() {
 
 #[tokio::test]
 async fn python_advisory_content_type_rejects_empty_malformed_and_duplicate_values() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     for headers in [
         "X-Upload-Content-Type: \r\n",
         "X-Upload-Content-Type: not-a-mime\r\n",
@@ -459,7 +454,7 @@ async fn python_advisory_content_type_rejects_empty_malformed_and_duplicate_valu
 
 #[tokio::test]
 async fn python_upload_content_type_is_advisory_after_initiation() {
-    let h = Harness::start(1000, AuthProfile::Permissive, None).await;
+    let h = Harness::start(1000, Permissive, None).await;
     let init = h.initiate("name=python", "Content-Type: application/json\r\nX-Upload-Content-Type: text/advisory\r\nX-Upload-Content-Length: 3\r\n", br#"{"contentType":"text/metadata"}"#).await;
     assert_eq!(init.status, 200);
     let reply = h
@@ -483,7 +478,7 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
         "md5=AAAAAAAAAAAAAAAAAAAAAA==,crc32c=srP9bA==",
         "md5=rXaC3/oyxEygvmW1+8ETpQ==,crc32c=AAAAAA==",
     ] {
-        let h = Harness::start(1024 * 1024, AuthProfile::Permissive, None).await;
+        let h = Harness::start(1024 * 1024, Permissive, None).await;
         let old = h
             .request(
                 "POST",

@@ -42,8 +42,8 @@ async fn bytes(mut reader: objects::ObjectReader) -> Vec<u8> {
 
 #[tokio::test]
 async fn ram_appendable_prefix_snapshots_takeover_and_catalogs_are_isolated() {
-    let catalog = setup(8192, Versioning::Off).await;
-    let other = setup(8192, Versioning::Off).await;
+    let catalog = setup(8192, Off).await;
+    let other = setup(8192, Off).await;
     let mut writer = create(&catalog).await;
     let mut separate = create(&other).await;
     let generation = writer.record().generation;
@@ -150,7 +150,7 @@ async fn ram_appendable_prefix_snapshots_takeover_and_catalogs_are_isolated() {
 
 #[tokio::test]
 async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_retry() {
-    let catalog = setup(1000, Versioning::Off).await;
+    let catalog = setup(1000, Off).await;
     let mut writer = create(&catalog).await;
     writer
         .append(0, Bytes::from_static(b"abcd"), 1024)
@@ -158,9 +158,7 @@ async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_re
         .unwrap();
     writer.flush().await.unwrap();
     let (_, snapshot) = open(&catalog).await;
-    put(&catalog, Default::default(), BodyEnd::Complete)
-        .await
-        .unwrap();
+    put(&catalog, Default::default(), Complete).await.unwrap();
     writer
         .append(4, Bytes::from_static(b"efgh"), 1024)
         .await
@@ -221,7 +219,7 @@ async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_re
 
 #[tokio::test]
 async fn ram_appendable_failed_size_and_publication_keep_acknowledged_state() {
-    let catalog = setup(8192, Versioning::Off).await;
+    let catalog = setup(8192, Off).await;
     catalog
         .insert_notification(
             "test-bucket",
@@ -289,7 +287,7 @@ async fn ram_appendable_failed_size_and_publication_keep_acknowledged_state() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn ram_appendable_cancelled_flush_rolls_back_candidate_and_allows_takeover() {
-    let catalog = setup(8192, Versioning::Off).await;
+    let catalog = setup(8192, Off).await;
     let mut writer = create(&catalog).await;
     writer
         .append(0, Bytes::from_static(b"abcd"), 1024)
