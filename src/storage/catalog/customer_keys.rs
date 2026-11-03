@@ -114,12 +114,8 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::{PERMISSIVE, bucket, live};
-    use crate::{
-        csek::CsekError,
-        object::{ObjectMetadataUpdate, UploadChunk},
-        test_support::TestDir,
-    };
+    use crate::storage::test_fixtures::{PERMISSIVE, body, bucket, live};
+    use crate::{csek::CsekError, object::ObjectMetadataUpdate, test_support::TestDir};
 
     async fn setup(dir: &TestDir) -> Catalog {
         let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -131,12 +127,7 @@ mod tests {
     }
 
     async fn put(catalog: &Catalog, name: &str, key: Option<[u8; 32]>) -> ObjectRecord {
-        let (sender, body) = tokio::sync::mpsc::channel(2);
-        sender
-            .send(Ok(UploadChunk::Data(bytes::Bytes::from_static(b"secret"))))
-            .await
-            .unwrap();
-        sender.send(Ok(UploadChunk::End)).await.unwrap();
+        let body = body(vec![bytes::Bytes::from_static(b"secret")]);
         let permit = catalog
             .prepare_object_upload("bucket", name, Default::default(), PERMISSIVE)
             .await

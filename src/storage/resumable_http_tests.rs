@@ -8,12 +8,12 @@ mod soft_delete;
 mod terminal_retention;
 mod upload_replay;
 use crate as gcs_mimic;
+use crate::storage::test_fixtures::seed_bucket;
 use crate::test_support::TestDir;
-use gcs_mimic::storage::admin::{BucketDefinition, BucketName, ObjectName, Origin};
+use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
     auth::{Auth, Registry},
-    bucket::BucketRecord,
-    clock::Clock,
+    clock::{Clock, ManualClock},
     config::Config,
     server::{State, serve},
     storage::Catalog,
@@ -21,7 +21,7 @@ use gcs_mimic::{
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -35,7 +35,7 @@ struct Harness {
     address: String,
     base: String,
     state: Arc<State>,
-    clock: Arc<TestClock>,
+    clock: Arc<ManualClock>,
     stop: oneshot::Sender<()>,
     server: JoinHandle<std::io::Result<()>>,
     // Fields drop in order; the directory must outlive the catalog in `state`,
@@ -47,7 +47,6 @@ struct Reply {
     headers: BTreeMap<String, String>,
     body: Vec<u8>,
 }
-struct TestClock(Mutex<SystemTime>);
 
 #[tokio::test]
 async fn completed_retries_reject_new_checksums_without_invalidating_completion() {
@@ -161,17 +160,14 @@ async fn oversized_final_hash_request_retains_body_size_limit() {
     h.stop().await;
 }
 
-impl Clock for TestClock {
-    fn now(&self) -> SystemTime {
-        *self.0.lock().unwrap()
-    }
-}
 impl Reply {
+    #[track_caller]
     fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap()
     }
     /// A session-continuation failure: a bare `text/plain` page without the JSON API cache
     /// fields or `Vary`, as the upload front end sends it.
+    #[track_caller]
     fn session_error(&self, status: u16, body: &str) {
         assert_eq!(
             self.status,
@@ -189,6 +185,7 @@ impl Reply {
             );
         }
     }
+    #[track_caller]
     fn error(&self, status: u16, reason: &str) {
         assert_eq!(
             self.status,
@@ -218,40 +215,11 @@ impl Harness {
         let base = base
             .map(str::to_owned)
             .unwrap_or_else(|| format!("http://{address}"));
-        let clock = Arc::new(TestClock(Mutex::new(SystemTime::now())));
+        let clock = Arc::new(ManualClock::new(SystemTime::now()));
         let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
             .await
             .unwrap();
-        catalog
-            .admin(Origin::Seed)
-            .ensure_bucket(
-                BucketDefinition::new(BucketRecord {
-                    name: "bucket".into(),
-                    project: "project".into(),
-                    location: "US".into(),
-                    location_type: "multi-region".into(),
-                    storage_class: "STANDARD".into(),
-                    autoclass: None,
-                    labels: Default::default(),
-                    versioning_enabled: false,
-                    versioning_configured: false,
-                    default_event_based_hold: false,
-                    public_access_prevention_enforced: false,
-                    uniform_bucket_level_access_locked_time: None,
-                    lifecycle: Vec::new(),
-                    retention_policy: None,
-                    soft_delete_policy: None,
-                    object_retention_enabled: false,
-                    cors: Vec::new(),
-                    metageneration: 1,
-                    generation: 0,
-                    time_created: UNIX_EPOCH,
-                    updated: UNIX_EPOCH,
-                })
-                .unwrap(),
-            )
-            .await
-            .unwrap();
+        seed_bucket(&catalog).await;
         let auth = if strict {
             Auth::strict(Registry::parse(json!({"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"creator@example.test","tokens":["creator"],"project_roles":{"project":["roles/storage.objectCreator"]}},{"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}).to_string().as_bytes()).unwrap())
         } else {
@@ -455,6 +423,7 @@ impl Harness {
         )
         .await
     }
+    #[track_caller]
     fn path(&self, reply: &Reply) -> String {
         reply.headers["location"]
             .strip_prefix(self.base.trim_end_matches('/'))
@@ -483,6 +452,7 @@ async fn retry_unavailable<F: std::future::Future<Output = Reply>>(
     }
 }
 
+#[track_caller]
 fn assert_catalog_wait_timeout(reply: &Reply) {
     assert_eq!(reply.status, 503);
     assert!(
@@ -1009,7 +979,7 @@ async fn sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_a
             .get("items")
             .is_none()
     );
-    *h.clock.0.lock().unwrap() += std::time::Duration::from_secs(2);
+    h.clock.advance(Duration::from_secs(2));
     let r=h.request("PUT",&path,&format!("Content-Range: bytes {}-{}/{total}\r\nX-Goog-Meta-Replace: new\r\nX-Goog-Meta-Added: final\r\n",first.len(),total-1),final_bytes).await;
     assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
     let resource = r.json();
@@ -1960,7 +1930,7 @@ async fn session_deadline_during_transfer_returns_not_found_without_acknowledgin
         assert!(tokio::time::Instant::now() < deadline);
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     }
-    *h.clock.0.lock().unwrap() = session.deadline;
+    h.clock.set(session.deadline);
     for _ in 0..3 {
         stream.write_all(&[b'x'; 64 * 1024]).await.unwrap();
     }
@@ -2014,7 +1984,7 @@ async fn strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadl
             499
         );
     }
-    *h.clock.0.lock().unwrap() = session.deadline;
+    h.clock.set(session.deadline);
     for method in ["PUT", "POST", "DELETE"] {
         assert_eq!(
             h.request(method, &path, "Content-Range: bytes */*\r\n", b"")
@@ -2107,9 +2077,9 @@ async fn cancellation_racing_finalization_has_one_terminal_winner_and_preserves_
                 .resumable_session(id, "bucket")
                 .await
                 .unwrap();
-            *h.clock.0.lock().unwrap() = session.deadline;
+            h.clock.set(session.deadline);
         } else {
-            *h.clock.0.lock().unwrap() += Duration::from_secs(604800);
+            h.clock.advance(Duration::from_secs(604800));
         }
         h.state.catalog.maintain_resumable_sessions().await.unwrap();
         let object = h
@@ -2272,7 +2242,7 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
         .resumable_session(id, "bucket")
         .await
         .unwrap();
-    *h.clock.0.lock().unwrap() = session.deadline;
+    h.clock.set(session.deadline);
     assert_eq!(
         h.request("PUT", &expired, "", b"no publication")
             .await

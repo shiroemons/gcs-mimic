@@ -1145,14 +1145,14 @@ pub(super) fn recover(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::UploadChunk;
-    use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload, version};
+    use crate::storage::test_fixtures::{
+        PERMISSIVE, body, bucket, live, permissive_upload, read_all, version,
+    };
     use bytes::Bytes;
     use md5::{Digest, Md5, digest::common::hazmat::SerializableState};
     use std::io::Write;
     use std::path::PathBuf;
     use std::time::UNIX_EPOCH;
-    use tokio::sync::mpsc;
 
     #[tokio::test]
     async fn md5_availability_survives_restart_without_component_count() {
@@ -1275,11 +1275,7 @@ mod tests {
     }
 
     async fn put(catalog: &Catalog, name: &str, bytes: &'static [u8]) -> ObjectRecord {
-        let (sender, body) = mpsc::channel(2);
-        sender
-            .try_send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
-            .unwrap();
-        sender.try_send(Ok(UploadChunk::End)).unwrap();
+        let body = body(vec![Bytes::from_static(bytes)]);
         catalog
             .put_object(permissive_upload("bucket", name, 1_000_000), body)
             .await
@@ -1318,11 +1314,7 @@ mod tests {
             .open_object(live("bucket", name), Default::default(), PERMISSIVE)
             .await
             .unwrap();
-        let mut bytes = Vec::new();
-        while let Some(chunk) = reader.next_chunk().await.unwrap() {
-            bytes.extend_from_slice(&chunk);
-        }
-        bytes
+        read_all(&mut reader).await
     }
 
     #[tokio::test]

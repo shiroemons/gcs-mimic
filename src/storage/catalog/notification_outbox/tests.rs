@@ -1,10 +1,12 @@
 use super::*;
 use crate::storage::ObjectUpload;
 use crate::storage::catalog::sql;
-use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
+use crate::storage::test_fixtures::{
+    PERMISSIVE, body, live, permissive_upload, publication, version,
+};
 use crate::{
     notification::NotificationConfig,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
+    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord},
     test_support::TestDir,
 };
 use bytes::Bytes;
@@ -59,13 +61,7 @@ async fn put(
     name: &str,
     conditions: ObjectConditions,
 ) -> Result<ObjectRecord, ObjectError> {
-    let (sender, body) = tokio::sync::mpsc::channel(2);
-    sender
-        .send(Ok(UploadChunk::Data(Bytes::from_static(b"body"))))
-        .await
-        .unwrap();
-    sender.send(Ok(UploadChunk::End)).await.unwrap();
-    drop(sender);
+    let body = body(vec![Bytes::from_static(b"body")]);
     catalog
         .put_object(
             ObjectUpload {
@@ -92,24 +88,15 @@ async fn initialization_put(
     condition: Option<crate::storage::admin::GenerationCondition>,
     expected: ExpectedHashes,
 ) -> Result<ObjectRecord, crate::storage::admin::AdminError> {
-    let (sender, body) = tokio::sync::mpsc::channel(2);
-    sender
-        .send(Ok(UploadChunk::Data(Bytes::from_static(b"body"))))
-        .await
-        .unwrap();
-    sender.send(Ok(UploadChunk::End)).await.unwrap();
-    drop(sender);
+    let body = body(vec![Bytes::from_static(b"body")]);
     admin
         .publish_object(
             &crate::storage::admin::BucketName::new("test-bucket").unwrap(),
             &crate::storage::admin::ObjectName::new("prefix/item").unwrap(),
             crate::storage::admin::Publication {
-                content_type: "text/plain".into(),
-                metadata: Default::default(),
                 expected,
                 condition,
-                max_bytes: 10,
-                mode: crate::storage::admin::PublishMode::Replace,
+                ..publication(10)
             },
             body,
         )

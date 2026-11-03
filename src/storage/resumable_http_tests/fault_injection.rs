@@ -9,7 +9,7 @@
 
 use super::*;
 use crate::storage::catalog::fault::{Fault, Step};
-use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::storage::test_fixtures::{PERMISSIVE, live, read_all as read_body};
 use std::{io::ErrorKind, path::Path};
 
 const CORRUPT: &str =
@@ -46,6 +46,7 @@ fn expect_for(fault: &Fault) -> Expect {
     }
 }
 
+#[track_caller]
 fn assert_backend_failure(reply: &Reply, expect: &Expect, case: &str) {
     reply.error(503, "backendError");
     let message = reply.json()["error"]["message"]
@@ -101,6 +102,7 @@ fn unowned_staging(dir: &Path) -> Vec<String> {
 }
 
 /// No unowned staged body and no blob without a live row or a journaled deletion.
+#[track_caller]
 fn assert_no_leaks(dir: &Path, case: &str) {
     assert_eq!(
         unowned_staging(dir),
@@ -158,6 +160,7 @@ impl Harness {
         self.state.catalog.inject(step, skip, fault);
     }
 
+    #[track_caller]
     fn assert_fired(&self, case: &str) {
         assert_eq!(
             self.state.catalog.pending_faults(),
@@ -275,11 +278,7 @@ async fn read_all(catalog: &Catalog, name: &str) -> Option<Vec<u8>> {
         Err(crate::object::ObjectError::ObjectNotFound) => return None,
         Err(error) => panic!("{name}: {error}"),
     };
-    let mut bytes = Vec::new();
-    while let Some(chunk) = reader.next_chunk().await.unwrap() {
-        bytes.extend_from_slice(&chunk);
-    }
-    Some(bytes)
+    Some(read_body(&mut reader).await)
 }
 
 /// Reopens a crash snapshot, which runs startup recovery, and checks that it holds
@@ -675,6 +674,7 @@ async fn session_blob(h: &Harness, path: &str) -> String {
 /// After recovery an uncommitted session is still active, and its staged body holds exactly
 /// the acknowledged prefix, so the client can query the offset and resume.
 #[cfg(unix)]
+#[track_caller]
 fn assert_resumable_prefix(snapshot: &Path, blob_id: &str, prefix: &[u8], case: &str) {
     let connection = rusqlite::Connection::open(snapshot.join("catalog.sqlite3")).unwrap();
     let (state, offset): (String, i64) = connection

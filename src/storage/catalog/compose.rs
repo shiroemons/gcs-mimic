@@ -287,11 +287,9 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::UploadChunk;
-    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
+    use crate::storage::test_fixtures::{PERMISSIVE, body, live, permissive_upload};
     use bytes::Bytes;
     use std::{fs, path::PathBuf, time::UNIX_EPOCH};
-    use tokio::sync::mpsc;
 
     async fn setup() -> (Catalog, PathBuf) {
         let mut nonce = [0; 8];
@@ -302,13 +300,11 @@ mod tests {
         let bucket =
             crate::json::parse_insert(br#"{"name":"bucket"}"#, "project", UNIX_EPOCH).unwrap();
         catalog.insert_bucket(bucket).await.unwrap();
-        let (sender, receiver) = mpsc::channel(2);
-        sender
-            .try_send(Ok(UploadChunk::Data(Bytes::from_static(b"source"))))
-            .unwrap();
-        sender.try_send(Ok(UploadChunk::End)).unwrap();
         catalog
-            .put_object(permissive_upload("bucket", "source", 100), receiver)
+            .put_object(
+                permissive_upload("bucket", "source", 100),
+                body(vec![Bytes::from_static(b"source")]),
+            )
             .await
             .unwrap();
         (catalog, path)

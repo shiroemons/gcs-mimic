@@ -73,11 +73,7 @@ async fn bytes(catalog: &Catalog) -> Vec<u8> {
         .open_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = reader.next_chunk().await.unwrap() {
-        bytes.extend_from_slice(&chunk);
-    }
-    bytes
+    read_all(&mut reader).await
 }
 
 async fn reclaimed(catalog: &Catalog) {

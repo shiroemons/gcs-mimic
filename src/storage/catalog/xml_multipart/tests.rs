@@ -1,15 +1,15 @@
 use super::super::fault::{Fault, Step};
 use super::*;
-use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
+use crate::storage::test_fixtures::{PERMISSIVE, body, live, permissive_upload, read_all};
 use crate::{
-    clock::{Clock, SystemClock},
+    clock::{Clock, ManualClock, SystemClock},
     object::UploadChunk,
     storage::admin::{BucketDefinition, BucketName, LocalAdmin},
     test_support::TestDir,
 };
 use std::{
     io,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
 use tokio::sync::mpsc;
@@ -55,11 +55,7 @@ async fn put(
     let lease = catalog
         .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
         .await?;
-    let (sender, body) = mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(bytes::Bytes::from_static(bytes))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
+    let body = body(vec![bytes::Bytes::from_static(bytes)]);
     catalog
         .put_xml_part(
             lease,
@@ -94,21 +90,11 @@ async fn bytes(catalog: &Catalog) -> Vec<u8> {
         .open_object(live("bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = reader.next_chunk().await.unwrap() {
-        bytes.extend_from_slice(&chunk);
-    }
-    bytes
+    read_all(&mut reader).await
 }
 
 async fn old_object(catalog: &Catalog) {
-    let (sender, body) = mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(bytes::Bytes::from_static(
-            b"previous",
-        ))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
+    let body = body(vec![bytes::Bytes::from_static(b"previous")]);
     catalog
         .put_object(permissive_upload("bucket", "value", 1024), body)
         .await
@@ -422,15 +408,9 @@ async fn multipart_part_and_completion_crash_and_power_loss_snapshots_recover() 
 
 #[tokio::test]
 async fn injected_clock_expiration_and_session_admission_are_bounded() {
-    struct Time(Mutex<SystemTime>);
-    impl Clock for Time {
-        fn now(&self) -> SystemTime {
-            *self.0.lock().unwrap()
-        }
-    }
-    let clock = Arc::new(Time(Mutex::new(
+    let clock = Arc::new(ManualClock::new(
         UNIX_EPOCH + Duration::from_secs(1_000_000),
-    )));
+    ));
     let (_dir, catalog) = setup(clock.clone()).await;
     let target = begin(&catalog).await;
     put(&catalog, &target, 1, b"expires").await.unwrap();
@@ -447,7 +427,7 @@ async fn injected_clock_expiration_and_session_admission_are_bounded() {
             .await
             .is_err()
     );
-    *clock.0.lock().unwrap() += Duration::from_secs(604800);
+    clock.advance(Duration::from_secs(604800));
     assert!(matches!(
         catalog
             .lease_xml_multipart(target, BucketAccess::Permissive)

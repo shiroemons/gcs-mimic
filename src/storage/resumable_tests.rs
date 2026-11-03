@@ -1,64 +1,26 @@
 use crate as gcs_mimic;
+use crate::storage::test_fixtures::seed_bucket;
 use crate::test_support::TestDir;
-use gcs_mimic::storage::admin::{BucketDefinition, BucketName, Origin};
+use gcs_mimic::storage::admin::{BucketName, Origin};
 use gcs_mimic::{
-    bucket::BucketRecord,
-    clock::Clock,
+    clock::ManualClock,
     storage::{Catalog, ResumableError, ResumableOptions},
 };
 use std::{
-    sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::Arc,
+    time::{Duration, UNIX_EPOCH},
 };
 
-struct TestClock(Mutex<SystemTime>);
-impl Clock for TestClock {
-    fn now(&self) -> SystemTime {
-        *self.0.lock().unwrap()
-    }
-}
-
-async fn setup(dir: &TestDir, clock: Arc<TestClock>) -> Catalog {
+async fn setup(dir: &TestDir, clock: Arc<ManualClock>) -> Catalog {
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
-    catalog
-        .admin(Origin::Seed)
-        .ensure_bucket(
-            BucketDefinition::new(BucketRecord {
-                name: "bucket".into(),
-                project: "project".into(),
-                location: "US".into(),
-                location_type: "multi-region".into(),
-                storage_class: "STANDARD".into(),
-                autoclass: None,
-                labels: Default::default(),
-                versioning_enabled: false,
-                versioning_configured: false,
-                default_event_based_hold: false,
-                public_access_prevention_enforced: false,
-                uniform_bucket_level_access_locked_time: None,
-                lifecycle: Vec::new(),
-                retention_policy: None,
-                soft_delete_policy: None,
-                object_retention_enabled: false,
-                cors: Vec::new(),
-                metageneration: 1,
-                generation: 0,
-                time_created: UNIX_EPOCH,
-                updated: UNIX_EPOCH,
-            })
-            .unwrap(),
-        )
-        .await
-        .unwrap();
+    seed_bucket(&catalog).await;
     catalog
 }
 
 #[tokio::test]
 async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(
-        UNIX_EPOCH + Duration::from_secs(1000),
-    )));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_secs(1000)));
     let catalog = setup(&dir, clock.clone()).await;
     let options = ResumableOptions {
         content_type: "application/test".into(),
@@ -114,7 +76,7 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
     assert_eq!(loaded.options, options);
     assert_eq!(loaded.offset, 3);
     assert_eq!(loaded.deadline, session.deadline);
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     assert_eq!(
         catalog
             .resumable_session(&session.id, "bucket")
@@ -128,7 +90,7 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
 #[tokio::test]
 async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, Arc::new(TestClock(Mutex::new(UNIX_EPOCH)))).await;
+    let catalog = setup(&dir, Arc::new(ManualClock::new(UNIX_EPOCH))).await;
     for _ in 0..127 {
         catalog
             .create_resumable_session(
@@ -188,7 +150,7 @@ async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
 #[tokio::test]
 async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired_sessions() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
@@ -230,7 +192,7 @@ async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired
             .unwrap_err(),
         ResumableError::Cancelled
     );
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     assert_eq!(
         catalog
             .checkpoint_resumable_session(&mut lease, 2, Some(4))
@@ -246,7 +208,7 @@ async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired
 #[tokio::test]
 async fn previous_schema_migrates_and_invalid_session_options_are_rejected_read_only() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     catalog.close().await.unwrap();
     let path = dir.0.join("catalog.sqlite3");

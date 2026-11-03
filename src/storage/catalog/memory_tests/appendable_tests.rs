@@ -37,11 +37,7 @@ async fn open(catalog: &Catalog) -> (crate::object::ObjectRecord, objects::Objec
 }
 
 async fn bytes(mut reader: objects::ObjectReader) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    while let Some(chunk) = reader.next_chunk().await.unwrap() {
-        bytes.extend_from_slice(&chunk);
-    }
-    bytes
+    read_all(&mut reader).await
 }
 
 #[tokio::test]

@@ -269,7 +269,7 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
         .body,
         b"new"
     );
-    *h.clock.0.lock().unwrap() += Duration::from_secs(600);
+    h.clock.advance(Duration::from_secs(600));
     let replacement = h.request("POST", path, next, b"new").await;
     assert_eq!(replacement.status, 200);
     assert_ne!(
@@ -285,7 +285,7 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
         1
     );
     drop(connection);
-    *h.clock.0.lock().unwrap() += Duration::from_secs(600);
+    h.clock.advance(Duration::from_secs(600));
     let expired_retry = h.request("POST", path, next, b"new").await;
     assert_eq!(expired_retry.status, 200);
     assert_ne!(
@@ -568,18 +568,7 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
             options,
             catalog_wait,
         };
-        let (sender, body) = tokio::sync::mpsc::channel(2);
-        sender
-            .send(Ok(crate::object::UploadChunk::Data(
-                bytes::Bytes::from_static(&[0]),
-            )))
-            .await
-            .unwrap();
-        sender
-            .send(Ok(crate::object::UploadChunk::End))
-            .await
-            .unwrap();
-        drop(sender);
+        let body = crate::storage::test_fixtures::body(vec![bytes::Bytes::from_static(&[0])]);
         let permit = catalog.admit_object_upload().unwrap();
         let result = catalog
             .write_resumable_session(lease, chunk, body, permit, |record| {

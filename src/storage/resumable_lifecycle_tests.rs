@@ -1,13 +1,10 @@
 use crate as gcs_mimic;
+use crate::storage::test_fixtures::{body, publication, seed_bucket};
 use crate::test_support::TestDir;
-use gcs_mimic::storage::admin::{
-    BucketDefinition, BucketName, ObjectName, Origin, Publication, PublishMode,
-};
+use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
-    bucket::BucketRecord,
-    clock::Clock,
+    clock::{Clock, ManualClock},
     json::resumable_cancel::cancel_response,
-    object::UploadChunk,
     storage::{Catalog, ResumableError},
 };
 use http_body_util::BodyExt;
@@ -28,45 +25,9 @@ use tokio::{
 
 mod terminal_retention;
 
-struct TestClock(Mutex<SystemTime>);
-impl Clock for TestClock {
-    fn now(&self) -> SystemTime {
-        *self.0.lock().unwrap()
-    }
-}
-
 async fn setup(dir: &TestDir, clock: Arc<impl Clock + 'static>) -> Catalog {
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
-    catalog
-        .admin(Origin::Seed)
-        .ensure_bucket(
-            BucketDefinition::new(BucketRecord {
-                name: "bucket".into(),
-                project: "project".into(),
-                location: "US".into(),
-                location_type: "multi-region".into(),
-                storage_class: "STANDARD".into(),
-                autoclass: None,
-                labels: Default::default(),
-                versioning_enabled: false,
-                versioning_configured: false,
-                default_event_based_hold: false,
-                public_access_prevention_enforced: false,
-                uniform_bucket_level_access_locked_time: None,
-                lifecycle: Vec::new(),
-                retention_policy: None,
-                soft_delete_policy: None,
-                object_retention_enabled: false,
-                cors: Vec::new(),
-                metageneration: 1,
-                generation: 0,
-                time_created: UNIX_EPOCH,
-                updated: UNIX_EPOCH,
-            })
-            .unwrap(),
-        )
-        .await
-        .unwrap();
+    seed_bucket(&catalog).await;
     catalog
 }
 
@@ -118,30 +79,15 @@ async fn cancel_wire(catalog: &Catalog, id: &str, body: &[u8]) -> u16 {
 #[tokio::test]
 async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
-    let (sender, body) = tokio::sync::mpsc::channel(2);
-    sender
-        .send(Ok(UploadChunk::Data(hyper::body::Bytes::from_static(
-            b"old bytes",
-        ))))
-        .await
-        .unwrap();
-    sender.send(Ok(UploadChunk::End)).await.unwrap();
-    drop(sender);
+    let body = body(vec![hyper::body::Bytes::from_static(b"old bytes")]);
     let old = catalog
         .admin(Origin::Seed)
         .publish_object(
             &BucketName::new("bucket").unwrap(),
             &ObjectName::new("name").unwrap(),
-            Publication {
-                content_type: "text/plain".into(),
-                expected: Default::default(),
-                condition: None,
-                metadata: Default::default(),
-                max_bytes: 1024,
-                mode: PublishMode::Replace,
-            },
+            publication(1024),
             body,
         )
         .await
@@ -181,7 +127,7 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
         ResumableError::Cancelled
     );
     assert_eq!(cancel_wire(&catalog, &"f".repeat(64), b"").await, 404);
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 404);
     catalog.close().await.unwrap();
 }
@@ -189,7 +135,7 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
 #[tokio::test]
 async fn completed_session_cannot_be_cancelled_or_have_its_bytes_removed() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, Arc::new(TestClock(Mutex::new(UNIX_EPOCH)))).await;
+    let catalog = setup(&dir, Arc::new(ManualClock::new(UNIX_EPOCH))).await;
     let session = catalog
         .create_resumable_session(
             "bucket",
@@ -275,7 +221,7 @@ async fn cancel_reloads_terminal_state_when_transition_no_longer_matches() {
 #[tokio::test]
 async fn cancel_obeys_writer_lease_and_only_one_cancellation_wins() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, Arc::new(TestClock(Mutex::new(UNIX_EPOCH)))).await;
+    let catalog = setup(&dir, Arc::new(ManualClock::new(UNIX_EPOCH))).await;
     let session = catalog
         .create_resumable_session(
             "bucket",
@@ -308,7 +254,7 @@ async fn cancel_obeys_writer_lease_and_only_one_cancellation_wins() {
 #[tokio::test]
 async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
@@ -320,7 +266,7 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
         .await
         .unwrap();
     assert_eq!(session.deadline, UNIX_EPOCH + Duration::from_secs(604800));
-    *clock.0.lock().unwrap() = session.deadline - Duration::from_secs(1);
+    clock.set(session.deadline - Duration::from_secs(1));
     let mut lease = catalog
         .lock_resumable_session(&session.id, "bucket")
         .await
@@ -337,7 +283,7 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
             .deadline,
         session.deadline
     );
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     assert_eq!(
         catalog
             .resumable_session(&session.id, "bucket")
@@ -353,7 +299,7 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
     );
     drop(lease);
     assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 404);
-    *clock.0.lock().unwrap() += Duration::from_secs(1);
+    clock.advance(Duration::from_secs(1));
     assert_eq!(
         catalog
             .resumable_session(&session.id, "bucket")
@@ -369,7 +315,7 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
 #[tokio::test]
 async fn expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     for _ in 0..128 {
         catalog
@@ -385,7 +331,7 @@ async fn expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots()
             .unwrap();
     }
     catalog.close().await.unwrap();
-    *clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(604800);
+    clock.set(UNIX_EPOCH + Duration::from_secs(604800));
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
@@ -404,7 +350,7 @@ async fn expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots()
 #[tokio::test]
 async fn cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slot() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
@@ -422,7 +368,7 @@ async fn cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slo
     assert!(stage.is_dir());
     assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
     assert!(catalog.resumable_maintenance_error().is_some());
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     assert!(catalog.maintain_resumable_sessions().await.is_err());
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     assert_eq!(
@@ -458,7 +404,7 @@ async fn cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slo
 #[tokio::test]
 async fn expiry_waits_for_writer_and_retries_after_lease_release() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
         .create_resumable_session(
@@ -473,7 +419,7 @@ async fn expiry_waits_for_writer_and_retries_after_lease_release() {
         .lock_resumable_session(&session.id, "bucket")
         .await
         .unwrap();
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     assert!(catalog.maintain_resumable_sessions().await.is_err());
     assert!(lease.staging_path().exists());
     drop(lease);
@@ -513,36 +459,7 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
     let calls = clock.calls.load(Ordering::SeqCst);
     tokio::time::sleep(Duration::from_millis(30)).await;
     assert_eq!(clock.calls.load(Ordering::SeqCst), calls);
-    catalog
-        .admin(Origin::Seed)
-        .ensure_bucket(
-            BucketDefinition::new(BucketRecord {
-                name: "bucket".into(),
-                project: "project".into(),
-                location: "US".into(),
-                location_type: "multi-region".into(),
-                storage_class: "STANDARD".into(),
-                autoclass: None,
-                labels: Default::default(),
-                versioning_enabled: false,
-                versioning_configured: false,
-                default_event_based_hold: false,
-                public_access_prevention_enforced: false,
-                uniform_bucket_level_access_locked_time: None,
-                lifecycle: Vec::new(),
-                retention_policy: None,
-                soft_delete_policy: None,
-                object_retention_enabled: false,
-                cors: Vec::new(),
-                metageneration: 1,
-                generation: 0,
-                time_created: UNIX_EPOCH,
-                updated: UNIX_EPOCH,
-            })
-            .unwrap(),
-        )
-        .await
-        .unwrap();
+    seed_bucket(&catalog).await;
     let first = catalog
         .create_resumable_session(
             "bucket",
@@ -605,7 +522,7 @@ async fn prefix(catalog: &Catalog, data: &[u8]) -> gcs_mimic::storage::Resumable
 #[tokio::test]
 async fn restart_discards_write_before_offset_commit_and_preserves_committed_prefix() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = prefix(&catalog, b"acknowledged").await;
     let stage = session.blob_id.staging_path(&dir.0);
@@ -663,7 +580,7 @@ async fn restart_discards_write_before_offset_commit_and_preserves_committed_pre
 #[tokio::test]
 async fn restart_restores_rename_before_commit_instead_of_deleting_acknowledged_bytes() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = prefix(&catalog, b"prefix").await;
     let stage = session.blob_id.staging_path(&dir.0);
@@ -690,30 +607,15 @@ async fn restart_restores_rename_before_commit_instead_of_deleting_acknowledged_
 #[tokio::test]
 async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_session_expiry() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
-    let (sender, body) = tokio::sync::mpsc::channel(2);
-    sender
-        .send(Ok(UploadChunk::Data(hyper::body::Bytes::from_static(
-            b"published",
-        ))))
-        .await
-        .unwrap();
-    sender.send(Ok(UploadChunk::End)).await.unwrap();
-    drop(sender);
+    let body = body(vec![hyper::body::Bytes::from_static(b"published")]);
     let object = catalog
         .admin(Origin::Seed)
         .publish_object(
             &BucketName::new("bucket").unwrap(),
             &ObjectName::new("name").unwrap(),
-            Publication {
-                content_type: "text/plain".into(),
-                expected: Default::default(),
-                condition: None,
-                metadata: Default::default(),
-                max_bytes: 1024,
-                mode: PublishMode::Replace,
-            },
+            publication(1024),
             body,
         )
         .await
@@ -755,7 +657,7 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
     );
     assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 410);
     assert_eq!(std::fs::read(&blob).unwrap(), b"published");
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     assert_eq!(std::fs::read(&blob).unwrap(), b"published");
     assert_eq!(
@@ -780,7 +682,7 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
 async fn missing_short_and_nonfile_acknowledged_prefixes_block_readiness() {
     for damage in ["missing", "short", "directory"] {
         let dir = TestDir::new();
-        let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+        let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
         let catalog = setup(&dir, clock.clone()).await;
         let session = prefix(&catalog, b"prefix").await;
         catalog.close().await.unwrap();
@@ -816,7 +718,7 @@ async fn missing_short_and_nonfile_acknowledged_prefixes_block_readiness() {
 #[tokio::test]
 async fn recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let mut sessions = Vec::new();
     for _ in 0..33 {
@@ -883,7 +785,7 @@ async fn recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs(
 #[tokio::test]
 async fn writer_lease_is_reacquired_after_drop_and_panic() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, Arc::new(TestClock(Mutex::new(UNIX_EPOCH)))).await;
+    let catalog = setup(&dir, Arc::new(ManualClock::new(UNIX_EPOCH))).await;
     let session = prefix(&catalog, b"prefix").await;
     let lease = catalog
         .lock_resumable_session(&session.id, "bucket")
@@ -913,7 +815,7 @@ async fn writer_lease_is_reacquired_after_drop_and_panic() {
 #[tokio::test]
 async fn recovery_rejects_ambiguous_active_publication_without_deleting_either_copy() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = prefix(&catalog, b"prefix").await;
     catalog.close().await.unwrap();
@@ -930,7 +832,7 @@ async fn recovery_rejects_ambiguous_active_publication_without_deleting_either_c
 #[tokio::test]
 async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     catalog.start_resumable_maintenance();
     let session = catalog
@@ -945,7 +847,7 @@ async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
     let stage = session.blob_id.staging_path(&dir.0);
     std::fs::remove_file(&stage).unwrap();
     std::fs::create_dir(&stage).unwrap();
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     assert!(catalog.maintain_resumable_sessions().await.is_err());
     assert!(catalog.resumable_maintenance_error().is_some());
     // The failure is repaired without explicitly invoking maintenance a second time.
@@ -972,7 +874,7 @@ async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
 #[tokio::test]
 async fn scheduler_restarts_after_a_panic_and_readiness_reports_the_gap() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let state = gcs_mimic::server::State {
         clock: clock.clone(),
@@ -988,7 +890,7 @@ async fn scheduler_restarts_after_a_panic_and_readiness_reports_the_gap() {
         )
         .await
         .unwrap();
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     // Every pass panics until the injection is cleared, keeping the loop in its restart backoff.
     catalog.inject_maintenance_panics(usize::MAX);
     catalog.start_resumable_maintenance();
@@ -1036,7 +938,7 @@ async fn scheduler_restarts_after_a_panic_and_readiness_reports_the_gap() {
 #[tokio::test]
 async fn persistent_maintenance_failures_turn_readiness_off_until_a_pass_succeeds() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let state = gcs_mimic::server::State {
         clock: clock.clone(),
@@ -1056,7 +958,7 @@ async fn persistent_maintenance_failures_turn_readiness_off_until_a_pass_succeed
     let stage = session.blob_id.staging_path(&dir.0);
     std::fs::remove_file(&stage).unwrap();
     std::fs::create_dir(&stage).unwrap();
-    *clock.0.lock().unwrap() = session.deadline;
+    clock.set(session.deadline);
     catalog.start_resumable_maintenance();
     tokio::time::timeout(Duration::from_secs(10), async {
         while state.is_ready() {
@@ -1086,7 +988,7 @@ async fn persistent_maintenance_failures_turn_readiness_off_until_a_pass_succeed
 #[tokio::test]
 async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock).await;
     let session = catalog
         .create_resumable_session(
@@ -1142,7 +1044,7 @@ async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadlin
 #[tokio::test]
 async fn recovery_rejects_symlink_prefix_without_changing_its_target() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let session = prefix(&catalog, b"prefix").await;
     catalog.close().await.unwrap();

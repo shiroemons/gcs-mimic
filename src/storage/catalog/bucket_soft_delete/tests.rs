@@ -1,27 +1,13 @@
 use super::*;
 use crate::storage::test_fixtures::PERMISSIVE;
-use crate::{bucket::BucketMetadataUpdate, clock::Clock, test_support::TestDir};
+use crate::{bucket::BucketMetadataUpdate, clock::ManualClock, test_support::TestDir};
 use std::{
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
 
 const DAY: u64 = 86_400;
 const START: Duration = Duration::from_secs(1_000_000);
-
-struct TestClock(Mutex<SystemTime>);
-
-impl Clock for TestClock {
-    fn now(&self) -> SystemTime {
-        *self.0.lock().unwrap()
-    }
-}
-
-impl TestClock {
-    fn set(&self, time: SystemTime) {
-        *self.0.lock().unwrap() = time;
-    }
-}
 
 fn record(name: &str) -> BucketRecord {
     BucketRecord {
@@ -49,8 +35,8 @@ fn record(name: &str) -> BucketRecord {
     }
 }
 
-async fn open(dir: &TestDir) -> (Catalog, Arc<TestClock>) {
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH + START)));
+async fn open(dir: &TestDir) -> (Catalog, Arc<ManualClock>) {
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH + START));
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
         .unwrap();

@@ -1,9 +1,12 @@
 use super::*;
 use gcs_mimic::storage::{ResumableChunk, ResumableOptions, ResumableSession, SessionState};
 
-async fn create(catalog: &Catalog, clock: &TestClock) -> Result<ResumableSession, ResumableError> {
+async fn create(
+    catalog: &Catalog,
+    clock: &ManualClock,
+) -> Result<ResumableSession, ResumableError> {
     // Distinct initiation times give eviction a deterministic oldest-first order.
-    *clock.0.lock().unwrap() += Duration::from_millis(1);
+    clock.advance(Duration::from_millis(1));
     catalog
         .create_resumable_session(
             "bucket",
@@ -17,12 +20,7 @@ async fn create(catalog: &Catalog, clock: &TestClock) -> Result<ResumableSession
 async fn complete(catalog: &Catalog, id: &str) -> serde_json::Value {
     let lease = catalog.lock_resumable_session(id, "bucket").await.unwrap();
     let options = lease.session.options.clone();
-    let (sender, body) = tokio::sync::mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(hyper::body::Bytes::from_static(b"x"))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
-    drop(sender);
+    let body = body(vec![hyper::body::Bytes::from_static(b"x")]);
     catalog
         .write_resumable_session(
             lease,
@@ -58,7 +56,7 @@ fn session_counts(dir: &TestDir) -> (i64, i64) {
 #[tokio::test]
 async fn completed_sessions_do_not_block_new_uploads_and_retained_results_stay_bounded() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let mut completed = Vec::new();
     for _ in 0..130 {
@@ -128,7 +126,7 @@ async fn completed_sessions_do_not_block_new_uploads_and_retained_results_stay_b
 #[tokio::test]
 async fn cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap() {
     let dir = TestDir::new();
-    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let mut cancelled = Vec::new();
     for _ in 0..129 {
