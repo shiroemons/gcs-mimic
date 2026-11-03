@@ -28,12 +28,10 @@ pub(super) fn drain_storage(
     let ids = connection
         .prepare_cached("SELECT blob_id FROM xml_multipart_deletions ORDER BY blob_id LIMIT 32")
         .and_then(|mut s| {
-            s.query_map([], |r| r.get::<_, String>(0))?
+            s.query_map([], |r| r.get::<_, BlobId>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()
         })?;
     for id in ids {
-        let blob = super::super::super::blob_id::BlobId::parse(&id)
-            .ok_or_else(|| object_unavailable("invalid multipart blob ID"))?;
         if let Some(memory) = memory {
             let referenced: bool = sql::scalar(
                 connection,
@@ -45,13 +43,13 @@ pub(super) fn drain_storage(
                     "multipart deletion journal references retained bytes",
                 ));
             }
-            memory.remove_draft(&id)?;
-            memory.remove(&id)?;
+            memory.remove_draft(&id.to_hex())?;
+            memory.remove(&id.to_hex())?;
         } else {
             #[cfg(test)]
             super::super::fault::hit(data_dir, super::super::fault::Step::MultipartReclaim)
                 .map_err(object_unavailable)?;
-            objects::unlink(&blob.staging_path(data_dir))?;
+            objects::unlink(&id.staging_path(data_dir))?;
             #[cfg(unix)]
             {
                 #[cfg(test)]
@@ -95,17 +93,15 @@ pub(super) fn recover(
     while drain(connection, data_dir).map_err(super::super::unavailable)? {}
     let mut after = String::new();
     loop {
-        let part:Option<(String,u64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        let part:Option<(BlobId,u64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         let Some((id, size)) = part else { break };
-        let blob = super::super::super::blob_id::BlobId::parse(&id)
-            .ok_or_else(|| super::super::unavailable("invalid multipart blob ID"))?;
-        let metadata = std::fs::symlink_metadata(blob.staging_path(data_dir))?;
+        let metadata = std::fs::symlink_metadata(id.staging_path(data_dir))?;
         if !metadata.is_file() || metadata.len() != size {
             return Err(super::super::unavailable(
                 "multipart part is missing or truncated",
             ));
         }
-        after = id;
+        after = id.to_hex();
     }
     Ok(())
 }

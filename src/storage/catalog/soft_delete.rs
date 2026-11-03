@@ -175,9 +175,9 @@ impl Catalog {
                     let (versioning, _) =
                         Catalog::bucket_settings_in_transaction(&transaction, &bucket)?;
                     if let Some(memory) = &memory {
-                        memory.pin(&original, text.clone())?;
+                        memory.pin(&original.to_hex(), text.clone())?;
                     } else {
-                        std::fs::hard_link(objects::blob_path(&data_dir, &original)?, &stage)?;
+                        std::fs::hard_link(objects::blob_path(&data_dir, &original), &stage)?;
                         objects::publish_blob(&stage, &id.blob_path(&data_dir))?;
                     }
                     record.metageneration = 1;
@@ -191,7 +191,7 @@ impl Catalog {
                         previous.as_ref(),
                         versioning,
                         objects::NewVersion {
-                            blob_id: &text,
+                            blob_id: id,
                             assignment: objects::GenerationAssignment::Automatic,
                             micros,
                             origin: super::change_journal::origin(&create_access),

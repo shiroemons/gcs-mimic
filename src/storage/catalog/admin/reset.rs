@@ -204,18 +204,16 @@ fn reclaim(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError>
             .prepare_cached(
                 "SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128",
             )?
-            .query_map([], |row| row.get::<_, String>(0))?
+            .query_map([], |row| row.get::<_, crate::storage::BlobId>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if ids.is_empty() {
             return Ok(());
         }
         for id in ids {
-            let blob = crate::storage::blob_id::BlobId::parse(&id)
-                .ok_or_else(|| unavailable("invalid reset deletion journal ID"))?;
             for path in [
-                blob.blob_path(data_dir),
-                blob.staging_path(data_dir),
-                data_dir.join("appendable").join(&id),
+                id.blob_path(data_dir),
+                id.staging_path(data_dir),
+                data_dir.join("appendable").join(id.to_hex()),
             ] {
                 #[cfg(test)]
                 super::super::fault::hit(data_dir, super::super::fault::Step::ResetReclaim)

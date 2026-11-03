@@ -2,6 +2,7 @@
 
 use super::objects::object_unavailable as objects_error;
 use super::*;
+use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
 use crate::{fsutil, hashing::Hasher, storage::failure::BackendCause};
 use std::{
@@ -97,7 +98,7 @@ impl FileWorkers {
 /// Verified private bytes; dropping schedules owned cleanup, never synchronous I/O.
 pub(crate) struct StagedObject {
     catalog: Catalog,
-    id: Option<String>,
+    id: Option<BlobId>,
     permit: Option<OwnedSemaphorePermit>,
     size: u64,
     hashes: crate::hashing::Hashes,
@@ -334,8 +335,8 @@ fn stage_file(
     Ok((size, hashes))
 }
 
-async fn cleanup(catalog: &Catalog, id: String) -> Result<(), AdminError> {
-    let probe = id.clone();
+async fn cleanup(catalog: &Catalog, id: BlobId) -> Result<(), AdminError> {
+    let probe = id;
     let referenced = catalog
         .run_upload(move |connection| {
             objects::blob_referenced(connection, &probe).map_err(objects_error)
@@ -343,12 +344,12 @@ async fn cleanup(catalog: &Catalog, id: String) -> Result<(), AdminError> {
         .await?;
     if let Some(memory) = &catalog.0.memory {
         if !referenced {
-            memory.remove(&id)?;
+            memory.remove(&id.to_hex())?;
         }
         return Ok(());
     }
-    let stage = catalog.0.data_dir.join("staging").join(&id);
-    let blob = objects::blob_path(&catalog.0.data_dir, &id)?;
+    let stage = id.staging_path(&catalog.0.data_dir);
+    let blob = objects::blob_path(&catalog.0.data_dir, &id);
     catalog
         .0
         .file_workers
@@ -389,9 +390,7 @@ impl Admin {
         // Owned work returns a handle even if its receiving future is cancelled; Drop then cleans it.
         crate::task::spawn_supervised("admin-stage-object", async move {
             let _worker = worker;
-            let mut random = [0; 16];
-            getrandom::fill(&mut random).map_err(AdminError::backend)?;
-            let id = crate::hashing::encode_lower(&random);
+            let id = BlobId::generate().map_err(AdminError::backend)?;
             let mut handle = StagedObject {
                 catalog: catalog.clone(),
                 id: None,
@@ -409,10 +408,10 @@ impl Admin {
                 activity: Some(activity),
                 batch_ownership: None,
             };
-            let stage = catalog.0.data_dir.join("staging").join(&id);
-            let blob = objects::blob_path(&catalog.0.data_dir, &id)?;
+            let stage = id.staging_path(&catalog.0.data_dir);
+            let blob = objects::blob_path(&catalog.0.data_dir, &id);
             let memory = catalog.0.memory.clone();
-            let memory_id = id.clone();
+            let memory_id = id;
             let result = catalog
                 .0
                 .file_workers
@@ -616,7 +615,7 @@ impl Admin {
 fn stage_memory(
     memory: &Arc<crate::storage::memory::Store>,
     source: &File,
-    id: String,
+    id: BlobId,
     expected: ExpectedHashes,
     max_bytes: u64,
 ) -> Result<(u64, crate::hashing::Hashes), AdminError> {
@@ -650,7 +649,7 @@ fn stage_memory(
     {
         return Err(AdminError::Checksum);
     }
-    stage.publish(id)?;
+    stage.publish(id.to_hex())?;
     Ok((size, hashes))
 }
 
@@ -683,8 +682,8 @@ async fn run_batch(
                 .id
                 .as_ref()
                 .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?;
-            let stage = catalog.0.data_dir.join("staging").join(id);
-            let blob = objects::blob_path(&catalog.0.data_dir, id)?;
+            let stage = id.staging_path(&catalog.0.data_dir);
+            let blob = objects::blob_path(&catalog.0.data_dir, id);
             catalog
                 .0
                 .file_workers
@@ -917,7 +916,7 @@ fn publish_entry(
     let time = super::super::system_time_micros(micros)?;
     let id = staged
         .id
-        .as_deref()
+        .as_ref()
         .ok_or_else(|| objects_error("resolved staged handle"))?;
     let defaults = objects::PublicationDefaults {
         storage_class,
@@ -939,7 +938,7 @@ fn publish_entry(
         previous.as_ref(),
         versioning,
         objects::NewVersion {
-            blob_id: id,
+            blob_id: *id,
             assignment: staged
                 .import_identity
                 .and_then(|identity| identity.generation())

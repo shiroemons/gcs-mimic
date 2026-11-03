@@ -1,5 +1,5 @@
 use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
-use crate::storage::catalog::sql;
+use crate::storage::{BlobId, catalog::sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
@@ -79,7 +79,7 @@ pub(crate) struct ObjectUpload<'a> {
 /// assigned, the publication time and the origin the change journal reports.
 #[derive(Clone, Copy)]
 pub(super) struct NewVersion<'a> {
-    pub(super) blob_id: &'a str,
+    pub(super) blob_id: BlobId,
     pub(super) assignment: GenerationAssignment,
     pub(super) micros: i64,
     pub(super) origin: super::admin::Origin,
@@ -97,7 +97,7 @@ pub(super) struct PublicationDefaults {
 
 pub(super) struct StoredObject {
     pub(super) record: ObjectRecord,
-    pub(super) blob: String,
+    pub(super) blob: BlobId,
 }
 
 impl PublicationDefaults {
@@ -287,10 +287,8 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
-pub(super) fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
-    super::super::blob_id::BlobId::parse(id)
-        .map(|id| id.blob_path(data_dir))
-        .ok_or_else(|| ObjectError::Unavailable("invalid opaque blob ID".into()))
+pub(super) fn blob_path(data_dir: &Path, id: &BlobId) -> PathBuf {
+    id.blob_path(data_dir)
 }
 
 #[cfg(unix)]
@@ -420,7 +418,7 @@ fn os_metadata(entry: &fs::DirEntry) -> bool {
     name == ".DS_Store" || name.starts_with("._")
 }
 
-pub(super) fn blob_referenced(connection: &Connection, id: &str) -> rusqlite::Result<bool> {
+pub(super) fn blob_referenced(connection: &Connection, id: &BlobId) -> rusqlite::Result<bool> {
     sql::scalar(
         connection,
         "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
@@ -432,11 +430,11 @@ pub(super) fn discard_unreferenced_blob(
     connection: &Connection,
     data_dir: &Path,
     memory: Option<&crate::storage::memory::Store>,
-    id: &str,
+    id: &BlobId,
 ) -> Result<(), ObjectError> {
     if !blob_referenced(connection, id)? {
         if let Some(memory) = memory {
-            memory.remove(id)?;
+            memory.remove(&id.to_hex())?;
         } else {
             reclaim(connection, data_dir, id)?;
         }
@@ -447,7 +445,7 @@ pub(super) fn discard_unreferenced_blob(
 pub(super) fn reclaim(
     connection: &Connection,
     data_dir: &Path,
-    id: &str,
+    id: &BlobId,
 ) -> Result<(), ObjectError> {
     let referenced: bool = blob_referenced(connection, id)?;
     if referenced {
@@ -455,7 +453,7 @@ pub(super) fn reclaim(
             "deletion journal references a live blob".into(),
         ));
     }
-    let path = blob_path(data_dir, id)?;
+    let path = blob_path(data_dir, id);
     let shard = blob_shard(&path)?;
     unlink(&path)?;
     #[cfg(unix)]
@@ -535,7 +533,7 @@ fn drain_deletion_journal(connection: &Connection, data_dir: &Path) -> Result<()
             .prepare_cached(
                 "SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128",
             )?
-            .query_map([], |r| r.get::<_, String>(0))?
+            .query_map([], |r| r.get::<_, BlobId>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if ids.is_empty() {
             return Ok(());
@@ -561,14 +559,14 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
                 "SELECT blob_id, size FROM objects WHERE blob_id > ?1 ORDER BY blob_id LIMIT 128",
             )?
             .query_map([&after], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?))
+                Ok((r.get::<_, BlobId>(0)?, r.get::<_, u64>(1)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if rows.is_empty() {
             return Ok(());
         }
         for (id, size) in rows {
-            let path = blob_path(data_dir, &id)?;
+            let path = blob_path(data_dir, &id);
             let metadata = fs::symlink_metadata(&path).map_err(|error| {
                 ObjectError::Unavailable(crate::storage::failure::BackendCause::with_source(
                     format!("referenced blob {id}: {error}"),
@@ -580,7 +578,7 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
                     "referenced blob {id} has invalid size or type"
                 )));
             }
-            after = id;
+            after = id.to_hex();
         }
     }
 }
@@ -607,9 +605,10 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
             let id = blob.file_name().into_string().map_err(|_| {
                 object_unavailable(format!("invalid blob ID {}", blob.path().display()))
             })?;
-            let expected = blob_path(data_dir, &id).map_err(|error| {
+            let id = id.parse::<BlobId>().map_err(|error| {
                 object_unavailable(format!("blob entry {}: {error}", blob.path().display()))
             })?;
+            let expected = blob_path(data_dir, &id);
             if expected != blob.path() {
                 return Err(object_unavailable(format!(
                     "blob in wrong shard {}",
@@ -792,7 +791,7 @@ struct UploadCommit {
     owner: OwnerAssignment,
     replay: Option<super::upload_replay::UploadReplay>,
     clock: Arc<dyn Clock>,
-    blob_id: String,
+    blob_id: BlobId,
     body: UploadedBody,
 }
 
@@ -912,7 +911,7 @@ impl UploadCommit {
             previous.as_ref(),
             versioning,
             NewVersion {
-                blob_id: &self.blob_id,
+                blob_id: self.blob_id,
                 assignment: self
                     .identity
                     .and_then(|value| value.generation())
@@ -1159,7 +1158,7 @@ impl Catalog {
         crate::task::spawn_supervised("object-upload", async move {
             let _permit = permit;
             let blob = super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
-            let id = blob.to_hex();
+            let id = blob;
             let stage = blob.staging_path(&catalog.0.data_dir);
             let published = blob.blob_path(&catalog.0.data_dir);
             let mut file = if let Some(memory) = &catalog.0.memory {
@@ -1174,7 +1173,7 @@ impl Catalog {
                     write_stream(&mut file, expected, max_bytes, body, cancellation, &catalog)
                         .await?;
                 match file {
-                    UploadSink::Memory(memory) => memory.publish(id.clone())?,
+                    UploadSink::Memory(memory) => memory.publish(id.to_hex())?,
                     UploadSink::Disk(file) => {
                         drop(file);
                         catalog
@@ -1200,7 +1199,7 @@ impl Catalog {
                     owner,
                     replay,
                     clock: catalog.0.clock.clone(),
-                    blob_id: id.clone(),
+                    blob_id: id,
                     body: UploadedBody {
                         size,
                         md5,
@@ -1235,7 +1234,7 @@ impl Catalog {
     async fn discard_unreferenced_stage(
         &self,
         stage: PathBuf,
-        id: String,
+        id: BlobId,
     ) -> Result<(), ObjectError> {
         let data_dir = self.0.data_dir.clone();
         let memory = self.0.memory.clone();
@@ -1476,11 +1475,11 @@ pub(super) fn open_selected(
     )?;
     // Open under the same execution permit that serializes deletes and overwrites.
     let file = match catalog.0.memory.as_deref() {
-        Some(memory) => ReaderData::Memory(memory.open(&id)?),
+        Some(memory) => ReaderData::Memory(memory.open(&id.to_hex())?),
         None => ReaderData::Disk(tokio::fs::File::from_std(File::open(blob_path(
             &catalog.0.data_dir,
             &id,
-        )?)?)),
+        ))?)),
     };
     let remaining = record.size;
     let publicly_readable = super::policies::read_policy(&transaction, bucket)?.allows(
@@ -2352,7 +2351,7 @@ pub(super) fn publish_in_transaction<T>(
     versioning: Versioning,
     version: NewVersion<'_>,
     prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
-) -> Result<(ObjectRecord, Option<String>, T), ObjectError> {
+) -> Result<(ObjectRecord, Option<BlobId>, T), ObjectError> {
     let NewVersion {
         blob_id,
         assignment,
@@ -2516,7 +2515,7 @@ impl Catalog {
                             // Cancelled sessions need their marker until staging cleanup also succeeds.
                             "SELECT blob_id FROM pending_blob_deletions AS pending WHERE NOT EXISTS (SELECT 1 FROM resumable_sessions AS session WHERE session.blob_id = pending.blob_id AND session.state != 'COMPLETE') ORDER BY blob_id LIMIT 128",
                         )?
-                        .query_map([], |row| row.get::<_, String>(0))?
+                        .query_map([], |row| row.get::<_, BlobId>(0))?
                         .collect::<rusqlite::Result<Vec<_>>>()?;
                     for id in &ids {
                         let referenced: bool = blob_referenced(connection, id)?;
@@ -2537,15 +2536,15 @@ impl Catalog {
             let (removed, failure) = tokio::task::spawn_blocking(move || {
                 if let Some(memory) = memory {
                     for id in &ids {
-                        memory.remove_draft(id)?;
-                        memory.remove(id)?;
+                        memory.remove_draft(&id.to_hex())?;
+                        memory.remove(&id.to_hex())?;
                     }
                     return Ok((ids, None));
                 }
-                let mut shards = std::collections::BTreeMap::<PathBuf, Vec<String>>::new();
+                let mut shards = std::collections::BTreeMap::<PathBuf, Vec<BlobId>>::new();
                 let mut failure = None;
                 for id in ids {
-                    let path = blob_path(&data_dir, &id)?;
+                    let path = blob_path(&data_dir, &id);
                     let shard = blob_shard(&path)?.to_owned();
                     match unlink(&path) {
                         Ok(()) => shards
@@ -2607,7 +2606,7 @@ pub(super) fn retire_previous(
     origin: super::admin::Origin,
     replacement: Option<i64>,
     notification_mode: NotificationMode,
-) -> Result<Option<String>, ObjectError> {
+) -> Result<Option<BlobId>, ObjectError> {
     let Some(StoredObject { record, blob: id }) = previous else {
         return Ok(None);
     };
@@ -2655,7 +2654,7 @@ pub(super) fn retire_previous(
             "INSERT INTO pending_blob_deletions VALUES (?1)",
             [id],
         )?;
-        Ok(Some(id.clone()))
+        Ok(Some(*id))
     }
 }
 

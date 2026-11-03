@@ -139,7 +139,7 @@ async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_recla
         .await
         .unwrap();
     writer.flush().await.unwrap();
-    let id = writer.blob_id.clone();
+    let id = writer.blob_id.to_hex();
     let generation = writer.record().generation;
     let (_, mut reader) = catalog
         .open_appendable(live("append", "cancelled"), Default::default(), PERMISSIVE)

@@ -5,6 +5,7 @@ use super::{
     rewrite_token::RewriteToken,
     system_time_millis, unix_millis,
 };
+use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::BucketAccess,
@@ -74,7 +75,7 @@ pub(crate) struct RewriteStart {
 
 #[derive(Clone)]
 pub(crate) struct RewriteSession {
-    pub id: String,
+    pub id: BlobId,
     pub token: String,
     pub previous_token: Option<String>,
     pub binding: RewriteBinding,
@@ -230,8 +231,8 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
             })
             .transpose()?,
     };
-    let transfer_id: Option<String> = row.get(8)?;
-    if !session_consistent(&session, transfer_id.as_deref()) {
+    let transfer_id: Option<BlobId> = row.get(8)?;
+    if !session_consistent(&session, transfer_id) {
         return Err(sql::conversion_error(
             3,
             rusqlite::types::Type::Text,
@@ -243,7 +244,7 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
 
 /// Whether a decoded session's identifiers, progress and stored response agree; an
 /// incomplete session owns the derived transfer with its own ID, a completed one none.
-fn session_consistent(session: &RewriteSession, transfer_id: Option<&str>) -> bool {
+fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> bool {
     let opaque_id = |value: &str| {
         value.len() == 32
             && value
@@ -267,13 +268,11 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<&str>) -> bo
                 }
         }
     };
-    opaque_id(&session.id)
-        && if completed {
-            transfer_id.is_none()
-        } else {
-            transfer_id == Some(session.id.as_str())
-        }
-        && opaque_id(&session.source_incarnation)
+    (if completed {
+        transfer_id.is_none()
+    } else {
+        transfer_id == Some(session.id)
+    }) && opaque_id(&session.source_incarnation)
         && opaque_id(&session.destination_incarnation)
         && response_valid
         && session
@@ -562,7 +561,7 @@ impl Catalog {
         if current.offset == current.total {
             session.destination.access = destination_access;
             let destination = session.destination.clone();
-            let id = session.id.clone();
+            let id = session.id;
             let clock = self.0.clock.clone();
             let validate_session = session.clone();
             let completed_session = session.clone();
@@ -596,7 +595,7 @@ impl Catalog {
             .to_owned();
         let response = json!({"offset":current.offset,"token":next});
         let saved = response.to_string();
-        let id = session.id.clone();
+        let id = session.id;
         let now = unix_millis(self.0.clock.now())?;
         self.run(move |connection| {
             let changed=sql::exec(connection, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5", params![id,next,current.offset,saved,now])?;
@@ -612,12 +611,12 @@ impl Catalog {
         let mut after = String::new();
         loop {
             let cursor = after.clone();
-            let ids=self.run(move |connection| connection.prepare_cached("SELECT id FROM rewrite_sessions WHERE deadline<=?1 AND id>?2 ORDER BY id LIMIT 16")?.query_map(params![now,cursor],|row|row.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
+            let ids=self.run(move |connection| connection.prepare_cached("SELECT id FROM rewrite_sessions WHERE deadline<=?1 AND id>?2 ORDER BY id LIMIT 16")?.query_map(params![now,cursor],|row|row.get::<_,BlobId>(0))?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
             if ids.is_empty() {
                 break;
             }
             for id in ids {
-                after = id.clone();
+                after = id.to_hex();
                 let key = format!("rewrite:{id}");
                 let activity = self.activity()?;
                 let _guard = {

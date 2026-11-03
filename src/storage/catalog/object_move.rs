@@ -124,7 +124,7 @@ impl Catalog {
                     previous.as_ref(),
                     versioning,
                     NewVersion {
-                        blob_id: &blob_id,
+                        blob_id,
                         assignment: GenerationAssignment::Automatic,
                         micros,
                         origin,

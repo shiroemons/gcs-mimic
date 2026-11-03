@@ -5,16 +5,16 @@ pub(super) enum Data {
     Disk(Arc<fs::File>),
     Memory {
         store: Arc<crate::storage::memory::Store>,
-        id: String,
+        id: BlobId,
     },
 }
 
 impl Data {
-    pub(super) fn create(catalog: &Catalog, id: &str, path: &Path) -> io::Result<Self> {
+    pub(super) fn create(catalog: &Catalog, id: &BlobId, path: &Path) -> io::Result<Self> {
         if let Some(store) = &catalog.0.memory {
             return Ok(Self::Memory {
                 store: store.clone(),
-                id: id.into(),
+                id: *id,
             });
         }
         let directory = catalog.0.data_dir.join("appendable");
@@ -30,16 +30,16 @@ impl Data {
 
     pub(super) fn take_over(
         catalog: &Catalog,
-        id: &str,
+        id: &BlobId,
         path: &Path,
         size: u64,
     ) -> Result<Self, ObjectError> {
         if let Some(store) = &catalog.0.memory {
-            let mut draft = store.draft(id, size)?;
+            let mut draft = store.draft(&id.to_hex(), size)?;
             draft.acknowledge(size);
             return Ok(Self::Memory {
                 store: store.clone(),
-                id: id.into(),
+                id: *id,
             });
         }
         let file = fs::OpenOptions::new().write(true).open(path)?;
@@ -61,7 +61,7 @@ impl Data {
                 file.write_all(bytes)
             }
             Self::Memory { store, id } => {
-                let mut draft = store.draft(id, start)?;
+                let mut draft = store.draft(&id.to_hex(), start)?;
                 draft.write(bytes)?;
                 draft.acknowledge(start + bytes.len() as u64);
                 Ok(())
@@ -72,23 +72,23 @@ impl Data {
     pub(super) fn sync(&self) -> io::Result<Option<crate::storage::memory::Checkpoint>> {
         match self {
             Self::Disk(file) => file.sync_data().map(|()| None),
-            Self::Memory { store, id } => store.checkpoint_draft(id).map(Some),
+            Self::Memory { store, id } => store.checkpoint_draft(&id.to_hex()).map(Some),
         }
     }
 
     pub(super) fn reader(&self, path: &Path) -> io::Result<Box<dyn Read + Send>> {
         match self {
             Self::Disk(_) => Ok(Box::new(fs::File::open(path)?)),
-            Self::Memory { store, id } => Ok(Box::new(store.open(id)?)),
+            Self::Memory { store, id } => Ok(Box::new(store.open(&id.to_hex())?)),
         }
     }
 }
 
-pub(super) fn remove(catalog: &Catalog, id: &str) -> Result<(), ObjectError> {
+pub(super) fn remove(catalog: &Catalog, id: &BlobId) -> Result<(), ObjectError> {
     if let Some(store) = &catalog.0.memory {
-        store.remove_draft(id)?;
-        store.remove(id).map_err(object_unavailable)
+        store.remove_draft(&id.to_hex())?;
+        store.remove(&id.to_hex()).map_err(object_unavailable)
     } else {
-        unlink(&data_path(&catalog.0.data_dir, id)?).map_err(object_unavailable)
+        unlink(&data_path(&catalog.0.data_dir, id)).map_err(object_unavailable)
     }
 }

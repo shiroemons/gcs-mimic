@@ -78,7 +78,7 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
         .await
         .unwrap();
     assert_eq!(session.id.len(), 64);
-    assert_eq!(session.blob_id.len(), 32);
+    assert_eq!(session.blob_id.to_hex().len(), 32);
     assert_eq!(
         session.deadline.duration_since(session.created).unwrap(),
         Duration::from_secs(604800)

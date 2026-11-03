@@ -83,10 +83,15 @@ fn invalid_session_identifiers_report_their_own_columns() {
     for (id, blob, column) in [
         ("invalid".into(), "0".repeat(32), 0),
         ("0".repeat(64), "invalid".into(), 1),
+        ("0".repeat(64), "A".repeat(32), 1),
     ] {
         let error = connection.query_row("SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,0,0,604800000,'ACTIVE',NULL", params![id,blob,options], read_session).unwrap_err();
         assert!(
             matches!(error, rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, _) if index == column)
         );
+        assert!(matches!(
+            crate::storage::failure::unavailable(error),
+            CatalogError::Corrupt(_)
+        ));
     }
 }

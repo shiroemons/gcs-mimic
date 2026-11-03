@@ -235,7 +235,7 @@ impl Catalog {
         {
             if let Some(memory) = &self.0.memory {
                 memory
-                    .remove_draft(&lease.session.blob_id)
+                    .remove_draft(&lease.session.blob_id.to_hex())
                     .map_err(object_unavailable)?;
             }
             return Ok(session.completion);
@@ -243,12 +243,12 @@ impl Catalog {
         if matches!(&error, ResumableError::Object(error) if error.is_backend_failure()) {
             if let Some(memory) = &self.0.memory {
                 memory
-                    .remove(&lease.session.blob_id)
+                    .remove(&lease.session.blob_id.to_hex())
                     .map_err(object_unavailable)?;
                 return Err(error);
             }
             let data_dir = self.0.data_dir.clone();
-            let blob_id = lease.session.blob_id.clone();
+            let blob_id = lease.session.blob_id;
             let offset = lease.session.offset;
             self.run_upload(move |connection| {
                 super::resumable_recovery::recover_prefix(connection, &data_dir, &blob_id, offset)
@@ -281,7 +281,7 @@ impl Catalog {
         reason: &'static str,
     ) -> Result<(), ResumableError> {
         let id = lease.session.id.clone();
-        let blob_id = lease.session.blob_id.clone();
+        let blob_id = lease.session.blob_id;
         #[cfg(test)]
         let data_dir = self.0.data_dir.clone();
         let changed = self.run_upload(move |connection| {
@@ -300,7 +300,7 @@ impl Catalog {
         if changed == 1 {
             let data_dir = self.0.data_dir.clone();
             let memory = self.0.memory.clone();
-            let blob_id = lease.session.blob_id.clone();
+            let blob_id = lease.session.blob_id;
             let cleanup = self
                 .run_upload(move |connection| {
                     super::resumable_maintenance::clean_session_storage(
@@ -398,7 +398,7 @@ impl Catalog {
                     previous.as_ref(),
                     versioning,
                     objects::NewVersion {
-                        blob_id: &session.blob_id,
+                        blob_id: session.blob_id,
                         assignment: objects::GenerationAssignment::Automatic,
                         micros,
                         origin: super::change_journal::origin(&options.access),
@@ -435,7 +435,7 @@ impl Catalog {
         if result.is_ok() {
             if let Some(memory) = &self.0.memory {
                 memory
-                    .remove_draft(&lease.session.blob_id)
+                    .remove_draft(&lease.session.blob_id.to_hex())
                     .map_err(object_unavailable)?;
             }
             self.reclaim_after_commit().await;
@@ -446,11 +446,15 @@ impl Catalog {
     async fn publish_resumable_bytes(&self, lease: &SessionLease) -> Result<(), ResumableError> {
         if let Some(memory) = &self.0.memory {
             let memory = memory.clone();
-            let blob_id = lease.session.blob_id.clone();
-            self.run_upload(move |_| memory.publish_draft(&blob_id).map_err(object_unavailable))
-                .await?;
+            let blob_id = lease.session.blob_id;
+            self.run_upload(move |_| {
+                memory
+                    .publish_draft(&blob_id.to_hex())
+                    .map_err(object_unavailable)
+            })
+            .await?;
         } else {
-            let destination = objects::blob_path(&self.0.data_dir, &lease.session.blob_id)?;
+            let destination = objects::blob_path(&self.0.data_dir, &lease.session.blob_id);
             self.publish_staged(lease.staging_path(), destination)
                 .await?;
         }

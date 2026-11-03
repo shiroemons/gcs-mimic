@@ -14,10 +14,8 @@ pub(crate) struct PartUpload {
     pub max_bytes: u64,
 }
 
-fn stage(data_dir: &Path, id: &str) -> Result<std::path::PathBuf, ObjectError> {
-    super::super::super::blob_id::BlobId::parse(id)
-        .map(|id| id.staging_path(data_dir))
-        .ok_or_else(|| object_unavailable("invalid multipart blob ID"))
+fn stage(data_dir: &Path, id: &BlobId) -> std::path::PathBuf {
+    id.staging_path(data_dir)
 }
 
 fn publication_error(error: Error) -> ObjectError {
@@ -54,7 +52,7 @@ impl Catalog {
             }).await?;
             let budget=request.max_bytes.checked_sub(retained).ok_or(ObjectError::TooLarge)?.min(MAX_PART_BYTES);
             let blob=super::super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
-            let id=blob.to_hex();
+            let id=blob;
             let path=blob.staging_path(&catalog.0.data_dir);
             let mut file=if let Some(memory)=&catalog.0.memory {
                 objects::UploadSink::Memory(memory.stage().map_err(object_unavailable)?)
@@ -67,12 +65,11 @@ impl Catalog {
                 let data_dir=catalog.0.data_dir.clone();
                 let target=lease.upload.target.clone();
                 let access=lease.access.clone();
-                let id=id.clone();
                 let clock=catalog.0.clock.clone();
                 #[cfg(unix)]
                 let memory=catalog.0.memory.clone();
                 catalog.run(move |connection| -> Result<_, Error> {
-                    if let objects::UploadSink::Memory(stage)=file { stage.publish(id.clone()).map_err(object_unavailable)?; }
+                    if let objects::UploadSink::Memory(stage)=file { stage.publish(id.to_hex()).map_err(object_unavailable)?; }
                     #[cfg(unix)] if memory.is_none() { objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?; }
                     #[cfg(test)] super::super::fault::hit(&data_dir,super::super::fault::Step::Checkpoint).map_err(object_unavailable)?;
                     let transaction=sql::immediate(connection).map_err(object_unavailable)?;
@@ -125,16 +122,14 @@ impl Catalog {
         let permit = self.admit_object_upload()?;
         crate::task::spawn_supervised("xml-multipart-complete", async move {
             let (_permit, lease) = (permit, lease);
-            let id = super::super::super::blob_id::BlobId::generate()
-                .map_err(object_unavailable)?
-                .to_hex();
+            let id = BlobId::generate().map_err(object_unavailable)?;
             let owner = catalog.guard_derived_request(&id);
             let total = catalog
                 .xml_completion_total(&lease, parts.clone(), max_bytes)
                 .await?;
             if let Err(error) = catalog.assemble_xml_parts(&lease, &parts, &id, total).await {
                 let data_dir = catalog.0.data_dir.clone();
-                let orphan = id.clone();
+                let orphan = id;
                 let memory = catalog.0.memory.clone();
                 if let Err(cleanup) = catalog
                     .run(move |connection| {
@@ -247,15 +242,17 @@ impl Catalog {
         &self,
         lease: &Lease,
         parts: &[CompletedPart],
-        id: &str,
+        id: &BlobId,
         total: u64,
     ) -> Result<(), Error> {
         let mut file = if let Some(memory) = &self.0.memory {
-            memory.create_draft(id.into()).map_err(object_unavailable)?;
+            memory
+                .create_draft(id.to_hex())
+                .map_err(object_unavailable)?;
             Output::open(self, id, 0).await?
         } else {
-            let path = stage(&self.0.data_dir, id)?;
-            let blob_path = objects::blob_path(&self.0.data_dir, id)?;
+            let path = stage(&self.0.data_dir, id);
+            let blob_path = objects::blob_path(&self.0.data_dir, id);
             Output::Disk(tokio::fs::File::from_std(
                 objects::create_upload_stage(path, blob_path).await?,
             ))

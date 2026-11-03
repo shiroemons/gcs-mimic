@@ -379,7 +379,7 @@ async fn ram_derived_cancel_expiry_and_abandoned_begin_reclaim_their_owned_state
                 4,
                 derived::TransferKind::Ephemeral,
                 move |_, transfer| {
-                    entered.send(transfer.id.clone()).unwrap();
+                    entered.send(transfer.id).unwrap();
                     blocked.recv().unwrap();
                     Ok(())
                 },

@@ -197,7 +197,7 @@ async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
         )
         .await
         .unwrap();
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     fs::remove_file(&stage).unwrap();
     fs::create_dir(&stage).unwrap();
     let lease = catalog
@@ -206,7 +206,7 @@ async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
         .unwrap();
     catalog.invalidate_resumable_session(&lease).await.unwrap();
     catalog.reclaim_pending().await.unwrap();
-    let id = session.blob_id.clone();
+    let id = session.blob_id;
     catalog
         .run_upload(move |connection| {
             let pending: bool = connection
@@ -358,7 +358,7 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
             let transaction = connection.transaction().unwrap();
             for index in 0..140 {
                 let id = format!("{index:032x}");
-                let path = objects::blob_path(&data_dir, &id).unwrap();
+                let path = objects::blob_path(&data_dir, &id.parse().unwrap());
                 fs::create_dir_all(path.parent().unwrap()).unwrap();
                 fs::write(path, b"retired").unwrap();
                 transaction
@@ -1373,7 +1373,7 @@ async fn disk_full_during_resumable_retirement_preserves_the_same_session_and_by
     assert_eq!(retained.state, super::super::SessionState::Active);
     assert_eq!(retained.offset, 5);
     assert_eq!(
-        std::fs::read(dir.0.join("staging").join(&session.blob_id)).unwrap(),
+        std::fs::read(session.blob_id.staging_path(&dir.0)).unwrap(),
         b"hello"
     );
     assert_eq!(

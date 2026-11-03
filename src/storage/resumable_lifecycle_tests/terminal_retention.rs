@@ -134,7 +134,7 @@ async fn cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap(
     for _ in 0..129 {
         let session = create(&catalog, &clock).await.unwrap();
         // A directory in place of the staging file makes cleanup fail and keep its journal.
-        let stage = dir.0.join("staging").join(&session.blob_id);
+        let stage = session.blob_id.staging_path(&dir.0);
         std::fs::remove_file(&stage).unwrap();
         std::fs::create_dir(&stage).unwrap();
         assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);

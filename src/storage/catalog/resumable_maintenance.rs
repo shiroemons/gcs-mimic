@@ -1,4 +1,5 @@
 use super::{Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis};
+use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, params};
 use std::{
@@ -14,7 +15,7 @@ fn cleanup_page(
     connection: &Connection,
     now: i64,
     after: &str,
-) -> Result<Vec<(String, String, i64)>, CatalogError> {
+) -> Result<Vec<(String, BlobId, i64)>, CatalogError> {
     connection.prepare_cached("SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND deadline <= ?2 UNION ALL SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND state = 'CANCELLED' AND deadline > ?2 AND EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = resumable_sessions.blob_id) ORDER BY id LIMIT ?3")?
         .query_map(params![after, now, PAGE_SIZE], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<rusqlite::Result<_>>().map_err(unavailable)
@@ -25,7 +26,7 @@ fn clean_record(
     data_dir: &Path,
     memory: Option<&crate::storage::memory::Store>,
     id: &str,
-    blob_id: &str,
+    blob_id: &BlobId,
     deadline: i64,
     now: i64,
 ) -> Result<(), CatalogError> {
@@ -79,29 +80,30 @@ pub(super) fn clean_session_files(
     data_dir: &Path,
     blob_id: &str,
 ) -> Result<(), CatalogError> {
-    clean_session_storage(connection, data_dir, None, blob_id)
+    let blob_id = blob_id
+        .parse::<BlobId>()
+        .map_err(|error| unavailable(rusqlite::types::FromSqlError::Other(Box::new(error))))?;
+    clean_session_storage(connection, data_dir, None, &blob_id)
 }
 
 pub(super) fn clean_session_storage(
     connection: &rusqlite::Connection,
     data_dir: &Path,
     memory: Option<&crate::storage::memory::Store>,
-    blob_id: &str,
+    blob_id: &BlobId,
 ) -> Result<(), CatalogError> {
-    let blob = super::super::blob_id::BlobId::parse(blob_id)
-        .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
     let live: bool = super::objects::blob_referenced(connection, blob_id)?;
     if let Some(memory) = memory {
-        memory.remove_draft(blob_id)?;
+        memory.remove_draft(&blob_id.to_hex())?;
     } else {
-        unlink(&blob.staging_path(data_dir))?;
+        unlink(&blob_id.staging_path(data_dir))?;
     }
     // A completed object outlives its capability and must never be reclaimed with it.
     if !live {
         if let Some(memory) = memory {
-            memory.remove(blob_id)?;
+            memory.remove(&blob_id.to_hex())?;
         } else {
-            unlink(&blob.blob_path(data_dir))?;
+            unlink(&blob_id.blob_path(data_dir))?;
         }
     }
     sql::exec(
@@ -124,7 +126,7 @@ impl Catalog {
         }
         let id = lease.session.id.clone();
         let now = unix_millis(self.0.clock.now())?;
-        let blob_id = lease.session.blob_id.clone();
+        let blob_id = lease.session.blob_id;
         let changed = self.run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now])?;
@@ -140,7 +142,7 @@ impl Catalog {
             return Err(ResumableError::Gone);
         }
         // Remove the cleanup journal only after file removal and directory sync succeed.
-        let blob_id = lease.session.blob_id.clone();
+        let blob_id = lease.session.blob_id;
         let data_dir = self.0.data_dir.clone();
         let memory = self.0.memory.clone();
         let result = self
@@ -389,9 +391,13 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         for id in ["", "a", "../../protected", &"A".repeat(32), &"é".repeat(16)] {
             let cleanup = clean_session_files(&connection, &data_dir, id).unwrap_err();
-            let recovery =
-                super::super::resumable_recovery::recover_prefix(&connection, &data_dir, id, 0)
-                    .unwrap_err();
+            let recovery = id
+                .parse::<BlobId>()
+                .map_err(|error| unavailable(rusqlite::types::FromSqlError::Other(Box::new(error))))
+                .and_then(|id| {
+                    super::super::resumable_recovery::recover_prefix(&connection, &data_dir, &id, 0)
+                })
+                .unwrap_err();
             assert!(cleanup.to_string().contains("invalid opaque blob ID"));
             assert!(recovery.to_string().contains("invalid opaque blob ID"));
             assert_eq!(fs::read(&protected).unwrap(), b"keep");

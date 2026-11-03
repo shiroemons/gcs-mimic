@@ -1,5 +1,8 @@
 use super::{Catalog, CatalogError, system_time_millis, unavailable, unix_millis};
-use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::{
+    blob_id::BlobId,
+    catalog::{bucket_incarnation, sql},
+};
 
 use crate::{
     bucket::BucketAccess,
@@ -88,7 +91,7 @@ impl ResumableOptions {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResumableSession {
     pub id: String,
-    pub blob_id: String,
+    pub blob_id: BlobId,
     pub bucket: String,
     pub name: String,
     pub incarnation: String,
@@ -145,7 +148,6 @@ impl From<CatalogError> for ResumableError {
 /// A nonqueued exclusive operation on one session; dropping always releases admission.
 pub(crate) struct SessionLease {
     pub session: ResumableSession,
-    blob_id: super::super::blob_id::BlobId,
     guard: WriterGuard,
 }
 pub(super) struct WriterGuard {
@@ -174,7 +176,9 @@ impl Drop for WriterGuard {
 }
 impl SessionLease {
     pub(crate) fn staging_path(&self) -> PathBuf {
-        self.blob_id.staging_path(&self.guard.catalog.0.data_dir)
+        self.session
+            .blob_id
+            .staging_path(&self.guard.catalog.0.data_dir)
     }
 }
 
@@ -184,13 +188,13 @@ fn random_id<const N: usize>() -> Result<String, CatalogError> {
     Ok(crate::hashing::encode_lower(&bytes))
 }
 
-fn create_session_bytes(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogError> {
+fn create_session_bytes(catalog: &Catalog, blob_id: &BlobId) -> Result<(), CatalogError> {
     if let Some(memory) = &catalog.0.memory {
         return memory
-            .create_resumable_draft(blob_id.into())
+            .create_resumable_draft(blob_id.to_hex())
             .map_err(unavailable);
     }
-    let path = super::transfer_io::stage_path(&catalog.0.data_dir, blob_id).map_err(unavailable)?;
+    let path = blob_id.staging_path(&catalog.0.data_dir);
     let file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -209,12 +213,11 @@ fn create_session_bytes(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogE
     Ok(())
 }
 
-fn remove_session_stage(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogError> {
+fn remove_session_stage(catalog: &Catalog, blob_id: &BlobId) -> Result<(), CatalogError> {
     if let Some(memory) = &catalog.0.memory {
-        memory.remove_draft(blob_id).map_err(unavailable)
+        memory.remove_draft(&blob_id.to_hex()).map_err(unavailable)
     } else {
-        let path =
-            super::transfer_io::stage_path(&catalog.0.data_dir, blob_id).map_err(unavailable)?;
+        let path = blob_id.staging_path(&catalog.0.data_dir);
         fs::remove_file(path).map_err(unavailable)
     }
 }
@@ -273,7 +276,7 @@ fn admit_session(
     // A completed session owns no staging bytes and never its published blob, which object
     // reclamation tracks. A cancelled one is reclaimable only after its cleanup journal entry
     // is gone; until then maintenance still needs the row.
-    let candidates: Vec<(String, String, String)> = transaction
+    let candidates: Vec<(String, BlobId, String)> = transaction
         .prepare_cached("SELECT id, blob_id, state FROM resumable_sessions WHERE state = 'COMPLETE' OR (state = 'CANCELLED' AND NOT EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = resumable_sessions.blob_id)) ORDER BY deadline, id LIMIT 256")
         .and_then(|mut statement| {
             statement
@@ -292,7 +295,7 @@ fn admit_session(
             && let Some(memory) = &catalog.0.memory
         {
             // Completion normally drops the RAM draft; this covers a failed drop.
-            memory.remove_draft(&blob_id)?;
+            memory.remove_draft(&blob_id.to_hex())?;
         }
         sql::exec(
             transaction,
@@ -338,7 +341,7 @@ impl Catalog {
             let incarnation: String = bucket_incarnation(&transaction, &bucket).optional().map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;
             let id = random_id::<32>()?;
             let blob = super::super::blob_id::BlobId::generate().map_err(unavailable)?;
-            let blob_id = blob.to_hex();
+            let blob_id = blob;
             let now = unix_millis(catalog.0.clock.now())?;
             let deadline = now.checked_add(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?).ok_or_else(|| unavailable("upload deadline overflow"))?;
             let encoded = encode_options(&options).to_string();
@@ -402,13 +405,7 @@ impl Catalog {
     ) -> Result<SessionLease, ResumableError> {
         let guard = self.try_resumable_writer(id)?;
         let session = self.resumable_session(id, bucket).await?;
-        let blob_id = super::super::blob_id::BlobId::parse(&session.blob_id)
-            .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
-        Ok(SessionLease {
-            session,
-            blob_id,
-            guard,
-        })
+        Ok(SessionLease { session, guard })
     }
 
     pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {
@@ -563,17 +560,10 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptio
 pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> {
     use rusqlite::types::Type;
     let id: String = row.get(0)?;
-    let blob_id: String = row.get(1)?;
+    let blob_id: BlobId = row.get(1)?;
     if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(sql::conversion_error(
             0,
-            Type::Text,
-            "invalid upload opaque ID",
-        ));
-    }
-    if blob_id.len() != 32 || !blob_id.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(sql::conversion_error(
-            1,
             Type::Text,
             "invalid upload opaque ID",
         ));

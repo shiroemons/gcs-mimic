@@ -2224,11 +2224,11 @@ mod tests {
             .await
             .unwrap()
             .blob_id;
-        let staged = dir.0.join("staging").join(&blob);
+        let staged = blob.staging_path(&dir.0);
         assert!(staged.exists());
         assert_eq!(cancel(&storage, &partial, None).await, Ok(()));
         assert!(!staged.exists());
-        assert!(!dir.0.join("blobs").join(&blob[..2]).join(&blob).exists());
+        assert!(!blob.blob_path(&dir.0).exists());
         assert_eq!(
             write(&storage, vec![resume(&partial, 3, b"def", true)])
                 .await

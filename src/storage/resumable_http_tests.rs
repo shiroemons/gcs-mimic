@@ -1740,7 +1740,7 @@ async fn busy_session_rejects_competing_writer_while_other_sessions_progress() {
         .resumable_session(id, "bucket")
         .await
         .unwrap();
-    let stage = h.dir.0.join("staging").join(session.blob_id);
+    let stage = session.blob_id.staging_path(&h.dir.0);
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
     loop {
         if tokio::fs::metadata(&stage).await.unwrap().len() > 0 {
@@ -1854,7 +1854,7 @@ async fn chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots(
             .resumable_session(id, "bucket")
             .await
             .unwrap();
-        let stage = h.dir.0.join("staging").join(session.blob_id);
+        let stage = session.blob_id.staging_path(&h.dir.0);
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
         while tokio::fs::metadata(&stage).await.unwrap().len() == 0 {
             assert!(tokio::time::Instant::now() < deadline);
@@ -1957,7 +1957,7 @@ async fn session_deadline_during_transfer_returns_not_found_without_acknowledgin
     let mut stream = TcpStream::connect(&h.address).await.unwrap();
     stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
     stream.write_all(&[b'x'; 64 * 1024]).await.unwrap();
-    let stage = h.dir.0.join("staging").join(session.blob_id);
+    let stage = session.blob_id.staging_path(&h.dir.0);
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
     while tokio::fs::metadata(&stage).await.unwrap().len() == 0 {
         assert!(tokio::time::Instant::now() < deadline);
@@ -2008,7 +2008,7 @@ async fn strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadl
         cancelled.headers["cache-control"],
         crate::json::NO_STORE_CACHE_CONTROL
     );
-    assert!(!h.dir.0.join("staging").join(session.blob_id).exists());
+    assert!(!session.blob_id.staging_path(&h.dir.0).exists());
     for method in ["PUT", "POST", "DELETE"] {
         assert_eq!(
             h.request(method, &path, "Content-Range: bytes */*\r\n", b"")
@@ -2046,7 +2046,7 @@ async fn cancellation_racing_append_respects_writer_and_prevents_later_publicati
         .resumable_session(id, "bucket")
         .await
         .unwrap();
-    let stage = h.dir.0.join("staging").join(session.blob_id);
+    let stage = session.blob_id.staging_path(&h.dir.0);
     let mut stream = TcpStream::connect(&h.address).await.unwrap();
     stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
     stream.write_all(&[b'a'; 64 * 1024]).await.unwrap();
@@ -2147,7 +2147,7 @@ async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() 
             .resumable_session(id, "bucket")
             .await
             .unwrap();
-        let stage = h.dir.0.join("staging").join(session.blob_id);
+        let stage = session.blob_id.staging_path(&h.dir.0);
         // Let the scheduler arm the seven-day timer before injecting the failed unlink.
         tokio::time::sleep(Duration::from_millis(50)).await;
         std::fs::remove_file(&stage).unwrap();
@@ -2317,7 +2317,7 @@ async fn retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_
             .resumable_session(id, "bucket")
             .await
             .unwrap();
-        let shard = h.dir.0.join("blobs").join(&session.blob_id[..2]);
+        let shard = h.dir.0.join("blobs").join(&session.blob_id.to_hex()[..2]);
         let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
         let previous_generation: i64 = connection
             .query_row("SELECT last_generation FROM object_generation", [], |row| {
@@ -2546,7 +2546,7 @@ async fn checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried(
         .resumable_session(id, "bucket")
         .await
         .unwrap();
-    let shard = h.dir.0.join("blobs").join(&session.blob_id[..2]);
+    let shard = h.dir.0.join("blobs").join(&session.blob_id.to_hex()[..2]);
     std::fs::write(&shard, b"cleanup failure").unwrap();
     let response = h.request("PUT", &path, "", b"hello").await;
     assert_eq!(response.status, 400);

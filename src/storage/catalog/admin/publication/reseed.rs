@@ -287,8 +287,8 @@ async fn prepare_entry(
             .id
             .as_ref()
             .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?;
-        let source = catalog.0.data_dir.join("staging").join(id);
-        let destination = objects::blob_path(&catalog.0.data_dir, id)?;
+        let source = id.staging_path(&catalog.0.data_dir);
+        let destination = objects::blob_path(&catalog.0.data_dir, id);
         #[cfg(test)]
         super::super::super::fault::hit(
             &catalog.0.data_dir,
@@ -408,7 +408,7 @@ fn commit(
             entry
                 .staged
                 .id
-                .as_deref()
+                .as_ref()
                 .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?,
         );
         if previous.is_some() {
@@ -432,12 +432,12 @@ fn commit(
         && let Some(memory) = &batch.admin.catalog.0.memory
     {
         // Only the bounded prepared namespace is indexed; a full old catalog needs no growing deletion journal.
-        let selected = batch
+        let selected: Vec<_> = batch
             .entries
             .iter()
-            .filter_map(|entry| entry.staged.id.as_deref())
+            .filter_map(|entry| entry.staged.id.map(BlobId::to_hex))
             .collect();
-        if let Err(error) = memory.retain_ids(&selected) {
+        if let Err(error) = memory.retain_ids(&selected.iter().map(String::as_str).collect()) {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Error,
                 "seed_cleanup_deferred",
@@ -451,7 +451,7 @@ fn commit(
 fn confirmed(
     connection: &Connection,
     batch: &SeedBatch,
-    ids: &[&str],
+    ids: &[&BlobId],
     epoch: Option<i64>,
 ) -> Result<bool, AdminError> {
     let (complete, current): (bool, i64) = sql::row(connection, "SELECT complete, epoch FROM startup_seed, change_journal_state WHERE startup_seed.singleton = 1 AND change_journal_state.singleton = 1", [], |row| Ok((row.get(0)?, row.get(1)?))).map_err(objects_error)?;

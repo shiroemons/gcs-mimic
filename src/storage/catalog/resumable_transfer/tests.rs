@@ -10,7 +10,7 @@ fn resumable_retention_overflow_returns_the_publication_metadata_error() {
     options.content_type = "text/plain".into();
     let session = ResumableSession {
         id: "0".repeat(64),
-        blob_id: "0".repeat(32),
+        blob_id: "0".repeat(32).parse().unwrap(),
         bucket: "bucket".into(),
         name: "object".into(),
         incarnation: "0".repeat(32),

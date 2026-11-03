@@ -1,6 +1,7 @@
 //! Persistent XML multipart state; ordinary objects appear only at completion.
 
 use super::{Catalog, objects, resumable, system_time_millis, unix_millis};
+use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     auth::Permission,
@@ -118,7 +119,7 @@ pub(crate) struct Part {
     pub etag: String,
     pub size: u64,
     pub updated: SystemTime,
-    blob_id: String,
+    blob_id: BlobId,
     md5: [u8; 16],
     crc32c: u32,
 }

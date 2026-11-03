@@ -7,6 +7,7 @@ use super::{
     transfer_io::{self, stage_path},
     unix_micros, unix_millis,
 };
+use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
@@ -58,10 +59,8 @@ use crate::storage::failure::object_unavailable;
 #[cfg(test)]
 use super::fault::{self, Step};
 
-fn random_id() -> Result<String, ObjectError> {
-    super::super::blob_id::BlobId::generate()
-        .map(|id| id.to_hex())
-        .map_err(object_unavailable)
+fn random_id() -> Result<BlobId, ObjectError> {
+    BlobId::generate().map_err(object_unavailable)
 }
 
 /// Whether a derived transfer can be continued by later requests, or belongs to one request
@@ -78,14 +77,14 @@ pub(crate) struct DerivedSource {
     pub object: ObjectRecord,
     path: Option<PathBuf>,
     memory: Option<std::sync::Arc<crate::storage::memory::Store>>,
-    id: String,
+    id: BlobId,
     _activity: std::sync::Arc<super::Activity>,
 }
 
 impl Drop for DerivedSource {
     fn drop(&mut self) {
         if let Some(memory) = &self.memory
-            && let Err(error) = memory.remove(&self.id)
+            && let Err(error) = memory.remove(&self.id.to_hex())
         {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
@@ -181,7 +180,7 @@ fn derived_total(segments: &[DerivedSegment], max_bytes: u64) -> Result<u64, Obj
 
 fn insert_inputs(
     transaction: &rusqlite::Transaction<'_>,
-    id: &str,
+    id: &BlobId,
     segments: &[DerivedSegment],
 ) -> Result<(), ObjectError> {
     let mut statement =
@@ -201,7 +200,7 @@ fn insert_inputs(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DerivedTransfer {
-    pub id: String,
+    pub id: BlobId,
     pub total: u64,
     pub offset: u64,
     pub created: std::time::SystemTime,
@@ -210,7 +209,7 @@ pub(crate) struct DerivedTransfer {
 
 pub(crate) struct DerivedRequestGuard {
     catalog: Catalog,
-    id: Option<String>,
+    id: Option<BlobId>,
 }
 
 impl DerivedRequestGuard {
@@ -294,19 +293,19 @@ impl DerivedDestination {
 }
 
 struct Input {
-    id: String,
+    id: BlobId,
     start: u64,
     length: u64,
     size: u64,
 }
 
-fn inputs(connection: &Connection, id: &str) -> Result<Vec<Input>, ObjectError> {
+fn inputs(connection: &Connection, id: &BlobId) -> Result<Vec<Input>, ObjectError> {
     connection.prepare_cached("SELECT blob_id, start, length, size FROM derived_inputs WHERE transfer_id = ?1 ORDER BY position LIMIT 33")?.query_map([id], |row| Ok(Input { id: row.get(0)?, start: row.get(1)?, length: row.get(2)?, size: row.get(3)? }))?.collect::<rusqlite::Result<_>>().map_err(object_unavailable)
 }
 
 fn transfer(
     connection: &Connection,
-    id: &str,
+    id: &BlobId,
     now: i64,
 ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
     const SELECT: &str = "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1";
@@ -329,7 +328,7 @@ fn transfer(
     let hasher = Hasher::from_md5_state(&state, crc, offset).map_err(object_unavailable)?;
     Ok((
         DerivedTransfer {
-            id: id.into(),
+            id: *id,
             total,
             offset,
             created: system_time_millis(created)?,
@@ -355,10 +354,10 @@ impl Catalog {
         )
     }
 
-    pub(crate) fn guard_derived_request(&self, id: &str) -> DerivedRequestGuard {
+    pub(crate) fn guard_derived_request(&self, id: &BlobId) -> DerivedRequestGuard {
         DerivedRequestGuard {
             catalog: self.clone(),
-            id: Some(id.into()),
+            id: Some(*id),
         }
     }
     /// Call only from a publication callback: the caller's transaction owns all checks/mutations.
@@ -520,11 +519,11 @@ impl Catalog {
                     super::customer_keys::check(&object, key)?;
                     let id = random_id()?;
                     let path = if let Some(memory) = &memory {
-                        memory.pin(&original, id.clone())?;
+                        memory.pin(&original.to_hex(), id.to_hex())?;
                         None
                     } else {
-                        let path = stage_path(&data_dir, &id)?;
-                        fs::hard_link(objects::blob_path(&data_dir, &original)?, &path)?;
+                        let path = stage_path(&data_dir, &id);
+                        fs::hard_link(objects::blob_path(&data_dir, &original), &path)?;
                         Some(path)
                     };
                     Ok(DerivedSource {
@@ -634,7 +633,7 @@ impl Catalog {
                     )?;
                     insert_inputs(&transaction, &id, &segments)?;
                     let transfer = DerivedTransfer {
-                        id: id.clone(),
+                        id,
                         total,
                         offset: 0,
                         created: system_time_millis(created)?,
@@ -673,7 +672,7 @@ impl Catalog {
                             return Err(error);
                         }
                         if let Some(memory) = &memory {
-                            memory.remove_draft(&id)?;
+                            memory.remove_draft(&id.to_hex())?;
                         } else {
                             objects::unlink(&path)?;
                         }
@@ -691,7 +690,7 @@ impl Catalog {
         result
     }
 
-    fn derived_guard(&self, id: &str) -> Result<WriterGuard, ObjectError> {
+    fn derived_guard(&self, id: &BlobId) -> Result<WriterGuard, ObjectError> {
         let activity = self.activity()?;
         let id = format!("derived:{id}");
         let mut writers = self.0.session_writers.lock().map_err(object_unavailable)?;
@@ -705,8 +704,8 @@ impl Catalog {
         })
     }
 
-    pub(crate) async fn get_derived(&self, id: &str) -> Result<DerivedTransfer, ObjectError> {
-        let id = id.to_owned();
+    pub(crate) async fn get_derived(&self, id: &BlobId) -> Result<DerivedTransfer, ObjectError> {
+        let id = *id;
         let now = unix_millis(self.0.clock.now())?;
         self.run(move |connection| transfer(connection, &id, now).map(|value| value.0))
             .await
@@ -716,17 +715,17 @@ impl Catalog {
     /// SQLite commit; an interrupted tail is discarded before retry, never counted twice.
     pub(crate) async fn advance_derived(
         &self,
-        id: &str,
+        id: &BlobId,
         budget: u64,
     ) -> Result<DerivedTransfer, ObjectError> {
         let permit = self.admit_object_upload()?;
         let guard = self.derived_guard(id)?;
         let catalog = self.clone();
-        let id = id.to_owned();
+        let id = *id;
         // Detached ownership keeps cancellation from racing directory closure or cleanup.
         crate::task::spawn_supervised("derived-transfer", async move {
             let (_permit, _guard) = (permit, guard);
-            let query = id.clone();
+            let query = id;
             let data_dir = catalog.0.data_dir.clone();
             let memory = catalog.0.memory.clone();
             let now = unix_millis(catalog.0.clock.now())?;
@@ -773,7 +772,7 @@ impl Catalog {
     #[cfg(test)]
     pub(crate) async fn publish_derived(
         &self,
-        id: &str,
+        id: &BlobId,
         destination: DerivedDestination,
         complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
     ) -> Result<ObjectRecord, ObjectError> {
@@ -784,7 +783,7 @@ impl Catalog {
     /// Validation precedes retirement so same-name sources remain visible in unversioned buckets.
     pub(crate) async fn publish_derived_with_validation(
         &self,
-        id: &str,
+        id: &BlobId,
         destination: DerivedDestination,
         validate: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
         complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
@@ -802,7 +801,7 @@ impl Catalog {
     /// Adapter-derived fields must use the destination defaults selected by this transaction.
     pub(crate) async fn publish_derived_prepared(
         &self,
-        id: &str,
+        id: &BlobId,
         destination: DerivedDestination,
         prepare: impl FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
         complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
@@ -814,7 +813,7 @@ impl Catalog {
 
     pub(crate) async fn publish_derived_replayed(
         &self,
-        id: &str,
+        id: &BlobId,
         destination: DerivedDestination,
         prepare: impl FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
         complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
@@ -834,10 +833,10 @@ impl Catalog {
         }
         .map_err(object_unavailable)?;
         let catalog = self.clone();
-        let id = id.to_owned();
+        let id = *id;
         crate::task::spawn_supervised("derived-publication", async move {
             let (_permit, _guard) = (permit, guard);
-            let query = id.clone();
+            let query = id;
             let data_dir = catalog.0.data_dir.clone();
             let memory = catalog.0.memory.clone();
             let clock = catalog.0.clock.clone();
@@ -848,13 +847,13 @@ impl Catalog {
                 if progress.offset != progress.total { return Err(ObjectError::DerivedTransferIncomplete); }
                 let Hashes { md5, crc32c } = hasher.finish();
                 if let Some(memory) = &memory {
-                    memory.publish_draft(&query)?;
+                    memory.publish_draft(&query.to_hex())?;
                 } else {
                 restore_stage(&data_dir, &query)?;
-                let stage = stage_path(&data_dir, &query)?;
+                let stage = stage_path(&data_dir, &query);
                 #[cfg(test)]
                 fault::hit(&data_dir, Step::BeforePublish).map_err(object_unavailable)?;
-                objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query)?)?;
+                objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query))?;
                 #[cfg(test)]
                 fault::hit(&data_dir, Step::AfterPublish).map_err(object_unavailable)?;
                 }
@@ -876,7 +875,7 @@ impl Catalog {
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH).map_err(object_unavailable)?;
                 let time = system_time_micros(micros)?;
-                let version = objects::NewVersion { blob_id: &query, assignment: objects::GenerationAssignment::Automatic, micros, origin: super::change_journal::origin(&destination.access), notification_mode: crate::notification::NotificationMode::Emit, owner_profile: principals.as_ref(), acl: super::acl::PublicationAcl::InheritDefault };
+                let version = objects::NewVersion { blob_id: query, assignment: objects::GenerationAssignment::Automatic, micros, origin: super::change_journal::origin(&destination.access), notification_mode: crate::notification::NotificationMode::Emit, owner_profile: principals.as_ref(), acl: super::acl::PublicationAcl::InheritDefault };
                 let (record, _retired, ()) = objects::publish_in_transaction(&transaction, previous.as_ref(), versioning, version, |generation| {
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| match error { crate::bucket::CatalogError::InvalidMetadata(reason) | crate::bucket::CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason), error => ObjectError::from(error) })?;
                 let defaults = objects::PublicationDefaults {
@@ -902,13 +901,13 @@ impl Catalog {
                     // An ambiguous SQL commit must not discard a published blob or leak its pins.
                     let retained: bool = sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)", [&query])?;
                     if !retained {
-                        for source in &sources { memory.remove(&source.id)?; }
-                        memory.remove_draft(&query)?;
+                        for source in &sources { memory.remove(&source.id.to_hex())?; }
+                        memory.remove_draft(&query.to_hex())?;
                     }
                 }
                 committed?;
                 if memory.is_none() { for source in sources {
-                    if let Err(error) = objects::unlink(&stage_path(&data_dir, &source.id)?) {
+                    if let Err(error) = objects::unlink(&stage_path(&data_dir, &source.id)) {
                         crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred derived source cleanup: {error}")}));
                     }
                 }
@@ -928,8 +927,8 @@ impl Catalog {
         }).await?
     }
 
-    async fn cleanup_derived(&self, id: &str) -> Result<(), ObjectError> {
-        let id = id.to_owned();
+    async fn cleanup_derived(&self, id: &BlobId) -> Result<(), ObjectError> {
+        let id = *id;
         let data_dir = self.0.data_dir.clone();
         let memory = self.0.memory.clone();
         self.run_upload(move |connection| {
@@ -938,7 +937,7 @@ impl Catalog {
         .await
     }
 
-    pub(crate) async fn cancel_derived(&self, id: &str) -> Result<(), ObjectError> {
+    pub(crate) async fn cancel_derived(&self, id: &BlobId) -> Result<(), ObjectError> {
         let _guard = self.derived_guard(id)?;
         self.cleanup_derived(id).await
     }
@@ -959,7 +958,7 @@ impl Catalog {
         let mut failure = self.reclaim_pending().await.err();
         let due = self.run(move |connection| {
             connection.prepare_cached("SELECT id FROM derived_transfers WHERE deadline <= ?1 ORDER BY id LIMIT 128")?
-                .query_map([now], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>().map_err(object_unavailable)
+                .query_map([now], |row| row.get::<_, BlobId>(0))?.collect::<rusqlite::Result<Vec<_>>>().map_err(object_unavailable)
         }).await.map_err(super::unavailable)?;
         for id in due {
             let _guard = match self.derived_guard(&id) {
@@ -1012,10 +1011,10 @@ impl Catalog {
 fn reclaim_derived_deletions(
     connection: &Connection,
     data_dir: &Path,
-    transfer_id: Option<&str>,
+    transfer_id: Option<&BlobId>,
 ) -> Result<(), ObjectError> {
     let ids = connection.prepare_cached("SELECT blob_id FROM derived_deletions WHERE (?1 IS NULL OR transfer_id = ?1) ORDER BY blob_id LIMIT 128")?
-        .query_map([transfer_id], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        .query_map([transfer_id], |row| row.get::<_, BlobId>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
     let mut failure = None;
     for id in ids {
         match objects::reclaim(connection, data_dir, &id) {
@@ -1029,7 +1028,11 @@ fn reclaim_derived_deletions(
 }
 
 #[cfg(test)]
-fn cleanup_record(connection: &Connection, data_dir: &Path, id: &str) -> Result<(), ObjectError> {
+fn cleanup_record(
+    connection: &Connection,
+    data_dir: &Path,
+    id: &BlobId,
+) -> Result<(), ObjectError> {
     cleanup_record_with_memory(connection, data_dir, None, id)
 }
 
@@ -1037,7 +1040,7 @@ fn cleanup_record_with_memory(
     connection: &Connection,
     data_dir: &Path,
     memory: Option<&crate::storage::memory::Store>,
-    id: &str,
+    id: &BlobId,
 ) -> Result<(), ObjectError> {
     let exists: bool = sql::scalar(
         connection,
@@ -1049,21 +1052,21 @@ fn cleanup_record_with_memory(
     }
     for source in inputs(connection, id)? {
         if let Some(memory) = memory {
-            memory.remove(&source.id)?;
+            memory.remove(&source.id.to_hex())?;
         } else {
-            objects::unlink(&stage_path(data_dir, &source.id)?)?;
+            objects::unlink(&stage_path(data_dir, &source.id))?;
         }
     }
     if let Some(memory) = memory {
-        memory.remove_draft(id)?;
+        memory.remove_draft(&id.to_hex())?;
     } else {
-        objects::unlink(&stage_path(data_dir, id)?)?;
+        objects::unlink(&stage_path(data_dir, id))?;
     }
     objects::discard_unreferenced_blob(connection, data_dir, memory, id)?;
     discard_record(connection, id)
 }
 
-fn discard_record(connection: &Connection, id: &str) -> Result<(), ObjectError> {
+fn discard_record(connection: &Connection, id: &BlobId) -> Result<(), ObjectError> {
     let transaction = connection.unchecked_transaction()?;
     sql::exec(
         &transaction,
@@ -1078,10 +1081,10 @@ fn discard_record(connection: &Connection, id: &str) -> Result<(), ObjectError> 
     transaction.commit().map_err(object_unavailable)
 }
 
-fn restore_stage(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
-    let stage = stage_path(data_dir, id)?;
+fn restore_stage(data_dir: &Path, id: &BlobId) -> Result<PathBuf, ObjectError> {
+    let stage = stage_path(data_dir, id);
     if !stage.try_exists()? {
-        fs::rename(objects::blob_path(data_dir, id)?, &stage)?;
+        fs::rename(objects::blob_path(data_dir, id), &stage)?;
     }
     Ok(stage)
 }
@@ -1107,7 +1110,7 @@ pub(super) fn recover(
     let ids = connection
         .prepare_cached("SELECT id FROM derived_transfers ORDER BY id LIMIT ?1")?
         .query_map([2 * MAX_TRANSFERS_PER_KIND + 1], |row| {
-            row.get::<_, String>(0)
+            row.get::<_, BlobId>(0)
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if ids.len() > 2 * MAX_TRANSFERS_PER_KIND {
@@ -1159,7 +1162,7 @@ pub(super) fn recover(
                 ));
             }
             for source in sources {
-                let metadata = fs::symlink_metadata(stage_path(data_dir, &source.id)?)?;
+                let metadata = fs::symlink_metadata(stage_path(data_dir, &source.id))?;
                 if !metadata.is_file() || metadata.len() != source.size {
                     return Err(object_unavailable("invalid pinned derived source"));
                 }
@@ -1400,7 +1403,7 @@ mod tests {
             .await
             .unwrap();
         put(&catalog, "second", b"changed").await;
-        let output = stage_path(&path, &transfer.id).unwrap();
+        let output = stage_path(&path, &transfer.id);
         fs::OpenOptions::new()
             .append(true)
             .open(&output)
@@ -1441,8 +1444,8 @@ mod tests {
         put(&catalog, "empty", b"").await;
         let transfer = ready(&catalog, "empty").await;
         objects::publish_blob(
-            &stage_path(&path, &transfer.id).unwrap(),
-            &objects::blob_path(&path, &transfer.id).unwrap(),
+            &stage_path(&path, &transfer.id),
+            &objects::blob_path(&path, &transfer.id),
         )
         .unwrap();
         catalog.close().await.unwrap();
@@ -1826,7 +1829,7 @@ mod tests {
         let (catalog, path) = setup().await;
         put(&catalog, "source", b"bytes").await;
         let source = source(&catalog, "source").await;
-        let snapshot_id = source.id.clone();
+        let snapshot_id = source.id;
         let transfer = catalog
             .begin_derived(vec![source.whole()], 5)
             .await
@@ -2101,7 +2104,7 @@ mod tests {
             .await
             .unwrap();
         catalog.advance_derived(&transfer.id, 3).await.unwrap();
-        fs::write(stage_path(&path, &transfer.id).unwrap(), b"bad").unwrap();
+        fs::write(stage_path(&path, &transfer.id), b"bad").unwrap();
         catalog.close().await.unwrap();
         drop(catalog);
         let catalog = Catalog::open(&path).await.unwrap();
@@ -2166,7 +2169,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let blob = objects::blob_path(&path, &id).unwrap();
+        let blob = objects::blob_path(&path, &id);
         let failed_blob = blob.clone();
         let transfer = ready(&catalog, "source").await;
         catalog
@@ -2228,7 +2231,7 @@ mod tests {
                                 .as_millis(),
                             EPHEMERAL_LIFETIME_MILLIS as u128
                         );
-                        entered.send(transfer.id.clone()).unwrap();
+                        entered.send(transfer.id).unwrap();
                         blocked.recv().unwrap();
                         Ok(())
                     },
