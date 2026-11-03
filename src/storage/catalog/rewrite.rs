@@ -11,6 +11,7 @@ use crate::{
     object::{ObjectConditions, ObjectError, ObjectRecord},
 };
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     sync::{Arc, Mutex},
@@ -102,6 +103,23 @@ fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectEr
         .ok_or(ObjectError::BucketNotFound)
 }
 
+#[derive(Serialize, Deserialize)]
+struct StoredRequest {
+    path: [String; 4],
+    generation: i64,
+    metageneration: i64,
+    parameters: serde_json::Map<String, Value>,
+    body: Option<Value>,
+    source_incarnation: String,
+    destination_incarnation: String,
+    options: Value,
+    class: Option<String>,
+    components: Option<i64>,
+    source_conditions: [Option<i64>; 4],
+    budget: u64,
+    source_key_sha256: Option<[u8; 32]>,
+}
+
 fn encode(start: &RewriteStart, source: &str, destination: &str) -> Value {
     let binding = &start.binding;
     let options = resumable::ResumableOptions {
@@ -112,104 +130,115 @@ fn encode(start: &RewriteStart, source: &str, destination: &str) -> Value {
         ..crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive)
     };
     let conditions = start.source_conditions;
-    json!({"path":[binding.source_bucket,binding.source_object,binding.destination_bucket,binding.destination_object],
-        "generation":binding.source_generation,"metageneration":start.source_metageneration,
-        "parameters":binding.parameters,"body":binding.metadata,"source_incarnation":source,"destination_incarnation":destination,
-        "options":resumable::encode_options(&options),"class":start.destination.storage_class,"components":start.destination.component_count,
-        "source_conditions":[conditions.if_generation_match,conditions.if_generation_not_match,conditions.if_metageneration_match,conditions.if_metageneration_not_match],"budget":start.budget,"source_key_sha256":start.source_key_sha256.map(|v| v.to_vec())})
+    json!(StoredRequest {
+        path: [
+            binding.source_bucket.clone(),
+            binding.source_object.clone(),
+            binding.destination_bucket.clone(),
+            binding.destination_object.clone()
+        ],
+        generation: binding.source_generation,
+        metageneration: start.source_metageneration,
+        parameters: binding.parameters.clone(),
+        body: binding.metadata.clone(),
+        source_incarnation: source.into(),
+        destination_incarnation: destination.into(),
+        options: resumable::encode_options(&options),
+        class: start.destination.storage_class.clone(),
+        components: start.destination.component_count,
+        source_conditions: [
+            conditions.if_generation_match,
+            conditions.if_generation_not_match,
+            conditions.if_metageneration_match,
+            conditions.if_metageneration_not_match
+        ],
+        budget: start.budget,
+        source_key_sha256: start.source_key_sha256,
+    })
 }
 
 fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
-    let decode = || -> Result<RewriteSession, String> {
-        let request: Value =
-            serde_json::from_str(&row.get::<_, String>(3).map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?;
-        let options =
-            resumable::decode_options(&request["options"]).map_err(|error| error.to_string())?;
-        let string = |value: &Value| {
-            value
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| "invalid rewrite string".to_owned())
-        };
-        let integer = |value: &Value| {
-            value
-                .as_i64()
-                .ok_or_else(|| "invalid rewrite integer".to_owned())
-        };
-        let values: Vec<Option<i64>> = serde_json::from_value(request["source_conditions"].clone())
-            .map_err(|e| e.to_string())?;
-        let values: [Option<i64>; 4] = values
-            .try_into()
-            .map_err(|_| "invalid rewrite conditions")?;
-        let get = |index| row.get(index).map_err(|e| e.to_string());
-        let body = request.get("body").filter(|v| !v.is_null()).cloned();
-        let session = RewriteSession {
-            id: get(0)?,
-            token: get(1)?,
-            previous_token: row.get(2).map_err(|e| e.to_string())?,
-            binding: RewriteBinding {
-                source_bucket: string(&request["path"][0])?,
-                source_object: string(&request["path"][1])?,
-                destination_bucket: string(&request["path"][2])?,
-                destination_object: string(&request["path"][3])?,
-                source_generation: integer(&request["generation"])?,
-                parameters: request["parameters"]
-                    .as_object()
-                    .cloned()
-                    .ok_or("invalid rewrite parameters")?,
-                metadata: body,
-            },
-            destination: DerivedDestination {
-                component_count: serde_json::from_value(request["components"].clone())
-                    .map_err(|e| e.to_string())?,
-                bucket: string(&request["path"][2])?,
-                name: string(&request["path"][3])?,
-                content_type: options.content_type,
-                metadata: options.metadata,
-                storage_class: serde_json::from_value(request["class"].clone())
-                    .map_err(|e| e.to_string())?,
-                expected: options.expected,
-                conditions: options.conditions,
-                access: BucketAccess::Permissive,
-            },
-            source_conditions: ObjectConditions {
-                if_generation_match: values[0],
-                if_generation_not_match: values[1],
-                if_metageneration_match: values[2],
-                if_metageneration_not_match: values[3],
-            },
-            source_metageneration: integer(&request["metageneration"])?,
-            source_incarnation: string(&request["source_incarnation"])?,
-            destination_incarnation: string(&request["destination_incarnation"])?,
-            source_key_sha256: serde_json::from_value::<Option<Vec<u8>>>(
-                request["source_key_sha256"].clone(),
-            )
-            .map_err(|e| e.to_string())?
-            .map(|v| v.try_into().map_err(|_| "invalid rewrite source key"))
+    let request: StoredRequest = serde_json::from_str(&row.get::<_, String>(3)?)
+        .map_err(|error| conversion_error(3, rusqlite::types::Type::Text, error))?;
+    let options = resumable::decode_options(&request.options)
+        .map_err(|error| conversion_error(3, rusqlite::types::Type::Text, error))?;
+    let [
+        source_bucket,
+        source_object,
+        destination_bucket,
+        destination_object,
+    ] = request.path;
+    let [
+        if_generation_match,
+        if_generation_not_match,
+        if_metageneration_match,
+        if_metageneration_not_match,
+    ] = request.source_conditions;
+    let session = RewriteSession {
+        id: row.get(0)?,
+        token: row.get(1)?,
+        previous_token: row.get(2)?,
+        binding: RewriteBinding {
+            source_bucket,
+            source_object,
+            destination_bucket: destination_bucket.clone(),
+            destination_object: destination_object.clone(),
+            source_generation: request.generation,
+            parameters: request.parameters,
+            metadata: request.body,
+        },
+        destination: DerivedDestination {
+            component_count: request.components,
+            bucket: destination_bucket,
+            name: destination_object,
+            content_type: options.content_type,
+            metadata: options.metadata,
+            storage_class: request.class,
+            expected: options.expected,
+            conditions: options.conditions,
+            access: BucketAccess::Permissive,
+        },
+        source_conditions: ObjectConditions {
+            if_generation_match,
+            if_generation_not_match,
+            if_metageneration_match,
+            if_metageneration_not_match,
+        },
+        source_metageneration: request.metageneration,
+        source_incarnation: request.source_incarnation,
+        destination_incarnation: request.destination_incarnation,
+        source_key_sha256: request.source_key_sha256,
+        budget: request.budget,
+        offset: u64::try_from(row.get::<_, i64>(4)?)
+            .map_err(|error| conversion_error(4, rusqlite::types::Type::Integer, error))?,
+        total: u64::try_from(row.get::<_, i64>(5)?)
+            .map_err(|error| conversion_error(5, rusqlite::types::Type::Integer, error))?,
+        deadline: row.get(6)?,
+        response: row
+            .get::<_, Option<String>>(7)?
+            .map(|value| {
+                serde_json::from_str(&value)
+                    .map_err(|error| conversion_error(7, rusqlite::types::Type::Text, error))
+            })
             .transpose()?,
-            budget: request["budget"]
-                .as_u64()
-                .filter(|n| *n > 0)
-                .ok_or("invalid rewrite budget")?,
-            offset: row.get::<_, i64>(4).map_err(|e| e.to_string())? as u64,
-            total: row.get::<_, i64>(5).map_err(|e| e.to_string())? as u64,
-            deadline: row.get(6).map_err(|e| e.to_string())?,
-            response: row
-                .get::<_, Option<String>>(7)
-                .map_err(|e| e.to_string())?
-                .map(|s| serde_json::from_str(&s).map_err(|e| e.to_string()))
-                .transpose()?,
-        };
-        let transfer_id: Option<String> = row.get(8).map_err(|error| error.to_string())?;
-        if !session_consistent(&session, transfer_id.as_deref()) {
-            return Err("invalid rewrite session".into());
-        }
-        Ok(session)
     };
-    decode().map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, error.into())
-    })
+    let transfer_id: Option<String> = row.get(8)?;
+    if !session_consistent(&session, transfer_id.as_deref()) {
+        return Err(conversion_error(
+            3,
+            rusqlite::types::Type::Text,
+            "invalid rewrite session",
+        ));
+    }
+    Ok(session)
+}
+
+fn conversion_error(
+    index: usize,
+    kind: rusqlite::types::Type,
+    error: impl Into<Box<dyn std::error::Error + Send + Sync>>,
+) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(index, kind, error.into())
 }
 
 /// Whether a decoded session's identifiers, progress and stored response agree; an
@@ -254,6 +283,7 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<&str>) -> bo
         && RewriteToken::parse(&session.token).is_some()
         && session.binding.source_generation > 0
         && session.source_metageneration > 0
+        && session.budget > 0
         && session.offset <= session.total
 }
 
@@ -649,6 +679,81 @@ mod tests {
     };
 
     struct TestClock(AtomicU64);
+
+    #[test]
+    fn persisted_request_keeps_its_json_bytes() {
+        let start = RewriteStart {
+            binding: RewriteBinding {
+                source_bucket: "bucket".into(),
+                source_object: "source".into(),
+                source_generation: 7,
+                destination_bucket: "bucket".into(),
+                destination_object: "destination".into(),
+                parameters: Default::default(),
+                metadata: None,
+            },
+            destination: DerivedDestination {
+                bucket: "bucket".into(),
+                name: "destination".into(),
+                content_type: "text/plain".into(),
+                ..DerivedDestination::new(BucketAccess::Permissive)
+            },
+            source_conditions: ObjectConditions::default(),
+            source_metageneration: 1,
+            source_access: BucketAccess::Permissive,
+            source_key_sha256: None,
+            budget: 1048576,
+        };
+        let encoded = encode(
+            &start,
+            "00000000000000000000000000000001",
+            "00000000000000000000000000000002",
+        )
+        .to_string();
+        let expected = concat!(
+            r#"{"path":["bucket","source","bucket","destination"],"generation":7,"metageneration":1,"parameters":{},"body":null,"source_incarnation":"00000000000000000000000000000001","destination_incarnation":"00000000000000000000000000000002","options":"#,
+            r#"{"version":2,"content_type":"text/plain","metadata":{"replace":false,"eventBasedHold":null,"temporaryHold":null,"customTime":null,"contentType":null,"contentEncoding":null,"contentDisposition":null,"contentLanguage":null,"cacheControl":null,"metadata":null,"retention":null,"customerKeySha256":null},"md5":null,"crc32c":null,"conditions":[null,null,null,null],"access":null,"origin":null,"full":false,"response_fields":null}"#,
+            r#","class":null,"components":null,"source_conditions":[null,null,null,null],"budget":1048576,"source_key_sha256":null}"#
+        );
+        assert_eq!(encoded, expected);
+        let connection = Connection::open_in_memory().unwrap();
+        let session = connection
+            .query_row(
+                "SELECT ?1,?2,NULL,?3,0,8,604801000,NULL,?1",
+                params!["00000000000000000000000000000003", "0".repeat(64), &encoded],
+                read,
+            )
+            .unwrap();
+        assert_eq!(session.binding, start.binding);
+        assert_eq!(
+            session.destination.content_type,
+            start.destination.content_type
+        );
+        assert_eq!(session.budget, start.budget);
+        for (offset, total, response, column) in
+            [(-1, 8, None, 4), (0, -1, None, 5), (0, 8, Some("{"), 7)]
+        {
+            let error = connection
+                .query_row(
+                    "SELECT ?1,?2,NULL,?3,?4,?5,604801000,?6,?1",
+                    params![
+                        "00000000000000000000000000000003",
+                        "0".repeat(64),
+                        &encoded,
+                        offset,
+                        total,
+                        response
+                    ],
+                    read,
+                )
+                .err()
+                .unwrap();
+            assert!(
+                matches!(error, rusqlite::Error::FromSqlConversionFailure(index, _, _) if index == column)
+            );
+            assert!(std::error::Error::source(&error).is_some());
+        }
+    }
     impl Clock for TestClock {
         fn now(&self) -> SystemTime {
             UNIX_EPOCH + Duration::from_millis(self.0.load(Ordering::SeqCst))

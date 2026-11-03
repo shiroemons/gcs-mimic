@@ -2,7 +2,6 @@ use super::{Catalog, CatalogError, system_time_millis, unavailable, unix_millis}
 use crate::storage::catalog::{bucket_incarnation, sql};
 
 use crate::{
-    auth::{Identity, OBJECTS_CREATE},
     bucket::BucketAccess,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate},
     storage::failure::BackendCause,
@@ -15,6 +14,8 @@ use std::{
     path::PathBuf,
     time::{Duration, SystemTime},
 };
+
+mod options;
 
 /// Caps ACTIVE sessions, the only ones that own staged bytes.
 pub(crate) const MAX_SESSIONS: usize = 128;
@@ -519,43 +520,7 @@ impl Catalog {
 }
 
 pub(super) fn encode_options(o: &ResumableOptions) -> Value {
-    let m = &o.metadata;
-    let access = match &o.access {
-        BucketAccess::Permissive => Value::Null,
-        BucketAccess::Admin(_) => {
-            unreachable!("administrative grants cannot be persisted as resumable credentials")
-        }
-        BucketAccess::Policy {
-            identity,
-            permission,
-            project,
-        } => {
-            json!({"identity": identity.as_ref().map(Identity::upload_snapshot), "permission": permission.as_str(), "project": project})
-        }
-    };
-    let mut options = json!({"version":2,"content_type":o.content_type,"metadata":{"replace":m.replace,"eventBasedHold":m.event_based_hold,"temporaryHold":m.temporary_hold,"customTime":m.custom_time.as_ref().map(|v|json!({"value":v})),"contentType":m.content_type.as_ref().map(|v|json!({"value":v})),"contentEncoding":m.content_encoding.as_ref().map(|v|json!({"value":v})),"contentDisposition":m.content_disposition.as_ref().map(|v|json!({"value":v})),"contentLanguage":m.content_language.as_ref().map(|v|json!({"value":v})),"cacheControl":m.cache_control.as_ref().map(|v|json!({"value":v})),"metadata":m.metadata.as_ref().map(|v|json!({"value":v})),"retention":super::objects::retention::session_value(m.retention.as_ref()),"customerKeySha256":m.customer_key_sha256.map(|v| v.to_vec())},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full,"response_fields":o.response_fields});
-    // Older sessions omit the key, which decodes as "use the bucket default".
-    if let Some(class) = &m.storage_class {
-        options["metadata"]["storageClass"] = class.as_str().into();
-    }
-    // Likewise omitted by older sessions, which keep inheriting the bucket's default ACL.
-    if let Some(predefined) = m.predefined_acl {
-        options["metadata"]["predefinedAcl"] = predefined.as_str().into();
-    }
-    options
-}
-
-fn decode_predefined_acl(
-    value: &Value,
-) -> Result<Option<crate::acl::PredefinedObjectAcl>, InvalidOptions> {
-    let invalid = || InvalidOptions::new("invalid resumable predefinedAcl");
-    match value {
-        Value::Null => Ok(None),
-        Value::String(value) => crate::acl::PredefinedObjectAcl::parse(value)
-            .map(Some)
-            .ok_or_else(invalid),
-        _ => Err(invalid()),
-    }
+    json!(options::StoredOptions::from_options(o))
 }
 
 /// Stored resumable session options that no longer decode; the catalog treats them as corrupt.
@@ -570,6 +535,13 @@ impl InvalidOptions {
     /// Options whose embedded value failed to decode; the decoding error stays the source.
     fn from_error(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self(BackendCause::from_error(error))
+    }
+
+    pub(in crate::storage) fn with_source(
+        reason: &'static str,
+        error: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self(BackendCause::with_source(reason, error))
     }
 }
 
@@ -586,125 +558,7 @@ impl std::error::Error for InvalidOptions {
 }
 
 pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptions> {
-    let invalid = || InvalidOptions::new("invalid resumable options");
-    let field = |key: &str| -> Result<Option<Option<String>>, InvalidOptions> {
-        if v["version"] == 2 {
-            let value = &v["metadata"][key];
-            if value.is_null() {
-                return Ok(None);
-            }
-            return Ok(Some(
-                serde_json::from_value(value.get("value").ok_or_else(invalid)?.clone())
-                    .map_err(|_| invalid())?,
-            ));
-        }
-        match &v["metadata"][key] {
-            Value::Null => Ok(None),
-            Value::String(s) => Ok(Some(Some(s.clone()))),
-            _ => Err(invalid()),
-        }
-    };
-    let conditions = v["conditions"]
-        .as_array()
-        .filter(|v| v.len() == 4)
-        .ok_or_else(invalid)?;
-    let mut c = [None; 4];
-    for (i, value) in conditions.iter().enumerate() {
-        c[i] = if value.is_null() {
-            None
-        } else {
-            Some(value.as_i64().ok_or_else(invalid)?)
-        };
-    }
-    let md5: Option<Vec<u8>> = serde_json::from_value(v["md5"].clone()).map_err(|_| invalid())?;
-    let crc32c = serde_json::from_value(v["crc32c"].clone()).map_err(|_| invalid())?;
-    let custom = if v["version"] == 2 {
-        if v["metadata"]["metadata"].is_null() {
-            None
-        } else {
-            Some(
-                serde_json::from_value(
-                    v["metadata"]["metadata"]
-                        .get("value")
-                        .ok_or_else(invalid)?
-                        .clone(),
-                )
-                .map_err(|_| invalid())?,
-            )
-        }
-    } else {
-        serde_json::from_value(v["metadata"]["metadata"].clone()).map_err(|_| invalid())?
-    };
-    let access = if v["access"].is_null() {
-        BucketAccess::Permissive
-    } else {
-        let a = &v["access"];
-        if a["permission"] != OBJECTS_CREATE {
-            return Err(invalid());
-        }
-        BucketAccess::Policy {
-            identity: if a["identity"].is_null() {
-                None
-            } else {
-                Some(
-                    Identity::from_upload_snapshot(&a["identity"])
-                        .map_err(InvalidOptions::from_error)?,
-                )
-            },
-            permission: crate::auth::Permission::ObjectsCreate,
-            project: serde_json::from_value(a["project"].clone()).map_err(|_| invalid())?,
-        }
-    };
-    Ok(ResumableOptions {
-        content_type: v["content_type"].as_str().ok_or_else(invalid)?.into(),
-        metadata: ObjectMetadataUpdate {
-            acl: None,
-            predefined_acl: decode_predefined_acl(&v["metadata"]["predefinedAcl"])?,
-            replace: if v["version"] == 2 {
-                v["metadata"]["replace"].as_bool().ok_or_else(invalid)?
-            } else {
-                false
-            },
-            content_type: field("contentType")?,
-            content_encoding: field("contentEncoding")?,
-            content_disposition: field("contentDisposition")?,
-            content_language: field("contentLanguage")?,
-            cache_control: field("cacheControl")?,
-            metadata: custom,
-            temporary_hold: serde_json::from_value(v["metadata"]["temporaryHold"].clone())
-                .map_err(|_| invalid())?,
-            custom_time: field("customTime")?,
-            event_based_hold: serde_json::from_value(v["metadata"]["eventBasedHold"].clone())
-                .map_err(|_| invalid())?,
-            retention: super::objects::retention::from_session(&v["metadata"]["retention"])?,
-            override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
-            customer_key_sha256: serde_json::from_value::<Option<Vec<u8>>>(
-                v["metadata"]["customerKeySha256"].clone(),
-            )
-            .map_err(|_| invalid())?
-            .map(|v| v.try_into().map_err(|_| invalid()))
-            .transpose()?,
-            storage_class: serde_json::from_value(v["metadata"]["storageClass"].clone())
-                .map_err(|_| invalid())?,
-        },
-        expected: ExpectedHashes {
-            md5: md5
-                .map(|v| v.try_into().map_err(|_| invalid()))
-                .transpose()?,
-            crc32c,
-        },
-        conditions: ObjectConditions {
-            if_generation_match: c[0],
-            if_generation_not_match: c[1],
-            if_metageneration_match: c[2],
-            if_metageneration_not_match: c[3],
-        },
-        access,
-        origin: serde_json::from_value(v["origin"].clone()).map_err(|_| invalid())?,
-        projection_full: v["full"].as_bool().ok_or_else(invalid)?,
-        response_fields: serde_json::from_value(v["response_fields"].clone())
-            .map_err(|_| invalid())?,
-    })
+    options::decode(v)
 }
 
 /// A stored session row that does not decode, keeping the decoding error as the source.
@@ -764,6 +618,69 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const OPTIONS_JSON: &str = r#"{"version":2,"content_type":"text/plain","metadata":{"replace":false,"eventBasedHold":null,"temporaryHold":null,"customTime":null,"contentType":null,"contentEncoding":null,"contentDisposition":null,"contentLanguage":null,"cacheControl":null,"metadata":null,"retention":null,"customerKeySha256":null},"md5":null,"crc32c":null,"conditions":[null,null,null,null],"access":null,"origin":null,"full":false,"response_fields":null}"#;
+
+    #[test]
+    fn persisted_options_keep_their_json_bytes() {
+        let mut options = ResumableOptions::new(BucketAccess::Permissive);
+        options.content_type = "text/plain".into();
+        let encoded = encode_options(&options).to_string();
+        assert_eq!(encoded, OPTIONS_JSON);
+        assert_eq!(
+            decode_options(&serde_json::from_str(&encoded).unwrap()).unwrap(),
+            options
+        );
+    }
+
+    #[test]
+    fn legacy_options_keep_nullable_metadata_and_conditions() {
+        let legacy = json!({"content_type":"text/plain","metadata":{"contentType":"text/custom","metadata":{"key":"value"}},"conditions":[0,null,1,null],"access":null,"full":true});
+        let options = decode_options(&legacy).unwrap();
+        assert_eq!(
+            options.metadata.content_type,
+            Some(Some("text/custom".into()))
+        );
+        assert_eq!(
+            options.metadata.metadata,
+            Some(Some(std::collections::BTreeMap::from([(
+                "key".into(),
+                Some("value".into())
+            )])))
+        );
+        assert_eq!(options.conditions.if_generation_match, Some(0));
+        assert!(options.projection_full);
+    }
+
+    #[test]
+    fn nullable_updates_keep_removal_distinct_from_omission() {
+        let mut options = ResumableOptions::new(BucketAccess::Permissive);
+        options.metadata.content_type = Some(None);
+        options.metadata.metadata = Some(None);
+        options.metadata.retention = Some(None);
+        let encoded = encode_options(&options);
+        assert_eq!(
+            encoded["metadata"]["contentType"].to_string(),
+            r#"{"value":null}"#
+        );
+        assert_eq!(
+            encoded["metadata"]["metadata"].to_string(),
+            r#"{"value":null}"#
+        );
+        assert_eq!(
+            encoded["metadata"]["retention"].to_string(),
+            r#"{"value":null}"#
+        );
+        assert_eq!(decode_options(&encoded).unwrap(), options);
+        for field in ["contentType", "metadata"] {
+            let mut invalid = encoded.clone();
+            invalid["metadata"][field] = json!({});
+            let error = decode_options(&invalid).unwrap_err();
+            assert_eq!(error.to_string(), "invalid resumable options");
+            assert!(std::error::Error::source(&error).is_some());
+        }
+    }
+
     #[test]
     fn failed_session_migration_rolls_back_tables_indexes_and_version() {
         let mut connection = Connection::open_in_memory().unwrap();
