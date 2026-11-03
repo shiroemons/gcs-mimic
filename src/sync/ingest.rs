@@ -488,6 +488,8 @@ impl Ingest<'_> {
             .admin
             .stage_from_file(source, Default::default(), self.config.max_object_bytes)
             .await?;
+        #[cfg(test)]
+        checkpoint("staged").await;
         let checked = self
             .root
             .file_job(move |root| {
@@ -499,7 +501,13 @@ impl Ingest<'_> {
             })
             .await;
         if let Err(error) = checked {
-            staged.discard().await?;
+            if let Err(cleanup) = staged.discard().await {
+                diagnostics::emit(
+                    LogLevel::Error,
+                    "sync_staging_cleanup_failed",
+                    serde_json::json!({"reason":crate::error::Report(&cleanup).to_string()}),
+                );
+            }
             return Err(error);
         }
         Ok(staged)
@@ -705,7 +713,12 @@ use super::Hook;
 #[cfg(test)]
 tokio::task_local! { static HOOK: std::sync::Arc<Hook>; }
 #[cfg(test)]
+tokio::task_local! { static STAGES: std::sync::Arc<std::sync::atomic::AtomicUsize>; }
+#[cfg(test)]
 async fn checkpoint(phase: &str) {
+    if phase == "stage" {
+        let _ = STAGES.try_with(|count| count.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+    }
     if let Ok(hook) = HOOK.try_with(std::sync::Arc::clone)
         && hook.phase == phase
     {

@@ -16,6 +16,32 @@ async fn fixture() -> (TestDir, TestDir, Catalog, RootLease, Config) {
     crate::sync::test_support::fixture(None).await
 }
 
+async fn clocked_fixture() -> (
+    TestDir,
+    TestDir,
+    Catalog,
+    RootLease,
+    Config,
+    Arc<crate::clock::ManualClock>,
+) {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let clock = Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
+    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+        .await
+        .unwrap();
+    let config = Config {
+        data_dir: data.0.clone(),
+        sync_dir: Some(tree.0.clone()),
+        ..Default::default()
+    };
+    let root = crate::sync::preflight(&catalog, &config)
+        .await
+        .unwrap()
+        .unwrap();
+    (data, tree, catalog, root, config, clock)
+}
+
 async fn scan(catalog: &Catalog, root: &RootLease, config: &Config) -> Reconciliation {
     let (_stop, stopping) = tokio::sync::watch::channel(false);
     rescan(catalog, root, config, &stopping).await.unwrap()
@@ -60,6 +86,52 @@ async fn staging_finishes_while_another_file_worker_is_occupied() {
 }
 
 #[tokio::test]
+async fn source_recheck_preserves_precondition_when_staging_cleanup_also_fails() {
+    let (data, tree, catalog, root, config) = fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    let path = tree.0.join("test-bucket/body");
+    fs::write(&path, b"original").unwrap();
+    let identity = fsutil::stat_identity(&File::open(&path).unwrap()).unwrap();
+    let ingest = Ingest {
+        catalog: &catalog,
+        root: &root,
+        config: &config,
+        admin: root.sync_admin(),
+    };
+    let hook = Arc::new(Hook {
+        phase: "staged",
+        entered: Default::default(),
+        release: Default::default(),
+    });
+    let (result, stage) = HOOK
+        .scope(hook.clone(), async {
+            tokio::join!(ingest.stage("test-bucket/body".into(), identity), async {
+                hook.entered.notified().await;
+                fs::write(&path, b"changed").unwrap();
+                let stage = fs::read_dir(data.0.join("staging"))
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .unwrap()
+                    .path();
+                fs::remove_file(&stage).unwrap();
+                fs::create_dir(&stage).unwrap();
+                fs::write(stage.join("retained"), b"cleanup obstacle").unwrap();
+                hook.release.notify_one();
+                stage
+            })
+        })
+        .await;
+    fs::remove_dir_all(stage).unwrap();
+    assert!(matches!(
+        result,
+        Err(RootError::Admin(AdminError::Precondition))
+    ));
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn racy_exported_bytes_are_verified_without_staging_again() {
     let data = TestDir::new();
     let tree = TestDir::new();
@@ -95,11 +167,21 @@ async fn racy_exported_bytes_are_verified_without_staging_again() {
     let state = catalog.sync_state();
     let tracked = || state.get_path(binding.clone(), "test-bucket/body".into());
     assert!(tracked().await.unwrap().unwrap().fingerprint.racy);
-    let stats = scan(&catalog, &root, &config).await;
+    let stages = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let stats = STAGES
+        .scope(stages.clone(), scan(&catalog, &root, &config))
+        .await;
     assert_eq!(stats.identical, 1);
     assert_eq!(stats.ingested, 0);
     clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
-    assert_eq!(scan(&catalog, &root, &config).await.identical, 1);
+    assert_eq!(
+        STAGES
+            .scope(stages.clone(), scan(&catalog, &root, &config))
+            .await
+            .identical,
+        1
+    );
+    assert_eq!(stages.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert!(!tracked().await.unwrap().unwrap().fingerprint.racy);
     assert_eq!(fs::read_dir(data.0.join("staging")).unwrap().count(), 0);
     drop(root);
@@ -424,19 +506,19 @@ async fn native_watcher_ingests_external_create_edit_replace_and_rename_without_
 
 #[tokio::test]
 async fn ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations() {
-    let (data, tree, catalog, root, config) = fixture().await;
+    let (data, tree, catalog, root, config, clock) = clocked_fixture().await;
     fs::create_dir(tree.0.join("first-bucket")).unwrap();
     fs::create_dir(tree.0.join("second-bucket")).unwrap();
     fs::write(tree.0.join("first-bucket/zero"), b"").unwrap();
     fs::write(tree.0.join("second-bucket/body"), [0, 255, 13, 10]).unwrap();
+    clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
     let task = crate::sync::start(catalog.clone(), root.clone(), &config).unwrap();
     let unchanged = task.rescan().await.unwrap();
     assert_eq!(unchanged.ingested, 0);
     let original = object(&catalog, "second-bucket/body").await;
     let unchanged = task.rescan().await.unwrap();
     assert_eq!(unchanged.ingested, 0);
-    // Recently recorded fingerprints may require an in-place verification.
-    assert!(unchanged.identical <= 2);
+    assert_eq!((unchanged.ingested, unchanged.identical), (0, 0));
     assert_eq!(original.size, 4);
     assert_eq!(object(&catalog, "first-bucket/zero").await.size, 0);
     assert_eq!(
@@ -817,9 +899,10 @@ async fn ingest_unreadable_file_is_deferred_while_other_files_progress() {
 
 #[tokio::test]
 async fn ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle() {
-    let (_data, tree, catalog, root, config) = fixture().await;
+    let (_data, tree, catalog, root, config, clock) = clocked_fixture().await;
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     fs::write(tree.0.join("test-bucket/object"), b"stable").unwrap();
+    clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
     scan(&catalog, &root, &config).await;
     let hook = Arc::new(Hook {
         phase: "settle",
@@ -832,8 +915,7 @@ async fn ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_sett
     )
     .await
     .unwrap();
-    assert_eq!(summary.ingested, 0);
-    assert!(summary.identical <= 1);
+    assert_eq!((summary.ingested, summary.identical), (0, 0));
     fs::write(tree.0.join("test-bucket/object"), b"changed").unwrap();
     let hook = Arc::new(Hook {
         phase: "settle",
