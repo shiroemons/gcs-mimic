@@ -213,7 +213,10 @@ fn origin_matches(allowed: &str, origin: &str) -> bool {
         let (Some(authority), Some(scheme)) = (uri.authority(), uri.scheme_str()) else {
             return false;
         };
-        if value != format!("{scheme}://{authority}")
+        if value
+            .strip_prefix(scheme)
+            .and_then(|v| v.strip_prefix("://"))
+            != Some(authority.as_str())
             || authority.as_str().contains('@')
             || authority
                 .as_str()
