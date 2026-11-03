@@ -86,6 +86,10 @@ fn names(response: &pb::ListBucketsResponse) -> Vec<&str> {
         .collect()
 }
 
+/// The wire text of a failed bucket update or delete precondition; reads word it differently.
+const PRECONDITION_NOT_HELD: &str =
+    "At least one of the pre-conditions you specified did not hold.";
+
 #[tokio::test]
 async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
     let dir = TestDir::new();
@@ -127,6 +131,7 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
             .await
             .unwrap_err();
         assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(error.message(), PRECONDITION_NOT_HELD);
         assert_eq!(
             storage
                 .state
@@ -162,6 +167,7 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
             .await
             .unwrap_err();
         assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(error.message(), PRECONDITION_NOT_HELD);
         assert!(
             storage
                 .state
