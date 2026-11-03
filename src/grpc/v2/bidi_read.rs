@@ -365,10 +365,7 @@ mod tests {
             )
             .await
             .unwrap();
-        Arc::new(crate::grpc::test_support::state(
-            catalog,
-            Auth::permissive(),
-        ))
+        Arc::new(crate::server::State::for_test(catalog, Auth::permissive()))
     }
 
     #[tokio::test]

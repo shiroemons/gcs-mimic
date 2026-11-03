@@ -1106,7 +1106,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let state = Arc::new(State {
             api_base_url: format!("http://{address}"),
-            ..crate::grpc::test_support::state(catalog.clone(), Auth::strict(registry))
+            ..State::for_test(catalog.clone(), Auth::strict(registry))
         });
         let (stop, stopped) = tokio::sync::oneshot::channel();
         let running = tokio::spawn(serve(

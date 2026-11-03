@@ -1,5 +1,5 @@
 use super::*;
-use crate::grpc::test_support::{self as fixtures, assert_code, registry};
+use crate::grpc::test_support::{assert_code, registry};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{auth::Auth, json, storage::Catalog, test_support::TestDir};
 use bytes::Bytes;
@@ -29,7 +29,7 @@ async fn setup(strict: bool) -> (TestDir, Storage) {
         Auth::permissive()
     };
     let storage = Storage {
-        state: Arc::new(fixtures::state(catalog, auth)),
+        state: Arc::new(crate::server::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
     };
     (dir, storage)

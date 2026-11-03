@@ -13,10 +13,7 @@ use crate::{
 };
 use ring::hmac;
 use serde_json::json;
-use std::{
-    sync::{Arc, atomic::AtomicBool},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tokio::sync::watch;
 
 const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-private.pem");
@@ -75,13 +72,9 @@ impl Fixture {
         let (activity, _) = watch::channel(ObjectActivity::default());
         Self {
             state: State {
-                grpc_read_handles: Default::default(),
-                ready: AtomicBool::new(true),
                 clock,
-                catalog,
                 api_base_url: "http://localhost".into(),
-                default_location: "US".into(),
-                auth,
+                ..State::for_test(catalog, auth)
             },
             config,
             endpoints,
@@ -286,7 +279,7 @@ async fn policy_variants_keep_old_objects_after_write_flush_and_sync_failures() 
                 .err()
                 .unwrap();
             assert_eq!(
-                error.status,
+                error.status(),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "{step:?}: {error:?}"
             );
@@ -317,7 +310,7 @@ async fn hmac_policy_backend_failure_retains_cause_and_never_returns_anonymous()
         let error = authenticate(&fixture.state, &HeaderMap::new(), &fields, version)
             .await
             .unwrap_err();
-        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
         let failure = match variant {
             Variant::V4Hmac => fixture
                 .state

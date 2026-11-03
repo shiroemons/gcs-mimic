@@ -599,7 +599,7 @@ mod tests {
             dir,
             Storage {
                 max_object_bytes: 1024 * 1024 * 1024,
-                state: Arc::new(fixtures::state(catalog, auth)),
+                state: Arc::new(crate::server::State::for_test(catalog, auth)),
             },
         )
     }
@@ -1305,7 +1305,10 @@ mod tests {
         ]));
         let storage = Storage {
             max_object_bytes: 1024,
-            state: Arc::new(fixtures::state(Catalog::open(&dir.0).await.unwrap(), auth)),
+            state: Arc::new(crate::server::State::for_test(
+                Catalog::open(&dir.0).await.unwrap(),
+                auth,
+            )),
         };
         storage
             .create_bucket(
@@ -1370,7 +1373,10 @@ mod tests {
         ]));
         let storage = Storage {
             max_object_bytes: 1024,
-            state: Arc::new(fixtures::state(Catalog::open(&dir.0).await.unwrap(), auth)),
+            state: Arc::new(crate::server::State::for_test(
+                Catalog::open(&dir.0).await.unwrap(),
+                auth,
+            )),
         };
         let mut request = create("retention-bucket");
         request.enable_object_retention = true;

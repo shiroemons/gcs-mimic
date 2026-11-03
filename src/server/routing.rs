@@ -283,7 +283,7 @@ async fn respond_xml_cors(
     // CORS field is sent at all.
     let cors = if has_origin && !lookup_failed {
         if found && rules.is_empty() && config.cors_fallback == CorsFallback::None {
-            xml::warn_unconfigured_cors(&object.bucket, request.headers());
+            xml::warn_unconfigured_cors(state, &object.bucket, request.headers());
         }
         xml::cors(
             request.headers(),
@@ -486,9 +486,7 @@ fn respond_unsupported(
     boxed(
         authenticate(request, state)
             .and_then(|_| {
-                Err(JsonError::new(
-                    StatusCode::BAD_REQUEST,
-                    "badRequest",
+                Err(JsonError::unsupported_message(
                     format!("gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."),
                 ))
             })
@@ -758,14 +756,14 @@ async fn respond_bucket(
 fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonError {
     if profile == CompatProfile::LegacyEmulator
         && error.status == StatusCode::BAD_REQUEST
-        && matches!(error.reason, "invalidArgument" | "parseError")
+        && matches!(
+            error.kind,
+            json::ErrorKind::InvalidArgument | json::ErrorKind::LegacyParseError
+        )
     {
         error.reason = "invalid";
     }
-    if profile == CompatProfile::LegacyEmulator
-        && error.status == StatusCode::NOT_FOUND
-        && error.reason == "notFound"
-    {
+    if profile == CompatProfile::LegacyEmulator && error.is_missing_bucket() {
         error.message = "Not Found".into();
     }
     error

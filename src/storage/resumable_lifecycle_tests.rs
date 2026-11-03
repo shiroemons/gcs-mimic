@@ -975,13 +975,9 @@ async fn scheduler_restarts_after_a_panic_and_readiness_reports_the_gap() {
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
     let catalog = setup(&dir, clock.clone()).await;
     let state = gcs_mimic::server::State {
-        grpc_read_handles: Default::default(),
-        ready: AtomicBool::new(true),
         clock: clock.clone(),
-        catalog: catalog.clone(),
         api_base_url: "http://127.0.0.1:4443".into(),
-        default_location: "US".into(),
-        auth: Default::default(),
+        ..gcs_mimic::server::State::for_test(catalog.clone(), Default::default())
     };
     let session = catalog
         .create_resumable_session(
@@ -1043,13 +1039,9 @@ async fn persistent_maintenance_failures_turn_readiness_off_until_a_pass_succeed
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
     let catalog = setup(&dir, clock.clone()).await;
     let state = gcs_mimic::server::State {
-        grpc_read_handles: Default::default(),
-        ready: AtomicBool::new(true),
         clock: clock.clone(),
-        catalog: catalog.clone(),
         api_base_url: "http://127.0.0.1:4443".into(),
-        default_location: "US".into(),
-        auth: Default::default(),
+        ..gcs_mimic::server::State::for_test(catalog.clone(), Default::default())
     };
     let session = catalog
         .create_resumable_session(

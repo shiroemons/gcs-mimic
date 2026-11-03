@@ -10,20 +10,31 @@ const ALLOW_ALL_METHODS: &str = "HEAD, GET, POST, PUT, DELETE";
 /// Bounds the remembered bucket names so the warning memory does not grow with the catalog.
 const WARNED_BUCKET_LIMIT: usize = 64;
 
-static WARNED_BUCKETS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+/// Remembers one unconfigured-CORS warning per bucket and State, up to 64 buckets.
+#[derive(Default)]
+pub struct CorsWarnings(Mutex<BTreeSet<String>>);
+
+impl CorsWarnings {
+    fn first(&self, bucket: &str) -> bool {
+        let mut warned = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        warned.len() < WARNED_BUCKET_LIMIT && warned.insert(bucket.to_owned())
+    }
+}
 
 /// Browsers only report a generic CORS failure, so the server log is the one place that can say
 /// a migrated fake-gcs-server caller now needs the fallback or bucket rules.
-pub(crate) fn warn_unconfigured_cors(bucket: &str, headers: &HeaderMap) {
+pub(crate) fn warn_unconfigured_cors(
+    state: &crate::server::State,
+    bucket: &str,
+    headers: &HeaderMap,
+) {
     if crate::json::cors::origin(headers).is_none() {
         return;
     }
-    let first = first_warning(
-        &mut WARNED_BUCKETS
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()),
-        bucket,
-    );
+    let first = state.xml_cors_warned_buckets.first(bucket);
     if first {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
@@ -34,10 +45,6 @@ pub(crate) fn warn_unconfigured_cors(bucket: &str, headers: &HeaderMap) {
             }),
         );
     }
-}
-
-fn first_warning(warned: &mut BTreeSet<String>, bucket: &str) -> bool {
-    warned.len() < WARNED_BUCKET_LIMIT && warned.insert(bucket.to_owned())
 }
 
 /// `fallback` applies only when `rules` is empty, so stored bucket rules keep their exact XML
@@ -503,13 +510,33 @@ mod tests {
 
     #[test]
     fn unconfigured_warning_is_once_per_bucket_and_bounded() {
-        let mut warned = BTreeSet::new();
-        assert!(first_warning(&mut warned, "bucket-a"));
-        assert!(!first_warning(&mut warned, "bucket-a"));
+        let warned = CorsWarnings::default();
+        assert!(warned.first("bucket-a"));
+        assert!(!warned.first("bucket-a"));
         for index in 1..WARNED_BUCKET_LIMIT {
-            assert!(first_warning(&mut warned, &format!("bucket-{index}")));
+            assert!(warned.first(&format!("bucket-{index}")));
         }
-        assert!(!first_warning(&mut warned, "bucket-over-limit"));
-        assert_eq!(warned.len(), WARNED_BUCKET_LIMIT);
+        assert!(!warned.first("bucket-over-limit"));
+        assert_eq!(warned.0.lock().unwrap().len(), WARNED_BUCKET_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn warning_buckets_are_independent_for_each_server_state() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
+        let first = crate::server::State::for_test(catalog.clone(), Default::default());
+        let second = crate::server::State::for_test(catalog.clone(), Default::default());
+        let headers = request("https://app.example", None, None);
+        warn_unconfigured_cors(&first, "bucket-a", &headers);
+        warn_unconfigured_cors(&first, "bucket-a", &headers);
+        assert!(second.xml_cors_warned_buckets.0.lock().unwrap().is_empty());
+        warn_unconfigured_cors(&second, "bucket-a", &headers);
+        for state in [&first, &second] {
+            assert_eq!(
+                *state.xml_cors_warned_buckets.0.lock().unwrap(),
+                BTreeSet::from(["bucket-a".into()])
+            );
+        }
+        catalog.close().await.unwrap();
     }
 }

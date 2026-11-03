@@ -1416,7 +1416,7 @@ mod tests {
             Auth::permissive()
         };
         let storage = Storage {
-            state: Arc::new(fixtures::state(catalog, auth)),
+            state: Arc::new(crate::server::State::for_test(catalog, auth)),
             max_object_bytes: 1024 * 1024,
         };
         (dir, storage)

@@ -2,7 +2,7 @@
 //! signed URL, and the session URI it returns. Sessions, transfers and completion are the
 //! shared resumable engine; this adapter only parses XML requests and renders XML responses.
 
-use super::{Error, ObjectPath, put, signing_parameter};
+use super::{Error, ObjectPath, XmlCode, put, signing_parameter};
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth, json,
@@ -187,10 +187,9 @@ pub(crate) async fn session(
         Ok(Some(Transfer::Complete(value))) => completed(&value),
         Ok(None) => Ok(no_content()),
         Err(error) if error.status == StatusCode::GONE => Ok(no_content()),
-        Err(error) if error.reason == "clientClosedRequest" => Ok(no_content()),
+        Err(error) if error.kind == json::ErrorKind::CancelledUpload => Ok(no_content()),
         Err(error) if error.status == StatusCode::NOT_FOUND => Err(Error::new(
-            StatusCode::NOT_FOUND,
-            "NoSuchUpload",
+            XmlCode::NoSuchUpload,
             "The upload session does not exist or has expired.",
         )),
         Err(error) => Err(error.into()),
@@ -231,8 +230,7 @@ fn completed(value: &serde_json::Value) -> Result<Response<ResponseBody>, Error>
     let text = |field: &str| value.get(field).and_then(serde_json::Value::as_str);
     let unavailable = || {
         Error::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "ServiceUnavailable",
+            XmlCode::ServiceUnavailable,
             "The completed upload has no stored object response.",
         )
     };

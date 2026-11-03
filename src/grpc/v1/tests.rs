@@ -23,7 +23,7 @@ async fn storage(dir: &TestDir, auth: Auth) -> Storage {
         catalog.insert_bucket(bucket(name, project)).await.unwrap();
     }
     Storage {
-        state: Arc::new(fixtures::state(catalog, auth)),
+        state: Arc::new(crate::server::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
         compat_profile: crate::config::CompatProfile::LegacyEmulator,
     }

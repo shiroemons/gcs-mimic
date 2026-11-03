@@ -8,9 +8,6 @@ use tonic::{Code, Status};
 const NOT_MODIFIED: &str =
     "The resource you requested has not been modified according to the condition you specified.";
 
-/// The message of the JSON object error for a failed generation or metageneration condition.
-const JSON_PRECONDITION_FAILED: &str = "Precondition failed";
-
 impl From<crate::object::ObjectError> for Status {
     fn from(error: crate::object::ObjectError) -> Self {
         Self::from(crate::json::JsonError::from(error))
@@ -31,17 +28,10 @@ impl From<crate::auth::AuthFailure> for Status {
 
 impl From<crate::json::JsonError> for Status {
     fn from(mut error: crate::json::JsonError) -> Self {
-        match (error.status.as_u16(), error.reason) {
-            // The JSON object error words a failed precondition shorter; gRPC carries the recorded
-            // text of bucket RPCs. Other 412s (public access prevention, a bucket that is not empty)
-            // keep their own message: they are not failed preconditions.
-            (412, "conditionNotMet") if error.message == JSON_PRECONDITION_FAILED => {
-                error.message = crate::json::PRECONDITION_NOT_HELD.into();
-            }
-            (304, "notModified") => error.message = NOT_MODIFIED.into(),
-            _ => {}
+        if error.kind == crate::json::ErrorKind::NotModified {
+            error.message = NOT_MODIFIED.into();
         }
-        if error.message.starts_with("gcs-mimic does not support ") {
+        if error.kind == crate::json::ErrorKind::Unsupported {
             return unsupported(&error.message);
         }
         match error.status.as_u16() {
@@ -190,18 +180,10 @@ mod tests {
 
     #[test]
     fn precondition_failures_use_the_grpc_wording() {
-        let failed = Status::from(crate::json::JsonError::new(
-            StatusCode::PRECONDITION_FAILED,
-            "conditionNotMet",
-            "Precondition failed",
-        ));
+        let failed = Status::from(crate::object::ObjectError::PreconditionFailed);
         assert_eq!(failed.code(), Code::FailedPrecondition);
         assert_eq!(failed.message(), crate::json::PRECONDITION_NOT_HELD);
-        let unmodified = Status::from(crate::json::JsonError::new(
-            StatusCode::NOT_MODIFIED,
-            "notModified",
-            "Not modified",
-        ));
+        let unmodified = Status::from(crate::object::ObjectError::NotModified);
         assert_eq!(unmodified.message(), NOT_MODIFIED);
         // A 412 that is not a failed condition keeps its own message.
         let pap = Status::from(crate::bucket::CatalogError::PublicAccessPrevention);
