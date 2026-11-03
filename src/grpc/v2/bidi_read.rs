@@ -305,7 +305,8 @@ async fn serve(
                     reader.next_chunk().await.map_err(|_| Status::internal("Cannot read object data; restore a valid data directory"))?
                         .unwrap_or_default()
                 };
-                let length = i64::try_from(data.len()).map_err(|_| Status::internal("Object read chunk exceeds the supported size"))?;
+                // Readers cap chunks at 64 KiB; widening the signed pointer-sized length cannot fail.
+                let length = data.len().cast_signed() as i64;
                 range.read_offset += length;
                 range.read_length -= length;
                 let range_end = range.read_length == 0;

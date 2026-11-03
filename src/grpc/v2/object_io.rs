@@ -996,7 +996,9 @@ impl Storage {
             let (catalog_wait, _wait) = watch::channel(false);
             let chunk = ResumableChunk {
                 start: offset,
-                length: data.content.len() as u64,
+                length: u64::try_from(data.content.len()).map_err(|_| {
+                    Status::out_of_range("write_offset plus content length overflows")
+                })?,
                 total: persisted.total.or(message.finish_write.then_some(written)),
                 finalize: message.finish_write,
                 open_end: false,
@@ -1239,8 +1241,9 @@ fn resumable_piece(
         None => pb::ChecksummedData::default(),
     };
     verify_crc32c(&data)?;
-    let end = offset
-        .checked_add(data.content.len() as u64)
+    let end = u64::try_from(data.content.len())
+        .ok()
+        .and_then(|length| offset.checked_add(length))
         .ok_or_else(|| Status::out_of_range("write_offset plus content length overflows"))?
         .max(persisted.offset);
     if end > max_object_bytes {
@@ -1309,10 +1312,13 @@ async fn produce_single_write<
             None => pb::ChecksummedData::default(),
         };
         verify_crc32c(&data)?;
-        let discard = (offset - start).min(data.content.len() as u64) as usize;
+        let discard = usize::try_from(offset - start)
+            .unwrap_or(usize::MAX)
+            .min(data.content.len());
         let added = data.content.slice(discard..);
-        offset = offset
-            .checked_add(added.len() as u64)
+        offset = u64::try_from(added.len())
+            .ok()
+            .and_then(|length| offset.checked_add(length))
             .ok_or_else(|| Status::out_of_range("Object size overflow"))?;
         if offset > limits.max_object_bytes {
             return Err(Status::resource_exhausted(
