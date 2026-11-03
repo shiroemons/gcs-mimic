@@ -6,6 +6,58 @@ use crate::{
 };
 use serde_json::json;
 
+#[test]
+fn overlapping_legacy_roles_keep_the_highest_grant_in_both_orders() {
+    for roles in [
+        [
+            "roles/storage.legacyBucketReader",
+            "roles/storage.legacyBucketOwner",
+        ],
+        [
+            "roles/storage.legacyBucketOwner",
+            "roles/storage.legacyBucketReader",
+        ],
+        [
+            "roles/storage.legacyBucketReader",
+            "roles/storage.legacyBucketWriter",
+        ],
+        [
+            "roles/storage.legacyBucketWriter",
+            "roles/storage.legacyBucketReader",
+        ],
+        [
+            "roles/storage.legacyBucketWriter",
+            "roles/storage.legacyBucketOwner",
+        ],
+        [
+            "roles/storage.legacyBucketOwner",
+            "roles/storage.legacyBucketWriter",
+        ],
+    ] {
+        let policy = Policy {
+            bindings: roles
+                .iter()
+                .map(|role| Binding {
+                    role: (*role).into(),
+                    members: vec!["allUsers".into()],
+                })
+                .collect(),
+            etag: None,
+        };
+        let entries = policy_entries(&policy, "project", None);
+        let expected = if roles.contains(&"roles/storage.legacyBucketOwner") {
+            "OWNER"
+        } else {
+            "WRITER"
+        };
+        assert_eq!(
+            serde_json::to_string(&entries).unwrap(),
+            format!(r#"[{{"entity":"allUsers","role":"{expected}"}}]"#),
+            "{roles:?}"
+        );
+    }
+}
+
 async fn fixture() -> (TestDir, Catalog) {
     let data = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();

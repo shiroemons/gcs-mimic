@@ -2166,10 +2166,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let error = catalog
-            .get_bucket("bucket", PERMISSIVE)
-            .await
-            .unwrap_err();
+        let error = catalog.get_bucket("bucket", PERMISSIVE).await.unwrap_err();
         assert!(matches!(error, CatalogError::Corrupt(_)));
         assert_eq!(
             crate::json::JsonError::from(error).message,
@@ -2211,6 +2208,63 @@ mod tests {
             .err()
             .unwrap();
         assert!(matches!(error, ObjectError::Corrupt(_)));
+        catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn publication_keeps_unset_holds_and_default_object_acl_json() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog
+            .insert_bucket(crate::storage::test_fixtures::bucket("bucket", "project"))
+            .await
+            .unwrap();
+        let entries = vec![crate::acl::AclEntry {
+            entity: "allUsers".into(),
+            role: "READER".into(),
+        }];
+        catalog
+            .patch_bucket(
+                "bucket",
+                BucketMetadataUpdate {
+                    default_object_acl: Some(entries),
+                    ..Default::default()
+                },
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        let (sender, body) = tokio::sync::mpsc::channel(1);
+        sender
+            .try_send(Ok(crate::object::UploadChunk::End))
+            .unwrap();
+        let record = catalog
+            .put_object_prechecked(
+                crate::storage::test_fixtures::permissive_upload("bucket", "object", 1),
+                body,
+                catalog.admit_object_upload().unwrap(),
+            )
+            .await
+            .unwrap();
+        let resource = crate::json::object_resource(
+            &record,
+            "http://localhost",
+            crate::json::Projection::NoAcl,
+        )
+        .unwrap();
+        assert!(resource.get("eventBasedHold").is_none());
+        assert!(resource.get("temporaryHold").is_none());
+        let stored = catalog.run(|connection| {
+            let default: String = sql::scalar(connection, "SELECT entries FROM acl_bucket_entries WHERE bucket='bucket' AND scope='defaultObject'", [])?;
+            let object: String = sql::scalar(connection, "SELECT entries FROM acl_object_entries WHERE bucket='bucket' AND name='object'", [])?;
+            Ok::<_, CatalogError>((default, object))
+        }).await.unwrap();
+        assert_eq!(stored.0, r#"[{"entity":"allUsers","role":"READER"}]"#);
+        assert_eq!(
+            stored.1,
+            r#"[{"entity":"project-owners-0","role":"OWNER"},{"entity":"allUsers","role":"READER"}]"#
+        );
         catalog.close().await.unwrap();
     }
 

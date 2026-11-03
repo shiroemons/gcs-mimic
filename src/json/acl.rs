@@ -428,6 +428,11 @@ mod tests {
                 "Invalid value for: WRITER is not a valid value",
             ),
             (
+                AclKind::DefaultObject,
+                r#"[{"entity":"allUsers","role":"WRITER"}]"#,
+                "Invalid value for: WRITER is not a valid value",
+            ),
+            (
                 AclKind::Bucket,
                 r#"[{"entity":"bad","role":"bad"}]"#,
                 "Scope text \"bad\" is not valid.",
