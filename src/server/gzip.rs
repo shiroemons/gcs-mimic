@@ -218,7 +218,8 @@ mod tests {
     /// A failing probe read stays an I/O failure with its cause reachable, not a bare 503.
     #[tokio::test]
     async fn is_plain_keeps_the_io_cause_of_a_failed_probe() {
-        let path = std::env::temp_dir().join(format!("gcs-mimic-is-plain-{}", std::process::id()));
+        let directory = crate::test_support::TestDir::new();
+        let path = directory.0.join("object");
         std::fs::write(&path, b"").unwrap();
         let file = tokio::fs::File::open(&path).await.unwrap();
         std::fs::remove_file(&path).unwrap();

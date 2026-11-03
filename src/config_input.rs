@@ -1135,10 +1135,8 @@ mod tests {
         let report = crate::config::Config::preflight_os(&strings(&["--worker-threads", "3"]), env);
         assert!(!report.diagnostics.is_err());
         assert_eq!(report.config.worker_threads, 3);
-        let file = std::env::temp_dir().join(format!(
-            "gcs-mimic-env-selector-{}.json",
-            std::process::id()
-        ));
+        let directory = crate::test_support::TestDir::new();
+        let file = directory.0.join("config.json");
         std::fs::write(&file, "{}").unwrap();
         let report = crate::config::Config::preflight_os(
             &["--config".into(), file.to_str().unwrap().into()],
@@ -1148,7 +1146,6 @@ mod tests {
             )],
         );
         assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-        std::fs::remove_file(file).unwrap();
     }
 
     #[test]

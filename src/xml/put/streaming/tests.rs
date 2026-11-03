@@ -1,68 +1,23 @@
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
-    auth::{
-        Auth, Registry,
-        signature::{STREAMING_PAYLOAD, timestamp},
-    },
-    clock::{Clock, SystemClock},
-    config::{Config, EndpointSnapshot},
-    server::{DeadlineWatch, ObjectActivity, RequestBody, RequestCtx, State},
+    auth::signature::{STREAMING_PAYLOAD, timestamp},
+    server::{DeadlineWatch, RequestBody, RequestCtx},
     storage::{
         Catalog,
-        admin::LocalAdmin,
         fault::{self, Fault, Step},
     },
-    test_support::TestDir,
+    xml::test_support::SignedUploadFixture as Fixture,
 };
 use http_body_util::Full;
 use hyper::Request;
 use ring::hmac;
-use std::sync::Arc;
-use tokio::sync::watch;
 
 fn sign(key: &hmac::Key, message: &str) -> String {
     crate::hashing::encode_lower(hmac::sign(key, message.as_bytes()).as_ref())
 }
 
-struct Fixture {
-    dir: TestDir,
-    state: State,
-    key: String,
-    secret: String,
-}
-
 impl Fixture {
-    async fn new() -> Self {
-        let dir = TestDir::new();
-        let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-        let catalog = Catalog::open_for_server(&dir.0, clock.clone(), LocalAdmin::Disabled)
-            .await
-            .unwrap();
-        let auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"signer@example.invalid","tokens":[],"project_roles":{"local":["roles/storage.admin"]}}]}"#).unwrap());
-        catalog.configure_authentication(&auth).await.unwrap();
-        catalog
-            .insert_bucket(
-                json::parse_insert(br#"{"name":"bucket"}"#, "local", clock.now()).unwrap(),
-            )
-            .await
-            .unwrap();
-        let key = catalog
-            .create_hmac_key("local", "signer@example.invalid")
-            .await
-            .unwrap();
-        Self {
-            dir,
-            state: State {
-                clock,
-                api_base_url: "http://localhost".into(),
-                ..State::for_test(catalog, auth)
-            },
-            key: key.record.access_id,
-            secret: key.secret,
-        }
-    }
-
     fn request(&self, bytes: &[u8]) -> Request<RequestBody> {
         let date = timestamp(self.state.clock.now()).unwrap();
         let scope = format!("{}/auto/s3/aws4_request", &date[..8]);
@@ -107,26 +62,17 @@ impl Fixture {
             .header("host","localhost").header("content-encoding","aws-chunked")
             .header("x-amz-content-sha256",STREAMING_PAYLOAD).header("x-amz-date",&date)
             .header("x-amz-decoded-content-length",bytes.len()).header("content-length",body.len())
-            .header("authorization",format!("AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders=content-encoding;host;x-amz-content-sha256;x-amz-date;x-amz-decoded-content-length, Signature={seed}",self.key))
+            .header("authorization",format!("AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders=content-encoding;host;x-amz-content-sha256;x-amz-date;x-amz-decoded-content-length, Signature={seed}",self.access_id))
             .body(RequestBody::Buffered(Full::new(Bytes::from(body)))).unwrap()
     }
 
     async fn upload(&self, bytes: &[u8]) -> Result<Response<ResponseBody>, Error> {
         let request = self.request(bytes);
-        let config = Config {
-            max_object_bytes: 1024 * 1024,
-            ..Config::default()
-        };
-        let endpoints = EndpointSnapshot {
-            api_base_url: "http://localhost".into(),
-            public_base_url: None,
-            xml_virtual_host_domains: Vec::new(),
-        };
-        let (activity, _) = watch::channel(ObjectActivity::default());
+        let (activity, _) = tokio::sync::watch::channel(Default::default());
         let ctx = RequestCtx {
             state: &self.state,
-            config: &config,
-            endpoints: &endpoints,
+            config: &self.config,
+            endpoints: &self.endpoints,
             activity: &activity,
         };
         let (caller, streaming) =
@@ -142,8 +88,8 @@ impl Fixture {
             .await?;
         let operation = super::super::super::route(
             request.method(),
-            &config,
-            super::super::super::select_object(request.uri(), request.headers(), &config)?,
+            &self.config,
+            super::super::super::select_object(request.uri(), request.headers(), &self.config)?,
             request.headers(),
         )
         .unwrap()?;
@@ -162,7 +108,7 @@ impl Fixture {
 
 #[tokio::test]
 async fn signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resource_and_restart() {
-    let fixture = Fixture::new().await;
+    let fixture = Fixture::new(None).await;
     assert_eq!(
         fixture.upload(b"old").await.unwrap().status(),
         StatusCode::OK
@@ -238,7 +184,7 @@ async fn signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resourc
 #[tokio::test]
 async fn streaming_key_lookup_failure_keeps_its_backend_cause() {
     use std::error::Error as _;
-    let fixture = Fixture::new().await;
+    let fixture = Fixture::new(None).await;
     fixture.state.catalog.close().await.unwrap();
     let error = fixture.upload(b"no publication").await.err().unwrap();
     assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);

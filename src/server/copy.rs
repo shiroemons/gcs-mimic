@@ -188,46 +188,22 @@ pub(crate) async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
+    use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload, version};
     use crate::{
-        bucket::{BucketAccess, BucketRecord},
+        bucket::BucketAccess,
         object::{ObjectConditions, UploadChunk},
         storage::DerivedTransfer,
+        test_support::TestDir,
     };
     use bytes::Bytes;
-    use std::{fs, path::PathBuf, time::UNIX_EPOCH};
+    use std::fs;
     use tokio::sync::{mpsc, oneshot};
 
-    async fn fixture() -> (Catalog, PathBuf) {
-        let mut random = [0; 16];
-        getrandom::fill(&mut random).unwrap();
-        let id: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
-        let path = std::env::temp_dir().join(format!("gcs-mimic-copy-{id}"));
-        let catalog = Catalog::open(&path).await.unwrap();
+    async fn fixture() -> (Catalog, TestDir) {
+        let path = TestDir::new();
+        let catalog = Catalog::open(&path.0).await.unwrap();
         catalog
-            .insert_bucket(BucketRecord {
-                name: "bucket".into(),
-                project: "project".into(),
-                location: "US".into(),
-                location_type: "multi-region".into(),
-                storage_class: "STANDARD".into(),
-                autoclass: None,
-                labels: Default::default(),
-                versioning_enabled: false,
-                versioning_configured: false,
-                default_event_based_hold: false,
-                public_access_prevention_enforced: false,
-                uniform_bucket_level_access_locked_time: None,
-                lifecycle: Vec::new(),
-                retention_policy: None,
-                soft_delete_policy: None,
-                object_retention_enabled: false,
-                cors: Vec::new(),
-                metageneration: 1,
-                generation: 0,
-                time_created: UNIX_EPOCH,
-                updated: UNIX_EPOCH,
-            })
+            .insert_bucket(bucket("bucket", "project"))
             .await
             .unwrap();
         put(&catalog, "source", vec![b'a'; BYTE_BUDGET as usize + 7]).await;
@@ -370,9 +346,8 @@ mod tests {
                 .unwrap(),
             response
         );
-        clean(&catalog, &path, &progress.id).await;
+        clean(&catalog, &path.0, &progress.id).await;
         catalog.close().await.unwrap();
-        fs::remove_dir_all(path).unwrap();
     }
 
     #[tokio::test]
@@ -392,7 +367,7 @@ mod tests {
             Err(ObjectError::PreconditionFailed)
         ));
         assert!(observed.await.is_err());
-        assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(path.0.join("staging")).unwrap().count(), 0);
         assert_eq!(
             catalog
                 .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
@@ -401,7 +376,6 @@ mod tests {
             existing
         );
         catalog.close().await.unwrap();
-        fs::remove_dir_all(path).unwrap();
     }
 
     #[tokio::test]
@@ -417,7 +391,7 @@ mod tests {
                 request.abort();
                 assert!(request.await.unwrap_err().is_cancelled());
             } else {
-                let pinned = fs::read_dir(path.join("staging"))
+                let pinned = fs::read_dir(path.0.join("staging"))
                     .unwrap()
                     .map(|entry| entry.unwrap())
                     .find(|entry| entry.file_name().to_string_lossy() != progress.id.to_hex())
@@ -430,7 +404,7 @@ mod tests {
                     Err(ObjectError::Io(cause)) if cause.kind() == std::io::ErrorKind::NotFound
                 ));
             }
-            clean(&catalog, &path, &progress.id).await;
+            clean(&catalog, &path.0, &progress.id).await;
             assert_eq!(
                 catalog
                     .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
@@ -438,7 +412,6 @@ mod tests {
                 Err(ObjectError::ObjectNotFound)
             );
             catalog.close().await.unwrap();
-            fs::remove_dir_all(path).unwrap();
         }
     }
 
@@ -459,7 +432,9 @@ mod tests {
             );
             let progress = progress.await.unwrap();
             assert_eq!(
-                fs::metadata(progress.id.staging_path(&path)).unwrap().len(),
+                fs::metadata(progress.id.staging_path(&path.0))
+                    .unwrap()
+                    .len(),
                 BYTE_BUDGET
             );
             let replacement = put(&catalog, "source", b"new source".to_vec()).await;
@@ -470,9 +445,8 @@ mod tests {
             assert_eq!(copied.crc32c, selected.crc32c);
             assert_eq!(copied.size, selected.size);
             assert!(copied.generation > replacement.generation);
-            clean(&catalog, &path, &progress.id).await;
+            clean(&catalog, &path.0, &progress.id).await;
             catalog.close().await.unwrap();
-            fs::remove_dir_all(path).unwrap();
         }
     }
 
@@ -550,9 +524,8 @@ mod tests {
                 .generation,
             selected.generation
         );
-        clean(&catalog, &path, &progress.id).await;
+        clean(&catalog, &path.0, &progress.id).await;
         catalog.close().await.unwrap();
-        fs::remove_dir_all(path).unwrap();
     }
 
     #[tokio::test]
@@ -617,8 +590,8 @@ mod tests {
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
-        clean(&catalog, &path, &progress.id).await;
-        let connection = rusqlite::Connection::open(path.join("catalog.sqlite3")).unwrap();
+        clean(&catalog, &path.0, &progress.id).await;
+        let connection = rusqlite::Connection::open(path.0.join("catalog.sqlite3")).unwrap();
         assert_eq!(
             connection
                 .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
@@ -628,7 +601,6 @@ mod tests {
         );
         drop(connection);
         catalog.close().await.unwrap();
-        fs::remove_dir_all(path).unwrap();
     }
 
     #[tokio::test]
@@ -656,15 +628,14 @@ mod tests {
                 .unwrap(),
             competing
         );
-        clean(&catalog, &path, &progress.id).await;
+        clean(&catalog, &path.0, &progress.id).await;
         catalog.close().await.unwrap();
-        fs::remove_dir_all(path).unwrap();
     }
 
     #[tokio::test]
     async fn composite_count_uses_the_destination_class_selected_at_commit() {
         let (catalog, path) = fixture().await;
-        rusqlite::Connection::open(path.join("catalog.sqlite3")).unwrap().execute("UPDATE objects SET component_count = 3, storage_class = 'NEARLINE' WHERE name = 'source'", []).unwrap();
+        rusqlite::Connection::open(path.0.join("catalog.sqlite3")).unwrap().execute("UPDATE objects SET component_count = 3, storage_class = 'NEARLINE' WHERE name = 'source'", []).unwrap();
         let source = source(&catalog).await;
         let target = destination(&source, "copy", b"{}");
         let (request, progress, resume) = start(
@@ -676,7 +647,7 @@ mod tests {
             5000,
         );
         let progress = progress.await.unwrap();
-        rusqlite::Connection::open(path.join("catalog.sqlite3"))
+        rusqlite::Connection::open(path.0.join("catalog.sqlite3"))
             .unwrap()
             .execute(
                 "UPDATE buckets SET storage_class = 'NEARLINE' WHERE name = 'bucket'",
@@ -687,9 +658,8 @@ mod tests {
         let copied = request.await.unwrap().unwrap();
         assert_eq!(copied.storage_class, "NEARLINE");
         assert_eq!(copied.component_count, Some(3));
-        clean(&catalog, &path, &progress.id).await;
+        clean(&catalog, &path.0, &progress.id).await;
         catalog.close().await.unwrap();
-        fs::remove_dir_all(path).unwrap();
     }
 
     #[tokio::test]
@@ -737,7 +707,7 @@ mod tests {
                 .unwrap(),
             Err(ObjectError::Unavailable(_))
         ));
-        clean(&catalog, &path, &progress.id).await;
+        clean(&catalog, &path.0, &progress.id).await;
         assert_eq!(
             catalog
                 .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
@@ -745,7 +715,6 @@ mod tests {
             Err(ObjectError::ObjectNotFound)
         );
         catalog.close().await.unwrap();
-        fs::remove_dir_all(path).unwrap();
     }
 
     #[tokio::test]
@@ -768,8 +737,8 @@ mod tests {
         assert!(request.await.unwrap_err().is_cancelled());
         catalog.close().await.unwrap();
         drop(catalog);
-        let catalog = Catalog::open(&path).await.unwrap();
-        clean(&catalog, &path, &progress.id).await;
+        let catalog = Catalog::open(&path.0).await.unwrap();
+        clean(&catalog, &path.0, &progress.id).await;
         assert_eq!(
             catalog
                 .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
@@ -784,6 +753,5 @@ mod tests {
             selected
         );
         catalog.close().await.unwrap();
-        fs::remove_dir_all(path).unwrap();
     }
 }

@@ -23,6 +23,8 @@ pub(crate) mod envelope;
 mod error_tests;
 pub(crate) mod list;
 pub(crate) mod multipart;
+#[cfg(test)]
+mod test_support;
 pub use cors::CorsWarnings;
 pub(crate) use cors::{cors, warn_unconfigured_cors};
 pub(crate) mod post;
