@@ -27,12 +27,23 @@ struct RawUnixNanos {
 }
 
 impl TryFrom<RawUnixNanos> for UnixNanos {
-    type Error = &'static str;
+    type Error = InvalidNanos;
 
     fn try_from(raw: RawUnixNanos) -> Result<Self, Self::Error> {
-        Self::new(raw.secs, raw.nanos).ok_or("nanos must be below one second")
+        Self::new(raw.secs, raw.nanos).ok_or(InvalidNanos)
     }
 }
+
+#[derive(Debug)]
+pub(crate) struct InvalidNanos;
+
+impl std::fmt::Display for InvalidNanos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("nanos must be below one second")
+    }
+}
+
+impl std::error::Error for InvalidNanos {}
 
 impl UnixNanos {
     /// `None` when `nanos` is not below one second, which no time can have.
