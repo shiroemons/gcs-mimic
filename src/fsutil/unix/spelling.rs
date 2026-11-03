@@ -126,20 +126,16 @@ fn exact_spelling(parent: &File, name: &OsStr, file: &File) -> io::Result<bool> 
     reason = "the parent casefold flag is available only through FS_IOC_GETFLAGS"
 )]
 fn exact_spelling(parent: &File, name: &OsStr, _: &File) -> io::Result<bool> {
-    let mut flags: libc::c_long = 0;
+    let mut flags: libc::c_int = 0;
     // SAFETY: the live descriptor and writable flags word satisfy the ioctl contract.
     let result = unsafe { libc::ioctl(parent.as_raw_fd(), libc::FS_IOC_GETFLAGS, &mut flags) };
-    if result == 0 && flags & 0x4000_0000 == 0 {
+    flags_spelling(parent, name, if result == 0 { Some(flags) } else { None })
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn flags_spelling(parent: &File, name: &OsStr, flags: Option<libc::c_int>) -> io::Result<bool> {
+    if flags.is_some_and(|flags| flags & 0x4000_0000 == 0) {
         return Ok(true);
-    }
-    if result != 0 {
-        let error = io::Error::last_os_error();
-        if !matches!(
-            error.raw_os_error(),
-            Some(libc::ENOTTY | libc::EOPNOTSUPP | libc::EINVAL)
-        ) {
-            return Err(error);
-        }
     }
     listed_spelling(parent, name)
 }
@@ -147,4 +143,19 @@ fn exact_spelling(parent: &File, name: &OsStr, _: &File) -> io::Result<bool> {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn exact_spelling(parent: &File, name: &OsStr, _: &File) -> io::Result<bool> {
     listed_spelling(parent, name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn unavailable_casefold_flags_fall_back_to_exact_directory_names() {
+        let dir = crate::test_support::TestDir::new();
+        std::fs::write(dir.0.join("Actual"), b"bytes").unwrap();
+        let parent = File::open(&dir.0).unwrap();
+        for flags in [None, Some(0x4000_0000)] {
+            assert!(flags_spelling(&parent, "Actual".as_ref(), flags).unwrap());
+            assert!(!flags_spelling(&parent, "actual".as_ref(), flags).unwrap());
+        }
+    }
 }
