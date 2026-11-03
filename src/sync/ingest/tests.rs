@@ -22,6 +22,91 @@ async fn scan(catalog: &Catalog, root: &RootLease, config: &Config) -> Reconcili
 }
 
 #[tokio::test]
+async fn staging_finishes_while_another_file_worker_is_occupied() {
+    let (_data, tree, catalog, root, config) = fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    let path = tree.0.join("test-bucket/body");
+    fs::write(&path, b"external bytes").unwrap();
+    let identity = fsutil::stat_identity(&File::open(path).unwrap()).unwrap();
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, blocked) = std::sync::mpsc::channel();
+    let held_root = root.clone();
+    let held = crate::task::spawn_supervised("held-file-worker-test", async move {
+        held_root
+            .file_job(move |_| {
+                entered.send(()).unwrap();
+                blocked.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(())
+            })
+            .await
+    });
+    started.await.unwrap();
+    let ingest = Ingest {
+        catalog: &catalog,
+        root: &root,
+        config: &config,
+        admin: root.sync_admin(),
+    };
+    let staged = tokio::time::timeout(
+        Duration::from_secs(2),
+        ingest.stage("test-bucket/body".into(), identity),
+    )
+    .await;
+    release.send(()).unwrap();
+    held.await.unwrap().unwrap();
+    staged.unwrap().unwrap().discard().await.unwrap();
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn racy_exported_bytes_are_verified_without_staging_again() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let clock = Arc::new(crate::clock::ManualClock::new(std::time::SystemTime::now()));
+    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+        .await
+        .unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(
+            crate::storage::admin::BucketDefinition::default_for(
+                &bucket,
+                "project",
+                clock.as_ref(),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let config = Config {
+        data_dir: data.0.clone(),
+        sync_dir: Some(tree.0.clone()),
+        ..Default::default()
+    };
+    let root = crate::sync::preflight(&catalog, &config)
+        .await
+        .unwrap()
+        .unwrap();
+    api_put(&catalog, "test-bucket/body", b"exported bytes").await;
+    crate::sync::reconcile(&catalog, &root).await.unwrap();
+    let binding = root.sync_binding(&bucket).await.unwrap();
+    let state = catalog.sync_state();
+    let tracked = || state.get_path(binding.clone(), "test-bucket/body".into());
+    assert!(tracked().await.unwrap().unwrap().fingerprint.racy);
+    let stats = scan(&catalog, &root, &config).await;
+    assert_eq!(stats.identical, 1);
+    assert_eq!(stats.ingested, 0);
+    clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
+    assert_eq!(scan(&catalog, &root, &config).await.identical, 1);
+    assert!(!tracked().await.unwrap().unwrap().fingerprint.racy);
+    assert_eq!(fs::read_dir(data.0.join("staging")).unwrap().count(), 0);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn complete_scan_clears_a_changing_source_finding_after_that_source_disappears() {
     let (_data, tree, catalog, root, config) = fixture().await;
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
@@ -47,7 +132,7 @@ async fn complete_scan_clears_a_changing_source_finding_after_that_source_disapp
 
 #[tokio::test]
 async fn recovery_rechecks_a_project_added_after_control_authorization() {
-    use crate::storage::sync_state::writeback::{Kind, Limits};
+    use crate::storage::sync_state::writeback::{Limits, armed_observation};
     let (_data, tree, catalog, root, config) = fixture().await;
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     fs::write(tree.0.join("test-bucket/body"), b"API winner").unwrap();
@@ -68,17 +153,14 @@ async fn recovery_rechecks_a_project_added_after_control_authorization() {
     let name = ObjectName::new("body").unwrap();
     let winner = object(&catalog, "test-bucket/body").await;
     let fence = catalog.read_changes(None, None, 1).await.unwrap().fence;
-    let pending = writeback
-        .prepare(
-            &bucket,
-            &name,
-            Generation::new(winner.generation).unwrap(),
-            Kind::Publish,
-            fence,
-        )
-        .await
-        .unwrap();
-    let pending = writeback.arm(pending.token).await.unwrap();
+    let pending = armed_observation(
+        &writeback,
+        &bucket,
+        &name,
+        Generation::new(winner.generation).unwrap(),
+        fence,
+    )
+    .await;
     let path = tree
         .0
         .join(mapping::WORKSPACE)
@@ -289,11 +371,9 @@ async fn scan_entry_limit_fails_before_an_inventory_can_be_declared_complete() {
     fs::write(tree.0.join("b"), b"b").unwrap();
     let result = root
         .file_job(|root| {
-            Scan {
-                stack: vec![(PathBuf::new(), None)],
-                visited: 9999,
-            }
-            .page(root)
+            let mut scan = Scan::new();
+            scan.visited = 9999;
+            scan.page(root)
         })
         .await;
     assert!(
@@ -357,7 +437,9 @@ async fn ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations
     assert_eq!(unchanged.ingested, 0);
     let original = object(&catalog, "second-bucket/body").await;
     let unchanged = task.rescan().await.unwrap();
-    assert_eq!((unchanged.ingested, unchanged.identical), (0, 0));
+    assert_eq!(unchanged.ingested, 0);
+    // Recently recorded fingerprints may require an in-place verification.
+    assert!(unchanged.identical <= 2);
     assert_eq!(original.size, 4);
     assert_eq!(object(&catalog, "first-bucket/zero").await.size, 0);
     assert_eq!(
@@ -660,9 +742,7 @@ async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recre
         )
         .await
         .unwrap();
-    crate::sync::reconcile(&catalog, &root, &config)
-        .await
-        .unwrap();
+    crate::sync::reconcile(&catalog, &root).await.unwrap();
     catalog
         .delete_bucket(bucket.as_str(), Default::default(), PERMISSIVE)
         .await
@@ -755,7 +835,8 @@ async fn ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_sett
     )
     .await
     .unwrap();
-    assert_eq!((summary.ingested, summary.identical), (0, 0));
+    assert_eq!(summary.ingested, 0);
+    assert!(summary.identical <= 1);
     fs::write(tree.0.join("test-bucket/object"), b"changed").unwrap();
     let hook = Arc::new(Hook {
         phase: "settle",

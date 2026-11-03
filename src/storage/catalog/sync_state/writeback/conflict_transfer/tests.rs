@@ -91,22 +91,18 @@ impl Fixture {
         }
     }
     async fn protected(&self, body: &[u8]) -> Pending {
-        let item = self
-            .writeback
-            .prepare(
-                &self.bucket,
-                &ObjectName::new("object").unwrap(),
-                Generation::new(self.record.generation).unwrap(),
-                Kind::Publish,
-                self.catalog
-                    .read_changes(None, None, 1)
-                    .await
-                    .unwrap()
-                    .fence,
-            )
-            .await
-            .unwrap();
-        let item = self.writeback.arm(item.token).await.unwrap();
+        let item = armed_observation(
+            &self.writeback,
+            &self.bucket,
+            &ObjectName::new("object").unwrap(),
+            Generation::new(self.record.generation).unwrap(),
+            self.catalog
+                .read_changes(None, None, 1)
+                .await
+                .unwrap()
+                .fence,
+        )
+        .await;
         fs::write(
             self.tree.0.join(mapping::WORKSPACE).join(item.token.id()),
             body,

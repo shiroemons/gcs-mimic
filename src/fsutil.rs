@@ -2,6 +2,8 @@
 //! Descriptor-based filesystem operations; OS-specific unsafe stays in this module.
 
 use std::{fs::File, io};
+mod hash;
+pub(crate) use hash::{HashOutcome, hash_exact};
 
 #[cfg(unix)]
 mod unix;
@@ -12,6 +14,7 @@ mod unsupported;
 #[cfg(not(unix))]
 use unsupported as imp;
 
+pub(crate) use imp::{child_directory, child_regular};
 pub(crate) use imp::{create_regular_at, directory_at, unlink_file_at};
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
@@ -77,6 +80,24 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
 pub(crate) enum DirectoryOpen {
     Existing,
     CreateIfMissing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Created {
+    Yes,
+    No,
+}
+
+pub(crate) enum Child {
+    Directory { file: File, created: Created },
+    Alias,
+    Missing,
+}
+
+pub(crate) enum RegularChild {
+    File(File),
+    Alias,
+    Missing,
 }
 
 /// Walks an exact relative spelling without following redirects; creation syncs each parent.

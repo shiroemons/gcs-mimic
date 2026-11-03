@@ -45,28 +45,19 @@ fn copy(
     let mut target = fsutil::create_regular_at(&directory, id.as_ref())?;
     #[cfg(all(test, unix))]
     super::super::super::fault::file_created(&data.join("sync-conflicts").join(id));
-    let mut hasher = Hasher::default();
-    let mut offset = 0;
-    let mut buffer = [0; 65_536];
-    while offset < before.size {
-        let count = fsutil::read_at(
-            source,
-            &mut buffer[..(before.size - offset).min(65_536) as usize],
-            offset,
-        )?;
-        if count == 0 {
-            return Err(Error::TargetChanged);
-        }
+    let outcome = fsutil::hash_exact(source, before.size, |bytes| {
         #[cfg(test)]
         boundary(data, tree, fault::Step::ConflictWrite)?;
-        target.write_all(&buffer[..count])?;
-        hasher.update(&buffer[..count]);
-        offset += count as u64;
-    }
+        target.write_all(bytes)?;
+        Ok::<_, Error>(())
+    })?;
     if !before.matches(fsutil::stat_identity(source)?) {
         return Err(Error::TargetChanged);
     }
-    let hashes = hasher.finish();
+    let hashes = match outcome {
+        fsutil::HashOutcome::Complete(hashes) => hashes,
+        _ => return Err(Error::TargetChanged),
+    };
     #[cfg(test)]
     boundary(data, tree, fault::Step::ConflictFlush)?;
     target.flush()?;
@@ -109,15 +100,19 @@ impl RootLease {
             let source = lease
                 .conflict_files(move |root| {
                     let (parents, name) = path.rsplit_once('/').ok_or(Error::InvalidResolution)?;
-                    let mut directory = root.try_clone()?;
-                    for part in parents.split('/') {
-                        directory = fsutil::directory_at(
-                            &directory,
-                            part.as_ref(),
-                            fsutil::DirectoryOpen::Existing,
-                        )?;
+                    let directory = crate::sync::tree::parent(
+                        root,
+                        std::path::Path::new(parents),
+                        crate::sync::tree::ParentOpen::Existing,
+                    )
+                    .map_err(|error| match error {
+                        crate::sync::tree::ParentError::Io(error) => Error::from(error),
+                        _ => Error::TargetChanged,
+                    })?;
+                    match fsutil::child_regular(&directory, name.as_ref())? {
+                        fsutil::RegularChild::File(file) => Ok(file),
+                        _ => Err(Error::TargetChanged),
                     }
-                    fsutil::open_regular_at(&directory, name.as_ref()).map_err(Error::from)
                 })
                 .await?;
             if let Some(captured) = lease.reuse_path_capture(&request, &source).await? {

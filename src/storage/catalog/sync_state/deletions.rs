@@ -242,7 +242,7 @@ impl RootLease {
         &self,
         revision: String,
     ) -> Result<DeletionSet, RootError> {
-        self.file_job(|_| Ok(())).await?;
+        self.revalidate().await?;
         let root = self.status().root_id.as_bytes();
         let scope = self.control_scope();
         Ok(self.catalog().run_admin(move |connection| {

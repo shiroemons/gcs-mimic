@@ -40,6 +40,7 @@ enum Expect {
 
 fn expect_for(fault: &Fault) -> Expect {
     match fault {
+        Fault::Block { .. } => Expect::Backend,
         Fault::Io(kind) => Expect::Message(io_message(*kind)),
         Fault::Corrupt => Expect::Message(CORRUPT.into()),
         Fault::Busy | Fault::Snapshot(_) => Expect::Backend,

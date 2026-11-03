@@ -10,7 +10,7 @@ use crate::{
         admin::{AdminError, WAIT_TIMEOUT},
         lock,
     },
-    sync::mapping::MARKER,
+    sync::mapping::{MARKER, MARKER_STAGING},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -146,7 +146,7 @@ impl std::error::Error for RootError {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Marker {
     version: u32,
@@ -162,10 +162,24 @@ fn valid_id(id: &str) -> bool {
 }
 
 fn read_marker(directory: &File) -> Result<Option<(Marker, FileIdentity)>, RootError> {
-    let file = match fsutil::open_regular_at(directory, MARKER.as_ref()) {
+    read_marker_name(directory, MARKER)
+}
+fn marker_open_error(error: io::Error) -> RootError {
+    if error.kind() == io::ErrorKind::NotFound || crate::sync::tree::structural_entry_error(&error)
+    {
+        RootError::InvalidMarker
+    } else {
+        error.into()
+    }
+}
+fn read_marker_name(
+    directory: &File,
+    name: &str,
+) -> Result<Option<(Marker, FileIdentity)>, RootError> {
+    let file = match fsutil::open_regular_at(directory, name.as_ref()) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err(RootError::InvalidMarker),
+        Err(error) => return Err(marker_open_error(error)),
     };
     let before = fsutil::stat_identity(&file)?;
     let mut bytes = Vec::with_capacity(4097);
@@ -177,12 +191,122 @@ fn read_marker(directory: &File) -> Result<Option<(Marker, FileIdentity)>, RootE
     if marker.version != 1 || !valid_id(&marker.catalog_id) || !valid_id(&marker.root_id) {
         return Err(RootError::InvalidMarker);
     }
-    let current = fsutil::open_regular_at(directory, MARKER.as_ref())
-        .map_err(|_| RootError::InvalidMarker)?;
+    let current = fsutil::open_regular_at(directory, name.as_ref()).map_err(marker_open_error)?;
     if fsutil::stat_identity(&current)? != before {
         return Err(RootError::InvalidMarker);
     }
     Ok(Some((marker, before)))
+}
+
+#[derive(Clone)]
+enum MarkerState {
+    Published(Marker, FileIdentity),
+    Staged(Marker),
+    Absent,
+}
+fn marker_state(directory: &File) -> Result<MarkerState, RootError> {
+    if let Some((marker, identity)) = read_marker(directory)? {
+        return Ok(MarkerState::Published(marker, identity));
+    }
+    match read_marker_name(directory, MARKER_STAGING) {
+        Ok(Some((marker, _))) => Ok(MarkerState::Staged(marker)),
+        Ok(None) => Ok(MarkerState::Absent),
+        Err(RootError::InvalidMarker) => {
+            fsutil::unlink_file_at(directory, MARKER_STAGING.as_ref())?;
+            Ok(MarkerState::Absent)
+        }
+        Err(error) => Err(error),
+    }
+}
+fn remove_staging(directory: &File) -> Result<(), RootError> {
+    match fsutil::unlink_file_at(directory, MARKER_STAGING.as_ref()) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn publish_marker(
+    owns: &Ownership,
+    status: RootStatus,
+    marker: &MarkerState,
+) -> Result<FileIdentity, RootError> {
+    owns.validate()?;
+    let root = owns.lock.file();
+    #[cfg(test)]
+    failure_boundary(&owns.path, "reserved")?;
+    if matches!(marker, MarkerState::Absent) {
+        remove_staging(root)?;
+        let bytes = serde_json::to_vec(&Marker {
+            version: 1,
+            catalog_id: status.catalog_id.to_string(),
+            root_id: status.root_id.to_string(),
+        })
+        .map_err(AdminError::backend)?;
+        let mut file = fsutil::create_regular_at(root, MARKER_STAGING.as_ref())?;
+        #[cfg(test)]
+        {
+            super::super::fault::file_created(&owns.path.join(MARKER_STAGING));
+            failure_boundary(&owns.path, "created")?;
+            super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerWrite)?;
+        }
+        file.write_all(&bytes)?;
+        #[cfg(test)]
+        super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerSync)?;
+        file.sync_all()?;
+        root.sync_all()?;
+        #[cfg(test)]
+        {
+            super::super::fault::file_synced(&owns.path, &file.metadata()?);
+            #[cfg(unix)]
+            super::super::fault::dir_synced(&owns.path);
+            failure_boundary(&owns.path, "file_synced")?;
+            super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerPrepared)?;
+        }
+    }
+    if !matches!(marker, MarkerState::Published(..)) {
+        #[cfg(test)]
+        super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerRename)?;
+        fsutil::durable_replace_between(root, MARKER_STAGING.as_ref(), root, MARKER.as_ref(), None)
+            .map_err(|error| match error {
+                FsError::Io(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    RootError::ForeignMarker
+                }
+                error => error.into(),
+            })?;
+        #[cfg(test)]
+        {
+            #[cfg(unix)]
+            super::super::fault::renamed(&owns.path.join(MARKER_STAGING), &owns.path.join(MARKER));
+            failure_boundary(&owns.path, "renamed")?;
+            super::super::fault::hit_io(
+                &owns.path,
+                super::super::fault::Step::SyncMarkerParentSync,
+            )?;
+        }
+        root.sync_all()?;
+        #[cfg(test)]
+        {
+            #[cfg(unix)]
+            super::super::fault::dir_synced(&owns.path);
+            failure_boundary(&owns.path, "directory_synced")?;
+            super::super::fault::hit_io(
+                &owns.path,
+                super::super::fault::Step::SyncMarkerPublished,
+            )?;
+        }
+    }
+    let (current, identity) = read_marker(root)?.ok_or(RootError::MissingMarker)?;
+    if current.catalog_id != status.catalog_id.to_string()
+        || current.root_id != status.root_id.to_string()
+    {
+        return Err(RootError::ForeignMarker);
+    }
+    if matches!(marker,MarkerState::Published(_,previous) if *previous!=identity) {
+        return Err(RootError::InvalidMarker);
+    }
+    owns.validate()?;
+    Ok(identity)
 }
 
 struct Ownership {
@@ -293,14 +417,40 @@ fn reserve(
 impl Ownership {
     fn validate(&self) -> Result<(), RootError> {
         for path in [&self.path, &self.selected_path] {
-            let current =
-                fsutil::open_directory_nofollow(path).map_err(|_| RootError::RootChanged)?;
+            let current = fsutil::open_directory_nofollow(path).map_err(|error| {
+                if error.kind() == io::ErrorKind::NotFound
+                    || crate::sync::tree::structural_entry_error(&error)
+                {
+                    RootError::RootChanged
+                } else {
+                    error.into()
+                }
+            })?;
             let identity = fsutil::stat_identity(&current)?;
             if identity.device != self.identity.device || identity.inode != self.identity.inode {
                 return Err(RootError::RootChanged);
             }
         }
         Ok(())
+    }
+}
+
+impl RootLease {
+    pub(crate) async fn revalidate(&self) -> Result<(), RootError> {
+        self.file_job(|_| Ok(())).await
+    }
+    pub(crate) fn watch_path(&self) -> &Path {
+        &self.ownership.path
+    }
+    pub(crate) fn observation_time_ns(&self) -> Result<i128, RootError> {
+        let now = self.catalog().0.clock.now();
+        match now.duration_since(std::time::UNIX_EPOCH) {
+            Ok(duration) => i128::try_from(duration.as_nanos())
+                .map_err(|error| AdminError::backend(error).into()),
+            Err(error) => i128::try_from(error.duration().as_nanos())
+                .map(|nanos| -nanos)
+                .map_err(|error| AdminError::backend(error).into()),
+        }
     }
 }
 
@@ -379,10 +529,8 @@ impl RootLease {
     }
 
     /// Runs descriptor-relative work on the bounded dedicated workers, owning the lease until done.
-    /// Callers must not retain descriptors or start work outside this owned closure.
-    /// The private sync `DirectoryWatch` alone may retain read-only watch descriptors with
-    /// its own RootLease clone: vnode watches require live descriptors, and its RAII order
-    /// closes every watch before releasing that lease. Registration and scans stay here.
+    /// Directory descriptors stay in this closure. A staged regular source may escape only
+    /// with its own RootLease clone, closing the source before releasing that clone.
     pub(crate) async fn file_job<T: Send + 'static>(
         &self,
         job: impl FnOnce(&File) -> Result<T, AdminError> + Send + 'static,
@@ -412,7 +560,7 @@ impl RootLease {
 
     /// The adapter calls this only after its complete durable initial merge.
     pub(crate) async fn complete_baseline(&self) -> Result<RootStatus, RootError> {
-        self.file_job(|_| Ok(())).await?;
+        self.revalidate().await?;
         let id = self.status.root_id;
         let lease = self.clone();
         self.state
@@ -483,7 +631,7 @@ impl SyncState {
                         _catalog_permit: permit,
                     };
                     ownership.validate()?;
-                    let marker = read_marker(ownership.lock.file())?;
+                    let marker = marker_state(ownership.lock.file())?;
                     Ok((Arc::new(ownership), marker))
                 })
                 .await?;
@@ -498,66 +646,47 @@ impl SyncState {
     async fn activate_owned(
         &self,
         ownership: Arc<Ownership>,
-        marker: Option<(Marker, FileIdentity)>,
+        marker: MarkerState,
         catalog: CatalogId,
         activation: Activation,
     ) -> Result<RootLease, RootError> {
         let location = ownership.path.as_os_str().as_encoded_bytes().to_vec();
         let identity = ownership.identity;
-        let marker_ids = marker
-            .as_ref()
-            .map(|(m, _)| (m.catalog_id.clone(), m.root_id.clone()));
-        let status = self
+        let marker_ids = match &marker {
+            MarkerState::Published(m, _) | MarkerState::Staged(m) => {
+                Some((m.catalog_id.clone(), m.root_id.clone()))
+            }
+            MarkerState::Absent => None,
+        };
+        let staged = matches!(marker, MarkerState::Staged(_));
+        let (status,staging_valid) = self
             .0
             .run_admin_with_error(move |connection| {
-                reserve(
-                    connection, &location, identity, marker_ids, catalog, activation,
-                )
+                let valid=if staged {
+                    let (catalog_id,root_id)=marker_ids.as_ref().ok_or(RootError::InvalidMarker)?;
+                    catalog_id==&catalog.to_string() && sql::scalar::<bool>(connection,"SELECT EXISTS(SELECT 1 FROM sync_roots WHERE location=?1 AND device=?2 AND inode=?3 AND lower(hex(root_id))=?4)",params![location,identity.device.to_be_bytes(),identity.inode.to_be_bytes(),root_id]).map_err(super::super::unavailable)?
+                } else {true};
+                Ok::<_,RootError>((reserve(connection,&location,identity,if valid {marker_ids} else {None},catalog,activation),valid))
             })
             .await?;
+        let marker = if staged && !staging_valid {
+            let owns = ownership.clone();
+            self.0
+                .0
+                .file_workers
+                .run(move || remove_staging(owns.lock.file()))
+                .await?;
+            MarkerState::Absent
+        } else {
+            marker
+        };
+        let status = status?;
         let owns = ownership.clone();
         let marker_identity = self
             .0
             .0
             .file_workers
-            .run(move || {
-                owns.validate()?;
-                #[cfg(test)]
-                failure_boundary(&owns.path, "reserved")?;
-                if marker.is_none() {
-                    let bytes = serde_json::to_vec(&Marker {
-                        version: 1,
-                        catalog_id: catalog.to_string(),
-                        root_id: status.root_id.to_string(),
-                    })
-                    .map_err(|_| RootError::InvalidMarker)?;
-                    let mut file = fsutil::create_regular_at(owns.lock.file(), MARKER.as_ref())?;
-                    #[cfg(test)]
-                    failure_boundary(&owns.path, "created")?;
-                    file.write_all(&bytes)?;
-                    file.sync_all()?;
-                    #[cfg(test)]
-                    failure_boundary(&owns.path, "file_synced")?;
-                    owns.lock.file().sync_all()?;
-                    #[cfg(test)]
-                    failure_boundary(&owns.path, "directory_synced")?;
-                }
-                let (current, identity) =
-                    read_marker(owns.lock.file())?.ok_or(RootError::MissingMarker)?;
-                if current.catalog_id != catalog.to_string()
-                    || current.root_id != status.root_id.to_string()
-                {
-                    return Err(RootError::ForeignMarker);
-                }
-                if marker
-                    .as_ref()
-                    .is_some_and(|(_, previous)| *previous != identity)
-                {
-                    return Err(RootError::InvalidMarker);
-                }
-                owns.validate()?;
-                Ok(identity)
-            })
+            .run(move || publish_marker(&owns, status, &marker))
             .await?;
         Ok(RootLease {
             ownership,

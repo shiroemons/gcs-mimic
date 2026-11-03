@@ -69,20 +69,33 @@ impl Fixture {
         }
     }
     async fn prepare(&self) -> Pending {
-        self.writeback
-            .prepare(
-                &self.bucket,
-                &ObjectName::new("object").unwrap(),
-                Generation::new(self.record.generation).unwrap(),
-                Kind::Publish,
-                self.catalog
-                    .read_changes(None, None, 1)
-                    .await
-                    .unwrap()
-                    .fence,
-            )
-            .await
-            .unwrap()
+        let operation = begin_observation(
+            &self.writeback,
+            &self.bucket,
+            &ObjectName::new("object").unwrap(),
+            Generation::new(self.record.generation).unwrap(),
+            self.catalog
+                .read_changes(None, None, 1)
+                .await
+                .unwrap()
+                .fence,
+        )
+        .await;
+        live_pending(&operation).await
+    }
+    async fn armed(&self) -> Pending {
+        armed_observation(
+            &self.writeback,
+            &self.bucket,
+            &ObjectName::new("object").unwrap(),
+            Generation::new(self.record.generation).unwrap(),
+            self.catalog
+                .read_changes(None, None, 1)
+                .await
+                .unwrap()
+                .fence,
+        )
+        .await
     }
     async fn live(&self) -> LiveExport {
         let name = ObjectName::new("object").unwrap();
@@ -230,8 +243,7 @@ async fn restart_cancels_only_unarmed_owned_copies_including_short_and_zero_byte
 async fn restart_armed_and_durable_absence_preserves_the_current_target() {
     for phase in [Phase::Armed, Phase::Durable] {
         let fixture = Fixture::new().await;
-        let item = fixture.prepare().await;
-        let armed = fixture.writeback.arm(item.token).await.unwrap();
+        let armed = fixture.armed().await;
         if phase == Phase::Durable {
             let token = armed.token;
             fixture
@@ -270,8 +282,7 @@ async fn restart_protects_actual_armed_and_durable_bodies_without_quota_eviction
         (Phase::Durable, (1 << 40) + 1),
     ] {
         let fixture = Fixture::new().await;
-        let item = fixture.prepare().await;
-        let item = fixture.writeback.arm(item.token).await.unwrap();
+        let item = fixture.armed().await;
         let path = fixture
             .tree
             .0
@@ -357,37 +368,16 @@ async fn restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries() 
 #[tokio::test]
 async fn recovery_keyset_pages_drain_more_than_one_page_without_skipping_cancelled_rows() {
     let fixture = Fixture::new().await;
-    fixture.prepare().await;
-    for index in 0..256 {
-        let name = ObjectName::new(format!("extra-{index}")).unwrap();
-        let record = fixture
-            .catalog
-            .admin(Origin::Api)
-            .publish_from_file(
-                &fixture.bucket,
-                &name,
-                publication(),
-                File::open(fixture.data.0.join("input")).unwrap(),
-            )
-            .await
-            .unwrap();
-        fixture
-            .writeback
-            .prepare(
-                &fixture.bucket,
-                &name,
-                Generation::new(record.generation).unwrap(),
-                Kind::Publish,
-                fixture
-                    .catalog
-                    .read_changes(None, None, 1)
-                    .await
-                    .unwrap()
-                    .fence,
-            )
-            .await
-            .unwrap();
-    }
+    let first = fixture.prepare().await;
+    // Legacy catalogs can contain multiple prepared intents; current exports serialize them.
+    fixture.writeback.db(move |connection| {
+        let tx=connection.transaction()?;
+        for index in 1..=256 {
+            tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) SELECT ?1,root_id,owner,bucket,incarnation,?2,?3,generation,kind,0,1,fence_sequence,fence_epoch,reservation,size,md5,crc32c FROM sync_writeback_ops WHERE id=?4")?.execute(params![format!("{index:032x}"),format!("extra-{index}"),format!("test-bucket/extra-{index}"),first.token.id])?;
+        }
+        tx.prepare_cached("UPDATE sync_writeback_roots SET entries=257 WHERE root_id=?1")?.execute([first.token.root.as_bytes()])?;
+        tx.commit()?;Ok(())
+    }).await.unwrap();
     assert_eq!(fixture.writeback.status().await.unwrap().entries, 257);
     let fixture = fixture.restart(Journal::Disabled).await;
     let usage = fixture.writeback.recover_pending().await.unwrap();
@@ -403,11 +393,7 @@ async fn recovery_keyset_pages_drain_more_than_one_page_without_skipping_cancell
 #[tokio::test]
 async fn recovery_keeps_the_original_owner_after_api_change_delete_and_bucket_recreation() {
     let mut fixture = Fixture::new().await;
-    let item = fixture
-        .writeback
-        .arm(fixture.prepare().await.token)
-        .await
-        .unwrap();
+    let item = fixture.armed().await;
     let owned = fixture
         .tree
         .0

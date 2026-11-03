@@ -1,4 +1,5 @@
 use super::*;
+use crate::hashing::Hasher;
 
 /// Private provenance for a prepared API copy, never for a displaced external body.
 #[derive(Clone)]

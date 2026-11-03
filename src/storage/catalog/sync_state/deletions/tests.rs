@@ -21,7 +21,6 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
  {
     use super::*;
     use crate::{
-        config::Config,
         storage::{
             Catalog,
             admin::{
@@ -67,13 +66,8 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
         .activate_root(&tree.0, super::super::root::Activation::Open)
         .await
         .unwrap();
-    let config = Config {
-        data_dir: data.0.clone(),
-        sync_dir: Some(tree.0.clone()),
-        ..Default::default()
-    };
     assert!(
-        crate::sync::reconcile(&catalog, &root, &config)
+        crate::sync::reconcile(&catalog, &root)
             .await
             .unwrap()
             .baseline_complete

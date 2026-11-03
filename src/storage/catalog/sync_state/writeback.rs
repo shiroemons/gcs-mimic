@@ -15,7 +15,6 @@ use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     fsutil,
-    hashing::Hasher,
     object::ObjectError,
     sync::mapping::{self, PathMapping},
 };
@@ -27,6 +26,10 @@ mod live_export;
 mod recovery;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::inject_failure as inject_live_export_failure;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) use live_export::tests::{
+    armed_observation, observation as begin_observation, pending as live_pending,
+};
 pub(crate) use live_export::{LiveExport, LiveResult, LiveSource};
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_writeback_roots (
@@ -326,6 +329,13 @@ pub(crate) struct Writeback {
 #[cfg(all(test, unix))]
 mod unpublished;
 impl RootLease {
+    pub(crate) async fn default_writeback(&self) -> Result<Writeback, Error> {
+        self.writeback(Limits::new(
+            crate::sync::CONFLICT_MAX_BYTES,
+            crate::sync::CONFLICT_MAX_ENTRIES,
+        )?)
+        .await
+    }
     pub(crate) async fn writeback(&self, limits: Limits) -> Result<Writeback, Error> {
         let lease = self.clone();
         serialized(self, async move { lease.writeback_inner(limits).await }).await
@@ -340,16 +350,14 @@ impl RootLease {
         let directory = self
             .file_job(move |root| {
                 let selected = (|| -> Result<File, Error> {
-                    let directory = fsutil::directory_at(
+                    let directory = workspace_directory(
                         root,
-                        mapping::WORKSPACE.as_ref(),
                         if expected.is_none() {
                             fsutil::DirectoryOpen::CreateIfMissing
                         } else {
                             fsutil::DirectoryOpen::Existing
                         },
-                    )
-                    .map_err(workspace_open_error)?;
+                    )?;
                     let identity = fsutil::stat_identity(&directory)?;
                     if identity.device != fsutil::stat_identity(root)?.device
                         || expected.is_some_and(|(device, inode)| {
@@ -359,8 +367,10 @@ impl RootLease {
                     {
                         return Err(Error::WorkspaceChanged);
                     }
-                    directory.sync_all()?;
-                    root.sync_all()?;
+                    if expected.is_none() {
+                        directory.sync_all()?;
+                        root.sync_all()?;
+                    }
                     Ok(directory)
                 })();
                 Ok(selected)
@@ -369,8 +379,7 @@ impl RootLease {
         let directory = match directory {
             Ok(directory) => directory,
             Err(error @ Error::WorkspaceChanged) => {
-                let owner = self.clone();
-                self.catalog().run_admin(move|c| {let _owner=owner;sql::exec(c, "UPDATE sync_writeback_roots SET recovery=1,io_failure=1 WHERE root_id=?1", [root])?;Ok(())}).await?;
+                self.mark_workspace_changed().await?;
                 return Err(error);
             }
             Err(error) => return Err(error),
@@ -388,6 +397,23 @@ impl RootLease {
             Ok(())
         }).await?;
         Ok(state)
+    }
+
+    async fn mark_workspace_changed(&self) -> Result<(), Error> {
+        let root = self.status().root_id.as_bytes();
+        let scope = self.control_scope();
+        self.catalog()
+            .run_admin(move |connection| {
+                scope.authorize(connection)?;
+                sql::exec(
+                    connection,
+                    "UPDATE sync_writeback_roots SET recovery=1,io_failure=1 WHERE root_id=?1",
+                    [root],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
     }
 }
 
@@ -562,23 +588,19 @@ pub(super) enum ParentSync {
 
 fn parent(root: &File, path: &str, sync: ParentSync) -> Result<Option<File>, Error> {
     let (parents, _) = path.rsplit_once('/').ok_or_else(stale)?;
-    let mut directory = root.try_clone()?;
+    use crate::sync::tree::{ParentError, ParentOpen};
+    let directory = match crate::sync::tree::parent(
+        root,
+        std::path::Path::new(parents),
+        ParentOpen::Existing,
+    ) {
+        Ok(directory) => directory,
+        Err(ParentError::Missing) => return Ok(None),
+        Err(ParentError::Finding(_)) => return Err(stale()),
+        Err(ParentError::Io(error)) => return Err(error.into()),
+    };
     if sync == ParentSync::Sync {
         directory.sync_all()?;
-    }
-    for part in parents.split('/') {
-        directory = match fsutil::directory_at(
-            &directory,
-            part.as_ref(),
-            fsutil::DirectoryOpen::Existing,
-        ) {
-            Ok(directory) => directory,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e.into()),
-        };
-        if sync == ParentSync::Sync {
-            directory.sync_all()?;
-        }
     }
     Ok(Some(directory))
 }
@@ -587,9 +609,10 @@ fn target(root: &File, path: &str) -> Result<Option<File>, Error> {
         return Ok(None);
     };
     let name = path.rsplit('/').next().ok_or_else(stale)?;
-    match fsutil::open_regular_at(&directory, name.as_ref()) {
-        Ok(file) => Ok(Some(file)),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+    match fsutil::child_regular(&directory, name.as_ref()) {
+        Ok(fsutil::RegularChild::File(file)) => Ok(Some(file)),
+        Ok(fsutil::RegularChild::Missing) => Ok(None),
+        Ok(fsutil::RegularChild::Alias) => Err(stale()),
         Err(e) => Err(e.into()),
     }
 }
@@ -601,12 +624,7 @@ fn entry(workspace: &File, id: &str) -> Result<Option<File>, Error> {
     }
 }
 fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
-    let selected = fsutil::directory_at(
-        root,
-        mapping::WORKSPACE.as_ref(),
-        fsutil::DirectoryOpen::Existing,
-    )
-    .map_err(workspace_open_error)?;
+    let selected = workspace_directory(root, fsutil::DirectoryOpen::Existing)?;
     let selected = fsutil::stat_identity(&selected)?;
     let owned = fsutil::stat_identity(workspace)?;
     if selected.device != owned.device
@@ -619,17 +637,47 @@ fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
 }
 
 fn workspace_open_error(error: io::Error) -> Error {
-    if error.kind() == io::ErrorKind::NotFound {
+    if error.kind() == io::ErrorKind::NotFound || crate::sync::tree::structural_entry_error(&error)
+    {
         Error::WorkspaceChanged
     } else {
         error.into()
     }
 }
+
+fn workspace_directory(root: &File, open: fsutil::DirectoryOpen) -> Result<File, Error> {
+    #[cfg(test)]
+    workspace_failure(root)?;
+    fsutil::directory_at(root, mapping::WORKSPACE.as_ref(), open).map_err(workspace_open_error)
+}
+#[cfg(test)]
+static WORKSPACE_FAILURES: std::sync::Mutex<Vec<(u64, u64, i32)>> =
+    std::sync::Mutex::new(Vec::new());
+#[cfg(test)]
+fn workspace_failure(root: &File) -> Result<(), Error> {
+    let identity = fsutil::stat_identity(root)?;
+    let mut failures = WORKSPACE_FAILURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(index) = failures
+        .iter()
+        .position(|(device, inode, _)| *device == identity.device && *inode == identity.inode)
+    {
+        let (_, _, errno) = failures.remove(index);
+        return Err(io::Error::from_raw_os_error(errno).into());
+    }
+    Ok(())
+}
 fn fingerprint(
     root: &File,
     workspace: &File,
     item: &Pending,
+    observed_ns: i128,
+    staged: Option<fsutil::FileIdentity>,
 ) -> Result<Option<SyncFingerprint>, Error> {
+    if entry(workspace, &item.token.id)?.is_some() {
+        return Err(Error::Protected);
+    }
     let file = target(root, &item.path)?;
     let result = match (item.kind, file) {
         (Kind::Remove, None) => None,
@@ -638,38 +686,32 @@ fn fingerprint(
             if before.device != fsutil::stat_identity(root)?.device || before.size != item.size {
                 return Err(stale());
             }
-            let mut hasher = Hasher::default();
-            let mut bytes = [0u8; 65_536];
-            let mut offset = 0;
-            loop {
-                let count = fsutil::read_at(&file, &mut bytes, offset)?;
-                if count == 0 {
-                    break;
-                }
-                hasher.update(&bytes[..count]);
-                offset += count as u64;
-                if offset > item.size {
+            let hashes = if let Some(staged) = staged {
+                if staged.device != before.device
+                    || staged.inode != before.inode
+                    || staged.size != before.size
+                    || staged.modified_ns != before.modified_ns
+                {
                     return Err(stale());
                 }
-            }
-            let hashes = hasher.finish();
+                crate::hashing::Hashes {
+                    md5: item.md5,
+                    crc32c: item.crc32c,
+                }
+            } else {
+                match fsutil::hash_exact(&file, item.size, |_| Ok::<_, io::Error>(()))? {
+                    fsutil::HashOutcome::Complete(hashes) => hashes,
+                    _ => return Err(stale()),
+                }
+            };
             file.sync_all()?;
             if before != fsutil::stat_identity(&file)?
-                || offset != item.size
                 || hashes.md5 != item.md5
                 || hashes.crc32c != item.crc32c
             {
                 return Err(stale());
             }
-            Some(SyncFingerprint {
-                size: before.size,
-                mtime_ns: before.modified_ns,
-                ctime_ns: before.changed_ns,
-                inode: before.inode,
-                md5: hashes.md5,
-                crc32c: hashes.crc32c,
-                racy: true,
-            })
+            Some(SyncFingerprint::observed(before, hashes, observed_ns))
         }
         _ => return Err(stale()),
     };
@@ -679,7 +721,46 @@ fn fingerprint(
     Ok(result)
 }
 
+fn verify_fingerprint(
+    root: &File,
+    workspace: &File,
+    item: &Pending,
+    expected: Option<&SyncFingerprint>,
+) -> Result<(), Error> {
+    if entry(workspace, &item.token.id)?.is_some() {
+        return Err(Error::Protected);
+    }
+    match (item.kind, expected, target(root, &item.path)?) {
+        (Kind::Remove, None, None) => {}
+        (Kind::Publish, Some(expected), Some(file)) => {
+            let identity = fsutil::stat_identity(&file)?;
+            if identity.device != fsutil::stat_identity(root)?.device
+                || !expected.matches_identity(identity)
+            {
+                return Err(stale());
+            }
+        }
+        _ => return Err(stale()),
+    }
+    parent(root, &item.path, ParentSync::Sync)?;
+    workspace.sync_all()?;
+    root.sync_all()?;
+    Ok(())
+}
+
 impl Writeback {
+    pub(crate) fn with_root(&self, root: &RootLease) -> Result<Self, Error> {
+        if self.identities() != (root.status().catalog_id, root.status().root_id) {
+            return Err(stale());
+        }
+        Ok(Self {
+            workspace: self.workspace.clone(),
+            lease: root.clone(),
+        })
+    }
+    async fn revalidate(&self) -> Result<(), Error> {
+        self.fs(|_, _| Ok(())).await
+    }
     pub(crate) fn root_lease(&self) -> &RootLease {
         &self.lease
     }
@@ -761,15 +842,7 @@ impl Writeback {
             })
             .await?;
         if matches!(result, Err(Error::WorkspaceChanged)) {
-            let root = self.identities().1;
-            self.db(move |c| {
-                c.prepare_cached(
-                    "UPDATE sync_writeback_roots SET recovery=1,io_failure=1 WHERE root_id=?1",
-                )?
-                .execute([root.as_bytes()])?;
-                Ok(())
-            })
-            .await?;
+            self.lease.mark_workspace_changed().await?;
         }
         result
     }
@@ -789,7 +862,7 @@ impl Writeback {
             .await
     }
     async fn status_inner(&self) -> Result<Status, Error> {
-        self.fs(|_, _| Ok(())).await?;
+        self.revalidate().await?;
         let root = self.identities().1;
         self.db(move |c| status(c, root)).await
     }
@@ -802,7 +875,7 @@ impl Writeback {
         if after < 0 || !(1..=256).contains(&limit) {
             return Err(AdminError::Invalid("invalid pending page".into()).into());
         }
-        self.fs(|_, _| Ok(())).await?;
+        self.revalidate().await?;
         let (catalog, root) = self.identities();
         self.db(move |c| {
             Ok(c.prepare_cached(SELECT_PENDING_PAGE)?
@@ -824,7 +897,7 @@ impl Writeback {
     }
     #[cfg(all(test, unix))]
     async fn get_inner(&self, id: &str) -> Result<Pending, Error> {
-        self.fs(|_, _| Ok(())).await?;
+        self.revalidate().await?;
         if BlobId::parse(id).is_none() {
             return Err(stale());
         }
@@ -903,7 +976,7 @@ impl Writeback {
     #[cfg(all(test, unix))]
     async fn arm_inner(&self, token: Token) -> Result<Pending, Error> {
         self.token(&token)?;
-        self.fs(|_, _| Ok(())).await?;
+        self.revalidate().await?;
         self.db(move |c| {let tx=c.transaction()?;let item=checked(&tx,&token)?;if item.phase!=Phase::Prepared {return Err(stale());}
             let usage=status(&tx,token.root)?;if usage.over_limit() || usage.io_failure || usage.protected_entries>0 {return Err(Error::RecoveryRequired);}
             let active:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase IN (1,2,3))",[token.root.as_bytes()],|r|r.get(0))?;
@@ -1005,8 +1078,9 @@ impl Writeback {
             return Err(stale());
         }
         let selected = item.clone();
+        let observed_ns = self.lease.observation_time_ns()?;
         let observed = self
-            .fs(move |root, workspace| fingerprint(root, workspace, &selected))
+            .fs(move |root, workspace| fingerprint(root, workspace, &selected, observed_ns, None))
             .await;
         let fp = match observed {
             Ok(fp) => fp,
@@ -1107,7 +1181,7 @@ impl Writeback {
             .await
     }
     async fn resume_inner(&self) -> Result<Status, Error> {
-        self.fs(|_, _| Ok(())).await?;
+        self.revalidate().await?;
         let root = self.identities().1;
         self.db(move |c| {
             let tx = c.transaction()?;
@@ -1133,7 +1207,7 @@ impl Writeback {
     }
     #[cfg(all(test, unix))]
     async fn checkpoint_inner(&self, fence: JournalFence) -> Result<(), Error> {
-        self.fs(|_, _| Ok(())).await?;
+        self.revalidate().await?;
         let root = self.identities().1;
         self.db(move |c| {
             let tx = c.transaction()?;

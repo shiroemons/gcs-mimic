@@ -17,6 +17,22 @@ fn unrelated_would_block_keeps_its_io_cause() {
     );
 }
 
+#[test]
+fn marker_descriptor_pressure_retains_its_retryable_cause() {
+    for errno in [libc::EMFILE, libc::ENFILE, libc::EACCES, libc::EINTR] {
+        let error = marker_open_error(io::Error::from_raw_os_error(errno));
+        assert!(crate::error::causes(&error).any(|cause| {
+            cause
+                .downcast_ref::<io::Error>()
+                .is_some_and(|cause| cause.raw_os_error() == Some(errno))
+        }));
+    }
+    assert_eq!(
+        marker_open_error(io::ErrorKind::NotFound.into()),
+        RootError::InvalidMarker
+    );
+}
+
 #[tokio::test]
 async fn sync_root_activation_baseline_reopen_and_reinitialize_preserve_data() {
     let (data, root, catalog) = setup().await;
@@ -627,8 +643,14 @@ async fn sync_root_schema_migration_rolls_back_retries_and_preserves_state() {
 }
 
 #[tokio::test]
-async fn sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker() {
-    for phase in ["reserved", "created", "file_synced", "directory_synced"] {
+async fn sync_root_activation_failure_boundaries_never_publish_partial_markers() {
+    for phase in [
+        "reserved",
+        "created",
+        "file_synced",
+        "renamed",
+        "directory_synced",
+    ] {
         let (data, root, catalog) = setup().await;
         let id = catalog.sync_state().catalog_id().await.unwrap();
         *FAILURE.lock().unwrap() = Some((root.0.canonicalize().unwrap(), phase));
@@ -644,7 +666,8 @@ async fn sync_root_activation_failure_boundaries_preserve_reservation_and_refuse
         let catalog = Catalog::open(&data.0).await.unwrap();
         let state = catalog.sync_state();
         match phase {
-            "reserved" => {
+            "reserved" | "created" => {
+                assert!(!root.0.join(MARKER).exists());
                 assert!(matches!(
                     state.activate_root(&root.0, Activation::Open).await,
                     Err(RootError::MissingMarker)
@@ -656,19 +679,6 @@ async fn sync_root_activation_failure_boundaries_preserve_reservation_and_refuse
                         .unwrap(),
                 );
             }
-            "created" => {
-                assert_eq!(fs::read(root.0.join(MARKER)).unwrap(), b"");
-                assert!(matches!(
-                    state.activate_root(&root.0, Activation::Open).await,
-                    Err(RootError::InvalidMarker)
-                ));
-                assert!(matches!(
-                    state
-                        .activate_root(&root.0, Activation::Reinitialize { catalog_id: id })
-                        .await,
-                    Err(RootError::InvalidMarker)
-                ));
-            }
             _ => {
                 let lease = state
                     .activate_root(&root.0, Activation::Open)
@@ -679,5 +689,89 @@ async fn sync_root_activation_failure_boundaries_preserve_reservation_and_refuse
             }
         }
         catalog.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn marker_write_sync_and_publish_failures_leave_a_recoverable_root() {
+    use crate::storage::catalog::fault::{self, Fault, Step};
+    for step in [
+        Step::SyncMarkerWrite,
+        Step::SyncMarkerSync,
+        Step::SyncMarkerRename,
+        Step::SyncMarkerParentSync,
+    ] {
+        let (data, tree, catalog) = setup().await;
+        let id = catalog.sync_state().catalog_id().await.unwrap();
+        fault::arm(&tree.0, step, 0, Fault::Io(io::ErrorKind::StorageFull));
+        assert!(
+            catalog
+                .sync_state()
+                .activate_root(&tree.0, Activation::Open)
+                .await
+                .is_err()
+        );
+        catalog.close().await.unwrap();
+        let catalog = Catalog::open(&data.0).await.unwrap();
+        let state = catalog.sync_state();
+        match state.activate_root(&tree.0, Activation::Open).await {
+            Ok(lease) => drop(lease),
+            Err(RootError::MissingMarker) => drop(
+                state
+                    .activate_root(&tree.0, Activation::Reinitialize { catalog_id: id })
+                    .await
+                    .unwrap(),
+            ),
+            Err(error) => panic!("{step:?}: {error:?}"),
+        }
+        assert!(!tree.0.join(MARKER_STAGING).exists());
+        catalog.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn marker_crash_and_power_loss_snapshots_resume_only_complete_owned_markers() {
+    use crate::storage::catalog::fault::{self, Crash, Step};
+    for step in [
+        Step::SyncMarkerPrepared,
+        Step::SyncMarkerRename,
+        Step::SyncMarkerParentSync,
+        Step::SyncMarkerPublished,
+    ] {
+        for &crash in Crash::ALL {
+            let (data, tree, catalog) = setup().await;
+            let snapshot = TestDir::new();
+            fault::arm(&tree.0, step, 0, crash.fault(snapshot.0.clone()));
+            drop(
+                catalog
+                    .sync_state()
+                    .activate_root(&tree.0, Activation::Open)
+                    .await
+                    .unwrap(),
+            );
+            catalog.close().await.unwrap();
+            for name in [MARKER, MARKER_STAGING] {
+                if tree.0.join(name).exists() {
+                    fs::remove_file(tree.0.join(name)).unwrap();
+                }
+                if snapshot.0.join(name).exists() {
+                    fs::copy(snapshot.0.join(name), tree.0.join(name)).unwrap();
+                }
+            }
+            let reopened = Catalog::open(&data.0).await.unwrap();
+            drop(
+                reopened
+                    .sync_state()
+                    .activate_root(&tree.0, Activation::Open)
+                    .await
+                    .unwrap(),
+            );
+            assert!(
+                read_marker(&fsutil::open_directory_nofollow(&tree.0).unwrap())
+                    .unwrap()
+                    .is_some()
+            );
+            reopened.close().await.unwrap();
+        }
     }
 }

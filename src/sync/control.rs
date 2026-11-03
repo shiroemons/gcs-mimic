@@ -44,7 +44,19 @@ pub(crate) struct WaitResult {
     pub timed_out: bool,
     pub journal_fence: Option<WaitFence>,
     pub reconciliation: Option<Reconciliation>,
-    pub reason: &'static str,
+    pub reason: WaitReason,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub(crate) enum WaitReason {
+    Ready,
+    Timeout,
+    Stopped,
+    Paused,
+    JournalChanged,
+    SourceChanging,
+    SourceUnrepresentable,
+    DeletionApproval,
+    FindingsPending,
 }
 #[derive(serde::Serialize)]
 pub(crate) struct WaitFence {
@@ -52,14 +64,21 @@ pub(crate) struct WaitFence {
     pub epoch: i64,
 }
 impl WaitResult {
-    pub(crate) fn timeout() -> Self {
+    pub(crate) fn result(
+        reason: WaitReason,
+        journal_fence: Option<WaitFence>,
+        reconciliation: Option<Reconciliation>,
+    ) -> Self {
         Self {
-            completed: false,
-            timed_out: true,
-            journal_fence: None,
-            reconciliation: None,
-            reason: "Timeout",
+            completed: reason == WaitReason::Ready,
+            timed_out: reason == WaitReason::Timeout,
+            journal_fence,
+            reconciliation,
+            reason,
         }
+    }
+    pub(crate) fn timeout() -> Self {
+        Self::result(WaitReason::Timeout, None, None)
     }
 }
 

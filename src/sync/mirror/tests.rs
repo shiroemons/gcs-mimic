@@ -86,12 +86,7 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
         let (data, tree, catalog, bucket, root) = live_fixture().await;
         publish_origin(&catalog, &bucket, b"old API", Origin::Api).await;
         if tracked {
-            assert!(
-                reconcile(&catalog, &root, &Config::default())
-                    .await
-                    .unwrap()
-                    .baseline_complete
-            );
+            assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
         } else {
             fs::create_dir(tree.0.join("test-bucket")).unwrap();
         }
@@ -134,9 +129,7 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
         .await
         .unwrap();
         assert_eq!(root.observation().await.unwrap().mapping_findings, 1);
-        let summary = reconcile(&catalog, &root, &Config::default())
-            .await
-            .unwrap();
+        let summary = reconcile(&catalog, &root).await.unwrap();
         assert_eq!(summary.conflicting, 1);
         assert_eq!(summary.exported, 1);
         assert_eq!(root.observation().await.unwrap().mapping_findings, 0);
@@ -176,13 +169,7 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
             .unwrap(),
             b"external saved body"
         );
-        assert_eq!(
-            reconcile(&catalog, &root, &Config::default())
-                .await
-                .unwrap()
-                .identical,
-            1
-        );
+        assert_eq!(reconcile(&catalog, &root).await.unwrap().identical, 1);
         assert_eq!(
             root.conflict_page(
                 None,
@@ -231,9 +218,7 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
 async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore() {
     let (data, tree, catalog, bucket, root) = live_fixture().await;
     let original = publish_origin(&catalog, &bucket, b"old API", Origin::Api).await;
-    reconcile(&catalog, &root, &Config::default())
-        .await
-        .unwrap();
+    reconcile(&catalog, &root).await.unwrap();
     fs::write(
         tree.0.join("test-bucket/object"),
         b"retained external bytes",
@@ -256,9 +241,7 @@ async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore
         )
         .await
         .unwrap();
-    let summary = reconcile(&catalog, &root, &Config::default())
-        .await
-        .unwrap();
+    let summary = reconcile(&catalog, &root).await.unwrap();
     assert_eq!(summary.conflicting, 1);
     assert_eq!(root.observation().await.unwrap().mapping_findings, 0);
     assert!(!tree.0.join("test-bucket/object").exists());
@@ -744,14 +727,28 @@ async fn live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_
             std::fs::read(tree.0.join("test-bucket/object")).unwrap(),
             b"299"
         );
-        hook.release.notify_one();
-        assert!(
-            tokio::time::timeout(Duration::from_millis(100), hook.entered.notified())
-                .await
-                .is_err()
-        );
+        // Native observation can enqueue our export's own event before becoming quiet.
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                hook.release.notify_one();
+                if tokio::time::timeout(Duration::from_millis(100), hook.entered.notified())
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                assert_eq!(count.load(Ordering::SeqCst), 1);
+            }
+        })
+        .await
+        .unwrap();
         stop.send_replace(true);
-        worker.await.unwrap().unwrap();
+        hook.release.notify_one();
+        tokio::time::timeout(Duration::from_secs(10), worker)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
         drop(root);
         catalog.close().await.unwrap();
     }
@@ -1080,7 +1077,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
             .await
             .unwrap()
             .unwrap();
-        reconcile(&catalog, &root, &config).await.unwrap();
+        reconcile(&catalog, &root).await.unwrap();
         drop(root);
         catalog.close().await.unwrap();
     }
@@ -1347,22 +1344,117 @@ async fn shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition() 
 }
 
 #[tokio::test]
+async fn failed_explicit_rescan_records_the_pause_before_replying() {
+    use crate::storage::sync_state::observation::PauseReason;
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    reconcile(&catalog, &root).await.unwrap();
+    let writeback = root.default_writeback().await.unwrap();
+    let workspace = tree.0.join(mapping::WORKSPACE);
+    fs::rename(&workspace, tree.0.join("retained-workspace")).unwrap();
+    fs::create_dir(&workspace).unwrap();
+    let config = Config::default();
+    let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let mut gate = BaselineGate::Allowed;
+    let mut baseline = true;
+    let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let mut control = LiveControl {
+        catalog: &catalog,
+        root: &root,
+        config: &config,
+        writeback: &writeback,
+        stopping: &stopping,
+        ingest_complete: &mut gate,
+        baseline_complete: &mut baseline,
+        cursor: &mut cursor,
+    };
+    let (reply, result) = tokio::sync::oneshot::channel();
+    let error = control
+        .handle_authorized(Command::Rescan {
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(pause_reason(&error), PauseReason::RecoveryRequired);
+    assert!(result.await.unwrap().is_err());
+    assert_eq!(
+        root.observation().await.unwrap().paused_reason,
+        Some(PauseReason::RecoveryRequired)
+    );
+    drop(writeback);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[test]
+fn only_typed_transient_io_failures_are_retried() {
+    assert!(!retryable(&writeback::Error::Admin(AdminError::Io(
+        io::Error::other("permanent corruption").into()
+    ))));
+    for errno in [libc::EMFILE, libc::ENFILE, libc::EAGAIN] {
+        let error = writeback::Error::Admin(io::Error::from_raw_os_error(errno).into());
+        assert!(retryable(&error));
+        assert!(is_transient(&io::Error::other(error)));
+    }
+}
+
+#[tokio::test]
+async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    reconcile(&catalog, &root).await.unwrap();
+    fs::write(tree.0.join("test-bucket/new-source"), b"unsettled").unwrap();
+    let config = Config::default();
+    let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let mut gate = BaselineGate::Allowed;
+    let mut baseline = true;
+    let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let writeback = root.default_writeback().await.unwrap();
+    let mut control = LiveControl {
+        catalog: &catalog,
+        root: &root,
+        config: &config,
+        writeback: &writeback,
+        stopping: &stopping,
+        ingest_complete: &mut gate,
+        baseline_complete: &mut baseline,
+        cursor: &mut cursor,
+    };
+    let result = tokio::time::timeout(
+        Duration::from_millis(500),
+        control.wait(tokio::time::Instant::now() + Duration::from_millis(50)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result.reason, crate::sync::control::WaitReason::Timeout);
+    assert!(result.reconciliation.unwrap().interrupted);
+    assert!(matches!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &ObjectName::new("new-source").unwrap(), None)
+            .await,
+        Err(AdminError::NotFound)
+    ));
+    assert_eq!(gate, BaselineGate::Deferred);
+    drop(writeback);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes() {
     let (_data, tree, catalog, bucket, root) = live_fixture().await;
     catalog.enable_change_journal().await.unwrap();
     let config = Config::default();
-    assert!(
-        reconcile(&catalog, &root, &config)
-            .await
-            .unwrap()
-            .baseline_complete
-    );
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
     let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
     publish_origin(&catalog, &bucket, b"captured", Origin::Api).await;
     let mut gate = BaselineGate::Allowed;
     let mut baseline = true;
     let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let writeback = root.default_writeback().await.unwrap();
     let mut control = LiveControl {
+        writeback: &writeback,
         catalog: &catalog,
         root: &root,
         config: &config,
@@ -1383,12 +1475,14 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
         entered: tokio::sync::Notify::new(),
         release: tokio::sync::Notify::new(),
     });
-    let (result, ()) = EXPORT_HOOK
+    let result = EXPORT_HOOK
         .scope(hook.clone(), async {
-            tokio::join!(
-                control.wait(tokio::time::Instant::now() + Duration::from_secs(10)),
-                async {
-                    hook.entered.notified().await;
+            let work=control.wait(tokio::time::Instant::now() + Duration::from_secs(10));
+            tokio::pin!(work);
+            tokio::select! {
+                result=&mut work=>panic!("wait finished before its fence checkpoint: {:?}",result.map(|value|value.reason)),
+                result=tokio::time::timeout(Duration::from_secs(5),hook.entered.notified())=>{result.unwrap();}
+            }
                     let other = BucketName::new("later-bucket").unwrap();
                     catalog
                         .admin(Origin::Api)
@@ -1398,13 +1492,12 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
                         .await
                         .unwrap();
                     publish_origin(&catalog, &other, b"after capture", Origin::Api).await;
-                    hook.release.notify_one();
-                }
-            )
+            hook.release.notify_one();
+            work.await
         })
         .await;
     let result = result.unwrap();
-    assert!(result.completed, "{}", result.reason);
+    assert!(result.completed, "{:?}", result.reason);
     assert!(!result.timed_out);
     assert!(
         result.journal_fence.unwrap().sequence
@@ -1421,6 +1514,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
         b"captured"
     );
     assert!(!tree.0.join("later-bucket/object").exists());
+    drop(writeback);
     drop(root);
     catalog.close().await.unwrap();
 }
@@ -1525,6 +1619,8 @@ fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
             None,
         )),
         io::Error::other(io::Error::from(io::ErrorKind::Interrupted)),
+        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::EMFILE))),
+        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::ENFILE))),
     ] {
         let nested = io::Error::other(error);
         assert!(is_transient(&nested), "{nested:?}");
@@ -1555,6 +1651,20 @@ fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
     ] {
         assert_eq!(pause_reason(&io::Error::other(error)), reason);
     }
+}
+
+#[test]
+fn writeback_retries_resource_pressure_without_retrying_unclassified_failures() {
+    for error in [
+        io::Error::from_raw_os_error(libc::EMFILE),
+        io::Error::from_raw_os_error(libc::ENFILE),
+        io::ErrorKind::TimedOut.into(),
+    ] {
+        assert!(retryable(&writeback::Error::Admin(error.into())));
+    }
+    assert!(!retryable(&writeback::Error::Admin(AdminError::Io(
+        io::Error::other("invalid state").into()
+    ))));
 }
 
 #[test]

@@ -40,6 +40,52 @@ async fn fixture(count: usize) -> (TestDir, TestDir, Catalog, RootLease, Config)
 }
 
 #[tokio::test]
+async fn expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate() {
+    let (_data, tree, catalog, root, config) = fixture(1).await;
+    fs::remove_file(tree.0.join("test-bucket/0000")).unwrap();
+    let summary = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let set = inventory(&root, &config, &summary, &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    let deadline = Interrupt {
+        stopping: &stopping,
+        deadline: Some(tokio::time::Instant::now()),
+    };
+    assert!(
+        inventory_with(&root, &config, &summary, deadline)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        root.deletion_set().await.unwrap().unwrap().revision,
+        set.revision
+    );
+    assert_eq!(
+        execute_with(&catalog, &root, set, deadline).await.unwrap(),
+        0
+    );
+    assert!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(
+                &BucketName::new("test-bucket").unwrap(),
+                &ObjectName::new("0000").unwrap(),
+                None
+            )
+            .await
+            .is_ok()
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn protected_external_deletion_restores_bytes_and_versioned_removal_keeps_history() {
     let (_data, tree, catalog, root, config) = fixture(1).await;
     let bucket = BucketName::new("test-bucket").unwrap();

@@ -1,6 +1,9 @@
+use super::interrupt::{Interrupt, Interrupted};
+use super::tree::{TreeEntry as Entry, TreeScan as Scan};
 use super::{
     mapping,
-    mirror::{ParentError, Reconciliation, fs_error, parent},
+    mirror::{Reconciliation, fs_error},
+    tree::{ParentError, ParentOpen, parent},
 };
 use crate::{
     config::Config,
@@ -19,18 +22,7 @@ use crate::{
         },
     },
 };
-use std::{ffi::OsString, fs::File, io, path::PathBuf};
-
-struct Scan {
-    stack: Vec<(PathBuf, Option<OsString>)>,
-    visited: usize,
-}
-struct Entry {
-    path: PathBuf,
-    identity: Option<FileIdentity>,
-    directory: bool,
-    error: Option<io::ErrorKind>,
-}
+use std::{fs::File, io, path::PathBuf};
 
 struct Candidate {
     entry: Entry,
@@ -41,111 +33,45 @@ struct Candidate {
     live: Option<crate::object::ObjectRecord>,
 }
 
-impl Scan {
-    fn page(mut self, root: &File) -> Result<(Self, Vec<Entry>), AdminError> {
-        let mut entries = Vec::new();
-        while entries.len() < 256 {
-            let Some((path, after)) = self.stack.last_mut() else {
-                break;
-            };
-            let directory = match parent(root, path, fsutil::DirectoryOpen::Existing) {
-                Ok(directory) => directory,
-                Err(ParentError::Finding(_)) => {
-                    self.stack.pop();
-                    continue;
-                }
-                Err(ParentError::Io(error)) => {
-                    entries.push(Entry {
-                        path: path.clone(),
-                        identity: None,
-                        directory: true,
-                        error: Some(error.kind()),
-                    });
-                    self.stack.pop();
-                    continue;
-                }
-            };
-            let names = match fsutil::directory_names_after(&directory, after.as_deref(), 1) {
-                Ok(names) => names,
-                Err(error) if error.kind() != io::ErrorKind::InvalidData => {
-                    entries.push(Entry {
-                        path: path.clone(),
-                        identity: None,
-                        directory: true,
-                        error: Some(error.kind()),
-                    });
-                    self.stack.pop();
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
-            };
-            let Some(name) = names.into_iter().next() else {
-                self.stack.pop();
-                continue;
-            };
-            *after = Some(name.clone());
-            if path.as_os_str().is_empty()
-                && matches!(name.to_str(), Some(mapping::MARKER | mapping::WORKSPACE))
-            {
-                continue;
-            }
-            self.visited += 1;
-            if self.visited > 10_000 {
-                return Err(AdminError::Invalid("sync tree exceeds 10000 inspected entries; preserve the tree and reduce its size before rescanning".into()));
-            }
-            let relative = path.join(&name);
-            if let Ok(child) =
-                fsutil::directory_at(&directory, &name, fsutil::DirectoryOpen::Existing)
-            {
-                drop(child);
-                if self.stack.len() >= 128 {
-                    return Err(AdminError::Invalid(
-                        "sync tree exceeds 128 levels; reduce its depth".into(),
-                    ));
-                }
-                self.stack.push((relative.clone(), None));
-                entries.push(Entry {
-                    path: relative,
-                    identity: None,
-                    directory: true,
-                    error: None,
-                });
-            } else {
-                let mut failure = None;
-                let identity = match fsutil::open_regular_at(&directory, &name) {
-                    Ok(file) => match fsutil::stat_identity(&file).map_err(fs_error) {
-                        Ok(identity) => Some(identity),
-                        Err(AdminError::Io(error)) => {
-                            failure = Some(error.kind());
-                            None
-                        }
-                        Err(error) => return Err(error),
-                    },
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                    Err(error) if !super::mirror::structural_entry_error(&error) => {
-                        failure = Some(error.kind());
-                        None
-                    }
-                    Err(_) => None,
-                };
-                entries.push(Entry {
-                    path: relative,
-                    identity,
-                    directory: false,
-                    error: failure,
-                });
-            }
-        }
-        Ok((self, entries))
+struct PinnedSource {
+    file: File,
+    _lease: RootLease,
+}
+impl std::borrow::Borrow<File> for PinnedSource {
+    fn borrow(&self) -> &File {
+        &self.file
     }
 }
 
+fn open_source(
+    root: &File,
+    path: &std::path::Path,
+    expected: FileIdentity,
+) -> Result<(File, FileIdentity), AdminError> {
+    let directory = parent(
+        root,
+        path.parent().ok_or(AdminError::Precondition)?,
+        ParentOpen::Existing,
+    )
+    .map_err(|error| match error {
+        ParentError::Io(error) => AdminError::from(error),
+        _ => AdminError::Precondition,
+    })?;
+    let file = match fsutil::child_regular(
+        &directory,
+        path.file_name().ok_or(AdminError::Precondition)?,
+    )? {
+        fsutil::RegularChild::File(file) => file,
+        _ => return Err(AdminError::Precondition),
+    };
+    if fsutil::stat_identity(&file).map_err(fs_error)? != expected {
+        return Err(AdminError::Precondition);
+    }
+    Ok((file, fsutil::stat_identity(&directory).map_err(fs_error)?))
+}
+
 fn same_stat(fp: &SyncFingerprint, stat: FileIdentity) -> bool {
-    !fp.racy
-        && fp.size == stat.size
-        && fp.inode == stat.inode
-        && fp.mtime_ns == stat.modified_ns
-        && fp.ctime_ns == stat.changed_ns
+    fp.matches_identity(stat)
 }
 
 fn deferred(path: &std::path::Path, reason: impl std::fmt::Display, summary: &mut Reconciliation) {
@@ -165,13 +91,10 @@ fn deferred(path: &std::path::Path, reason: impl std::fmt::Display, summary: &mu
     );
 }
 
-async fn forget_missing_directories(
-    root: &RootLease,
-    stopping: &tokio::sync::watch::Receiver<bool>,
-) -> io::Result<()> {
+async fn forget_missing_directories(root: &RootLease, interrupt: Interrupt<'_>) -> io::Result<()> {
     let mut after = String::new();
     loop {
-        if *stopping.borrow() {
+        if interrupt.check() != Interrupted::No {
             break;
         }
         let page = root
@@ -182,7 +105,7 @@ async fn forget_missing_directories(
             break;
         }
         for (name, incarnation) in page {
-            if *stopping.borrow() {
+            if interrupt.check() != Interrupted::No {
                 return Ok(());
             }
             after = name.clone();
@@ -211,22 +134,23 @@ async fn forget_missing_directories(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) async fn rescan(
     catalog: &Catalog,
     root: &RootLease,
     config: &Config,
     stopping: &tokio::sync::watch::Receiver<bool>,
 ) -> io::Result<Reconciliation> {
-    let writeback = root
-        .writeback(
-            crate::storage::sync_state::writeback::Limits::new(
-                super::CONFLICT_MAX_BYTES,
-                super::CONFLICT_MAX_ENTRIES,
-            )
-            .map_err(io::Error::other)?,
-        )
-        .await
-        .map_err(io::Error::other)?;
+    let writeback = root.default_writeback().await.map_err(io::Error::other)?;
+    rescan_with(catalog, root, config, &writeback, Interrupt::new(stopping)).await
+}
+pub(super) async fn rescan_with(
+    catalog: &Catalog,
+    root: &RootLease,
+    config: &Config,
+    writeback: &crate::storage::sync_state::writeback::Writeback,
+    interrupt: Interrupt<'_>,
+) -> io::Result<Reconciliation> {
     if writeback.status().await.map_err(io::Error::other)?.stop
         != crate::storage::sync_state::writeback::Stop::Ready
     {
@@ -241,12 +165,9 @@ pub(super) async fn rescan(
         admin: root.sync_admin(),
     };
     let mut summary = Reconciliation::default();
-    forget_missing_directories(root, stopping).await?;
-    let mut scan = Scan {
-        stack: vec![(PathBuf::new(), None)],
-        visited: 0,
-    };
-    while !scan.stack.is_empty() && !*stopping.borrow() {
+    forget_missing_directories(root, interrupt).await?;
+    let mut scan = Scan::new();
+    while !scan.is_empty() && interrupt.check() == Interrupted::No {
         let (next, entries) = root
             .file_job(move |root| scan.page(root))
             .await
@@ -255,7 +176,8 @@ pub(super) async fn rescan(
         let mut candidates = Vec::new();
         let mut blocked = Vec::<PathBuf>::new();
         for entry in entries {
-            if *stopping.borrow() {
+            if interrupt.check() != Interrupted::No {
+                summary.interrupted = true;
                 return Ok(summary);
             }
             if blocked.iter().any(|path| entry.path.starts_with(path)) {
@@ -268,8 +190,7 @@ pub(super) async fn rescan(
             if entry.directory {
                 if ingest.bucket_directory(&entry, &mut summary).await? == BucketDirectory::Blocked
                 {
-                    scan.stack
-                        .retain(|(path, _)| !path.starts_with(&entry.path));
+                    scan.skip(&entry.path);
                     blocked.push(entry.path.clone());
                 }
                 continue;
@@ -282,24 +203,29 @@ pub(super) async fn rescan(
         if !candidates.is_empty() {
             #[cfg(test)]
             checkpoint("settle").await;
-            let mut stopping = stopping.clone();
-            if *stopping.borrow() {
+            if interrupt
+                .sleep(std::time::Duration::from_millis(super::SETTLE_MS))
+                .await
+                != Interrupted::No
+            {
+                summary.interrupted = true;
                 return Ok(summary);
-            }
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_millis(super::SETTLE_MS)) => {},
-                _ = stopping.changed() => return Ok(summary),
             }
         }
         for candidate in candidates {
-            if *stopping.borrow() {
+            if interrupt.check() != Interrupted::No {
+                summary.interrupted = true;
                 return Ok(summary);
             }
             ingest.ingest(candidate, &mut summary).await?;
         }
     }
-    if !*stopping.borrow() {
-        clear_missing_observations(root, stopping).await?;
+    summary.interrupted = interrupt.check() != Interrupted::No;
+    if !summary.interrupted {
+        clear_missing_observations(root, interrupt).await?;
+        summary.interrupted = interrupt.check() != Interrupted::No;
+    }
+    if !summary.interrupted {
         root.observation_scan(summary.unrepresentable, summary.deferred)
             .await
             .map_err(io::Error::other)?;
@@ -307,12 +233,9 @@ pub(super) async fn rescan(
     Ok(summary)
 }
 
-async fn clear_missing_observations(
-    root: &RootLease,
-    stopping: &tokio::sync::watch::Receiver<bool>,
-) -> io::Result<()> {
+async fn clear_missing_observations(root: &RootLease, interrupt: Interrupt<'_>) -> io::Result<()> {
     let mut after = 0;
-    while !*stopping.borrow() {
+    while interrupt.check() == Interrupted::No {
         let page = root
             .transient_stop_page(after)
             .await
@@ -327,11 +250,13 @@ async fn clear_missing_observations(
                 && let Some(path) = path.to_str()
                 && super::deletion::absent(root, path.to_owned()).await?
             {
-                for reason in [PathStop::SourceChanging, PathStop::IoFailure] {
-                    root.clear_path_stop(binding.clone(), name.clone(), reason)
-                        .await
-                        .map_err(io::Error::other)?;
-                }
+                root.clear_path_stops(
+                    binding,
+                    name,
+                    &[PathStop::SourceChanging, PathStop::IoFailure],
+                )
+                .await
+                .map_err(io::Error::other)?;
             }
         }
     }
@@ -445,8 +370,18 @@ impl Ingest<'_> {
             .as_ref()
             .is_some_and(|record| same_stat(&record.fingerprint, identity))
         {
-            self.clear_observation(binding, name).await?;
-            return Ok(None);
+            let tracked = tracked
+                .as_ref()
+                .ok_or_else(|| io::Error::other("missing tracked source"))?;
+            if !tracked.fingerprint.racy {
+                self.clear_observation(binding, name).await?;
+                return Ok(None);
+            }
+            if self.racy_clean(&entry, tracked, &binding, &name).await? {
+                summary.identical += 1;
+                self.clear_observation(binding, name).await?;
+                return Ok(None);
+            }
         }
         let live = match self.admin.get_object(&bucket, &name, None).await {
             Ok(record) => Some(record),
@@ -475,6 +410,62 @@ impl Ingest<'_> {
         }))
     }
 
+    async fn racy_clean(
+        &self,
+        entry: &Entry,
+        tracked: &SyncRecord,
+        binding: &SyncBinding,
+        name: &ObjectName,
+    ) -> io::Result<bool> {
+        let Some(expected) = entry.identity else {
+            return Ok(false);
+        };
+        let path = entry.path.clone();
+        let observed = self
+            .root
+            .file_job(move |root| {
+                let (file, parent) = open_source(root, &path, expected)?;
+                let hashes = fsutil::hash_exact(&file, expected.size, |_| Ok::<_, io::Error>(()))?;
+                let (_, current) = open_source(root, &path, expected)?;
+                if parent.device != current.device || parent.inode != current.inode {
+                    return Err(AdminError::Precondition);
+                }
+                Ok(hashes)
+            })
+            .await;
+        let hashes = match observed {
+            Ok(fsutil::HashOutcome::Complete(hashes)) => hashes,
+            Ok(_) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
+                return Ok(false);
+            }
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        if hashes.md5 != tracked.fingerprint.md5 || hashes.crc32c != tracked.fingerprint.crc32c {
+            return Ok(false);
+        }
+        let fingerprint = SyncFingerprint::observed(
+            expected,
+            hashes,
+            self.root.observation_time_ns().map_err(io::Error::other)?,
+        );
+        let update = SyncUpdate::new(
+            binding.clone(),
+            entry.path.to_string_lossy().into_owned(),
+            fingerprint,
+        )
+        .map_err(io::Error::other)?;
+        match self
+            .catalog
+            .sync_state()
+            .acknowledge(name, tracked.generation, update)
+            .await
+        {
+            Ok(()) => Ok(true),
+            Err(AdminError::Precondition | AdminError::NotFound) => Ok(false),
+            Err(error) => Err(io::Error::other(error)),
+        }
+    }
+
     /// Stages the file's current bytes, verifying that its identity and parent did not change
     /// while it was read.
     async fn stage(
@@ -482,40 +473,36 @@ impl Ingest<'_> {
         selected: PathBuf,
         identity: FileIdentity,
     ) -> Result<StagedObject, RootError> {
-        let staging_admin = self.admin.clone();
-        let runtime = tokio::runtime::Handle::current();
-        let max = self.config.max_object_bytes;
-        self.root
+        let path = selected.clone();
+        let (file, directory) = self
+            .root
+            .file_job(move |root| open_source(root, &path, identity))
+            .await?;
+        #[cfg(test)]
+        checkpoint("stage").await;
+        let source = PinnedSource {
+            file,
+            _lease: self.root.clone(),
+        };
+        let staged = self
+            .admin
+            .stage_from_file(source, Default::default(), self.config.max_object_bytes)
+            .await?;
+        let checked = self
+            .root
             .file_job(move |root| {
-                let directory = parent(
-                    root,
-                    selected.parent().ok_or(AdminError::Precondition)?,
-                    fsutil::DirectoryOpen::Existing,
-                )
-                .map_err(|_| AdminError::Precondition)?;
-                let leaf = selected.file_name().ok_or(AdminError::Precondition)?;
-                let file = fsutil::open_regular_at(&directory, leaf)?;
-                if fsutil::stat_identity(&file).map_err(fs_error)? != identity {
+                let (_, current) = open_source(root, &selected, identity)?;
+                if current.device != directory.device || current.inode != directory.inode {
                     return Err(AdminError::Precondition);
                 }
-                let staged = runtime.block_on(staging_admin.stage_from_file(
-                    file,
-                    Default::default(),
-                    max,
-                ))?;
-                let current = parent(
-                    root,
-                    selected.parent().ok_or(AdminError::Precondition)?,
-                    fsutil::DirectoryOpen::Existing,
-                )
-                .map_err(|_| AdminError::Precondition)?;
-                let file = fsutil::open_regular_at(&current, leaf)?;
-                if fsutil::stat_identity(&file).map_err(fs_error)? != identity {
-                    return Err(AdminError::Precondition);
-                }
-                Ok(staged)
+                Ok(())
             })
-            .await
+            .await;
+        if let Err(error) = checked {
+            staged.discard().await?;
+            return Err(error);
+        }
+        Ok(staged)
     }
 
     /// Stages a candidate's bytes with the fingerprint that tracks them; `None` means the
@@ -561,15 +548,11 @@ impl Ingest<'_> {
         if let Ok((_, name)) = mapping::path_to_name(&entry.path) {
             self.clear_observation(binding.clone(), name).await?;
         }
-        let fingerprint = SyncFingerprint {
-            size: staged.size(),
-            mtime_ns: identity.modified_ns,
-            ctime_ns: identity.changed_ns,
-            inode: identity.inode,
-            md5: hashes.md5,
-            crc32c: hashes.crc32c,
-            racy: false,
-        };
+        let fingerprint = SyncFingerprint::observed(
+            identity,
+            hashes,
+            self.root.observation_time_ns().map_err(io::Error::other)?,
+        );
         let update =
             SyncUpdate::new(binding.clone(), path, fingerprint).map_err(io::Error::other)?;
         Ok(Some((staged, update)))
@@ -596,12 +579,14 @@ impl Ingest<'_> {
     }
 
     async fn clear_observation(&self, binding: SyncBinding, name: ObjectName) -> io::Result<()> {
-        for reason in [PathStop::SourceChanging, PathStop::IoFailure] {
-            self.root
-                .clear_path_stop(binding.clone(), name.clone(), reason)
-                .await
-                .map_err(io::Error::other)?;
-        }
+        self.root
+            .clear_path_stops(
+                binding,
+                name,
+                &[PathStop::SourceChanging, PathStop::IoFailure],
+            )
+            .await
+            .map_err(io::Error::other)?;
         Ok(())
     }
 
@@ -684,10 +669,7 @@ impl Ingest<'_> {
                 Generation::new(record.generation).map(GenerationCondition::Is)
             })
             .map_err(io::Error::other)?;
-        self.root
-            .file_job(|_| Ok(()))
-            .await
-            .map_err(io::Error::other)?;
+        self.root.revalidate().await.map_err(io::Error::other)?;
         let result = self
             .admin
             .publish_objects(vec![BatchPublication {

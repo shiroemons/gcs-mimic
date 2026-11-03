@@ -88,9 +88,7 @@ pub(super) async fn api_fixture(data: &TestDir, tree: &TestDir, names: &[&str]) 
         .await
         .unwrap()
         .unwrap();
-    gcs_mimic::sync::reconcile(&catalog, &root, &config)
-        .await
-        .unwrap();
+    gcs_mimic::sync::reconcile(&catalog, &root).await.unwrap();
     drop(root);
     catalog.close().await.unwrap();
 }

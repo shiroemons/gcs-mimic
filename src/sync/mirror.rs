@@ -1,11 +1,12 @@
 use super::control::Command;
+use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
+pub(super) use super::tree::{ParentError, ParentOpen, parent, structural_entry_error};
 use crate::{
     bucket::CatalogError,
     config::Config,
     diagnostics::{self, LogLevel},
     fsutil,
-    hashing::Hasher,
     object::ObjectRecord,
     storage::{
         Catalog, ObjectListQuery,
@@ -14,12 +15,11 @@ use crate::{
         sync_state::{
             SyncBinding, SyncRecord,
             root::{RootError, RootLease},
-            writeback::{self, Limits, LiveExport, LiveResult, LiveSource, Stop, Writeback},
+            writeback::{self, LiveExport, LiveResult, LiveSource, Stop, Writeback},
         },
     },
 };
 use std::{
-    ffi::{OsStr, OsString},
     fs::File,
     future::Future,
     io,
@@ -29,6 +29,8 @@ use std::{
 
 #[cfg(test)]
 use super::Hook;
+#[cfg(test)]
+use crate::storage::sync_state::writeback::Limits;
 #[cfg(test)]
 tokio::task_local! { static EXPORT_HOOK: std::sync::Arc<Hook>; }
 #[cfg(test)]
@@ -51,6 +53,7 @@ mod wait;
 
 #[derive(Default, Debug, serde::Serialize)]
 pub struct Reconciliation {
+    pub interrupted: bool,
     pub ingested: u64,
     pub blocked_buckets: u64,
     pub exported: u64,
@@ -83,8 +86,11 @@ struct DirectoryWatch {
 impl DirectoryWatch {
     async fn new(root: &RootLease) -> io::Result<Self> {
         let lease = root.clone();
+        let path = root.watch_path().to_owned();
         let native = root
-            .file_job(|root| crate::source_tree::watch::build(root).map_err(AdminError::backend))
+            .file_job(move |root| {
+                crate::source_tree::watch::build(root, &path).map_err(AdminError::backend)
+            })
             .await
             .map_err(io::Error::other)?;
         Ok(Self {
@@ -124,7 +130,7 @@ impl DirectoryWatch {
                         LogLevel::Error,
                         "sync_watch_retry",
                         serde_json::json!({
-                            "reason":error.to_string(),"delay_ms":delay.as_millis(),
+                            "reason":crate::error::Report(&error).to_string(),"delay_ms":delay.as_millis(),
                             "remedy":"Restore read/search permissions on the sync tree; observation remains unhealthy until every subtree is watched"
                         }),
                     );
@@ -185,27 +191,30 @@ const RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
 /// Whether a mirror failure may clear on its own: catalog contention, an admission timeout or
 /// an interrupted or timed-out I/O call. Everything else, such as an invalid name, a permission
 /// error or a corrupt catalog, needs an operator and stops the mirror.
+fn transient_io(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::Interrupted
+            | io::ErrorKind::ResourceBusy
+    ) || matches!(
+        error.raw_os_error(),
+        Some(libc::EMFILE | libc::ENFILE | libc::EAGAIN | libc::ENOMEM)
+    )
+}
 fn is_transient(error: &io::Error) -> bool {
-    fn transient_kind(kind: io::ErrorKind) -> bool {
-        matches!(
-            kind,
-            io::ErrorKind::TimedOut
-                | io::ErrorKind::WouldBlock
-                | io::ErrorKind::Interrupted
-                | io::ErrorKind::ResourceBusy
-        )
-    }
     crate::error::causes(error).any(|cause| {
         if let Some(admin) = cause.downcast_ref::<AdminError>() {
             match admin {
                 AdminError::Busy { .. } => true,
-                AdminError::Io(cause) => transient_kind(cause.kind()),
+                AdminError::Io(cause) => transient_io(&io::Error::from(cause.kind())),
                 _ => false,
             }
         } else if let Some(catalog) = cause.downcast_ref::<CatalogError>() {
             matches!(catalog, CatalogError::Unavailable(_))
         } else if let Some(io) = cause.downcast_ref::<io::Error>() {
-            transient_kind(io.kind())
+            transient_io(io)
         } else if let Some(sqlite) = cause.downcast_ref::<rusqlite::Error>() {
             matches!(
                 sqlite.sqlite_error_code(),
@@ -214,7 +223,12 @@ fn is_transient(error: &io::Error) -> bool {
         } else {
             false
         }
-    })
+    }) || resource_pressure(error)
+}
+
+fn resource_pressure(error: &(dyn std::error::Error + 'static)) -> bool {
+    crate::error::causes(error)
+        .any(|cause| cause.downcast_ref::<io::Error>().is_some_and(transient_io))
 }
 
 pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<Task> {
@@ -263,7 +277,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                 diagnostics::emit(
                     LogLevel::Error,
                     "sync_paused",
-                    serde_json::json!({"reason":error.to_string(),"remedy":"Preserve pending data, correct the reported condition and request an explicit rescan"}),
+                    serde_json::json!({"reason":crate::error::Report(&error).to_string(),"remedy":"Preserve pending data, correct the reported condition and request an explicit rescan"}),
                 );
                 if let Err(error) =
                     runtime.block_on(root.observation_pause(Some(pause_reason(&error))))
@@ -296,7 +310,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                 LogLevel::Warn,
                 "sync_retrying",
                 serde_json::json!({
-                    "reason": error.to_string(),
+                    "reason": crate::error::Report(&error).to_string(),
                     "delay_ms": delay.as_millis(),
                 }),
             );
@@ -361,30 +375,16 @@ async fn await_resume(
     requests: &mut tokio::sync::mpsc::Receiver<Command>,
     stopping: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Option<Resume> {
-    let mut after = 0;
-    loop {
-        match root
-            .recovery_page(
-                after,
-                128,
-                crate::storage::sync_state::authority::ControlAuthority::Permissive,
-            )
-            .await
-        {
-            Ok(page) if page.is_empty() => break,
-            Ok(page) => after = page.last().map_or(after, |item| item.ordinal),
-            Err(error) => {
-                diagnostics::emit(
-                    LogLevel::Error,
-                    "sync_recovery_observation_failed",
-                    serde_json::json!({"reason":error.to_string(),"remedy":"Preserve the workspace and inspect the retained entry before attempting recovery"}),
-                );
-                break;
-            }
-        }
-        if *stopping.borrow() {
-            return None;
-        }
+    if let Err(error) = root
+        .observe_recoveries(crate::storage::sync_state::authority::ControlAuthority::Permissive)
+        .await
+    {
+        // Explicit rescan remains available because it reruns recovery after the operator repairs access.
+        diagnostics::emit(
+            LogLevel::Error,
+            "sync_recovery_observation_failed",
+            serde_json::json!({"reason":crate::error::Report(&error).to_string(),"remedy":"Preserve the workspace and inspect the retained entry before attempting recovery"}),
+        );
     }
     while !*stopping.borrow() {
         tokio::select! {
@@ -398,7 +398,7 @@ async fn await_resume(
                     }
                 }
                 Command::Approve {reply,..}=>{let _=reply.send(Err(io::Error::new(io::ErrorKind::WouldBlock,"Synchronization is paused; correct the condition and request a rescan")));}
-                Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult {completed:false,timed_out:false,journal_fence:None,reconciliation:None,reason:"Paused"}));}
+                Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult::result(super::control::WaitReason::Paused,None,None)));}
                 Command::Resolve {request,reply,identity}=> {
                     let authority=crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity);
                     let result=root.resolve_conflict(request,authority,config.max_object_bytes).await;
@@ -436,6 +436,7 @@ async fn run_live_config(
                 catalog,
                 root,
                 config,
+                writeback: &writeback,
                 stopping,
                 ingest_complete: &mut ingest_complete,
                 baseline_complete: &mut baseline_complete,
@@ -451,7 +452,14 @@ async fn run_live_config(
             .map_err(io::Error::other)?;
         if page.rescan_required {
             cursor = page.fence;
-            let summary = reconcile_until(catalog, root, stopping, ingest_complete).await?;
+            let summary = reconcile_with(
+                catalog,
+                root,
+                Interrupt::new(stopping),
+                ingest_complete,
+                &writeback,
+            )
+            .await?;
             diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
             continue;
         }
@@ -462,12 +470,12 @@ async fn run_live_config(
                 biased;
                 _ = stopping.changed() => break,
                 observed = watcher.watch.changed() => {
-                    observed?;
+                    let observed=observed?;
                     root.invalidate_deletions().await.map_err(io::Error::other)?;
                     // Register before scanning so edits during reconciliation cause another pass.
-                    watcher.rebuild(root,stopping,health).await?;
+                    if observed==crate::source_tree::watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
                     if *stopping.borrow() { break }
-                    let summary = ingest_external(catalog, root, config, stopping, &mut ingest_complete, &mut baseline_complete).await?;
+                    let summary = ingest_external(catalog, root, config,&writeback, stopping, &mut ingest_complete, &mut baseline_complete).await?;
                     diagnostics::emit(LogLevel::Info, "sync_ingested", &summary);
                     health.pass_succeeded();
                 }
@@ -476,7 +484,7 @@ async fn run_live_config(
                         watcher.rebuild(root,stopping,health).await?;
                     }
                     if *stopping.borrow() { break }
-                    LiveControl {catalog,root,config,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request).await?;
+                    LiveControl {catalog,root,config,writeback:&writeback,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request).await?;
                 }
                 result = catalog.wait_for_changes(cursor) => { result.map_err(io::Error::other)?; }
             }
@@ -497,6 +505,15 @@ async fn replay_page(
     page: ChangePage,
     stopping: &tokio::sync::watch::Receiver<bool>,
 ) -> io::Result<Reconciliation> {
+    replay_page_with(catalog, root, writeback, page, Interrupt::new(stopping)).await
+}
+async fn replay_page_with(
+    catalog: &Catalog,
+    root: &RootLease,
+    writeback: &Writeback,
+    page: ChangePage,
+    interrupt: Interrupt<'_>,
+) -> io::Result<Reconciliation> {
     let mut summary = Reconciliation::default();
     // A page bounds the work set; each selected key reads current live state once.
     let mut keys = std::collections::BTreeSet::new();
@@ -515,7 +532,8 @@ async fn replay_page(
         }
     }
     for (bucket, name) in keys {
-        if *stopping.borrow() {
+        if interrupt.check() != Interrupted::No {
+            summary.interrupted = true;
             return Ok(summary);
         }
         let Ok(bucket) = BucketName::new(bucket) else {
@@ -559,6 +577,9 @@ struct Initialized {
 fn pause_reason(error: &io::Error) -> crate::storage::sync_state::observation::PauseReason {
     use crate::storage::sync_state::observation::PauseReason;
     for cause in crate::error::causes(error) {
+        if let Some(stop) = cause.downcast_ref::<RescanStopped>() {
+            return stop.0;
+        }
         if let Some(stop) = cause.downcast_ref::<Stop>() {
             return match stop {
                 Stop::ConflictCapacity => PauseReason::ConflictCapacity,
@@ -578,7 +599,11 @@ fn pause_reason(error: &io::Error) -> crate::storage::sync_state::observation::P
         }
         if matches!(
             cause.downcast_ref::<writeback::Error>(),
-            Some(writeback::Error::RecoveryRequired | writeback::Error::Protected)
+            Some(
+                writeback::Error::RecoveryRequired
+                    | writeback::Error::Protected
+                    | writeback::Error::WorkspaceChanged
+            )
         ) {
             return PauseReason::RecoveryRequired;
         }
@@ -591,6 +616,15 @@ fn pause_reason(error: &io::Error) -> crate::storage::sync_state::observation::P
     }
     PauseReason::ObserverFailure
 }
+
+#[derive(Debug)]
+struct RescanStopped(crate::storage::sync_state::observation::PauseReason);
+impl std::fmt::Display for RescanStopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Explicit rescan stopped synchronization: {:?}", self.0)
+    }
+}
+impl std::error::Error for RescanStopped {}
 
 async fn initialize_live(
     run: LiveRun<'_>,
@@ -621,27 +655,42 @@ async fn initialize_live(
     root.invalidate_deletions()
         .await
         .map_err(io::Error::other)?;
-    let ingested = super::ingest::rescan(catalog, operation_root, config, stopping).await?;
+    let ingested = super::ingest::rescan_with(
+        catalog,
+        operation_root,
+        config,
+        &writeback,
+        Interrupt::new(stopping),
+    )
+    .await?;
     diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
     let ingest_complete = BaselineGate::after_ingest(&ingested);
-    let mut summary = reconcile_until(catalog, operation_root, stopping, ingest_complete).await?;
+    let mut summary = reconcile_with(
+        catalog,
+        operation_root,
+        Interrupt::new(stopping),
+        ingest_complete,
+        &writeback,
+    )
+    .await?;
     summary.ingested = ingested.ingested;
     let baseline_complete = summary.baseline_complete;
     diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
-    observe_deletions(catalog, operation_root, config, &summary, stopping).await?;
+    observe_deletions(
+        catalog,
+        operation_root,
+        config,
+        &summary,
+        Interrupt::new(stopping),
+    )
+    .await?;
     root.observation_pause(None)
         .await
         .map_err(io::Error::other)?;
     health.pass_succeeded();
     if let Some(request) = resume {
         let _ = request.reply.send(Ok(summary));
-        writeback = root
-            .writeback(
-                Limits::new(super::CONFLICT_MAX_BYTES, super::CONFLICT_MAX_ENTRIES)
-                    .map_err(io::Error::other)?,
-            )
-            .await
-            .map_err(io::Error::other)?;
+        writeback = writeback.with_root(root).map_err(io::Error::other)?;
     }
     Ok(Initialized {
         cursor,
@@ -653,13 +702,7 @@ async fn initialize_live(
 }
 
 async fn recover_writeback(root: &RootLease) -> io::Result<Writeback> {
-    let writeback = root
-        .writeback(
-            Limits::new(super::CONFLICT_MAX_BYTES, super::CONFLICT_MAX_ENTRIES)
-                .map_err(io::Error::other)?,
-        )
-        .await
-        .map_err(io::Error::other)?;
+    let writeback = root.default_writeback().await.map_err(io::Error::other)?;
     writeback
         .recover_pending()
         .await
@@ -678,27 +721,58 @@ async fn ingest_external(
     catalog: &Catalog,
     root: &RootLease,
     config: &Config,
+    writeback: &Writeback,
     stopping: &tokio::sync::watch::Receiver<bool>,
     ingest_complete: &mut BaselineGate,
     baseline_complete: &mut bool,
 ) -> io::Result<Reconciliation> {
-    root.file_job(|_| Ok(())).await.map_err(io::Error::other)?;
-    let mut summary = super::ingest::rescan(catalog, root, config, stopping).await?;
+    ingest_external_with(
+        catalog,
+        root,
+        config,
+        writeback,
+        Interrupt::new(stopping),
+        ingest_complete,
+        baseline_complete,
+    )
+    .await
+}
+async fn ingest_external_with(
+    catalog: &Catalog,
+    root: &RootLease,
+    config: &Config,
+    writeback: &Writeback,
+    interrupt: Interrupt<'_>,
+    ingest_complete: &mut BaselineGate,
+    baseline_complete: &mut bool,
+) -> io::Result<Reconciliation> {
+    let mut summary =
+        super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
     *ingest_complete = BaselineGate::after_ingest(&summary);
-    if !*baseline_complete && *ingest_complete == BaselineGate::Allowed && !*stopping.borrow() {
+    if !*baseline_complete
+        && *ingest_complete == BaselineGate::Allowed
+        && interrupt.check() == Interrupted::No
+    {
         // Nested control rescans otherwise retain reconciliation state on the observer's stack.
-        let merged = Box::pin(reconcile_until(
+        let merged = Box::pin(reconcile_with(
             catalog,
             root,
-            stopping,
+            interrupt,
             BaselineGate::Allowed,
+            writeback,
         ))
         .await?;
         *baseline_complete = merged.baseline_complete;
+        summary.interrupted |= merged.interrupted;
     }
-    root.file_job(|_| Ok(())).await.map_err(io::Error::other)?;
+    root.revalidate().await.map_err(io::Error::other)?;
     summary.baseline_complete = *baseline_complete;
-    observe_deletions(catalog, root, config, &summary, stopping).await?;
+    summary.interrupted |= interrupt.check() != Interrupted::No;
+    if summary.interrupted {
+        return Ok(summary);
+    }
+    observe_deletions(catalog, root, config, &summary, interrupt).await?;
+    summary.interrupted |= interrupt.check() != Interrupted::No;
     Ok(summary)
 }
 
@@ -707,12 +781,12 @@ async fn observe_deletions(
     root: &RootLease,
     config: &Config,
     summary: &Reconciliation,
-    stopping: &tokio::sync::watch::Receiver<bool>,
+    interrupt: Interrupt<'_>,
 ) -> io::Result<()> {
-    let inventory = super::deletion::inventory(root, config, summary, stopping).await;
+    let inventory = super::deletion::inventory_with(root, config, summary, interrupt).await;
     match inventory {
         Ok(Some(set)) => {
-            super::deletion::execute(catalog, root, set, stopping).await?;
+            super::deletion::execute_with(catalog, root, set, interrupt).await?;
         }
         Ok(None) => {}
         Err(error) if super::deletion::stale(&error) => {}
@@ -725,6 +799,7 @@ struct LiveControl<'a> {
     catalog: &'a Catalog,
     root: &'a RootLease,
     config: &'a Config,
+    writeback: &'a Writeback,
     stopping: &'a tokio::sync::watch::Receiver<bool>,
     ingest_complete: &'a mut BaselineGate,
     baseline_complete: &'a mut bool,
@@ -732,11 +807,12 @@ struct LiveControl<'a> {
 }
 impl LiveControl<'_> {
     async fn rescan(&mut self) -> io::Result<Reconciliation> {
-        let _writeback = recover_writeback(self.root).await?;
+        let writeback = recover_writeback(self.root).await?;
         ingest_external(
             self.catalog,
             self.root,
             self.config,
+            &writeback,
             self.stopping,
             self.ingest_complete,
             self.baseline_complete,
@@ -759,10 +835,15 @@ impl LiveControl<'_> {
                     identity,
                 ),
             );
+            let writeback = self
+                .writeback
+                .with_root(&scoped)
+                .map_err(io::Error::other)?;
             LiveControl {
                 catalog: self.catalog,
                 root: &scoped,
                 config: self.config,
+                writeback: &writeback,
                 stopping: self.stopping,
                 ingest_complete: self.ingest_complete,
                 baseline_complete: self.baseline_complete,
@@ -812,9 +893,29 @@ impl LiveControl<'_> {
                     .await
                 {
                     Ok(()) => self.rescan().await,
-                    Err(error) => Err(io::Error::other(error)),
+                    Err(error) => {
+                        let _ = reply.send(Err(io::Error::other(error)));
+                        return Ok(());
+                    }
+                };
+                let stop = summary
+                    .as_ref()
+                    .err()
+                    .filter(|error| !is_transient(error))
+                    .map(|error| RescanStopped(pause_reason(error)));
+                let paused = if let Some(stop) = &stop {
+                    self.root
+                        .observation_pause(Some(stop.0))
+                        .await
+                        .map_err(io::Error::other)
+                } else {
+                    Ok(())
                 };
                 let _ = reply.send(summary);
+                paused?;
+                if let Some(stop) = stop {
+                    return Err(io::Error::other(stop));
+                }
             }
             Command::Approve {
                 revision,
@@ -876,13 +977,7 @@ pub(super) async fn restore_from_catalog(
         .await
         .map_err(io::Error::other)?
         .fence;
-    let writeback = root
-        .writeback(
-            Limits::new(super::CONFLICT_MAX_BYTES, super::CONFLICT_MAX_ENTRIES)
-                .map_err(io::Error::other)?,
-        )
-        .await
-        .map_err(io::Error::other)?;
+    let writeback = root.default_writeback().await.map_err(io::Error::other)?;
     let object = LiveObject {
         catalog,
         root,
@@ -1022,11 +1117,19 @@ impl LiveObject<'_> {
             return Ok(None);
         };
         let generation = Generation::new(record.generation).map_err(io::Error::other)?;
-        let source = match admin.open_object(bucket, name, Some(generation)).await {
-            Ok((_, reader)) => match content {
-                Content::Identical => None,
-                Content::Changed => Some(reader.into_file().await?),
-            },
+        let opened = match content {
+            Content::Identical => admin
+                .get_object(bucket, name, Some(generation))
+                .await
+                .map(|_| None),
+            Content::Changed => admin
+                .open_object(bucket, name, Some(generation))
+                .await
+                .map(|(_, reader)| Some(reader)),
+        };
+        let source = match opened {
+            Ok(Some(reader)) => Some(reader.into_file().await?),
+            Ok(None) => None,
             Err(AdminError::NotFound | AdminError::Precondition) => {
                 summary.deferred += 1;
                 return Ok(None);
@@ -1263,14 +1366,13 @@ fn retryable(error: &writeback::Error) -> bool {
     };
     match error {
         AdminError::DiskFull => true,
-        AdminError::Io(cause) => matches!(
-            cause.kind(),
-            std::io::ErrorKind::StorageFull
-                | std::io::ErrorKind::PermissionDenied
-                | std::io::ErrorKind::Other
-                | std::io::ErrorKind::Interrupted
-                | std::io::ErrorKind::WouldBlock
-        ),
+        AdminError::Io(cause) => {
+            matches!(
+                cause.kind(),
+                std::io::ErrorKind::StorageFull | std::io::ErrorKind::PermissionDenied
+            ) || transient_io(&io::Error::from(cause.kind()))
+                || resource_pressure(error)
+        }
         _ => false,
     }
 }
@@ -1285,7 +1387,7 @@ async fn wait_retry(error: &writeback::Error, seconds: &mut u64, root: &RootLeas
         LogLevel::Error,
         "sync_export_retry",
         serde_json::json!({
-            "reason":error.to_string(),"retry_seconds":*seconds,
+            "reason":crate::error::Report(error).to_string(),"retry_seconds":*seconds,
             "remedy":"A transient failure is retried twice. Persistent failure pauses synchronization; free disk space or restore permissions, inspect retained work and request a rescan"
         }),
     );
@@ -1316,9 +1418,9 @@ async fn file_job_retry<T: Send + 'static>(
 
 pub(super) async fn create_directory(root: &RootLease, directory: PathBuf) -> io::Result<bool> {
     file_job_retry(root, move |root| {
-        match parent(root, &directory, fsutil::DirectoryOpen::CreateIfMissing) {
+        match parent(root, &directory, ParentOpen::Create) {
             Ok(_) => Ok(true),
-            Err(ParentError::Finding(_)) => Ok(false),
+            Err(ParentError::Finding(_) | ParentError::Missing) => Ok(false),
             Err(ParentError::Io(error)) => Err(error.into()),
         }
     })
@@ -1367,93 +1469,11 @@ fn same_inode(left: &File, right: &File) -> Result<bool, AdminError> {
     Ok(a.device == b.device && a.inode == b.inode)
 }
 
-pub(super) fn exact_entry(directory: &File, name: &OsStr) -> io::Result<bool> {
-    let mut after = None;
-    loop {
-        let page = fsutil::directory_names_after(directory, after.as_deref(), 256)?;
-        if page.iter().any(|entry| entry == name) {
-            return Ok(true);
-        }
-        if page.len() < 256 {
-            return Ok(false);
-        }
-        after = page.last().cloned();
-    }
-}
-
-pub(super) enum ParentError {
-    Finding(Reason),
-    Io(io::Error),
-}
-impl From<io::Error> for ParentError {
-    fn from(error: io::Error) -> Self {
-        Self::Io(error)
-    }
-}
-
-pub(super) fn parent(
-    root: &File,
-    path: &Path,
-    open: fsutil::DirectoryOpen,
-) -> Result<File, ParentError> {
-    let mut directory = root.try_clone()?;
-    let mut depth = 0;
-    for component in path.iter() {
-        depth += 1;
-        if depth > 128 || component.as_encoded_bytes().len() > 255 {
-            return Err(ParentError::Finding(Reason::HostRestriction));
-        }
-        let exact = exact_entry(&directory, component)?;
-        match fsutil::directory_at(&directory, component, fsutil::DirectoryOpen::Existing) {
-            Ok(next) => {
-                if !exact {
-                    return Err(ParentError::Finding(Reason::Collision));
-                }
-                directory = next;
-            }
-            Err(error)
-                if error.kind() == io::ErrorKind::NotFound
-                    && open == fsutil::DirectoryOpen::CreateIfMissing =>
-            {
-                let next = fsutil::directory_at(
-                    &directory,
-                    component,
-                    fsutil::DirectoryOpen::CreateIfMissing,
-                )?;
-                next.sync_all()?;
-                directory.sync_all()?;
-                directory = next;
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Err(ParentError::Finding(Reason::HostRestriction));
-            }
-            Err(error) if !structural_entry_error(&error) => return Err(error.into()),
-            Err(_) if fsutil::open_regular_at(&directory, component).is_ok() => {
-                return Err(ParentError::Finding(Reason::Collision));
-            }
-            Err(_) => return Err(ParentError::Finding(Reason::UnsafeEntry)),
-        }
-    }
-    directory.sync_all()?;
-    root.sync_all()?;
-    Ok(directory)
-}
-
 enum Target {
     Absent,
     Identical,
     Conflicting,
     Finding(Reason),
-}
-
-pub(super) fn structural_entry_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::NotADirectory | io::ErrorKind::IsADirectory | io::ErrorKind::InvalidInput
-    ) || matches!(
-        error.raw_os_error(),
-        Some(libc::ELOOP | libc::ENXIO | libc::ENODEV)
-    )
 }
 
 fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, AdminError> {
@@ -1467,17 +1487,17 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
         root,
         path.parent()
             .ok_or_else(|| AdminError::Invalid("missing parent".into()))?,
-        fsutil::DirectoryOpen::CreateIfMissing,
+        ParentOpen::Existing,
     ) {
         Ok(directory) => directory,
+        Err(ParentError::Missing) => return Ok(Target::Absent),
         Err(ParentError::Finding(reason)) => return Ok(Target::Finding(reason)),
         Err(ParentError::Io(error)) => return Err(error.into()),
     };
-    let exact = exact_entry(&directory, name)?;
-    let file = match fsutil::open_regular_at(&directory, name) {
-        Ok(file) if exact => file,
-        Ok(_) => return Ok(Target::Finding(Reason::Collision)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Target::Absent),
+    let file = match fsutil::child_regular(&directory, name) {
+        Ok(fsutil::RegularChild::File(file)) => file,
+        Ok(fsutil::RegularChild::Alias) => return Ok(Target::Finding(Reason::Collision)),
+        Ok(fsutil::RegularChild::Missing) => return Ok(Target::Absent),
         Err(error) if !structural_entry_error(&error) => return Err(error.into()),
         Err(_)
             if fsutil::directory_at(&directory, name, fsutil::DirectoryOpen::Existing).is_ok() =>
@@ -1490,30 +1510,19 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
     if before.size != record.size {
         return Ok(Target::Conflicting);
     }
-    let mut hasher = Hasher::default();
-    let mut buffer = [0; 64 * 1024];
-    let mut offset = 0;
-    while offset < record.size {
-        let count = fsutil::read_at(
-            &file,
-            &mut buffer[..(record.size - offset).min(65_536) as usize],
-            offset,
-        )?;
-        if count == 0 {
-            return Ok(Target::Conflicting);
-        }
-        hasher.update(&buffer[..count]);
-        offset += count as u64;
-    }
+    let hashes = match fsutil::hash_exact(&file, record.size, |_| Ok::<_, io::Error>(()))? {
+        fsutil::HashOutcome::Complete(hashes) => hashes,
+        _ => return Ok(Target::Conflicting),
+    };
     let after = fsutil::stat_identity(&file).map_err(fs_error)?;
     let reopened = fsutil::open_regular_at(&directory, name)?;
     let current_parent = parent(
         root,
         path.parent().ok_or(AdminError::Precondition)?,
-        fsutil::DirectoryOpen::Existing,
+        ParentOpen::Existing,
     )
     .map_err(|error| match error {
-        ParentError::Finding(_) => AdminError::Precondition,
+        ParentError::Finding(_) | ParentError::Missing => AdminError::Precondition,
         ParentError::Io(error) => error.into(),
     })?;
     if before != after
@@ -1522,7 +1531,6 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
     {
         return Err(AdminError::Precondition);
     }
-    let hashes = hasher.finish();
     Ok(
         if hashes.md5 == record.md5 && hashes.crc32c == record.crc32c {
             Target::Identical
@@ -1645,7 +1653,7 @@ async fn export(
             writeback
                 .file_job(armed.token.clone(), move |root, workspace| {
                     let relative = path.parent().ok_or(AdminError::Precondition)?;
-                    let directory = parent(root, relative, fsutil::DirectoryOpen::Existing)
+                    let directory = parent(root, relative, ParentOpen::Existing)
                         .map_err(|_| AdminError::Precondition)?;
                     let target = path.file_name().ok_or(AdminError::Precondition)?;
                     let result = fsutil::durable_replace_between(
@@ -1659,7 +1667,7 @@ async fn export(
                     if !matches!(result, fsutil::ReplaceOutcome::Created) {
                         return Err(AdminError::Precondition);
                     }
-                    let current = parent(root, relative, fsutil::DirectoryOpen::Existing)
+                    let current = parent(root, relative, ParentOpen::Existing)
                         .map_err(|_| AdminError::Precondition)?;
                     if !same_inode(&directory, &current)? {
                         return Err(AdminError::Precondition);
@@ -1704,11 +1712,7 @@ fn concurrent_change(error: &writeback::Error) -> bool {
     }
 }
 
-pub async fn reconcile(
-    catalog: &Catalog,
-    root: &RootLease,
-    _config: &Config,
-) -> io::Result<Reconciliation> {
+pub async fn reconcile(catalog: &Catalog, root: &RootLease) -> io::Result<Reconciliation> {
     let (_sender, stopping) = tokio::sync::watch::channel(false);
     reconcile_until(catalog, root, &stopping, BaselineGate::Allowed).await
 }
@@ -1723,7 +1727,11 @@ enum BaselineGate {
 
 impl BaselineGate {
     fn after_ingest(ingested: &Reconciliation) -> Self {
-        if ingested.deferred == 0 && ingested.unrepresentable == 0 && ingested.conflicting == 0 {
+        if !ingested.interrupted
+            && ingested.deferred == 0
+            && ingested.unrepresentable == 0
+            && ingested.conflicting == 0
+        {
             Self::Allowed
         } else {
             Self::Deferred
@@ -1742,7 +1750,7 @@ enum Step {
 struct Reconciler<'a> {
     catalog: &'a Catalog,
     root: &'a RootLease,
-    stopping: &'a tokio::sync::watch::Receiver<bool>,
+    interrupt: Interrupt<'a>,
     admin: Admin,
     writeback: Writeback,
     fence: JournalFence,
@@ -1754,6 +1762,23 @@ async fn reconcile_until(
     stopping: &tokio::sync::watch::Receiver<bool>,
     baseline: BaselineGate,
 ) -> io::Result<Reconciliation> {
+    let writeback = root.default_writeback().await.map_err(io::Error::other)?;
+    reconcile_with(
+        catalog,
+        root,
+        Interrupt::new(stopping),
+        baseline,
+        &writeback,
+    )
+    .await
+}
+async fn reconcile_with(
+    catalog: &Catalog,
+    root: &RootLease,
+    interrupt: Interrupt<'_>,
+    baseline: BaselineGate,
+    writeback: &Writeback,
+) -> io::Result<Reconciliation> {
     catalog
         .enable_change_journal()
         .await
@@ -1763,13 +1788,6 @@ async fn reconcile_until(
         .await
         .map_err(io::Error::other)?
         .fence;
-    let writeback = root
-        .writeback(
-            Limits::new(super::CONFLICT_MAX_BYTES, super::CONFLICT_MAX_ENTRIES)
-                .map_err(io::Error::other)?,
-        )
-        .await
-        .map_err(io::Error::other)?;
     if writeback.status().await.map_err(io::Error::other)?.stop != Stop::Ready {
         return Err(io::Error::other(
             "Unfinished write-back requires recovery; inspect retained conflicts and workspace findings, resolve the exact retained revision and rescan",
@@ -1778,24 +1796,23 @@ async fn reconcile_until(
     let reconciler = Reconciler {
         catalog,
         root,
-        stopping,
+        interrupt,
         admin: root.sync_admin(),
-        writeback,
+        writeback: writeback.clone(),
         fence,
     };
     let mut summary = Reconciliation::default();
-    if reconciler.buckets(&mut summary).await? == Step::Stopped || *stopping.borrow() {
+    if reconciler.buckets(&mut summary).await? == Step::Stopped
+        || interrupt.check() != Interrupted::No
+    {
+        summary.interrupted = true;
         return Ok(summary);
     }
-    let scan_admin = reconciler.admin.clone();
-    let runtime = tokio::runtime::Handle::current();
-    let external = root
-        .file_job(move |root| external_files(root, Path::new(""), &scan_admin, &runtime, 0))
-        .await
-        .map_err(io::Error::other)?;
+    let external = external_files(root, &reconciler.admin, interrupt).await?;
     summary.external_only = external.0;
     summary.ignored += external.1;
     summary.unrepresentable += external.2;
+    summary.interrupted = interrupt.check() != Interrupted::No;
     let end = catalog
         .read_changes(None, None, 1)
         .await
@@ -1803,7 +1820,7 @@ async fn reconcile_until(
         .fence;
     if baseline == BaselineGate::Allowed
         && summary.deferred == 0
-        && !*stopping.borrow()
+        && interrupt.check() == Interrupted::No
         && summary.conflicting == 0
         && summary.external_only == 0
         && summary.unrepresentable == 0
@@ -1817,7 +1834,7 @@ async fn reconcile_until(
 
 impl Reconciler<'_> {
     fn stopped(&self) -> bool {
-        *self.stopping.borrow()
+        self.interrupt.check() != Interrupted::No
     }
 
     async fn live_object(
@@ -1910,65 +1927,11 @@ impl Reconciler<'_> {
         record: &ObjectRecord,
         summary: &mut Reconciliation,
     ) -> io::Result<Step> {
-        let catalog = self.catalog;
         if self.stopped() {
             return Ok(Step::Stopped);
         }
         let name = ObjectName::new(record.name.clone()).map_err(io::Error::other)?;
-        if let PathMapping::File(path) = mapping::name_to_path(bucket, &name) {
-            let binding = self
-                .root
-                .sync_binding(bucket)
-                .await
-                .map_err(io::Error::other)?;
-            if catalog
-                .sync_state()
-                .get_path(binding, path.to_string_lossy().into_owned())
-                .await
-                .map_err(io::Error::other)?
-                .is_some()
-            {
-                self.live_object(bucket, &name, summary).await?;
-                return Ok(Step::Continue);
-            }
-        }
-        let path = match mapping::name_to_path(bucket, &name) {
-            PathMapping::Unrepresentable(reason) => {
-                finding(catalog, self.root, bucket, &name, record, reason, summary).await?;
-                return Ok(Step::Continue);
-            }
-            PathMapping::File(path) => path,
-        };
-        if hierarchy_collision(&self.admin, bucket, &name)
-            .await
-            .map_err(io::Error::other)?
-        {
-            finding(
-                catalog,
-                self.root,
-                bucket,
-                &name,
-                record,
-                Reason::Collision,
-                summary,
-            )
-            .await?;
-            return Ok(Step::Continue);
-        }
-        let observed = record.clone();
-        let target = file_job_retry(self.root, move |root| inspect(root, &path, &observed)).await?;
-        if self.stopped() {
-            return Ok(Step::Stopped);
-        }
-        match target {
-            Target::Finding(reason) => {
-                finding(catalog, self.root, bucket, &name, record, reason, summary).await?
-            }
-            Target::Conflicting => self.live_object(bucket, &name, summary).await?,
-            Target::Identical | Target::Absent => {
-                self.live_object(bucket, &name, summary).await?;
-            }
-        }
+        self.live_object(bucket, &name, summary).await?;
         Ok(Step::Continue)
     }
 
@@ -2010,53 +1973,43 @@ impl Reconciler<'_> {
     }
 }
 
-fn external_files(
-    directory: &File,
-    relative: &Path,
+async fn external_files(
+    root: &RootLease,
     admin: &Admin,
-    runtime: &tokio::runtime::Handle,
-    depth: usize,
-) -> Result<(u64, u64, u64), AdminError> {
-    if depth > 128 {
-        return Err(AdminError::Invalid(
-            "sync tree exceeds 128 directory levels; reduce its depth".into(),
-        ));
-    }
+    interrupt: Interrupt<'_>,
+) -> io::Result<(u64, u64, u64)> {
     let mut counts = (0, 0, 0);
-    let mut after: Option<OsString> = None;
-    loop {
-        let page = fsutil::directory_names_after(directory, after.as_deref(), 256)?;
-        for name in &page {
-            if depth == 0 && matches!(name.to_str(), Some(mapping::MARKER | mapping::WORKSPACE)) {
+    let mut scan = super::tree::TreeScan::new();
+    while !scan.is_empty() && interrupt.check() == Interrupted::No {
+        let (next, page) = root
+            .file_job(move |root| scan.page(root))
+            .await
+            .map_err(io::Error::other)?;
+        scan = next;
+        for entry in page {
+            if interrupt.check() != Interrupted::No {
+                return Ok(counts);
+            }
+            if let Some(kind) = entry.error {
+                return Err(kind.into());
+            }
+            if entry.directory {
                 continue;
             }
-            let path = relative.join(name);
-            if let Ok(child) =
-                fsutil::directory_at(directory, name, fsutil::DirectoryOpen::Existing)
-            {
-                let child_counts = external_files(&child, &path, admin, runtime, depth + 1)?;
-                let checked =
-                    fsutil::directory_at(directory, name, fsutil::DirectoryOpen::Existing)?;
-                if !same_inode(&child, &checked)? {
-                    return Err(AdminError::Precondition);
-                }
-                counts.0 += child_counts.0;
-                counts.1 += child_counts.1;
-                counts.2 += child_counts.2;
-            } else if fsutil::open_regular_at(directory, name).is_ok() {
-                let known = match mapping::path_to_name(&path) {
-                    Ok((bucket, object)) => {
-                        match runtime.block_on(admin.get_object(&bucket, &object, None)) {
-                            Ok(_) => true,
-                            Err(AdminError::NotFound) => false,
-                            Err(error) => return Err(error),
-                        }
-                    }
+            if entry.identity.is_some() {
+                let known = match mapping::path_to_name(&entry.path) {
+                    Ok((bucket, object)) => match admin.get_object(&bucket, &object, None).await {
+                        Ok(_) => true,
+                        Err(AdminError::NotFound) => false,
+                        Err(error) => return Err(io::Error::other(error)),
+                    },
                     Err(_) => false,
                 };
                 if !known {
-                    if name
-                        .to_str()
+                    if entry
+                        .path
+                        .file_name()
+                        .and_then(|name| name.to_str())
                         .is_some_and(crate::source_tree::is_ignored_regular_file)
                     {
                         counts.1 += 1;
@@ -2068,10 +2021,6 @@ fn external_files(
                 counts.2 += 1;
             }
         }
-        if page.len() < 256 {
-            break;
-        }
-        after = page.last().cloned();
     }
     Ok(counts)
 }

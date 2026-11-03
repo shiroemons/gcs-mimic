@@ -8,7 +8,7 @@ use crate::{
     storage::{
         Catalog,
         admin::{BucketDefinition, BucketName, Generation, ObjectName, Origin},
-        sync_state::writeback::{Kind, Limits, Writeback},
+        sync_state::writeback::{Limits, Writeback},
     },
     test_support::TestDir,
 };
@@ -283,17 +283,14 @@ impl Fixture {
             .await
             .unwrap()
             .fence;
-        let pending = writeback
-            .prepare(
-                &bucket,
-                &name,
-                Generation::new(winner.generation).unwrap(),
-                Kind::Publish,
-                fence,
-            )
-            .await
-            .unwrap();
-        let pending = writeback.arm(pending.token).await.unwrap();
+        let pending = crate::storage::sync_state::writeback::armed_observation(
+            &writeback,
+            &bucket,
+            &name,
+            Generation::new(winner.generation).unwrap(),
+            fence,
+        )
+        .await;
         let id = pending.workspace_entry.name().to_owned();
         let path = self.tree.0.join(crate::sync::mapping::WORKSPACE).join(&id);
         fs::write(&path, bytes).unwrap();

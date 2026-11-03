@@ -75,7 +75,7 @@ async fn initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_i
     object(&catalog, &last, "empty", b"").await;
     let config = config(&data, &tree);
     let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();
-    let summary = sync::reconcile(&catalog, &root, &config).await.unwrap();
+    let summary = sync::reconcile(&catalog, &root).await.unwrap();
     assert_eq!(
         (
             summary.exported,
@@ -92,7 +92,7 @@ async fn initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_i
         b"\0\xffbody"
     );
     assert_eq!(fs::read(tree.0.join("last-bucket/empty")).unwrap(), b"");
-    let summary = sync::reconcile(&catalog, &root, &config).await.unwrap();
+    let summary = sync::reconcile(&catalog, &root).await.unwrap();
     assert_eq!((summary.exported, summary.identical), (0, 259));
     fs::write(tree.0.join("first-bucket/nested/0000"), b"external").unwrap();
     let (_, reader) = catalog
@@ -132,7 +132,7 @@ async fn initial_export_preserves_external_conflicts_and_records_mapping_finding
     fs::write(tree.0.join("test-bucket/4913"), b"editor").unwrap();
     let config = config(&data, &tree);
     let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();
-    let summary = sync::reconcile(&catalog, &root, &config).await.unwrap();
+    let summary = sync::reconcile(&catalog, &root).await.unwrap();
     assert_eq!(
         (
             summary.exported,
@@ -232,7 +232,7 @@ async fn runtime_mapping_reports_type_length_and_symlink_conflicts_without_follo
     std::os::unix::fs::symlink(&outside.0, tree.0.join("test-bucket/link")).unwrap();
     let config = config(&data, &tree);
     let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();
-    let summary = sync::reconcile(&catalog, &root, &config).await.unwrap();
+    let summary = sync::reconcile(&catalog, &root).await.unwrap();
     assert_eq!(summary.exported, 0);
     assert!(!summary.baseline_complete);
     let findings = root.findings_page(0, 256).await.unwrap();
