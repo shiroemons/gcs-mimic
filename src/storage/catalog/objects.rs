@@ -141,6 +141,25 @@ impl PublicationDefaults {
     }
 }
 
+pub(super) fn retention_expiration(
+    connection: &Connection,
+    record: &ObjectRecord,
+) -> Result<Option<std::time::SystemTime>, ObjectError> {
+    let period: Option<u64> = sql::scalar(
+        connection,
+        "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name = ?1",
+        [&record.bucket],
+    )?;
+    period
+        .map(|period| {
+            record
+                .time_created
+                .checked_add(std::time::Duration::from_secs(period))
+                .ok_or(ObjectError::InvalidMetadata)
+        })
+        .transpose()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectListCursor {
     pub name: String,
@@ -2344,19 +2363,7 @@ pub(super) fn publish_in_transaction<T>(
     if let Some(owner) = &mut record.owner {
         super::object_owner::canonicalize(owner, owner_profile);
     }
-    let period: Option<u64> = sql::scalar(
-        transaction,
-        "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name = ?1",
-        [&record.bucket],
-    )?;
-    record.retention_expiration_time = period
-        .map(|period| {
-            record
-                .time_created
-                .checked_add(std::time::Duration::from_secs(period))
-                .ok_or(ObjectError::InvalidMetadata)
-        })
-        .transpose()?;
+    record.retention_expiration_time = retention_expiration(transaction, &record)?;
     let now = system_time_micros(micros)?;
     // A retained live version may become noncurrent, but it cannot be replaced outright.
     if versioning == Versioning::Disabled

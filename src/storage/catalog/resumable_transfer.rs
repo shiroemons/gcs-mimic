@@ -31,6 +31,9 @@ use crate::storage::failure::object_unavailable;
 #[cfg(test)]
 use super::fault::{self, Step};
 
+#[cfg(test)]
+mod tests;
+
 async fn receive_chunk(
     catalog: &Catalog,
     lease: &SessionLease,
@@ -150,13 +153,7 @@ fn publication_record(
     );
     options.metadata.reject_past_retention(time)?;
     options.metadata.apply(&mut record)?;
-    let period: Option<u64> = sql::scalar(
-        connection,
-        "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1",
-        [&record.bucket],
-    )?;
-    record.retention_expiration_time =
-        period.map(|period| time + std::time::Duration::from_secs(period));
+    record.retention_expiration_time = objects::retention_expiration(connection, &record)?;
     Ok(record)
 }
 
