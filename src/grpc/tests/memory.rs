@@ -18,7 +18,7 @@ type V2 = pb::storage_server::StorageServer<v2::Storage>;
 #[tokio::test]
 async fn ram_grpc_reserved_destinations_never_create_objects() {
     let state = state(1024 * 1024).await;
-    let mut service = v2::service(state.clone(), 1024);
+    let mut service = v2::service(state.clone(), 1024, crate::config::CompatProfile::Native);
     let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
         "WriteObject",
@@ -203,7 +203,11 @@ async fn read(service: &mut V2, name: &str) -> Vec<u8> {
 #[tokio::test]
 async fn ram_grpc_v2_framing_shares_io_permissions_history_and_derived_publication() {
     let state = state(8 * 1024 * 1024).await;
-    let mut service = v2::service(state.clone(), 4 * 1024 * 1024);
+    let mut service = v2::service(
+        state.clone(),
+        4 * 1024 * 1024,
+        crate::config::CompatProfile::Native,
+    );
     let content = vec![37; 512 * 1024 + 3];
     let (code, written): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
@@ -389,7 +393,7 @@ async fn ram_grpc_v2_framing_shares_io_permissions_history_and_derived_publicati
 #[tokio::test]
 async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged_offset() {
     let state = state(2048).await;
-    let mut service = v2::service(state.clone(), 8192);
+    let mut service = v2::service(state.clone(), 8192, crate::config::CompatProfile::Native);
     let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
         "WriteObject",
@@ -529,7 +533,7 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
 #[tokio::test]
 async fn ram_grpc_restore_reuses_retained_source_permissions_and_live_conditions() {
     let state = state(8192).await;
-    let mut service = v2::service(state.clone(), 8192);
+    let mut service = v2::service(state.clone(), 8192, crate::config::CompatProfile::Native);
     let (code, written): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
         "WriteObject",
@@ -595,7 +599,7 @@ async fn ram_grpc_restore_reuses_retained_source_permissions_and_live_conditions
 #[tokio::test]
 async fn ram_grpc_appendable_and_legacy_share_the_same_catalog_and_readers() {
     let state = state(8192).await;
-    let mut service = v2::service(state.clone(), 8192);
+    let mut service = v2::service(state.clone(), 8192, crate::config::CompatProfile::Native);
     let ordinary = pb::BidiWriteObjectRequest {
         first_message: Some(
             pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec("bidi")),
@@ -736,7 +740,11 @@ async fn ram_grpc_appendable_and_legacy_share_the_same_catalog_and_readers() {
 #[tokio::test]
 async fn strict_anonymous_object_denials_ask_for_credentials_on_both_grpc_versions() {
     let state = state(1024 * 1024).await;
-    let mut service = v2::service(state.clone(), 1024 * 1024);
+    let mut service = v2::service(
+        state.clone(),
+        1024 * 1024,
+        crate::config::CompatProfile::Native,
+    );
     let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
         "WriteObject",
@@ -863,7 +871,11 @@ fn bidi_write(name: &str, content: &'static [u8]) -> pb::BidiWriteObjectRequest 
 #[tokio::test]
 async fn strict_anonymous_publication_denials_ask_for_credentials_on_both_grpc_versions() {
     let state = state(1024 * 1024).await;
-    let mut service = v2::service(state.clone(), 1024 * 1024);
+    let mut service = v2::service(
+        state.clone(),
+        1024 * 1024,
+        crate::config::CompatProfile::Native,
+    );
     for name in ["existing", "private-source"] {
         let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
             &mut service,

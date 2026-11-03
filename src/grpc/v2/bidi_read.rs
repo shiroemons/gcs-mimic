@@ -1,4 +1,4 @@
-use super::{ResponseStream, Storage, names, pb, status::unsupported};
+use super::{ResponseStream, Storage, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
@@ -137,7 +137,7 @@ impl Storage {
         let handle = spec.read_handle.as_ref().ok_or_else(|| {
             Status::invalid_argument("Missing read_handle; reopen without read_handle")
         })?;
-        let (bucket, object) = names::object_name(&spec.bucket, &spec.object)?;
+        let (bucket, object) = self.object_name(&spec.bucket, &spec.object)?;
         let entry = self
             .state
             .grpc_read_handles
@@ -197,6 +197,7 @@ impl Storage {
         {
             return Err(unsupported("BidiReadObject x-goog-fieldmask"));
         }
+        let metadata = request.metadata().clone();
         let mut input = request.into_inner();
         let first = input.message().await?.ok_or_else(|| {
             Status::invalid_argument(
@@ -209,7 +210,8 @@ impl Storage {
             )
         })?;
         validate_spec(&spec)?;
-        let (bucket, object) = names::object_name(&spec.bucket, &spec.object)?;
+        super::routing::check(&metadata, Some(&[("bucket", spec.bucket.as_str())]))?;
+        let (bucket, object) = self.object_name(&spec.bucket, &spec.object)?;
         let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let resumed = spec.read_handle.is_some();
         let (mut selected, token) = if resumed {
@@ -538,7 +540,11 @@ mod tests {
                 }],
                 async |request| {
                     crate::grpc::v2::dispatch(
-                        crate::grpc::v2::service(state.clone(), 1024 * 1024),
+                        crate::grpc::v2::service(
+                            state.clone(),
+                            1024 * 1024,
+                            crate::config::CompatProfile::Native,
+                        ),
                         request,
                     )
                     .await

@@ -32725,9 +32725,12 @@
       "acceptance_cases": [
         {
           "id": "grpc_bucket_routing",
-          "description": "Bucket resource parsing, percent-decoded bucket/project routing metadata, conflicting and malformed metadata rejection, ordinary Go DirectPath diagnostic acceptance.",
+          "description": "All Storage v2 RPCs reject explicit billing metadata and validate percent-decoded routing keys against request resources, including first stream messages and rewrite continuations. Bucket IDs follow the configured native or legacy profile. Conflicting or malformed metadata is rejected; Go DirectPath diagnostics are accepted. Provider-exact invalid-name statuses remain in SPEC-GRPC-ROUTING-NAMES.",
           "result": "PASS",
           "test_ids": [
+            "grpc_object_routing_rejects_billing_and_conflicting_buckets",
+            "grpc_names_follow_the_configured_bucket_profile",
+            "routing_validates_all_values_and_resumed_upload_buckets",
             "grpc_buckets_pagination_and_routing",
             "grpc_buckets_strict_shared_authorization",
             "TestGRPCBuckets",
@@ -32736,18 +32739,28 @@
         },
         {
           "id": "grpc_bucket_routing_remaining",
-          "description": "Routing metadata is validated only for the four bucket RPCs; object RPCs take the resource from the request and do not cross-check x-goog-request-params. BidiReadObject read handles are covered by BEHAVIOR-RPC-004; write handles, Rapid append and routing tokens return UNIMPLEMENTED, and legacy v1 rejects routing metadata with UNIMPLEMENTED. Unknown semantic routing fields return UNIMPLEMENTED.",
+          "description": "Provider-exact invalid-name status and complete SDK routing interoperability remain pending in SPEC-GRPC-ROUTING-NAMES. BidiReadObject handles and Rapid write handles have separate partial contracts. Redirect routing tokens remain unsupported in metadata; legacy v1 rejects routing metadata with UNIMPLEMENTED. Unknown semantic routing keys fail explicitly.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
+        "grpc_object_routing_rejects_billing_and_conflicting_buckets",
+        "grpc_names_follow_the_configured_bucket_profile",
+        "routing_validates_all_values_and_resumed_upload_buckets",
         "grpc_buckets_pagination_and_routing",
         "grpc_buckets_strict_shared_authorization",
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --lib grpc::v2 -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": ["grpc_object_routing_rejects_billing_and_conflicting_buckets", "grpc_names_follow_the_configured_bucket_profile", "routing_validates_all_values_and_resumed_upload_buckets"]
+        },
         {
           "command": "RUST_TEST_THREADS=8 just check",
           "result": "PASS",

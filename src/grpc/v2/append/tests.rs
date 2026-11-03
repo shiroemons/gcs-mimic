@@ -79,6 +79,7 @@ async fn setup(strict: bool) -> (TestDir, Storage) {
         Auth::permissive()
     };
     let storage = Storage {
+        compat_profile: crate::config::CompatProfile::Native,
         state: Arc::new(crate::server::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
     };

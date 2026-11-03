@@ -1,5 +1,5 @@
 use super::{
-    ResponseStream, Storage, access_status, convert, names, pb,
+    ResponseStream, Storage, access_status, convert, pb,
     status::{read_failure, unsupported_for},
 };
 use crate::{
@@ -293,7 +293,7 @@ impl Storage {
     ) -> Result<Response<()>, Status> {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
-        let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
+        let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_DELETE).await?;
         let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
         self.delete_including_appendable(target, request_conditions!(conditions, r)?, &access)
@@ -352,7 +352,7 @@ impl Storage {
                 caller,
             ));
         }
-        let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
+        let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
         let (record, finality) = self
@@ -465,7 +465,7 @@ impl Storage {
     ) -> Result<Response<ResponseStream<pb::ReadObjectResponse>>, Status> {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
-        let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
+        let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
         let (record, mut reader, finality) = self
@@ -580,26 +580,35 @@ impl Storage {
         request: Request<Streaming<pb::WriteObjectRequest>>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::WriteObjectResponse>, Status> {
+        let metadata = request.metadata().clone();
+        let mut position = MessagePosition::First;
         let mut stream = request.into_inner().map(|result| {
-            result.map(|r| pb::BidiWriteObjectRequest {
-                write_offset: r.write_offset,
-                object_checksums: r.object_checksums,
-                finish_write: r.finish_write,
-                common_object_request_params: r.common_object_request_params,
-                first_message: r.first_message.map(|f| match f {
-                    pb::write_object_request::FirstMessage::UploadId(id) => {
-                        pb::bidi_write_object_request::FirstMessage::UploadId(id)
-                    }
-                    pb::write_object_request::FirstMessage::WriteObjectSpec(spec) => {
-                        pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)
-                    }
-                }),
-                data: r
-                    .data
-                    .map(|pb::write_object_request::Data::ChecksummedData(data)| {
-                        pb::bidi_write_object_request::Data::ChecksummedData(data)
+            result.and_then(|r| {
+                let message = pb::BidiWriteObjectRequest {
+                    write_offset: r.write_offset,
+                    object_checksums: r.object_checksums,
+                    finish_write: r.finish_write,
+                    common_object_request_params: r.common_object_request_params,
+                    first_message: r.first_message.map(|f| match f {
+                        pb::write_object_request::FirstMessage::UploadId(id) => {
+                            pb::bidi_write_object_request::FirstMessage::UploadId(id)
+                        }
+                        pb::write_object_request::FirstMessage::WriteObjectSpec(spec) => {
+                            pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)
+                        }
                     }),
-                ..Default::default()
+                    data: r
+                        .data
+                        .map(|pb::write_object_request::Data::ChecksummedData(data)| {
+                            pb::bidi_write_object_request::Data::ChecksummedData(data)
+                        }),
+                    ..Default::default()
+                };
+                if position == MessagePosition::First {
+                    super::routing::write(&metadata, message.first_message.as_ref())?;
+                    position = MessagePosition::Later;
+                }
+                Ok(message)
             })
         });
         let result = self
@@ -622,10 +631,12 @@ impl Storage {
         request: Request<Streaming<pb::BidiWriteObjectRequest>>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<ResponseStream<pb::BidiWriteObjectResponse>>, Status> {
+        let metadata = request.metadata().clone();
         let mut stream = request.into_inner();
         let first = stream.message().await?.ok_or_else(|| {
             Status::invalid_argument("First message must contain write_object_spec or upload_id")
         })?;
+        super::routing::write(&metadata, first.first_message.as_ref())?;
         let append = super::append::is_append(&first);
         let strict = caller.is_some();
         let identity = caller.and_then(|c| match c {
@@ -635,6 +646,7 @@ impl Storage {
         let storage = Storage {
             state: self.state.clone(),
             max_object_bytes: self.max_object_bytes,
+            compat_profile: self.compat_profile,
         };
         let (tx, rx) = mpsc::channel(1);
         crate::task::spawn_supervised("grpc-write-object", async move {
@@ -668,7 +680,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::ListObjectsResponse>, Status> {
         let r = request.into_inner();
-        let bucket = names::bucket_name(&r.parent)?;
+        let bucket = self.bucket_id(&r.parent)?;
         if r.page_size < 0 {
             return Err(Status::invalid_argument(
                 "page_size must be nonnegative; use 1000",
@@ -840,7 +852,7 @@ impl Storage {
                 "Object metadata exceeds the supported 8 KiB limit; reduce metadata",
             ));
         }
-        let (bucket, name) = names::object_name(&resource.bucket, &resource.name)?;
+        let (bucket, name) = self.object_name(&resource.bucket, &resource.name)?;
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let access = self.access(caller, &bucket, OBJECTS_CREATE).await?;
@@ -1487,6 +1499,7 @@ mod tests {
             Auth::permissive()
         };
         let storage = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
             state: Arc::new(crate::server::State::for_test(catalog, auth)),
             max_object_bytes: 1024 * 1024,
         };
@@ -1665,9 +1678,12 @@ mod tests {
                     .collect(),
             }],
             async |request| {
-                super::super::dispatch(super::super::service(storage.state.clone(), 1024), request)
-                    .await
-                    .unwrap()
+                super::super::dispatch(
+                    super::super::service(storage.state.clone(), 1024, storage.compat_profile),
+                    request,
+                )
+                .await
+                .unwrap()
             },
         )
         .await;

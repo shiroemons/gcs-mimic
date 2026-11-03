@@ -36,46 +36,6 @@ fn project_name(resource: &str) -> Result<&str, Status> {
     Ok(project)
 }
 
-fn routing<T>(request: &Request<T>, field: &str, resource: &str) -> Result<(), Status> {
-    if request.metadata().contains_key("x-goog-user-project") {
-        return Err(super::status::unsupported(
-            "x-goog-user-project billing metadata; omit UserProject on bucket calls",
-        ));
-    }
-    for metadata in request.metadata().get_all("x-goog-request-params").iter() {
-        let value = metadata.to_str().map_err(|_| {
-            Status::invalid_argument(
-                "Invalid routing metadata; use bucket=projects%2F_%2Fbuckets%2Fexample-bucket",
-            )
-        })?;
-        for parameter in value.split('&') {
-            let (key, value) = parameter.split_once('=').ok_or_else(|| {
-                Status::invalid_argument("Routing metadata must contain key=value pairs")
-            })?;
-            let key = json::decode(key, json::Decoding::Form)?;
-            let value = json::decode(value, json::Decoding::Form)?;
-            if key == "bucket" && names::bucket_name(&value).is_err() {
-                return Err(super::status::invalid_with_reason(
-                    format!(
-                        "Invalid bucket name found in x-goog-request-params metadata (bucket={value}). Must be of the form `projects/_/buckets/{{bucket_id}}`"
-                    ),
-                    "GRPC_INVALID_X_GOOG_REQUEST_PARAMS_INVALID_BUCKET_FORMAT",
-                ));
-            }
-            if key == field && value != resource {
-                return Err(Status::invalid_argument(
-                    "Routing metadata conflicts with the request; use the same resource in x-goog-request-params and the request",
-                ));
-            }
-            // The ordinary Go client appends this diagnostic even on emulator endpoints.
-            if key != field && key != "direct_connectivity_diagnostic" {
-                return Err(super::status::unsupported("bucket routing metadata field"));
-            }
-        }
-    }
-    Ok(())
-}
-
 fn bucket_mask(
     bucket: pb::Bucket,
     mask: Option<&prost_types::FieldMask>,
@@ -249,6 +209,7 @@ fn create_metadata(
     name: &str,
     project: &str,
     state: &crate::server::State,
+    profile: crate::config::CompatProfile,
 ) -> Result<crate::bucket::BucketRecord, Status> {
     let mut remaining = bucket.clone();
     let body = create_fields(bucket, name)?;
@@ -284,7 +245,7 @@ fn create_metadata(
             .map_err(|_| Status::internal("Cannot encode bucket metadata"))?,
         project,
         state.clock.now(),
-        crate::config::CompatProfile::Native,
+        profile,
         &state.default_location,
     )
     .map_err(Status::from)
@@ -349,10 +310,8 @@ impl Storage {
         request: Request<pb::DeleteBucketRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<()>, Status> {
-        routing(&request, "bucket", &request.get_ref().name)?;
         let request = request.into_inner();
-        let name = names::bucket_name(&request.name)?;
-        json::validate_bucket_name(name)?;
+        let name = self.bucket_id(&request.name)?;
         let access = self
             .access(caller, name, crate::auth::BUCKETS_DELETE)
             .await?;
@@ -368,10 +327,8 @@ impl Storage {
         request: Request<pb::GetBucketRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
-        routing(&request, "bucket", &request.get_ref().name)?;
         let request = request.into_inner();
-        let name = names::bucket_name(&request.name)?;
-        json::validate_bucket_name(name)?;
+        let name = self.bucket_id(&request.name)?;
         bucket_mask(pb::Bucket::default(), request.read_mask.as_ref())?;
         let access = self.access(caller, name, crate::auth::BUCKETS_GET).await?;
         let record = self
@@ -399,16 +356,6 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
         require_caller(caller)?;
-        routing(
-            &request,
-            "project",
-            request
-                .get_ref()
-                .bucket
-                .as_ref()
-                .map(|bucket| bucket.project.as_str())
-                .unwrap_or(&request.get_ref().parent),
-        )?;
         let request = request.into_inner();
         if !request.parent.is_empty() && request.parent != "projects/_" {
             return Err(Status::invalid_argument(
@@ -448,7 +395,13 @@ impl Storage {
                 "bucket.object_retention is output-only; set enable_object_retention=true to enable object retention",
             ));
         }
-        let mut record = create_metadata(&bucket, &request.bucket_id, project, &self.state)?;
+        let mut record = create_metadata(
+            &bucket,
+            &request.bucket_id,
+            project,
+            &self.state,
+            self.compat_profile,
+        )?;
         record.object_retention_enabled = request.enable_object_retention;
         let record = self
             .state
@@ -466,7 +419,6 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::ListBucketsResponse>, Status> {
         require_caller(caller)?;
-        routing(&request, "project", &request.get_ref().parent)?;
         let request = request.into_inner();
         let project = project_name(&request.parent)?;
         if let Some(caller) = caller {
@@ -582,6 +534,7 @@ mod tests {
         (
             dir,
             Storage {
+                compat_profile: crate::config::CompatProfile::Native,
                 max_object_bytes: 1024 * 1024 * 1024,
                 state: Arc::new(crate::server::State::for_test(catalog, auth)),
             },
@@ -834,7 +787,9 @@ mod tests {
             "x-goog-request-params",
             "bucket=projects%2F_%2Fbuckets%2Fpage-a".parse().unwrap(),
         );
-        storage.get_bucket(request, None).await.unwrap();
+        pb::storage_server::Storage::get_bucket(&storage, request)
+            .await
+            .unwrap();
         for header in [
             "bucket=projects%2F_%2Fbuckets%2Fpage-b",
             "bucket=%GG",
@@ -845,7 +800,10 @@ mod tests {
             request
                 .metadata_mut()
                 .insert("x-goog-request-params", header.parse().unwrap());
-            let code = storage.get_bucket(request, None).await.unwrap_err().code();
+            let code = pb::storage_server::Storage::get_bucket(&storage, request)
+                .await
+                .unwrap_err()
+                .code();
             assert!(matches!(code, Code::InvalidArgument | Code::Unimplemented));
         }
         storage.state.catalog.close().await.unwrap();
@@ -1288,6 +1246,7 @@ mod tests {
             ("viewer", "p", "roles/storage.bucketViewer"),
         ]));
         let storage = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
             max_object_bytes: 1024,
             state: Arc::new(crate::server::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),
@@ -1356,6 +1315,7 @@ mod tests {
             ("editor", "p", "roles/storage.editor"),
         ]));
         let storage = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
             max_object_bytes: 1024,
             state: Arc::new(crate::server::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),
@@ -1576,7 +1536,9 @@ mod tests {
             request
                 .metadata_mut()
                 .insert("x-goog-user-project", value.parse().unwrap());
-            let error = storage.get_bucket(request, caller).await.unwrap_err();
+            let error = pb::storage_server::Storage::get_bucket(&storage, request)
+                .await
+                .unwrap_err();
             assert_eq!(error.code(), Code::Unimplemented);
             assert!(!error.details().is_empty());
         }

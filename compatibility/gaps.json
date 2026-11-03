@@ -1480,6 +1480,17 @@
       "required_resolution": "Observe multiple pending ranges when a provider stream fails, then align their status values and ordering before claiming exact error-detail parity."
     },
     {
+      "id": "SPEC-GRPC-ROUTING-NAMES",
+      "title": "Shared gRPC name rules and routing checks retain provider boundaries",
+      "status": "OPEN",
+      "affected_features": ["BEHAVIOR-RPC-001"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-04",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Every Storage v2 entry point rejects x-goog-user-project presence and checks semantic routing metadata against request resources; streaming calls check their first message and rewrite continuations check their bound names. Native invalid bucket IDs return INVALID_ARGUMENT through shared validation; legacy-emulator IDs follow that profile. The pinned routing annotations define capture keys, but provider-exact status and precedence for invalid IDs and complete SDK routing combinations have not been observed.",
+      "required_resolution": "Verify provider invalid-name and conflicting-routing cases and the pinned Go, Rust and Node gRPC lanes before claiming exact routing/error parity. Retain explicit rejection of billing and unsupported routing tokens."
+    },
+    {
       "id": "SPEC-GRPC-DERIVED-OWNER-VIEW",
       "title": "Derived write owner and ACL response fields need provider evidence",
       "status": "OPEN",

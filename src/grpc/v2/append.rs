@@ -2,7 +2,7 @@
 //! `WriteObjectSpec.appendable` or `AppendObjectSpec`, and reads of unfinalized generations.
 
 use super::{
-    Storage, convert, names,
+    Storage, convert,
     object_io::{common, conditions, hashes, object_status, verify_crc32c},
     pb,
     status::unsupported_for,
@@ -208,7 +208,7 @@ impl Storage {
                 Ok((writer, access, Acknowledgement::Resource))
             }
             Some(FirstMessage::AppendObjectSpec(spec)) => {
-                let (bucket, name) = names::object_name(&spec.bucket, &spec.object)?;
+                let (bucket, name) = self.object_name(&spec.bucket, &spec.object)?;
                 if spec.generation <= 0 {
                     return Err(Status::invalid_argument(
                         "append_object_spec.generation is required; use the generation returned when the appendable object was created",

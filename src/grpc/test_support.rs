@@ -47,6 +47,7 @@ pub(super) fn storage_with(state: Arc<State>, max_object_bytes: u64) -> super::v
     super::v2::Storage {
         state,
         max_object_bytes,
+        compat_profile: crate::config::CompatProfile::Native,
     }
 }
 

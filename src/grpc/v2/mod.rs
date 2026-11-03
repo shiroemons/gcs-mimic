@@ -7,6 +7,7 @@ pub(crate) mod convert;
 pub(crate) mod names;
 mod object_io;
 mod object_update;
+mod routing;
 pub(crate) mod status;
 #[cfg(test)]
 mod tests;
@@ -26,15 +27,18 @@ pub(crate) type ResponseStream<T> =
 pub(crate) struct Storage {
     pub state: Arc<State>,
     pub max_object_bytes: u64,
+    pub compat_profile: crate::config::CompatProfile,
 }
 
 pub(crate) fn service(
     state: Arc<State>,
     max_object_bytes: u64,
+    compat_profile: crate::config::CompatProfile,
 ) -> pb::storage_server::StorageServer<Storage> {
     pb::storage_server::StorageServer::new(Storage {
         state,
         max_object_bytes,
+        compat_profile,
     })
     .max_decoding_message_size(4 * 1024 * 1024)
     .max_encoding_message_size(4 * 1024 * 1024)
@@ -76,6 +80,22 @@ pub(crate) async fn dispatch(
 }
 
 impl Storage {
+    fn bucket_id<'a>(&self, resource: &'a str) -> Result<&'a str, Status> {
+        let id = names::bucket_name(resource)?;
+        crate::json::validate_bucket_name_for_profile(id, self.compat_profile)?;
+        Ok(id)
+    }
+
+    fn object_name<'a>(
+        &self,
+        bucket: &'a str,
+        object: &'a str,
+    ) -> Result<(&'a str, &'a str), Status> {
+        let bucket = self.bucket_id(bucket)?;
+        names::object(object)?;
+        Ok((bucket, object))
+    }
+
     /// Callers validate resource names before authorization.
     async fn access(
         &self,
@@ -115,7 +135,7 @@ fn auth_error(_: AuthFailure) -> Status {
 
 // Keep dispatch and forwarding in sync; a misspelled wire name rejects that RPC as unsupported.
 macro_rules! storage_methods {
-    ($($wire:ident => $method:ident($request:ty $(,)?) -> $response:ty;)*) => {
+    ($($wire:ident => $method:ident($request:ty $(,)?) -> $response:ty, route |$r:ident| $routes:expr;)*) => {
         pub(crate) fn known_method(path: &str) -> bool {
             path.strip_prefix("/google.storage.v2.Storage/")
                 .is_some_and(|method| matches!(method, $(stringify!($wire))|*))
@@ -133,6 +153,8 @@ macro_rules! storage_methods {
                     request: Request<$request>,
                 ) -> Result<Response<$response>, Status> {
                     let caller = self.authenticate(&request)?;
+                    let $r = request.get_ref();
+                    routing::check(request.metadata(), $routes)?;
                     self.$method(request, caller)
                         .await
                         .map_err(|status| status::anonymous(status, caller))
@@ -143,42 +165,42 @@ macro_rules! storage_methods {
 }
 
 storage_methods! {
-    DeleteBucket => delete_bucket(pb::DeleteBucketRequest) -> ();
-    GetBucket => get_bucket(pb::GetBucketRequest) -> pb::Bucket;
-    CreateBucket => create_bucket(pb::CreateBucketRequest) -> pb::Bucket;
-    ListBuckets => list_buckets(pb::ListBucketsRequest) -> pb::ListBucketsResponse;
+    DeleteBucket => delete_bucket(pb::DeleteBucketRequest) -> (), route |r| Some(&[("bucket", r.name.as_str())]);
+    GetBucket => get_bucket(pb::GetBucketRequest) -> pb::Bucket, route |r| Some(&[("bucket", r.name.as_str())]);
+    CreateBucket => create_bucket(pb::CreateBucketRequest) -> pb::Bucket, route |r| Some(&[("project", r.bucket.as_ref().map_or(r.parent.as_str(), |b| b.project.as_str()))]);
+    ListBuckets => list_buckets(pb::ListBucketsRequest) -> pb::ListBucketsResponse, route |r| Some(&[("project", r.parent.as_str())]);
     LockBucketRetentionPolicy => lock_bucket_retention_policy(
         pb::LockBucketRetentionPolicyRequest,
-    ) -> pb::Bucket;
-    GetIamPolicy => get_iam_policy(iam::GetIamPolicyRequest) -> iam::Policy;
-    SetIamPolicy => set_iam_policy(iam::SetIamPolicyRequest) -> iam::Policy;
+    ) -> pb::Bucket, route |r| Some(&[("bucket", r.bucket.as_str())]);
+    GetIamPolicy => get_iam_policy(iam::GetIamPolicyRequest) -> iam::Policy, route |r| Some(&[("bucket", routing::iam_bucket(&r.resource))]);
+    SetIamPolicy => set_iam_policy(iam::SetIamPolicyRequest) -> iam::Policy, route |r| Some(&[("bucket", routing::iam_bucket(&r.resource))]);
     TestIamPermissions => test_iam_permissions(
         iam::TestIamPermissionsRequest,
-    ) -> iam::TestIamPermissionsResponse;
-    UpdateBucket => update_bucket(pb::UpdateBucketRequest) -> pb::Bucket;
-    ComposeObject => compose_object(pb::ComposeObjectRequest) -> pb::Object;
-    DeleteObject => delete_object(pb::DeleteObjectRequest) -> ();
-    RestoreObject => restore_object(pb::RestoreObjectRequest) -> pb::Object;
+    ) -> iam::TestIamPermissionsResponse, route |r| Some(&[("bucket", routing::iam_bucket(&r.resource))]);
+    UpdateBucket => update_bucket(pb::UpdateBucketRequest) -> pb::Bucket, route |r| Some(&[("bucket", r.bucket.as_ref().map_or("", |b| b.name.as_str()))]);
+    ComposeObject => compose_object(pb::ComposeObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.destination.as_ref().map_or("", |o| o.bucket.as_str()))]);
+    DeleteObject => delete_object(pb::DeleteObjectRequest) -> (), route |r| Some(&[("bucket", r.bucket.as_str())]);
+    RestoreObject => restore_object(pb::RestoreObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.bucket.as_str())]);
     CancelResumableWrite => cancel_resumable_write(
         pb::CancelResumableWriteRequest,
-    ) -> pb::CancelResumableWriteResponse;
-    GetObject => get_object(pb::GetObjectRequest) -> pb::Object;
-    ReadObject => read_object(pb::ReadObjectRequest) -> Self::ReadObjectStream;
+    ) -> pb::CancelResumableWriteResponse, route |r| Some(&[("bucket", routing::upload_bucket(&r.upload_id))]);
+    GetObject => get_object(pb::GetObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.bucket.as_str())]);
+    ReadObject => read_object(pb::ReadObjectRequest) -> Self::ReadObjectStream, route |r| Some(&[("bucket", r.bucket.as_str())]);
     BidiReadObject => bidi_read_object(
         Streaming<pb::BidiReadObjectRequest>,
-    ) -> Self::BidiReadObjectStream;
-    UpdateObject => update_object(pb::UpdateObjectRequest) -> pb::Object;
-    WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse;
+    ) -> Self::BidiReadObjectStream, route |_r| None;
+    UpdateObject => update_object(pb::UpdateObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.object.as_ref().map_or("", |o| o.bucket.as_str()))]);
+    WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse, route |_r| None;
     BidiWriteObject => bidi_write_object(
         Streaming<pb::BidiWriteObjectRequest>,
-    ) -> Self::BidiWriteObjectStream;
-    ListObjects => list_objects(pb::ListObjectsRequest) -> pb::ListObjectsResponse;
-    RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse;
+    ) -> Self::BidiWriteObjectStream, route |_r| None;
+    ListObjects => list_objects(pb::ListObjectsRequest) -> pb::ListObjectsResponse, route |r| Some(&[("bucket", r.parent.as_str())]);
+    RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse, route |_r| None;
     StartResumableWrite => start_resumable_write(
         pb::StartResumableWriteRequest,
-    ) -> pb::StartResumableWriteResponse;
+    ) -> pb::StartResumableWriteResponse, route |r| Some(&[("bucket", r.write_object_spec.as_ref().and_then(|s| s.resource.as_ref()).map_or("", |o| o.bucket.as_str()))]);
     QueryWriteStatus => query_write_status(
         pb::QueryWriteStatusRequest,
-    ) -> pb::QueryWriteStatusResponse;
-    MoveObject => move_object(pb::MoveObjectRequest) -> pb::Object;
+    ) -> pb::QueryWriteStatusResponse, route |r| Some(&[("bucket", routing::upload_bucket(&r.upload_id))]);
+    MoveObject => move_object(pb::MoveObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.bucket.as_str())]);
 }

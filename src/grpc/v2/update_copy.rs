@@ -34,18 +34,20 @@ fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> 
 
 /// The bucket of an IAM resource. Managed folders and objects are valid IAM resources
 /// without a local policy store, so they are unsupported rather than malformed.
-fn iam_bucket(resource: &str) -> Result<&str, Status> {
+fn iam_bucket(resource: &str, profile: crate::config::CompatProfile) -> Result<&str, Status> {
     if let Some((bucket, child)) = resource
         .strip_prefix("projects/_/buckets/")
         .and_then(|rest| rest.split_once('/'))
         && (child.starts_with("managedFolders/") || child.starts_with("objects/"))
     {
-        json::validate_bucket_name(bucket)?;
+        json::validate_bucket_name_for_profile(bucket, profile)?;
         return Err(unsupported(
             "managed folder and object IAM policies; use a bucket resource such as projects/_/buckets/example-bucket",
         ));
     }
-    names::bucket_name(resource)
+    let bucket = names::bucket_name(resource)?;
+    json::validate_bucket_name_for_profile(bucket, profile)?;
+    Ok(bucket)
 }
 
 fn policy(policy: auth::Policy) -> Result<iam::Policy, Status> {
@@ -212,6 +214,7 @@ impl<'a> RewriteTarget<'a> {
     fn resolve(
         r: &'a pb::RewriteObjectRequest,
         binding: Option<&'a RewriteBinding>,
+        profile: crate::config::CompatProfile,
     ) -> Result<Self, Status> {
         let sb = if r.source_bucket.is_empty() {
             binding.map_or("", |b| b.source_bucket.as_str())
@@ -233,8 +236,8 @@ impl<'a> RewriteTarget<'a> {
         } else {
             &r.destination_name
         };
-        json::validate_bucket_name(sb)?;
-        json::validate_bucket_name(db)?;
+        json::validate_bucket_name_for_profile(sb, profile)?;
+        json::validate_bucket_name_for_profile(db, profile)?;
         names::object(sn)?;
         names::object(dn)?;
         Ok(Self {
@@ -278,6 +281,7 @@ impl Storage {
         request: Request<pb::RewriteObjectRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::RewriteResponse>, Status> {
+        let metadata = request.metadata().clone();
         let r = request.into_inner();
         check_rewrite_request(&r)?;
         let sc = request_conditions!(strict_conditions, source r)?;
@@ -304,7 +308,14 @@ impl Storage {
             )
         };
         let binding = session.as_ref().map(|s| &s.binding);
-        let target = RewriteTarget::resolve(&r, binding)?;
+        let target = RewriteTarget::resolve(&r, binding, self.compat_profile)?;
+        super::routing::check(
+            &metadata,
+            Some(&[
+                ("source_bucket", target.source_bucket),
+                ("bucket", target.destination_bucket),
+            ]),
+        )?;
         let destination_bucket = target.destination_bucket;
         let read = self
             .access(caller, target.source_bucket, auth::OBJECTS_GET)
@@ -493,7 +504,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
         let r = request.into_inner();
-        let bucket = names::bucket_name(&r.bucket)?;
+        let bucket = self.bucket_id(&r.bucket)?;
         strict_conditions(ObjectConditions {
             if_metageneration_match: Some(r.if_metageneration_match),
             ..Default::default()
@@ -525,7 +536,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<iam::Policy>, Status> {
         let r = request.into_inner();
-        let bucket = iam_bucket(&r.resource)?;
+        let bucket = iam_bucket(&r.resource, self.compat_profile)?;
         if r.options
             .is_some_and(|o| !matches!(o.requested_policy_version, 0 | 1 | 3))
         {
@@ -544,7 +555,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<iam::Policy>, Status> {
         let r = request.into_inner();
-        let bucket = iam_bucket(&r.resource)?;
+        let bucket = iam_bucket(&r.resource, self.compat_profile)?;
         if let Some(mask) = r.update_mask
             && !mask.paths.is_empty()
             && !(mask.paths.len() == 2
@@ -599,7 +610,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<iam::TestIamPermissionsResponse>, Status> {
         let r = request.into_inner();
-        let bucket = iam_bucket(&r.resource)?;
+        let bucket = iam_bucket(&r.resource, self.compat_profile)?;
         if r.permissions.is_empty() {
             return Err(Status::invalid_argument(
                 "permissions is required; supply at least one permission",
@@ -646,7 +657,7 @@ impl Storage {
         let b = r
             .bucket
             .ok_or_else(|| Status::invalid_argument("bucket is required; supply bucket.name"))?;
-        let bucket = names::bucket_name(&b.name)?;
+        let bucket = self.bucket_id(&b.name)?;
         if !r.predefined_acl.is_empty() || !r.predefined_default_object_acl.is_empty() {
             return Err(unsupported("predefined bucket ACLs; omit predefined_acl"));
         }
@@ -688,7 +699,7 @@ impl Storage {
         let o = r.object.ok_or_else(|| {
             Status::invalid_argument("object is required; supply object.bucket and object.name")
         })?;
-        let (bucket, name) = names::object_name(&o.bucket, &o.name)?;
+        let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
         if o.generation < 0 {
             return Err(Status::invalid_argument(
                 "generation must be positive or omitted",
@@ -741,7 +752,7 @@ impl Storage {
         let o = r.destination.ok_or_else(|| {
             Status::invalid_argument("destination is required; supply bucket and name")
         })?;
-        let (bucket, name) = names::object_name(&o.bucket, &o.name)?;
+        let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
         let access = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         validate_derived_fields(&o)?;
         let metadata = super::object_update::for_write(&o);
@@ -749,7 +760,7 @@ impl Storage {
             .source_objects
             .iter()
             .map(|s| {
-                names::object_name(&o.bucket, &s.name)?;
+                names::object(&s.name)?;
                 if s.generation < 0 {
                     return Err(Status::invalid_argument(
                         "source generation must be positive or omitted",
@@ -817,8 +828,8 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
-        let (bucket, source) = names::object_name(&r.bucket, &r.source_object)?;
-        names::object_name(&r.bucket, &r.destination_object)?;
+        let (bucket, source) = self.object_name(&r.bucket, &r.source_object)?;
+        names::object(&r.destination_object)?;
         let read = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let delete = self.access(caller, bucket, auth::OBJECTS_DELETE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
@@ -865,7 +876,7 @@ impl Storage {
                 "generation is required; select a positive soft-deleted generation",
             ));
         }
-        let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
+        let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let restore = self.access(caller, bucket, auth::OBJECTS_RESTORE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         let c = request_conditions!(strict_conditions, r)?;
@@ -903,6 +914,7 @@ mod tests {
         }
         (
             Storage {
+                compat_profile: crate::config::CompatProfile::Native,
                 state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
                 max_object_bytes: 8 * 1024 * 1024,
             },
@@ -1649,6 +1661,7 @@ mod tests {
             .await
             .unwrap();
         let s = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
             state: Arc::new(crate::server::State::for_test(
                 catalog,
                 Auth::strict(registry(&[
@@ -1692,6 +1705,7 @@ mod tests {
         record.object_retention_enabled = true;
         catalog.insert_bucket(record).await.unwrap();
         let s = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
             state: Arc::new(crate::server::State::for_test(
                 catalog,
                 Auth::strict(registry(&[

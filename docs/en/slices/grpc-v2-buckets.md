@@ -25,13 +25,32 @@ Create supports location, storage class, labels, CORS, versioning, default event
 
 Read masks support the top-level fields `name`, `bucket_id`, `etag`, `project`, `metageneration`, `location`, `location_type`, `storage_class`, `autoclass`, `labels`, `create_time`, `update_time`, `default_event_based_hold`, `versioning`, `cors`, `lifecycle`, `retention_policy`, `soft_delete_policy`, `object_retention` and `iam_config` ([SDK parity](grpc-v2-sdk-parity.md)). Absent/empty masks and a single `*` return this converted subset. Nested paths, unsupported fields and mixed wildcards return UNIMPLEMENTED. List uses the same mask rules; `return_partial_success=true` remains unsupported. Page size defaults to 1000 and is capped at 1000; a negative size is invalid. Tokens are opaque project/prefix-bound catalog cursors shared with JSON, not provider-compatible token bytes.
 
-Routing follows the pinned proto's `bucket` capture for Get/Delete and `project` capture for Create/List. Values are form-percent-decoded and compared to the request resource; conflicting values fail INVALID_ARGUMENT. Create compares against bucket.project. The Go SDK's automatically appended `direct_connectivity_diagnostic` is accepted because it carries diagnostics rather than resource or operation semantics. Other routing fields return UNIMPLEMENTED. Routing metadata cannot change catalog selection or authorization.
+Every Storage v2 RPC validates routing metadata at the common entry point.
+Routing follows the pinned proto's bucket/project captures and source_bucket for
+rewrite sources. Streaming calls compare the first message; rewrite continuations
+compare the token's bound names. Values are form-percent-decoded and conflicting
+values fail INVALID_ARGUMENT. Create compares project against bucket.project.
+Rapid writes also compare appendable. Go direct_connectivity_diagnostic is
+accepted as diagnostics. Other semantic keys, including redirect tokens, return
+UNIMPLEMENTED. Routing cannot change catalog selection or authorization.
+Bucket IDs follow the configured native or legacy-emulator naming profile in
+both bucket and object RPCs. Provider-exact invalid-name status and complete SDK
+routing combinations remain pending in SPEC-GRPC-ROUTING-NAMES.
+
+Explicit x-goog-user-project presence is rejected on every Storage v2 RPC before
+consuming streaming input, including an empty value.
 
 The presence of `x-goog-user-project`, including an empty value, returns UNIMPLEMENTED with ErrorInfo, matching JSON's rejection of an explicitly supplied userProject. The default Go client does not send this header; `Bucket.UserProject("")` also omits it and remains accepted. No requester billing semantics are silently accepted. Shared `status::from_json` converts adapter failures consistently, including backend HTTP 503 to UNAVAILABLE and unsupported emulator semantics to ErrorInfo-bearing UNIMPLEMENTED even when JSON represents those limitations as HTTP 400.
 
 The [pinned Storage v2 proto](https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto) was retrieved and its SHA-256 matched `a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf` on 2026-10-27. In particular, CreateBucket.parent is empty or projects/_; the owner belongs in bucket.project. The foundation's project ID rather than numeric project resolution limitation remains. Storage v1 and object cross-transport semantics are outside this slice.
 
 ## Verification
+
+On 2026-11-04, all 90 Storage v2 library tests passed. The object billing/routing
+wire regression first failed with NOT_FOUND instead of UNIMPLEMENTED on the old
+implementation. Additional tests cover resumed upload bucket matching, detailed
+malformed-route errors and creating/writing/reading a two-character legacy bucket.
+No SDK lane or provider request was run for this routing change.
 
 Acceptance was recorded before implementation. The new ordinary Go SDK journey first failed at Bucket.Attrs with UNIMPLEMENTED on the unchanged implementation. The fixed official proto was retrieved and its digest verified; official Rust stable metadata confirmed Rust 1.99.1. No dependency was added or updated.
 

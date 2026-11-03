@@ -61,7 +61,7 @@ pub(crate) async fn serve_connection(
         config.max_object_bytes,
         config.compat_profile,
     );
-    let service = v2::service(state, config.max_object_bytes);
+    let service = v2::service(state, config.max_object_bytes, config.compat_profile);
     serve_with_service(
         stream,
         config,
