@@ -166,7 +166,7 @@ mod tests {
                 PathMapping::Unrepresentable(Reason::InvalidName)
             );
         }
-        for component in [MARKER, WORKSPACE] {
+        for component in [MARKER, MARKER_STAGING, WORKSPACE] {
             for object in [component.to_owned(), format!("a/{component}/b")] {
                 assert_eq!(
                     mapping("demo-bucket", &object),

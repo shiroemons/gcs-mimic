@@ -445,6 +445,11 @@ Do not change the API's wider accepted-name set to fit a filesystem.
 | `Collision` | `a` and `a/b`, aliases differing only by case or Unicode normalization on the actual filesystem, bucket aliases, or a conflicting directory/file type. Report all members, never choose one silently or delete either API object. |
 | `UnsafeEntry` | Symlink, junction/reparse redirect, special file, or changed ancestor/root identity. Never follow it or infer deletion from unreadable/unsafe traversal. |
 
+Atomic marker publication additionally reserves `.gcs-mimic-sync.json.staging`
+at every component depth, including below bucket prefixes. An object previously
+mapped through that component is now `Unrepresentable(Reserved)`; its API bytes
+remain stored and are not deleted by the mapper.
+
 Reserved workspace subtrees alone are excluded as directories. An API regular
 object whose final component matches an ignored-file rule is `Ignored`, even
 if present from old seed input. A matching directory in a prefix is traversed;
@@ -620,8 +625,8 @@ tracked names absent in that scan. Exclude ignored/unrepresentable/unobserved
 names and stale incarnations. A candidate's live generation must still equal
 its last successfully synchronized generation; a newer API generation is
 write-back work, never a newly inferred deletion. An incomplete scan never generates deletions.
-Let `A` be automatic deletions committed since the last approved or newly
-completed baseline. Guard when enabled and `A + D >= 100` and
+Let `A` be automatic deletions committed since the last safe history reset.
+Guard when enabled and `A + D >= 100` and
 `100 * (A + D) > 50 * (A + N)`, using wide arithmetic; `N=0`
 has no deletions. Freeze this root-wide denominator and exact candidate set;
 do not recompute the fraction per page or convert a marker failure into a scan.
@@ -629,17 +634,22 @@ do not recompute the fraction per page or convert a marker failure into a scan.
 Schema 50 persists `A` in the same transaction as each automatic deletion.
 Existing catalogs initialize this new history to zero; earlier deleted names
 cannot be reconstructed from the previous schema.
-Approval resets it; a newly completed baseline or a completed explicit rescan
-with zero candidates also resets it. Restart and rescanning a guarded set never
-reset it. Approved-set execution does not count as a new automatic deletion.
+Approval resets it; a newly completed baseline or a complete observation scan
+with zero candidates after established native quiet also resets it. Automatic
+and explicit scans use that same condition. A scan triggered by the ten-second
+cap without quiet, an incomplete scan or one with remaining candidates never
+resets it. Restart and rescanning a guarded set never reset it. Approved-set
+execution does not count as a new automatic deletion.
 Public set counts still describe the current frozen members and baseline;
 the threshold also includes the retained automatic history.
 
 Native notifications wait for one second of quiet, restarting that interval
 after another notification, with a ten-second total cap. Controls remain
-available during this interval: wait reports SourceChanging, and rescan returns
-`completed:false`, `reason:SourceChanging` and a deferred reconciliation rather
-than claiming completion. A caller may request observation again after quiet.
+available during this interval. Wait and rescan stay in a bounded actor queue;
+status, approval and resolution remain available. Wait retains its original
+deadline and only reports SourceChanging if still settling at that deadline;
+otherwise it completes observation in the same request. Rescan waits for quiet
+or the cap before actually scanning; clients do not retry a false completion.
 The cumulative guard protects split scans even when the cap expires. It cannot
 undo automatic deletions below the threshold during a longer operation; the
 quiet interval is a coalescing heuristic, not an atomic snapshot of a writer.
@@ -652,7 +662,7 @@ Native macOS validation on 2026-11-04 passed six focused cases covering split
 12/88 deletion scans, restart and approval history, zero-candidate reset, migration
 rollback/retry and older-reader rejection, split bulk deletion during quiet with
 zero automatic deletions, bounded control replies, quiet-cap cancellation and
-the HTTP SourceChanging response. The production HTTP control suite passed
+the deadline-bound HTTP SourceChanging response. The production HTTP control suite passed
 21 cases; the native sync integration suite passed all 23, including the fixed
 100-object three-page approval journey and an individual successful wait request
 that exceeds its connection inactivity budget. No negative assertion was removed.

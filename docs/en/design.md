@@ -217,6 +217,8 @@ immutable inode while selecting its source, so a concurrent purge cannot remove 
 source before publication. Pin hard links and in-transaction descriptor opens stay
 on the catalog thread because catalog serialization orders them before reclamation.
 These short namespace operations perform no content copying or synchronization.
+File-worker jobs cannot nest another file-worker job; a typed error rejects the
+attempt before it acquires another permit.
 A queued job runs to completion even if its caller is cancelled, and a
 panicking job fails only its own call. Closing the catalog runs the last job, which
 closes the connection and releases the directory lock before close returns; the

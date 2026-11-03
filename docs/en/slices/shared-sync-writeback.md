@@ -25,6 +25,9 @@ deletion or recreation.
    inspecting an existing parent never creates directories or calls fsync.
    Installation retries sync existing ancestors too: an earlier failed sync can
    leave a newly created ancestor visible without making its name durable.
+   Consequently installation can sync two descriptors per ancestor even when
+   they already exist; skipping these syncs requires durable provenance across
+   failed retries. This cost has not been measured. Existing-only reads never sync.
 4. The durable step hashes the installed target and records Durable. A writer
    can preserve its inode/size and restore mtime, while rename itself changes
    ctime, so the private copy's old hashes cannot prove the installed bytes.

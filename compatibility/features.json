@@ -51211,15 +51211,21 @@
         },
         {
           "id": "sync-cumulative-deletion-guard",
-          "description": "Schema 50 accumulates automatic deletions in the object-delete transaction and combines them with each frozen scan for the 100-object/over-half guard. Approval, a newly completed baseline or a zero-candidate explicit rescan resets history; guarded rescans and restart retain it. Native observation waits for 1 second quiet, capped at 10 seconds, and answers controls with explicit SourceChanging rather than false completion. The previous per-scan-only calculation could delete a bulk operation in smaller unguarded batches. Operations longer than the quiet cap can still commit earlier automatic deletions below the cumulative threshold; the guard does not undo them. Scope: docs/en/slices/directory-synchronization.md#external-deletion-and-approval.",
+          "description": "Schema 50 accumulates automatic deletions in the object-delete transaction and combines them with each frozen scan for the 100-object/over-half guard. Approval, a newly completed baseline or a complete zero-candidate observation after established native quiet resets history; automatic and explicit scans share this condition. A capped or incomplete scan, remaining candidates and restart cannot reset it. Native observation waits for 1 second quiet, capped at 10 seconds; wait and rescan stay in a bounded actor queue instead of returning false completion. Wait reports SourceChanging only at its original deadline if still settling. The previous per-scan-only calculation could delete a bulk operation in smaller unguarded batches. Operations longer than the quiet cap can still commit earlier automatic deletions below the cumulative threshold; the guard does not undo them. Scope: docs/en/slices/directory-synchronization.md#external-deletion-and-approval.",
           "result": "PASS",
-          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_reports_source_changing_without_false_completion"]
+          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_waits_for_a_completed_scan", "quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restart", "native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart", "quiet_waits_hold_their_original_deadline_without_blocking_other_controls", "wait_during_native_quiet_reports_source_changing_only_at_its_deadline", "live_cli_wait_after_writing_observes_bytes_without_retrying"]
         },
         {
           "id": "sync-installed-body-durability",
           "description": "Durable always verifies installed body hashes, including same-inode/size edits with restored mtime; acknowledgement checks the complete recorded stat instead of hashing again. Reusing private copy hashes cannot establish the installed bytes after namespace exposure. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
           "test_ids": ["durable_rehash_rejects_same_inode_edits_with_restored_mtime"]
+        },
+        {
+          "id": "sync-observation-io-diagnostics",
+          "description": "Unreadable child directories leave an incomplete external inventory while other entries progress; changed directory identity remains retryable. Descriptor exhaustion logs soft/hard limits and a ulimit remedy. Unavailable Linux casefold flags fall back to exact directory names. Staging recheck retains its original drift error when cleanup also fails. Matching racy exports directly assert zero staging calls and stable observations use exact zero-work assertions. Atomic marker publication reserves its staging component at every object depth. Scope: docs/en/slices/continuous-directory-observation.md and docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["external_inventory_defers_unreadable_children_without_stopping_other_files", "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion", "unavailable_casefold_flags_fall_back_to_exact_directory_names", "source_recheck_preserves_precondition_when_staging_cleanup_also_fails", "racy_exported_bytes_are_verified_without_staging_again", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations"]
         },
         {
           "id": "sync-wait-preparation-budget",
@@ -51569,7 +51575,17 @@
         "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers",
         "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls",
         "native_quiet_deadline_is_capped_and_survives_cancelled_waits",
-        "rescan_during_native_quiet_reports_source_changing_without_false_completion",
+        "rescan_during_native_quiet_waits_for_a_completed_scan",
+        "quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restart",
+        "native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",
+        "quiet_waits_hold_their_original_deadline_without_blocking_other_controls",
+        "wait_during_native_quiet_reports_source_changing_only_at_its_deadline",
+        "live_cli_wait_after_writing_observes_bytes_without_retrying",
+        "live_wait_observes_source_work_beyond_the_connection_inactivity_budget",
+        "external_inventory_defers_unreadable_children_without_stopping_other_files",
+        "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion",
+        "unavailable_casefold_flags_fall_back_to_exact_directory_names",
+        "source_recheck_preserves_precondition_when_staging_cleanup_also_fails",
         "delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes",
         "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval",
         "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling",
@@ -51834,11 +51850,39 @@
           "test_ids": ["durable_rehash_rejects_same_inode_edits_with_restored_mtime", "wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors", "wait_authorization_deadline_and_cancellation_release_activity"]
         },
         {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["live_cli_wait_after_writing_observes_bytes_without_retrying", "live_wait_observes_source_work_beyond_the_connection_inactivity_budget"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- quiet_ racy_exported ingest_initial_baseline_runtime ingest_unchanged_files external_inventory source_recheck descriptor_pressure unavailable_casefold_flags rescan_during_native_quiet --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restart", "quiet_waits_hold_their_original_deadline_without_blocking_other_controls", "external_inventory_defers_unreadable_children_without_stopping_other_files", "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion", "unavailable_casefold_flags_fall_back_to_exact_directory_names", "source_recheck_preserves_precondition_when_staging_cleanup_also_fails", "racy_exported_bytes_are_verified_without_staging_again", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- wait_during_native_quiet quiet_waits_hold rescan_during_native_quiet --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["wait_during_native_quiet_reports_source_changing_only_at_its_deadline", "quiet_waits_hold_their_original_deadline_without_blocking_other_controls", "rescan_during_native_quiet_waits_for_a_completed_scan"]
+        },
+        {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- cumulative_deletions empty_explicit_rescan automatic_deletion_history quiet_native_observation native_quiet_deadline rescan_during_native_quiet --test-threads=4",
           "result": "PASS",
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_reports_source_changing_without_false_completion"]
+          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_waits_for_a_completed_scan"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",

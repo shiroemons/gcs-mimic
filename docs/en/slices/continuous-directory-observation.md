@@ -72,12 +72,26 @@ releases the previous deletion snapshot.
 
 Native notifications also coalesce through a one-second quiet interval with a
 ten-second cap. Further events restart quiet without starving control requests;
-wait and incomplete rescan report SourceChanging. Schema 50 retains automatic
+wait and rescan queue until quiet or its cap, while status, approval and resolution
+remain available. Wait reports SourceChanging only if its own deadline arrives
+while still settling. Schema 50 retains automatic
 deletion history across scans and restart, so the absolute and percentage guard
 cannot be reset by splitting one operation into smaller scans. During an operation
 longer than the quiet cap, earlier deletions below the cumulative threshold may
-already have committed; approval cannot undo them. See the
+already have committed; approval cannot undo them. A complete zero-candidate scan
+after established quiet resets history, whether automatic or explicit. A capped,
+interrupted or incomplete scan, or one with remaining candidates, cannot reset it.
+See the
 [deletion contract](directory-synchronization.md#external-deletion-and-approval).
+
+Native macOS regression evidence covers a 50-object root deleting and recreating
+20 objects six times, with a restart after the third cycle. Automatic native
+scans clear history only after a complete zero-candidate quiet observation;
+the test fails when the automatic reset is disabled. Separate tests retain
+12/88 split-deletion approval across restart, preserve history for a capped
+zero-candidate scan, and keep pending candidates from resetting history.
+The racy-clean regression counts staging calls directly and requires zero.
+The single-request HTTP/CLI tests contain no SourceChanging retry loop.
 
 The live actor accepts bounded rescan, approval, wait and resolution commands.
 Wait claims catalog activity before authorization's database wait. Authorization
@@ -85,6 +99,8 @@ and bounded request-body preparation share the configured catalog-wait budget;
 after authorized input is parsed, the requested timeout bounds observation.
 Permission checks still precede body validation. A request-scoped guard releases
 activity on success, invalid input, preparation timeout or cancellation.
+Descriptor exhaustion diagnostics include the current soft/hard descriptor limits
+and a `ulimit -n` remedy without changing the process limits at startup.
 Wait captures a source scan and finite journal fence; later unrelated API writes
 do not extend it. Its explicit deadline is independent of connection inactivity
 timeouts. A deadline interrupts settling and stops between bounded scan or

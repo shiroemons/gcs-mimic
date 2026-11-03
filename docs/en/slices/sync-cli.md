@@ -65,11 +65,15 @@ While deletion candidates are being recomputed, status retains their last comple
 membership while refreshing current safety findings and revisions. Every read
 rechecks authority and the journal fence; revision-bound
 pages and approval reject an invalidated revision with 409.
-During native quiet settling, rescan returns `completed:false` and
-`reason:SourceChanging`; wait reports SourceChanging with HTTP 409. Request
-observation again after settling rather than treating the response as a completed
-scan. Automatic deletion history is durable across restart and guarded rescans;
-approval, a new complete baseline or a zero-candidate explicit rescan resets it.
+During native quiet settling, wait and rescan remain queued inside the actor.
+Wait observes its original deadline; if quiet has not been established at that
+deadline it reports SourceChanging with HTTP 409. A single CLI invocation waits
+for quiet and observation without client retries. Rescan runs after quiet or the
+ten-second quiet cap instead of returning an unperformed scan as success.
+Automatic deletion history is durable across restart and guarded rescans;
+approval, a new complete baseline, or a complete zero-candidate observation after
+established quiet resets it. Automatic and explicit scans use the same reset
+condition; a scan at the quiet cap or with remaining candidates cannot reset it.
 The quiet interval has a ten-second cap, so a longer operation may have committed
 deletions below the cumulative threshold before approval becomes required.
 
