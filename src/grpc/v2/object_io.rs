@@ -667,48 +667,48 @@ impl Storage {
         if !r.filter.is_empty() {
             return Err(unsupported_for("ListObjects filter", caller));
         }
-        if r.include_folders_as_prefixes {
-            json::check_folders_as_prefixes(&r.delimiter)?;
-        }
-        let encode = crate::auth::signature::encode_query_component;
-        let query = [
-            ("prefix", r.prefix),
-            ("delimiter", r.delimiter),
-            ("pageToken", r.page_token),
-            ("maxResults", r.page_size.to_string()),
-            ("startOffset", r.lexicographic_start),
-            ("endOffset", r.lexicographic_end),
-            (
-                "includeTrailingDelimiter",
-                r.include_trailing_delimiter.to_string(),
-            ),
-            ("versions", r.versions.to_string()),
-            ("softDeleted", r.soft_deleted.to_string()),
-            ("matchGlob", r.match_glob),
-        ]
-        .into_iter()
-        .filter(|(_, v)| !v.is_empty())
-        .map(|(k, v)| format!("{k}={}", encode(&v)))
-        .collect::<Vec<_>>()
-        .join("&");
-        let uri = format!("/storage/v1/b/{}/o?{query}", encode(bucket))
-            .parse()
-            .map_err(|_| Status::invalid_argument("Invalid listing query"))?;
-        let Some(Ok(json::ObjectRequest::List(params))) =
-            json::route_object(&hyper::Method::GET, &uri)
-        else {
-            return Err(Status::invalid_argument(
-                "Invalid listing query or page_token; reuse the token with the original prefix and delimiter",
-            ));
+        let limit = if r.page_size == 0 {
+            1000
+        } else {
+            usize::try_from(r.page_size).unwrap_or(1000).min(1000)
         };
+        let mut query = crate::storage::ObjectListQuery {
+            bucket: bucket.into(),
+            prefix: r.prefix,
+            delimiter: r.delimiter,
+            match_glob: (!r.match_glob.is_empty())
+                .then(|| crate::match_glob::Glob::parse(&r.match_glob))
+                .transpose()
+                .map_err(|error| super::status::glob_status(&error))?,
+            start_offset: r.lexicographic_start,
+            end_offset: r.lexicographic_end,
+            include_trailing_delimiter: r.include_trailing_delimiter,
+            versions: r.versions,
+            soft_deleted: r.soft_deleted,
+            cursor: None,
+        };
+        query
+            .validate(if r.include_folders_as_prefixes {
+                crate::storage::FoldersAsPrefixes::Requested
+            } else {
+                crate::storage::FoldersAsPrefixes::Omitted
+            })
+            .map_err(super::status::list_query_status)?;
+        if !r.page_token.is_empty() {
+            query.cursor = Some(json::decode_object_page_token(&r.page_token, &query, json::Projection::NoAcl).map_err(|_| Status::invalid_argument("Invalid page_token; reuse the token with the original prefix, delimiter and other listing fields"))?);
+        }
         let access = self.access(caller, bucket, OBJECTS_LIST).await?;
         let page = self
             .state
             .catalog
-            .list_objects(params.query.clone(), params.max_results, &access)
+            .list_objects(query.clone(), limit, &access)
             .await
             .map_err(object_status)?;
-        let value = json::object_list(&page, &params, &self.state.api_base_url)?;
+        let next_page_token = page
+            .next
+            .as_ref()
+            .map(|cursor| json::encode_object_page_token(&query, json::Projection::NoAcl, cursor))
+            .unwrap_or_default();
         let mut objects = page
             .items
             .iter()
@@ -728,10 +728,7 @@ impl Storage {
         Ok(Response::new(pb::ListObjectsResponse {
             objects,
             prefixes: page.prefixes,
-            next_page_token: value["nextPageToken"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned(),
+            next_page_token,
         }))
     }
     pub(super) async fn start_resumable_write(
@@ -1759,6 +1756,85 @@ mod tests {
             ),
             tonic::Code::Unimplemented,
         );
+    }
+
+    #[tokio::test]
+    async fn grpc_listing_uses_proto_errors_and_preserves_page_tokens() {
+        let (_dir, storage) = setup(false).await;
+        let base = pb::ListObjectsRequest {
+            parent: "projects/_/buckets/grpc-io".into(),
+            ..Default::default()
+        };
+        for (request, field) in [
+            (
+                pb::ListObjectsRequest {
+                    soft_deleted: true,
+                    versions: true,
+                    ..base.clone()
+                },
+                "soft_deleted",
+            ),
+            (
+                pb::ListObjectsRequest {
+                    match_glob: "**/*.txt".into(),
+                    delimiter: "-".into(),
+                    ..base.clone()
+                },
+                "match_glob",
+            ),
+            (
+                pb::ListObjectsRequest {
+                    match_glob: "[".into(),
+                    ..base.clone()
+                },
+                "opening '[' at index 0",
+            ),
+            (
+                pb::ListObjectsRequest {
+                    page_token: "tampered".into(),
+                    ..base.clone()
+                },
+                "page_token",
+            ),
+        ] {
+            let error = storage
+                .list_objects(Request::new(request), None)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), tonic::Code::InvalidArgument);
+            assert!(error.message().contains(field), "{error}");
+        }
+        for name in ["a&=1", "b&=2"] {
+            write(&storage, vec![message(name, b"x")]).await.unwrap();
+        }
+        let query = crate::storage::ObjectListQuery {
+            bucket: "grpc-io".into(),
+            ..Default::default()
+        };
+        let token = json::encode_object_page_token(
+            &query,
+            json::Projection::NoAcl,
+            &crate::storage::ObjectListCursor {
+                name: "a&=1".into(),
+                is_prefix: false,
+                generation: None,
+            },
+        );
+        let page = storage
+            .list_objects(
+                Request::new(pb::ListObjectsRequest {
+                    page_size: 1,
+                    page_token: token,
+                    ..base
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(page.objects.len(), 1);
+        assert_eq!(page.objects[0].name, "b&=2");
+        storage.state.catalog.close().await.unwrap();
     }
 
     /// Every top-level `Object` field, in proto order: the read mask the Java SDK sends for

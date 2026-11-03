@@ -18,6 +18,25 @@ pub(super) fn read_failure(error: std::io::Error) -> Status {
     super::object_io::object_status(crate::storage::failure::object_unavailable(error))
 }
 
+pub(super) fn list_query_status(error: crate::storage::ListQueryError) -> Status {
+    use crate::storage::ListQueryError;
+    Status::invalid_argument(match error {
+        ListQueryError::SoftDeletedWithVersions => {
+            "soft_deleted=true cannot be combined with versions=true; omit versions"
+        }
+        ListQueryError::FoldersAsPrefixesNeedSlash => {
+            "include_folders_as_prefixes requires delimiter=/; use include_folders_as_prefixes=true and delimiter=/"
+        }
+        ListQueryError::GlobNeedsSlashDelimiter => {
+            "match_glob requires delimiter=/ or no delimiter; use match_glob=**/*.txt and delimiter=/"
+        }
+    })
+}
+
+pub(super) fn glob_status(error: &crate::match_glob::GlobError) -> Status {
+    Status::invalid_argument(error.to_string().replace("matchGlob", "match_glob"))
+}
+
 impl From<crate::object::ObjectError> for Status {
     fn from(error: crate::object::ObjectError) -> Self {
         Self::from(crate::json::JsonError::from(error))

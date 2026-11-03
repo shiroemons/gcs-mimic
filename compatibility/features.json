@@ -22085,7 +22085,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
+      "notes": "Storage v2 ListObjects constructs a typed shared query directly, validates combinations with the JSON adapter's shared rules and encodes query-bound page tokens without rendering JSON resources. Validation errors use proto field names. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -22098,6 +22098,7 @@
             "TestGRPCObjectIO"
           ]
         },
+        {"id": "direct_typed_listing", "description": "Direct typed queries preserve existing NoAcl token formats and reject soft_deleted with versions, invalid match_glob/delimiter combinations, malformed globs and tampered page_token with specific proto-field or glob diagnostics.", "result": "PASS", "test_ids": ["grpc_listing_uses_proto_errors_and_preserves_page_tokens"]},
         {
           "id": "full_read_mask",
           "description": "A read mask naming all 33 top-level Object fields, or `*`, succeeds as on Google and returns each listed object's ACL and owner through the shared JSON projection=full ACL view.",
@@ -22108,7 +22109,7 @@
         },
         {
           "id": "soft_deleted_listing",
-          "description": "soft_deleted=true lists soft-deleted generations through the shared JSON softDeleted listing, with soft and hard delete times; combining it with versions returns INVALID_ARGUMENT; strict callers need storage.objects.list.",
+          "description": "soft_deleted=true lists soft-deleted generations through the shared catalog query, with soft and hard delete times; combining it with versions returns INVALID_ARGUMENT using proto field names; strict callers need storage.objects.list.",
           "result": "PASS",
           "test_ids": [
             "grpc_list_soft_deleted_objects",
@@ -22126,9 +22127,11 @@
         "grpc_io_full_read_masks_return_acl_and_owner",
         "TestGRPCObjectIO",
         "grpc_list_soft_deleted_objects",
-        "grpc_list_soft_deleted_objects_strict"
+        "grpc_list_soft_deleted_objects_strict",
+        "grpc_listing_uses_proto_errors_and_preserves_page_tokens"
       ],
       "verification": [
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc_list", "result": "PASS", "verified_at": "2026-11-03", "artifact": "docs/en/slices/grpc-v2-object-io.md", "test_ids": ["grpc_listing_uses_proto_errors_and_preserves_page_tokens"]},
         {
           "command": "cargo test --locked --lib grpc_io_full_read_masks",
           "result": "PASS",
@@ -29388,7 +29391,7 @@
         },
         {
           "id": "FOLDERS-AS-PREFIXES-GRPC",
-          "description": "gRPC v2 ListObjects applies the same check: equal responses with delimiter /, INVALID_ARGUMENT otherwise; a nonempty filter stays UNIMPLEMENTED.",
+          "description": "gRPC v2 ListObjects applies the shared typed delimiter check: equal responses with delimiter /, INVALID_ARGUMENT naming include_folders_as_prefixes otherwise; a nonempty filter stays UNIMPLEMENTED.",
           "result": "PASS",
           "test_ids": [
             "grpc::v2::update_copy::tests::grpc_list_folders_as_prefixes_follows_the_json_rule"

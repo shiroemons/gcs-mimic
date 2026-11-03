@@ -98,6 +98,7 @@ impl ObjectRequest {
 }
 
 /// Match raw path segments before decoding object names exactly once.
+#[cfg(test)]
 pub(crate) fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, JsonError>> {
     route_object_with_profile(method, uri, CompatProfile::Native)
 }

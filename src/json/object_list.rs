@@ -121,21 +121,6 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
     })
 }
 
-/// Checks the delimiter of a listing that sets `includeFoldersAsPrefixes=true`.
-///
-/// The flag adds empty folders and managed folders to `prefixes[]`, and the reference requires
-/// `delimiter=/` with it. A local bucket holds neither kind of folder (hierarchical namespace
-/// and managed folders are not supported), so with that delimiter the listing is exactly the
-/// one without the flag.
-pub(crate) fn check_folders_as_prefixes(delimiter: &str) -> Result<(), JsonError> {
-    if delimiter != "/" {
-        return Err(JsonError::invalid_parameter(
-            "includeFoldersAsPrefixes requires delimiter=/; use includeFoldersAsPrefixes=true&delimiter=/",
-        ));
-    }
-    Ok(())
-}
-
 impl From<ListQueryError> for JsonError {
     fn from(error: ListQueryError) -> Self {
         match error {

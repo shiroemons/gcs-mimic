@@ -15,6 +15,7 @@ Scope: RPC-STORAGE-011, RPC-STORAGE-014, RPC-STORAGE-015, RPC-STORAGE-018, RPC-S
 - ReadObject supports positive/negative offsets, bounded lengths, out-of-range errors, selected generations, per-message CRC32C and complete-object checksums. Response messages stay below 4 MiB.
 - GetObject supports generations, conditions and read masks. DeleteObject uses shared hold, retention, versioning and soft-delete behavior.
 - ListObjects supports prefix, delimiter prefixes, page size and query-bound continuation tokens; Go Objects iterates them.
+- ListObjects builds the shared query directly and keeps the existing NoAcl page-token format. It does not construct JSON URLs or render JSON object pages. Combination errors name soft_deleted, match_glob and include_folders_as_prefixes; malformed globs keep their detailed syntax explanation.
 - CancelResumableWrite cancels an active session from StartResumableWrite, including one with persisted bytes. Later QueryWriteStatus, WriteObject and BidiWriteObject on that upload_id fail, staged bytes are released and no object is published.
 - Strict authentication uses shared bucket permissions and rechecks them inside catalog operations. No credentials are discovered and no Google Cloud calls are made.
 
