@@ -80,11 +80,27 @@ fn failure(error: &std::io::Error) -> JsonError {
             "forbidden",
             "Reseed made no changes because an object is protected by a hold or retention",
         ),
-        Some(AdminError::Invalid(_)) => {
+        Some(AdminError::Invalid(_) | AdminError::SeedProjectMismatch) => {
             JsonError::invalid_argument("Invalid fixture state; reseed made no changes")
         }
         _ => JsonError::service_unavailable(
             "Reseed failed; inspect local fixture/storage diagnostics and retry",
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_mismatch_keeps_the_invalid_fixture_response() {
+        let error = failure(&std::io::Error::other(AdminError::SeedProjectMismatch));
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.reason, "invalidArgument");
+        assert_eq!(
+            error.message,
+            "Invalid fixture state; reseed made no changes"
+        );
     }
 }
