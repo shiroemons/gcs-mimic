@@ -55,6 +55,138 @@ async fn committed_delete_succeeds_when_data_cleanup_fails() {
 }
 
 #[tokio::test]
+async fn committed_appendable_cleanup_failure_keeps_delete_and_stale_creation_successful() {
+    use super::super::fault::{Fault, Step};
+    for memory in [false, true] {
+        let dir = TestDir::new();
+        let catalog = Catalog::open_backend(
+            dir.0.clone(),
+            Arc::new(crate::clock::SystemClock),
+            super::super::admin::LocalAdmin::Disabled,
+            memory.then_some((8192, 1024 * 1024)),
+        )
+        .await
+        .unwrap();
+        insert_bucket(&catalog).await;
+        let mut writer = catalog
+            .create_appendable("append", "cleanup", options())
+            .await
+            .unwrap();
+        writer
+            .append(0, Bytes::from_static(b"old"), 1024)
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        let id = writer.blob_id;
+        catalog.inject(
+            Step::AppendCleanup,
+            0,
+            Fault::Io(io::ErrorKind::PermissionDenied),
+        );
+        catalog
+            .delete_appendable(live("append", "cleanup"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        assert!(writer.slot.lock().await.owner.is_none());
+        assert_eq!(
+            catalog
+                .delete_appendable(live("append", "cleanup"), Default::default(), PERMISSIVE)
+                .await,
+            Err(ObjectError::ObjectNotFound)
+        );
+        if memory {
+            assert!(
+                catalog
+                    .run::<_, ObjectError>(move |connection| sql::scalar::<bool>(
+                        connection,
+                        "SELECT EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id=?1)",
+                        [id]
+                    )
+                    .map_err(object_unavailable))
+                    .await
+                    .unwrap()
+            );
+            catalog.maintain_resumable_sessions().await.unwrap();
+        } else {
+            assert!(data_path(&dir.0, &id).exists());
+        }
+        let old = catalog
+            .create_appendable("append", "stale", options())
+            .await
+            .unwrap();
+        catalog
+            .delete_bucket("append", Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        insert_bucket(&catalog).await;
+        catalog.inject(
+            Step::AppendCleanup,
+            0,
+            Fault::Io(io::ErrorKind::PermissionDenied),
+        );
+        let mut current = catalog
+            .create_appendable("append", "stale", options())
+            .await
+            .unwrap();
+        current
+            .append(0, Bytes::from_static(b"new"), 1024)
+            .await
+            .unwrap();
+        current.flush().await.unwrap();
+        assert_eq!(persisted_content(&catalog, "stale").await, b"new");
+        assert!(matches!(
+            catalog
+                .create_appendable("append", "stale", options())
+                .await,
+            Err(AppendError::ReplaceUnsupported)
+        ));
+        drop((writer, old, current));
+        catalog.close().await.unwrap();
+        if !memory {
+            let reopened = Catalog::open(&dir.0).await.unwrap();
+            assert!(!data_path(&dir.0, &id).exists());
+            reopened.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn appendable_creation_and_acknowledged_prefix_survive_power_loss() {
+    use super::super::fault::{Crash, Step};
+    let snapshots = TestDir::new();
+    for (index, crash) in Crash::ALL.iter().enumerate() {
+        let dir = TestDir::new();
+        let catalog = catalog_with_bucket(&dir).await;
+        let snapshot = snapshots.0.join(index.to_string());
+        // Arm before creation so the file's directory entry and synced bytes are modeled.
+        catalog.inject(Step::AppendCommit, 1, crash.fault(snapshot.clone()));
+        let mut writer = catalog
+            .create_appendable("append", "durable", options())
+            .await
+            .unwrap();
+        writer
+            .append(0, Bytes::from_static(b"kept"), 1024)
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        writer
+            .append(4, Bytes::from_static(b"tail"), 1024)
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        let generation = writer.record.generation;
+        drop(writer);
+        catalog.close().await.unwrap();
+        let recovered = Catalog::open(&snapshot).await.unwrap();
+        assert_eq!(persisted_content(&recovered, "durable").await, b"kept");
+        let writer = take_over(&recovered, "durable", generation).await;
+        assert_eq!(writer.persisted_size(), 4);
+        drop(writer);
+        recovered.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn retained_memory_slots_do_not_alias_a_replacement_catalog() {
     let dir = TestDir::new();
     let open = || {
@@ -494,7 +626,17 @@ async fn interrupted_finalization_before_publication_stays_appendable() {
         .await
         .unwrap();
     writer.flush().await.unwrap();
-    writer.mark_finalizing(Finalizing::Started).await.unwrap();
+    catalog
+        .run::<_, ObjectError>(|connection| {
+            sql::exec(
+                connection,
+                "UPDATE appendable_objects SET finalizing=1 WHERE name='pending'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
     let generation = writer.record().generation;
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();

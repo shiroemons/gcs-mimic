@@ -32443,7 +32443,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "BidiWriteObject state_lookup/flush/finish_write, durable offset and finalized behavior. flush fsyncs and then commits size and CRC32C (the durability boundary); flush/state_lookup and a clean close report persisted_size, persisted_data_checksums and write_handle; finish_write verifies an optional CRC32C and publishes the persisted bytes through shared bounded publication with the reserved generation. A finalizing flag plus startup recovery resolves interrupted finalization. Contract: docs/en/slices/grpc-v2-rapid-append.md.",
+      "notes": "BidiWriteObject state_lookup/flush/finish_write, durable offset and finalized behavior. flush fsyncs and then commits size and CRC32C (the durability boundary); flush/state_lookup and a clean close report persisted_size, persisted_data_checksums and write_handle; finish_write verifies an optional CRC32C and publishes the persisted bytes through shared bounded publication with the reserved generation. The publication transaction removes the appendable row; startup recovery retires rows whose generation is published. Post-commit data cleanup cannot change successful delete, stale replacement or finalization results. Contract: docs/en/slices/grpc-v2-rapid-append.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",

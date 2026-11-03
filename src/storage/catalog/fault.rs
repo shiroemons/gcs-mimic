@@ -126,6 +126,8 @@ pub(crate) enum Step {
     AfterCommit,
     /// Before one write of appended bytes to an appendable data file.
     AppendWrite,
+    /// Before releasing data no committed appendable row references.
+    AppendCleanup,
     /// Before the appendable data file's `sync_data` on a flush.
     AppendSync,
     /// After the appended bytes are durable, before the transaction that publishes their size.

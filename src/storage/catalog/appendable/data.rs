@@ -5,6 +5,8 @@ pub(super) enum Data {
     Disk {
         file: Arc<fs::File>,
         path: PathBuf,
+        #[cfg(test)]
+        data_dir: PathBuf,
     },
     Memory {
         store: Arc<crate::storage::memory::Store>,
@@ -24,17 +26,20 @@ impl Data {
             }
         };
         let directory = root.join("appendable");
-        fs::create_dir_all(&directory)?;
         let path = data_path(root, id);
         let file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&path)?;
+        #[cfg(all(test, unix))]
+        super::super::fault::file_created(&path);
         #[cfg(unix)]
-        crate::fsutil::sync_dir(&directory)?;
+        super::super::objects::sync_dir(&directory)?;
         Ok(Self::Disk {
             file: Arc::new(file),
             path,
+            #[cfg(test)]
+            data_dir: root.clone(),
         })
     }
 
@@ -62,19 +67,41 @@ impl Data {
             ));
         }
         file.set_len(size)?;
+        #[cfg(test)]
+        super::super::fault::truncated(root, &file.metadata()?);
         file.sync_data()?;
+        #[cfg(test)]
+        super::super::fault::file_synced(root, &file.metadata()?);
         Ok(Self::Disk {
             file: Arc::new(file),
             path,
+            #[cfg(test)]
+            data_dir: root.clone(),
         })
     }
 
     pub(super) fn write(&self, start: u64, bytes: &[u8]) -> io::Result<()> {
         match self {
             Self::Disk { file, .. } => {
-                let mut file = &**file;
-                file.seek(io::SeekFrom::Start(start))?;
-                file.write_all(bytes)
+                #[cfg(unix)]
+                {
+                    std::os::unix::fs::FileExt::write_all_at(&**file, bytes, start)
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::FileExt;
+                    let mut bytes = bytes;
+                    let mut offset = start;
+                    while !bytes.is_empty() {
+                        let written = file.seek_write(bytes, offset)?;
+                        if written == 0 {
+                            return Err(io::ErrorKind::WriteZero.into());
+                        }
+                        bytes = &bytes[written..];
+                        offset += written as u64;
+                    }
+                    Ok(())
+                }
             }
             Self::Memory { store, id } => {
                 let mut draft = store.draft(&id.to_hex(), start)?;
@@ -87,7 +114,17 @@ impl Data {
 
     pub(super) fn sync(&self) -> io::Result<Option<crate::storage::memory::Checkpoint>> {
         match self {
-            Self::Disk { file, .. } => file.sync_data().map(|()| None),
+            Self::Disk {
+                file,
+                #[cfg(test)]
+                data_dir,
+                ..
+            } => {
+                file.sync_data()?;
+                #[cfg(test)]
+                super::super::fault::file_synced(data_dir, &file.metadata()?);
+                Ok(None)
+            }
             Self::Memory { store, id } => store.checkpoint_draft(&id.to_hex()).map(Some),
         }
     }
