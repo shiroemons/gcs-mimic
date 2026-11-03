@@ -45,6 +45,7 @@ async fn media(h: &Harness, name: &str, headers: &str) -> Reply {
     .await
 }
 
+#[track_caller]
 fn xml_code(reply: &Reply, status: u16, code: &str) {
     assert_eq!(
         reply.status,

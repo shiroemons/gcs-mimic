@@ -147,6 +147,7 @@ fn blobs(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+#[track_caller]
 fn assert_no_uploads(dir: &Path) {
     assert!(blobs(dir).is_empty());
     assert_eq!(fs::read_dir(dir.join("staging")).unwrap().count(), 0);

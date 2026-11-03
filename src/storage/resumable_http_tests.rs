@@ -167,11 +167,13 @@ impl Clock for TestClock {
     }
 }
 impl Reply {
+    #[track_caller]
     fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap()
     }
     /// A session-continuation failure: a bare `text/plain` page without the JSON API cache
     /// fields or `Vary`, as the upload front end sends it.
+    #[track_caller]
     fn session_error(&self, status: u16, body: &str) {
         assert_eq!(
             self.status,
@@ -189,6 +191,7 @@ impl Reply {
             );
         }
     }
+    #[track_caller]
     fn error(&self, status: u16, reason: &str) {
         assert_eq!(
             self.status,
@@ -455,6 +458,7 @@ impl Harness {
         )
         .await
     }
+    #[track_caller]
     fn path(&self, reply: &Reply) -> String {
         reply.headers["location"]
             .strip_prefix(self.base.trim_end_matches('/'))
@@ -483,6 +487,7 @@ async fn retry_unavailable<F: std::future::Future<Output = Reply>>(
     }
 }
 
+#[track_caller]
 fn assert_catalog_wait_timeout(reply: &Reply) {
     assert_eq!(reply.status, 503);
     assert!(
