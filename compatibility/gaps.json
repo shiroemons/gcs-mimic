@@ -1487,7 +1487,7 @@
       "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
       "observed_at": "2026-11-04",
       "kind": "SOURCE_QUESTION",
-      "observed_evidence": "Every Storage v2 entry point rejects x-goog-user-project presence and checks semantic routing metadata against request resources; streaming calls check their first message and rewrite continuations check their bound names. Native invalid bucket IDs return INVALID_ARGUMENT through shared validation; legacy-emulator IDs follow that profile. The pinned routing annotations define capture keys, but provider-exact status and precedence for invalid IDs and complete SDK routing combinations have not been observed.",
+      "observed_evidence": "Every Storage v2 entry point rejects x-goog-user-project presence and checks semantic routing metadata against request resources; streaming calls check their first message and rewrite continuations check their bound names. Native invalid bucket IDs return INVALID_ARGUMENT through shared validation; legacy-emulator IDs follow that profile. The pinned routing annotations define capture keys, but provider-exact status and precedence for invalid IDs and complete SDK routing combinations have not been observed. SDK validation of the expanded checks remains a pre-integration gate: Go and Rust have gRPC harnesses; the existing Node Storage SDK harness exercises HTTP and supplies no dedicated gRPC lane.",
       "required_resolution": "Verify provider invalid-name and conflicting-routing cases and the pinned Go, Rust and Node gRPC lanes before claiming exact routing/error parity. Retain explicit rejection of billing and unsupported routing tokens."
     },
     {

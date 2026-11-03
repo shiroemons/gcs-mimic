@@ -20709,9 +20709,11 @@
       "acceptance_cases": [
         {
           "id": "grpc_update_copy_contract",
-          "description": "SetIamPolicy constructs a shared typed PolicyInput directly from proto fields; role/member/count validation and opaque ETags remain shared with JSON, with atomic conditions, supported field masks and strict authorization; see the slice contract.",
+          "description": "SetIamPolicy constructs a shared typed PolicyInput directly from proto fields; role/member/count validation and opaque ETags remain shared with JSON, with atomic conditions, supported field masks and strict authorization. Unsupported roles/member kinds recommend supported policy inputs in both the message and ErrorInfo remedy; project-member identifiers share the JSON query validator.",
           "result": "PASS",
           "test_ids": [
+            "unsupported_iam_inputs_offer_supported_policy_members",
+            "convenience_members_and_json_queries_share_project_identifier_rules",
             "grpc_masks_reject_unsupported_and_accept_defaults",
             "grpc_update_masks",
             "grpc_rewrite_continuation_and_compose_conditions",
@@ -20728,6 +20730,8 @@
         }
       ],
       "test_ids": [
+        "unsupported_iam_inputs_offer_supported_policy_members",
+        "convenience_members_and_json_queries_share_project_identifier_rules",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",
@@ -20736,6 +20740,7 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib policy -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-update-copy.md", "test_ids": ["unsupported_iam_inputs_offer_supported_policy_members", "convenience_members_and_json_queries_share_project_identifier_rules"]},
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",
@@ -20922,6 +20927,8 @@
           "description": "UpdateBucket constructs typed shared updates directly from proto fields, with shared validation, atomic preconditions and whole-label-map replacement without implicit conditions, supported field masks, strict authorization and default Go high-level calls. Input validation and catalog mutation errors name protobuf fields, including Autoclass/lifecycle/retention guidance; JSON messages are unchanged. An empty iam_config parent mask advances metageneration locally; provider evidence is pending in SPEC-GRPC-EMPTY-IAM-UPDATE.",
           "result": "PASS",
           "test_ids": [
+            "invalid_storage_classes_keep_client_values_verbatim",
+            "bucket_update_errors_name_proto_fields",
             "grpc_masks_reject_unsupported_and_accept_defaults",
             "grpc_update_masks",
             "grpc_rewrite_continuation_and_compose_conditions",
@@ -20956,6 +20963,8 @@
         }
       ],
       "test_ids": [
+        "invalid_storage_classes_keep_client_values_verbatim",
+        "bucket_update_errors_name_proto_fields",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",
@@ -20967,6 +20976,7 @@
         "grpc_buckets_acl_strict_authorization"
       ],
       "verification": [
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc:: -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-update-copy.md", "test_ids": ["invalid_storage_classes_keep_client_values_verbatim", "bucket_update_errors_name_proto_fields"]},
         {
           "command": "cargo test --locked --lib grpc:: -- --test-threads=4",
           "result": "PASS",
@@ -21713,9 +21723,11 @@
       "acceptance_cases": [
         {
           "id": "grpc_update_copy_contract",
-          "description": "UpdateObject constructs typed shared updates directly from proto fields, with atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "description": "UpdateObject constructs typed shared updates directly from proto fields, with atomic preconditions, supported field masks, strict authorization and default Go high-level calls. Typed metadata diagnostics render proto fields without rewriting values; masks combining metadata and metadata.KEY fail with actionable INVALID_ARGUMENT in either order.",
           "result": "PASS",
           "test_ids": [
+            "overlapping_metadata_masks_are_actionable_in_both_orders",
+            "object_validation_uses_proto_field_names_and_keeps_error_details",
             "grpc_masks_reject_unsupported_and_accept_defaults",
             "grpc_update_masks",
             "grpc_rewrite_continuation_and_compose_conditions",
@@ -21749,6 +21761,8 @@
         }
       ],
       "test_ids": [
+        "overlapping_metadata_masks_are_actionable_in_both_orders",
+        "object_validation_uses_proto_field_names_and_keeps_error_details",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",
@@ -21760,6 +21774,7 @@
         "grpc_update_object_retention_strict"
       ],
       "verification": [
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc:: -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-update-copy.md", "test_ids": ["overlapping_metadata_masks_are_actionable_in_both_orders", "object_validation_uses_proto_field_names_and_keeps_error_details"]},
         {
           "command": "cargo test --locked --lib grpc:: -- --test-threads=4",
           "result": "PASS",
@@ -32954,9 +32969,9 @@
         },
         {
           "id": "resumable_stream_completion",
-          "description": "Finalized upload retries return the original resource after overwrite; unfinished upload_id streams report persisted size on a clean half-close without flush/state_lookup; a disconnected stream releases its lease and resumes from its acknowledged offset without leaking staging files.",
+          "description": "Finalized upload retries return the original resource after overwrite only at stream start; later messages fail with FAILED_PRECONDITION if another stream finalized the upload. Unfinished upload_id streams report persisted size on a clean half-close without flush/state_lookup; disconnected streams release their lease and resume without leaking staging files.",
           "result": "PASS",
-          "test_ids": ["grpc_io_finalized_resume_returns_the_original_resource", "grpc_io_bidi_half_close_reports_unacknowledged_persisted_size", "grpc_io_disconnected_resumable_stream_releases_its_lease"]
+          "test_ids": ["grpc_io_finalized_resume_returns_the_original_resource", "grpc_io_bidi_half_close_reports_unacknowledged_persisted_size", "grpc_io_disconnected_resumable_stream_releases_its_lease", "grpc_io_concurrent_finalization_rejects_later_messages"]
         },
         {
           "id": "broader_rpc_semantics",
@@ -32974,9 +32989,11 @@
         "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion",
         "grpc_io_finalized_resume_returns_the_original_resource",
         "grpc_io_bidi_half_close_reports_unacknowledged_persisted_size",
-        "grpc_io_disconnected_resumable_stream_releases_its_lease"
+        "grpc_io_disconnected_resumable_stream_releases_its_lease",
+        "grpc_io_concurrent_finalization_rejects_later_messages"
       ],
       "verification": [
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc:: -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-object-io.md", "test_ids": ["grpc_io_concurrent_finalization_rejects_later_messages"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc:: -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-03", "artifact": "docs/en/slices/grpc-v2-object-io.md", "test_ids": ["grpc_io_finalized_resume_returns_the_original_resource", "grpc_io_bidi_half_close_reports_unacknowledged_persisted_size", "grpc_io_disconnected_resumable_stream_releases_its_lease"]},
         {
           "command": "cargo test --locked --offline --lib grpc::v2::object_io",
@@ -33048,11 +33065,12 @@
       "acceptance_cases": [
         {"id": "bidi-multi-range", "description": "Interleaved read_ids, later requests, stable read handles, range_end and invalid-range error details; see docs/en/slices/grpc-v2-bidi-read.md.", "result": "PASS", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict"]},
         {"id": "bidi-backpressure", "description": "600 default high-level Add calls complete without an aggregate rejection; an oversized single message fails with non-retryable INVALID_ARGUMENT.", "result": "PASS", "test_ids": ["TestGRPCBidiReadManyRanges", "TestGRPCBidiReadWire"]},
-        {"id": "bidi-outstanding-errors-local", "description": "Stream failure details enumerate unfinished admitted IDs, preserving the failed range's status and marking the others ABORTED.", "result": "PASS", "test_ids": ["bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status"]},
+        {"id": "bidi-outstanding-errors-local", "description": "Stream failure details enumerate unfinished admitted IDs, preserving the failed range's status and marking the others ABORTED. Rich status code/message always match the outer gRPC status, including I/O failures and duplicate read_ids.", "result": "PASS", "test_ids": ["bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status", "bidi_duplicate_id_keeps_outer_error_in_details", "stream_errors_normalize_existing_rich_status_and_preserve_details"]},
         {"id": "bidi-all-range-errors", "description": "Verify provider-exact statuses and ordering for unfinished ranges, errors and redirects.", "result": "PENDING", "test_ids": []}
       ],
-      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status"],
+      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status", "bidi_duplicate_id_keeps_outer_error_in_details", "stream_errors_normalize_existing_rich_status_and_preserve_details"],
       "verification": [
+        {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc:: -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_duplicate_id_keeps_outer_error_in_details", "stream_errors_normalize_existing_rich_status_and_preserve_details"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc::v2::bidi_read -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_errors_report_every_submitted_read_id"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc_io_read_failures_use_shared_storage_status -- --test-threads=1", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["grpc_io_read_failures_use_shared_storage_status"]},
         {"command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]},
@@ -54638,7 +54656,7 @@
       "source_urls": ["https://github.com/protocolbuffers/protobuf/releases/tag/v36.2"],
       "source_checked_at": "2026-11-04",
       "source_evidence": "PROJECT_POLICY",
-      "notes": "Foundation CI verifies pinned protobuf digests. Daily CI uses digest-pinned protoc, compares regenerated v1/v2 Rust with committed output and detects newer stable compiler releases. Ordinary builds need no protoc. Automatic upstream API/Discovery schema discovery remains pending. Commands and verified boundaries: docs/en/development.md#protobuf-generation-checks.",
+      "notes": "Foundation CI verifies pinned protobuf digests. Daily CI uses digest-pinned protoc, compares regenerated v1/v2 Rust with committed output and detects newer stable compiler releases. Generation/compiler failures do not skip SDK fetch or application/SDK dependency detection; every failed check still fails the job. Ordinary builds need no protoc. Automatic upstream API/Discovery schema discovery remains pending. Commands and verified boundaries: docs/en/development.md#protobuf-generation-checks.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
