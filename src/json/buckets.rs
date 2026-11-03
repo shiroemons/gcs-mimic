@@ -6,7 +6,6 @@ use crate::bucket::{
 };
 use crate::config::CompatProfile;
 use crate::object::unix_nanos::UnixNanos;
-use hyper::StatusCode;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, time::SystemTime};
 
@@ -106,12 +105,7 @@ fn bucket_parse_error(
     profile: CompatProfile,
 ) -> JsonError {
     if profile == CompatProfile::LegacyEmulator {
-        return JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "Invalid JSON bucket resource",
-        )
-        .with_kind(super::ErrorKind::ParseError);
+        return JsonError::legacy_parse_error("Invalid JSON bucket resource");
     }
     JsonError::parse_error(bytes, error)
 }

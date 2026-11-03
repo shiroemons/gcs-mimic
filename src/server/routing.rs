@@ -486,11 +486,9 @@ fn respond_unsupported(
     boxed(
         authenticate(request, state)
             .and_then(|_| {
-                Err(JsonError::new(
-                    StatusCode::BAD_REQUEST,
-                    "badRequest",
+                Err(JsonError::unsupported_message(
                     format!("gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."),
-                ).with_kind(json::ErrorKind::Unsupported))
+                ))
             })
             .unwrap_or_else(JsonError::into_response),
     )
@@ -760,7 +758,7 @@ fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonErro
         && error.status == StatusCode::BAD_REQUEST
         && matches!(
             error.kind,
-            json::ErrorKind::InvalidArgument | json::ErrorKind::ParseError
+            json::ErrorKind::InvalidArgument | json::ErrorKind::LegacyParseError
         )
     {
         error.reason = "invalid";

@@ -404,11 +404,7 @@ async fn write(
             .is_none_or(|value| value == record.metageneration)
         && conditions.if_metageneration_not_match == Some(record.metageneration)
     {
-        return Err(JsonError::new(
-            StatusCode::NOT_MODIFIED,
-            "notModified",
-            "Not modified",
-        ));
+        return Err(JsonError::not_modified());
     }
     let record = match mode {
         WriteMode::Replace => {

@@ -10,8 +10,8 @@ const ALLOW_ALL_METHODS: &str = "HEAD, GET, POST, PUT, DELETE";
 /// Bounds the remembered bucket names so the warning memory does not grow with the catalog.
 const WARNED_BUCKET_LIMIT: usize = 64;
 
-#[derive(Default)]
 /// Remembers one unconfigured-CORS warning per bucket and State, up to 64 buckets.
+#[derive(Default)]
 pub struct CorsWarnings(Mutex<BTreeSet<String>>);
 
 impl CorsWarnings {

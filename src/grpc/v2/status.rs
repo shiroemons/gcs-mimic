@@ -28,14 +28,8 @@ impl From<crate::auth::AuthFailure> for Status {
 
 impl From<crate::json::JsonError> for Status {
     fn from(mut error: crate::json::JsonError) -> Self {
-        match error.kind {
-            // Only failed generation/metageneration conditions use this recorded wording;
-            // other 412s, such as public access prevention, keep their own message.
-            crate::json::ErrorKind::PreconditionFailed => {
-                error.message = crate::json::PRECONDITION_NOT_HELD.into();
-            }
-            crate::json::ErrorKind::NotModified => error.message = NOT_MODIFIED.into(),
-            _ => {}
+        if error.kind == crate::json::ErrorKind::NotModified {
+            error.message = NOT_MODIFIED.into();
         }
         if error.kind == crate::json::ErrorKind::Unsupported {
             return unsupported(&error.message);
@@ -186,20 +180,10 @@ mod tests {
 
     #[test]
     fn precondition_failures_use_the_grpc_wording() {
-        let failed = Status::from(
-            crate::json::JsonError::new(
-                StatusCode::PRECONDITION_FAILED,
-                "conditionNotMet",
-                "Precondition failed",
-            )
-            .with_kind(crate::json::ErrorKind::PreconditionFailed),
-        );
+        let failed = Status::from(crate::object::ObjectError::PreconditionFailed);
         assert_eq!(failed.code(), Code::FailedPrecondition);
         assert_eq!(failed.message(), crate::json::PRECONDITION_NOT_HELD);
-        let unmodified = Status::from(
-            crate::json::JsonError::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
-                .with_kind(crate::json::ErrorKind::NotModified),
-        );
+        let unmodified = Status::from(crate::object::ObjectError::NotModified);
         assert_eq!(unmodified.message(), NOT_MODIFIED);
         // A 412 that is not a failed condition keeps its own message.
         let pap = Status::from(crate::bucket::CatalogError::PublicAccessPrevention);

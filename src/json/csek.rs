@@ -3,18 +3,11 @@
 
 use super::JsonError;
 use crate::{
-    csek::{CsekError, CustomerKey, DESTINATION_PREFIX, SOURCE_PREFIX},
+    csek::{CustomerKey, DESTINATION_PREFIX, SOURCE_PREFIX},
     object::ObjectRecord,
 };
-use hyper::{HeaderMap, StatusCode, header::HeaderValue};
+use hyper::{HeaderMap, header::HeaderValue};
 use serde_json::{Value, json};
-
-impl From<CsekError> for JsonError {
-    fn from(error: CsekError) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, error.reason(), error.message())
-            .with_kind(super::ErrorKind::Csek(error))
-    }
-}
 
 /// The key for the addressed (or destination) object: `x-goog-encryption-*`.
 pub(crate) fn request_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, JsonError> {
