@@ -2,6 +2,7 @@
 
 use crate::{
     bucket::bucket_location,
+    config::Setting,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
 };
 use std::collections::BTreeMap;
@@ -56,58 +57,6 @@ where
         value: std::marker::PhantomData,
     })
 }
-
-pub(crate) const NATIVE_KEYS: &[&str] = &[
-    "config",
-    "log_level",
-    "listen",
-    "listen_http",
-    "grpc_listen",
-    "unix_socket",
-    "scheme",
-    "tls_cert",
-    "tls_key",
-    "tls_handshake_timeout_ms",
-    "data_dir",
-    "backend",
-    "memory_max_bytes",
-    "memory_catalog_max_bytes",
-    "seed_dir",
-    "default_seed_dir",
-    "seed_project",
-    "seed_content_type",
-    "sync_dir",
-    "sync_delete_guard",
-    "sync_reinitialize",
-    "default_location",
-    "default_soft_delete_retention_seconds",
-    "buckets_file",
-    "api_base_url",
-    "public_base_url",
-    "admin_enabled",
-    "admin_principal",
-    "local_creator_email",
-    "xml_virtual_host_domains",
-    "max_connections",
-    "max_object_bytes",
-    "worker_threads",
-    "max_blocking_threads",
-    "connection_timeout_ms",
-    "keep_alive_timeout_ms",
-    "object_request_timeout_ms",
-    "catalog_wait_timeout_ms",
-    "shutdown_timeout_ms",
-    "auth_mode",
-    "compat_profile",
-    "cors_fallback",
-    "identity_file",
-    "pubsub_emulator_host",
-    "event_pubsub_project_id",
-    "event_pubsub_topic",
-    "event_bucket",
-    "event_object_prefix",
-    "event_list",
-];
 
 pub(crate) const LEGACY: &[(&str, &str)] = &[
     ("PORT", "port"),
@@ -209,8 +158,7 @@ impl Inputs {
             let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
             let name = &key[hyphens..];
             let normalized = name.replace('-', "_");
-            let native_name =
-                command == CliCommand::Serve && NATIVE_KEYS.contains(&normalized.as_str());
+            let native_name = command == CliCommand::Serve && normalized.parse::<Setting>().is_ok();
             let native = hyphens == 2 && native_name;
             let legacy = !native
                 && (1..=2).contains(&hyphens)
@@ -658,7 +606,7 @@ pub fn starts_with_legacy_flag(args: &[String]) -> bool {
         let key = token.split_once('=').map_or(token.as_str(), |(key, _)| key);
         let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
         let name = &key[hyphens..];
-        let native = hyphens == 2 && NATIVE_KEYS.contains(&name.replace('-', "_").as_str());
+        let native = hyphens == 2 && name.replace('-', "_").parse::<Setting>().is_ok();
         !native && (1..=2).contains(&hyphens) && LEGACY.iter().any(|(_, flag)| *flag == name)
     })
 }

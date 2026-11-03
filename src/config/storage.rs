@@ -1,4 +1,4 @@
-use super::{Config, ConfigurationReport, Diagnostic, SettingFix, Settings};
+use super::{Config, ConfigurationReport, Diagnostic, Setting, SettingFix, Settings};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Backend {
@@ -16,21 +16,18 @@ impl Backend {
     }
 }
 
-pub(super) fn apply(config: &mut Config, key: &str, value: &str) -> Result<(), SettingFix> {
-    match key {
-        "backend" => {
+pub(super) fn apply(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
+    match setting {
+        Setting::Backend => {
             config.backend = match value {
                 "disk" | "filesystem" => Backend::Disk,
                 "memory" => Backend::Memory,
                 _ => return Err("backend must be disk or memory".into()),
             }
         }
-        "memory_max_bytes" => {
-            config.memory_max_bytes = super::bounded(key, value, 1, 1024 * 1024 * 1024)?
-        }
-        "memory_catalog_max_bytes" => {
-            config.memory_catalog_max_bytes =
-                super::bounded(key, value, 1024 * 1024, 1024 * 1024 * 1024)?
+        Setting::MemoryMaxBytes => config.memory_max_bytes = setting.integer(value)?,
+        Setting::MemoryCatalogMaxBytes => {
+            config.memory_catalog_max_bytes = setting.integer(value)?
         }
         _ => return Err(super::unknown_setting()),
     }

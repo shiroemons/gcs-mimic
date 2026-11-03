@@ -4,7 +4,7 @@ use crate::config_input::Fix as SettingFix;
 use crate::{
     auth::AuthMode,
     bucket::bucket_location,
-    config_input::{CliCommand, Input, InputError, InputKind, Inputs, NATIVE_KEYS},
+    config_input::{CliCommand, Input, InputError, InputKind, Inputs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     url::PublicOrigin,
 };
@@ -16,11 +16,13 @@ use std::{
 
 mod notifications;
 mod runtime;
+mod setting;
 mod storage;
 #[cfg(test)]
 mod unix_tests;
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{EndpointError, EndpointSnapshot};
+pub(crate) use setting::Setting;
 pub use storage::Backend;
 
 /// Reserved-domain (RFC 2606) address, so it can never name a real Google account.
@@ -439,7 +441,7 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
                     "Duplicate option; supply each --name VALUE option exactly once.",
                 ));
             }
-            if !NATIVE_KEYS.contains(&input.name.as_str())
+            if input.name.parse::<Setting>().is_err()
                 || (input.name == "config" && source == DiagnosticSource::Config)
                 || (input.name == "sync_reinitialize" && source != DiagnosticSource::Cli)
             {
@@ -479,89 +481,121 @@ fn rejected_setting_fix(name: &str) -> &'static str {
 /// Parses one setting into `config`. A rejected value may leave `config` partly updated, so the
 /// caller applies it to a candidate copy and keeps the copy only on success.
 fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
-    match key {
-        "backend" | "memory_max_bytes" | "memory_catalog_max_bytes" => {
-            return storage::apply(config, key, &value);
+    let setting = key.parse::<Setting>().map_err(|_| unknown_setting())?;
+    match setting {
+        Setting::Backend | Setting::MemoryMaxBytes | Setting::MemoryCatalogMaxBytes => {
+            storage::apply(config, setting, &value)
         }
-        "pubsub_emulator_host"
-        | "event_pubsub_project_id"
-        | "event_pubsub_topic"
-        | "event_bucket"
-        | "event_object_prefix"
-        | "event_list" => return notifications::apply(config, key, value),
-        _ => {}
-    }
-    // Ok(true) owns the key; Ok(false) lets the next applier try it.
-    for apply in [
-        apply_network_setting,
-        apply_url_setting,
-        apply_storage_setting,
-        apply_access_setting,
-        apply_limit_setting,
-    ] {
-        if apply(config, key, &value)? {
-            return Ok(());
+        Setting::PubsubEmulatorHost
+        | Setting::EventPubsubProjectId
+        | Setting::EventPubsubTopic
+        | Setting::EventBucket
+        | Setting::EventObjectPrefix
+        | Setting::EventList => notifications::apply(config, setting, value),
+        Setting::LogLevel
+        | Setting::Scheme
+        | Setting::Listen
+        | Setting::ListenHttp
+        | Setting::GrpcListen
+        | Setting::UnixSocket
+        | Setting::TlsCert
+        | Setting::TlsKey
+        | Setting::TlsHandshakeTimeoutMs => apply_network_setting(config, setting, &value),
+        Setting::ApiBaseUrl | Setting::PublicBaseUrl | Setting::XmlVirtualHostDomains => {
+            apply_url_setting(config, setting, &value)
         }
+        Setting::DataDir
+        | Setting::SeedDir
+        | Setting::DefaultSeedDir
+        | Setting::SyncDir
+        | Setting::SyncDeleteGuard
+        | Setting::SyncReinitialize
+        | Setting::SeedProject
+        | Setting::SeedContentType
+        | Setting::DefaultLocation
+        | Setting::DefaultSoftDeleteRetentionSeconds
+        | Setting::BucketsFile => apply_storage_setting(config, setting, &value),
+        Setting::AdminPrincipal
+        | Setting::LocalCreatorEmail
+        | Setting::AdminEnabled
+        | Setting::AuthMode
+        | Setting::CompatProfile
+        | Setting::CorsFallback
+        | Setting::IdentityFile => apply_access_setting(config, setting, &value),
+        Setting::MaxConnections
+        | Setting::MaxObjectBytes
+        | Setting::WorkerThreads
+        | Setting::MaxBlockingThreads
+        | Setting::ConnectionTimeoutMs
+        | Setting::KeepAliveTimeoutMs
+        | Setting::ObjectRequestTimeoutMs
+        | Setting::CatalogWaitTimeoutMs
+        | Setting::ShutdownTimeoutMs => apply_limit_setting(config, setting, &value),
+        Setting::Config => Err(unknown_setting()),
     }
-    Err(unknown_setting())
 }
 
 fn unknown_setting() -> SettingFix {
     "Unknown setting; remove it and use --help.".into()
 }
 
-fn apply_network_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "log_level" => config.log_level = value.parse()?,
-        "scheme" => config.scheme = value.parse()?,
-        "listen" => {
+fn apply_network_setting(
+    config: &mut Config,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
+    let key = setting.as_str();
+    match setting {
+        Setting::LogLevel => config.log_level = value.parse()?,
+        Setting::Scheme => config.scheme = value.parse()?,
+        Setting::Listen => {
             config.listen = value
                 .parse()
                 .map_err(|_| "listen must be an IP:port socket address")?
         }
-        "listen_http" => {
+        Setting::ListenHttp => {
             config.listen_http = Some(value.parse().map_err(
                 |_| "listen_http must be an IP socket address, for example 127.0.0.1:8000",
             )?);
         }
-        "grpc_listen" => {
+        Setting::GrpcListen => {
             config.grpc_listen = Some(value.parse().map_err(|_| {
                 "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port"
             })?);
         }
-        "unix_socket" => config.unix_socket = Some(PathBuf::from(non_empty(key, value)?)),
-        "tls_cert" | "tls_key" => {
+        Setting::UnixSocket => config.unix_socket = Some(PathBuf::from(non_empty(key, value)?)),
+        Setting::TlsCert | Setting::TlsKey => {
             if value.is_empty() {
                 return Err(format!("{key} must not be empty").into());
             }
-            if key == "tls_cert" {
+            if setting == Setting::TlsCert {
                 config.tls_cert = Some(PathBuf::from(value));
             } else {
                 config.tls_key = Some(PathBuf::from(value));
             }
         }
-        "tls_handshake_timeout_ms" => {
-            config.tls_handshake_timeout_ms = bounded(key, value, 1, 60_000)?
+        Setting::TlsHandshakeTimeoutMs => {
+            config.tls_handshake_timeout_ms = setting.integer(value)?
         }
-        _ => return Ok(false),
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
-fn apply_url_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "api_base_url" => {
+fn apply_url_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
+    match setting {
+        Setting::ApiBaseUrl => {
             config.api_base_url = Some(
                 crate::url::normalize_base_url(value)
                     .map_err(|error| format!("api_base_url: {error}"))?,
             );
         }
-        "public_base_url" => {
+        Setting::PublicBaseUrl => {
             config.public_base_url = Some(
                 PublicOrigin::parse(value).map_err(|error| format!("public_base_url: {error}"))?,
             );
         }
-        "xml_virtual_host_domains" => {
+        Setting::XmlVirtualHostDomains => {
             if !value.is_empty() {
                 for domain in value.split(',') {
                     let domain = domain.trim().to_ascii_lowercase();
@@ -585,19 +619,24 @@ fn apply_url_setting(config: &mut Config, key: &str, value: &str) -> Result<bool
                     .sort_by_key(|d| std::cmp::Reverse(d.len()));
             }
         }
-        _ => return Ok(false),
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
-fn apply_storage_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "data_dir" => config.data_dir = PathBuf::from(non_empty(key, value)?),
-        "seed_dir" => config.seed_dir = Some(PathBuf::from(non_empty(key, value)?)),
-        "default_seed_dir" => {
+fn apply_storage_setting(
+    config: &mut Config,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
+    let key = setting.as_str();
+    match setting {
+        Setting::DataDir => config.data_dir = PathBuf::from(non_empty(key, value)?),
+        Setting::SeedDir => config.seed_dir = Some(PathBuf::from(non_empty(key, value)?)),
+        Setting::DefaultSeedDir => {
             config.default_seed_dir = Some(PathBuf::from(non_empty(key, value)?));
         }
-        "sync_dir" => {
+        Setting::SyncDir => {
             if value.is_empty() {
                 return Err(
                     "sync_dir must not be empty; supply an existing writable directory".into(),
@@ -605,29 +644,29 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: &str) -> Result<
             }
             config.sync_dir = Some(PathBuf::from(value));
         }
-        "sync_delete_guard" => {
+        Setting::SyncDeleteGuard => {
             config.sync_delete_guard = value
                 .parse::<bool>()
                 .map_err(|_| "sync_delete_guard must be true or false")?
         }
-        "sync_reinitialize" => {
+        Setting::SyncReinitialize => {
             config.sync_reinitialize =
                 Some(crate::sync::parse_catalog_id(value).map_err(|error| error.to_string())?)
         }
-        "seed_project" => {
+        Setting::SeedProject => {
             crate::json::validate_project(value)
                 .map_err(|error| format!("seed_project: {}", error.message))?;
             config.seed_project = value.to_owned();
         }
-        "seed_content_type" => config.seed_content_type = value.parse()?,
-        "default_location" => {
+        Setting::SeedContentType => config.seed_content_type = value.parse()?,
+        Setting::DefaultLocation => {
             let value = if value.is_empty() { "US" } else { value };
             config.default_location = bucket_location(value)
                 .map_err(|_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1")?
                 .0
                 .to_owned();
         }
-        "default_soft_delete_retention_seconds" => {
+        Setting::DefaultSoftDeleteRetentionSeconds => {
             // Cloud Storage accepts 0 (disabled) or 7 to 90 days.
             config.default_soft_delete_retention_seconds = value
                 .parse::<u64>()
@@ -635,7 +674,7 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: &str) -> Result<
                 .filter(|seconds| *seconds == 0 || (604_800..=7_776_000).contains(seconds))
                 .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 604800..=7776000; use 604800 for the Cloud Storage default")?;
         }
-        "buckets_file" => {
+        Setting::BucketsFile => {
             if value.is_empty() {
                 return Err(
                     "buckets_file must not be empty; use buckets.json or omit the setting".into(),
@@ -643,14 +682,18 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: &str) -> Result<
             }
             config.buckets_file = Some(PathBuf::from(value));
         }
-        _ => return Ok(false),
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
-fn apply_access_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "admin_principal" => {
+fn apply_access_setting(
+    config: &mut Config,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
+    match setting {
+        Setting::AdminPrincipal => {
             if value.is_empty() || value.len() > 254 || value.chars().any(char::is_control) {
                 return Err(
                     "admin_principal must be a nonempty local principal ID of at most 254 bytes"
@@ -659,7 +702,7 @@ fn apply_access_setting(config: &mut Config, key: &str, value: &str) -> Result<b
             }
             config.admin_principal = Some(value.to_owned());
         }
-        "local_creator_email" => {
+        Setting::LocalCreatorEmail => {
             if !value.is_empty() {
                 crate::auth::validate_local_creator_email(value).map_err(|reason| {
                     format!(
@@ -670,42 +713,41 @@ fn apply_access_setting(config: &mut Config, key: &str, value: &str) -> Result<b
             }
             config.local_creator_email = value.to_owned();
         }
-        "admin_enabled" => {
+        Setting::AdminEnabled => {
             config.admin_enabled = value
                 .parse::<bool>()
                 .map_err(|_| "admin_enabled must be true or false")?;
         }
-        "auth_mode" => config.auth_mode = value.parse()?,
-        "compat_profile" => config.compat_profile = value.parse()?,
-        "cors_fallback" => config.cors_fallback = value.parse()?,
-        "identity_file" => config.identity_file = Some(PathBuf::from(non_empty(key, value)?)),
-        _ => return Ok(false),
+        Setting::AuthMode => config.auth_mode = value.parse()?,
+        Setting::CompatProfile => config.compat_profile = value.parse()?,
+        Setting::CorsFallback => config.cors_fallback = value.parse()?,
+        Setting::IdentityFile => {
+            config.identity_file = Some(PathBuf::from(non_empty(setting.as_str(), value)?))
+        }
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
-fn apply_limit_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
-    match key {
-        "max_connections" => config.max_connections = bounded(key, value, 1, 1024)? as usize,
-        "max_object_bytes" => {
-            config.max_object_bytes = bounded(key, value, 1, 5 * 1024_u64.pow(4))?
-        }
-        "worker_threads" => config.worker_threads = bounded(key, value, 1, 32)? as usize,
-        "max_blocking_threads" => {
-            config.max_blocking_threads = bounded(key, value, 1, 32)? as usize
-        }
-        "connection_timeout_ms" => config.connection_timeout_ms = bounded(key, value, 1, 60_000)?,
-        "keep_alive_timeout_ms" => config.keep_alive_timeout_ms = bounded(key, value, 1, 600_000)?,
-        "object_request_timeout_ms" => {
-            config.object_request_timeout_ms = bounded(key, value, 1, 86_400_000)?
-        }
-        "catalog_wait_timeout_ms" => {
-            config.catalog_wait_timeout_ms = bounded(key, value, 1, 60_000)?
-        }
-        "shutdown_timeout_ms" => config.shutdown_timeout_ms = bounded(key, value, 1, 60_000)?,
-        _ => return Ok(false),
+fn apply_limit_setting(
+    config: &mut Config,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
+    let value = setting.integer(value)?;
+    match setting {
+        Setting::MaxConnections => config.max_connections = value as usize,
+        Setting::MaxObjectBytes => config.max_object_bytes = value,
+        Setting::WorkerThreads => config.worker_threads = value as usize,
+        Setting::MaxBlockingThreads => config.max_blocking_threads = value as usize,
+        Setting::ConnectionTimeoutMs => config.connection_timeout_ms = value,
+        Setting::KeepAliveTimeoutMs => config.keep_alive_timeout_ms = value,
+        Setting::ObjectRequestTimeoutMs => config.object_request_timeout_ms = value,
+        Setting::CatalogWaitTimeoutMs => config.catalog_wait_timeout_ms = value,
+        Setting::ShutdownTimeoutMs => config.shutdown_timeout_ms = value,
+        _ => return Err(unknown_setting()),
     }
-    Ok(true)
+    Ok(())
 }
 
 fn non_empty<'a>(key: &str, value: &'a str) -> Result<&'a str, SettingFix> {
