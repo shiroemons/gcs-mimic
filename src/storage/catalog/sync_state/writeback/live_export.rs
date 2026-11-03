@@ -315,8 +315,7 @@ impl Writeback {
         fence: JournalFence,
         source: LiveSource,
     ) -> Result<LiveExport, Error> {
-        let this = self.clone();
-        self.serial(async move {
+        self.serial_with(move |this| async move {
             let (purpose,source,captured)=match source {
                 LiveSource::Observe=>(CopyPurpose::Ordinary,None,None),
                 LiveSource::ApiCopy(file)=>(CopyPurpose::Ordinary,Some(file),None),
@@ -385,8 +384,7 @@ impl Writeback {
         &self,
         operation: LiveExport,
     ) -> Result<LiveResult, Error> {
-        let this = self.clone();
-        self.serial(async move {
+        self.serial_with(move |this| async move {
             let mut operation = operation.0.lock().await;
             let operation = &mut *operation;
             this.token(&operation.item.token)?;

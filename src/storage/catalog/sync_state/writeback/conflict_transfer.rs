@@ -7,8 +7,7 @@ mod tests;
 
 impl Writeback {
     pub(crate) async fn preserve_protected(&self) -> Result<Status, Error> {
-        let this = self.clone();
-        self.serial(async move {
+        self.serial_with(|this| async move {
             let mut after = 0;
             loop {
                 let page = this.page_inner(after, 256).await?;

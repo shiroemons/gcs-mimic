@@ -153,9 +153,11 @@ pub(crate) struct Limits {
     bytes: u64,
     entries: u64,
 }
+const MAX_RETAINED_BYTES: u64 = 1 << 40;
+
 impl Limits {
     pub(crate) fn new(bytes: u64, entries: u64) -> Result<Self, Error> {
-        if !(1..=1_099_511_627_776).contains(&bytes) || !(1..=1_000_000).contains(&entries) {
+        if !(1..=MAX_RETAINED_BYTES).contains(&bytes) || !(1..=1_000_000).contains(&entries) {
             return Err(AdminError::Invalid("invalid write-back limits".into()).into());
         }
         Ok(Self { bytes, entries })
@@ -664,10 +666,14 @@ impl Writeback {
     pub(crate) fn root_lease(&self) -> &RootLease {
         &self.lease
     }
-    async fn serial<T: Send + 'static>(
+    async fn serial_with<T: Send + 'static, F>(
         &self,
-        future: impl std::future::Future<Output = Result<T, Error>> + Send + 'static,
-    ) -> Result<T, Error> {
+        operation: impl FnOnce(Self) -> F + Send + 'static,
+    ) -> Result<T, Error>
+    where
+        F: std::future::Future<Output = Result<T, Error>> + Send + 'static,
+    {
+        let this = self.clone();
         let permit = self
             .lease
             .catalog()
@@ -679,7 +685,7 @@ impl Writeback {
         // Cancellation can release a waiting request, but never an executing file/SQL transition.
         owned(async move {
             let _permit = permit;
-            future.await
+            operation(this).await
         })
         .await
     }
@@ -692,8 +698,7 @@ impl Writeback {
         job: impl FnOnce(&File, &File) -> Result<T, AdminError> + Send + 'static,
     ) -> Result<T, Error> {
         self.token(&token)?;
-        let this = self.clone();
-        self.serial(async move {
+        self.serial_with(move |this| async move {
             let selected = token.clone();
             this.db(move |c| {
                 let item = checked(c, &selected)?;
@@ -776,8 +781,8 @@ impl Writeback {
         Ok(())
     }
     pub(crate) async fn status(&self) -> Result<Status, Error> {
-        let this = self.clone();
-        self.serial(async move { this.status_inner().await }).await
+        self.serial_with(|this| async move { this.status_inner().await })
+            .await
     }
     async fn status_inner(&self) -> Result<Status, Error> {
         self.fs(|_, _| Ok(())).await?;
@@ -786,8 +791,7 @@ impl Writeback {
     }
     #[cfg(all(test, unix))]
     pub(crate) async fn page(&self, after: i64, limit: usize) -> Result<Vec<Pending>, Error> {
-        let this = self.clone();
-        self.serial(async move { this.page_inner(after, limit).await })
+        self.serial_with(move |this| async move { this.page_inner(after, limit).await })
             .await
     }
     async fn page_inner(&self, after: i64, limit: usize) -> Result<Vec<Pending>, Error> {
@@ -810,8 +814,9 @@ impl Writeback {
         if BlobId::parse(id).is_none() {
             return Err(stale());
         }
-        let (this, id) = (self.clone(), id.to_owned());
-        self.serial(async move { this.get_inner(&id).await }).await
+        let id = id.to_owned();
+        self.serial_with(move |this| async move { this.get_inner(&id).await })
+            .await
     }
     #[cfg(all(test, unix))]
     async fn get_inner(&self, id: &str) -> Result<Pending, Error> {
@@ -832,8 +837,8 @@ impl Writeback {
         kind: Kind,
         fence: JournalFence,
     ) -> Result<Pending, Error> {
-        let (this, bucket, name) = (self.clone(), bucket.clone(), name.clone());
-        self.serial(async move {
+        let (bucket, name) = (bucket.clone(), name.clone());
+        self.serial_with(move |this| async move {
             this.prepare_inner(&bucket, &name, generation, kind, fence)
                 .await
         })
@@ -888,8 +893,7 @@ impl Writeback {
     #[cfg(all(test, unix))]
     pub(crate) async fn arm(&self, token: Token) -> Result<Pending, Error> {
         self.token(&token)?;
-        let this = self.clone();
-        self.serial(async move { this.arm_inner(token).await })
+        self.serial_with(move |this| async move { this.arm_inner(token).await })
             .await
     }
     #[cfg(all(test, unix))]
@@ -924,8 +928,7 @@ impl Writeback {
     #[cfg(all(test, unix))]
     pub(crate) async fn inspect(&self, token: Token) -> Result<Pending, Error> {
         self.token(&token)?;
-        let this = self.clone();
-        self.serial(async move { this.inspect_inner(token).await })
+        self.serial_with(move |this| async move { this.inspect_inner(token).await })
             .await
     }
     async fn inspect_inner(&self, token: Token) -> Result<Pending, Error> {
@@ -985,8 +988,7 @@ impl Writeback {
     #[cfg(all(test, unix))]
     pub(crate) async fn durable(&self, token: Token) -> Result<DurableReceipt, Error> {
         self.token(&token)?;
-        let this = self.clone();
-        self.serial(async move { this.durable_inner(token).await })
+        self.serial_with(move |this| async move { this.durable_inner(token).await })
             .await
     }
     #[cfg(all(test, unix))]
@@ -1034,8 +1036,7 @@ impl Writeback {
         progress: Option<JournalFence>,
     ) -> Result<Pending, Error> {
         self.token(&receipt.token)?;
-        let this = self.clone();
-        self.serial(async move { this.ack_inner(receipt, progress).await })
+        self.serial_with(move |this| async move { this.ack_inner(receipt, progress).await })
             .await
     }
     #[cfg(all(test, unix))]
@@ -1098,8 +1099,8 @@ impl Writeback {
     }
     #[cfg(all(test, unix))]
     pub(crate) async fn resume(&self) -> Result<Status, Error> {
-        let this = self.clone();
-        self.serial(async move { this.resume_inner().await }).await
+        self.serial_with(|this| async move { this.resume_inner().await })
+            .await
     }
     async fn resume_inner(&self) -> Result<Status, Error> {
         self.fs(|_, _| Ok(())).await?;
@@ -1123,8 +1124,7 @@ impl Writeback {
     }
     #[cfg(all(test, unix))]
     pub(crate) async fn checkpoint(&self, fence: JournalFence) -> Result<(), Error> {
-        let this = self.clone();
-        self.serial(async move { this.checkpoint_inner(fence).await })
+        self.serial_with(move |this| async move { this.checkpoint_inner(fence).await })
             .await
     }
     #[cfg(all(test, unix))]

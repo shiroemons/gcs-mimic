@@ -55,8 +55,8 @@ impl Writeback {
         fence: JournalFence,
         source: Option<File>,
     ) -> Result<(Pending, Unpublished), Error> {
-        let (this, bucket, name) = (self.clone(), bucket.clone(), name.clone());
-        self.serial(async move {
+        let (bucket, name) = (bucket.clone(), name.clone());
+        self.serial_with(move |this| async move {
             let item = this
                 .prepare_inner(&bucket, &name, generation, Kind::Publish, fence)
                 .await?;
@@ -103,8 +103,7 @@ impl Writeback {
     /// Cancels only an unpublished intent with private copy provenance; the target is untouched.
     pub(crate) async fn abandon_unpublished(&self, proof: Unpublished) -> Result<(), Error> {
         self.token(&proof.token)?;
-        let this = self.clone();
-        self.serial(async move {
+        self.serial_with(move |this| async move {
             let token = proof.token.clone();
             let item = this
                 .db(move |c| load(c, token.catalog, token.root, &token.id))
@@ -170,8 +169,7 @@ impl Writeback {
     /// Retires an obsolete but durably installed API copy, without claiming synchronized progress.
     pub(crate) async fn finish_obsolete_publish(&self, proof: Unpublished) -> Result<(), Error> {
         self.token(&proof.token)?;
-        let this = self.clone();
-        self.serial(async move {
+        self.serial_with(move |this| async move {
             let token = proof.token.clone();
             let item = this
                 .db(move |c| load(c, token.catalog, token.root, &token.id))
