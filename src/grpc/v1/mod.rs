@@ -24,7 +24,7 @@ use crate::{
     auth::{BUCKETS_LIST, Caller},
     bucket::{BucketAccess, BucketConditions, CatalogError},
     grpc::{
-        v2::status::{from_json, unsupported},
+        v2::status::unsupported,
         validate::{self, bucket_conditions, request_conditions},
     },
     json,
@@ -77,19 +77,16 @@ pub(crate) fn known_method(path: &str) -> bool {
         })
 }
 
-fn object_error(error: ObjectError) -> Status {
-    from_json(error.into())
-}
 /// The catalog can deny after `access` (deferred object ACLs, overwrite, holds, compose sources);
 /// anonymous callers then still get JSON's credentials-required mapping.
 fn object_access_error(error: ObjectError, caller: Option<Caller<'_>>) -> Status {
-    crate::grpc::v2::status::anonymous(object_error(error), caller)
+    crate::grpc::v2::status::anonymous(error.into(), caller)
 }
 fn catalog_error(error: CatalogError) -> Status {
     if matches!(error, CatalogError::NotEmpty) {
         Status::failed_precondition("Bucket is not empty; delete objects and versions first")
     } else {
-        from_json(error.into())
+        error.into()
     }
 }
 
@@ -113,17 +110,9 @@ fn projection(value: i32) -> Result<(), Status> {
     }
 }
 
-fn conditions(
-    g: Option<i64>,
-    ng: Option<i64>,
-    m: Option<i64>,
-    nm: Option<i64>,
-) -> Result<ObjectConditions, Status> {
+fn conditions(conditions: ObjectConditions) -> Result<ObjectConditions, Status> {
     validate::lenient_conditions(
-        g,
-        ng,
-        m,
-        nm,
+        conditions,
         "Preconditions must be nonnegative; use if_generation_match=0 for create only",
     )
 }
@@ -215,8 +204,7 @@ fn metadata(
     Ok(json::parse_object_metadata(
         &serde_json::to_vec(&body).map_err(|_| Status::internal("Cannot encode metadata"))?,
         write,
-    )
-    .map_err(from_json)?
+    )?
     .update)
 }
 
@@ -242,10 +230,10 @@ impl Storage {
         bucket: &str,
         permission: &str,
     ) -> Result<BucketAccess, Status> {
-        json::validate_bucket_name_for_profile(bucket, self.compat_profile).map_err(from_json)?;
+        json::validate_bucket_name_for_profile(bucket, self.compat_profile)?;
         crate::server::authorize_bucket(&self.state, caller, permission, bucket)
             .await
-            .map_err(|e| from_json(crate::server::anonymous_error(e, caller)))
+            .map_err(|e| Status::from(crate::server::anonymous_error(e, caller)))
     }
 
     fn project(
@@ -254,11 +242,9 @@ impl Storage {
         project: &str,
         permission: &str,
     ) -> Result<(), Status> {
-        json::validate_project(project).map_err(from_json)?;
+        json::validate_project(project)?;
         if let Some(caller) = caller {
-            caller
-                .authorize(permission, Some(project))
-                .map_err(|e| from_json(e.into()))?;
+            caller.authorize(permission, Some(project))?;
         }
         Ok(())
     }
@@ -276,9 +262,9 @@ impl Storage {
             mut object,
             write,
         } = update;
-        json::validate_object_name(name).map_err(from_json)?;
+        json::validate_object_name(name)?;
         let access = self
-            .access(caller, bucket, "storage.objects.update")
+            .access(caller, bucket, crate::auth::OBJECTS_UPDATE)
             .await?;
         if (!object.name.is_empty() && object.name != name)
             || (!object.bucket.is_empty() && object.bucket != bucket)
@@ -288,7 +274,7 @@ impl Storage {
             ));
         }
         let mut supplied = object.clone();
-        convert::object_outputs(&mut object, None).map_err(object_error)?;
+        convert::object_outputs(&mut object, None)?;
         let update = metadata(object, write)?;
         let record = self
             .state
@@ -298,15 +284,14 @@ impl Storage {
                 conditions,
                 update,
                 move |record| {
-                    let current = convert::object(record)
-                        .map_err(|e| ObjectError::Unavailable(e.message().into()))?;
+                    let current = pb::Object::from(record);
                     convert::object_outputs(&mut supplied, Some(&current))
                 },
                 &access,
             )
             .await
             .map_err(|error| object_access_error(error, caller))?;
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(pb::Object::from(&record)))
     }
 }
 
@@ -320,14 +305,13 @@ impl pb::storage_server::Storage for Storage {
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
-        conditions(
-            None,
-            None,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        conditions(ObjectConditions {
+            if_metageneration_match: r.if_metageneration_match,
+            if_metageneration_not_match: r.if_metageneration_not_match,
+            ..Default::default()
+        })?;
         let access = self
-            .access(caller, &r.bucket, "storage.buckets.get")
+            .access(caller, &r.bucket, crate::auth::BUCKETS_GET)
             .await?;
         let record = self
             .state
@@ -353,14 +337,13 @@ impl pb::storage_server::Storage for Storage {
         let caller = self.authenticate(&request)?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
-        conditions(
-            None,
-            None,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        conditions(ObjectConditions {
+            if_metageneration_match: r.if_metageneration_match,
+            if_metageneration_not_match: r.if_metageneration_not_match,
+            ..Default::default()
+        })?;
         let access = self
-            .access(caller, &r.bucket, "storage.buckets.delete")
+            .access(caller, &r.bucket, crate::auth::BUCKETS_DELETE)
             .await?;
         self.state
             .catalog
@@ -381,7 +364,7 @@ impl pb::storage_server::Storage for Storage {
         if r.predefined_acl != 0 || r.predefined_default_object_acl != 0 {
             return Err(unsupported("legacy bucket predefined ACLs; omit them"));
         }
-        self.project(caller, &r.project, "storage.buckets.create")?;
+        self.project(caller, &r.project, crate::auth::BUCKETS_CREATE)?;
         let mut bucket = r.bucket.ok_or_else(|| {
             Status::invalid_argument("bucket is required; set bucket.name=example-bucket")
         })?;
@@ -392,8 +375,7 @@ impl pb::storage_server::Storage for Storage {
             self.state.clock.now(),
             self.compat_profile,
             &self.state.default_location,
-        )
-        .map_err(from_json)?;
+        )?;
         let record = self
             .state
             .catalog
@@ -414,15 +396,14 @@ impl pb::storage_server::Storage for Storage {
         if r.predefined_acl != 0 || r.predefined_default_object_acl != 0 {
             return Err(unsupported("legacy bucket predefined ACLs; omit them"));
         }
-        conditions(
-            None,
-            None,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        conditions(ObjectConditions {
+            if_metageneration_match: r.if_metageneration_match,
+            if_metageneration_not_match: r.if_metageneration_not_match,
+            ..Default::default()
+        })?;
         let requested = bucket_conditions!(r);
         let access = self
-            .access(caller, &r.bucket, "storage.buckets.update")
+            .access(caller, &r.bucket, crate::auth::BUCKETS_UPDATE)
             .await?;
         let mut bucket = r.metadata.ok_or_else(|| {
             Status::invalid_argument("metadata is required; supply default_event_based_hold=false")
@@ -441,8 +422,7 @@ impl pb::storage_server::Storage for Storage {
             return Err(catalog_error(CatalogError::PreconditionFailed));
         }
         let body = convert::bucket_metadata(&mut bucket, Some(&convert::bucket(&current)))?;
-        let update =
-            json::parse_bucket_replacement(&body, self.compat_profile).map_err(from_json)?;
+        let update = json::parse_bucket_replacement(&body, self.compat_profile)?;
         let record = self
             .state
             .catalog
@@ -475,10 +455,8 @@ impl pb::storage_server::Storage for Storage {
         let projects = if all_projects {
             match caller {
                 Some(caller) => {
-                    caller
-                        .authorize(BUCKETS_LIST, None)
-                        .map_err(|e| from_json(e.into()))?;
-                    let identity = caller.principal().map_err(|e| from_json(e.into()))?;
+                    caller.authorize(BUCKETS_LIST, None)?;
+                    let identity = caller.principal()?;
                     Some(identity.projects_allowing(BUCKETS_LIST))
                 }
                 None => None,
@@ -493,12 +471,16 @@ impl pb::storage_server::Storage for Storage {
         let start = if r.page_token.is_empty() {
             None
         } else if all_projects {
-            Some(
-                json::decode_all_projects_page_token(&r.page_token, &r.prefix)
-                    .map_err(from_json)?,
-            )
+            Some(json::decode_all_projects_page_token(
+                &r.page_token,
+                &r.prefix,
+            )?)
         } else {
-            Some(json::decode_page_token(&r.page_token, &r.project, &r.prefix).map_err(from_json)?)
+            Some(json::decode_page_token(
+                &r.page_token,
+                &r.project,
+                &r.prefix,
+            )?)
         };
         let page = self
             .state
@@ -521,8 +503,7 @@ impl pb::storage_server::Storage for Storage {
                 json::encode_all_projects_page_token(&r.prefix, last)
             } else {
                 json::encode_page_token(&r.project, &r.prefix, last)
-            }
-            .map_err(from_json)?
+            }?
         } else {
             String::new()
         };
@@ -543,9 +524,9 @@ impl pb::storage_server::Storage for Storage {
             r.common_object_request_params.as_ref(),
         )?;
         projection(r.projection)?;
-        json::validate_object_name(&r.object).map_err(from_json)?;
+        json::validate_object_name(&r.object)?;
         let access = self
-            .access(caller, &r.bucket, "storage.objects.get")
+            .access(caller, &r.bucket, crate::auth::OBJECTS_GET)
             .await?;
         let target = ObjectTarget::new(&r.bucket, &r.object, generation(r.generation)?);
         let record = self
@@ -554,7 +535,7 @@ impl pb::storage_server::Storage for Storage {
             .get_object(target, request_conditions!(conditions, r)?, &access)
             .await
             .map_err(|error| object_access_error(error, caller))?;
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(pb::Object::from(&record)))
     }
 
     async fn delete_object(
@@ -567,9 +548,9 @@ impl pb::storage_server::Storage for Storage {
             r.common_request_params.as_ref(),
             r.common_object_request_params.as_ref(),
         )?;
-        json::validate_object_name(&r.object).map_err(from_json)?;
+        json::validate_object_name(&r.object)?;
         let access = self
-            .access(caller, &r.bucket, "storage.objects.delete")
+            .access(caller, &r.bucket, crate::auth::OBJECTS_DELETE)
             .await?;
         let target = ObjectTarget::new(&r.bucket, &r.object, generation(r.generation)?);
         self.state
@@ -641,35 +622,38 @@ impl pb::storage_server::Storage for Storage {
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
         let access = self
-            .access(caller, &r.bucket, "storage.objects.list")
+            .access(caller, &r.bucket, crate::auth::OBJECTS_LIST)
             .await?;
-        let uri = format!("/storage/v1/b/{}/o?prefix={}&delimiter={}&pageToken={}&maxResults={}&versions={}&includeTrailingDelimiter={}",crate::auth::signature::encode_query_component(&r.bucket),crate::auth::signature::encode_query_component(&r.prefix),crate::auth::signature::encode_query_component(&r.delimiter),crate::auth::signature::encode_query_component(&r.page_token),limit(r.max_results)?,r.versions,r.include_trailing_delimiter).parse().map_err(|_| Status::invalid_argument("Invalid list request"))?;
-        let Some(Ok(json::ObjectRequest::List(params))) =
-            json::route_object_with_profile(&hyper::Method::GET, &uri, self.compat_profile)
-        else {
-            return Err(Status::invalid_argument(
-                "Invalid object listing or page token; use the token with its original query",
-            ));
+        let max_results = limit(r.max_results)?;
+        let mut query = crate::storage::ObjectListQuery {
+            bucket: r.bucket,
+            prefix: r.prefix,
+            delimiter: r.delimiter,
+            include_trailing_delimiter: r.include_trailing_delimiter,
+            versions: r.versions,
+            ..Default::default()
         };
+        if !r.page_token.is_empty() {
+            query.cursor = Some(json::decode_object_page_token(
+                &r.page_token, &query, json::Projection::NoAcl,
+            ).map_err(|_| Status::invalid_argument(
+                "Invalid object listing or page token; use the token with its original query",
+            ))?);
+        }
         let page = self
             .state
             .catalog
-            .list_objects(params.query.clone(), params.max_results, &access)
-            .await
-            .map_err(object_error)?;
-        let rendered =
-            json::object_list(&page, &params, &self.state.api_base_url).map_err(from_json)?;
+            .list_objects(query.clone(), max_results, &access)
+            .await?;
+        let next_page_token = page
+            .next
+            .as_ref()
+            .map(|cursor| json::encode_object_page_token(&query, json::Projection::NoAcl, cursor))
+            .unwrap_or_default();
         Ok(Response::new(pb::ListObjectsResponse {
-            items: page
-                .items
-                .iter()
-                .map(convert::object)
-                .collect::<Result<_, _>>()?,
+            items: page.items.iter().map(pb::Object::from).collect(),
             prefixes: page.prefixes,
-            next_page_token: rendered["nextPageToken"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned(),
+            next_page_token,
         }))
     }
 
@@ -686,9 +670,9 @@ impl pb::storage_server::Storage for Storage {
         if r.destination_predefined_acl != 0 || !r.kms_key_name.is_empty() {
             return Err(unsupported("legacy compose ACL or KMS; omit these fields"));
         }
-        json::validate_object_name(&r.destination_object).map_err(from_json)?;
+        json::validate_object_name(&r.destination_object)?;
         let access = self
-            .access(caller, &r.destination_bucket, "storage.objects.create")
+            .access(caller, &r.destination_bucket, crate::auth::OBJECTS_CREATE)
             .await?;
         let object = r.destination.unwrap_or_default();
         if (!object.name.is_empty() && object.name != r.destination_object)
@@ -704,9 +688,12 @@ impl pb::storage_server::Storage for Storage {
             .source_objects
             .into_iter()
             .map(|s| {
-                json::validate_object_name(&s.name).map_err(from_json)?;
+                json::validate_object_name(&s.name)?;
                 let condition = s.object_preconditions.and_then(|p| p.if_generation_match);
-                conditions(condition, None, None, None)?;
+                conditions(ObjectConditions {
+                    if_generation_match: condition,
+                    ..Default::default()
+                })?;
                 Ok(crate::object::ComposeSource {
                     name: s.name,
                     generation: generation(s.generation)?,
@@ -725,12 +712,11 @@ impl pb::storage_server::Storage for Storage {
                     metadata,
                     storage_class: None,
                     expected: Default::default(),
-                    conditions: conditions(
-                        r.if_generation_match,
-                        None,
-                        r.if_metageneration_match,
-                        None,
-                    )?,
+                    conditions: conditions(ObjectConditions {
+                        if_generation_match: r.if_generation_match,
+                        if_metageneration_match: r.if_metageneration_match,
+                        ..Default::default()
+                    })?,
                     access,
                     component_count: None,
                 },
@@ -740,7 +726,7 @@ impl pb::storage_server::Storage for Storage {
             )
             .await
             .map_err(|error| object_access_error(error, caller))?;
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(pb::Object::from(&record)))
     }
 
     async fn insert_object(

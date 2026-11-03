@@ -1,8 +1,6 @@
 use super::{
-    ResponseStream, Storage, access_status,
-    append::Finality,
-    convert, names, pb,
-    status::{from_json as json_status, unsupported_for},
+    ResponseStream, Storage, access_status, append::Finality, convert, names, pb,
+    status::unsupported_for,
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
@@ -23,7 +21,7 @@ pub(super) fn object_status(error: ObjectError) -> Status {
     if matches!(error, ObjectError::UnsupportedMetadata(_)) {
         return unsupported_for(&error.to_string(), None);
     }
-    json_status(error.into())
+    error.into()
 }
 
 /// [`object_status`] for an RPC that names one object: Cloud Storage repeats `<bucket>/<object>`
@@ -36,7 +34,9 @@ pub(super) fn named_object_status<'a>(
         if matches!(error, ObjectError::UnsupportedMetadata(_)) {
             return object_status(error);
         }
-        json_status(json::JsonError::from(error).naming_object(bucket, name))
+        json::JsonError::from(error)
+            .naming_object(bucket, name)
+            .into()
     }
 }
 
@@ -58,17 +58,9 @@ pub(super) fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(
     )
 }
 
-pub(super) fn conditions(
-    g: Option<i64>,
-    ng: Option<i64>,
-    m: Option<i64>,
-    nm: Option<i64>,
-) -> Result<ObjectConditions, Status> {
+pub(super) fn conditions(conditions: ObjectConditions) -> Result<ObjectConditions, Status> {
     validate::lenient_conditions(
-        g,
-        ng,
-        m,
-        nm,
+        conditions,
         "Preconditions must be nonnegative; use if_generation_match=0 to create only",
     )
 }
@@ -99,17 +91,11 @@ pub(super) fn hashes(value: Option<&pb::ObjectChecksums>) -> Result<ExpectedHash
 }
 
 fn merge_hashes(first: ExpectedHashes, next: ExpectedHashes) -> Result<ExpectedHashes, Status> {
-    if matches!((first.crc32c,next.crc32c),(Some(a),Some(b)) if a!=b)
-        || matches!((first.md5,next.md5),(Some(a),Some(b)) if a!=b)
-    {
-        return Err(Status::invalid_argument(
-            "Conflicting object_checksums; use the same digest in each message",
-        ));
-    }
-    Ok(ExpectedHashes {
-        crc32c: next.crc32c.or(first.crc32c),
-        md5: next.md5.or(first.md5),
-    })
+    validate::merge_hashes(
+        first,
+        next,
+        "Conflicting object_checksums; use the same digest in each message",
+    )
 }
 
 /// The object fields that a default read mask omits, selected by an explicit mask.
@@ -275,24 +261,9 @@ fn read_range(size: u64, offset: i64, limit: i64) -> Result<(u64, u64), Status> 
             "read_limit must be nonnegative; use 0 to read to the end",
         ));
     }
-    let start = if offset < 0 {
-        size.saturating_sub(offset.unsigned_abs())
-    } else {
-        offset as u64
-    };
-    if start > size {
-        return Err(Status::out_of_range(
-            "read_offset exceeds object size; use 0 or a valid byte offset",
-        ));
-    }
-    Ok((
-        start,
-        if limit == 0 {
-            size - start
-        } else {
-            (limit as u64).min(size - start)
-        },
-    ))
+    validate::resolve_range(size, offset, limit).ok_or_else(|| {
+        Status::out_of_range("read_offset exceeds object size; use 0 or a valid byte offset")
+    })
 }
 
 fn upload_id(bucket: &str, id: &str) -> String {
@@ -504,9 +475,9 @@ impl Storage {
             metadata: Some(object.clone()),
             object_checksums: object.checksums,
             content_range: (r.read_offset != 0 || r.read_limit != 0).then_some(pb::ContentRange {
-                start: start as i64,
-                end: (start + length) as i64,
-                complete_length: record.size as i64,
+                start: crate::grpc::convert::signed(start),
+                end: crate::grpc::convert::signed(start + length),
+                complete_length: crate::grpc::convert::signed(record.size),
             }),
             ..Default::default()
         };
@@ -687,7 +658,7 @@ impl Storage {
             return Err(unsupported_for("ListObjects filter", caller));
         }
         if r.include_folders_as_prefixes {
-            json::check_folders_as_prefixes(&r.delimiter).map_err(json_status)?;
+            json::check_folders_as_prefixes(&r.delimiter)?;
         }
         let encode = crate::auth::signature::encode_query_component;
         let query = [
@@ -727,8 +698,7 @@ impl Storage {
             .list_objects(params.query.clone(), params.max_results, &access)
             .await
             .map_err(object_status)?;
-        let value =
-            json::object_list(&page, &params, &self.state.api_base_url).map_err(json_status)?;
+        let value = json::object_list(&page, &params, &self.state.api_base_url)?;
         let mut objects = page
             .items
             .iter()
@@ -810,7 +780,9 @@ impl Storage {
                 session.completion.as_ref(),
             )?)
         } else {
-            pb::query_write_status_response::WriteStatus::PersistedSize(session.offset as i64)
+            pb::query_write_status_response::WriteStatus::PersistedSize(
+                crate::grpc::convert::signed(session.offset),
+            )
         };
         Ok(Response::new(pb::QueryWriteStatusResponse {
             write_status: Some(status),
@@ -1059,7 +1031,7 @@ impl Storage {
                     .await?;
                 WriteStatus::Resource(resource)
             } else {
-                WriteStatus::PersistedSize(written as i64)
+                WriteStatus::PersistedSize(crate::grpc::convert::signed(written))
             };
             if let Some(tx) = responses
                 && (message.finish_write || message.flush || message.state_lookup)
@@ -1387,14 +1359,10 @@ async fn produce_single_write<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::test_support::{self as fixtures, assert_code, registry};
     use crate::storage::test_fixtures::{PERMISSIVE, live};
-    use crate::{
-        auth::{Auth, Registry},
-        clock::SystemClock,
-        storage::Catalog,
-        test_support::TestDir,
-    };
-    use std::sync::{Arc, atomic::AtomicBool};
+    use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
+    use std::sync::Arc;
 
     async fn setup(strict: bool) -> (TestDir, Storage) {
         let dir = TestDir::new();
@@ -1407,19 +1375,15 @@ mod tests {
         .unwrap();
         catalog.insert_bucket(definition).await.unwrap();
         let auth = if strict {
-            Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"reader@example.invalid","tokens":["reader"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}"#).unwrap())
+            Auth::strict(registry(&[
+                ("admin", "project", "roles/storage.admin"),
+                ("reader", "project", "roles/storage.objectViewer"),
+            ]))
         } else {
             Auth::permissive()
         };
         let storage = Storage {
-            state: Arc::new(crate::server::State {
-                ready: AtomicBool::new(true),
-                clock: Arc::new(SystemClock),
-                catalog,
-                api_base_url: "http://localhost:4443".into(),
-                default_location: "US".into(),
-                auth,
-            }),
+            state: Arc::new(fixtures::state(catalog, auth)),
             max_object_bytes: 1024 * 1024,
         };
         (dir, storage)
@@ -1470,7 +1434,7 @@ mod tests {
     #[test]
     fn grpc_io_range_and_masks() {
         assert_eq!(
-            json_status(json::JsonError::new(
+            Status::from(json::JsonError::new(
                 hyper::StatusCode::NOT_MODIFIED,
                 "notModified",
                 "Object condition matched"
@@ -1478,7 +1442,7 @@ mod tests {
             .code(),
             tonic::Code::FailedPrecondition
         );
-        let unsupported = json_status(json::JsonError::new(
+        let unsupported = Status::from(json::JsonError::new(
             hyper::StatusCode::NOT_IMPLEMENTED,
             "notImplemented",
             "Unsupported object option",
@@ -1497,9 +1461,7 @@ mod tests {
         );
         let unknown = mask_object(
             pb::Object::default(),
-            Some(&prost_types::FieldMask {
-                paths: vec!["noSuchField".into()],
-            }),
+            fixtures::mask(&["noSuchField"]).as_ref(),
         )
         .unwrap_err();
         assert_eq!(unknown.code(), tonic::Code::InvalidArgument);
@@ -1510,37 +1472,25 @@ mod tests {
         assert_eq!(read_range(15, -5, 3).unwrap(), (10, 3));
         assert_eq!(read_range(15, i64::MIN, 0).unwrap(), (0, 15));
         assert_eq!(read_range(15, 15, 0).unwrap(), (15, 0));
-        assert_eq!(
-            read_range(15, 16, 0).unwrap_err().code(),
-            tonic::Code::OutOfRange
-        );
-        assert_eq!(
-            read_range(15, 0, -1).unwrap_err().code(),
-            tonic::Code::InvalidArgument
-        );
+        assert_code(read_range(15, 16, 0), tonic::Code::OutOfRange);
+        assert_code(read_range(15, 0, -1), tonic::Code::InvalidArgument);
         let object = mask_object(
             pb::Object {
                 name: "a".into(),
                 size: 12,
                 ..Default::default()
             },
-            Some(&prost_types::FieldMask {
-                paths: vec!["name".into()],
-            }),
+            fixtures::mask(&["name"]).as_ref(),
         )
         .unwrap();
         assert_eq!(object.name, "a");
         assert_eq!(object.size, 0);
-        assert_eq!(
+        assert_code(
             mask_object(
                 pb::Object::default(),
-                Some(&prost_types::FieldMask {
-                    paths: vec!["owner.entity".into()]
-                })
-            )
-            .unwrap_err()
-            .code(),
-            tonic::Code::Unimplemented
+                fixtures::mask(&["owner.entity"]).as_ref(),
+            ),
+            tonic::Code::Unimplemented,
         );
     }
 
@@ -1581,12 +1531,6 @@ mod tests {
         "hard_delete_time",
         "retention",
     ];
-
-    fn read_mask(paths: &[&str]) -> Option<prost_types::FieldMask> {
-        Some(prost_types::FieldMask {
-            paths: paths.iter().map(|path| (*path).to_owned()).collect(),
-        })
-    }
 
     #[tokio::test]
     async fn grpc_io_write_returns_acl_and_owner_and_read_ends_with_data() {
@@ -1667,7 +1611,7 @@ mod tests {
                 caller,
             )
         };
-        let full = get(read_mask(&ALL_OBJECT_FIELDS), admin)
+        let full = get(fixtures::mask(&ALL_OBJECT_FIELDS), admin)
             .await
             .unwrap()
             .into_inner();
@@ -1700,10 +1644,13 @@ mod tests {
         assert!(full.kms_key.is_empty() && full.contexts.is_none());
         assert!(full.restore_token.is_none());
 
-        let star = get(read_mask(&["*"]), admin).await.unwrap().into_inner();
+        let star = get(fixtures::mask(&["*"]), admin)
+            .await
+            .unwrap()
+            .into_inner();
         assert_eq!(star, full);
 
-        let acl_only = get(read_mask(&["name", "acl"]), admin)
+        let acl_only = get(fixtures::mask(&["name", "acl"]), admin)
             .await
             .unwrap()
             .into_inner();
@@ -1722,7 +1669,7 @@ mod tests {
             .metadata_mut()
             .insert("authorization", "Bearer reader".parse().unwrap());
         let reader = storage.authenticate(&request).unwrap();
-        let viewed = get(read_mask(&ALL_OBJECT_FIELDS), reader)
+        let viewed = get(fixtures::mask(&ALL_OBJECT_FIELDS), reader)
             .await
             .unwrap()
             .into_inner();
@@ -1733,7 +1680,7 @@ mod tests {
             .list_objects(
                 Request::new(pb::ListObjectsRequest {
                     parent: "projects/_/buckets/grpc-io".into(),
-                    read_mask: read_mask(&ALL_OBJECT_FIELDS),
+                    read_mask: fixtures::mask(&ALL_OBJECT_FIELDS),
                     ..Default::default()
                 }),
                 admin,
@@ -1748,7 +1695,7 @@ mod tests {
                 Request::new(pb::ReadObjectRequest {
                     bucket: "projects/_/buckets/grpc-io".into(),
                     object: "masked".into(),
-                    read_mask: read_mask(&["metadata.name", "metadata.acl"]),
+                    read_mask: fixtures::mask(&["metadata.name", "metadata.acl"]),
                     ..Default::default()
                 }),
                 admin,
@@ -1760,17 +1707,14 @@ mod tests {
         assert_eq!(metadata.name, "masked");
         assert_eq!(metadata.acl, full.acl);
         assert!(metadata.owner.is_none());
-        assert_eq!(
-            get(read_mask(&["owner.entity"]), admin)
-                .await
-                .unwrap_err()
-                .code(),
-            tonic::Code::Unimplemented
+        assert_code(
+            get(fixtures::mask(&["owner.entity"]), admin).await,
+            tonic::Code::Unimplemented,
         );
         // A checksum sub-path keeps only that digest, as the Java SDK lists objects.
         let sums = full.checksums.clone().unwrap();
         assert!(sums.crc32c.is_some() && !sums.md5_hash.is_empty());
-        let md5_only = get(read_mask(&["name", "checksums.md5_hash"]), admin)
+        let md5_only = get(fixtures::mask(&["name", "checksums.md5_hash"]), admin)
             .await
             .unwrap()
             .into_inner();
@@ -1779,7 +1723,7 @@ mod tests {
             (md5_only.crc32c, md5_only.md5_hash),
             (None, sums.md5_hash.clone())
         );
-        let crc_only = get(read_mask(&["checksums.crc32c"]), admin)
+        let crc_only = get(fixtures::mask(&["checksums.crc32c"]), admin)
             .await
             .unwrap()
             .into_inner()
@@ -1879,10 +1823,7 @@ mod tests {
         storage.state.catalog.close().await.unwrap();
         let mut storage = storage;
         Arc::get_mut(&mut storage.state).unwrap().catalog = Catalog::open(&dir.0).await.unwrap();
-        assert_eq!(
-            write(&storage, vec![first]).await.unwrap_err().code(),
-            tonic::Code::OutOfRange
-        );
+        assert_code(write(&storage, vec![first]).await, tonic::Code::OutOfRange);
         let mut final_message = message("ignored", b"def");
         final_message.write_offset = 3;
         final_message.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
@@ -1936,9 +1877,9 @@ mod tests {
         ] {
             let mut bad = message("object", b"bad");
             bad.object_checksums = Some(checksum);
-            assert_eq!(
-                write(&storage, vec![bad]).await.unwrap_err().code(),
-                tonic::Code::InvalidArgument
+            assert_code(
+                write(&storage, vec![bad]).await,
+                tonic::Code::InvalidArgument,
             );
             assert_eq!(
                 storage
@@ -1972,9 +1913,9 @@ mod tests {
         losing.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
             upload,
         ));
-        assert_eq!(
-            write(&storage, vec![losing]).await.unwrap_err().code(),
-            tonic::Code::FailedPrecondition
+        assert_code(
+            write(&storage, vec![losing]).await,
+            tonic::Code::FailedPrecondition,
         );
         write(&storage, vec![message("object", b"new")])
             .await
@@ -1983,9 +1924,7 @@ mod tests {
             bucket: "projects/_/buckets/grpc-io".into(),
             object: "object".into(),
             generation: first.generation,
-            read_mask: Some(prost_types::FieldMask {
-                paths: vec!["generation".into(), "size".into()],
-            }),
+            read_mask: fixtures::mask(&["generation", "size"]),
             ..Default::default()
         };
         let selected = storage
@@ -2032,13 +1971,9 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(
-            storage
-                .get_object(Request::new(get), None)
-                .await
-                .unwrap_err()
-                .code(),
-            tonic::Code::NotFound
+        assert_code(
+            storage.get_object(Request::new(get), None).await,
+            tonic::Code::NotFound,
         );
         storage.state.catalog.close().await.unwrap();
     }
@@ -2064,18 +1999,16 @@ mod tests {
             .metadata_mut()
             .insert("authorization", "Bearer reader".parse().unwrap());
         let reader = storage.authenticate(&request).unwrap();
-        assert_eq!(
+        assert_code(
             storage
                 .receive_write(
                     &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"denied"))]),
                     reader,
                     None,
-                    EndOfStream::Required
+                    EndOfStream::Required,
                 )
-                .await
-                .unwrap_err()
-                .code(),
-            tonic::Code::PermissionDenied
+                .await,
+            tonic::Code::PermissionDenied,
         );
         let get = pb::GetObjectRequest {
             bucket: "projects/_/buckets/grpc-io".into(),
@@ -2099,13 +2032,9 @@ mod tests {
         );
         let mut unsupported_spec = spec("kms");
         unsupported_spec.resource.as_mut().unwrap().kms_key = "key".into();
-        assert_eq!(
-            storage
-                .write_spec(unsupported_spec, None, admin)
-                .await
-                .unwrap_err()
-                .code(),
-            tonic::Code::Unimplemented
+        assert_code(
+            storage.write_spec(unsupported_spec, None, admin).await,
+            tonic::Code::Unimplemented,
         );
         storage.state.catalog.close().await.unwrap();
     }
@@ -2194,12 +2123,9 @@ mod tests {
             Err(tonic::Code::NotFound)
         );
         for finish in [false, true] {
-            assert_eq!(
-                write(&storage, vec![resume(&fresh, 0, b"abc", finish)])
-                    .await
-                    .unwrap_err()
-                    .code(),
-                tonic::Code::NotFound
+            assert_code(
+                write(&storage, vec![resume(&fresh, 0, b"abc", finish)]).await,
+                tonic::Code::NotFound,
             );
         }
         // Repeating a successful cancellation reports the session as gone rather than
@@ -2229,12 +2155,9 @@ mod tests {
         assert_eq!(cancel(&storage, &partial, None).await, Ok(()));
         assert!(!staged.exists());
         assert!(!dir.0.join("blobs").join(&blob[..2]).join(&blob).exists());
-        assert_eq!(
-            write(&storage, vec![resume(&partial, 3, b"def", true)])
-                .await
-                .unwrap_err()
-                .code(),
-            tonic::Code::NotFound
+        assert_code(
+            write(&storage, vec![resume(&partial, 3, b"def", true)]).await,
+            tonic::Code::NotFound,
         );
         for name in ["fresh", "partial"] {
             assert!(missing(&storage, name).await);
@@ -2376,9 +2299,9 @@ mod tests {
             ));
             let mut rejected = prefix.clone();
             rejected.object_checksums = Some(checksum);
-            assert_eq!(
-                write(&storage, vec![rejected]).await.unwrap_err().code(),
-                tonic::Code::Unimplemented
+            assert_code(
+                write(&storage, vec![rejected]).await,
+                tonic::Code::Unimplemented,
             );
             assert!(matches!(
                 storage
@@ -2406,9 +2329,9 @@ mod tests {
             bad.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
                 upload.clone(),
             ));
-            assert_eq!(
-                write(&storage, vec![bad.clone()]).await.unwrap_err().code(),
-                tonic::Code::InvalidArgument
+            assert_code(
+                write(&storage, vec![bad.clone()]).await,
+                tonic::Code::InvalidArgument,
             );
             assert_eq!(
                 storage
@@ -2419,24 +2342,19 @@ mod tests {
                     .unwrap_err(),
                 ObjectError::ObjectNotFound
             );
-            assert_eq!(
+            assert_code(
                 storage
                     .query_write_status(
                         Request::new(pb::QueryWriteStatusRequest {
                             upload_id: upload,
                             ..Default::default()
                         }),
-                        None
+                        None,
                     )
-                    .await
-                    .unwrap_err()
-                    .code(),
-                tonic::Code::NotFound
+                    .await,
+                tonic::Code::NotFound,
             );
-            assert_eq!(
-                write(&storage, vec![bad]).await.unwrap_err().code(),
-                tonic::Code::NotFound
-            );
+            assert_code(write(&storage, vec![bad]).await, tonic::Code::NotFound);
         }
         let upload = storage
             .start_resumable_write(
@@ -2465,9 +2383,9 @@ mod tests {
             crc32c: Some(1),
             ..Default::default()
         });
-        assert_eq!(
-            write(&storage, vec![bad]).await.unwrap_err().code(),
-            tonic::Code::InvalidArgument
+        assert_code(
+            write(&storage, vec![bad]).await,
+            tonic::Code::InvalidArgument,
         );
         assert_eq!(
             storage

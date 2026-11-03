@@ -1,4 +1,3 @@
-use super::status::from_json as json_error;
 use super::{Storage, pb, status::unsupported_for};
 use super::{convert, names};
 use crate::auth::Caller;
@@ -13,7 +12,7 @@ fn catalog_error(error: CatalogError, caller: Option<Caller<'_>>) -> Status {
             "Bucket is not empty; delete its objects and versions before deleting the bucket",
         );
     }
-    super::access_status(error.into(), caller)
+    super::access_status(error, caller)
 }
 
 fn require_caller(caller: Option<Caller<'_>>) -> Result<(), Status> {
@@ -32,7 +31,7 @@ fn project_name(resource: &str) -> Result<&str, Status> {
                 "Invalid project name '{resource}'. Project names must take the form 'projects/{{project_number}}'."
             ))
         })?;
-    json::validate_project(project).map_err(json_error)?;
+    json::validate_project(project)?;
     // `Bucket.project` renders a project with no number as `projects/0` (see
     // `acl::project_number`). That value names no single project, so taking it back as an ID
     // would silently address a different project called "0".
@@ -62,8 +61,8 @@ fn routing<T>(request: &Request<T>, field: &str, resource: &str) -> Result<(), S
             let (key, value) = parameter.split_once('=').ok_or_else(|| {
                 Status::invalid_argument("Routing metadata must contain key=value pairs")
             })?;
-            let key = json::decode(key, json::Decoding::Form).map_err(json_error)?;
-            let value = json::decode(value, json::Decoding::Form).map_err(json_error)?;
+            let key = json::decode(key, json::Decoding::Form)?;
+            let value = json::decode(value, json::Decoding::Form)?;
             if key == "bucket" && names::bucket_name(&value).is_err() {
                 return Err(super::status::invalid_with_reason(
                     format!(
@@ -303,7 +302,7 @@ fn create_metadata(
         crate::config::CompatProfile::Native,
         &state.default_location,
     )
-    .map_err(json_error)
+    .map_err(Status::from)
 }
 
 impl Storage {
@@ -321,18 +320,12 @@ impl Storage {
             match crate::server::may_read_acl(&self.state, caller, AclKind::Bucket, &name).await {
                 Ok(readable) => readable,
                 Err(error) if error.status == hyper::StatusCode::UNAUTHORIZED => false,
-                Err(error) => return Err(json_error(error)),
+                Err(error) => return Err(Status::from(error)),
             };
         if !readable {
             return Ok(());
         }
-        let Some(acl) = self
-            .state
-            .catalog
-            .acl_projection(&name, Vec::new())
-            .await
-            .map_err(|error| json_error(error.into()))?
-        else {
+        let Some(acl) = self.state.catalog.acl_projection(&name, Vec::new()).await? else {
             return Ok(());
         };
         bucket.owner = Some(pb::Owner {
@@ -374,8 +367,10 @@ impl Storage {
         routing(&request, "bucket", &request.get_ref().name)?;
         let request = request.into_inner();
         let name = names::bucket_name(&request.name)?;
-        json::validate_bucket_name(name).map_err(json_error)?;
-        let access = self.access(caller, name, "storage.buckets.delete").await?;
+        json::validate_bucket_name(name)?;
+        let access = self
+            .access(caller, name, crate::auth::BUCKETS_DELETE)
+            .await?;
         self.state
             .catalog
             .delete_bucket(name, bucket_conditions!(request), &access)
@@ -391,9 +386,9 @@ impl Storage {
         routing(&request, "bucket", &request.get_ref().name)?;
         let request = request.into_inner();
         let name = names::bucket_name(&request.name)?;
-        json::validate_bucket_name(name).map_err(json_error)?;
+        json::validate_bucket_name(name)?;
         bucket_mask(pb::Bucket::default(), request.read_mask.as_ref())?;
-        let access = self.access(caller, name, "storage.buckets.get").await?;
+        let access = self.access(caller, name, crate::auth::BUCKETS_GET).await?;
         let record = self
             .state
             .catalog
@@ -451,13 +446,9 @@ impl Storage {
         }
         let project = project_name(&bucket.project)?;
         if let Some(caller) = caller {
-            caller
-                .authorize("storage.buckets.create", Some(project))
-                .map_err(|e| json_error(e.into()))?;
+            caller.authorize(crate::auth::BUCKETS_CREATE, Some(project))?;
             if request.enable_object_retention {
-                caller
-                    .authorize(crate::auth::BUCKETS_ENABLE_OBJECT_RETENTION, Some(project))
-                    .map_err(|e| json_error(e.into()))?;
+                caller.authorize(crate::auth::BUCKETS_ENABLE_OBJECT_RETENTION, Some(project))?;
             }
         }
         // As in JSON, only the request flag enables object retention; the bucket field is
@@ -494,9 +485,7 @@ impl Storage {
         let request = request.into_inner();
         let project = project_name(&request.parent)?;
         if let Some(caller) = caller {
-            caller
-                .authorize("storage.buckets.list", Some(project))
-                .map_err(|e| json_error(e.into()))?;
+            caller.authorize(crate::auth::BUCKETS_LIST, Some(project))?;
         }
         if request.return_partial_success {
             return Err(unsupported_for(
@@ -513,10 +502,11 @@ impl Storage {
         let start = if request.page_token.is_empty() {
             None
         } else {
-            Some(
-                json::decode_page_token(&request.page_token, project, &request.prefix)
-                    .map_err(json_error)?,
-            )
+            Some(json::decode_page_token(
+                &request.page_token,
+                project,
+                &request.prefix,
+            )?)
         };
         let limit = if request.page_size == 0 {
             1000
@@ -532,7 +522,7 @@ impl Storage {
         // A continuation page is never empty, so its last bucket always names the next start.
         let next_page_token = match page.items.last() {
             Some(last) if page.has_more => {
-                json::encode_page_token(project, &request.prefix, &last.name).map_err(json_error)?
+                json::encode_page_token(project, &request.prefix, &last.name)?
             }
             _ => String::new(),
         };
@@ -556,15 +546,10 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::test_support::{self as fixtures, assert_code, caller, registry};
     use crate::storage::test_fixtures::PERMISSIVE;
-    use crate::{
-        auth::{Auth, Registry},
-        clock::SystemClock,
-        server::State,
-        storage::Catalog,
-        test_support::TestDir,
-    };
-    use std::sync::{Arc, atomic::AtomicBool};
+    use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
+    use std::sync::Arc;
     use tonic::Code;
 
     #[test]
@@ -590,7 +575,10 @@ mod tests {
     async fn storage(strict: bool) -> (TestDir, Storage) {
         let dir = TestDir::new();
         let auth = if strict {
-            Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"p":["roles/storage.admin"]}},{"id":"reader@example.invalid","tokens":["reader"]}]}"#).unwrap())
+            Auth::strict(registry(&[
+                ("admin", "p", "roles/storage.admin"),
+                ("reader", "", ""),
+            ]))
         } else {
             Auth::permissive()
         };
@@ -599,14 +587,7 @@ mod tests {
             dir,
             Storage {
                 max_object_bytes: 1024 * 1024 * 1024,
-                state: Arc::new(State {
-                    ready: AtomicBool::new(true),
-                    clock: Arc::new(SystemClock),
-                    catalog,
-                    api_base_url: "http://localhost:4443".into(),
-                    default_location: "US".into(),
-                    auth,
-                }),
+                state: Arc::new(fixtures::state(catalog, auth)),
             },
         )
     }
@@ -699,21 +680,15 @@ mod tests {
         assert_eq!(created.location, "ASIA-NORTHEAST1");
         assert_eq!(created.labels["team"], "dev");
         assert!(created.versioning.unwrap().enabled);
-        assert_eq!(
-            storage
-                .create_bucket(Request::new(request), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::AlreadyExists
+        assert_code(
+            storage.create_bucket(Request::new(request), None).await,
+            Code::AlreadyExists,
         );
-        assert_eq!(
+        assert_code(
             storage
                 .get_bucket(Request::new(get("missing-bucket")), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::NotFound
+                .await,
+            Code::NotFound,
         );
         for (matching, not_matching, success) in [
             (Some(1), None, true),
@@ -728,13 +703,11 @@ mod tests {
             if success {
                 assert!(result.is_ok());
             } else {
-                assert_eq!(result.unwrap_err().code(), Code::FailedPrecondition);
+                assert_code(result, Code::FailedPrecondition);
             }
         }
         let mut request = get("test-bucket");
-        request.read_mask = Some(prost_types::FieldMask {
-            paths: vec!["name".into(), "location".into()],
-        });
+        request.read_mask = fixtures::mask(&["name", "location"]);
         let masked = storage
             .get_bucket(Request::new(request.clone()), None)
             .await
@@ -756,13 +729,9 @@ mod tests {
                 if_metageneration_match: matching,
                 if_metageneration_not_match: not_matching,
             };
-            assert_eq!(
-                storage
-                    .delete_bucket(Request::new(request), None)
-                    .await
-                    .unwrap_err()
-                    .code(),
-                Code::FailedPrecondition
+            assert_code(
+                storage.delete_bucket(Request::new(request), None).await,
+                Code::FailedPrecondition,
             );
             assert!(
                 storage
@@ -785,13 +754,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(
+        assert_code(
             storage
                 .get_bucket(Request::new(get("test-bucket")), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::NotFound
+                .await,
+            Code::NotFound,
         );
         storage.state.catalog.close().await.unwrap();
     }
@@ -827,32 +794,24 @@ mod tests {
         assert_eq!(second.buckets[0].bucket_id, "page-b");
         assert!(second.next_page_token.is_empty());
         query.prefix = "other".into();
-        assert_eq!(
+        assert_code(
             storage
                 .list_buckets(Request::new(query.clone()), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+                .await,
+            Code::InvalidArgument,
         );
         query.page_token = "bad-token".into();
-        assert_eq!(
+        assert_code(
             storage
                 .list_buckets(Request::new(query.clone()), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+                .await,
+            Code::InvalidArgument,
         );
         query.page_token.clear();
         query.page_size = -1;
-        assert_eq!(
-            storage
-                .list_buckets(Request::new(query), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+        assert_code(
+            storage.list_buckets(Request::new(query), None).await,
+            Code::InvalidArgument,
         );
         for name in [
             "",
@@ -861,19 +820,17 @@ mod tests {
             "projects/_/buckets/a/b",
             "projects/_/buckets/UPPER",
         ] {
-            assert_eq!(
+            assert_code(
                 storage
                     .get_bucket(
                         Request::new(pb::GetBucketRequest {
                             name: name.into(),
                             ..Default::default()
                         }),
-                        None
+                        None,
                     )
-                    .await
-                    .unwrap_err()
-                    .code(),
-                Code::InvalidArgument
+                    .await,
+                Code::InvalidArgument,
             );
         }
         let mut request = Request::new(get("page-a"));
@@ -929,9 +886,7 @@ mod tests {
         let masked = storage
             .get_bucket(
                 Request::new(pb::GetBucketRequest {
-                    read_mask: Some(prost_types::FieldMask {
-                        paths: vec!["autoclass".into()],
-                    }),
+                    read_mask: fixtures::mask(&["autoclass"]),
                     ..get("auto-bucket")
                 }),
                 None,
@@ -980,13 +935,9 @@ mod tests {
             toggle_time: Some(prost_types::Timestamp::default()),
             ..Default::default()
         });
-        assert_eq!(
-            storage
-                .create_bucket(Request::new(request), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::Unimplemented
+        assert_code(
+            storage.create_bucket(Request::new(request), None).await,
+            Code::Unimplemented,
         );
         storage.state.catalog.close().await.unwrap();
     }
@@ -1043,13 +994,9 @@ mod tests {
         request.bucket.as_mut().unwrap().billing = Some(pb::bucket::Billing {
             requester_pays: true,
         });
-        assert_eq!(
-            storage
-                .create_bucket(Request::new(request), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::Unimplemented
+        assert_code(
+            storage.create_bucket(Request::new(request), None).await,
+            Code::Unimplemented,
         );
         assert!(
             storage
@@ -1062,13 +1009,9 @@ mod tests {
         );
         let mut request = create("bad-parent");
         request.parent = "projects/p".into();
-        assert_eq!(
-            storage
-                .create_bucket(Request::new(request), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+        assert_code(
+            storage.create_bucket(Request::new(request), None).await,
+            Code::InvalidArgument,
         );
         let mut request = create("wildcard-bucket");
         request.bucket.as_mut().unwrap().project = "projects/_".into();
@@ -1109,9 +1052,7 @@ mod tests {
         let masked = storage
             .get_bucket(
                 Request::new(pb::GetBucketRequest {
-                    read_mask: Some(prost_types::FieldMask {
-                        paths: vec!["lifecycle".into(), "etag".into(), "object_retention".into()],
-                    }),
+                    read_mask: fixtures::mask(&["lifecycle", "etag", "object_retention"]),
                     ..get("json-bucket")
                 }),
                 None,
@@ -1151,9 +1092,7 @@ mod tests {
     fn update_acl(bucket: pb::Bucket, path: &str) -> pb::UpdateBucketRequest {
         pb::UpdateBucketRequest {
             bucket: Some(bucket),
-            update_mask: Some(prost_types::FieldMask {
-                paths: vec![path.into()],
-            }),
+            update_mask: fixtures::mask(&[path]),
             ..Default::default()
         }
     }
@@ -1212,9 +1151,7 @@ mod tests {
             .list_buckets(
                 Request::new(pb::ListBucketsRequest {
                     parent: "projects/p".into(),
-                    read_mask: Some(prost_types::FieldMask {
-                        paths: vec!["acl".into()],
-                    }),
+                    read_mask: fixtures::mask(&["acl"]),
                     ..Default::default()
                 }),
                 None,
@@ -1350,38 +1287,30 @@ mod tests {
     #[tokio::test]
     async fn grpc_buckets_acl_strict_authorization() {
         let dir = TestDir::new();
-        let auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"p":["roles/storage.admin"]}},{"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"p":["roles/storage.bucketViewer"]}}]}"#).unwrap());
+        let auth = Auth::strict(registry(&[
+            ("admin", "p", "roles/storage.admin"),
+            ("viewer", "p", "roles/storage.bucketViewer"),
+        ]));
         let storage = Storage {
             max_object_bytes: 1024,
-            state: Arc::new(State {
-                ready: AtomicBool::new(true),
-                clock: Arc::new(SystemClock),
-                catalog: Catalog::open(&dir.0).await.unwrap(),
-                api_base_url: "http://localhost:4443".into(),
-                default_location: "US".into(),
-                auth,
-            }),
-        };
-        let caller = |token: &str| {
-            let mut metadata = Request::new(());
-            metadata
-                .metadata_mut()
-                .insert("authorization", format!("Bearer {token}").parse().unwrap());
-            storage.authenticate(&metadata).unwrap()
+            state: Arc::new(fixtures::state(Catalog::open(&dir.0).await.unwrap(), auth)),
         };
         storage
-            .create_bucket(Request::new(create("strict-acl")), caller("admin"))
+            .create_bucket(
+                Request::new(create("strict-acl")),
+                caller(&storage, "admin"),
+            )
             .await
             .unwrap();
         let admin = storage
-            .get_bucket(Request::new(get("strict-acl")), caller("admin"))
+            .get_bucket(Request::new(get("strict-acl")), caller(&storage, "admin"))
             .await
             .unwrap()
             .into_inner();
         assert!(!admin.acl.is_empty());
         // Reading the bucket succeeds without the ACL for a caller that cannot read ACLs.
         let viewer = storage
-            .get_bucket(Request::new(get("strict-acl")), caller("viewer"))
+            .get_bucket(Request::new(get("strict-acl")), caller(&storage, "viewer"))
             .await
             .unwrap()
             .into_inner();
@@ -1395,30 +1324,26 @@ mod tests {
             },
             "acl",
         );
-        assert_eq!(
+        assert_code(
             storage
-                .update_bucket(Request::new(request.clone()), caller("viewer"))
-                .await
-                .unwrap_err()
-                .code(),
-            Code::PermissionDenied
+                .update_bucket(Request::new(request.clone()), caller(&storage, "viewer"))
+                .await,
+            Code::PermissionDenied,
         );
-        assert_eq!(
+        assert_code(
             storage
                 .update_bucket(Request::new(request.clone()), Some(Caller::Anonymous))
-                .await
-                .unwrap_err()
-                .code(),
-            Code::Unauthenticated
+                .await,
+            Code::Unauthenticated,
         );
         let unchanged = storage
-            .get_bucket(Request::new(get("strict-acl")), caller("admin"))
+            .get_bucket(Request::new(get("strict-acl")), caller(&storage, "admin"))
             .await
             .unwrap()
             .into_inner();
         assert_eq!(unchanged.acl, admin.acl);
         storage
-            .update_bucket(Request::new(request), caller("admin"))
+            .update_bucket(Request::new(request), caller(&storage, "admin"))
             .await
             .unwrap();
         storage.state.catalog.close().await.unwrap();
@@ -1427,39 +1352,29 @@ mod tests {
     #[tokio::test]
     async fn grpc_buckets_create_enables_object_retention() {
         let dir = TestDir::new();
-        let auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"p":["roles/storage.admin"]}},{"id":"editor@example.invalid","tokens":["editor"],"project_roles":{"p":["roles/storage.editor"]}}]}"#).unwrap());
+        let auth = Auth::strict(registry(&[
+            ("admin", "p", "roles/storage.admin"),
+            ("editor", "p", "roles/storage.editor"),
+        ]));
         let storage = Storage {
             max_object_bytes: 1024,
-            state: Arc::new(State {
-                ready: AtomicBool::new(true),
-                clock: Arc::new(SystemClock),
-                catalog: Catalog::open(&dir.0).await.unwrap(),
-                api_base_url: "http://localhost:4443".into(),
-                default_location: "US".into(),
-                auth,
-            }),
-        };
-        let caller = |token: &str| {
-            let mut metadata = Request::new(());
-            metadata
-                .metadata_mut()
-                .insert("authorization", format!("Bearer {token}").parse().unwrap());
-            storage.authenticate(&metadata).unwrap()
+            state: Arc::new(fixtures::state(Catalog::open(&dir.0).await.unwrap(), auth)),
         };
         let mut request = create("retention-bucket");
         request.enable_object_retention = true;
         // Creating a bucket without enabling object retention needs no extra permission.
         storage
-            .create_bucket(Request::new(create("plain-bucket")), caller("editor"))
+            .create_bucket(
+                Request::new(create("plain-bucket")),
+                caller(&storage, "editor"),
+            )
             .await
             .unwrap();
-        assert_eq!(
+        assert_code(
             storage
-                .create_bucket(Request::new(request.clone()), caller("editor"))
-                .await
-                .unwrap_err()
-                .code(),
-            Code::PermissionDenied
+                .create_bucket(Request::new(request.clone()), caller(&storage, "editor"))
+                .await,
+            Code::PermissionDenied,
         );
         assert!(
             storage
@@ -1471,7 +1386,7 @@ mod tests {
                 .is_none()
         );
         let created = storage
-            .create_bucket(Request::new(request), caller("admin"))
+            .create_bucket(Request::new(request), caller(&storage, "admin"))
             .await
             .unwrap()
             .into_inner();
@@ -1491,17 +1406,15 @@ mod tests {
         let mut request = create("field-only");
         request.bucket.as_mut().unwrap().object_retention =
             Some(pb::bucket::ObjectRetention { enabled: true });
-        assert_eq!(
+        assert_code(
             storage
-                .create_bucket(Request::new(request.clone()), caller("admin"))
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+                .create_bucket(Request::new(request.clone()), caller(&storage, "admin"))
+                .await,
+            Code::InvalidArgument,
         );
         request.enable_object_retention = true;
         storage
-            .create_bucket(Request::new(request), caller("admin"))
+            .create_bucket(Request::new(request), caller(&storage, "admin"))
             .await
             .unwrap();
         storage.state.catalog.close().await.unwrap();
@@ -1675,16 +1588,14 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(
+        assert_code(
             storage
                 .get_bucket(Request::new(get("public-bucket")), caller)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::Unauthenticated
+                .await,
+            Code::Unauthenticated,
         );
         assert_eq!(
-            json_error(json::JsonError::new(
+            Status::from(json::JsonError::new(
                 hyper::StatusCode::SERVICE_UNAVAILABLE,
                 "backendError",
                 "catalog unavailable"
@@ -1693,7 +1604,7 @@ mod tests {
             Code::Unavailable
         );
         assert_eq!(
-            json_error(json::JsonError::unsupported("userProject")).code(),
+            Status::from(json::JsonError::unsupported("userProject")).code(),
             Code::Unimplemented
         );
         storage.state.catalog.close().await.unwrap();

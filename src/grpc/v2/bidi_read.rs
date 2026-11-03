@@ -2,8 +2,9 @@ use super::{ResponseStream, Storage, append::Finality, names, pb, status::unsupp
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
+    grpc::validate::{self, request_conditions},
     json::JsonError,
-    object::{ObjectConditions, ObjectRecord, ObjectTarget},
+    object::{ObjectRecord, ObjectTarget},
     server::State,
     storage::ObjectReader,
 };
@@ -53,30 +54,15 @@ fn handles() -> &'static Mutex<VecDeque<Handle>> {
     HANDLES.get_or_init(Mutex::default)
 }
 
-fn error(error: impl Into<JsonError>, caller: Option<Caller<'_>>) -> Status {
-    super::access_status(error.into(), caller)
-}
-
 #[expect(
     deprecated,
     reason = "the deprecated read_mask field must still be rejected when a client sets it"
 )]
 fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<(), Status> {
-    if spec.generation < 0
-        || [
-            spec.if_generation_match,
-            spec.if_generation_not_match,
-            spec.if_metageneration_match,
-            spec.if_metageneration_not_match,
-        ]
-        .into_iter()
-        .flatten()
-        .any(|value| value < 0)
-    {
-        return Err(Status::invalid_argument(
-            "Generation conditions must be nonnegative; use generation 0 for the live object",
-        ));
-    }
+    const MESSAGE: &str =
+        "Generation conditions must be nonnegative; use generation 0 for the live object";
+    validate::generation(spec.generation, MESSAGE)?;
+    validate::lenient_conditions(request_conditions!(spec), MESSAGE)?;
     if spec
         .common_object_request_params
         .as_ref()
@@ -145,7 +131,7 @@ impl Storage {
             .catalog
             .authorize_object_snapshot(&selected.record, access)
             .await
-            .map_err(|failure| error(failure, caller))?;
+            .map_err(|failure| super::access_status(failure, caller))?;
         Ok((selected, token))
     }
 
@@ -179,12 +165,7 @@ impl Storage {
         let (selected, token) = if resumed {
             self.resume_read_handle(&spec, &access, caller).await?
         } else {
-            let conditions = ObjectConditions {
-                if_generation_match: spec.if_generation_match,
-                if_generation_not_match: spec.if_generation_not_match,
-                if_metageneration_match: spec.if_metageneration_match,
-                if_metageneration_not_match: spec.if_metageneration_not_match,
-            };
+            let conditions = request_conditions!(spec);
             let target = ObjectTarget::new(
                 bucket,
                 object,
@@ -193,7 +174,9 @@ impl Storage {
             let (record, reader, finality) = self
                 .open_readable(target, conditions, &access)
                 .await
-                .map_err(|e| error(JsonError::from(e).naming_object(bucket, object), caller))?;
+                .map_err(|e| {
+                    super::access_status(JsonError::from(e).naming_object(bucket, object), caller)
+                })?;
             let selected = Arc::new(Selected {
                 record,
                 reader: Mutex::new(reader),
@@ -261,21 +244,11 @@ fn add_ranges(
                 "Duplicate outstanding read_id; assign a different read_id to each range",
             ));
         }
-        let offset = if range.read_offset < 0 {
-            size.saturating_sub(range.read_offset.unsigned_abs())
-        } else {
-            range.read_offset as u64
-        };
-        if offset > size || range.read_length < 0 {
-            return Err(range_error(range.read_id));
-        }
-        let remaining = size - offset;
-        range.read_offset = offset as i64;
-        range.read_length = if range.read_length == 0 {
-            remaining
-        } else {
-            remaining.min(range.read_length as u64)
-        } as i64;
+        let (offset, length) =
+            crate::grpc::validate::resolve_range(size, range.read_offset, range.read_length)
+                .ok_or_else(|| range_error(range.read_id))?;
+        range.read_offset = crate::grpc::convert::signed(offset);
+        range.read_length = crate::grpc::convert::signed(length);
         queue.push_back(range);
     }
     Ok(())
@@ -294,18 +267,11 @@ fn range_error(read_id: i64) -> Status {
             }),
         }],
     };
-    let status = RpcStatus {
-        code: tonic::Code::OutOfRange as i32,
-        message: message.into(),
-        details: vec![prost_types::Any {
-            type_url: "type.googleapis.com/google.storage.v2.BidiReadObjectError".into(),
-            value: details.encode_to_vec(),
-        }],
-    };
-    Status::with_details(
+    super::status::with_detail(
         tonic::Code::OutOfRange,
-        message,
-        status.encode_to_vec().into(),
+        message.into(),
+        "type.googleapis.com/google.storage.v2.BidiReadObjectError",
+        details.encode_to_vec(),
     )
 }
 
@@ -362,11 +328,13 @@ async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::test_support::assert_code;
+    use crate::grpc::v2::access_status;
     use crate::storage::test_fixtures::PERMISSIVE;
 
     #[test]
     fn bidi_shared_error_status() {
-        let unsupported = error(
+        let unsupported = access_status(
             JsonError::new(
                 hyper::StatusCode::NOT_IMPLEMENTED,
                 "notImplemented",
@@ -377,7 +345,7 @@ mod tests {
         assert_eq!(unsupported.code(), tonic::Code::Unimplemented);
         assert!(!unsupported.details().is_empty());
         assert_eq!(
-            error(
+            access_status(
                 JsonError::new(
                     hyper::StatusCode::SERVICE_UNAVAILABLE,
                     "backendError",
@@ -397,11 +365,9 @@ mod tests {
             permission: auth::Permission::ObjectsGet,
             project: Some("new-project".into()),
         };
-        assert_eq!(
-            check_handle_project(Some("original-project"), &access)
-                .unwrap_err()
-                .code(),
-            tonic::Code::FailedPrecondition
+        assert_code(
+            check_handle_project(Some("original-project"), &access),
+            tonic::Code::FailedPrecondition,
         );
         assert!(check_handle_project(Some("new-project"), &access).is_ok());
         assert!(check_handle_project(None, PERMISSIVE).is_ok());
@@ -430,19 +396,17 @@ mod tests {
             assert_eq!((range.read_offset, range.read_length), expected);
         }
         for (offset, length) in [(16, 0), (0, -1)] {
-            assert_eq!(
+            assert_code(
                 add_ranges(
                     &mut ranges,
                     vec![pb::ReadRange {
                         read_offset: offset,
                         read_length: length,
-                        read_id: 1
+                        read_id: 1,
                     }],
-                    15
-                )
-                .unwrap_err()
-                .code(),
-                tonic::Code::OutOfRange
+                    15,
+                ),
+                tonic::Code::OutOfRange,
             );
         }
         let range = pb::ReadRange {
@@ -450,15 +414,13 @@ mod tests {
             ..Default::default()
         };
         add_ranges(&mut ranges, vec![range], 15).unwrap();
-        assert_eq!(
-            add_ranges(&mut ranges, vec![range], 15).unwrap_err().code(),
-            tonic::Code::InvalidArgument
+        assert_code(
+            add_ranges(&mut ranges, vec![range], 15),
+            tonic::Code::InvalidArgument,
         );
-        assert_eq!(
-            add_ranges(&mut ranges, vec![range; 101], 15)
-                .unwrap_err()
-                .code(),
-            tonic::Code::InvalidArgument
+        assert_code(
+            add_ranges(&mut ranges, vec![range; 101], 15),
+            tonic::Code::InvalidArgument,
         );
         ranges.clear();
         add_ranges(

@@ -1045,7 +1045,7 @@ mod tests {
             storage::Catalog,
             test_support::TestDir,
         };
-        use std::sync::{Arc, atomic::AtomicBool};
+        use std::sync::Arc;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         async fn request(
@@ -1105,12 +1105,8 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let state = Arc::new(State {
-            ready: AtomicBool::new(true),
-            clock: Arc::new(crate::clock::SystemClock),
-            catalog: catalog.clone(),
             api_base_url: format!("http://{address}"),
-            default_location: "US".into(),
-            auth: Auth::strict(registry),
+            ..crate::grpc::test_support::state(catalog.clone(), Auth::strict(registry))
         });
         let (stop, stopped) = tokio::sync::oneshot::channel();
         let running = tokio::spawn(serve(

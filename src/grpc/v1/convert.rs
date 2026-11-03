@@ -1,7 +1,6 @@
 use super::{pb, unsupported};
 use crate::{
     bucket::BucketRecord,
-    json,
     object::{ObjectError, ObjectRecord},
 };
 use serde_json::json;
@@ -113,44 +112,48 @@ pub(super) fn object_outputs(
     Ok(())
 }
 
-pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, Status> {
-    // Reuse JSON's checksum formatting rather than maintaining a second base64 encoder.
-    let resource =
-        json::object_resource(record, "", json::Projection::NoAcl).map_err(super::from_json)?;
-    Ok(pb::Object {
-        name: record.name.clone(),
-        bucket: record.bucket.clone(),
-        generation: record.generation,
-        metageneration: record.metageneration,
-        size: record.size as i64,
-        storage_class: record.storage_class.clone(),
-        content_type: record.content_type.clone(),
-        content_encoding: record.content_encoding.clone().unwrap_or_default(),
-        content_disposition: record.content_disposition.clone().unwrap_or_default(),
-        content_language: record.content_language.clone().unwrap_or_default(),
-        cache_control: record.cache_control.clone().unwrap_or_default(),
-        metadata: record.metadata.clone().into_iter().collect(),
-        crc32c: record
-            .customer_key_sha256
-            .is_none()
-            .then_some(record.crc32c),
-        md5_hash: resource["md5Hash"].as_str().unwrap_or_default().to_owned(),
-        component_count: record.component_count.unwrap_or_default() as i32,
-        time_created: Some(record.time_created.into()),
-        updated: Some(record.updated.into()),
-        time_deleted: record.time_deleted.map(Into::into),
-        // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
-        // the three states exist only in the JSON resource.
-        event_based_hold: Some(record.event_based_hold == Some(true)),
-        temporary_hold: record.temporary_hold == Some(true),
-        retention_expiration_time: record.retention_expiration_time.map(Into::into),
-        ..Default::default()
-    })
+impl From<&ObjectRecord> for pb::Object {
+    fn from(record: &ObjectRecord) -> Self {
+        Self {
+            name: record.name.clone(),
+            bucket: record.bucket.clone(),
+            generation: record.generation,
+            metageneration: record.metageneration,
+            size: crate::grpc::convert::signed(record.size),
+            storage_class: record.storage_class.clone(),
+            content_type: record.content_type.clone(),
+            content_encoding: record.content_encoding.clone().unwrap_or_default(),
+            content_disposition: record.content_disposition.clone().unwrap_or_default(),
+            content_language: record.content_language.clone().unwrap_or_default(),
+            cache_control: record.cache_control.clone().unwrap_or_default(),
+            metadata: record.metadata.clone().into_iter().collect(),
+            crc32c: record
+                .customer_key_sha256
+                .is_none()
+                .then_some(record.crc32c),
+            md5_hash: if record.has_md5() && record.customer_key_sha256.is_none() {
+                crate::base64::encode(&record.md5)
+            } else {
+                String::new()
+            },
+            component_count: crate::grpc::convert::component_count(record.component_count),
+            time_created: Some(record.time_created.into()),
+            updated: Some(record.updated.into()),
+            time_deleted: record.time_deleted.map(Into::into),
+            // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
+            // the three states exist only in the JSON resource.
+            event_based_hold: Some(record.event_based_hold == Some(true)),
+            temporary_hold: record.temporary_hold == Some(true),
+            retention_expiration_time: record.retention_expiration_time.map(Into::into),
+            ..Default::default()
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::test_support::assert_code;
 
     #[test]
     fn grpc_v1_output_fields_accept_unchanged_and_reject_changes() {
@@ -180,11 +183,9 @@ mod tests {
         assert!(bucket_metadata(&mut same, Some(&current)).is_ok());
         let mut changed = current.clone();
         changed.id = "different-bucket".into();
-        assert_eq!(
-            bucket_metadata(&mut changed, Some(&current))
-                .unwrap_err()
-                .code(),
-            tonic::Code::Unimplemented
+        assert_code(
+            bucket_metadata(&mut changed, Some(&current)),
+            tonic::Code::Unimplemented,
         );
     }
 }

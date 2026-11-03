@@ -1,6 +1,4 @@
-use super::{
-    Storage, common, conditions, convert, metadata, object_error, pb, projection, unsupported,
-};
+use super::{Storage, common, conditions, metadata, pb, projection, unsupported};
 use crate::{
     auth::Caller,
     grpc::validate::request_conditions,
@@ -33,33 +31,6 @@ fn checksums(value: Option<pb::ObjectChecksums>) -> Result<ExpectedHashes, Statu
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn md5_checksums_reject_signed_hex_pairs() {
-        let error = checksums(Some(pb::ObjectChecksums {
-            md5_hash: "+0".repeat(16),
-            ..Default::default()
-        }))
-        .unwrap_err();
-        assert_eq!(error.code(), tonic::Code::InvalidArgument);
-        assert_eq!(error.message(), "Invalid hexadecimal MD5");
-        assert_eq!(
-            checksums(Some(pb::ObjectChecksums {
-                md5_hash: "0aAf".repeat(8),
-                ..Default::default()
-            }))
-            .unwrap()
-            .md5,
-            Some([
-                10, 175, 10, 175, 10, 175, 10, 175, 10, 175, 10, 175, 10, 175, 10, 175
-            ])
-        );
-    }
-}
-
 impl Storage {
     pub(super) async fn upload(
         &self,
@@ -89,18 +60,17 @@ impl Storage {
         let bucket = object.bucket.clone();
         let name = object.name.clone();
         let content_type = object.content_type.clone();
-        crate::json::validate_object_name(&name).map_err(super::from_json)?;
+        crate::json::validate_object_name(&name)?;
         let metadata = metadata(object, crate::json::WriteMode::Patch)?;
         let conditions = request_conditions!(conditions, spec)?;
         let access = self
-            .access(caller, &bucket, "storage.objects.create")
+            .access(caller, &bucket, crate::auth::OBJECTS_CREATE)
             .await?;
         let permit = self
             .state
             .catalog
             .prepare_object_upload(&bucket, &name, conditions, &access)
-            .await
-            .map_err(object_error)?;
+            .await?;
         let (sender, receiver) = mpsc::channel(2);
         let write = self.state.catalog.put_object_prechecked(
             ObjectUpload {
@@ -117,8 +87,8 @@ impl Storage {
             permit,
         );
         let receive = receive_upload(first, stream, sender, self.max_object_bytes);
-        let result = tokio::try_join!(async { write.await.map_err(object_error) }, receive)?;
-        convert::object(&result.0)
+        let result = tokio::try_join!(async { write.await.map_err(Status::from) }, receive)?;
+        Ok(pb::Object::from(&result.0))
     }
 }
 
@@ -160,13 +130,8 @@ async fn receive_upload(
             ));
         }
         let hashes = checksums(message.object_checksums)?;
-        if matches!((expected.md5,hashes.md5),(Some(a),Some(b)) if a!=b)
-            || matches!((expected.crc32c,hashes.crc32c),(Some(a),Some(b)) if a!=b)
-        {
-            return Err(Status::invalid_argument("Conflicting object checksums"));
-        }
-        expected.md5 = hashes.md5.or(expected.md5);
-        expected.crc32c = hashes.crc32c.or(expected.crc32c);
+        expected =
+            crate::grpc::validate::merge_hashes(expected, hashes, "Conflicting object checksums")?;
         if let Some(data) = message.data {
             let data = match data {
                 pb::insert_object_request::Data::ChecksummedData(data) => data,
@@ -220,4 +185,31 @@ async fn receive_upload(
         .map_err(|_| Status::cancelled("Upload staging stopped"))?;
     drop(sender);
     Ok::<_, Status>(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn md5_checksums_reject_signed_hex_pairs() {
+        let error = checksums(Some(pb::ObjectChecksums {
+            md5_hash: "+0".repeat(16),
+            ..Default::default()
+        }))
+        .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        assert_eq!(error.message(), "Invalid hexadecimal MD5");
+        assert_eq!(
+            checksums(Some(pb::ObjectChecksums {
+                md5_hash: "0aAf".repeat(8),
+                ..Default::default()
+            }))
+            .unwrap()
+            .md5,
+            Some([
+                10, 175, 10, 175, 10, 175, 10, 175, 10, 175, 10, 175, 10, 175, 10, 175
+            ])
+        );
+    }
 }

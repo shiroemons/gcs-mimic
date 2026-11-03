@@ -15,10 +15,6 @@ use crate::{
 use serde_json::{Map, Value, json};
 use tonic::{Request, Response, Status};
 
-fn error(error: impl Into<JsonError>) -> Status {
-    super::status::from_json(error.into())
-}
-
 fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
     mask.filter(|m| !m.paths.is_empty())
         .map(|m| m.paths.as_slice())
@@ -29,9 +25,9 @@ fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
         })
 }
 
-fn common(params: &Option<pb::CommonObjectRequestParams>) -> Result<(), Status> {
+fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> {
     validate::common(
-        params.as_ref(),
+        params,
         "customer-supplied encryption; omit common_object_request_params",
     )
 }
@@ -385,12 +381,12 @@ fn rewrite_error(e: RewriteError) -> Status {
         RewriteError::Gone => {
             Status::failed_precondition("Rewrite token expired or unavailable; restart the rewrite")
         }
-        RewriteError::Object(e) => error(e),
+        RewriteError::Object(e) => e.into(),
     }
 }
 
 fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<(), Status> {
-    common(&r.common_object_request_params)?;
+    common(r.common_object_request_params.as_ref())?;
     if !r.destination_kms_key.is_empty()
         || !r.destination_predefined_acl.is_empty()
         || !r.copy_source_encryption_algorithm.is_empty()
@@ -603,8 +599,8 @@ impl Storage {
             owner.disarm();
         }
         Ok(Response::new(pb::RewriteResponse {
-            total_bytes_rewritten: progress.offset as i64,
-            object_size: progress.total as i64,
+            total_bytes_rewritten: crate::grpc::convert::signed(progress.offset),
+            object_size: crate::grpc::convert::signed(progress.total),
             done: progress.token.is_none(),
             rewrite_token: progress.token.unwrap_or_default(),
             resource,
@@ -638,29 +634,21 @@ impl Storage {
             .state
             .catalog
             .resolve_derived_source(ObjectTarget::new(sb, sn, generation), sc, read)
-            .await
-            .map_err(error)?;
+            .await?;
         let bytes = body.as_ref().map(Value::to_string).unwrap_or_default();
-        let (metadata, class, _) =
-            json::derived_metadata(bytes.as_bytes(), &source.object).map_err(error)?;
-        self.state
-            .catalog
-            .check_upload(db, dn, dc, create)
-            .await
-            .map_err(error)?;
+        let (metadata, class, _) = json::derived_metadata(bytes.as_bytes(), &source.object)?;
+        self.state.catalog.check_upload(db, dn, dc, create).await?;
         let source_bucket = self
             .state
             .catalog
             .get_bucket(sb, &BucketAccess::Permissive)
-            .await
-            .map_err(error)?
+            .await?
             .ok_or_else(|| Status::not_found("Source bucket not found"))?;
         let destination_bucket = self
             .state
             .catalog
             .get_bucket(db, &BucketAccess::Permissive)
-            .await
-            .map_err(error)?
+            .await?
             .ok_or_else(|| Status::not_found("Destination bucket not found"))?;
         let multiple = source_bucket.location != destination_bucket.location
             || class
@@ -725,7 +713,10 @@ impl Storage {
     ) -> Result<Response<pb::Bucket>, Status> {
         let r = request.into_inner();
         let bucket = names::bucket_name(&r.bucket)?;
-        strict_conditions(None, None, Some(r.if_metageneration_match), None)?;
+        strict_conditions(ObjectConditions {
+            if_metageneration_match: Some(r.if_metageneration_match),
+            ..Default::default()
+        })?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
         let record = self
             .state
@@ -742,8 +733,7 @@ impl Storage {
                 },
                 &access,
             )
-            .await
-            .map_err(error)?;
+            .await?;
         let mut result = convert::bucket(&record);
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
@@ -764,11 +754,7 @@ impl Storage {
         }
         let access = self.access(caller, bucket, auth::BUCKETS_GET_IAM).await?;
         Ok(Response::new(policy(
-            self.state
-                .catalog
-                .get_policy(bucket, &access)
-                .await
-                .map_err(error)?,
+            self.state.catalog.get_policy(bucket, &access).await?,
         )?))
     }
     pub(super) async fn set_iam_policy(
@@ -808,13 +794,9 @@ impl Storage {
             })?;
             v["etag"] = json::policy_etag(i64::from_be_bytes(bytes)).into();
         }
-        let p = json::parse_policy(v.to_string().as_bytes()).map_err(error)?;
+        let p = json::parse_policy(v.to_string().as_bytes())?;
         Ok(Response::new(policy(
-            self.state
-                .catalog
-                .set_policy(bucket, p, &access)
-                .await
-                .map_err(error)?,
+            self.state.catalog.set_policy(bucket, p, &access).await?,
         )?))
     }
     pub(super) async fn test_iam_permissions(
@@ -830,12 +812,11 @@ impl Storage {
             .map(|p| format!("permissions={}", auth::signature::encode_query_component(p)))
             .collect::<Vec<_>>()
             .join("&");
-        let (requested, _) = json::test_permissions_query(Some(&query)).map_err(error)?;
+        let (requested, _) = json::test_permissions_query(Some(&query))?;
         self.state
             .catalog
             .get_policy(bucket, &BucketAccess::Permissive)
-            .await
-            .map_err(error)?;
+            .await?;
         let mut permissions = Vec::new();
         for p in requested {
             match authorize_bucket(&self.state, caller, &p, bucket).await {
@@ -844,14 +825,13 @@ impl Storage {
                         .state
                         .catalog
                         .has_bucket_permission(bucket, &access)
-                        .await
-                        .map_err(error)? =>
+                        .await? =>
                 {
                     permissions.push(p)
                 }
                 Ok(_) => {}
                 Err(e) if e.status == hyper::StatusCode::FORBIDDEN => {}
-                Err(e) => return Err(error(e)),
+                Err(e) => return Err(e.into()),
             }
         }
         Ok(Response::new(iam::TestIamPermissionsResponse {
@@ -871,12 +851,11 @@ impl Storage {
         if !r.predefined_acl.is_empty() || !r.predefined_default_object_acl.is_empty() {
             return Err(unsupported("predefined bucket ACLs; omit predefined_acl"));
         }
-        strict_conditions(
-            None,
-            None,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
+        strict_conditions(ObjectConditions {
+            if_metageneration_match: r.if_metageneration_match,
+            if_metageneration_not_match: r.if_metageneration_not_match,
+            ..Default::default()
+        })?;
         let paths = mask(r.update_mask.as_ref())?;
         let mut body = bucket_patch(&b, paths)?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
@@ -886,8 +865,7 @@ impl Storage {
                 .state
                 .catalog
                 .get_bucket(bucket, &access)
-                .await
-                .map_err(error)?
+                .await?
                 .ok_or_else(|| Status::not_found("Bucket not found"))?;
             for key in current.labels.keys().filter(|k| !b.labels.contains_key(*k)) {
                 body["labels"][key] = Value::Null;
@@ -901,14 +879,12 @@ impl Storage {
         let update = json::parse_bucket_patch(
             body.to_string().as_bytes(),
             crate::config::CompatProfile::Native,
-        )
-        .map_err(error)?;
+        )?;
         let record = self
             .state
             .catalog
             .patch_bucket(bucket, update, conditions, &access)
-            .await
-            .map_err(error)?;
+            .await?;
         let mut result = convert::bucket(&record);
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
@@ -919,7 +895,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
-        common(&r.common_object_request_params)?;
+        common(r.common_object_request_params.as_ref())?;
         if !r.predefined_acl.is_empty() {
             return Err(unsupported(
                 "UpdateObject predefined_acl; omit predefined_acl",
@@ -951,7 +927,7 @@ impl Storage {
                 .catalog
                 .get_object(target, c, &access)
                 .await
-                .map_err(|e| error(JsonError::from(e).naming_object(bucket, name)))?;
+                .map_err(|e| Status::from(JsonError::from(e).naming_object(bucket, name)))?;
             for key in current
                 .metadata
                 .keys()
@@ -968,9 +944,8 @@ impl Storage {
         let mut parsed = json::parse_object_metadata_mutation(
             body.to_string().as_bytes(),
             json::WriteMode::Patch,
-        )
-        .map_err(error)?;
-        parsed.update.validate().map_err(error)?;
+        )?;
+        parsed.update.validate()?;
         crate::server::authorize_retention_update(
             &self.state,
             &access,
@@ -991,7 +966,7 @@ impl Storage {
                 &access,
             )
             .await
-            .map_err(|e| error(JsonError::from(e).naming_object(bucket, name)))?;
+            .map_err(|e| Status::from(JsonError::from(e).naming_object(bucket, name)))?;
         let mut object = convert::object(&record)?;
         self.add_written_owner_fields(caller, bucket, &mut object)
             .await?;
@@ -1003,7 +978,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
-        common(&r.common_object_request_params)?;
+        common(r.common_object_request_params.as_ref())?;
         if !r.destination_predefined_acl.is_empty()
             || !r.kms_key.is_empty()
             || r.object_checksums
@@ -1034,7 +1009,10 @@ impl Storage {
                     .object_preconditions
                     .as_ref()
                     .and_then(|p| p.if_generation_match);
-                strict_conditions(gm, None, None, None)?;
+                strict_conditions(ObjectConditions {
+                    if_generation_match: gm,
+                    ..Default::default()
+                })?;
                 Ok(ComposeSource {
                     name: s.name.clone(),
                     generation: (s.generation != 0).then_some(s.generation),
@@ -1043,14 +1021,13 @@ impl Storage {
             })
             .collect::<Result<Vec<_>, Status>>()?;
         let parsed =
-            json::parse_object_metadata(body.to_string().as_bytes(), json::WriteMode::Replace)
-                .map_err(error)?;
+            json::parse_object_metadata(body.to_string().as_bytes(), json::WriteMode::Replace)?;
         if !parsed.unchanged.is_empty() || o.temporary_hold || o.custom_time.is_some() {
             return Err(unsupported(
                 "ComposeObject metadata; omit storage_class, temporary_hold and custom_time",
             ));
         }
-        parsed.update.validate().map_err(error)?;
+        parsed.update.validate()?;
         let destination = DerivedDestination {
             bucket: bucket.into(),
             name: name.into(),
@@ -1062,12 +1039,11 @@ impl Storage {
             metadata: parsed.update,
             storage_class: None,
             expected: ExpectedHashes::default(),
-            conditions: strict_conditions(
-                r.if_generation_match,
-                None,
-                r.if_metageneration_match,
-                None,
-            )?,
+            conditions: strict_conditions(ObjectConditions {
+                if_generation_match: r.if_generation_match,
+                if_metageneration_match: r.if_metageneration_match,
+                ..Default::default()
+            })?,
             access,
             component_count: None,
         };
@@ -1084,8 +1060,7 @@ impl Storage {
                 },
                 self.max_object_bytes,
             )
-            .await
-            .map_err(error)?;
+            .await?;
         Ok(Response::new(convert::object(&record)?))
     }
     pub(super) async fn move_object(
@@ -1122,8 +1097,7 @@ impl Storage {
                     destination_create: &create,
                 },
             )
-            .await
-            .map_err(error)?;
+            .await?;
         Ok(Response::new(convert::object(&record)?))
     }
     pub(super) async fn restore_object(
@@ -1132,7 +1106,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
-        common(&r.common_object_request_params)?;
+        common(r.common_object_request_params.as_ref())?;
         if r.copy_source_acl == Some(true) || !r.restore_token.is_empty() {
             return Err(unsupported(
                 "RestoreObject ACL/token; use copy_source_acl=false and omit restore_token",
@@ -1152,12 +1126,7 @@ impl Storage {
             restore: &restore,
             create: &create,
         };
-        let record = self
-            .state
-            .catalog
-            .restore_object(target, c, access)
-            .await
-            .map_err(error)?;
+        let record = self.state.catalog.restore_object(target, c, access).await?;
         Ok(Response::new(convert::object(&record)?))
     }
 }
@@ -1165,12 +1134,10 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::test_support::{self as fixtures, assert_code, caller, registry};
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
-    use crate::{
-        auth::Auth, clock::SystemClock, object::UploadChunk, server::State, storage::Catalog,
-        test_support::TestDir,
-    };
-    use std::sync::{Arc, atomic::AtomicBool};
+    use crate::{auth::Auth, object::UploadChunk, storage::Catalog, test_support::TestDir};
+    use std::sync::Arc;
     use tonic::Code;
 
     async fn setup() -> (Storage, TestDir) {
@@ -1186,24 +1153,11 @@ mod tests {
         }
         (
             Storage {
-                state: Arc::new(State {
-                    catalog,
-                    ready: AtomicBool::new(true),
-                    clock: Arc::new(SystemClock),
-                    api_base_url: "http://localhost:4443".into(),
-                    default_location: "US".into(),
-                    auth: Auth::permissive(),
-                }),
+                state: Arc::new(fixtures::state(catalog, Auth::permissive())),
                 max_object_bytes: 8 * 1024 * 1024,
             },
             dir,
         )
-    }
-
-    fn update_mask(paths: &[&str]) -> Option<prost_types::FieldMask> {
-        Some(prost_types::FieldMask {
-            paths: paths.iter().map(|p| p.to_string()).collect(),
-        })
     }
 
     async fn upload(storage: &Storage, name: &str, length: usize) -> crate::object::ObjectRecord {
@@ -1268,7 +1222,7 @@ mod tests {
 
     #[test]
     fn grpc_masks_reject_unsupported_and_accept_defaults() {
-        let status = error(JsonError::new(
+        let status = Status::from(JsonError::new(
             hyper::StatusCode::NOT_IMPLEMENTED,
             "notImplemented",
             "Unsupported operation; use JSON instead",
@@ -1283,7 +1237,7 @@ mod tests {
             "type.googleapis.com/google.rpc.ErrorInfo"
         );
         assert_eq!(
-            error(JsonError::new(
+            Status::from(JsonError::new(
                 hyper::StatusCode::GONE,
                 "gone",
                 "Expired session; restart the request"
@@ -1299,11 +1253,9 @@ mod tests {
             "versioning.unknown",
             "iam_config.unknown",
         ] {
-            assert_eq!(
-                bucket_patch(&pb::Bucket::default(), &[path.into()])
-                    .unwrap_err()
-                    .code(),
-                Code::Unimplemented
+            assert_code(
+                bucket_patch(&pb::Bucket::default(), &[path.into()]),
+                Code::Unimplemented,
             );
         }
         for path in [
@@ -1313,32 +1265,23 @@ mod tests {
             "contexts.custom",
             "retention.mode",
         ] {
-            assert_eq!(
-                object_patch(&pb::Object::default(), &[path.into()])
-                    .unwrap_err()
-                    .code(),
-                Code::Unimplemented
+            assert_code(
+                object_patch(&pb::Object::default(), &[path.into()]),
+                Code::Unimplemented,
             );
         }
-        assert_eq!(mask(None).unwrap_err().code(), Code::InvalidArgument);
-        assert_eq!(
-            mask(Some(&prost_types::FieldMask::default()))
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+        assert_code(mask(None), Code::InvalidArgument);
+        assert_code(
+            mask(Some(&prost_types::FieldMask::default())),
+            Code::InvalidArgument,
         );
-        assert!(common(&Some(pb::CommonObjectRequestParams::default())).is_ok());
-        assert_eq!(
-            strict_conditions(Some(-1), None, None, None)
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
-        );
-        assert_eq!(
-            strict_conditions(None, None, Some(0), None)
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+        assert!(common(Some(&pb::CommonObjectRequestParams::default())).is_ok());
+        assert_code(
+            strict_conditions(ObjectConditions {
+                if_generation_match: Some(-1),
+                ..Default::default()
+            }),
+            Code::InvalidArgument,
         );
         let b = pb::Bucket {
             labels: [
@@ -1394,7 +1337,7 @@ mod tests {
                 name: "projects/_/buckets/update-copy-bucket".into(),
                 ..bucket
             }),
-            update_mask: update_mask(paths),
+            update_mask: fixtures::mask(paths),
             ..Default::default()
         };
         let enabled = s
@@ -1413,12 +1356,9 @@ mod tests {
         );
         assert_eq!(enabled.storage_class, "STANDARD");
         let invalid = update(autoclass(true, Some("COLDLINE")), &["autoclass"]);
-        assert_eq!(
-            s.update_bucket(Request::new(invalid), None)
-                .await
-                .unwrap_err()
-                .code(),
-            tonic::Code::InvalidArgument
+        assert_code(
+            s.update_bucket(Request::new(invalid), None).await,
+            tonic::Code::InvalidArgument,
         );
         let disabled = s
             .update_bucket(
@@ -1477,7 +1417,7 @@ mod tests {
                 }),
                 ..Default::default()
             }),
-            update_mask: update_mask(&["iam_config"]),
+            update_mask: fixtures::mask(&["iam_config"]),
             ..Default::default()
         };
         let b = s
@@ -1497,7 +1437,7 @@ mod tests {
                 }),
                 ..Default::default()
             }),
-            update_mask: update_mask(&["iam_config"]),
+            update_mask: fixtures::mask(&["iam_config"]),
             ..Default::default()
         };
         let b = s
@@ -1542,19 +1482,17 @@ mod tests {
                     }),
                     ..Default::default()
                 }),
-                update_mask: update_mask(&["retention"]),
+                update_mask: fixtures::mask(&["retention"]),
                 override_unlocked_retention: force,
                 ..Default::default()
             };
-        assert_eq!(
+        assert_code(
             s.update_object(
                 Request::new(request("update-copy-bucket", "plain", Some(3600), false)),
-                None
+                None,
             )
-            .await
-            .unwrap_err()
-            .code(),
-            Code::InvalidArgument
+            .await,
+            Code::InvalidArgument,
         );
         let object = s
             .update_object(
@@ -1576,12 +1514,9 @@ mod tests {
             if invalid != pb::object::retention::Mode::Unspecified as i32 {
                 retention.retain_until_time = None;
             }
-            assert_eq!(
-                s.update_object(Request::new(bad), None)
-                    .await
-                    .unwrap_err()
-                    .code(),
-                Code::InvalidArgument
+            assert_code(
+                s.update_object(Request::new(bad), None).await,
+                Code::InvalidArgument,
             );
         }
         assert_eq!(retention.retain_until_time.unwrap().seconds, now + 3600);
@@ -1706,7 +1641,7 @@ mod tests {
                         }),
                         ..Default::default()
                     }),
-                    update_mask: update_mask(&["retention"]),
+                    update_mask: fixtures::mask(&["retention"]),
                     ..Default::default()
                 }),
                 None,
@@ -1812,12 +1747,9 @@ mod tests {
         assert!(soft.objects[0].soft_delete_time.is_some());
         assert!(soft.objects[0].hard_delete_time.is_some());
         // The JSON listing rejects softDeleted with versions; gRPC shares that rule.
-        assert_eq!(
-            s.list_objects(Request::new(list(true, true)), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+        assert_code(
+            s.list_objects(Request::new(list(true, true)), None).await,
+            Code::InvalidArgument,
         );
         s.state.catalog.close().await.unwrap();
     }
@@ -1855,18 +1787,16 @@ mod tests {
             assert_eq!(error.code(), Code::InvalidArgument, "{delimiter:?}");
             assert!(error.message().contains("delimiter=/"), "{error:?}");
         }
-        assert_eq!(
+        assert_code(
             s.list_objects(
                 Request::new(pb::ListObjectsRequest {
                     filter: "contexts.\"k\"=\"v\"".into(),
                     ..list(false, "/")
                 }),
-                None
+                None,
             )
-            .await
-            .unwrap_err()
-            .code(),
-            Code::Unimplemented
+            .await,
+            Code::Unimplemented,
         );
         s.state.catalog.close().await.unwrap();
     }
@@ -1887,44 +1817,32 @@ mod tests {
             .await
             .unwrap();
         let s = Storage {
-            state: Arc::new(State {
+            state: Arc::new(fixtures::state(
                 catalog,
-                ready: AtomicBool::new(true),
-                clock: Arc::new(SystemClock),
-                api_base_url: "http://localhost:4443".into(),
-                default_location: "US".into(),
-                auth: Auth::strict(crate::auth::Registry::parse(br#"{"identities":[{"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"p":["roles/storage.objectViewer"]}},{"id":"none@example.invalid","tokens":["none"]}]}"#).unwrap()),
-            }),
+                Auth::strict(registry(&[
+                    ("viewer", "p", "roles/storage.objectViewer"),
+                    ("none", "", ""),
+                ])),
+            )),
             max_object_bytes: 1024,
-        };
-        let caller = |token: &str| {
-            let mut metadata = Request::new(());
-            metadata
-                .metadata_mut()
-                .insert("authorization", format!("Bearer {token}").parse().unwrap());
-            s.authenticate(&metadata).unwrap()
         };
         let request = pb::ListObjectsRequest {
             parent: "projects/_/buckets/update-copy-bucket".into(),
             soft_deleted: true,
             ..Default::default()
         };
-        s.list_objects(Request::new(request.clone()), caller("viewer"))
+        s.list_objects(Request::new(request.clone()), caller(&s, "viewer"))
             .await
             .unwrap();
-        assert_eq!(
-            s.list_objects(Request::new(request.clone()), caller("none"))
-                .await
-                .unwrap_err()
-                .code(),
-            Code::PermissionDenied
+        assert_code(
+            s.list_objects(Request::new(request.clone()), caller(&s, "none"))
+                .await,
+            Code::PermissionDenied,
         );
-        assert_eq!(
+        assert_code(
             s.list_objects(Request::new(request), Some(Caller::Anonymous))
-                .await
-                .unwrap_err()
-                .code(),
-            Code::Unauthenticated
+                .await,
+            Code::Unauthenticated,
         );
         s.state.catalog.close().await.unwrap();
     }
@@ -1942,24 +1860,16 @@ mod tests {
         record.object_retention_enabled = true;
         catalog.insert_bucket(record).await.unwrap();
         let s = Storage {
-            state: Arc::new(State {
+            state: Arc::new(fixtures::state(
                 catalog,
-                ready: AtomicBool::new(true),
-                clock: Arc::new(SystemClock),
-                api_base_url: "http://localhost:4443".into(),
-                default_location: "US".into(),
-                auth: Auth::strict(crate::auth::Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"p":["roles/storage.objectAdmin"]}},{"id":"user@example.invalid","tokens":["user"],"project_roles":{"p":["roles/storage.objectUser"]}}]}"#).unwrap()),
-            }),
+                Auth::strict(registry(&[
+                    ("admin", "p", "roles/storage.objectAdmin"),
+                    ("user", "p", "roles/storage.objectUser"),
+                ])),
+            )),
             max_object_bytes: 1024,
         };
         upload(&s, "object", 3).await;
-        let caller = |token: &str| {
-            let mut metadata = Request::new(());
-            metadata
-                .metadata_mut()
-                .insert("authorization", format!("Bearer {token}").parse().unwrap());
-            s.authenticate(&metadata).unwrap()
-        };
         let until = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -1978,16 +1888,14 @@ mod tests {
                 }),
                 ..Default::default()
             }),
-            update_mask: update_mask(&["retention"]),
+            update_mask: fixtures::mask(&["retention"]),
             ..Default::default()
         };
         // objectUser may update objects but not set retention.
-        assert_eq!(
-            s.update_object(Request::new(request.clone()), caller("user"))
-                .await
-                .unwrap_err()
-                .code(),
-            Code::PermissionDenied
+        assert_code(
+            s.update_object(Request::new(request.clone()), caller(&s, "user"))
+                .await,
+            Code::PermissionDenied,
         );
         assert!(
             s.state
@@ -2002,7 +1910,7 @@ mod tests {
                 .retention
                 .is_none()
         );
-        s.update_object(Request::new(request), caller("admin"))
+        s.update_object(Request::new(request), caller(&s, "admin"))
             .await
             .unwrap();
         s.state.catalog.close().await.unwrap();
@@ -2024,7 +1932,7 @@ mod tests {
                 }],
                 ..Default::default()
             }),
-            update_mask: update_mask(&["acl"]),
+            update_mask: fixtures::mask(&["acl"]),
             ..Default::default()
         };
         let object = s
@@ -2051,12 +1959,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(stored.objects[0].iter().any(|e| e.entity == "allUsers"));
-        assert_eq!(
+        assert_code(
             s.update_object(Request::new(acl_request("nobody")), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+                .await,
+            Code::InvalidArgument,
         );
         // Uniform bucket-level access disables object ACLs, exactly as in JSON.
         s.update_bucket(
@@ -2074,19 +1980,17 @@ mod tests {
                     }),
                     ..Default::default()
                 }),
-                update_mask: update_mask(&["iam_config"]),
+                update_mask: fixtures::mask(&["iam_config"]),
                 ..Default::default()
             }),
             None,
         )
         .await
         .unwrap();
-        assert_eq!(
+        assert_code(
             s.update_object(Request::new(acl_request("allAuthenticatedUsers")), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+                .await,
+            Code::InvalidArgument,
         );
         s.state.catalog.close().await.unwrap();
     }
@@ -2102,7 +2006,7 @@ mod tests {
                 versioning: Some(pb::bucket::Versioning { enabled: true }),
                 ..Default::default()
             }),
-            update_mask: update_mask(&["labels"]),
+            update_mask: fixtures::mask(&["labels"]),
             ..Default::default()
         };
         let b = s
@@ -2119,15 +2023,12 @@ mod tests {
                 ..Default::default()
             }),
             if_metageneration_match: Some(1),
-            update_mask: update_mask(&["labels"]),
+            update_mask: fixtures::mask(&["labels"]),
             ..Default::default()
         };
-        assert_eq!(
-            s.update_bucket(Request::new(stale), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::FailedPrecondition
+        assert_code(
+            s.update_bucket(Request::new(stale), None).await,
+            Code::FailedPrecondition,
         );
         let source = upload(&s, "object", 10).await;
         let request = pb::UpdateObjectRequest {
@@ -2138,7 +2039,7 @@ mod tests {
                 content_type: "ignored".into(),
                 ..Default::default()
             }),
-            update_mask: update_mask(&["metadata"]),
+            update_mask: fixtures::mask(&["metadata"]),
             if_generation_match: Some(source.generation),
             ..Default::default()
         };
@@ -2157,7 +2058,7 @@ mod tests {
                 temporary_hold: true,
                 ..Default::default()
             }),
-            update_mask: update_mask(&["metadata", "temporary_hold"]),
+            update_mask: fixtures::mask(&["metadata", "temporary_hold"]),
             ..Default::default()
         };
         let object = s
@@ -2191,12 +2092,10 @@ mod tests {
             bucket: resource.into(),
             if_metageneration_match: 0,
         };
-        assert_eq!(
+        assert_code(
             s.lock_bucket_retention_policy(Request::new(lock), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+                .await,
+            Code::InvalidArgument,
         );
         let request = pb::UpdateBucketRequest {
             bucket: Some(pb::Bucket {
@@ -2210,7 +2109,7 @@ mod tests {
                 }),
                 ..Default::default()
             }),
-            update_mask: update_mask(&["retention_policy"]),
+            update_mask: fixtures::mask(&["retention_policy"]),
             ..Default::default()
         };
         let b = s
@@ -2236,15 +2135,12 @@ mod tests {
                 name: resource.into(),
                 ..Default::default()
             }),
-            update_mask: update_mask(&["retention_policy"]),
+            update_mask: fixtures::mask(&["retention_policy"]),
             ..Default::default()
         };
-        assert_eq!(
-            s.update_bucket(Request::new(request), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+        assert_code(
+            s.update_bucket(Request::new(request), None).await,
+            Code::InvalidArgument,
         );
         let source = upload(&s, "tiny", 1).await;
         let src = pb::compose_object_request::SourceObject {
@@ -2297,12 +2193,9 @@ mod tests {
         let mut mismatched = request.clone();
         mismatched.rewrite_token = first.rewrite_token.clone();
         mismatched.destination_name = "different".into();
-        assert_eq!(
-            s.rewrite_object(Request::new(mismatched), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+        assert_code(
+            s.rewrite_object(Request::new(mismatched), None).await,
+            Code::InvalidArgument,
         );
         let next = pb::RewriteObjectRequest {
             rewrite_token: first.rewrite_token.clone(),
@@ -2353,12 +2246,9 @@ mod tests {
             source_objects: vec![src.clone()],
             ..Default::default()
         };
-        assert_eq!(
-            s.compose_object(Request::new(request), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::FailedPrecondition
+        assert_code(
+            s.compose_object(Request::new(request), None).await,
+            Code::FailedPrecondition,
         );
         let src = pb::compose_object_request::SourceObject {
             object_preconditions: None,
@@ -2369,12 +2259,9 @@ mod tests {
             source_objects: vec![src.clone(); 33],
             ..Default::default()
         };
-        assert_eq!(
-            s.compose_object(Request::new(too_many), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
+        assert_code(
+            s.compose_object(Request::new(too_many), None).await,
+            Code::InvalidArgument,
         );
         let request = pb::ComposeObjectRequest {
             destination: Some(destination),
@@ -2389,12 +2276,9 @@ mod tests {
             .into_inner();
         assert_eq!(joined.component_count, 1);
         assert_eq!(joined.size, source.size as i64);
-        assert_eq!(
-            s.compose_object(Request::new(request), None)
-                .await
-                .unwrap_err()
-                .code(),
-            Code::FailedPrecondition
+        assert_code(
+            s.compose_object(Request::new(request), None).await,
+            Code::FailedPrecondition,
         );
         s.state.catalog.close().await.unwrap();
     }
