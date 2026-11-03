@@ -51073,6 +51073,18 @@
           "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_reports_source_changing_without_false_completion"]
         },
         {
+          "id": "sync-installed-body-durability",
+          "description": "Durable always verifies installed body hashes, including same-inode/size edits with restored mtime; acknowledgement checks the complete recorded stat instead of hashing again. Reusing private copy hashes cannot establish the installed bytes after namespace exposure. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "result": "PASS",
+          "test_ids": ["durable_rehash_rejects_same_inode_edits_with_restored_mtime"]
+        },
+        {
+          "id": "sync-wait-preparation-budget",
+          "description": "Wait claims bounded catalog activity before authorization, keeps permission-before-body ordering, bounds preparation by catalog_wait_timeout_ms and releases activity after errors, timeout or cancellation before applying the requested observation budget. Scope: docs/en/slices/continuous-directory-observation.md.",
+          "result": "PASS",
+          "test_ids": ["wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors", "wait_authorization_deadline_and_cancellation_release_activity"]
+        },
+        {
           "id": "sync-api-writeback",
           "description": "sync-live-export acceptance: notification-driven fenced journal replay, bounded coalescing and gap reconciliation, fingerprint-checked API create/overwrite/delete/copy/compose, retained externally edited bodies with findings, pending-work-only I/O retry, object-boundary shutdown and restart reconciliation. Bucket deletion retains directories; ingestion, conflict transfer and control routes remain PENDING. Scope: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
@@ -51406,6 +51418,9 @@
         "staging_finishes_while_another_file_worker_is_occupied",
         "racy_exported_bytes_are_verified_without_staging_again",
         "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors",
+        "durable_rehash_rejects_same_inode_edits_with_restored_mtime",
+        "wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors",
+        "wait_authorization_deadline_and_cancellation_release_activity",
         "cumulative_deletions_require_approval_after_split_scans_rescan_and_restart",
         "empty_explicit_rescan_resets_automatic_deletion_history",
         "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers",
@@ -51667,6 +51682,13 @@
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/continuous-directory-observation.md",
           "test_ids": ["native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors", "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling", "native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- durable_rehash wait_authorization --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/shared-sync-writeback.md",
+          "test_ids": ["durable_rehash_rejects_same_inode_edits_with_restored_mtime", "wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors", "wait_authorization_deadline_and_cancellation_release_activity"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- cumulative_deletions empty_explicit_rescan automatic_deletion_history quiet_native_observation native_quiet_deadline rescan_during_native_quiet --test-threads=4",

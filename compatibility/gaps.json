@@ -1449,6 +1449,10 @@
   ],
   "resolved_research_items": [
     {
+      "title": "Installed-body verification and management wait preparation",
+      "resolution": "Durable hashes the actual installed body even when an external writer preserves inode/size and restores mtime; acknowledgement alone reuses the verified complete stat. Wait authorizes before body validation while claiming bounded catalog activity before the authorization database wait; preparation uses catalog_wait_timeout_ms, then the requested observation deadline applies. A request guard releases activity on success, error, preparation timeout or cancellation. These are local synchronization integrity and deadline fixes, not Google infrastructure fidelity or a measured performance claim."
+    },
+    {
       "title": "Cumulative deletion guard and bounded native quiet observation",
       "resolution": "The former root-wide guard counted only each scan, allowing one bulk directory removal to be consumed as smaller unguarded batches. Schema 50 persists automatic deletion history in the same object-delete transaction and retains it across restart and guarded rescans. Native observation coalesces events through 1-second quiet with a 10-second cap while controls report SourceChanging. Below-threshold automatic deletions may already commit in operations longer than the cap; cumulative approval does not undo them. This fixes the existing per-scan data-loss boundary without claiming an atomic filesystem snapshot or physical power-loss evidence. Parent sync and platform gaps remain open."
     },
