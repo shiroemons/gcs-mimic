@@ -42,7 +42,7 @@ fn selected_appendable(
         catalog.0.principals.get(),
     )?;
     check_conditions(Some(&record), conditions, objects::RequestKind::Read)?;
-    Ok((record, row.blob_id.clone()))
+    Ok((record, row.blob_id))
 }
 
 pub(super) fn open_appendable_in(
