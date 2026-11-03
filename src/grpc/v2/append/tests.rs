@@ -483,10 +483,16 @@ async fn append_rejects_replacement_and_invalid_messages_without_false_success()
     if let Some(Data::ChecksummedData(data)) = bad_crc.data.as_mut() {
         data.crc32c = Some(1);
     }
+    let mut early_later_checksum = chunk(100, b"rejected", false);
+    early_later_checksum.object_checksums = Some(pb::ObjectChecksums::default());
     for (messages, code) in [
         (vec![Ok(sized)], Code::Unimplemented),
         (vec![Ok(early_checksum)], Code::InvalidArgument),
         (vec![Ok(encrypted)], Code::Unimplemented),
+        (
+            vec![Ok(create("early-later", b"x")), Ok(early_later_checksum)],
+            Code::InvalidArgument,
+        ),
         (
             vec![Ok(create("md5", b"x")), Ok(md5_finish)],
             Code::InvalidArgument,

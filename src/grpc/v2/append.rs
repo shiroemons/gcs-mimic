@@ -119,7 +119,7 @@ impl Storage {
         &self,
         first: &mut pb::BidiWriteObjectRequest,
         caller: Option<Caller<'_>>,
-    ) -> Result<(AppendWriter, BucketAccess, bool), Status> {
+    ) -> Result<(AppendWriter, BucketAccess, Acknowledgement), Status> {
         use pb::bidi_write_object_request::FirstMessage;
         match first.first_message.take() {
             Some(FirstMessage::WriteObjectSpec(mut spec)) => {
@@ -148,7 +148,7 @@ impl Storage {
                     .create_appendable(&bucket, &name, options)
                     .await
                     .map_err(|e| append_status(e, caller))?;
-                Ok((writer, access, false))
+                Ok((writer, access, Acknowledgement::Resource))
             }
             Some(FirstMessage::AppendObjectSpec(spec)) => {
                 let (bucket, name) = names::object_name(&spec.bucket, &spec.object)?;
@@ -175,7 +175,7 @@ impl Storage {
                     )
                     .await
                     .map_err(|e| append_status(e, caller))?;
-                Ok((writer, access, true))
+                Ok((writer, access, Acknowledgement::PersistedSize))
             }
             _ => Err(Status::invalid_argument(
                 "First message must contain write_object_spec with appendable=true or append_object_spec",
@@ -196,12 +196,8 @@ impl Storage {
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     {
         common(message.common_object_request_params.as_ref())?;
-        let (mut writer, access, takeover) = self.open_writer(&mut message, caller).await?;
-        let mut acknowledgement = if takeover {
-            Acknowledgement::PersistedSize
-        } else {
-            Acknowledgement::Resource
-        };
+        let (mut writer, access, mut acknowledgement) =
+            self.open_writer(&mut message, caller).await?;
         let mut first = true;
         loop {
             common(message.common_object_request_params.as_ref())?;
@@ -215,6 +211,17 @@ impl Storage {
                 None => pb::ChecksummedData::default(),
             };
             verify_crc32c(&data)?;
+            if message.object_checksums.is_some() && !message.finish_write {
+                return Err(Status::invalid_argument(
+                    "Appendable objects accept object_checksums only with finish_write=true",
+                ));
+            }
+            let expected = hashes(message.object_checksums.as_ref())?;
+            if expected.md5.is_some() {
+                return Err(Status::invalid_argument(
+                    "Appendable objects have no MD5 hash; send only crc32c in object_checksums",
+                ));
+            }
             // A takeover's opening message only asks for the persisted size, so its offset
             // carries no meaning without data.
             if !data.content.is_empty() {
@@ -228,18 +235,7 @@ impl Storage {
                     .await
                     .map_err(|e| append_status(e, caller))?;
             }
-            if message.object_checksums.is_some() && !message.finish_write {
-                return Err(Status::invalid_argument(
-                    "Appendable objects accept object_checksums only with finish_write=true",
-                ));
-            }
             if message.finish_write {
-                let expected = hashes(message.object_checksums.as_ref())?;
-                if expected.md5.is_some() {
-                    return Err(Status::invalid_argument(
-                        "Appendable objects have no MD5 hash; send only crc32c in object_checksums",
-                    ));
-                }
                 let record = writer
                     .finalize(expected.crc32c, access.clone(), self.max_object_bytes)
                     .await
@@ -258,7 +254,10 @@ impl Storage {
             if message.flush {
                 writer.flush().await.map_err(|e| append_status(e, caller))?;
             }
-            if message.flush || message.state_lookup || (first && takeover) {
+            if message.flush
+                || message.state_lookup
+                || (first && acknowledgement == Acknowledgement::PersistedSize)
+            {
                 send(tx, status_response(&writer, acknowledgement)?).await?;
                 acknowledgement = Acknowledgement::PersistedSize;
             }
