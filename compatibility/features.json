@@ -20919,7 +20919,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_update_copy_contract",
-          "description": "JSON-shared UpdateBucket subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "description": "JSON-shared UpdateBucket subset: atomic preconditions and whole-label-map replacement without implicit conditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
           "result": "PASS",
           "test_ids": [
             "grpc_masks_reject_unsupported_and_accept_defaults",
@@ -21703,7 +21703,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Whole metadata maps are replaced inside the mutation transaction without adding implicit preconditions; explicit client conditions remain enforced. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",

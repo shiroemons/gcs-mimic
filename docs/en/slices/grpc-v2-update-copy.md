@@ -28,7 +28,7 @@ Bucket masks: `acl`, `default_object_acl` ([SDK parity](grpc-v2-sdk-parity.md)),
 
 The parent `iam_config` mask merges only present settings: `uniform_bucket_level_access: Some(...)` and a nonempty `public_access_prevention`. Go Storage 1.70.0 sends this parent path for either individual setting, so absent sibling settings must survive. Explicit UBLA false and PAP inherited still apply. The other supported parent masks have one editable scalar or repeated field: versioning false, an absent retention duration, zero soft-delete duration and an empty lifecycle/CORS list retain their existing reset/replace semantics; read-only lock/effective times are never copied into state. The serialization audit uses pinned [BucketAttrsToUpdate.toProtoBucket](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/bucket.go) and its UpdateBucket field-mask construction.
 
-Object masks: `metadata`, `metadata.KEY`, the five fixed serving metadata strings, `custom_time`, `temporary_hold` and `event_based_hold`. `create_time` is ignored as an output-only path because the pinned Go SDK sends it for ordinary empty updates. `acl` replaces the object ACL and `retention` sets or removes object retention ([SDK parity](grpc-v2-sdk-parity.md)). `*`, contexts and other masks return UNIMPLEMENTED. A whole nonempty map replacement reads the old keys and pins the observed metageneration (and object generation) at mutation; a racing replacement can fail with FAILED_PRECONDITION instead of retrying implicitly. Key-level mutations use the shared transaction directly.
+Object masks: `metadata`, `metadata.KEY`, the five fixed serving metadata strings, `custom_time`, `temporary_hold` and `event_based_hold`. `create_time` is ignored as an output-only path because the pinned Go SDK sends it for ordinary empty updates. `acl` replaces the object ACL and `retention` sets or removes object retention ([SDK parity](grpc-v2-sdk-parity.md)). `*`, contexts and other masks return UNIMPLEMENTED. Whole metadata and label maps are replaced in the shared mutation transaction without adding preconditions; explicit client preconditions remain enforced. Key-level mutations merge individual entries in that transaction.
 
 The adapter currently accepts one match or not-match condition per generation kind; simultaneous match/not-match for the same kind returns INVALID_ARGUMENT. JSON's broader combined-condition precedence remains outside this scoped RPC acceptance.
 
@@ -45,6 +45,13 @@ Storage errors use the common `status::from_json` mapping, including expired-ses
 UpdateBucket, UpdateObject and TestIamPermissions retain LOCAL_SIMULATION achieved fidelity, matching their shared JSON operations; the remaining delivered scopes have EXACT achieved fidelity with explicit pending cases. This does not turn local principals, policy propagation or lifecycle metadata into Google infrastructure.
 
 ## Verification
+
+On 2026-11-04, `cargo test --lib grpc::v2::update_copy -- --test-threads=4`
+passed sixteen tests. The new concurrent whole-map replacement regression failed
+with an implicit FAILED_PRECONDITION before the fix and now passes for object
+metadata and bucket labels. The shared `metadata_map_modes_apply_atomically_and_validate_the_result`
+test verifies merge/removal, replacement, clearing and the resulting 8 KiB limit.
+Workspace checking, production lint and formatting passed.
 
 Before implementation, `GCS_MIMIC_GO_TEST_RUN=TestGRPCUpdateCopy bash scripts/sdk-go.sh` failed on UpdateBucket with immediate UNIMPLEMENTED. After implementation, the same command passed both ordinary and strict suites using Go Storage 1.70.0; JSON supplies fixtures and observes metadata and exact bytes. Rust tests exercise unsupported/empty masks, non-target preservation, full-map replacement, stale conditions, continuation/replay/mismatch, 32/33-source boundaries and local retention locking.
 

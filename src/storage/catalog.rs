@@ -1401,7 +1401,7 @@ impl Catalog {
             validate_retention_expiration(&transaction, &record)?;
             bucket_autoclass::update(&transaction, &mut record, &update, clock.now())?;
             if let Some(labels) = update.labels.take() {
-                apply_labels(&mut record, labels, mode)?;
+                apply_labels(&mut record, labels, mode, update.labels_mode)?;
             }
             if record.labels.len() > 64 {
                 return Err(CatalogError::InvalidMetadata(
@@ -1797,8 +1797,9 @@ fn apply_labels(
     record: &mut BucketRecord,
     labels: Option<std::collections::BTreeMap<String, Option<String>>>,
     mode: BucketWrite,
+    map_mode: crate::object::MapMode,
 ) -> Result<(), CatalogError> {
-    if mode == BucketWrite::Replace {
+    if mode == BucketWrite::Replace || map_mode == crate::object::MapMode::Replace {
         record.labels.clear();
     }
     let Some(labels) = labels else {
@@ -1807,7 +1808,8 @@ fn apply_labels(
     };
     for (key, value) in labels {
         // Library callers can bypass adapter validation.
-        if (mode == BucketWrite::Replace && value.is_none())
+        if ((mode == BucketWrite::Replace || map_mode == crate::object::MapMode::Replace)
+            && value.is_none())
             || !valid_label(&key, LabelPart::Key)
             || value
                 .as_deref()

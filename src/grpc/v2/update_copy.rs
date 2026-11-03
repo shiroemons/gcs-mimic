@@ -4,7 +4,7 @@ use crate::{
     bucket::{BucketAccess, BucketConditions, BucketMetadataUpdate},
     grpc::validate::{self, bucket_conditions, request_conditions, strict_conditions},
     json::{self, JsonError},
-    object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget},
+    object::{ComposeSource, ExpectedHashes, MapMode, ObjectConditions, ObjectTarget},
     server::authorize_bucket,
     storage::{
         DerivedDestination, DerivedRequestGuard, MoveAccess, MoveConditions, MoveNames,
@@ -805,29 +805,16 @@ impl Storage {
             ..Default::default()
         })?;
         let paths = mask(r.update_mask.as_ref())?;
-        let mut body = bucket_patch(&b, paths)?;
+        let body = bucket_patch(&b, paths)?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
-        let mut conditions = bucket_conditions!(r);
-        if paths.iter().any(|p| p == "labels") && !b.labels.is_empty() {
-            let current = self
-                .state
-                .catalog
-                .get_bucket(bucket, &access)
-                .await?
-                .ok_or_else(|| Status::not_found("Bucket not found"))?;
-            for key in current.labels.keys().filter(|k| !b.labels.contains_key(*k)) {
-                body["labels"][key] = Value::Null;
-            }
-            conditions.if_metageneration_match = Some(
-                conditions
-                    .if_metageneration_match
-                    .unwrap_or(current.metageneration),
-            );
-        }
-        let update = json::parse_bucket_patch(
+        let conditions = bucket_conditions!(r);
+        let mut update = json::parse_bucket_patch(
             body.to_string().as_bytes(),
             crate::config::CompatProfile::Native,
         )?;
+        if paths.iter().any(|path| path == "labels") {
+            update.labels_mode = MapMode::Replace;
+        }
         let record = self
             .state
             .catalog
@@ -864,35 +851,18 @@ impl Storage {
             ));
         }
         let paths = mask(r.update_mask.as_ref())?;
-        let mut body = object_patch(&o, paths)?;
+        let body = object_patch(&o, paths)?;
         let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
-        let mut c = request_conditions!(strict_conditions, r)?;
-        if paths.iter().any(|p| p == "metadata") && !o.metadata.is_empty() {
-            let target =
-                ObjectTarget::new(bucket, name, (o.generation != 0).then_some(o.generation));
-            let current = self
-                .state
-                .catalog
-                .get_object(target, c, &access)
-                .await
-                .map_err(|e| Status::from(JsonError::from(e).naming_object(bucket, name)))?;
-            for key in current
-                .metadata
-                .keys()
-                .filter(|k| !o.metadata.contains_key(*k))
-            {
-                body["metadata"][key] = Value::Null;
-            }
-            c.if_metageneration_match =
-                Some(c.if_metageneration_match.unwrap_or(current.metageneration));
-            c.if_generation_match = Some(c.if_generation_match.unwrap_or(current.generation));
-        }
+        let c = request_conditions!(strict_conditions, r)?;
         // The mutation parser also accepts `acl` and `retention`, which only their own paths
         // write; retention changes then need the same extra permissions as JSON.
         let mut parsed = json::parse_object_metadata_mutation(
             body.to_string().as_bytes(),
             json::WriteMode::Patch,
         )?;
+        if paths.iter().any(|path| path == "metadata") {
+            parsed.update.metadata_mode = MapMode::Replace;
+        }
         parsed.update.validate()?;
         crate::server::authorize_retention_update(
             &self.state,
@@ -1941,6 +1911,65 @@ mod tests {
             Code::InvalidArgument,
         );
         s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_map_replacement_does_not_add_preconditions() {
+        let (storage, _dir) = setup().await;
+        upload(&storage, "object", 10).await;
+        for index in 0..20 {
+            let replace = pb::UpdateObjectRequest {
+                object: Some(pb::Object {
+                    bucket: "projects/_/buckets/update-copy-bucket".into(),
+                    name: "object".into(),
+                    metadata: [("value".into(), index.to_string())].into(),
+                    ..Default::default()
+                }),
+                update_mask: fixtures::mask(&["metadata"]),
+                ..Default::default()
+            };
+            let patch = pb::UpdateObjectRequest {
+                object: Some(pb::Object {
+                    bucket: "projects/_/buckets/update-copy-bucket".into(),
+                    name: "object".into(),
+                    content_type: "application/octet-stream".into(),
+                    ..Default::default()
+                }),
+                update_mask: fixtures::mask(&["content_type"]),
+                ..Default::default()
+            };
+            let (replaced, patched) = tokio::join!(
+                storage.update_object(Request::new(replace), None),
+                storage.update_object(Request::new(patch), None),
+            );
+            assert_eq!(replaced.unwrap().into_inner().metadata.len(), 1);
+            patched.unwrap();
+            let replace = pb::UpdateBucketRequest {
+                bucket: Some(pb::Bucket {
+                    name: "projects/_/buckets/update-copy-bucket".into(),
+                    labels: [("value".into(), index.to_string())].into(),
+                    ..Default::default()
+                }),
+                update_mask: fixtures::mask(&["labels"]),
+                ..Default::default()
+            };
+            let patch = pb::UpdateBucketRequest {
+                bucket: Some(pb::Bucket {
+                    name: "projects/_/buckets/update-copy-bucket".into(),
+                    default_event_based_hold: false,
+                    ..Default::default()
+                }),
+                update_mask: fixtures::mask(&["default_event_based_hold"]),
+                ..Default::default()
+            };
+            let (replaced, patched) = tokio::join!(
+                storage.update_bucket(Request::new(replace), None),
+                storage.update_bucket(Request::new(patch), None),
+            );
+            assert_eq!(replaced.unwrap().into_inner().labels.len(), 1);
+            patched.unwrap();
+        }
+        storage.state.catalog.close().await.unwrap();
     }
 
     #[tokio::test]

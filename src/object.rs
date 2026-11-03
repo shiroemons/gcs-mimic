@@ -249,6 +249,14 @@ pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
     Ok((micros / 1_000_000, nanos))
 }
 
+/// How a present custom-metadata or label map changes its stored entries.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum MapMode {
+    #[default]
+    Merge,
+    Replace,
+}
+
 /// Content fields reset on PUT; holds only change when explicitly supplied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
@@ -263,6 +271,7 @@ pub struct ObjectMetadataUpdate {
     pub content_language: Option<Option<String>>,
     pub cache_control: Option<Option<String>>,
     pub metadata: Option<Option<BTreeMap<String, Option<String>>>>,
+    pub(crate) metadata_mode: MapMode,
     pub event_based_hold: Option<bool>,
     pub temporary_hold: Option<bool>,
     pub custom_time: Option<Option<String>>,
@@ -289,6 +298,17 @@ pub(crate) fn validate_object_storage_class(class: &str) -> Result<StorageClass,
 
 impl ObjectMetadataUpdate {
     pub(crate) fn validate(&self) -> Result<(), ObjectError> {
+        if self.metadata_mode == MapMode::Replace
+            && self
+                .metadata
+                .as_ref()
+                .and_then(Option::as_ref)
+                .is_some_and(|entries| entries.values().any(Option::is_none))
+        {
+            return Err(ObjectError::InvalidFixedMetadata(
+                "Custom metadata replacement cannot remove individual keys".into(),
+            ));
+        }
         if let Some(Some(value)) = &self.custom_time {
             custom_time_key(value)?;
         }
@@ -394,6 +414,9 @@ impl ObjectMetadataUpdate {
             if let Some(value) = value {
                 *field = value.filter(|value| !value.is_empty());
             }
+        }
+        if self.metadata_mode == MapMode::Replace && self.metadata.is_some() {
+            record.metadata.clear();
         }
         match self.metadata {
             Some(Some(entries)) => {

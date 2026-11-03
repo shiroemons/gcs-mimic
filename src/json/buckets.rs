@@ -541,6 +541,7 @@ fn parse_bucket_update(
             .or_else(|| omitted_clears.then(Vec::new)),
         labels,
         touched: update_touches_bucket(body),
+        labels_mode: crate::object::MapMode::Merge,
         omitted_retention: omitted_clears && !body.contains_key("retentionPolicy"),
         storage_class,
         autoclass: body

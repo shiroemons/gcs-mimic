@@ -212,6 +212,7 @@ pub(crate) struct BucketMetadataUpdate {
     /// An echoed `objectRetention` value; it must match the stored state.
     pub object_retention_enabled: Option<bool>,
     pub labels: Option<Option<BTreeMap<String, Option<String>>>>,
+    pub(crate) labels_mode: crate::object::MapMode,
     pub storage_class: Option<StorageClass>,
     pub autoclass: Option<autoclass::AutoclassUpdate>,
     pub versioning_enabled: Option<bool>,
@@ -241,6 +242,7 @@ impl BucketMetadataUpdate {
             lock_retention_policy,
             object_retention_enabled,
             labels,
+            labels_mode: _,
             storage_class,
             autoclass,
             versioning_enabled,

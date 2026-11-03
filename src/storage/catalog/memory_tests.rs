@@ -16,6 +16,56 @@ mod appendable_tests;
 mod resumable_tests;
 mod xml_multipart_tests;
 
+#[tokio::test]
+async fn metadata_map_modes_apply_atomically_and_validate_the_result() {
+    use crate::object::{MapMode, ObjectMetadataUpdate};
+    let catalog = setup(1024 * 1024, Off).await;
+    let original = put(&catalog, Default::default(), Complete).await.unwrap();
+    let mut record = original;
+    record.metadata.insert("old".into(), "a".repeat(8190));
+    let update = |mode, entries| ObjectMetadataUpdate {
+        metadata: Some(Some(entries)),
+        metadata_mode: mode,
+        ..Default::default()
+    };
+    update(
+        MapMode::Replace,
+        [("new".into(), Some("value".into()))].into(),
+    )
+    .apply(&mut record)
+    .unwrap();
+    assert_eq!(record.metadata, [("new".into(), "value".into())].into());
+    update(
+        MapMode::Merge,
+        [("other".into(), Some("value".into()))].into(),
+    )
+    .apply(&mut record)
+    .unwrap();
+    assert_eq!(record.metadata.len(), 2);
+    update(MapMode::Merge, [("new".into(), None)].into())
+        .apply(&mut record)
+        .unwrap();
+    assert!(!record.metadata.contains_key("new"));
+    assert!(
+        update(MapMode::Replace, [("new".into(), None)].into())
+            .validate()
+            .is_err()
+    );
+    assert!(matches!(
+        update(
+            MapMode::Replace,
+            [("new".into(), Some("a".repeat(8192)))].into()
+        )
+        .apply(&mut record),
+        Err(ObjectError::InvalidMetadata)
+    ));
+    update(MapMode::Replace, Default::default())
+        .apply(&mut record)
+        .unwrap();
+    assert!(record.metadata.is_empty());
+    catalog.close().await.unwrap();
+}
+
 enum Versioning {
     Off,
     On,
