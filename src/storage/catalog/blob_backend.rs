@@ -156,13 +156,17 @@ impl BlobBackend {
 
     pub(super) fn pin(&self, original: &BlobId, id: &BlobId) -> io::Result<()> {
         match self {
-            Self::Disk(root) => fs::hard_link(original.blob_path(root), id.staging_path(root)),
+            Self::Disk(root) => {
+                fs::hard_link(original.blob_path(root), id.staging_path(root))?;
+                #[cfg(all(test, unix))]
+                super::fault::file_created(&id.staging_path(root));
+                Ok(())
+            }
             Self::Memory(store) => store.pin(&original.to_hex(), id.to_hex()),
         }
     }
 
-    pub(super) fn publish_pin(&self, original: &BlobId, id: &BlobId) -> io::Result<()> {
-        self.pin(original, id)?;
+    pub(super) fn publish_pinned(&self, id: &BlobId) -> io::Result<()> {
         if let Self::Disk(_) = self {
             self.publish_draft(id)?;
         }

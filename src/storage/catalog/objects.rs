@@ -97,6 +97,26 @@ pub(super) struct PublicationDefaults {
     pub(super) owner: Option<crate::object::owner::ObjectOwner>,
 }
 
+/// The clock reading shared by every check and timestamp in one publication transaction.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct PublicationTime {
+    pub(super) time: std::time::SystemTime,
+    pub(super) micros: i64,
+}
+
+impl PublicationTime {
+    pub(super) fn read(clock: &dyn Clock) -> Result<Self, ObjectError> {
+        let now = clock.now();
+        now.duration_since(std::time::UNIX_EPOCH)
+            .map_err(object_unavailable)?;
+        let micros = unix_micros(now)?;
+        Ok(Self {
+            time: system_time_micros(micros)?,
+            micros,
+        })
+    }
+}
+
 pub(super) struct StoredObject {
     pub(super) record: ObjectRecord,
     pub(super) blob: BlobId,
@@ -825,6 +845,15 @@ impl std::ops::BitOr for Journaled {
 pub(super) struct StagedBlob {
     pub(super) id: BlobId,
     pub(super) stage: Option<PathBuf>,
+}
+
+impl StagedBlob {
+    pub(super) fn pin(backend: &super::BlobBackend, root: &Path, id: BlobId) -> Self {
+        Self {
+            id,
+            stage: (!backend.is_memory()).then(|| id.staging_path(root)),
+        }
+    }
 }
 
 enum CommitOutcome {

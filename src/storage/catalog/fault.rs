@@ -55,6 +55,8 @@ pub(crate) enum Step {
     ReclaimSync,
     /// After durable removal, before committing journal removal.
     ReclaimForget,
+    /// After publishing a restore's pinned bytes, before its metadata transaction.
+    RestorePinned,
     TransferAccepted,
     TransferComplete,
     TransferCompleted,
