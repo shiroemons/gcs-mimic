@@ -2,6 +2,7 @@
 
 use crate::{
     json::{self, JsonError},
+    seed::SeedError,
     server::{BUCKET_BODY_LIMIT, DeadlineWatch, RequestBody, RequestCtx, json_response},
     storage::admin::AdminError,
 };
@@ -65,22 +66,19 @@ async fn reseed(
     )?))
 }
 
-fn failure(error: &std::io::Error) -> JsonError {
-    let admin = error
-        .get_ref()
-        .and_then(|error| error.downcast_ref::<AdminError>());
-    match admin {
-        Some(AdminError::Precondition) => JsonError::new(
+fn failure(error: &SeedError) -> JsonError {
+    match error {
+        SeedError::Admin(AdminError::Precondition) => JsonError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Reseed made no changes because import or synchronization state is active",
         ),
-        Some(AdminError::Hold) => JsonError::new(
+        SeedError::Admin(AdminError::Hold) => JsonError::new(
             StatusCode::FORBIDDEN,
             "forbidden",
             "Reseed made no changes because an object is protected by a hold or retention",
         ),
-        Some(AdminError::Invalid(_) | AdminError::SeedProjectMismatch) => {
+        SeedError::Admin(AdminError::Invalid(_) | AdminError::SeedProjectMismatch) => {
             JsonError::invalid_argument("Invalid fixture state; reseed made no changes")
         }
         _ => JsonError::service_unavailable(
@@ -94,13 +92,90 @@ mod tests {
     use super::*;
 
     #[test]
-    fn project_mismatch_keeps_the_invalid_fixture_response() {
-        let error = failure(&std::io::Error::other(AdminError::SeedProjectMismatch));
-        assert_eq!(error.status, StatusCode::BAD_REQUEST);
-        assert_eq!(error.reason, "invalidArgument");
-        assert_eq!(
-            error.message,
-            "Invalid fixture state; reseed made no changes"
-        );
+    fn typed_reseed_failures_keep_the_existing_http_contract() {
+        for (cause, status, reason, message) in [
+            (
+                AdminError::Precondition,
+                StatusCode::CONFLICT,
+                "conflict",
+                "Reseed made no changes because import or synchronization state is active",
+            ),
+            (
+                AdminError::Hold,
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "Reseed made no changes because an object is protected by a hold or retention",
+            ),
+            (
+                AdminError::Invalid("invalid".into()),
+                StatusCode::BAD_REQUEST,
+                "invalidArgument",
+                "Invalid fixture state; reseed made no changes",
+            ),
+            (
+                AdminError::SeedProjectMismatch,
+                StatusCode::BAD_REQUEST,
+                "invalidArgument",
+                "Invalid fixture state; reseed made no changes",
+            ),
+            (
+                AdminError::Closed,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                "Reseed failed; inspect local fixture/storage diagnostics and retry",
+            ),
+        ] {
+            let error = failure(&SeedError::Admin(cause));
+            assert_eq!(
+                (error.status, error.reason, error.message.as_str()),
+                (status, reason, message)
+            );
+        }
+        let error = failure(&SeedError::Io(std::io::ErrorKind::PermissionDenied.into()));
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn reseed_keeps_project_mismatch_typed_until_http_classification() {
+        use crate::{
+            clock::SystemClock,
+            config::Config,
+            storage::{
+                Catalog,
+                admin::{BucketDefinition, BucketName, Origin},
+            },
+            test_support::TestDir,
+        };
+        let data = TestDir::new();
+        let source = TestDir::new();
+        std::fs::create_dir(source.0.join("test-bucket")).unwrap();
+        let catalog = Catalog::open(&data.0).await.unwrap();
+        let admin = catalog.admin(Origin::Seed);
+        admin
+            .ensure_bucket(
+                BucketDefinition::default_for(
+                    &BucketName::new("test-bucket").unwrap(),
+                    "other-project",
+                    &SystemClock,
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let config = Config {
+            data_dir: data.0.clone(),
+            seed_dir: Some(source.0.clone()),
+            ..Default::default()
+        };
+        let error = crate::seed::reseed(&admin, &config, &SystemClock)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            SeedError::Admin(AdminError::SeedProjectMismatch)
+        ));
+        assert_eq!(failure(&error).status, StatusCode::BAD_REQUEST);
+        drop(admin);
+        catalog.close().await.unwrap();
     }
 }

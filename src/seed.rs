@@ -77,12 +77,8 @@ pub(crate) async fn reseed(
     admin: &Admin,
     config: &Config,
     clock: &dyn Clock,
-) -> io::Result<SeedOutcome> {
-    let root = config
-        .seed_dir
-        .as_ref()
-        .ok_or(SeedError::MissingRoot)
-        .map_err(io::Error::other)?;
+) -> Result<SeedOutcome, SeedError> {
+    let root = config.seed_dir.as_ref().ok_or(SeedError::MissingRoot)?;
     let mode = match config.backend {
         crate::config::Backend::Disk => SeedMode::Merge,
         crate::config::Backend::Memory => SeedMode::Replace,
@@ -90,13 +86,7 @@ pub(crate) async fn reseed(
     let admin = admin
         .clone()
         .with_notification_mode(crate::notification::NotificationMode::Suppress);
-    import_directory(&admin, config, clock, root, mode)
-        .await
-        .map_err(|error| match error {
-            SeedError::Io(error) => error,
-            SeedError::Admin(error) => io::Error::other(error),
-            error => io::Error::other(error),
-        })
+    import_directory(&admin, config, clock, root, mode).await
 }
 
 fn walk_error(error: WalkError) -> SeedError {
@@ -283,6 +273,7 @@ impl Seed<'_> {
         };
         if kind.is_file() {
             let bucket = BucketName::new(bucket).map_err(SeedError::BucketName)?;
+            // The string already passed validate_object_name before constructing this typed name.
             let name = ObjectName::new(name)?;
             self.object(fixture, bucket, name, leaf).await?;
         }
