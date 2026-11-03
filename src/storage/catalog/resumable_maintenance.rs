@@ -3,6 +3,7 @@ use super::{
 };
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
+use crate::storage::failure::BackendCause;
 use rusqlite::{Connection, params};
 #[cfg(test)]
 use std::path::Path;
@@ -11,6 +12,42 @@ use std::time::{Duration, SystemTime};
 
 const PAGE_SIZE: i64 = 16;
 const RETRY_DELAY: Duration = Duration::from_secs(1);
+
+/// Every sweep runs; the first failure fails the pass and later failures remain visible.
+#[derive(Default)]
+pub(super) struct SweepOutcome {
+    next: Option<SystemTime>,
+    failure: Option<CatalogError>,
+}
+
+impl SweepOutcome {
+    pub(super) fn record(
+        &mut self,
+        sweep: &'static str,
+        result: Result<Option<SystemTime>, CatalogError>,
+    ) {
+        match result {
+            Ok(deadline) => self.next = self.next.into_iter().chain(deadline).min(),
+            Err(error) => self.fail(sweep, error),
+        }
+    }
+
+    pub(super) fn fail(&mut self, sweep: &'static str, error: CatalogError) {
+        if self.failure.is_some() {
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                "resumable_maintenance_retry",
+                serde_json::json!({"message": format!("{sweep} maintenance failed: {error}")}),
+            );
+        } else {
+            self.failure = Some(error);
+        }
+    }
+
+    pub(super) fn finish(self) -> Result<Option<SystemTime>, CatalogError> {
+        self.failure.map_or(Ok(self.next), Err)
+    }
+}
 
 fn cleanup_page(
     connection: &Connection,
@@ -183,17 +220,13 @@ impl Catalog {
         // Remove the cleanup journal only after file removal and directory sync succeed.
         let blob_id = lease.session.blob_id;
         let result = self.clean_session_storage(&lease.guard, blob_id).await;
-        if let Err(error) = &result {
-            *self
-                .0
-                .maintenance_error
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner()) = Some(error.to_string());
+        if let Err(error) = result {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Warn,
                 "upload_cleanup_deferred",
                 serde_json::json!({"message":format!("cancelled upload cleanup failed; maintenance will retry: {error}")}),
             );
+            self.record_maintenance_error(Some(BackendCause::from_error(error)));
         }
         drop(lease);
         self.0.maintenance_wake.notify_one();
@@ -212,9 +245,21 @@ impl Catalog {
 
     async fn run_resumable_maintenance(&self) -> Result<Option<SystemTime>, CatalogError> {
         let result = self.maintain_resumable_inner().await;
-        *self.0.maintenance_error.lock().map_err(unavailable)? =
-            result.as_ref().err().map(ToString::to_string);
+        self.record_maintenance_error(
+            result
+                .as_ref()
+                .err()
+                .map(|error| BackendCause::new(error.to_string())),
+        );
         result
+    }
+
+    pub(super) fn record_maintenance_error(&self, cause: Option<BackendCause>) {
+        *self
+            .0
+            .maintenance_error
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = cause;
     }
 
     #[cfg(test)]
@@ -223,39 +268,45 @@ impl Catalog {
             .maintenance_error
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .clone()
+            .as_ref()
+            .map(|cause| cause.message().to_owned())
     }
 
     async fn maintain_resumable_inner(&self) -> Result<Option<SystemTime>, CatalogError> {
         let now = unix_millis(self.0.clock.now())?;
-        let (derived_deadline, mut failure) = match self.maintain_derived_transfers_at(now).await {
-            Ok(deadline) => (deadline, None),
-            Err(error) => (None, Some(error)),
-        };
-        let resumable_deadline = self.sweep_resumable_sessions(now).await?;
-        if let Some(error) = failure.take() {
-            return Err(error);
-        }
-        let rewrite_deadline = self.maintain_rewrite_sessions(now).await?;
-        let multipart_deadline = self.maintain_xml_multipart(now).await?;
-        let bucket_deadline = self.maintain_soft_deleted_buckets(now).await?;
-        Ok(resumable_deadline
-            .into_iter()
-            .chain(derived_deadline)
-            .chain(rewrite_deadline)
-            .chain(multipart_deadline)
-            .chain(bucket_deadline)
-            .min())
+        let mut sweep = SweepOutcome::default();
+        sweep.record(
+            "derived transfer",
+            self.maintain_derived_transfers_at(now).await,
+        );
+        sweep.record(
+            "resumable session",
+            self.sweep_resumable_sessions(now).await,
+        );
+        sweep.record("rewrite session", self.maintain_rewrite_sessions(now).await);
+        sweep.record("XML multipart", self.maintain_xml_multipart(now).await);
+        sweep.record(
+            "soft-deleted bucket",
+            self.maintain_soft_deleted_buckets(now).await,
+        );
+        sweep.finish()
     }
 
     async fn sweep_resumable_sessions(&self, now: i64) -> Result<Option<SystemTime>, CatalogError> {
         let mut after = String::new();
-        let mut failure = None;
+        let mut sweep = SweepOutcome::default();
         loop {
             let cursor = after.clone();
-            let rows = self
+            let rows = match self
                 .run(move |connection| cleanup_page(connection, now, &cursor))
-                .await?;
+                .await
+            {
+                Ok(rows) => rows,
+                Err(error) => {
+                    sweep.fail("resumable page", error);
+                    break;
+                }
+            };
             let Some(last) = rows.last() else {
                 break;
             };
@@ -271,7 +322,7 @@ impl Catalog {
                         continue;
                     }
                     Err(error) => {
-                        failure.get_or_insert(error);
+                        sweep.fail("resumable session", error);
                         continue;
                     }
                 };
@@ -292,25 +343,25 @@ impl Catalog {
                 }
                 .await;
                 if let Err(error) = result {
-                    failure.get_or_insert(error);
+                    sweep.fail("resumable session", error);
                 }
             }
         }
-        if let Some(error) = failure {
-            return Err(error);
-        }
-        self.run(move |connection| {
-            let deadline: Option<i64> = sql::scalar(
-                connection,
-                "SELECT min(deadline) FROM resumable_sessions WHERE deadline > ?1",
-                [now],
-            )?;
-            deadline
-                .map(super::system_time_millis)
-                .transpose()
-                .map_err(unavailable)
-        })
-        .await
+        let deadline = self
+            .run(move |connection| {
+                let deadline: Option<i64> = sql::scalar(
+                    connection,
+                    "SELECT min(deadline) FROM resumable_sessions WHERE deadline > ?1",
+                    [now],
+                )?;
+                deadline
+                    .map(super::system_time_millis)
+                    .transpose()
+                    .map_err(unavailable)
+            })
+            .await;
+        sweep.record("resumable deadline", deadline);
+        sweep.finish()
     }
 
     /// Starts one scheduler. Its owner must call `close` before releasing directory ownership.
@@ -431,6 +482,97 @@ async fn maintenance_loop(
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn sweep_outcome_keeps_the_earliest_deadline_and_first_failure() {
+        let mut sweep = SweepOutcome::default();
+        let early = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+        sweep.record("later", Ok(Some(early + Duration::from_secs(10))));
+        sweep.record("early", Ok(Some(early)));
+        assert_eq!(sweep.finish().unwrap(), Some(early));
+        let mut sweep = SweepOutcome::default();
+        sweep.fail(
+            "first",
+            unavailable(std::io::Error::from(std::io::ErrorKind::StorageFull)),
+        );
+        sweep.fail("later", unavailable("later failure"));
+        assert!(
+            matches!(sweep.finish().unwrap_err(), CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull)
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn maintenance_runs_later_sweeps_after_a_session_cleanup_failure() {
+        use crate::{
+            clock::{Clock, ManualClock},
+            storage::test_fixtures::bucket,
+            test_support::TestDir,
+        };
+        let data = TestDir::new();
+        let clock = Arc::new(ManualClock::new(SystemTime::now()));
+        let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+            .await
+            .unwrap();
+        catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        let session = catalog
+            .create_resumable_session(
+                "bucket",
+                "object",
+                super::super::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
+                None,
+            )
+            .await
+            .unwrap();
+        let multipart = catalog
+            .begin_xml_multipart(
+                "bucket",
+                "multipart",
+                super::super::xml_multipart::Options {
+                    content_type: "text/plain".into(),
+                    metadata: Default::default(),
+                },
+                crate::bucket::BucketAccess::Permissive,
+            )
+            .await
+            .unwrap();
+        clock.set(session.deadline + Duration::from_secs(1));
+        assert!(clock.now() > multipart.created + Duration::from_secs(604800));
+        super::super::fault::arm(
+            &data.0,
+            super::super::fault::Step::SessionCleanupSync,
+            0,
+            super::super::fault::Fault::Io(std::io::ErrorKind::StorageFull),
+        );
+        assert!(
+            matches!(catalog.maintain_resumable_sessions().await.unwrap_err(), CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull)
+        );
+        assert!(catalog.resumable_maintenance_error().is_some());
+        let connection = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+        assert_eq!(
+            sql::scalar::<i64>(
+                &connection,
+                "SELECT count(*) FROM xml_multipart_uploads",
+                []
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sql::scalar::<i64>(&connection, "SELECT count(*) FROM resumable_sessions", []).unwrap(),
+            1
+        );
+        catalog.maintain_resumable_sessions().await.unwrap();
+        assert!(catalog.resumable_maintenance_error().is_none());
+        assert_eq!(
+            sql::scalar::<i64>(&connection, "SELECT count(*) FROM resumable_sessions", []).unwrap(),
+            0
+        );
+        catalog.close().await.unwrap();
+    }
 
     #[test]
     fn session_cleanup_never_forgets_a_later_object_deletion() {

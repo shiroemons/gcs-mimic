@@ -251,6 +251,12 @@ async fn failed_cleanup_directory_sync_keeps_the_journal_for_retry() {
             catalog.resumable_maintenance_error(),
             Some(format!("catalog I/O: {kind}"))
         );
+        let cause = catalog.0.maintenance_error.lock().unwrap().clone().unwrap();
+        assert!(crate::error::causes(&cause).any(|error| {
+            error
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| error.kind() == kind)
+        }));
         assert_eq!(fault::pending(&data.0), 0);
         let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
         assert_eq!(

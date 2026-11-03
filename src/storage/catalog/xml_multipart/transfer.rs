@@ -83,7 +83,7 @@ impl Catalog {
                 }
                 maintenance::drain_storage(connection,&backend)?;
                 Ok(())
-            }).await {catalog.multipart_cleanup_failed(&error);}
+            }).await {catalog.multipart_cleanup_failed(error);}
             drop(lease);
             result
         }).await.map_err(object_unavailable)?
@@ -132,7 +132,7 @@ impl Catalog {
                     })
                     .await
                 {
-                    catalog.multipart_cleanup_failed(&cleanup);
+                    catalog.multipart_cleanup_failed(cleanup);
                 }
                 return Err(error);
             }
@@ -178,7 +178,7 @@ impl Catalog {
                 })
                 .await
             {
-                catalog.multipart_cleanup_failed(&error);
+                catalog.multipart_cleanup_failed(error);
             }
             drop(lease);
             match result {

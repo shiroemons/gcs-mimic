@@ -344,24 +344,22 @@ impl Catalog {
                 Ok(())
             })();
             if let Err(error) = maintenance::drain_storage(connection, &catalog.0.backend) {
-                catalog.multipart_cleanup_failed(&error);
+                catalog.multipart_cleanup_failed(error);
             }
             result
         })
         .await
     }
 
-    fn multipart_cleanup_failed(&self, error: &ObjectError) {
-        *self
-            .0
-            .maintenance_error
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.to_string());
+    fn multipart_cleanup_failed(&self, error: ObjectError) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
             "multipart_cleanup_deferred",
             serde_json::json!({"message":error.to_string()}),
         );
+        self.record_maintenance_error(Some(crate::storage::failure::BackendCause::from_error(
+            error,
+        )));
         self.0.maintenance_wake.notify_one();
     }
 }

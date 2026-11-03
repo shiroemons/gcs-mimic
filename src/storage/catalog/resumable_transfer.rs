@@ -301,16 +301,14 @@ impl Catalog {
             let blob_id = lease.session.blob_id;
             let cleanup = self.clean_session_storage(&lease.guard, blob_id).await;
             if let Err(error) = cleanup {
-                *self
-                    .0
-                    .maintenance_error
-                    .lock()
-                    .unwrap_or_else(|poison| poison.into_inner()) = Some(error.to_string());
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
                     "upload_cleanup_deferred",
                     serde_json::json!({"message":format!("invalid upload cleanup failed; maintenance will retry: {error}")}),
                 );
+                self.record_maintenance_error(Some(
+                    crate::storage::failure::BackendCause::from_error(error),
+                ));
             }
         }
         self.0.maintenance_wake.notify_one();

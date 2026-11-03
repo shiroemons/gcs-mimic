@@ -5,7 +5,7 @@ use crate::bucket::{
     UNIFORM_ACCESS_LOCK_PERIOD, cors_from_value, cors_value, valid_label, validate_cors,
 };
 use crate::clock::{Clock, SystemClock};
-use crate::storage::failure::{BackendFailure, unavailable};
+use crate::storage::failure::{BackendCause, BackendFailure, unavailable};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, types::Type};
 use std::{
     path::{Path, PathBuf},
@@ -470,7 +470,7 @@ struct Inner {
     session_writers: Mutex<std::collections::HashSet<String>>,
     derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
-    maintenance_error: Mutex<Option<String>>,
+    maintenance_error: Mutex<Option<BackendCause>>,
     maintenance_started: AtomicBool,
     maintenance_health: crate::task::TaskHealth,
     /// Workers started beside the catalog whose health readiness also reports. Each worker
