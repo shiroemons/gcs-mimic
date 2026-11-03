@@ -22,6 +22,63 @@ fn options() -> ResumableOptions {
     options
 }
 
+#[test]
+fn concurrent_finalization_exceeds_the_blocking_pool_without_stalling() {
+    let dir = TestDir::new();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let completed = runtime.block_on(async {
+        let catalog = catalog_with_bucket(&dir).await;
+        let payload = Bytes::from(vec![b'x'; COPY_READ_LIMIT + 3 * COPY_CHUNK + 7]);
+        let size = payload.len() as u64;
+        let mut writers = Vec::new();
+        for name in ["first", "second", "third"] {
+            let mut writer = catalog
+                .create_appendable("append", name, options())
+                .await
+                .unwrap();
+            writer.append(0, payload.clone(), size).await.unwrap();
+            writers.push(writer);
+        }
+        let mut writers = writers.into_iter();
+        let (mut first, mut second, mut third) = (
+            writers.next().unwrap(),
+            writers.next().unwrap(),
+            writers.next().unwrap(),
+        );
+        let completed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            tokio::join!(
+                first.finalize(None, BucketAccess::Permissive, size),
+                second.finalize(None, BucketAccess::Permissive, size),
+                third.finalize(None, BucketAccess::Permissive, size)
+            )
+        })
+        .await;
+        if completed.is_ok() {
+            for name in ["first", "second", "third"] {
+                let (record, mut reader) = catalog
+                    .open_object(live("append", name), Default::default(), PERMISSIVE)
+                    .await
+                    .unwrap();
+                assert_eq!(record.size, size);
+                assert_eq!(read_all(&mut reader).await, payload);
+            }
+            drop((first, second, third));
+            catalog.close().await.unwrap();
+        }
+        completed
+    });
+    // A broken producer must fail the deadline test without hanging runtime shutdown itself.
+    runtime.shutdown_timeout(std::time::Duration::from_secs(1));
+    let (first, second, third) =
+        completed.expect("three finalizers must finish with one blocking thread");
+    assert!(first.is_ok() && second.is_ok() && third.is_ok());
+}
+
 #[tokio::test]
 async fn committed_delete_succeeds_when_data_cleanup_fails() {
     let dir = TestDir::new();

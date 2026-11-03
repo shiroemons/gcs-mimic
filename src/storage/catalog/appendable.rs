@@ -26,7 +26,7 @@ use crate::{
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, UploadChunk},
     storage::blob_id::BlobId,
 };
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
     collections::HashMap,
@@ -58,6 +58,7 @@ pub(super) const SCHEMA: &str = "CREATE TABLE appendable_objects (
 PRAGMA user_version = 34;";
 
 const COPY_CHUNK: usize = 64 * 1024;
+const COPY_READ_LIMIT: usize = 1024 * 1024;
 
 /// Only appendable state can construct an identity reserved before its bytes arrived.
 #[derive(Clone, Copy, Debug)]
@@ -647,30 +648,32 @@ impl AppendWriter {
         let (tx, rx) = mpsc::channel(2);
         let data = self.file.clone();
         let size = self.record.size;
-        // Bounded copy: one 64 KiB chunk is read per send, never the whole object.
+        // Return blocking threads before waiting for the consumer, whose file writes need them too.
         let producer = async move {
-            crate::task::run_blocking("append-reader", move || {
-                let mut file = data.reader()?;
-                let mut buffer = BytesMut::zeroed(COPY_CHUNK);
-                let mut remaining = size;
-                while remaining > 0 {
-                    let length = remaining.min(COPY_CHUNK as u64) as usize;
-                    file.read_exact(&mut buffer[..length])?;
-                    remaining -= length as u64;
-                    if tx
-                        .blocking_send(Ok(UploadChunk::Data(Bytes::copy_from_slice(
-                            &buffer[..length],
-                        ))))
-                        .is_err()
-                    {
+            let mut file = crate::task::run_blocking("append-reader-open", move || data.reader())
+                .await
+                .map_err(io::Error::other)??;
+            let mut remaining = size;
+            while remaining > 0 {
+                let length = remaining.min(COPY_READ_LIMIT as u64) as usize;
+                let (reader, mut bytes) = crate::task::run_blocking("append-reader", move || {
+                    let mut bytes = vec![0; length];
+                    file.read_exact(&mut bytes)?;
+                    Ok::<_, io::Error>((file, Bytes::from(bytes)))
+                })
+                .await
+                .map_err(io::Error::other)??;
+                file = reader;
+                remaining -= length as u64;
+                while !bytes.is_empty() {
+                    let chunk = bytes.split_to(bytes.len().min(COPY_CHUNK));
+                    if tx.send(Ok(UploadChunk::Data(chunk))).await.is_err() {
                         return Ok(());
                     }
                 }
-                let _ = tx.blocking_send(Ok(UploadChunk::End));
-                Ok::<(), io::Error>(())
-            })
-            .await
-            .map_err(io::Error::other)?
+            }
+            let _ = tx.send(Ok(UploadChunk::End)).await;
+            Ok::<(), io::Error>(())
         };
         let publish = catalog.put_object_with_mode(
             ObjectUpload {
@@ -741,6 +744,7 @@ pub(super) fn retire_published(
         "SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3",
         params![record.bucket, record.name, record.generation],
     )? {
+        // AppendWriter::retire releases disk data after this publication commits.
         let _data = unreference(connection, backend, &id)?;
     }
     sql::exec(

@@ -25,6 +25,7 @@ impl Data {
                 });
             }
         };
+        #[cfg(unix)]
         let directory = root.join("appendable");
         let path = data_path(root, id);
         let file = fs::OpenOptions::new()
