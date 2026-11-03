@@ -1,7 +1,10 @@
 use super::pb;
 use crate::{
     acl::{AclEntry, AclKind},
-    bucket::{BucketRecord, CatalogError},
+    bucket::{
+        BucketRecord, CatalogError,
+        lifecycle::{LifecycleAction, LifecycleCondition, LifecycleDate, LifecycleRule},
+    },
     json::acl::AclOwner,
     object::{ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
 };
@@ -17,64 +20,100 @@ fn unix_nanos_timestamp(time: UnixNanos) -> Timestamp {
     }
 }
 
-/// Converts stored JSON lifecycle rules, which the shared validator has already accepted.
-fn lifecycle(rules: &[Value]) -> Option<pb::bucket::Lifecycle> {
-    use pb::bucket::lifecycle::{
-        Rule,
-        rule::{Action, Condition},
-    };
-    if rules.is_empty() {
-        return None;
+fn lifecycle(rules: &[Value]) -> Result<Option<pb::bucket::Lifecycle>, tonic::Status> {
+    let rules = LifecycleRule::from_stored(rules)?;
+    Ok((!rules.is_empty()).then(|| pb::bucket::Lifecycle {
+        rule: rules.iter().map(Into::into).collect(),
+    }))
+}
+
+pub(super) fn lifecycle_rules(
+    value: Option<&pb::bucket::Lifecycle>,
+) -> Result<Vec<Value>, tonic::Status> {
+    let rules = value
+        .into_iter()
+        .flat_map(|value| &value.rule)
+        .map(LifecycleRule::from)
+        .collect::<Vec<_>>();
+    LifecycleRule::to_stored(&rules).map_err(Into::into)
+}
+
+impl From<&crate::grpc::generated::google::r#type::Date> for LifecycleDate {
+    fn from(value: &crate::grpc::generated::google::r#type::Date) -> Self {
+        Self {
+            year: value.year,
+            month: value.month,
+            day: value.day,
+        }
     }
-    let date = |v: &Value| -> Option<crate::grpc::generated::google::r#type::Date> {
-        let mut parts = v.as_str()?.split('-');
-        Some(crate::grpc::generated::google::r#type::Date {
-            year: parts.next()?.parse().ok()?,
-            month: parts.next()?.parse().ok()?,
-            day: parts.next()?.parse().ok()?,
-        })
-    };
-    let strings = |v: &Value| {
-        v.as_array()
-            .map(|v| {
-                v.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
+}
+
+impl From<&LifecycleDate> for crate::grpc::generated::google::r#type::Date {
+    fn from(value: &LifecycleDate) -> Self {
+        Self {
+            year: value.year,
+            month: value.month,
+            day: value.day,
+        }
+    }
+}
+
+impl From<&pb::bucket::lifecycle::Rule> for LifecycleRule {
+    fn from(value: &pb::bucket::lifecycle::Rule) -> Self {
+        let action = value
+            .action
+            .as_ref()
+            .map(|action| LifecycleAction {
+                kind: action.r#type.clone(),
+                storage_class: (!action.storage_class.is_empty())
+                    .then(|| action.storage_class.clone()),
             })
-            .unwrap_or_default()
-    };
-    let days = |v: &Value| v.as_i64().and_then(|v| i32::try_from(v).ok());
-    Some(pb::bucket::Lifecycle {
-        rule: rules
-            .iter()
-            .map(|r| {
-                let c = &r["condition"];
-                Rule {
-                    action: Some(Action {
-                        r#type: r["action"]["type"].as_str().unwrap_or_default().into(),
-                        storage_class: r["action"]["storageClass"]
-                            .as_str()
-                            .unwrap_or_default()
-                            .into(),
-                    }),
-                    condition: Some(Condition {
-                        age_days: days(&c["age"]),
-                        created_before: date(&c["createdBefore"]),
-                        is_live: c["isLive"].as_bool(),
-                        num_newer_versions: days(&c["numNewerVersions"]),
-                        matches_storage_class: strings(&c["matchesStorageClass"]),
-                        days_since_custom_time: days(&c["daysSinceCustomTime"]),
-                        custom_time_before: date(&c["customTimeBefore"]),
-                        days_since_noncurrent_time: days(&c["daysSinceNoncurrentTime"]),
-                        noncurrent_time_before: date(&c["noncurrentTimeBefore"]),
-                        matches_prefix: strings(&c["matchesPrefix"]),
-                        matches_suffix: strings(&c["matchesSuffix"]),
-                    }),
-                }
+            .unwrap_or_default();
+        let condition = value
+            .condition
+            .as_ref()
+            .map(|condition| LifecycleCondition {
+                age: condition.age_days.map(i64::from),
+                created_before: condition.created_before.as_ref().map(Into::into),
+                custom_time_before: condition.custom_time_before.as_ref().map(Into::into),
+                days_since_custom_time: condition.days_since_custom_time.map(i64::from),
+                days_since_noncurrent_time: condition.days_since_noncurrent_time.map(i64::from),
+                is_live: condition.is_live,
+                matches_prefix: condition.matches_prefix.clone(),
+                matches_storage_class: condition.matches_storage_class.clone(),
+                matches_suffix: condition.matches_suffix.clone(),
+                noncurrent_time_before: condition.noncurrent_time_before.as_ref().map(Into::into),
+                num_newer_versions: condition.num_newer_versions.map(i64::from),
             })
-            .collect(),
-    })
+            .unwrap_or_default();
+        Self { action, condition }
+    }
+}
+
+impl From<&LifecycleRule> for pb::bucket::lifecycle::Rule {
+    fn from(value: &LifecycleRule) -> Self {
+        let condition = &value.condition;
+        let days = |number: Option<i64>| number.map(|number| number as i32);
+        Self {
+            action: Some(pb::bucket::lifecycle::rule::Action {
+                r#type: value.action.kind.clone(),
+                storage_class: value.action.storage_class.clone().unwrap_or_default(),
+            }),
+            condition: Some(pb::bucket::lifecycle::rule::Condition {
+                age_days: days(condition.age),
+                created_before: condition.created_before.as_ref().map(Into::into),
+                custom_time_before: condition.custom_time_before.as_ref().map(Into::into),
+                days_since_custom_time: days(condition.days_since_custom_time),
+                days_since_noncurrent_time: days(condition.days_since_noncurrent_time),
+                is_live: condition.is_live,
+                matches_prefix: condition.matches_prefix.clone(),
+                matches_storage_class: condition.matches_storage_class.clone(),
+                matches_suffix: condition.matches_suffix.clone(),
+                noncurrent_time_before: condition.noncurrent_time_before.as_ref().map(Into::into),
+                num_newer_versions: days(condition.num_newer_versions),
+            }),
+        }
+    }
 }
 
 macro_rules! access_control {
@@ -144,7 +183,7 @@ pub(crate) fn bucket(record: &BucketRecord) -> Result<pb::Bucket, tonic::Status>
         name: format!("projects/_/buckets/{}", record.name),
         bucket_id: record.name.clone(),
         etag: crate::json::bucket_etag(record),
-        lifecycle: lifecycle(&record.lifecycle),
+        lifecycle: lifecycle(&record.lifecycle)?,
         // Cloud Storage returns the project number here, and the Java SDK parses it as a number.
         // The local registry has no project numbers, so this matches JSON `projectNumber`.
         project: format!("projects/{}", crate::acl::project_number(&record.project)),
@@ -380,6 +419,41 @@ mod tests {
         collections::BTreeMap,
         time::{Duration as StdDuration, UNIX_EPOCH},
     };
+
+    #[test]
+    fn grpc_lifecycle_roundtrips_every_condition_through_shared_rules() {
+        let stored = vec![
+            serde_json::json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":30,"createdBefore":"2026-01-01","customTimeBefore":"2026-02-01","daysSinceCustomTime":2,"daysSinceNoncurrentTime":3,"isLive":false,"matchesPrefix":["a/"],"matchesStorageClass":["STANDARD"],"matchesSuffix":[".txt"],"noncurrentTimeBefore":"2026-03-01","numNewerVersions":4}}),
+        ];
+        let proto = lifecycle(&stored).unwrap().unwrap();
+        assert_eq!(lifecycle_rules(Some(&proto)).unwrap(), stored);
+        let typed = LifecycleRule::from_stored(&stored).unwrap();
+        assert_eq!(pb::bucket::lifecycle::Rule::from(&typed[0]), proto.rule[0]);
+        for (mut rule, field) in [
+            (proto.rule[0].clone(), "age"),
+            (proto.rule[0].clone(), "createdBefore"),
+            (proto.rule[0].clone(), "action.type"),
+            (proto.rule[0].clone(), "action.storageClass"),
+        ] {
+            match field {
+                "age" => rule.condition.as_mut().unwrap().age_days = Some(-1),
+                "createdBefore" => {
+                    rule.condition.as_mut().unwrap().created_before =
+                        Some(crate::grpc::generated::google::r#type::Date {
+                            year: 2025,
+                            month: 2,
+                            day: 29,
+                        })
+                }
+                "action.type" => rule.action.as_mut().unwrap().r#type = "Unknown".into(),
+                _ => rule.action.as_mut().unwrap().storage_class.clear(),
+            }
+            let error =
+                lifecycle_rules(Some(&pb::bucket::Lifecycle { rule: vec![rule] })).unwrap_err();
+            assert_eq!(error.code(), tonic::Code::InvalidArgument);
+            assert!(error.message().contains(field), "{error}");
+        }
+    }
 
     #[test]
     fn enum_wire_values_keep_json_xml_and_grpc_output() {

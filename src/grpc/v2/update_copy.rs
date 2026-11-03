@@ -119,65 +119,6 @@ fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
     Ok(value)
 }
 
-fn lifecycle(value: &pb::bucket::Lifecycle) -> Value {
-    let rules = value
-        .rule
-        .iter()
-        .map(|rule| {
-            let mut value = json!({});
-            if let Some(action) = &rule.action {
-                value["action"] = json!({"type": action.r#type});
-                if !action.storage_class.is_empty() {
-                    value["action"]["storageClass"] = action.storage_class.clone().into();
-                }
-            }
-            if let Some(condition) = &rule.condition {
-                let mut conditions = Map::new();
-                for (key, number) in [
-                    ("age", condition.age_days),
-                    ("numNewerVersions", condition.num_newer_versions),
-                    ("daysSinceCustomTime", condition.days_since_custom_time),
-                    (
-                        "daysSinceNoncurrentTime",
-                        condition.days_since_noncurrent_time,
-                    ),
-                ] {
-                    if let Some(number) = number {
-                        conditions.insert(key.into(), number.into());
-                    }
-                }
-                if let Some(live) = condition.is_live {
-                    conditions.insert("isLive".into(), live.into());
-                }
-                for (key, date) in [
-                    ("createdBefore", &condition.created_before),
-                    ("customTimeBefore", &condition.custom_time_before),
-                    ("noncurrentTimeBefore", &condition.noncurrent_time_before),
-                ] {
-                    if let Some(date) = date {
-                        conditions.insert(
-                            key.into(),
-                            format!("{:04}-{:02}-{:02}", date.year, date.month, date.day).into(),
-                        );
-                    }
-                }
-                for (key, values) in [
-                    ("matchesStorageClass", &condition.matches_storage_class),
-                    ("matchesPrefix", &condition.matches_prefix),
-                    ("matchesSuffix", &condition.matches_suffix),
-                ] {
-                    if !values.is_empty() {
-                        conditions.insert(key.into(), json!(values));
-                    }
-                }
-                value["condition"] = conditions.into();
-            }
-            value
-        })
-        .collect::<Vec<_>>();
-    json!({"rule": rules})
-}
-
 /// The JSON form of a replacement ACL. Only entity and role are writable; the shared JSON
 /// validation rejects invalid entities and roles and uniform bucket-level access.
 fn acl_entries<'a>(entries: impl Iterator<Item = (&'a String, &'a String)>) -> Value {
@@ -244,7 +185,8 @@ fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
             }
             "cors" => body["cors"] = super::buckets::cors_json(&b.cors),
             "lifecycle" | "lifecycle.rule" => {
-                body["lifecycle"] = b.lifecycle.as_ref().map_or(json!({"rule": []}), lifecycle);
+                body["lifecycle"] =
+                    json!({"rule": convert::lifecycle_rules(b.lifecycle.as_ref())?});
             }
             "retention_policy" | "retention_policy.retention_duration" => {
                 body["retentionPolicy"] = b
