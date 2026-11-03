@@ -1,6 +1,7 @@
 use super::{pb, unsupported};
 use crate::{
-    bucket::BucketRecord,
+    bucket::{BucketMetadataUpdate, BucketRecord},
+    config::CompatProfile,
     object::{ObjectError, ObjectRecord},
 };
 use serde_json::json;
@@ -30,6 +31,29 @@ pub(super) fn bucket_metadata(
     current: Option<&pb::Bucket>,
 ) -> Result<Vec<u8>, Status> {
     let insert = current.is_none();
+    bucket_outputs(bucket, current)?;
+    let mut body = json!({"defaultEventBasedHold":bucket.default_event_based_hold});
+    if insert {
+        body["name"] = json!(bucket.name);
+    }
+    if !bucket.storage_class.is_empty() {
+        body["storageClass"] = json!(bucket.storage_class);
+    }
+    if !insert || !bucket.labels.is_empty() {
+        body["labels"] = json!(bucket.labels);
+    }
+    if !bucket.location.is_empty() && insert {
+        body["location"] = json!(bucket.location);
+        bucket.location.clear();
+    }
+    if let Some(versioning) = &bucket.versioning {
+        body["versioning"] = json!({"enabled":versioning.enabled});
+    }
+    clear_bucket_metadata(bucket)?;
+    serde_json::to_vec(&body).map_err(|_| Status::internal("Cannot encode bucket metadata"))
+}
+
+fn bucket_outputs(bucket: &mut pb::Bucket, current: Option<&pb::Bucket>) -> Result<(), Status> {
     if let Some(current) = current {
         let defaults = pb::Bucket::default();
         macro_rules! unchanged { ($($field:ident),* $(,)?) => { $(
@@ -48,23 +72,10 @@ pub(super) fn bucket_metadata(
             location_type
         );
     }
-    let mut body = json!({"defaultEventBasedHold":bucket.default_event_based_hold});
-    if insert {
-        body["name"] = json!(bucket.name);
-    }
-    if !bucket.storage_class.is_empty() {
-        body["storageClass"] = json!(bucket.storage_class);
-    }
-    if !insert || !bucket.labels.is_empty() {
-        body["labels"] = json!(bucket.labels);
-    }
-    if !bucket.location.is_empty() && insert {
-        body["location"] = json!(bucket.location);
-        bucket.location.clear();
-    }
-    if let Some(versioning) = &bucket.versioning {
-        body["versioning"] = json!({"enabled":versioning.enabled});
-    }
+    Ok(())
+}
+
+fn clear_bucket_metadata(bucket: &mut pb::Bucket) -> Result<(), Status> {
     bucket.name.clear();
     bucket.storage_class.clear();
     bucket.labels.clear();
@@ -75,7 +86,48 @@ pub(super) fn bucket_metadata(
             "legacy bucket metadata outside name, location, class, labels, versioning and default hold",
         ));
     }
-    serde_json::to_vec(&body).map_err(|_| Status::internal("Cannot encode bucket metadata"))
+    Ok(())
+}
+
+pub(super) fn bucket_update(
+    bucket: &mut pb::Bucket,
+    current: &pb::Bucket,
+    profile: CompatProfile,
+) -> Result<BucketMetadataUpdate, Status> {
+    bucket_outputs(bucket, Some(current))?;
+    let native = profile == CompatProfile::Native;
+    let class = bucket.storage_class.clone();
+    let mut update = BucketMetadataUpdate {
+        labels: Some(Some(
+            bucket
+                .labels
+                .iter()
+                .map(|(key, value)| (key.clone(), Some(value.clone())))
+                .collect(),
+        )),
+        default_event_based_hold: Some(bucket.default_event_based_hold),
+        versioning_enabled: bucket
+            .versioning
+            .as_ref()
+            .map(|config| config.enabled)
+            .or(native.then_some(false)),
+        versioning_configured: bucket
+            .versioning
+            .as_ref()
+            .map(|_| true)
+            .or(native.then_some(false)),
+        cors: native.then(Vec::new),
+        lifecycle: native.then(Vec::new),
+        retention_period: native.then_some(None),
+        omitted_retention: native,
+        touched: true,
+        ..Default::default()
+    };
+    clear_bucket_metadata(bucket)?;
+    update.storage_class = (!class.is_empty())
+        .then(|| crate::bucket::validate_update_storage_class(&class))
+        .transpose()?;
+    Ok(update)
 }
 
 pub(super) fn object_outputs(
@@ -151,6 +203,31 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_bucket_replacements_keep_native_and_legacy_omission_rules() {
+        for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
+            let current = pb::Bucket {
+                name: "example-bucket".into(),
+                ..Default::default()
+            };
+            let mut request = pb::Bucket {
+                labels: [("key".into(), "value".into())].into(),
+                ..Default::default()
+            };
+            let update = bucket_update(&mut request, &current, profile).unwrap();
+            let native = profile == CompatProfile::Native;
+            assert_eq!(update.omitted_retention, native);
+            assert_eq!(update.retention_period, native.then_some(None));
+            assert_eq!(update.versioning_enabled, native.then_some(false));
+            assert_eq!(update.cors.is_some(), native);
+            assert_eq!(update.lifecycle.is_some(), native);
+            assert_eq!(
+                update.labels.unwrap().unwrap()["key"].as_deref(),
+                Some("value")
+            );
+        }
+    }
     use crate::grpc::test_support::assert_code;
     use crate::json::{self, Projection};
 

@@ -17,7 +17,7 @@ Scope: RPC-STORAGE-001–004, the bucket portion of BEHAVIOR-RPC-001 and AUDIT-0
 
 ## Boundaries and sources
 
-No setting, dependency, storage implementation or startup change is needed. RPC adapters use shared JSON metadata validation, shared bucket authorization and the transactional catalog. Bucket deletion and listing retain catalog concurrency and memory bounds.
+No setting, dependency, storage implementation or startup change is needed. CreateBucket reuses shared typed retention, soft-delete, PAP, CORS and Autoclass validators. Creation still builds a JSON insert resource for the remaining creation fields; a shared creation builder is not yet implemented, and this operation stays PARTIAL. UpdateBucket constructs shared typed updates directly. Both use shared bucket authorization and the transactional catalog. Bucket deletion and listing retain catalog concurrency and memory bounds.
 
 Deletion implements the shared native empty-bucket contract. Provider bucket soft-delete/restore, unfinished XML multipart uploads and Rapid state interactions are outside this slice; object soft deletion is not a claim of bucket soft-delete support.
 

@@ -185,12 +185,18 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
                         "fractional bucket retention duration",
                     ));
                 }
+                if field == "retentionPolicy" {
+                    crate::bucket::retention_period(duration.seconds)?;
+                } else {
+                    crate::bucket::soft_delete_retention(duration.seconds)?;
+                }
                 body[field] = json!({key: duration.seconds.to_string()});
             }
         }
     }
     if let Some(iam) = &bucket.iam_config {
         if !iam.public_access_prevention.is_empty() {
+            crate::bucket::public_access_prevention(&iam.public_access_prevention)?;
             body["iamConfiguration"]["publicAccessPrevention"] =
                 json!(iam.public_access_prevention);
         }
@@ -205,19 +211,6 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
     Ok(())
 }
 
-pub(super) fn cors_json(cors: &[pb::bucket::Cors]) -> serde_json::Value {
-    cors.iter()
-        .map(|cors| {
-            json!({
-                "origin": cors.origin,
-                "method": cors.method,
-                "responseHeader": cors.response_header,
-                "maxAgeSeconds": cors.max_age_seconds,
-            })
-        })
-        .collect()
-}
-
 /// Builds create-only JSON metadata without introducing update-mask reset defaults.
 pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_json::Value, Status> {
     let mut body = json!({"name": name, "defaultEventBasedHold": bucket.default_event_based_hold});
@@ -230,7 +223,7 @@ pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_jso
         }
     }
     body["labels"] = json!(bucket.labels);
-    body["cors"] = cors_json(&bucket.cors);
+    body["cors"] = crate::bucket::cors_value(&super::bucket_update::cors_rules(&bucket.cors)?);
     if let Some(versioning) = &bucket.versioning {
         body["versioning"] = json!({"enabled": versioning.enabled});
     }
@@ -244,6 +237,7 @@ pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_jso
         }
         body["autoclass"] = json!({"enabled": autoclass.enabled});
         if let Some(class) = &autoclass.terminal_storage_class {
+            crate::bucket::autoclass::validate_terminal_storage_class(class)?;
             body["autoclass"]["terminalStorageClass"] = class.clone().into();
         }
     }

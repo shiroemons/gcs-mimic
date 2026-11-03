@@ -9,6 +9,32 @@ use crate::{
 };
 use std::time::{Duration, UNIX_EPOCH};
 
+#[test]
+fn typed_object_metadata_keeps_replace_resets_and_patch_omissions() {
+    for mode in [json::WriteMode::Patch, json::WriteMode::Replace] {
+        let update = metadata(pb::Object::default(), mode).unwrap();
+        assert_eq!(update.replace, mode == json::WriteMode::Replace);
+        assert_eq!(
+            update.content_type,
+            (mode == json::WriteMode::Replace).then_some(None)
+        );
+        assert_eq!(update.metadata.is_some(), mode == json::WriteMode::Replace);
+        assert_eq!(update.event_based_hold, None);
+        assert_eq!(update.temporary_hold, None);
+    }
+    let update = metadata(
+        pb::Object {
+            event_based_hold: Some(false),
+            temporary_hold: true,
+            ..Default::default()
+        },
+        json::WriteMode::Patch,
+    )
+    .unwrap();
+    assert_eq!(update.event_based_hold, Some(false));
+    assert_eq!(update.temporary_hold, Some(true));
+}
+
 fn bucket(name: &str, project: &str) -> BucketRecord {
     BucketRecord {
         time_created: UNIX_EPOCH + Duration::from_secs(1),

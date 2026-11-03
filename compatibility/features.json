@@ -1445,7 +1445,7 @@
       "acceptance_cases": [
         {
           "id": "legacy_rpc_journey",
-          "description": "UpdateBucket succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "description": "UpdateBucket constructs a typed shared bucket replacement with the existing native/legacy omission rules; the raw pinned Go client and JSON/v1 shared catalog state remain supported. Bucket insertion still uses the JSON insert parser.",
           "result": "PASS",
           "test_ids": [
             "TestGRPCV1Legacy"
@@ -1890,7 +1890,7 @@
       "acceptance_cases": [
         {
           "id": "legacy_rpc_journey",
-          "description": "UpdateObject succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "description": "UpdateObject constructs a typed shared object metadata replacement directly, preserving fixed-field clearing and hold presence; the raw pinned Go client and JSON/v1 shared catalog state remain supported.",
           "result": "PASS",
           "test_ids": [
             "TestGRPCV1Legacy"
@@ -20284,7 +20284,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Bucket creation contract: docs/en/slices/grpc-v2-buckets.md. Shared JSON metadata validation, duplicate protection, strict project authorization and explicit unsupported values are scoped acceptance cases. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): bucket versioning is omitted when disabled and bucket errors use the recorded messages. Covered by the differential replay, not by a dedicated Rust test.",
+      "notes": "Bucket creation contract: docs/en/slices/grpc-v2-buckets.md. Shared typed retention/soft-delete/PAP/CORS/Autoclass validation, duplicate protection, strict project authorization and explicit unsupported values are scoped acceptance cases. Creation still uses the JSON insert parser for the remaining creation fields; a shared creation builder remains unimplemented. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): bucket versioning is omitted when disabled and bucket errors use the recorded messages. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",

@@ -6,6 +6,17 @@ Scope: RPC-LEGACY-001–012, all PARTIAL. This is the legacy migration profile f
 
 ## Inventory and acceptance contract
 
+On 2026-11-04, `cargo test --lib grpc::v1:: -- --test-threads=4` passed
+twelve tests, including typed replacement/patch omission rules and unchanged
+read-only field validation. Workspace checking, production lint and formatting
+passed before committing the typed conversion.
+
+Legacy object metadata and bucket replacements construct shared typed updates
+directly from protobuf fields. Native bucket replacement clears omitted
+CORS/lifecycle/versioning/unlocked retention as before; the legacy profile keeps
+its omission rules. Bucket insertion still uses the JSON insert parser pending a
+shared creation builder.
+
 The pinned [reference server](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go) implements exactly twelve RPCs:
 
 | Group | RPCs | Acceptance |

@@ -32,7 +32,6 @@ use crate::{
     server::State,
 };
 use prost::Message;
-use serde_json::json;
 use std::sync::Arc;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -172,34 +171,37 @@ fn metadata(
             "Object metadata exceeds 8 KiB; reduce metadata",
         ));
     }
-    let mut body = json!({});
-    for (key, value) in [
-        ("contentType", &object.content_type),
-        ("contentEncoding", &object.content_encoding),
-        ("contentDisposition", &object.content_disposition),
-        ("contentLanguage", &object.content_language),
-        ("cacheControl", &object.cache_control),
+    let mut update = ObjectMetadataUpdate {
+        replace,
+        ..Default::default()
+    };
+    for (field, value) in [
+        (&mut update.content_type, &object.content_type),
+        (&mut update.content_encoding, &object.content_encoding),
+        (&mut update.content_disposition, &object.content_disposition),
+        (&mut update.content_language, &object.content_language),
+        (&mut update.cache_control, &object.cache_control),
     ] {
         if replace || !value.is_empty() {
-            body[key] = if value.is_empty() {
-                serde_json::Value::Null
-            } else {
-                json!(value)
-            };
+            *field = Some((!value.is_empty()).then(|| value.clone()));
         }
     }
     if replace || !object.metadata.is_empty() {
-        body["metadata"] = json!(object.metadata);
+        update.metadata = Some(Some(
+            object
+                .metadata
+                .iter()
+                .map(|(key, value)| (key.clone(), Some(value.clone())))
+                .collect(),
+        ));
     }
-    if let Some(hold) = object.event_based_hold {
-        body["eventBasedHold"] = json!(hold);
-    }
+    update.event_based_hold = object.event_based_hold;
     // `temporary_hold` is a plain bool, so false cannot be told from omitted; a replace
     // already releases a hold it does not name, and only true is a statement worth keeping.
     // Treating a v1 replace that sends `temporary_hold=false` as never set (not as a released
     // `false`) is an inference: the recording has no gRPC session.
     if object.temporary_hold {
-        body["temporaryHold"] = json!(true);
+        update.temporary_hold = Some(true);
     }
     object.name.clear();
     object.bucket.clear();
@@ -216,11 +218,15 @@ fn metadata(
             "legacy object metadata outside content fields, custom metadata and holds",
         ));
     }
-    Ok(json::parse_object_metadata(
-        &serde_json::to_vec(&body).map_err(|_| Status::internal("Cannot encode metadata"))?,
-        write,
-    )?
-    .update)
+    if update
+        .metadata
+        .as_ref()
+        .and_then(Option::as_ref)
+        .is_some_and(|entries| entries.contains_key(""))
+    {
+        return Err(ObjectError::UnsupportedMetadata("empty custom metadata key".into()).into());
+    }
+    Ok(update)
 }
 
 impl Storage {
@@ -437,8 +443,8 @@ impl pb::storage_server::Storage for Storage {
         if !requested.hold(current.metageneration) {
             return Err(Status::from(CatalogError::PreconditionFailed));
         }
-        let body = convert::bucket_metadata(&mut bucket, Some(&convert::bucket(&current)))?;
-        let update = json::parse_bucket_replacement(&body, self.compat_profile)?;
+        let update =
+            convert::bucket_update(&mut bucket, &convert::bucket(&current), self.compat_profile)?;
         let record = self
             .state
             .catalog
