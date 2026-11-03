@@ -1,10 +1,11 @@
+use crate::common::server::declare_server;
 mod common;
 
 #[path = "object_range_http/etag.rs"]
 mod etag;
 
 use common::TestDir;
-use common::server::{Server, http_command, write_request};
+use common::server::{http_command, write_request};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -94,7 +95,7 @@ impl Server {
     }
 
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 
@@ -456,3 +457,5 @@ fn obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding() {
     assert_eq!(reply.body, gzip[gzip.len() - 4..]);
     server.stop();
 }
+
+declare_server!();

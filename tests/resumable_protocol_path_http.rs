@@ -1,7 +1,8 @@
 //! The Discovery resumable protocol path `POST /resumable/upload/storage/v1/b/{bucket}/o`,
 //! where gcloud storage (apitools) initiates resumable uploads.
 
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Reply, Server, common::TestDir};
 
@@ -40,7 +41,7 @@ fn resumable_protocol_path_initiates_the_same_session_as_the_upload_path() {
     let path = session_path(&reply);
     let object = server
         .request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"hello")
-        .json();
+        .json_ok();
     assert_eq!(object["name"], "streamed.txt");
     assert_eq!(object["contentType"], "text/plain");
     assert_eq!(server.get("streamed.txt?alt=media").body, b"hello");
@@ -54,7 +55,7 @@ fn resumable_protocol_path_initiates_the_same_session_as_the_upload_path() {
     let path = session_path(&reply);
     server
         .request("PUT", &path, "Content-Range: bytes 0-2/3\r\n", b"abc")
-        .json();
+        .json_ok();
     assert_eq!(server.get("named.bin?alt=media").body, b"abc");
     // Invalid names, malformed metadata and missing buckets answer as on the upload path.
     for (bucket, query, body) in [
@@ -165,8 +166,9 @@ fn resumable_protocol_path_keeps_strict_authorization() {
             br#"{"name":"strict.txt"}"#,
         )
     };
-    initiate("", "uploadType=resumable").error(401, "required");
-    initiate("Authorization: Bearer viewer\r\n", "uploadType=resumable").error(403, "forbidden");
+    initiate("", "uploadType=resumable").json_reason(401, "required");
+    initiate("Authorization: Bearer viewer\r\n", "uploadType=resumable")
+        .json_reason(403, "forbidden");
     // The upload-type rejection orders authentication as the upload path does.
     for headers in ["", "Authorization: Bearer unknown\r\n", ADMIN] {
         let upload = server.request(
@@ -183,7 +185,7 @@ fn resumable_protocol_path_keeps_strict_authorization() {
         "Authorization: Bearer unknown\r\n",
         "uploadType=media&name=x",
     )
-    .error(401, "authError");
+    .json_reason(401, "authError");
     let path = session_path(&initiate(ADMIN, "uploadType=resumable"));
     server
         .request(
@@ -192,7 +194,7 @@ fn resumable_protocol_path_keeps_strict_authorization() {
             &format!("{ADMIN}Content-Range: bytes 0-1/2\r\n"),
             b"ok",
         )
-        .json();
+        .json_ok();
 }
 
 #[test]
@@ -206,7 +208,7 @@ fn resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api() {
             "",
             br#"{"name":"resumable"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -214,7 +216,7 @@ fn resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api() {
             "",
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
+        .json_ok();
     // Path-style XML reads and writes of that object name still reach the XML API.
     assert_eq!(
         server

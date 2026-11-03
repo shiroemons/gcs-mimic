@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Server, common::TestDir};
 use serde_json::{Value, json};
@@ -11,7 +12,7 @@ fn acl_lists_and_deletes_send_bare_etags_and_reinsertions_follow_existing_entrie
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
     server.bucket();
-    server.put("file", b"data").json();
+    server.put("file", b"data").json_ok();
     for suffix in ["acl", "defaultObjectAcl", "o/file/acl"] {
         let path = format!("{BUCKET}/{suffix}");
         let before = server.request("GET", &path, "", b"");
@@ -27,8 +28,8 @@ fn acl_lists_and_deletes_send_bare_etags_and_reinsertions_follow_existing_entrie
                 "",
                 br#"{"entity":"project-viewers-0","role":"READER"}"#,
             )
-            .json();
-        let listed = server.request("GET", &path, "", b"").json();
+            .json_ok();
+        let listed = server.request("GET", &path, "", b"").json_ok();
         assert_eq!(
             listed["items"].as_array().unwrap().last().unwrap()["entity"],
             "project-viewers-0"
@@ -50,7 +51,7 @@ fn acl_lists_and_deletes_send_bare_etags_and_reinsertions_follow_existing_entrie
     let server = Server::start(&dir, false);
     let listed = server
         .request("GET", &format!("{BUCKET}/o/file/acl"), "", b"")
-        .json();
+        .json_ok();
     assert_eq!(listed["items"][3]["entity"], "project-viewers-0");
 }
 
@@ -59,7 +60,7 @@ fn object_updates_omit_acls_by_default_and_keep_explicit_full_projection() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
-    server.put("file", b"data").json();
+    server.put("file", b"data").json_ok();
     for method in ["PUT", "PATCH"] {
         for (query, full) in [
             ("", false),
@@ -68,7 +69,7 @@ fn object_updates_omit_acls_by_default_and_keep_explicit_full_projection() {
         ] {
             let value = server
                 .request(method, &format!("{BUCKET}/o/file{query}"), "", b"{}")
-                .json();
+                .json_ok();
             assert_eq!(value.get("acl").is_some(), full);
             assert_eq!(value.get("owner").is_some(), full);
         }
@@ -83,7 +84,7 @@ fn bucket_versioning_keeps_explicit_false_across_restart_and_clears_null() {
     assert!(
         server
             .request("GET", BUCKET, "", b"")
-            .json()
+            .json_ok()
             .get("versioning")
             .is_none()
     );
@@ -97,7 +98,7 @@ fn bucket_versioning_keeps_explicit_false_across_restart_and_clears_null() {
                     .to_string()
                     .as_bytes(),
             )
-            .json();
+            .json_ok();
         assert_eq!(
             value,
             json!({"name":"test-bucket","versioning":{"enabled":enabled}})
@@ -106,12 +107,12 @@ fn bucket_versioning_keeps_explicit_false_across_restart_and_clears_null() {
     server.stop();
     let server = Server::start(&dir, false);
     assert_eq!(
-        server.request("GET", BUCKET, "", b"").json()["versioning"],
+        server.request("GET", BUCKET, "", b"").json_ok()["versioning"],
         json!({"enabled":false})
     );
     let cleared = server
         .request("PATCH", BUCKET, "", br#"{"versioning":null}"#)
-        .json();
+        .json_ok();
     assert!(cleared.get("versioning").is_none());
 }
 
@@ -120,14 +121,14 @@ fn metadata_preconditions_and_invalid_acl_name_the_rejected_input() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
-    let object = server.put("file", b"data").json();
+    let object = server.put("file", b"data").json_ok();
     let failed = server.request(
         "GET",
         &format!("{BUCKET}/o/file"),
         "If-Match: \"other\"\r\n",
         b"",
     );
-    failed.error(412, "conditionNotMet");
+    failed.json_reason(412, "conditionNotMet");
     assert_eq!(failed.headers["etag"], object["etag"].as_str().unwrap());
     let error: Value = serde_json::from_slice(&failed.body).unwrap();
     assert_eq!(error["error"]["errors"][0]["location"], "If-Match");
@@ -138,7 +139,7 @@ fn metadata_preconditions_and_invalid_acl_name_the_rejected_input() {
         "",
         b"{}",
     );
-    failed.error(400, "invalidParameter");
+    failed.json_reason(400, "invalidParameter");
     let error: Value = serde_json::from_slice(&failed.body).unwrap();
     assert_eq!(error["error"]["errors"][0]["location"], "predefinedAcl");
     assert_eq!(error["error"]["errors"][0]["locationType"], "parameter");
@@ -148,7 +149,7 @@ fn metadata_preconditions_and_invalid_acl_name_the_rejected_input() {
         "",
         br#"{"sourceObjects":[{"name":"file","objectPreconditions":{"ifGenerationMatch":"1"}}]}"#,
     );
-    failed.error(412, "conditionNotMet");
+    failed.json_reason(412, "conditionNotMet");
     let error: Value = serde_json::from_slice(&failed.body).unwrap();
     assert_eq!(error["error"]["errors"][0]["location"], "If-Match");
     assert_eq!(error["error"]["errors"][0]["locationType"], "header");
@@ -169,7 +170,7 @@ fn missing_move_source_names_the_local_or_authenticated_principal() {
             ADMIN,
             b"",
         );
-        failed.error(403, "forbidden");
+        failed.json_reason(403, "forbidden");
         let error: Value = serde_json::from_slice(&failed.body).unwrap();
         assert!(
             error["error"]["message"]
@@ -223,7 +224,7 @@ fn missing_move_source_uses_an_email_or_the_generic_permission_message() {
             ADMIN,
             b"",
         );
-        failed.error(403, "forbidden");
+        failed.json_reason(403, "forbidden");
         let error: Value = serde_json::from_slice(&failed.body).unwrap();
         let message = error["error"]["message"].as_str().unwrap();
         if let Some(email) = email {
@@ -267,7 +268,7 @@ fn upload_front_end_errors_preserve_content_type_without_nosniff() {
         assert!(!failed.headers.contains_key("x-content-type-options"));
     }
     let failed = server.request("POST", "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=file&ifGenerationMatch=%3Cscript%3E%26alert(1)%3C%2Fscript%3E", "", b"data");
-    failed.error(400, "invalidParameter");
+    failed.json_reason(400, "invalidParameter");
     let text = String::from_utf8_lossy(&failed.body);
     assert!(!text.contains(['<', '>', '&']));
     let error: Value = serde_json::from_slice(&failed.body).unwrap();

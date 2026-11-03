@@ -14,7 +14,7 @@ fn virtual_host_xml_objects_keep_known_google_route_names() {
     let (_config, _data, server) = configured_fixture(&["--xml-virtual-host-domains", DOMAIN]);
     server
         .upload(ADMIN, BUCKET, "storage/v1/b/x/acl", b"explicit XML object")
-        .ok();
+        .success();
     assert_eq!(
         request(
             &server,
@@ -24,7 +24,7 @@ fn virtual_host_xml_objects_keep_known_google_route_names() {
             VIEWER,
             b""
         )
-        .ok()
+        .success()
         .body,
         b"explicit XML object"
     );
@@ -71,11 +71,15 @@ fn public_origin_ready_reports_normalized_dns_ip_and_unset_values() {
             Some(&expected.map(Value::from).unwrap_or(Value::Null))
         );
         assert_eq!(ready["public_virtual_host_enabled"], enabled);
-        server.create_bucket("", "project-a", "probe-bucket").ok();
-        server.upload("", "probe-bucket", "object", b"hello").ok();
+        server
+            .create_bucket("", "project-a", "probe-bucket")
+            .success();
+        server
+            .upload("", "probe-bucket", "object", b"hello")
+            .success();
         let metadata = server
             .get("", "/storage/v1/b/probe-bucket/o/object")
-            .ok()
+            .success()
             .json();
         assert!(
             metadata["selfLink"]
@@ -216,8 +220,10 @@ fn configured_fixture(options: &[&str]) -> (TestDir, TestDir, Server) {
     }
     args.extend_from_slice(options);
     let (server, _) = Server::start(&data, &args);
-    server.create_bucket(ADMIN, "project-a", BUCKET).ok();
-    server.upload(ADMIN, BUCKET, "object", b"hello world").ok();
+    server.create_bucket(ADMIN, "project-a", BUCKET).success();
+    server
+        .upload(ADMIN, BUCKET, "object", b"hello world")
+        .success();
     (config, data, server)
 }
 
@@ -240,7 +246,7 @@ fn request(
         request = close_after_response(&request);
     }
     stream.write_all(&request).unwrap();
-    Reply::read_body(stream, method == "HEAD")
+    Reply::read_joined_head(stream, method == "HEAD")
 }
 
 fn host(server: &Server) -> String {
@@ -311,7 +317,7 @@ fn public_origin_native_and_unset_legacy_keep_path_style_host_acceptance() {
                     VIEWER,
                     b""
                 )
-                .ok()
+                .success()
                 .body,
                 b"hello world"
             );
@@ -326,7 +332,7 @@ fn public_origin_native_and_unset_legacy_keep_path_style_host_acceptance() {
                     VIEWER,
                     b""
                 )
-                .ok()
+                .success()
                 .body,
                 b"hello world"
             );
@@ -363,7 +369,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
             ("lookalike.invalid", "probe-bucket/object"),
             ("advertised.invalid", &format!("{BUCKET}/object")),
         ] {
-            server.create_bucket(ADMIN, "project-a", bucket).ok();
+            server.create_bucket(ADMIN, "project-a", bucket).success();
             server
                 .upload(
                     ADMIN,
@@ -371,7 +377,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
                     object,
                     format!("bucket={bucket};object={object}").as_bytes(),
                 )
-                .ok();
+                .success();
         }
         for port in &ports {
             for (authority, path) in [
@@ -380,12 +386,12 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
             ] {
                 let reply = request(&server, "GET", &authority, path, VIEWER, b"");
                 assert_eq!(
-                    reply.ok().body,
+                    reply.success().body,
                     b"bucket=probe-bucket;object=object",
                     "{origin}: {authority}"
                 );
                 let head = request(&server, "HEAD", &authority, path, VIEWER, b"");
-                head.ok();
+                head.success();
                 assert!(head.body.is_empty());
             }
         }
@@ -398,7 +404,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
             assert!(
                 String::from_utf8_lossy(
                     &request(&server, "GET", authority, path, VIEWER, b"")
-                        .ok()
+                        .success()
                         .body
                 )
                 .starts_with(&format!("bucket={authority};"))
@@ -418,7 +424,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
         if origin.ends_with(":8443") {
             assert_eq!(
                 request(&server, "GET", DOMAIN, "/probe-bucket/object", VIEWER, b"")
-                    .ok()
+                    .success()
                     .body,
                 b"bucket=storage.example.invalid;object=probe-bucket/object"
             );
@@ -432,7 +438,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
                     VIEWER,
                     b""
                 )
-                .ok()
+                .success()
                 .body,
                 b"bucket=probe-bucket.storage.example.invalid;object=object"
             );
@@ -445,7 +451,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
                     VIEWER,
                     b""
                 )
-                .ok()
+                .success()
                 .body,
                 b"bucket=probe-bucket.storage.example.invalid;object=object"
             );
@@ -460,7 +466,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
                 VIEWER,
                 b""
             )
-            .ok()
+            .success()
             .body,
             format!("bucket=advertised.invalid;object={BUCKET}/object").as_bytes()
         );
@@ -477,12 +483,12 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
                 ADMIN,
                 b"",
             )
-            .ok();
-            request(&server, "GET", authority, "/_internal/ready", "", b"").ok();
+            .success();
+            request(&server, "GET", authority, "/_internal/ready", "", b"").success();
         }
         server
             .upload(ADMIN, BUCKET, "storage/v1/b", b"explicit XML object")
-            .ok();
+            .success();
         assert_eq!(
             request(
                 &server,
@@ -492,7 +498,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
                 VIEWER,
                 b""
             )
-            .ok()
+            .success()
             .body,
             b"explicit XML object"
         );
@@ -505,10 +511,10 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
             ADMIN,
             b"selected upload",
         )
-        .ok();
+        .success();
         assert_eq!(
             request(&server, "GET", &authority, "/new", VIEWER, b"")
-                .ok()
+                .success()
                 .body,
             b"selected upload"
         );
@@ -527,7 +533,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
             "NoSuchKey",
         );
         let listing = request(&server, "GET", &authority, "/", ADMIN, b"");
-        listing.ok();
+        listing.success();
         assert_eq!(
             listing.headers["content-type"],
             "application/xml; charset=UTF-8"
@@ -594,7 +600,7 @@ fn public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts() {
                     VIEWER,
                     b""
                 )
-                .ok()
+                .success()
                 .body,
                 b"hello world"
             );
@@ -619,7 +625,7 @@ fn public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts() {
                     ADMIN,
                     b"",
                 )
-                .ok();
+                .success();
             } else {
                 error(&reply, 404, "NoSuchBucket");
             }
@@ -633,7 +639,7 @@ fn public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts() {
                 VIEWER,
                 b""
             )
-            .ok()
+            .success()
             .body,
             b"hello world"
         );
@@ -673,21 +679,23 @@ fn public_origin_legacy_accepts_host_syntax_before_namespace_and_bucket_validati
             ADMIN,
             b"",
         )
-        .ok();
-        request(&server, "GET", authority, "/_internal/ready", "", b"").ok();
+        .success();
+        request(&server, "GET", authority, "/_internal/ready", "", b"").success();
         error(
             &request(&server, "GET", authority, "/object", VIEWER, b""),
             404,
             "NoSuchBucket",
         );
     }
-    server.create_bucket(ADMIN, "project-a", "fake_gcs").ok();
+    server
+        .create_bucket(ADMIN, "project-a", "fake_gcs")
+        .success();
     server
         .upload(ADMIN, "fake_gcs", "object", b"legacy underscore bucket")
-        .ok();
+        .success();
     assert_eq!(
         request(&server, "GET", "fake_gcs:4443", "/object", VIEWER, b"")
-            .ok()
+            .success()
             .body,
         b"legacy underscore bucket"
     );
@@ -709,8 +717,10 @@ fn public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket() {
             "nested/object",
         ),
     ] {
-        server.create_bucket(ADMIN, "project-a", bucket).ok();
-        server.upload(ADMIN, bucket, object, bucket.as_bytes()).ok();
+        server.create_bucket(ADMIN, "project-a", bucket).success();
+        server
+            .upload(ADMIN, bucket, object, bucket.as_bytes())
+            .success();
         let cors = json!({"cors":[{"origin":[origin], "method":["GET","HEAD","PUT"],
             "responseHeader":["Content-Type"], "maxAgeSeconds":120}]});
         server
@@ -720,7 +730,7 @@ fn public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket() {
                 ADMIN,
                 cors.to_string().as_bytes(),
             )
-            .ok();
+            .success();
     }
     for (host, path, bucket, origin) in [
         (
@@ -753,7 +763,7 @@ fn public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket() {
             ),
             b"",
         );
-        preflight.ok();
+        preflight.success();
         assert_eq!(preflight.headers["access-control-allow-origin"], origin);
         assert!(preflight.body.is_empty());
         let read = request(
@@ -764,7 +774,7 @@ fn public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket() {
             &format!("{VIEWER}{headers}"),
             b"",
         );
-        assert_eq!(read.ok().body, bucket.as_bytes());
+        assert_eq!(read.success().body, bucket.as_bytes());
         assert_eq!(read.headers["access-control-allow-origin"], origin);
         let denied = request(&server, "GET", host, path, &headers, b"");
         error(&denied, 401, "AuthenticationRequired");
@@ -787,7 +797,7 @@ fn public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket() {
             &format!("{VIEWER}Origin: https://other.invalid\r\n"),
             b"",
         );
-        wrong_origin.ok();
+        wrong_origin.success();
         assert!(
             !wrong_origin
                 .headers
@@ -848,7 +858,7 @@ fn public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver() 
                     if kind == "public" { VIEWER } else { "" },
                     b""
                 )
-                .ok()
+                .success()
                 .body,
                 b"hello world"
             );
@@ -863,7 +873,7 @@ fn public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver() 
             b"",
         );
         assert!(
-            metadata.ok().json()["selfLink"]
+            metadata.success().json()["selfLink"]
                 .as_str()
                 .unwrap()
                 .starts_with(base)
@@ -878,7 +888,7 @@ fn public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver() 
                 VIEWER,
                 b""
             )
-            .ok()
+            .success()
             .body,
             b"hello world"
         );
@@ -910,7 +920,7 @@ fn public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authorit
     );
     let url = signed(&Method::GET, DOMAIN, &path, "admin@example.invalid");
     assert_eq!(
-        send(&server, "GET", &url, "", b"").ok().body,
+        send(&server, "GET", &url, "", b"").success().body,
         b"hello world"
     );
     error(
@@ -926,7 +936,7 @@ fn public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authorit
     );
     server
         .create_bucket(ADMIN, "project-a", "probe-bucket")
-        .ok();
+        .success();
     let virtual_authority = format!("probe-bucket.{DOMAIN}:4443");
     let put = signed(
         &Method::PUT,
@@ -934,7 +944,7 @@ fn public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authorit
         "/signed",
         "admin@example.invalid",
     );
-    send(&server, "PUT", &put, "", b"signed virtual upload").ok();
+    send(&server, "PUT", &put, "", b"signed virtual upload").success();
     let get = signed(
         &Method::GET,
         &virtual_authority,
@@ -942,7 +952,7 @@ fn public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authorit
         "viewer@example.invalid",
     );
     assert_eq!(
-        send(&server, "GET", &get, "", b"").ok().body,
+        send(&server, "GET", &get, "", b"").success().body,
         b"signed virtual upload"
     );
     error(
@@ -963,8 +973,8 @@ fn public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authorit
             ADMIN,
             policy.to_string().as_bytes(),
         )
-        .ok();
-    request(&server, "GET", DOMAIN, &path, "", b"").ok();
+        .success();
+    request(&server, "GET", DOMAIN, &path, "", b"").success();
     server
         .request(
             "PATCH",
@@ -972,13 +982,13 @@ fn public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authorit
             ADMIN,
             br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
         )
-        .ok();
+        .success();
     error(
         &request(&server, "GET", DOMAIN, &path, "", b""),
         401,
         "AuthenticationRequired",
     );
-    send(&server, "GET", &url, "", b"").ok();
+    send(&server, "GET", &url, "", b"").success();
     for method in ["GET", "HEAD"] {
         let reply = request(
             &server,
@@ -1036,7 +1046,7 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
         403,
         "AccessDenied",
     );
-    request(&server, "PUT", &host, "/new", CREATOR, b"new").ok();
+    request(&server, "PUT", &host, "/new", CREATOR, b"new").success();
     error(
         &request(&server, "PUT", &host, "/new", CREATOR, b"overwrite"),
         403,
@@ -1044,7 +1054,7 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
     );
     assert_eq!(
         request(&server, "GET", &host, "/new", VIEWER, b"")
-            .ok()
+            .success()
             .body,
         b"new"
     );
@@ -1066,15 +1076,15 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
             ADMIN,
             name.as_bytes(),
         )
-        .ok();
+        .success();
         let virtual_read = request(&server, "GET", &host, &format!("/{encoded}"), VIEWER, b"");
         let path_read = server.get(VIEWER, &format!("/{BUCKET}/{encoded}"));
-        assert_eq!(virtual_read.ok().body, path_read.ok().body);
+        assert_eq!(virtual_read.success().body, path_read.success().body);
         for header in ["etag", "x-goog-generation", "content-length", "x-goog-hash"] {
             assert_eq!(virtual_read.headers[header], path_read.headers[header]);
         }
         let head = request(&server, "HEAD", &host, &format!("/{encoded}"), VIEWER, b"");
-        head.ok();
+        head.success();
         assert!(head.body.is_empty());
     }
     let range = request(
@@ -1098,7 +1108,7 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
             VIEWER,
             b""
         )
-        .ok()
+        .success()
         .body,
         b"new"
     );
@@ -1130,9 +1140,9 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
         request(&server, "GET", &host, "/new", VIEWER, b"").headers["x-goog-generation"],
         current.headers["x-goog-generation"]
     );
-    request(&server, "PUT", &host, "/new", &format!("{ADMIN}x-goog-if-generation-match: {generation}\r\nx-goog-if-metageneration-match: 1\r\n"), b"condition bytes").ok();
+    request(&server, "PUT", &host, "/new", &format!("{ADMIN}x-goog-if-generation-match: {generation}\r\nx-goog-if-metageneration-match: 1\r\n"), b"condition bytes").success();
     let listing = request(&server, "GET", &host, "/", ADMIN, b"");
-    listing.ok();
+    listing.success();
     assert_eq!(
         listing.headers["content-type"],
         "application/xml; charset=UTF-8"
@@ -1160,7 +1170,7 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
     );
     assert_eq!(
         request(&server, "GET", &host, "/storage/v1/b", ADMIN, b"")
-            .ok()
+            .success()
             .body,
         b"storage/v1/b"
     );
@@ -1186,7 +1196,7 @@ fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
                 VIEWER,
                 b""
             )
-            .ok()
+            .success()
             .body,
             b"hello world"
         );
@@ -1200,7 +1210,7 @@ fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
             &format!("{VIEWER}Forwarded: host={host}\r\nX-Forwarded-Host: {host}\r\n"),
             b""
         )
-        .ok()
+        .success()
         .body,
         b"hello world"
     );
@@ -1212,7 +1222,7 @@ fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
         &format!("{ADMIN}X-Forwarded-Host: {host}\r\n"),
         b"",
     )
-    .ok()
+    .success()
     .json();
     assert!(
         metadata["selfLink"]
@@ -1246,7 +1256,7 @@ fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
             VIEWER,
             b""
         )
-        .ok()
+        .success()
         .body,
         b"hello world"
     );
@@ -1260,7 +1270,7 @@ fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
             VIEWER,
             b""
         )
-        .ok()
+        .success()
         .body,
         b"hello world"
     );
@@ -1284,7 +1294,7 @@ fn virtual_host_absolute_target_authority_must_match_host_before_dispatch() {
             VIEWER,
             b""
         )
-        .ok()
+        .success()
         .body,
         b"hello world"
     );
@@ -1327,11 +1337,16 @@ fn virtual_host_signatures_bind_host_port_raw_path_and_addressing_style() {
     let host = host(&server);
     let url = signed(&Method::GET, &host, "/object", "viewer@example.invalid");
     assert_eq!(
-        send(&server, "GET", &url, "", b"").ok().body,
+        send(&server, "GET", &url, "", b"").success().body,
         b"hello world"
     );
     let head = signed(&Method::HEAD, &host, "/object", "viewer@example.invalid");
-    assert!(send(&server, "HEAD", &head, "", b"").ok().body.is_empty());
+    assert!(
+        send(&server, "HEAD", &head, "", b"")
+            .success()
+            .body
+            .is_empty()
+    );
     let put = signed(&Method::PUT, &host, "/object", "admin@example.invalid");
     send(
         &server,
@@ -1340,7 +1355,7 @@ fn virtual_host_signatures_bind_host_port_raw_path_and_addressing_style() {
         "Content-Type: text/plain\r\n",
         b"signed new bytes",
     )
-    .ok();
+    .success();
     error(
         &send(
             &server,
@@ -1398,10 +1413,10 @@ fn virtual_host_signatures_bind_host_port_raw_path_and_addressing_style() {
     for name in ["é日/a b+%?#", "a//b/", "/leading", "a/../b"] {
         let path = format!("/{}", encode_object_name(name));
         let put = signed(&Method::PUT, &host, &path, "admin@example.invalid");
-        send(&server, "PUT", &put, "", name.as_bytes()).ok();
+        send(&server, "PUT", &put, "", name.as_bytes()).success();
         let get = signed(&Method::GET, &host, &path, "viewer@example.invalid");
         assert_eq!(
-            send(&server, "GET", &get, "", b"").ok().body,
+            send(&server, "GET", &get, "", b"").success().body,
             name.as_bytes()
         );
     }
@@ -1411,7 +1426,7 @@ fn virtual_host_signatures_bind_host_port_raw_path_and_addressing_style() {
 fn virtual_host_public_access_and_xml_cors_use_bucket_rules() {
     let (_config, _data, server) = fixture(true);
     let host = host(&server);
-    server.request("PATCH", &format!("/storage/v1/b/{BUCKET}"), ADMIN, &serde_json::to_vec(&json!({"cors":[{"origin":["https://app.invalid"],"method":["GET","HEAD","PUT"],"responseHeader":["Content-Type"],"maxAgeSeconds":120}]})).unwrap()).ok();
+    server.request("PATCH", &format!("/storage/v1/b/{BUCKET}"), ADMIN, &serde_json::to_vec(&json!({"cors":[{"origin":["https://app.invalid"],"method":["GET","HEAD","PUT"],"responseHeader":["Content-Type"],"maxAgeSeconds":120}]})).unwrap()).success();
     let origin = "Origin: https://app.invalid\r\n";
     let preflight = request(
         &server,
@@ -1464,16 +1479,16 @@ fn virtual_host_public_access_and_xml_cors_use_bucket_rules() {
             )
             .unwrap(),
         )
-        .ok();
+        .success();
     let public = request(&server, "GET", &host, "/object", origin, b"");
-    assert_eq!(public.ok().body, b"hello world");
+    assert_eq!(public.success().body, b"hello world");
     assert_eq!(
         public.headers["access-control-allow-origin"],
         "https://app.invalid"
     );
     let put = signed(&Method::PUT, &host, "/object", "admin@example.invalid");
     let response = send(&server, "PUT", &put, origin, b"cors signed put");
-    response.ok();
+    response.success();
     assert_eq!(
         response.headers["access-control-allow-origin"],
         "https://app.invalid"
@@ -1499,12 +1514,12 @@ fn virtual_host_signed_response_overrides_bind_query_and_preserve_metadata() {
     let (_config, _data, server) = fixture(true);
     let host = host(&server);
     let metadata = format!("/storage/v1/b/{BUCKET}/o/object");
-    let before = server.get(ADMIN, &metadata).ok().json();
+    let before = server.get(ADMIN, &metadata).success().json();
     let path = "/object?response-content-type=text%2Fcsv&response-content-disposition=attachment%3B%20filename%3Dreport.csv";
     for method in [Method::GET, Method::HEAD] {
         let url = signed(&method, &host, path, "viewer@example.invalid");
         let reply = send(&server, method.as_str(), &url, "", b"");
-        reply.ok();
+        reply.success();
         assert_eq!(reply.headers["content-type"], "text/csv");
         assert_eq!(
             reply.headers["content-disposition"],
@@ -1537,7 +1552,7 @@ fn virtual_host_signed_response_overrides_bind_query_and_preserve_metadata() {
         );
         assert!(!tampered.headers.contains_key("content-disposition"));
     }
-    assert_eq!(server.get(ADMIN, &metadata).ok().json(), before);
+    assert_eq!(server.get(ADMIN, &metadata).success().json(), before);
 }
 
 #[test]
@@ -1578,7 +1593,7 @@ fn virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host() {
         assert_eq!(uri.authority().unwrap().as_str(), host(&server));
         assert_eq!(uri.path(), "/object");
         let reply = send(&server, method, url.trim(), "", b"");
-        reply.ok();
+        reply.success();
         assert_eq!(reply.headers["content-type"], "text/csv");
         assert_eq!(
             reply.headers["content-disposition"],
@@ -1611,9 +1626,9 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
                     .to_string()
                     .as_bytes(),
             )
-            .ok()
+            .success()
             .json();
-        request(&server, "GET", &host, "/object", NO_ROLES, b"").ok();
+        request(&server, "GET", &host, "/object", NO_ROLES, b"").success();
         let anonymous_status = if member == "allUsers" { 200 } else { 401 };
         assert_eq!(
             request(&server, "GET", &host, "/object", "", b"").status,
@@ -1624,7 +1639,10 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
             anonymous_status
         );
         assert_eq!(
-            server.get(NO_ROLES, &format!("/{BUCKET}/object")).ok().body,
+            server
+                .get(NO_ROLES, &format!("/{BUCKET}/object"))
+                .success()
+                .body,
             b"hello world"
         );
         server
@@ -1634,7 +1652,7 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
                 ADMIN,
                 br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
             )
-            .ok();
+            .success();
         for method in ["GET", "HEAD"] {
             assert_eq!(
                 request(&server, method, &host, "/object", "", b"").status,
@@ -1658,7 +1676,10 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
             );
             assert_eq!(send(&server, method, &public_only, "", b"").status, 403);
         }
-        let before = server.get(ADMIN, &format!("{bucket}/o/object")).ok().json();
+        let before = server
+            .get(ADMIN, &format!("{bucket}/o/object"))
+            .success()
+            .json();
         let get = signed(
             &Method::GET,
             &host,
@@ -1666,7 +1687,7 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
             "viewer@example.invalid",
         );
         let reply = send(&server, "GET", &get, "", b"");
-        assert_eq!(reply.ok().body, b"hello world");
+        assert_eq!(reply.success().body, b"hello world");
         assert_eq!(reply.headers["content-type"], "text/csv");
         error(
             &send(
@@ -1680,7 +1701,10 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
             "SignatureDoesNotMatch",
         );
         assert_eq!(
-            server.get(ADMIN, &format!("{bucket}/o/object")).ok().json(),
+            server
+                .get(ADMIN, &format!("{bucket}/o/object"))
+                .success()
+                .json(),
             before
         );
         let put = signed(
@@ -1689,7 +1713,7 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
             "/signed-under-pap",
             "admin@example.invalid",
         );
-        send(&server, "PUT", &put, "", b"signed under PAP").ok();
+        send(&server, "PUT", &put, "", b"signed under PAP").success();
         let uploaded = signed(
             &Method::GET,
             &host,
@@ -1697,10 +1721,10 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
             "viewer@example.invalid",
         );
         assert_eq!(
-            send(&server, "GET", &uploaded, "", b"").ok().body,
+            send(&server, "GET", &uploaded, "", b"").success().body,
             b"signed under PAP"
         );
-        assert_eq!(server.get(ADMIN, &policy_path).ok().json(), policy);
+        assert_eq!(server.get(ADMIN, &policy_path).success().json(), policy);
         server
             .request(
                 "PATCH",
@@ -1708,11 +1732,11 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
                 ADMIN,
                 br#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#,
             )
-            .ok();
-        assert_eq!(server.get(ADMIN, &policy_path).ok().json(), policy);
+            .success();
+        assert_eq!(server.get(ADMIN, &policy_path).success().json(), policy);
         assert_eq!(
             request(&server, "GET", &host, "/object", NO_ROLES, b"")
-                .ok()
+                .success()
                 .body,
             b"hello world"
         );

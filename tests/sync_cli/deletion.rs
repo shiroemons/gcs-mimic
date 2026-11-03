@@ -30,7 +30,7 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
             None,
             br#"{"labels":{"k":"v"}}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(
         server.cli("deletions", &["--revision", old, "--cursor", cursor], false)["error"]["code"],
         409
@@ -114,7 +114,7 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
     assert!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o", None, b"")
-            .json()["items"]
+            .json_ok()["items"]
             .as_array()
             .is_none_or(Vec::is_empty)
     );

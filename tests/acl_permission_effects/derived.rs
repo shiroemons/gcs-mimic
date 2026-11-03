@@ -1,7 +1,7 @@
 use super::*;
 
 fn writer(server: &Server) {
-    server.admin("PUT", &format!("{BUCKET}/iam"), json!({"bindings":[{"role":"roles/storage.legacyBucketWriter","members":["user:reader@example.test"]}]})).json();
+    server.admin("PUT", &format!("{BUCKET}/iam"), json!({"bindings":[{"role":"roles/storage.legacyBucketWriter","members":["user:reader@example.test"]}]})).json_ok();
 }
 
 #[test]
@@ -17,11 +17,11 @@ fn source_acl_copy_replay_keeps_original_generation_and_rechecks_current_control
         server.grant("user-reader@example.test", "READER", generation);
         let copy = format!("{OBJECT}/copyTo/b/test-bucket/o/copied");
         let headers = format!("{READER}X-Goog-Gcs-Idempotency-Token: acl-source-copy\r\n");
-        let completed = server.request("POST", &copy, &headers, b"{}").json();
+        let completed = server.request("POST", &copy, &headers, b"{}").json_ok();
         server.put(b"new private source");
         assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
         assert_eq!(
-            server.request("POST", &copy, &headers, b"{}").json(),
+            server.request("POST", &copy, &headers, b"{}").json_ok(),
             completed
         );
         server
@@ -30,11 +30,11 @@ fn source_acl_copy_replay_keeps_original_generation_and_rechecks_current_control
                 BUCKET,
                 json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
             )
-            .json();
+            .json_ok();
         assert_eq!(server.request("POST", &copy, &headers, b"{}").status, 403);
-        server.admin("PATCH", BUCKET, json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"enforced"}})).json();
+        server.admin("PATCH", BUCKET, json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"enforced"}})).json_ok();
         assert_eq!(
-            server.request("POST", &copy, &headers, b"{}").json(),
+            server.request("POST", &copy, &headers, b"{}").json_ok(),
             completed
         );
         assert_eq!(
@@ -52,7 +52,7 @@ fn source_acl_copy_replay_keeps_original_generation_and_rechecks_current_control
             server.stop();
             server = Server::start(&data, &inputs, backend);
             assert_eq!(
-                server.request("POST", &copy, &headers, b"{}").json(),
+                server.request("POST", &copy, &headers, b"{}").json_ok(),
                 completed
             );
         }
@@ -70,7 +70,7 @@ fn source_acl_copy_replay_keeps_original_generation_and_rechecks_current_control
         assert_eq!(server.request("POST", &copy, &headers, b"{}").status, 403);
         server.grant("user-reader@example.test", "READER", generation);
         assert_eq!(
-            server.request("POST", &copy, &headers, b"{}").json(),
+            server.request("POST", &copy, &headers, b"{}").json_ok(),
             completed
         );
         assert_eq!(
@@ -113,7 +113,7 @@ fn source_acl_authorizes_copy_compose_move_and_fixed_generation_rewrite() {
                 READER,
                 b"{}",
             )
-            .json();
+            .json_ok();
         server
             .request(
                 "POST",
@@ -123,19 +123,19 @@ fn source_acl_authorizes_copy_compose_move_and_fixed_generation_rewrite() {
                     .to_string()
                     .as_bytes(),
             )
-            .json();
+            .json_ok();
         let rewrite = format!(
             "{OBJECT}/rewriteTo/b/test-bucket/o/rewritten?sourceGeneration={generation}&maxBytesRewrittenPerCall=1048576"
         );
         let first = server
             .request("POST", &rewrite, READER, br#"{"storageClass":"NEARLINE"}"#)
-            .json();
+            .json_ok();
         assert_eq!(first["done"], false);
         let implicit =
             format!("{OBJECT}/rewriteTo/b/test-bucket/o/implicit?maxBytesRewrittenPerCall=1048576");
         let started = server
             .request("POST", &implicit, READER, br#"{"storageClass":"NEARLINE"}"#)
-            .json();
+            .json_ok();
         server.put(b"different private live");
         assert_eq!(
             server
@@ -162,7 +162,7 @@ fn source_acl_authorizes_copy_compose_move_and_fixed_generation_rewrite() {
                 READER,
                 br#"{"storageClass":"NEARLINE"}"#,
             )
-            .json();
+            .json_ok();
         assert_eq!(completed["done"], true);
         assert_eq!(
             server
@@ -172,7 +172,7 @@ fn source_acl_authorizes_copy_compose_move_and_fixed_generation_rewrite() {
                     READER,
                     br#"{"storageClass":"NEARLINE"}"#
                 )
-                .json(),
+                .json_ok(),
             completed
         );
         assert_eq!(
@@ -208,7 +208,7 @@ fn source_acl_authorizes_copy_compose_move_and_fixed_generation_rewrite() {
                 .status,
             403
         );
-        let live = server.request("GET", OBJECT, ADMIN, b"").json();
+        let live = server.request("GET", OBJECT, ADMIN, b"").json_ok();
         server.grant(
             "user-reader@example.test",
             "READER",
@@ -216,7 +216,7 @@ fn source_acl_authorizes_copy_compose_move_and_fixed_generation_rewrite() {
         );
         server
             .request("POST", &format!("{OBJECT}/moveTo/o/moved"), READER, b"{}")
-            .json();
+            .json_ok();
         assert_eq!(
             server
                 .request("GET", &format!("{BUCKET}/o/moved?alt=media"), ADMIN, b"")
@@ -241,7 +241,7 @@ fn legacy_copy_completion_requires_iam_when_original_source_proof_is_absent() {
     );
     let copy = format!("{OBJECT}/copyTo/b/test-bucket/o/copied");
     let headers = format!("{READER}X-Goog-Gcs-Idempotency-Token: legacy-source-copy\r\n");
-    let result = server.request("POST", &copy, &headers, b"{}").json();
+    let result = server.request("POST", &copy, &headers, b"{}").json_ok();
     server.stop();
     let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     assert_eq!(
@@ -256,9 +256,9 @@ fn legacy_copy_completion_requires_iam_when_original_source_proof_is_absent() {
     drop(connection);
     let server = Server::start(&data, &inputs, "disk");
     assert_eq!(server.request("POST", &copy, &headers, b"{}").status, 403);
-    server.admin("PUT", &format!("{BUCKET}/iam"), json!({"bindings":[{"role":"roles/storage.objectAdmin","members":["user:reader@example.test"]}]})).json();
+    server.admin("PUT", &format!("{BUCKET}/iam"), json!({"bindings":[{"role":"roles/storage.objectAdmin","members":["user:reader@example.test"]}]})).json_ok();
     assert_eq!(
-        server.request("POST", &copy, &headers, b"{}").json(),
+        server.request("POST", &copy, &headers, b"{}").json_ok(),
         result
     );
 }

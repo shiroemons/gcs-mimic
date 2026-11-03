@@ -60,7 +60,7 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
             "",
             br#"{"versioning":{"enabled":true}}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -68,11 +68,11 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
             "",
             b"new version",
         )
-        .json();
-    let old = server.request("GET", OBJECT, "", b"").json();
+        .json_ok();
+    let old = server.request("GET", OBJECT, "", b"").json_ok();
     let policy = server
         .request("GET", "/storage/v1/b/test-bucket/iam", "", b"")
-        .json();
+        .json_ok();
     let session = server.request(
         "POST",
         "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=pending",
@@ -111,11 +111,11 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
         ),
     ] {
         assert_eq!(server.request(method, path, "", body).status, status);
-        assert_eq!(server.request("GET", OBJECT, "", b"").json(), old);
+        assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), old);
     }
     let reset = server
         .request("POST", "/_internal/reset", "", CONFIRM)
-        .json();
+        .json_ok();
     assert_eq!(
         reset,
         json!({"buckets":1, "objects":2, "cleanupPending":false})
@@ -125,7 +125,7 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
     assert_eq!(
         server
             .request("GET", "/storage/v1/b?project=local", "", b"")
-            .json(),
+            .json_ok(),
         json!({"kind":"storage#buckets"})
     );
     assert_eq!(
@@ -140,7 +140,7 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
         404
     );
     server.populate();
-    let fresh = server.request("GET", OBJECT, "", b"").json();
+    let fresh = server.request("GET", OBJECT, "", b"").json_ok();
     assert!(
         fresh["generation"]
             .as_str()
@@ -152,7 +152,7 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
     assert_ne!(
         server
             .request("GET", "/storage/v1/b/test-bucket/iam", "", b"")
-            .json()["etag"],
+            .json_ok()["etag"],
         policy["etag"]
     );
     assert_eq!(
@@ -171,7 +171,7 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
     );
     server
         .request("POST", "/_internal/reset", "", CONFIRM)
-        .json();
+        .json_ok();
     drop(server);
     let server = Server::start(&dir, &["--admin-enabled", "true"]);
     assert_eq!(server.request("GET", OBJECT, "", b"").status, 404);
@@ -209,7 +209,7 @@ fn reset_rejects_active_upload_without_changing_existing_bytes() {
     drop(reader);
     server
         .request("POST", "/_internal/reset", "", CONFIRM)
-        .json();
+        .json_ok();
     assert_eq!(server.request("GET", OBJECT, "", b"").status, 404);
 }
 
@@ -241,7 +241,7 @@ fn reset_uses_the_local_manager_and_refuses_active_directory_sync() {
             "Authorization: Bearer cloud-admin\r\n",
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
+        .json_ok();
     for (headers, status) in [
         ("", 401),
         ("Authorization: Bearer unknown\r\n", 401),
@@ -272,7 +272,7 @@ fn reset_uses_the_local_manager_and_refuses_active_directory_sync() {
             "Authorization: Bearer manager\r\n",
             CONFIRM,
         )
-        .json();
+        .json_ok();
     drop(server);
     // Directory synchronization runs only on Linux and macOS; elsewhere startup rejects it.
     #[cfg(any(target_os = "linux", target_os = "macos"))]

@@ -18,10 +18,12 @@ fn fixture() -> (TestDir, TestDir, Server) {
     let path = config.0.join("identities.json");
     std::fs::write(&path, value.to_string()).unwrap();
     let server = Server::strict(&data, &path);
-    server.create_bucket(ADMIN, "project-a", "iam-bucket").ok();
+    server
+        .create_bucket(ADMIN, "project-a", "iam-bucket")
+        .success();
     server
         .upload(ADMIN, "iam-bucket", "object", b"hello world")
-        .ok();
+        .success();
     (config, data, server)
 }
 
@@ -74,7 +76,7 @@ fn send(server: &Server, method: &str, url: &str, headers: &str) -> Reply {
     };
     let mut stream = server.stream();
     stream.write_all(&raw).unwrap();
-    Reply::read_body(stream, method == "HEAD")
+    Reply::read_joined_head(stream, method == "HEAD")
 }
 
 fn error(reply: &Reply, status: u16, code: &str) {
@@ -109,7 +111,7 @@ fn signed_private_get_head_range_and_bucket_grants_use_signer_permissions() {
         HeaderMap::new(),
     );
     let whole = send(&server, "GET", &url, "");
-    whole.ok();
+    whole.success();
     assert_eq!(whole.body, b"hello world");
     let range = send(&server, "GET", &url, "Range: bytes=1-4\r\n");
     assert_eq!(range.status, 206);
@@ -125,7 +127,10 @@ fn signed_private_get_head_range_and_bucket_grants_use_signer_permissions() {
         now,
         HeaderMap::new(),
     );
-    assert_eq!(send(&server, "GET", &selected, "").ok().body, whole.body);
+    assert_eq!(
+        send(&server, "GET", &selected, "").success().body,
+        whole.body
+    );
     let head = sign(
         &server,
         &Method::HEAD,
@@ -135,7 +140,7 @@ fn signed_private_get_head_range_and_bucket_grants_use_signer_permissions() {
         HeaderMap::new(),
     );
     let head = send(&server, "HEAD", &head, "");
-    head.ok();
+    head.success();
     assert!(head.body.is_empty());
     assert_eq!(head.headers["content-length"], "11");
     let no_roles = sign(
@@ -147,17 +152,17 @@ fn signed_private_get_head_range_and_bucket_grants_use_signer_permissions() {
         HeaderMap::new(),
     );
     error(&send(&server, "GET", &no_roles, ""), 403, "AccessDenied");
-    iam::set(&server,ADMIN,&json!({"bindings":[iam::binding("roles/storage.objectViewer","user:no-roles@example.invalid")]})).ok();
+    iam::set(&server,ADMIN,&json!({"bindings":[iam::binding("roles/storage.objectViewer","user:no-roles@example.invalid")]})).success();
     assert_eq!(
-        send(&server, "GET", &no_roles, "").ok().body,
+        send(&server, "GET", &no_roles, "").success().body,
         b"hello world"
     );
     server
         .create_bucket(ADMIN, "project-a", "other-bucket")
-        .ok();
+        .success();
     server
         .upload(ADMIN, "other-bucket", "object", b"other")
-        .ok();
+        .success();
     let other = sign(
         &server,
         &Method::GET,
@@ -167,7 +172,7 @@ fn signed_private_get_head_range_and_bucket_grants_use_signer_permissions() {
         HeaderMap::new(),
     );
     error(&send(&server, "GET", &other, ""), 403, "AccessDenied");
-    iam::set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    iam::set(&server, ADMIN, &json!({"bindings":[]})).success();
     error(&send(&server, "GET", &no_roles, ""), 403, "AccessDenied");
 }
 
@@ -180,7 +185,7 @@ fn signed_tampering_never_falls_back_to_public_access_and_has_xml_errors() {
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectViewer","allUsers")]}),
     )
-    .ok();
+    .success();
     let mut required = HeaderMap::new();
     required.insert("x-required", "one".parse().unwrap());
     let url = sign(
@@ -321,7 +326,7 @@ fn signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names
         let encoded = gcs_mimic::url::encode_object_name(name);
         server
             .upload(ADMIN, "iam-bucket", &encoded, name.as_bytes())
-            .ok();
+            .success();
         let url = sign(
             &server,
             &Method::GET,
@@ -330,7 +335,10 @@ fn signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names
             now,
             HeaderMap::new(),
         );
-        assert_eq!(send(&server, "GET", &url, "").ok().body, name.as_bytes());
+        assert_eq!(
+            send(&server, "GET", &url, "").success().body,
+            name.as_bytes()
+        );
     }
     let mut headers = HeaderMap::new();
     headers.append("x-reviewer", "jane doe".parse().unwrap());
@@ -350,7 +358,7 @@ fn signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names
             &url,
             "X-Reviewer:  jane\t  doe \r\nx-reviewer: john\r\n"
         )
-        .ok()
+        .success()
         .body,
         b"hello world"
     );
@@ -400,8 +408,12 @@ fn invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit() 
         assert!(String::from_utf8_lossy(&output.stderr).contains("public_keys"));
     }
     let (server, _) = Server::start(&data, &[]);
-    server.create_bucket("", "project-a", "iam-bucket").ok();
-    server.upload("", "iam-bucket", "object", b"hello").ok();
+    server
+        .create_bucket("", "project-a", "iam-bucket")
+        .success();
+    server
+        .upload("", "iam-bucket", "object", b"hello")
+        .success();
     let url = sign(
         &server,
         &Method::GET,
@@ -410,7 +422,10 @@ fn invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit() 
         SystemTime::now(),
         HeaderMap::new(),
     );
-    assert_eq!(send(&server, "GET", &(url + "00"), "").ok().body, b"hello");
+    assert_eq!(
+        send(&server, "GET", &(url + "00"), "").success().body,
+        b"hello"
+    );
 }
 
 #[test]
@@ -421,7 +436,7 @@ fn partial_signing_fields_never_become_anonymous_under_public_grants() {
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectViewer","allUsers")]}),
     )
-    .ok();
+    .success();
     let url = sign(
         &server,
         &Method::GET,

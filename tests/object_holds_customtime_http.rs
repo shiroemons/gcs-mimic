@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Server, common::TestDir};
 use serde_json::{Value, json};
@@ -31,7 +32,7 @@ fn upload(server: &Server, name: &str, metadata: Value) -> Value {
             "Content-Range: bytes 0-2/3\r\n",
             b"abc",
         )
-        .json()
+        .json_ok()
 }
 
 #[test]
@@ -39,8 +40,8 @@ fn derived_custom_time_format_validation_precedes_unsupported_semantics() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
-    server.put("source", b"source bytes").json();
-    let before = server.put("held", b"preserved bytes").json();
+    server.put("source", b"source bytes").json_ok();
+    let before = server.put("held", b"preserved bytes").json_ok();
     for (path, body) in [
         (
             "/storage/v1/b/test-bucket/o/source/copyTo/b/test-bucket/o/held",
@@ -57,8 +58,8 @@ fn derived_custom_time_format_validation_precedes_unsupported_semantics() {
     ] {
         server
             .request("POST", path, "", body.to_string().as_bytes())
-            .error(400, "invalid");
-        assert_eq!(server.get("held").json(), before);
+            .json_reason(400, "invalid");
+        assert_eq!(server.get("held").json_ok(), before);
         assert_eq!(server.get("held?alt=media").body, b"preserved bytes");
     }
 }
@@ -76,7 +77,7 @@ fn temporary_hold_set_release_and_restart() {
     assert_eq!(created["temporaryHold"], true);
     server.stop();
     server = Server::start(&dir, false);
-    assert_eq!(server.get("held").json(), created);
+    assert_eq!(server.get("held").json_ok(), created);
     // A PUT replaces the resource, so a hold it names as null is released (recorded).
     assert!(
         update(
@@ -84,18 +85,18 @@ fn temporary_hold_set_release_and_restart() {
             "PUT",
             json!({"temporaryHold":null,"customTime":created["customTime"]})
         )
-        .json()
+        .json_ok()
         .get("temporaryHold")
         .is_none()
     );
     // Recorded: PATCH false on a hold that was never set (eventBasedHold after an upload that
     // named only temporaryHold) is reported back as false.
     assert_eq!(
-        update(&server, "PATCH", json!({"temporaryHold":false})).json()["temporaryHold"],
+        update(&server, "PATCH", json!({"temporaryHold":false})).json_ok()["temporaryHold"],
         false
     );
     assert_eq!(
-        update(&server, "PATCH", json!({"temporaryHold":true})).json()["temporaryHold"],
+        update(&server, "PATCH", json!({"temporaryHold":true})).json_ok()["temporaryHold"],
         true
     );
     assert_eq!(
@@ -104,7 +105,7 @@ fn temporary_hold_set_release_and_restart() {
             "PUT",
             json!({"temporaryHold":false,"customTime":created["customTime"]})
         )
-        .json()["temporaryHold"],
+        .json_ok()["temporaryHold"],
         false
     );
     assert_eq!(
@@ -130,16 +131,16 @@ fn temporary_hold_protects_delete_and_all_replacements() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
-    server.put("source", b"source").json();
+    server.put("source", b"source").json_ok();
     upload(
         &server,
         "held",
         json!({"temporaryHold":true,"eventBasedHold":true}),
     );
-    update(&server, "PATCH", json!({"eventBasedHold":false})).json();
+    update(&server, "PATCH", json!({"eventBasedHold":false})).json_ok();
     for release in [false, true] {
         if release {
-            update(&server, "PATCH", json!({"temporaryHold":false})).json();
+            update(&server, "PATCH", json!({"temporaryHold":false})).json_ok();
         }
         let requests = [
             (
@@ -166,7 +167,7 @@ fn temporary_hold_protects_delete_and_all_replacements() {
         for (method, path, body) in requests {
             let reply = server.request(method, path, "", body);
             if release {
-                reply.json();
+                reply.json_ok();
             } else {
                 reply.hold_error();
             }
@@ -194,13 +195,13 @@ fn custom_time_monotonic_updates_are_atomic() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    server.put("held", b"abc").json();
+    server.put("held", b"abc").json_ok();
     let first = update(
         &server,
         "PATCH",
         json!({"customTime":"2026-10-20T01:02:03.123456789Z"}),
     )
-    .json();
+    .json_ok();
     for method in ["PATCH", "PUT"] {
         // `null` is not here: Cloud Storage kept the custom time for it (recorded 200).
         for (value, reason) in [
@@ -214,8 +215,8 @@ fn custom_time_monotonic_updates_are_atomic() {
                 method,
                 json!({"customTime":value,"temporaryHold":true}),
             )
-            .error(400, reason);
-            assert_eq!(server.get("held").json(), first);
+            .json_reason(400, reason);
+            assert_eq!(server.get("held").json_ok(), first);
         }
     }
     server
@@ -225,23 +226,23 @@ fn custom_time_monotonic_updates_are_atomic() {
             "Authorization: Bearer viewer\r\n",
             br#"{"temporaryHold":true}"#,
         )
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     let same = object_effects_support::common::without_acl(
         update(
             &server,
             "PUT",
             json!({"customTime":"2026-10-20T02:02:03.123456789+01:00"}),
         )
-        .json(),
+        .json_ok(),
     );
     assert_eq!(same["generation"], first["generation"]);
     // A PUT that omits customTime keeps it (recorded 200), unlike an attempt to remove it.
     assert_eq!(
-        update(&server, "PUT", json!({})).json()["customTime"],
+        update(&server, "PUT", json!({})).json_ok()["customTime"],
         same["customTime"]
     );
     assert_eq!(
-        update(&server, "PATCH", json!({})).json()["customTime"],
+        update(&server, "PATCH", json!({})).json_ok()["customTime"],
         same["customTime"]
     );
     let later = update(
@@ -249,7 +250,7 @@ fn custom_time_monotonic_updates_are_atomic() {
         "PATCH",
         json!({"customTime":"2026-10-20T01:02:04Z"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(later["customTime"], "2026-10-20T01:02:04Z");
     server
         .request(
@@ -258,8 +259,8 @@ fn custom_time_monotonic_updates_are_atomic() {
             "Authorization: Bearer admin\r\n",
             br#"{"temporaryHold":true}"#,
         )
-        .error(412, "conditionNotMet");
-    assert_eq!(server.get("held").json(), later);
+        .json_reason(412, "conditionNotMet");
+    assert_eq!(server.get("held").json_ok(), later);
 }
 
 #[test]
@@ -267,23 +268,23 @@ fn hold_custom_time_migrate_existing_catalog() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
     server.bucket();
-    let original = server.put("held", b"legacy bytes").json();
+    let original = server.put("held", b"legacy bytes").json_ok();
     server.stop();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     object_effects_support::common::timestamp_support::downgrade_soft_delete_schema(&connection);
     connection.execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; PRAGMA user_version = 21;").unwrap();
     drop(connection);
     server = Server::start(&dir, false);
-    assert_eq!(server.get("held").json(), original);
+    assert_eq!(server.get("held").json_ok(), original);
     update(
         &server,
         "PUT",
         json!({"customTime":"2026-10-20T01:02:03Z","temporaryHold":true}),
     )
-    .json();
+    .json_ok();
     server.stop();
     server = Server::start(&dir, false);
-    assert_eq!(server.get("held").json()["temporaryHold"], true);
+    assert_eq!(server.get("held").json_ok()["temporaryHold"], true);
     assert_eq!(server.get("held?alt=media").body, b"legacy bytes");
 }
 
@@ -301,7 +302,7 @@ fn multipart_and_pending_resumable_preserve_hold_custom_time() {
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-    let created = server.get("held").json();
+    let created = server.get("held").json_ok();
     assert_eq!(created["temporaryHold"], true);
     assert_eq!(created["customTime"], "2026-10-20T01:02:03Z");
     let initiated = server.request(
@@ -320,7 +321,7 @@ fn multipart_and_pending_resumable_preserve_hold_custom_time() {
             "Content-Range: bytes 0-2/3\r\n",
             b"abc",
         )
-        .json();
+        .json_ok();
     assert_eq!(published["temporaryHold"], true);
     assert_eq!(published["customTime"], created["customTime"]);
     server
@@ -341,10 +342,10 @@ fn a_released_hold_reads_back_as_false_and_a_never_set_hold_is_omitted() {
     let created = upload(&server, "held", json!({}));
     assert!(created.get("temporaryHold").is_none());
     assert!(created.get("eventBasedHold").is_none());
-    let held = update(&server, "PATCH", json!({"temporaryHold":true})).json();
+    let held = update(&server, "PATCH", json!({"temporaryHold":true})).json_ok();
     assert_eq!(held["temporaryHold"], true);
     assert!(held.get("eventBasedHold").is_none());
-    let released = update(&server, "PATCH", json!({"temporaryHold":false})).json();
+    let released = update(&server, "PATCH", json!({"temporaryHold":false})).json_ok();
     assert_eq!(released["temporaryHold"], false);
     assert!(released.get("eventBasedHold").is_none());
     // Inferred, not recorded: a mistyped value or null on PATCH changes nothing in any state.
@@ -354,21 +355,21 @@ fn a_released_hold_reads_back_as_false_and_a_never_set_hold_is_omitted() {
         json!({"temporaryHold":"yes"}),
         json!({"temporaryHold":null}),
     ] {
-        let unchanged = update(&server, "PATCH", body).json();
+        let unchanged = update(&server, "PATCH", body).json_ok();
         assert_eq!(unchanged["temporaryHold"], false);
     }
     server.stop();
     server = Server::start(&dir, false);
-    assert_eq!(server.get("held").json()["temporaryHold"], false);
+    assert_eq!(server.get("held").json_ok()["temporaryHold"], false);
     let selected = server
         .get("held?fields=name,temporaryHold,eventBasedHold")
-        .json();
+        .json_ok();
     assert_eq!(selected["temporaryHold"], false);
     assert!(selected.get("eventBasedHold").is_none());
     // A released hold no longer blocks deletion; a PUT that omits it returns to never set.
-    let replaced = update(&server, "PUT", json!({"metadata":{"a":"1"}})).json();
+    let replaced = update(&server, "PUT", json!({"metadata":{"a":"1"}})).json_ok();
     assert!(replaced.get("temporaryHold").is_none());
-    update(&server, "PATCH", json!({"eventBasedHold":true})).json();
+    update(&server, "PATCH", json!({"eventBasedHold":true})).json_ok();
     server
         .request(
             "DELETE",
@@ -376,8 +377,8 @@ fn a_released_hold_reads_back_as_false_and_a_never_set_hold_is_omitted() {
             "Authorization: Bearer admin\r\n",
             b"",
         )
-        .error(403, "forbidden");
-    let both = update(&server, "PATCH", json!({"eventBasedHold":false})).json();
+        .json_reason(403, "forbidden");
+    let both = update(&server, "PATCH", json!({"eventBasedHold":false})).json_ok();
     assert_eq!(both["eventBasedHold"], false);
     assert!(both.get("temporaryHold").is_none());
     let deleted = server.request(

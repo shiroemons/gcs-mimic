@@ -1,12 +1,20 @@
+#![expect(
+    dead_code,
+    reason = "Integration binaries use different subsets of the harness."
+)]
+
 use std::{
     io::BufRead,
     process::{Child, Command},
     time::{Duration, Instant},
 };
 
+pub(crate) mod effects;
+pub(crate) mod errors;
+pub(crate) mod http;
+pub(crate) mod ingress;
 pub(crate) mod server;
 
-#[path = "../../src/test_support.rs"]
 #[expect(
     dead_code,
     reason = "Each integration suite uses a subset of the shared fixtures"
@@ -44,6 +52,7 @@ pub(crate) fn load_http_config(
 }
 
 #[allow(dead_code)]
+// Schema downgrade fixtures track private catalog internals; keep one source until it is public.
 #[path = "../../src/storage/catalog/test_support.rs"]
 pub(crate) mod timestamp_support;
 
@@ -66,69 +75,7 @@ pub(crate) fn read_http_response(
     reader: &mut impl BufRead,
     head: bool,
 ) -> std::io::Result<Vec<u8>> {
-    use std::io::{Error, ErrorKind, Read};
-    fn line(reader: &mut impl BufRead, raw: &mut Vec<u8>) -> std::io::Result<usize> {
-        let start = raw.len();
-        if reader.read_until(b'\n', raw)? == 0 {
-            return Err(Error::from(ErrorKind::UnexpectedEof));
-        }
-        Ok(start)
-    }
-    let mut raw = Vec::new();
-    let response_head = loop {
-        let start = raw.len();
-        while !raw[start..].ends_with(b"\r\n\r\n") {
-            line(reader, &mut raw)?;
-        }
-        let response_head = String::from_utf8_lossy(&raw[start..]).to_ascii_lowercase();
-        let status = response_head
-            .split_whitespace()
-            .nth(1)
-            .and_then(|status| status.parse::<u16>().ok())
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "missing HTTP status"))?;
-        if (100..200).contains(&status) {
-            continue;
-        }
-        if head || status == 204 || status == 304 {
-            return Ok(raw);
-        }
-        break response_head;
-    };
-    let header = |name: &str| {
-        response_head
-            .lines()
-            .find_map(|line| line.strip_prefix(name)?.strip_prefix(':'))
-            .map(str::trim)
-    };
-    if header("transfer-encoding").is_some_and(|value| value.contains("chunked")) {
-        loop {
-            let start = line(reader, &mut raw)?;
-            let size = String::from_utf8_lossy(&raw[start..]);
-            let size = usize::from_str_radix(size.trim().split(';').next().unwrap_or(""), 16)
-                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
-            if size == 0 {
-                while line(reader, &mut raw).map(|start| raw[start..] != *b"\r\n")? {}
-                return Ok(raw);
-            }
-            let start = raw.len();
-            raw.resize(start + size + 2, 0);
-            reader.read_exact(&mut raw[start..])?;
-        }
-    }
-    match header("content-length") {
-        Some(length) => {
-            let length = length
-                .parse::<u64>()
-                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
-            if reader.by_ref().take(length).read_to_end(&mut raw)? as u64 != length {
-                return Err(Error::from(ErrorKind::UnexpectedEof));
-            }
-        }
-        None => {
-            reader.read_to_end(&mut raw)?;
-        }
-    }
-    Ok(raw)
+    http::read(reader, head).map(|response| response.raw)
 }
 
 /// macOS reports a peer close during transfer as a reset or broken pipe where

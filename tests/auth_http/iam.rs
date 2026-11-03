@@ -12,7 +12,9 @@ pub(super) fn fixture_with(options: &[&str]) -> (TestDir, TestDir, Server) {
     let identities = identity_file(&config);
     let data = TestDir::new();
     let server = Server::strict_with(&data, &identities, options);
-    server.create_bucket(ADMIN, "project-a", "iam-bucket").ok();
+    server
+        .create_bucket(ADMIN, "project-a", "iam-bucket")
+        .success();
     (config, data, server)
 }
 
@@ -35,49 +37,54 @@ fn test_permissions_matches_operations_and_policy_changes() {
         "{IAM}/testPermissions?permissions=storage.objects.get&permissions=storage.objects.create&permissions=storage.buckets.getIamPolicy"
     );
     assert_eq!(
-        server.get(NO_ROLES, &path).ok().json(),
+        server.get(NO_ROLES, &path).success().json(),
         json!({
             "kind":"storage#testIamPermissionsResponse", "permissions":[]
         })
     );
-    assert_eq!(server.get("", &path).ok().json()["permissions"], json!([]));
     assert_eq!(
-        server.get(VIEWER, &path).ok().json()["permissions"],
+        server.get("", &path).success().json()["permissions"],
+        json!([])
+    );
+    assert_eq!(
+        server.get(VIEWER, &path).success().json()["permissions"],
         json!(["storage.objects.get"])
     );
     server
         .upload(ADMIN, "iam-bucket", "test-permissions", b"hello")
-        .ok();
+        .success();
     let object = "/storage/v1/b/iam-bucket/o/test-permissions";
     server.get(NO_ROLES, object).forbidden();
-    set(&server, ADMIN, &grants(&["roles/storage.objectViewer"])).ok();
+    set(&server, ADMIN, &grants(&["roles/storage.objectViewer"])).success();
     assert_eq!(
-        server.get(NO_ROLES, &path).ok().json()["permissions"],
+        server.get(NO_ROLES, &path).success().json()["permissions"],
         json!(["storage.objects.get"])
     );
-    server.get(NO_ROLES, object).ok();
+    server.get(NO_ROLES, object).success();
     server
         .upload(NO_ROLES, "iam-bucket", "denied", b"no")
         .forbidden();
     server.get(NO_ROLES, IAM).forbidden();
-    set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    set(&server, ADMIN, &json!({"bindings":[]})).success();
     assert_eq!(
-        server.get(NO_ROLES, &path).ok().json()["permissions"],
+        server.get(NO_ROLES, &path).success().json()["permissions"],
         json!([])
     );
     server.get(NO_ROLES, object).forbidden();
     server
         .get("Authorization: Bearer invalid\r\n", &path)
-        .error(401, "authError");
+        .auth_error(401, "authError");
 }
 
 #[test]
 fn test_permissions_validates_route_queries_and_response_fields() {
     let data = TestDir::new();
     let mut server = Server::start(&data, &[]).0;
-    server.create_bucket("", "project-a", "iam-bucket").ok();
+    server
+        .create_bucket("", "project-a", "iam-bucket")
+        .success();
     let path = format!("{IAM}/testPermissions");
-    server.get("", &path).error(400, "required");
+    server.get("", &path).auth_error(400, "required");
     for name in [
         "",
         "storage.*",
@@ -87,19 +94,19 @@ fn test_permissions_validates_route_queries_and_response_fields() {
     ] {
         server
             .get("", &format!("{path}?permissions={name}"))
-            .error(400, "invalid");
+            .auth_error(400, "invalid");
     }
     server
         .get(
             "",
             &format!("{path}?permissions=storage.managedFolders.getIamPolicy"),
         )
-        .error(400, "badRequest");
+        .auth_error(400, "badRequest");
     let query = "permissions=storage.objects.get&permissions=storage.objects.create&permissions=storage.objects.get";
     assert_eq!(
         server
             .get("", &format!("{path}?{query}&userProject="))
-            .ok()
+            .success()
             .json(),
         json!({
             "kind":"storage#testIamPermissionsResponse", "permissions":["storage.objects.get", "storage.objects.create"]
@@ -108,7 +115,7 @@ fn test_permissions_validates_route_queries_and_response_fields() {
     assert_eq!(
         server
             .get("", &format!("{path}?{query}&fields=permissions"))
-            .ok()
+            .success()
             .json(),
         json!({
             "permissions":["storage.objects.get", "storage.objects.create"]
@@ -116,32 +123,32 @@ fn test_permissions_validates_route_queries_and_response_fields() {
     );
     server
         .get("", &format!("{path}?{query}&userProject=project-a"))
-        .error(400, "badRequest");
+        .auth_error(400, "badRequest");
     server
         .get("", &format!("{path}?{query}&unknown=true"))
-        .error(400, "invalidParameter");
+        .auth_error(400, "invalidParameter");
     server
         .get("", &format!("{path}?{query}&fields=missing"))
-        .error(400, "invalidParameter");
+        .auth_error(400, "invalidParameter");
     server
         .get(
             "",
             "/storage/v1/b/missing-bucket/iam/testPermissions?permissions=storage.objects.get",
         )
-        .error(404, "notFound");
+        .auth_error(404, "notFound");
     let response = server.request("POST", &format!("{path}?{query}"), "", b"");
-    response.error(405, "methodNotAllowed");
+    response.auth_error(405, "methodNotAllowed");
     assert_eq!(response.headers["allow"], "GET");
     server
         .request("GET", &format!("{path}?{query}"), "", b"body")
-        .error(400, "invalidArgument");
+        .auth_error(400, "invalidArgument");
     server.stop();
 }
 
 #[test]
 fn iam_default_policy_and_versions() {
     let (_config, _data, server) = fixture();
-    let policy = server.get(ADMIN, IAM).ok().json();
+    let policy = server.get(ADMIN, IAM).success().json();
     assert_eq!(policy["kind"], "storage#policy");
     assert_eq!(policy["resourceId"], "projects/_/buckets/iam-bucket");
     assert_eq!(policy["version"], 1);
@@ -160,7 +167,7 @@ fn iam_default_policy_and_versions() {
                     ADMIN,
                     &format!("{IAM}?optionsRequestedPolicyVersion={version}")
                 )
-                .ok()
+                .success()
                 .json(),
             policy
         );
@@ -171,11 +178,11 @@ fn iam_default_policy_and_versions() {
 #[test]
 fn iam_policy_round_trip_and_unconditional_versions() {
     let (_config, _data, server) = fixture();
-    let mut previous = server.get(ADMIN, IAM).ok().json()["etag"].clone();
+    let mut previous = server.get(ADMIN, IAM).success().json()["etag"].clone();
     for version in [0, 1, 3] {
         let policy = json!({"version":version, "kind":false, "resourceId":null, "unknown":true,
             "bindings":[{"role":"roles/storage.objectViewer", "members":["user:viewer@example.invalid", "serviceAccount:no-roles@example.invalid", "projectOwner:another-project", "projectEditor:project-a", "projectViewer:project-a"], "unknown":true}]});
-        let result = set(&server, ADMIN, &policy).ok().json();
+        let result = set(&server, ADMIN, &policy).success().json();
         assert_eq!(result["version"], 1);
         assert_eq!(
             result["bindings"][0]["members"],
@@ -183,24 +190,34 @@ fn iam_policy_round_trip_and_unconditional_versions() {
         );
         assert_ne!(result["etag"], previous);
         previous = result["etag"].clone();
-        assert_eq!(server.get(ADMIN, IAM).ok().json(), result);
+        assert_eq!(server.get(ADMIN, IAM).success().json(), result);
     }
-    server.upload(ADMIN, "iam-bucket", "object", b"hello").ok();
+    server
+        .upload(ADMIN, "iam-bucket", "object", b"hello")
+        .success();
     assert_eq!(
         server
             .get(NO_ROLES, "/storage/v1/b/iam-bucket/o/object?alt=media")
-            .ok()
+            .success()
             .body,
         b"hello"
     );
-    let bucket_before = server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json();
+    let bucket_before = server
+        .get(ADMIN, "/storage/v1/b/iam-bucket")
+        .success()
+        .json();
     assert_eq!(
-        set(&server, ADMIN, &json!({"bindings":[]})).ok().json()["bindings"],
+        set(&server, ADMIN, &json!({"bindings":[]}))
+            .success()
+            .json()["bindings"],
         json!([])
     );
     // A policy write advances the bucket metageneration, replay or not (recorded 2026-10-31);
     // nothing else about the bucket changes.
-    let bucket_after = server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json();
+    let bucket_after = server
+        .get(ADMIN, "/storage/v1/b/iam-bucket")
+        .success()
+        .json();
     let metageneration = |bucket: &Value| {
         bucket["metageneration"]
             .as_str()
@@ -232,27 +249,27 @@ fn iam_preserves_duplicate_members_and_role_bindings() {
         {"role":"roles/storage.bucketViewer", "members":["user:local", "user:local"]},
         {"role":"roles/storage.bucketViewer", "members":["user:another"]}
     ]});
-    let result = set(&server, ADMIN, &policy).ok().json();
+    let result = set(&server, ADMIN, &policy).success().json();
     assert_eq!(result["bindings"], policy["bindings"]);
-    assert_eq!(server.get(ADMIN, IAM).ok().json(), result);
+    assert_eq!(server.get(ADMIN, IAM).success().json(), result);
 }
 
 #[test]
 fn iam_policy_survives_restart() {
     let (config, data, mut server) = fixture();
     let policy = set(&server, ADMIN, &grants(&["roles/storage.objectViewer"]))
-        .ok()
+        .success()
         .json();
     server
         .upload(ADMIN, "iam-bucket", "object", b"persistent")
-        .ok();
+        .success();
     server.stop();
     let server = Server::strict(&data, &config.0.join("identities.json"));
-    assert_eq!(server.get(ADMIN, IAM).ok().json(), policy);
+    assert_eq!(server.get(ADMIN, IAM).success().json(), policy);
     assert_eq!(
         server
             .get(NO_ROLES, "/storage/v1/b/iam-bucket/o/object?alt=media")
-            .ok()
+            .success()
             .body,
         b"persistent"
     );
@@ -263,7 +280,7 @@ fn iam_migrates_v5_catalog() {
     let (config, data, mut server) = fixture();
     server
         .upload(ADMIN, "iam-bucket", "object", b"before migration")
-        .ok();
+        .success();
     server.stop();
     let path = data.0.join("catalog.sqlite3");
     let connection = rusqlite::Connection::open(&path).unwrap();
@@ -279,7 +296,7 @@ fn iam_migrates_v5_catalog() {
     drop(connection);
     let mut server = Server::strict(&data, &config.0.join("identities.json"));
     assert_eq!(
-        server.get(ADMIN, IAM).ok().json()["bindings"]
+        server.get(ADMIN, IAM).success().json()["bindings"]
             .as_array()
             .unwrap()
             .len(),
@@ -288,12 +305,12 @@ fn iam_migrates_v5_catalog() {
     assert_eq!(
         server
             .get(ADMIN, "/storage/v1/b/iam-bucket/o/object?alt=media")
-            .ok()
+            .success()
             .body,
         b"before migration"
     );
     let policy = set(&server, ADMIN, &grants(&["roles/storage.objectViewer"]))
-        .ok()
+        .success()
         .json();
     server.stop();
     let connection = rusqlite::Connection::open(&path).unwrap();
@@ -305,33 +322,35 @@ fn iam_migrates_v5_catalog() {
     );
     drop(connection);
     let server = Server::strict(&data, &config.0.join("identities.json"));
-    assert_eq!(server.get(ADMIN, IAM).ok().json(), policy);
+    assert_eq!(server.get(ADMIN, IAM).success().json(), policy);
 }
 
 #[test]
 fn iam_permissive_policy_and_cas() {
     let data = TestDir::new();
     let (mut server, _) = Server::start(&data, &[]);
-    server.create_bucket("", "project-a", "iam-bucket").ok();
-    let initial = server.get("", IAM).ok().json();
+    server
+        .create_bucket("", "project-a", "iam-bucket")
+        .success();
+    let initial = server.get("", IAM).success().json();
     let policy = set(
         &server,
         "Authorization: nonsense\r\n",
         &grants(&["roles/storage.objectViewer"]),
     )
-    .ok()
+    .success()
     .json();
-    set(&server, "", &initial).error(412, "conditionNotMet");
+    set(&server, "", &initial).auth_error(412, "conditionNotMet");
     set(
         &server,
         "",
         &json!({"bindings":[binding("roles/storage.admin", "group:local@example.invalid")]}),
     )
-    .error(400, "badRequest");
-    assert_eq!(server.get("", IAM).ok().json(), policy);
+    .auth_error(400, "badRequest");
+    assert_eq!(server.get("", IAM).success().json(), policy);
     server.stop();
     let (server, _) = Server::start(&data, &[]);
-    assert_eq!(server.get("", IAM).ok().json(), policy);
+    assert_eq!(server.get("", IAM).success().json(), policy);
 }
 
 #[test]
@@ -346,16 +365,16 @@ fn iam_requires_effective_get_and_set_permissions() {
         server.get(auth, IAM).forbidden();
         set(&server, auth, &json!({})).forbidden();
     }
-    set(&server, ADMIN, &grants(&["roles/storage.objectAdmin"])).ok();
+    set(&server, ADMIN, &grants(&["roles/storage.objectAdmin"])).success();
     server.get(NO_ROLES, IAM).forbidden();
     set(&server, NO_ROLES, &json!({})).forbidden();
-    set(&server, ADMIN, &grants(&["roles/storage.admin"])).ok();
-    server.get(NO_ROLES, IAM).ok();
-    set(&server, NO_ROLES, &grants(&["roles/storage.admin"])).ok();
+    set(&server, ADMIN, &grants(&["roles/storage.admin"])).success();
+    server.get(NO_ROLES, IAM).success();
+    set(&server, NO_ROLES, &grants(&["roles/storage.admin"])).success();
     // Project grants remain effective after every bucket binding is removed.
-    set(&server, NO_ROLES, &json!({"bindings":[]})).ok();
+    set(&server, NO_ROLES, &json!({"bindings":[]})).success();
     server.get(NO_ROLES, IAM).forbidden();
-    server.get(ADMIN, IAM).ok();
+    server.get(ADMIN, IAM).success();
 }
 
 #[test]
@@ -363,24 +382,26 @@ fn iam_bucket_grants_authorize_only_the_target_bucket() {
     let (_config, _data, server) = fixture();
     server
         .create_bucket(ADMIN, "project-a", "other-bucket")
-        .ok();
+        .success();
     server
         .create_bucket(ADMIN, "project-b", "foreign-bucket")
-        .ok();
-    server.upload(ADMIN, "iam-bucket", "object", b"hello").ok();
+        .success();
+    server
+        .upload(ADMIN, "iam-bucket", "object", b"hello")
+        .success();
     set(
         &server,
         ADMIN,
         &grants(&["roles/storage.objectViewer", "roles/storage.objectCreator"]),
     )
-    .ok();
-    server.get(NO_ROLES, "/storage/v1/b/iam-bucket/o").ok();
+    .success();
+    server.get(NO_ROLES, "/storage/v1/b/iam-bucket/o").success();
     server
         .get(NO_ROLES, "/storage/v1/b/iam-bucket/o/object")
-        .ok();
+        .success();
     server
         .upload(NO_ROLES, "iam-bucket", "fresh", b"created")
-        .ok();
+        .success();
     server
         .upload(NO_ROLES, "iam-bucket", "fresh", b"overwrite")
         .forbidden();
@@ -392,14 +413,14 @@ fn iam_bucket_grants_authorize_only_the_target_bucket() {
             .upload(NO_ROLES, bucket, "object", b"denied")
             .forbidden();
     }
-    set(&server, ADMIN, &grants(&["roles/storage.admin"])).ok();
+    set(&server, ADMIN, &grants(&["roles/storage.admin"])).success();
     server
         .get(NO_ROLES, "/storage/v1/b?project=project-a")
         .forbidden();
     server
         .create_bucket(NO_ROLES, "project-a", "never-created")
         .forbidden();
-    set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    set(&server, ADMIN, &json!({"bindings":[]})).success();
     for path in [
         "/storage/v1/b/iam-bucket/o",
         "/storage/v1/b/iam-bucket/o/object",
@@ -412,7 +433,7 @@ fn iam_bucket_grants_authorize_only_the_target_bucket() {
     assert_eq!(
         server
             .get(ADMIN, "/storage/v1/b/iam-bucket/o/fresh?alt=media")
-            .ok()
+            .success()
             .body,
         b"created"
     );
@@ -421,22 +442,26 @@ fn iam_bucket_grants_authorize_only_the_target_bucket() {
 #[test]
 fn iam_bucket_grants_cover_existing_routes() {
     let (_config, _data, server) = fixture();
-    set(&server, ADMIN, &grants(&["roles/storage.admin"])).ok();
-    server.get(NO_ROLES, "/storage/v1/b/iam-bucket").ok();
-    server.upload(NO_ROLES, "iam-bucket", "object", b"old").ok();
-    server.upload(NO_ROLES, "iam-bucket", "object", b"new").ok();
+    set(&server, ADMIN, &grants(&["roles/storage.admin"])).success();
+    server.get(NO_ROLES, "/storage/v1/b/iam-bucket").success();
+    server
+        .upload(NO_ROLES, "iam-bucket", "object", b"old")
+        .success();
+    server
+        .upload(NO_ROLES, "iam-bucket", "object", b"new")
+        .success();
     server
         .multipart(NO_ROLES, "iam-bucket", "multipart", b"multipart")
-        .ok();
-    server.get(NO_ROLES, "/storage/v1/b/iam-bucket/o").ok();
+        .success();
+    server.get(NO_ROLES, "/storage/v1/b/iam-bucket/o").success();
     server
         .get(NO_ROLES, "/storage/v1/b/iam-bucket/o/object")
-        .ok();
+        .success();
     for path in [
         "/storage/v1/b/iam-bucket/o/object?alt=media",
         "/download/storage/v1/b/iam-bucket/o/object?alt=media",
     ] {
-        assert_eq!(server.get(NO_ROLES, path).ok().body, b"new");
+        assert_eq!(server.get(NO_ROLES, path).success().body, b"new");
     }
     for method in ["PATCH", "PUT"] {
         server
@@ -446,7 +471,7 @@ fn iam_bucket_grants_cover_existing_routes() {
                 NO_ROLES,
                 br#"{"metadata":{"key":"value"}}"#,
             )
-            .ok();
+            .success();
     }
     for name in ["object", "multipart"] {
         server
@@ -456,23 +481,25 @@ fn iam_bucket_grants_cover_existing_routes() {
                 NO_ROLES,
                 b"",
             )
-            .ok();
+            .success();
     }
     server
         .request("DELETE", "/storage/v1/b/iam-bucket", NO_ROLES, b"")
-        .ok();
+        .success();
 }
 
 #[test]
 fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects() {
     let (_config, data, server) = fixture();
-    server.upload(ADMIN, "iam-bucket", "object", b"old").ok();
+    server
+        .upload(ADMIN, "iam-bucket", "object", b"old")
+        .success();
     let original = server
         .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-        .ok()
+        .success()
         .json();
-    set(&server, ADMIN, &grants(&["roles/storage.admin"])).ok();
-    server.get(NO_ROLES, "/storage/v1/b/iam-bucket").ok();
+    set(&server, ADMIN, &grants(&["roles/storage.admin"])).success();
+    server.get(NO_ROLES, "/storage/v1/b/iam-bucket").success();
     // Bucket roles cannot supply project-level create/list permissions.
     server
         .create_bucket(NO_ROLES, "project-a", "unauthorized")
@@ -480,11 +507,14 @@ fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects(
     server
         .get(NO_ROLES, "/storage/v1/b?project=project-a")
         .forbidden();
-    set(&server, ADMIN, &json!({"bindings":[]})).ok();
-    let bucket = server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json();
+    set(&server, ADMIN, &json!({"bindings":[]})).success();
+    let bucket = server
+        .get(ADMIN, "/storage/v1/b/iam-bucket")
+        .success()
+        .json();
     server
         .get(ADMIN, "/storage/v1/b/unauthorized")
-        .error(404, "notFound");
+        .auth_error(404, "notFound");
     for (auth, status, reason) in [("", 401, "required"), (NO_ROLES, 403, "forbidden")] {
         for (method, path, body) in [
             ("GET", "/storage/v1/b/iam-bucket", b"".as_slice()),
@@ -509,7 +539,7 @@ fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects(
         ] {
             server
                 .request(method, path, auth, body)
-                .error(status, reason);
+                .auth_error(status, reason);
         }
         server
             .request(
@@ -518,20 +548,23 @@ fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects(
                 &format!("{auth}Range: bytes=0-1\r\n"),
                 b"",
             )
-            .error(status, reason);
+            .auth_error(status, reason);
         server
             .upload(auth, "iam-bucket", "object", b"new")
-            .error(status, reason);
+            .auth_error(status, reason);
         server
             .multipart(auth, "iam-bucket", "object", b"new")
-            .error(status, reason);
+            .auth_error(status, reason);
         assert_eq!(
-            server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json(),
+            server
+                .get(ADMIN, "/storage/v1/b/iam-bucket")
+                .success()
+                .json(),
             bucket
         );
         server
             .get(ADMIN, "/storage/v1/b/unauthorized")
-            .error(404, "notFound");
+            .auth_error(404, "notFound");
         let sessions: i64 = rusqlite::Connection::open_with_flags(
             data.0.join("catalog.sqlite3"),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -545,14 +578,14 @@ fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects(
         assert_eq!(
             server
                 .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-                .ok()
+                .success()
                 .json(),
             original
         );
         assert_eq!(
             server
                 .get(ADMIN, "/storage/v1/b/iam-bucket/o/object?alt=media")
-                .ok()
+                .success()
                 .body,
             b"old"
         );
@@ -564,7 +597,9 @@ fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects(
 #[test]
 fn auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streaming() {
     let (_config, data, server) = fixture();
-    server.upload(ADMIN, "iam-bucket", "object", b"old").ok();
+    server
+        .upload(ADMIN, "iam-bucket", "object", b"old")
+        .success();
     let original = server
         .request(
             "PATCH",
@@ -572,10 +607,10 @@ fn auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streamin
             ADMIN,
             br#"{"contentType":"text/old","metadata":{"key":"old"}}"#,
         )
-        .ok()
+        .success()
         .json();
     for upload in ["media", "multipart"] {
-        set(&server, ADMIN, &grants(&["roles/storage.admin"])).ok();
+        set(&server, ADMIN, &grants(&["roles/storage.admin"])).success();
         let body = if upload == "media" {
             b"new".to_vec()
         } else {
@@ -592,20 +627,20 @@ fn auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streamin
             );
             thread::sleep(Duration::from_millis(5));
         }
-        set(&server, ADMIN, &json!({"bindings":[]})).ok();
+        set(&server, ADMIN, &json!({"bindings":[]})).success();
         stream.write_all(&body[body.len() - 1..]).unwrap();
-        Reply::read(stream).forbidden();
+        Reply::read_joined(stream).forbidden();
         assert_eq!(
             server
                 .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-                .ok()
+                .success()
                 .json(),
             original
         );
         assert_eq!(
             server
                 .get(ADMIN, "/storage/v1/b/iam-bucket/o/object?alt=media")
-                .ok()
+                .success()
                 .body,
             b"old"
         );
@@ -617,18 +652,19 @@ fn auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streamin
 #[test]
 fn iam_stale_and_concurrent_etags() {
     let (_config, _data, server) = fixture();
-    let initial = server.get(ADMIN, IAM).ok().json();
-    let updated = set(&server, ADMIN, &initial).ok().json();
-    set(&server, ADMIN, &initial).error(412, "conditionNotMet");
-    assert_eq!(server.get(ADMIN, IAM).ok().json(), updated);
+    let initial = server.get(ADMIN, IAM).success().json();
+    let updated = set(&server, ADMIN, &initial).success().json();
+    set(&server, ADMIN, &initial).auth_error(412, "conditionNotMet");
+    assert_eq!(server.get(ADMIN, IAM).success().json(), updated);
     let updated = set(&server, ADMIN, &json!({"etag":"", "bindings":[]}))
-        .ok()
+        .success()
         .json();
     assert_eq!(updated["bindings"], json!([]));
     let mut unpadded = updated.clone();
     unpadded["etag"] = json!(updated["etag"].as_str().unwrap().trim_end_matches('='));
-    let updated = set(&server, ADMIN, &unpadded).ok().json();
-    set(&server, ADMIN, &json!({"etag":"c3RhbGU=", "bindings":[]})).error(412, "conditionNotMet");
+    let updated = set(&server, ADMIN, &unpadded).success().json();
+    set(&server, ADMIN, &json!({"etag":"c3RhbGU=", "bindings":[]}))
+        .auth_error(412, "conditionNotMet");
     let barrier = Arc::new(Barrier::new(8));
     let statuses = thread::scope(|scope| {
         let handles: Vec<_> = (0..8)
@@ -649,7 +685,10 @@ fn iam_stale_and_concurrent_etags() {
     });
     assert_eq!(statuses.iter().filter(|&&status| status == 200).count(), 1);
     assert_eq!(statuses.iter().filter(|&&status| status == 412).count(), 7);
-    assert_ne!(server.get(ADMIN, IAM).ok().json()["etag"], updated["etag"]);
+    assert_ne!(
+        server.get(ADMIN, IAM).success().json()["etag"],
+        updated["etag"]
+    );
 }
 
 #[test]
@@ -657,9 +696,9 @@ fn iam_revocation_races_object_reads() {
     let (_config, _data, server) = fixture();
     server
         .upload(ADMIN, "iam-bucket", "object", b"selected")
-        .ok();
+        .success();
     for _ in 0..12 {
-        set(&server, ADMIN, &grants(&["roles/storage.objectViewer"])).ok();
+        set(&server, ADMIN, &grants(&["roles/storage.objectViewer"])).success();
         let barrier = Barrier::new(2);
         thread::scope(|scope| {
             let read = scope.spawn(|| {
@@ -671,7 +710,7 @@ fn iam_revocation_races_object_reads() {
                 }
             });
             barrier.wait();
-            set(&server, ADMIN, &json!({"bindings":[]})).ok();
+            set(&server, ADMIN, &json!({"bindings":[]})).success();
             read.join().unwrap();
         });
         server
@@ -683,26 +722,28 @@ fn iam_revocation_races_object_reads() {
 #[test]
 fn iam_recreated_bucket_has_fresh_policy() {
     let (_config, _data, server) = fixture();
-    let original = server.get(ADMIN, IAM).ok().json();
+    let original = server.get(ADMIN, IAM).success().json();
     let edited = set(&server, ADMIN, &grants(&["roles/storage.admin"]))
-        .ok()
+        .success()
         .json();
     server
         .request("DELETE", "/storage/v1/b/iam-bucket", ADMIN, b"")
-        .ok();
-    server.create_bucket(ADMIN, "project-a", "iam-bucket").ok();
-    let recreated = server.get(ADMIN, IAM).ok().json();
+        .success();
+    server
+        .create_bucket(ADMIN, "project-a", "iam-bucket")
+        .success();
+    let recreated = server.get(ADMIN, IAM).success().json();
     assert_eq!(recreated["bindings"], original["bindings"]);
     assert_ne!(recreated["etag"], original["etag"]);
     assert_ne!(recreated["etag"], edited["etag"]);
-    set(&server, ADMIN, &edited).error(412, "conditionNotMet");
+    set(&server, ADMIN, &edited).auth_error(412, "conditionNotMet");
     server.get(NO_ROLES, IAM).forbidden();
 }
 
 #[test]
 fn iam_rejects_invalid_policy_shapes() {
     let (_config, _data, server) = fixture();
-    let before = server.get(ADMIN, IAM).ok().json();
+    let before = server.get(ADMIN, IAM).success().json();
     for policy in [
         json!({}),
         json!(null),
@@ -730,7 +771,7 @@ fn iam_rejects_invalid_policy_shapes() {
         json!({"bindings":[{"role":"roles/storage.objectViewer", "members":null}]}),
         json!({"bindings":[{"role":"roles/storage.objectViewer", "members":[1]}]}),
     ] {
-        set(&server, ADMIN, &policy).error(400, "invalid");
+        set(&server, ADMIN, &policy).auth_error(400, "invalid");
     }
     for role in [
         "",
@@ -748,7 +789,7 @@ fn iam_rejects_invalid_policy_shapes() {
             ADMIN,
             &json!({"bindings":[binding(role, "user:local")]}),
         )
-        .error(400, "invalid");
+        .auth_error(400, "invalid");
     }
     for member in [
         "",
@@ -770,7 +811,7 @@ fn iam_rejects_invalid_policy_shapes() {
             ADMIN,
             &json!({"bindings":[binding("roles/storage.objectViewer", member)]}),
         )
-        .error(400, "invalid");
+        .auth_error(400, "invalid");
     }
     let too_long = format!("user:{}", "x".repeat(255));
     set(
@@ -778,8 +819,8 @@ fn iam_rejects_invalid_policy_shapes() {
         ADMIN,
         &json!({"bindings":[binding("roles/storage.objectViewer", &too_long)]}),
     )
-    .error(400, "invalid");
-    assert_eq!(server.get(ADMIN, IAM).ok().json(), before);
+    .auth_error(400, "invalid");
+    assert_eq!(server.get(ADMIN, IAM).success().json(), before);
     // A binding without members grants nothing; Cloud Storage dropped it from the stored policy
     // instead of rejecting it (recorded 2026-10-31).
     let kept = set(
@@ -787,7 +828,7 @@ fn iam_rejects_invalid_policy_shapes() {
         ADMIN,
         &json!({"bindings":[binding("roles/storage.objectViewer", "user:local"), {"role":"roles/storage.objectViewer", "members":[]}]}),
     )
-    .ok()
+    .success()
     .json();
     assert_eq!(
         kept["bindings"],
@@ -798,7 +839,7 @@ fn iam_rejects_invalid_policy_shapes() {
 #[test]
 fn iam_rejects_unsupported_policy_semantics() {
     let (_config, _data, server) = fixture();
-    let before = server.get(ADMIN, IAM).ok().json();
+    let before = server.get(ADMIN, IAM).success().json();
     for role in [
         "roles/owner",
         "roles/editor",
@@ -811,7 +852,7 @@ fn iam_rejects_unsupported_policy_semantics() {
             ADMIN,
             &json!({"bindings":[binding(role, "user:local")]}),
         )
-        .error(400, "badRequest");
+        .auth_error(400, "badRequest");
     }
     for member in [
         "group:local@example.invalid",
@@ -825,7 +866,7 @@ fn iam_rejects_unsupported_policy_semantics() {
             ADMIN,
             &json!({"bindings":[binding("roles/storage.objectViewer", member)]}),
         )
-        .error(400, "badRequest");
+        .auth_error(400, "badRequest");
     }
     for condition in [
         json!(null),
@@ -835,10 +876,10 @@ fn iam_rejects_unsupported_policy_semantics() {
     ] {
         let mut entry = binding("roles/storage.objectViewer", "user:local");
         entry["condition"] = condition;
-        set(&server, ADMIN, &json!({"bindings":[entry]})).error(400, "badRequest");
+        set(&server, ADMIN, &json!({"bindings":[entry]})).auth_error(400, "badRequest");
     }
-    set(&server, ADMIN, &json!({"auditConfigs":[]})).error(400, "badRequest");
-    assert_eq!(server.get(ADMIN, IAM).ok().json(), before);
+    set(&server, ADMIN, &json!({"auditConfigs":[]})).auth_error(400, "badRequest");
+    assert_eq!(server.get(ADMIN, IAM).success().json(), before);
 }
 
 #[test]
@@ -853,7 +894,7 @@ fn iam_rejects_queries_paths_and_bodies() {
     ] {
         server
             .get(ADMIN, &format!("{IAM}?{query}"))
-            .error(400, "invalidParameter");
+            .auth_error(400, "invalidParameter");
     }
     // Cloud Storage answered an out-of-range version with its version 1 policy (recorded
     // 2026-10-31), so any integer is accepted.
@@ -863,7 +904,7 @@ fn iam_rejects_queries_paths_and_bodies() {
                 ADMIN,
                 &format!("{IAM}?optionsRequestedPolicyVersion={version}"),
             )
-            .ok()
+            .success()
             .json();
         assert_eq!(policy["version"], 1, "{version}");
     }
@@ -871,7 +912,7 @@ fn iam_rejects_queries_paths_and_bodies() {
         for query in ["userProject=project-a", "userProject=", "fields="] {
             server
                 .request(method, &format!("{IAM}?{query}"), ADMIN, b"")
-                .error(400, "badRequest");
+                .auth_error(400, "badRequest");
         }
     }
     server
@@ -881,30 +922,30 @@ fn iam_rejects_queries_paths_and_bodies() {
             ADMIN,
             b"{}",
         )
-        .error(400, "invalidParameter");
+        .auth_error(400, "invalidParameter");
     server
         .get(ADMIN, "/storage/v1/b/BAD/iam")
-        .error(400, "invalidParameter");
+        .auth_error(400, "invalidParameter");
     server
         .get(ADMIN, "/storage/v1/b/%ff/iam")
-        .error(400, "invalidParameter");
+        .auth_error(400, "invalidParameter");
     server
         .request("POST", IAM, ADMIN, b"")
-        .error(405, "methodNotAllowed");
+        .auth_error(405, "methodNotAllowed");
     server
         .request("GET", IAM, ADMIN, b"{}")
-        .error(400, "invalidArgument");
+        .auth_error(400, "invalidArgument");
     for bytes in [b"{".as_slice(), b"", b"\xff"] {
         server
             .request("PUT", IAM, ADMIN, bytes)
-            .error(400, "invalid");
+            .auth_error(400, "invalid");
     }
     server
         .get(ADMIN, "/storage/v1/b/iam-bucket/iam/testPermissions")
-        .error(400, "required");
+        .auth_error(400, "required");
     server
         .get(ADMIN, "/storage/v1/b/missing-bucket/iam")
-        .error(404, "notFound");
+        .auth_error(404, "notFound");
     server
         .get(NO_ROLES, "/storage/v1/b/missing-bucket/iam")
         .forbidden();
@@ -917,7 +958,7 @@ fn iam_principal_and_body_limits() {
     let max =
         json!({"bindings":[{"role":"roles/storage.objectViewer", "members":vec![member;1500]}]});
     assert_eq!(
-        set(&server, ADMIN, &max).ok().json()["bindings"][0]["members"]
+        set(&server, ADMIN, &max).success().json()["bindings"][0]["members"]
             .as_array()
             .unwrap()
             .len(),
@@ -928,25 +969,27 @@ fn iam_principal_and_body_limits() {
         .as_array_mut()
         .unwrap()
         .push(binding("roles/storage.objectCreator", member));
-    set(&server, ADMIN, &excess).error(400, "invalid");
+    set(&server, ADMIN, &excess).auth_error(400, "invalid");
     let longest = format!("user:{}", "x".repeat(254));
     set(
         &server,
         ADMIN,
         &json!({"bindings":[binding("roles/storage.objectViewer", &longest)]}),
     )
-    .ok();
+    .success();
     let exact = format!(
         "{{\"bindings\":[],\"padding\":\"{}\"}}",
         "x".repeat(65536 - 28)
     );
     assert_eq!(exact.len(), 65536);
-    server.request("PUT", IAM, ADMIN, exact.as_bytes()).ok();
+    server
+        .request("PUT", IAM, ADMIN, exact.as_bytes())
+        .success();
     let too_large = format!("{exact} ");
     server
         .request("PUT", IAM, ADMIN, too_large.as_bytes())
-        .error(413, "uploadTooLarge");
+        .auth_error(413, "uploadTooLarge");
     let mut stream = server.stream();
     write!(stream, "PUT {IAM} HTTP/1.1\r\nHost: local\r\n{ADMIN}Transfer-Encoding: chunked\r\n\r\n{:x}\r\n{too_large}\r\n0\r\n\r\n", too_large.len()).unwrap();
-    Reply::read(stream).error(413, "uploadTooLarge");
+    Reply::read_joined(stream).auth_error(413, "uploadTooLarge");
 }

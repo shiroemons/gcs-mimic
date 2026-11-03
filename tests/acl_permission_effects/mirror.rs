@@ -23,7 +23,7 @@ fn bucket_acl_and_legacy_iam_share_revocation_without_changing_other_bindings() 
         let initial = server.admin("PUT", &iam, json!({"bindings":[
             {"role":"roles/storage.bucketViewer","members":["user:other@example.test"]},
             {"role":"roles/storage.legacyBucketReader","members":["user:reader@example.test"]}
-        ]})).json();
+        ]})).json_ok();
         let acl = server
             .request(
                 "GET",
@@ -31,10 +31,10 @@ fn bucket_acl_and_legacy_iam_share_revocation_without_changing_other_bindings() 
                 ADMIN,
                 b"",
             )
-            .json();
+            .json_ok();
         assert_eq!(acl["role"], "READER");
         super::bucket::grant(&server, "user-reader@example.test", "WRITER");
-        let changed = server.request("GET", &iam, ADMIN, b"").json();
+        let changed = server.request("GET", &iam, ADMIN, b"").json_ok();
         assert_ne!(changed["etag"], initial["etag"]);
         assert!(role(&changed, "roles/storage.legacyBucketReader").is_empty());
         assert_eq!(
@@ -51,7 +51,7 @@ fn bucket_acl_and_legacy_iam_share_revocation_without_changing_other_bindings() 
                 .status,
             412
         );
-        assert_eq!(server.request("GET", &iam, ADMIN, b"").json(), changed);
+        assert_eq!(server.request("GET", &iam, ADMIN, b"").json_ok(), changed);
         assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
         assert_eq!(
             server
@@ -64,25 +64,25 @@ fn bucket_acl_and_legacy_iam_share_revocation_without_changing_other_bindings() 
                 .status,
             204
         );
-        let revoked = server.request("GET", &iam, ADMIN, b"").json();
+        let revoked = server.request("GET", &iam, ADMIN, b"").json_ok();
         assert!(role(&revoked, "roles/storage.legacyBucketWriter").is_empty());
         assert_eq!(
             role(&revoked, "roles/storage.bucketViewer"),
             ["user:other@example.test"]
         );
         assert_eq!(server.request("GET", BUCKET, READER, b"").status, 403);
-        server.request("GET", BUCKET, OTHER, b"").json();
-        let before = server.request("GET", BUCKET, ADMIN, b"").json();
+        server.request("GET", BUCKET, OTHER, b"").json_ok();
+        let before = server.request("GET", BUCKET, ADMIN, b"").json_ok();
         server
             .admin(
                 "PUT",
                 &iam,
                 json!({"etag":revoked["etag"],"bindings":revoked["bindings"]}),
             )
-            .json();
+            .json_ok();
         // Replaying the current policy still advances the bucket metageneration, as it did on
         // Cloud Storage (recorded 2026-10-31); the rest of the bucket is unchanged.
-        let after = server.request("GET", BUCKET, ADMIN, b"").json();
+        let after = server.request("GET", BUCKET, ADMIN, b"").json_ok();
         let revision = |bucket: &Value| {
             bucket["metageneration"]
                 .as_str()
@@ -125,10 +125,10 @@ fn trusted_user_alias_matches_iam_and_acl_without_changing_the_local_principal_i
         "READER",
         object["generation"].as_str().unwrap(),
     );
-    server.request("GET", OBJECT, READER, b"").json();
+    server.request("GET", OBJECT, READER, b"").json_ok();
     assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
     let iam = format!("{BUCKET}/iam");
-    server.admin("PUT", &iam, json!({"bindings":[{"role":"roles/storage.legacyBucketReader","members":["user:local:reader-user"]}]})).json();
+    server.admin("PUT", &iam, json!({"bindings":[{"role":"roles/storage.legacyBucketReader","members":["user:local:reader-user"]}]})).json_ok();
     assert_eq!(
         server
             .request(
@@ -137,10 +137,10 @@ fn trusted_user_alias_matches_iam_and_acl_without_changing_the_local_principal_i
                 ADMIN,
                 b""
             )
-            .json()["role"],
+            .json_ok()["role"],
         "READER"
     );
-    server.request("GET", BUCKET, READER, b"").json();
+    server.request("GET", BUCKET, READER, b"").json_ok();
     assert_eq!(
         server
             .request(
@@ -170,7 +170,7 @@ fn trusted_user_alias_matches_iam_and_acl_without_changing_the_local_principal_i
             .status,
         401
     );
-    server.request("GET", OBJECT, ADMIN, b"").json();
+    server.request("GET", OBJECT, ADMIN, b"").json_ok();
 }
 
 #[test]
@@ -191,9 +191,9 @@ fn unrelated_acl_edits_preserve_stable_iam_ids_across_alias_changes() {
         object["generation"].as_str().unwrap(),
     );
     let iam = format!("{BUCKET}/iam");
-    server.admin("PUT", &iam, json!({"bindings":[{"role":"roles/storage.legacyBucketReader","members":["user:local:reader-user"]}]})).json();
+    server.admin("PUT", &iam, json!({"bindings":[{"role":"roles/storage.legacyBucketReader","members":["user:local:reader-user"]}]})).json_ok();
     super::bucket::grant(&server, "user-unregistered@example.test", "READER");
-    let policy = server.request("GET", &iam, ADMIN, b"").json();
+    let policy = server.request("GET", &iam, ADMIN, b"").json_ok();
     assert!(
         role(&policy, "roles/storage.legacyBucketReader")
             .contains(&"user:local:reader-user".into())
@@ -204,31 +204,31 @@ fn unrelated_acl_edits_preserve_stable_iam_ids_across_alias_changes() {
     );
     let metadata = server
         .request("GET", &format!("{BUCKET}?projection=full"), ADMIN, b"")
-        .json();
+        .json_ok();
     server
         .admin("PATCH", BUCKET, json!({"acl":metadata["acl"]}))
-        .json();
-    assert_eq!(server.request("GET", &iam, ADMIN, b"").json(), policy);
+        .json_ok();
+    assert_eq!(server.request("GET", &iam, ADMIN, b"").json_ok(), policy);
     server.stop();
     let mut changed = registry;
     changed["identities"][1]["acl_entity"] = json!("user-new@example.test");
     changed["identities"][2]["acl_entity"] = json!("user-reader@example.test");
     let mut server = Server::start_with_registry(&data, &inputs, "disk", &changed);
-    server.request("GET", BUCKET, READER, b"").json();
+    server.request("GET", BUCKET, READER, b"").json_ok();
     server
         .request("GET", &format!("{BUCKET}/o"), READER, b"")
-        .json();
+        .json_ok();
     assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
     assert_eq!(server.request("GET", BUCKET, OTHER, b"").status, 403);
     assert!(
         role(
-            &server.request("GET", &iam, ADMIN, b"").json(),
+            &server.request("GET", &iam, ADMIN, b"").json_ok(),
             "roles/storage.legacyBucketReader"
         )
         .contains(&"user:local:reader-user".into())
     );
     server.stop();
     let server = Server::start_with_registry(&data, &inputs, "disk", &changed);
-    server.request("GET", BUCKET, READER, b"").json();
+    server.request("GET", BUCKET, READER, b"").json_ok();
     assert_eq!(server.request("GET", BUCKET, OTHER, b"").status, 403);
 }

@@ -22,7 +22,7 @@ fn simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working() {
                         stream.write_all(&[b'x'; 65536]).unwrap();
                         thread::yield_now();
                     }
-                    let reply = Reply::read(stream);
+                    let reply = Reply::framed(stream);
                     assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
                 }));
             }
@@ -132,7 +132,7 @@ fn disconnect_cleans_staging_and_shutdown_waits_for_upload_completion() {
         let stop = scope.spawn(|| server.stop());
         thread::sleep(Duration::from_millis(100));
         upload.write_all(b"bc").unwrap();
-        assert_eq!(Reply::read(upload).status, 200);
+        assert_eq!(Reply::framed(upload).status, 200);
         stop.join().unwrap();
     });
     wait_for_stages(&dir, 0);

@@ -1,14 +1,11 @@
+use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command, write_request};
+use common::server::http_command;
 use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use serde_json::{Value, json};
-use std::{
-    io::{BufReader, Read},
-    net::TcpStream,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
 const ADMIN: &str = "Authorization: Bearer admin-token\r\n";
 const VIEWER: &str = "Authorization: Bearer viewer-token\r\n";
@@ -17,11 +14,7 @@ const PROJECT: &str = "x-goog-project-id: project-a\r\n";
 const PRIVATE: &[u8] = include_bytes!("../fixtures/signing/test-only-private.pem");
 const PUBLIC: &str = include_str!("../fixtures/signing/test-only-public.pem");
 
-struct Reply {
-    status: u16,
-    headers: String,
-    body: String,
-}
+use common::http::{Client, TextReply as Reply};
 
 impl Server {
     fn start(data: &TestDir, options: &[&str]) -> Self {
@@ -30,7 +23,7 @@ impl Server {
                 .args(["--connection-timeout-ms", "20000"])
                 .args(options),
         )
-        .graceful()
+        .with_graceful_shutdown()
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &str) -> Reply {
@@ -38,32 +31,16 @@ impl Server {
     }
 
     fn host(&self, host: &str, method: &str, path: &str, headers: &str, body: &str) -> Reply {
-        let mut stream = TcpStream::connect(&self.address).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(30)))
-            .unwrap();
-        stream
-            .set_write_timeout(Some(Duration::from_secs(30)))
-            .unwrap();
-        write_request(
-            &mut stream,
-            method,
-            path,
+        let mut reply = Client {
+            address: &self.address,
             host,
-            &format!("Connection: close\r\n{headers}"),
-            body.as_bytes(),
-        );
-        let mut reader = BufReader::new(stream);
-        let mut raw = common::read_http_response(&mut reader, method == "HEAD").unwrap();
-        // Read past the HEAD header boundary so an erroneously transmitted body cannot hide.
-        reader.read_to_end(&mut raw).unwrap();
-        let raw = String::from_utf8(raw).unwrap();
-        let (headers, body) = raw.split_once("\r\n\r\n").unwrap();
-        Reply {
-            status: headers.split_whitespace().nth(1).unwrap().parse().unwrap(),
-            headers: headers.to_ascii_lowercase(),
-            body: body.into(),
+            headers: "",
+            timeout: Duration::from_secs(30),
         }
+        .request(method, path, headers, body.as_bytes())
+        .into_text();
+        reply.headers.make_ascii_lowercase();
+        reply
     }
 
     fn create(&self, project: &str, name: &str) {
@@ -865,3 +842,11 @@ fn xml_delete_object_preserves_soft_deleted_bytes_and_enforces_holds_and_pap() {
         "restore me"
     );
 }
+
+impl Server {
+    fn with_graceful_shutdown(mut self) -> Self {
+        self.0 = self.0.graceful();
+        self
+    }
+}
+declare_server!();

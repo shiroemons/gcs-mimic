@@ -7,11 +7,11 @@ const QUERY: &str = "response-content-type=text%2Fcsv&response-content-dispositi
 #[test]
 fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
     let (_config, _data, server) = fixture();
-    server.request("PATCH", METADATA, ADMIN, br#"{"contentType":"text/plain","contentDisposition":"inline","cacheControl":"private, max-age=42","contentLanguage":"en","metadata":{"kept":"yes"}}"#).ok();
-    server.request("PATCH", "/storage/v1/b/iam-bucket", ADMIN, br#"{"versioning":{"enabled":true},"cors":[{"origin":["https://browser.example.invalid"],"method":["GET","HEAD"],"responseHeader":["Content-Type","Content-Disposition","ETag","Content-Range"]}]}"#).ok();
-    let before = server.get(ADMIN, METADATA).ok().json();
+    server.request("PATCH", METADATA, ADMIN, br#"{"contentType":"text/plain","contentDisposition":"inline","cacheControl":"private, max-age=42","contentLanguage":"en","metadata":{"kept":"yes"}}"#).success();
+    server.request("PATCH", "/storage/v1/b/iam-bucket", ADMIN, br#"{"versioning":{"enabled":true},"cors":[{"origin":["https://browser.example.invalid"],"method":["GET","HEAD"],"responseHeader":["Content-Type","Content-Disposition","ETag","Content-Range"]}]}"#).success();
+    let before = server.get(ADMIN, METADATA).success().json();
     let original = server.get(ADMIN, OBJECT);
-    original.ok();
+    original.success();
     let path = format!(
         "{OBJECT}?generation={}&{QUERY}",
         before["generation"].as_str().unwrap()
@@ -19,8 +19,8 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
     // A retained generation proves overrides do not accidentally use the live record.
     server
         .upload(ADMIN, "iam-bucket", "object", b"new live bytes")
-        .ok();
-    let live = server.get(ADMIN, METADATA).ok().json();
+        .success();
+    let live = server.get(ADMIN, METADATA).success().json();
     let retained = server
         .get(
             ADMIN,
@@ -29,7 +29,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                 before["generation"].as_str().unwrap()
             ),
         )
-        .ok()
+        .success()
         .json();
     for public in [false, true] {
         if public {
@@ -38,7 +38,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                 ADMIN,
                 &json!({"bindings":[iam::binding("roles/storage.objectViewer", "allUsers")]}),
             )
-            .ok();
+            .success();
         }
         for method in ["GET", "HEAD"] {
             for signed in [false, true] {
@@ -56,7 +56,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                 };
                 let auth = if signed || public { "" } else { ADMIN };
                 let whole = send(&server, method, &url, auth);
-                whole.ok();
+                whole.success();
                 assert_eq!(whole.headers["content-type"], "text/csv");
                 assert_eq!(whole.headers["content-length"], "11");
                 assert_eq!(
@@ -148,7 +148,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
             }
         }
     }
-    assert_eq!(server.get(ADMIN, METADATA).ok().json(), live);
+    assert_eq!(server.get(ADMIN, METADATA).success().json(), live);
     assert_eq!(
         server
             .get(
@@ -158,7 +158,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                     before["generation"].as_str().unwrap()
                 )
             )
-            .ok()
+            .success()
             .json(),
         retained
     );
@@ -169,7 +169,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
             before["generation"].as_str().unwrap()
         ),
     );
-    unchanged.ok();
+    unchanged.success();
     assert_eq!(unchanged.headers["content-type"], "text/plain");
     assert_eq!(unchanged.headers["content-disposition"], "inline");
 }
@@ -177,7 +177,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
 #[test]
 fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
     let (_config, _data, server) = fixture();
-    let before = server.get(ADMIN, METADATA).ok().json();
+    let before = server.get(ADMIN, METADATA).success().json();
     for parameter in ["response-content-type", "response-content-disposition"] {
         for value in [
             "",
@@ -287,7 +287,7 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
         server.get(ADMIN, &format!("{OBJECT}?unknown=value")).status,
         200
     );
-    assert_eq!(server.get(ADMIN, METADATA).ok().json(), before);
+    assert_eq!(server.get(ADMIN, METADATA).success().json(), before);
 }
 
 #[test]
@@ -323,7 +323,7 @@ fn xml_response_overrides_from_cli_reach_the_server() {
         assert!(output.status.success(), "{output:?}");
         let url = String::from_utf8(output.stdout).unwrap();
         let response = send(&server, method, url.trim(), "");
-        response.ok();
+        response.success();
         assert_eq!(response.headers["content-type"], "text/csv");
         assert_eq!(response.headers["content-disposition"], disposition);
         assert_eq!(
@@ -336,7 +336,7 @@ fn xml_response_overrides_from_cli_reach_the_server() {
         );
     }
     assert!(
-        server.get(ADMIN, METADATA).ok().json()["contentType"].is_null(),
+        server.get(ADMIN, METADATA).success().json()["contentType"].is_null(),
         "an upload without a Content-Type stores none"
     );
 }

@@ -121,7 +121,7 @@ async fn bidi_read_handle_reauthorizes_fixed_generation_for_each_new_rpc() {
                 BUCKET,
                 json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
             )
-            .json();
+            .json_ok();
         assert_eq!(read(&server, "reader", Some(&handle)).await.0, "7");
         server.grant("user-reader@example.test", "READER", generation);
         assert_eq!(read(&server, "reader", Some(&handle)).await.0, "0");
@@ -131,7 +131,7 @@ async fn bidi_read_handle_reauthorizes_fixed_generation_for_each_new_rpc() {
                 BUCKET,
                 json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
             )
-            .json();
+            .json_ok();
         assert_eq!(read(&server, "reader", Some(&handle)).await.0, "7");
         assert_eq!(read(&server, "admin", Some(&handle)).await.2, body);
     }

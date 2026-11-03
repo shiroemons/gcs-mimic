@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use flate2::{Compression, write::GzEncoder};
 use object_effects_support::{Server, common::TestDir};
@@ -18,7 +19,7 @@ fn gzip(bytes: &[u8]) -> Vec<u8> {
 }
 
 fn gzip_object(server: &Server, name: &str, data: &[u8]) {
-    server.put(name, data).json();
+    server.put(name, data).json_ok();
     server
         .request(
             "PATCH",
@@ -26,7 +27,7 @@ fn gzip_object(server: &Server, name: &str, data: &[u8]) {
             ADMIN,
             br#"{"contentEncoding":"gzip"}"#,
         )
-        .json();
+        .json_ok();
 }
 
 #[test]
@@ -101,7 +102,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
     assert!(not_modified.body.is_empty());
     server
         .request("GET", path, "Authorization: Bearer creator\r\n", b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request(
             "GET",
@@ -109,7 +110,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
             &format!("{ADMIN}Accept-Encoding: gzip;q=2\r\n"),
             b"",
         )
-        .error(400, "invalidParameter");
+        .json_reason(400, "invalidParameter");
     server
         .request(
             "PATCH",
@@ -117,7 +118,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
             ADMIN,
             br#"{"cacheControl":"no-transform"}"#,
         )
-        .json();
+        .json_ok();
     let fixed = server.request("GET", path, ADMIN, b"");
     assert_eq!(fixed.body, compressed);
     assert!(!fixed.headers.contains_key("content-length"));
@@ -142,7 +143,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
             ADMIN,
             br#"{"cacheControl":"no-cache, no-store, max-age=0, must-revalidate"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -150,7 +151,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
             ADMIN,
             br#"{"entity":"allUsers","role":"READER"}"#,
         )
-        .json();
+        .json_ok();
     let public = server.request("GET", path, "Accept-Encoding: gzip\r\n", b"");
     assert_eq!(public.body, compressed);
     assert_eq!(
@@ -222,7 +223,7 @@ fn xml_vary_follows_bucket_cors_and_stored_gzip() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    server.put("plain", b"0123456789abcdef").json();
+    server.put("plain", b"0123456789abcdef").json_ok();
     gzip_object(&server, "gzip", &gzip(b"hello gzip transcoding world\n"));
     let origin = "Origin: https://example.test\r\n";
     let check = |expected_plain: &[&str], expected_gzip: &[&str]| {
@@ -268,7 +269,7 @@ fn xml_vary_follows_bucket_cors_and_stored_gzip() {
             ADMIN,
             br#"{"cors":[{"origin":["https://other.test"],"method":["GET"]}]}"#,
         )
-        .json();
+        .json_ok();
     check(&["Origin"], &["Origin", "Accept-Encoding"]);
 }
 
@@ -301,7 +302,7 @@ fn json_responses_vary_by_origin_and_x_origin() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    server.put("plain", b"0123456789abcdef").json();
+    server.put("plain", b"0123456789abcdef").json_ok();
     gzip_object(&server, "gzip", &gzip(b"compressed"));
     let both = ["Origin", "X-Origin"];
     for origin in ["", "Origin: https://example.test\r\n"] {
@@ -347,7 +348,7 @@ fn json_media_head_sends_get_headers_without_a_body() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    server.put("plain", b"0123456789abcdef").json();
+    server.put("plain", b"0123456789abcdef").json_ok();
     gzip_object(&server, "gzip", &gzip(b"hello gzip transcoding world\n"));
     // Framing and date fields differ between a streamed GET and its HEAD by design.
     let framed = |reply: &object_effects_support::Reply| {
@@ -430,10 +431,10 @@ fn json_media_upload_content_encoding_query_sets_stored_encoding() {
         &compressed,
     );
     assert_eq!(created.status, 200);
-    let created = created.json();
+    let created = created.json_ok();
     assert_eq!(created["contentEncoding"], "gzip");
     assert_eq!(created["size"], compressed.len().to_string());
-    assert_eq!(server.get("gz.txt").json()["contentEncoding"], "gzip");
+    assert_eq!(server.get("gz.txt").json_ok()["contentEncoding"], "gzip");
     let path = "/storage/v1/b/test-bucket/o/gz.txt?alt=media";
     let raw = server.request(
         "GET",
@@ -453,7 +454,7 @@ fn json_media_upload_content_encoding_query_sets_stored_encoding() {
     );
     assert_eq!(invalid.status, 400);
     assert_eq!(
-        server.get("gz.txt").json()["generation"],
+        server.get("gz.txt").json_ok()["generation"],
         created["generation"]
     );
     let kms = server.request("POST", &format!("{upload}&kmsKeyName=key"), ADMIN, b"x");
@@ -505,7 +506,7 @@ fn json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof() {
             "invalid gzip completed cleanly: {index}"
         );
         assert_eq!(
-            server.get(&name).json()["size"],
+            server.get(&name).json_ok()["size"],
             json!(bytes.len().to_string())
         );
     }
@@ -516,7 +517,7 @@ fn json_object_head_preserves_selection_conditions_and_authorization() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    let object = server.put("head", b"payload").json();
+    let object = server.put("head", b"payload").json_ok();
     let path = format!(
         "/storage/v1/b/test-bucket/o/head?generation={}",
         object["generation"].as_str().unwrap()
@@ -547,7 +548,7 @@ fn json_object_head_preserves_selection_conditions_and_authorization() {
         assert_eq!(response.status, status);
         assert!(response.body.is_empty());
     }
-    assert_eq!(server.get("head").json(), object);
+    assert_eq!(server.get("head").json_ok(), object);
 }
 
 /// Cloud Storage accepts metadata that declares gzip over a plain body, but a read that
@@ -645,7 +646,7 @@ fn head_with_range_answers_206_and_content_range_on_json_and_xml() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    server.put("plain", b"0123456789abcdef").json();
+    server.put("plain", b"0123456789abcdef").json_ok();
     let compressed = gzip(b"hello gzip transcoding world\n");
     gzip_object(&server, "gzip", &compressed);
     let stored = compressed.len();
@@ -738,7 +739,7 @@ fn xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    server.put("plain", b"0123456789abcdef").json();
+    server.put("plain", b"0123456789abcdef").json_ok();
     let extra = format!("{ADMIN}Range: bytes=100-200\r\n");
     let body = "<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidRange</Code>\
 <Message>The requested range cannot be satisfied.</Message>\
@@ -777,9 +778,9 @@ fn media_responses_carry_the_provider_object_headers() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    server.put("plain", b"0123456789abcdef").json();
+    server.put("plain", b"0123456789abcdef").json_ok();
     gzip_object(&server, "gzip", &gzip(b"hello gzip transcoding world\n"));
-    server.put("named", b"named").json();
+    server.put("named", b"named").json_ok();
     server
         .request(
             "PATCH",
@@ -787,7 +788,7 @@ fn media_responses_carry_the_provider_object_headers() {
             ADMIN,
             br#"{"contentDisposition":"inline; filename=\"n.txt\""}"#,
         )
-        .json();
+        .json_ok();
     let http_date =
         |value: &str| httpdate::parse_http_date(value).is_ok() && value.ends_with("GMT");
     for method in ["GET", "HEAD"] {

@@ -1,9 +1,7 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
-use object_effects_support::{
-    Reply,
-    common::{self, TestDir},
-};
+use object_effects_support::{Reply, common::TestDir};
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader},
@@ -116,7 +114,7 @@ impl Server {
             "/storage/v1/b?project=local",
             json!({"name":"test-bucket","versioning":{"enabled":true}}),
         )
-        .json();
+        .json_ok();
     }
     fn put(&self, body: &[u8]) -> Value {
         self.request(
@@ -125,7 +123,7 @@ impl Server {
             ADMIN,
             body,
         )
-        .json()
+        .json_ok()
     }
     fn grant(&self, entity: &str, role: &str, generation: &str) {
         self.admin(
@@ -133,7 +131,7 @@ impl Server {
             &format!("{OBJECT}/acl?generation={generation}"),
             json!({"entity":entity,"role":role}),
         )
-        .json();
+        .json_ok();
     }
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);

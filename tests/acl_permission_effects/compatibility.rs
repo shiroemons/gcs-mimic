@@ -17,7 +17,7 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
                 {"role":"roles/storage.bucketViewer","members":["user:other@example.test"]}
             ]}),
         )
-        .json();
+        .json_ok();
     server
         .admin(
             "PATCH",
@@ -26,7 +26,7 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
                 "publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true}
             }}),
         )
-        .json();
+        .json_ok();
     server.stop();
     {
         let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
@@ -38,7 +38,7 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
         connection.execute_batch("ALTER TABLE buckets DROP COLUMN versioning_configured; DROP TABLE soft_deleted_buckets; DROP TABLE bucket_generation; ALTER TABLE buckets DROP COLUMN generation; ALTER TABLE objects DROP COLUMN temporary_hold_released; ALTER TABLE objects DROP COLUMN event_based_hold_released; ALTER TABLE objects DROP COLUMN retain_until_sub_micro_nanos; ALTER TABLE objects DROP COLUMN owner; ALTER TABLE buckets DROP COLUMN acl_policy_bound; PRAGMA user_version=42;").unwrap();
     }
     let mut server = Server::start(&data, &inputs, "disk");
-    let policy = server.request("GET", &iam, ADMIN, b"").json();
+    let policy = server.request("GET", &iam, ADMIN, b"").json_ok();
     for role in [
         "roles/storage.legacyBucketWriter",
         "roles/storage.legacyBucketOwner",
@@ -56,11 +56,11 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
         super::mirror::role(&policy, "roles/storage.bucketViewer"),
         ["user:other@example.test"]
     );
-    let bucket = server.request("GET", BUCKET, ADMIN, b"").json();
-    server.request("GET", BUCKET, READER, b"").json();
+    let bucket = server.request("GET", BUCKET, ADMIN, b"").json_ok();
+    server.request("GET", BUCKET, READER, b"").json_ok();
     server
         .request("GET", &format!("{BUCKET}/o"), READER, b"")
-        .json();
+        .json_ok();
     assert_eq!(server.request("GET", BUCKET, "", b"").status, 401);
     assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
     assert_eq!(
@@ -71,19 +71,19 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
     );
     server.stop();
     let server = Server::start(&data, &inputs, "disk");
-    assert_eq!(server.request("GET", &iam, ADMIN, b"").json(), policy);
-    assert_eq!(server.request("GET", BUCKET, ADMIN, b"").json(), bucket);
+    assert_eq!(server.request("GET", &iam, ADMIN, b"").json_ok(), policy);
+    assert_eq!(server.request("GET", BUCKET, ADMIN, b"").json_ok(), bucket);
     server
         .admin(
             "PATCH",
             BUCKET,
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}}),
         )
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .request("GET", &format!("{BUCKET}/acl/allUsers"), ADMIN, b"")
-            .json()["role"],
+            .json_ok()["role"],
         "READER"
     );
     assert_eq!(server.request("GET", BUCKET, "", b"").status, 401);
@@ -99,7 +99,7 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
         204
     );
     assert_eq!(server.request("GET", BUCKET, READER, b"").status, 403);
-    server.request("GET", BUCKET, OTHER, b"").json();
+    server.request("GET", BUCKET, OTHER, b"").json_ok();
     assert_eq!(
         server
             .request("GET", &format!("{OBJECT}?alt=media"), ADMIN, b"")

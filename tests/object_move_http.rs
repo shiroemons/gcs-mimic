@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 use object_effects_support::{Reply, Server, common::TestDir, settings};
 use rusqlite::Connection;
 use serde_json::json;
@@ -21,9 +22,11 @@ fn mv(server: &Server, source: &str, destination: &str, query: &str) -> Reply {
 #[test]
 fn move_preserves_bytes_metadata_blob_and_restart() {
     let (dir, mut server) = setup(false);
-    server.put("source%2F%E7%8C%AB%252F", b"move bytes").json();
+    server
+        .put("source%2F%E7%8C%AB%252F", b"move bytes")
+        .json_ok();
     let original = server.request("PATCH", "/storage/v1/b/test-bucket/o/source%2F%E7%8C%AB%252F", ADMIN,
-        br#"{"contentType":"text/plain","contentEncoding":"identity","contentDisposition":"inline","contentLanguage":"ja","cacheControl":"private","metadata":{"key":"value"},"customTime":"2026-10-20T01:02:03Z"}"#).json();
+        br#"{"contentType":"text/plain","contentEncoding":"identity","contentDisposition":"inline","contentLanguage":"ja","cacheControl":"private","metadata":{"key":"value"},"customTime":"2026-10-20T01:02:03Z"}"#).json_ok();
     let db = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     let blob: String = db
         .query_row("SELECT blob_id FROM objects", [], |r| r.get(0))
@@ -34,7 +37,7 @@ fn move_preserves_bytes_metadata_blob_and_restart() {
         "target%2F%E7%8C%AB%252F",
         "",
     )
-    .json();
+    .json_ok();
     for key in [
         "contentType",
         "contentEncoding",
@@ -59,7 +62,9 @@ fn move_preserves_bytes_metadata_blob_and_restart() {
             .unwrap(),
         blob
     );
-    server.get("source%2F%E7%8C%AB%252F").error(404, "notFound");
+    server
+        .get("source%2F%E7%8C%AB%252F")
+        .json_reason(404, "notFound");
     server.stop();
     let server = Server::start(&dir, false);
     assert_eq!(
@@ -78,8 +83,8 @@ fn move_preserves_bytes_metadata_blob_and_restart() {
 #[test]
 fn move_checks_all_conditions_before_mutation() {
     let (_dir, server) = setup(false);
-    let source = server.put("source", b"source").json();
-    let target = server.put("target", b"target").json();
+    let source = server.put("source", b"source").json_ok();
+    let target = server.put("target", b"target").json_ok();
     for (key, value) in [
         ("ifSourceGenerationMatch", "0".to_owned()),
         (
@@ -96,9 +101,10 @@ fn move_checks_all_conditions_before_mutation() {
         ("ifMetagenerationMatch", "2".to_owned()),
         ("ifMetagenerationNotMatch", "1".to_owned()),
     ] {
-        mv(&server, "source", "target", &format!("?{key}={value}")).error(412, "conditionNotMet");
-        assert_eq!(server.get("source").json(), source);
-        assert_eq!(server.get("target").json(), target);
+        mv(&server, "source", "target", &format!("?{key}={value}"))
+            .json_reason(412, "conditionNotMet");
+        assert_eq!(server.get("source").json_ok(), source);
+        assert_eq!(server.get("target").json_ok(), target);
     }
     for query in [
         "?ifGenerationMatch=0&ifGenerationNotMatch=1",
@@ -106,26 +112,26 @@ fn move_checks_all_conditions_before_mutation() {
         "?ifMetagenerationMatch=1&ifMetagenerationNotMatch=2",
         "?ifSourceMetagenerationMatch=1&ifSourceMetagenerationNotMatch=2",
     ] {
-        mv(&server, "source", "target", query).error(400, "invalidArgument");
+        mv(&server, "source", "target", query).json_reason(400, "invalidArgument");
     }
-    mv(&server, "source", "target", &format!("?ifSourceGenerationMatch={}&ifSourceMetagenerationMatch=1&ifGenerationMatch={}&ifMetagenerationMatch=1", source["generation"].as_str().unwrap(), target["generation"].as_str().unwrap())).json();
+    mv(&server, "source", "target", &format!("?ifSourceGenerationMatch={}&ifSourceMetagenerationMatch=1&ifGenerationMatch={}&ifMetagenerationMatch=1", source["generation"].as_str().unwrap(), target["generation"].as_str().unwrap())).json_ok();
     mv(
         &server,
         "target",
         "fresh",
         "?ifGenerationMatch=0&ifSourceGenerationNotMatch=0&ifSourceMetagenerationNotMatch=2",
     )
-    .json();
+    .json_ok();
 }
 
 #[test]
 fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
     let (_dir, server) = setup(false);
     // Cloud Storage cannot tell a missing move source from a denied one (recorded 403).
-    mv(&server, "missing", "target", "").error(403, "forbidden");
-    server.put("source", b"source").json();
-    server.put("target", b"target").json();
-    mv(&server, "source", "source", "").error(400, "invalid");
+    mv(&server, "missing", "target", "").json_reason(403, "forbidden");
+    server.put("source", b"source").json_ok();
+    server.put("target", b"target").json_ok();
+    mv(&server, "source", "source", "").json_reason(400, "invalid");
     for field in ["temporaryHold", "eventBasedHold"] {
         for name in ["source", "target"] {
             server
@@ -135,7 +141,7 @@ fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
                     ADMIN,
                     json!({field:true}).to_string().as_bytes(),
                 )
-                .json();
+                .json_ok();
             mv(&server, "source", "target", "").hold_error();
             server
                 .request(
@@ -144,11 +150,11 @@ fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
                     ADMIN,
                     json!({field:false}).to_string().as_bytes(),
                 )
-                .json();
+                .json_ok();
         }
     }
     for query in ["?userProject=project", "?projection=full"] {
-        mv(&server, "source", "target", query).error(400, "badRequest");
+        mv(&server, "source", "target", query).json_reason(400, "badRequest");
     }
     server
         .request(
@@ -157,23 +163,23 @@ fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
             ADMIN,
             br#"{"unsupported":true}"#,
         )
-        .error(400, "invalidArgument");
-    assert_eq!(server.get("source").json()["name"], "source");
+        .json_reason(400, "invalidArgument");
+    assert_eq!(server.get("source").json_ok()["name"], "source");
     server
         .request("POST", &path("source", "target", ""), ADMIN, b"{}")
-        .json();
-    server.get("source").error(404, "notFound");
-    assert_eq!(server.get("target").json()["size"], "6");
+        .json_ok();
+    server.get("source").json_reason(404, "notFound");
+    assert_eq!(server.get("target").json_ok()["size"], "6");
 }
 
 #[test]
 fn move_versioning_deletes_live_source_and_archives_replaced_destination() {
     let (dir, server) = setup(false);
     settings(&dir, true, false);
-    let old_source = server.put("source", b"old source").json();
-    let source = server.put("source", b"source").json();
-    let target = server.put("target", b"target").json();
-    mv(&server, "source", "target", "").json();
+    let old_source = server.put("source", b"old source").json_ok();
+    let source = server.put("source", b"source").json_ok();
+    let target = server.put("target", b"target").json_ok();
+    mv(&server, "source", "target", "").json_ok();
     for (name, generation, status) in [
         ("source", &source["generation"], 404),
         ("source", &old_source["generation"], 200),
@@ -199,19 +205,19 @@ fn move_versioning_deletes_live_source_and_archives_replaced_destination() {
 #[test]
 fn move_rolls_back_source_deletion_when_destination_insert_fails() {
     let (dir, server) = setup(false);
-    let source = server.put("source", b"source").json();
-    let target = server.put("target", b"target").json();
+    let source = server.put("source", b"source").json_ok();
+    let target = server.put("target", b"target").json_ok();
     let db = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     db.execute_batch("CREATE TRIGGER fail_move BEFORE INSERT ON objects WHEN NEW.name = 'target' BEGIN SELECT RAISE(ABORT, 'injected publication failure'); END;").unwrap();
     assert_eq!(mv(&server, "source", "target", "").status, 503);
-    assert_eq!(server.get("source").json(), source);
-    assert_eq!(server.get("target").json(), target);
+    assert_eq!(server.get("source").json_ok(), source);
+    assert_eq!(server.get("target").json_ok(), target);
 }
 
 #[test]
 fn strict_move_requires_source_read_delete_and_destination_create() {
     let (_dir, server) = setup(true);
-    server.put("source", b"source").json();
+    server.put("source", b"source").json_ok();
     for token in ["viewer", "creator"] {
         server
             .request(
@@ -220,7 +226,7 @@ fn strict_move_requires_source_read_delete_and_destination_create() {
                 &format!("Authorization: Bearer {token}\r\n"),
                 b"",
             )
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
     }
     server
         .request(
@@ -229,7 +235,7 @@ fn strict_move_requires_source_read_delete_and_destination_create() {
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -237,15 +243,15 @@ fn strict_move_requires_source_read_delete_and_destination_create() {
             "Authorization: Bearer creator\r\n",
             b"",
         )
-        .error(403, "forbidden");
-    mv(&server, "source", "target", "").json();
+        .json_reason(403, "forbidden");
+    mv(&server, "source", "target", "").json_ok();
 }
 
 #[test]
 fn concurrent_moves_create_if_absent_have_one_winner() {
     let (_dir, server) = setup(false);
-    server.put("first", b"first").json();
-    server.put("second", b"second").json();
+    server.put("first", b"first").json_ok();
+    server.put("second", b"second").json_ok();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
     let replies = std::thread::scope(|scope| {
         let handles = ["first", "second"].map(|name| {

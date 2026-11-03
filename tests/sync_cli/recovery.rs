@@ -40,7 +40,7 @@ async fn live_cli_restores_and_discards_retained_conflicts_once_across_restart()
     assert_eq!(restored["object"], "restore");
     let generation = server
         .request("GET", "/storage/v1/b/test-bucket/o/restore", None, b"")
-        .json()["generation"]
+        .json_ok()["generation"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -75,10 +75,10 @@ async fn live_cli_restores_and_discards_retained_conflicts_once_across_restart()
             None,
             br#"{"temporaryHold":true}"#,
         )
-        .json();
+        .json_ok();
     let protected = server
         .request("GET", "/storage/v1/b/test-bucket/o/restore", None, b"")
-        .json();
+        .json_ok();
     assert_eq!(
         server.cli(
             "resolve",
@@ -90,7 +90,7 @@ async fn live_cli_restores_and_discards_retained_conflicts_once_across_restart()
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/restore", None, b"")
-            .json(),
+            .json_ok(),
         protected
     );
     assert_eq!(
@@ -109,7 +109,7 @@ async fn live_cli_restores_and_discards_retained_conflicts_once_across_restart()
             None,
             br#"{"temporaryHold":false}"#,
         )
-        .json();
+        .json_ok();
     let outcome = server.cli("resolve", &options, true);
     assert_eq!(outcome["completed"], true);
     assert_eq!(server.cli("resolve", &options, true), outcome);
@@ -123,7 +123,7 @@ async fn live_cli_restores_and_discards_retained_conflicts_once_across_restart()
     );
     let discarded_generation = server
         .request("GET", "/storage/v1/b/test-bucket/o/discard", None, b"")
-        .json()["generation"]
+        .json_ok()["generation"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -172,7 +172,7 @@ async fn live_cli_restores_and_discards_retained_conflicts_once_across_restart()
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/restore", None, b"")
-            .json()["generation"],
+            .json_ok()["generation"],
         outcome["result_generation"].to_string()
     );
     assert_eq!(

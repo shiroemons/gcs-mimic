@@ -18,7 +18,7 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             "",
             br#"{"topic":"projects/local/topics/events"}"#,
         )
-        .json();
+        .json_ok();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     let notifications = || {
         connection
@@ -35,12 +35,12 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             b"protected",
             "",
         )
-        .json();
+        .json_ok();
     assert_eq!(resource["temporaryHold"], true);
     assert_eq!(resource["eventBasedHold"], true);
     let full = server
         .request("GET", &format!("{OBJECT}?projection=full"), "", b"")
-        .json();
+        .json_ok();
     assert_eq!(full["acl"][0]["entity"], "allUsers");
     assert_eq!(
         server
@@ -65,7 +65,7 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             "",
             br#"{"temporaryHold":false,"eventBasedHold":false}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "PATCH",
@@ -73,8 +73,8 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             "",
             br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
         )
-        .json();
-    let before = server.request("GET", OBJECT, "", b"").json();
+        .json_ok();
+    let before = server.request("GET", OBJECT, "", b"").json_ok();
     let queued = notifications();
     assert_eq!(
         server
@@ -86,7 +86,7 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             .status,
         403
     );
-    assert_eq!(server.request("GET", OBJECT, "", b"").json(), before);
+    assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), before);
     assert_eq!(notifications(), queued);
     server
         .request(
@@ -95,7 +95,7 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             "",
             br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .fixture(
@@ -106,7 +106,7 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             .status,
         400
     );
-    assert_eq!(server.request("GET", OBJECT, "", b"").json(), before);
+    assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), before);
     server
         .request(
             "POST",
@@ -114,7 +114,7 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             "",
             br#"{"name":"retained-bucket"}"#,
         )
-        .json();
+        .json_ok();
     let retained = server
         .fixture(
             json!({"bucket":"retained-bucket","name":"value", "retention":{
@@ -122,7 +122,7 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             b"retained",
             "",
         )
-        .json();
+        .json_ok();
     assert_eq!(retained["retention"]["mode"], "Locked");
     assert_eq!(
         server
@@ -139,7 +139,7 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/retained-bucket/o/value", "", b"")
-            .json(),
+            .json_ok(),
         retained
     );
 }

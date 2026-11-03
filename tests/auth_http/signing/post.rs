@@ -132,11 +132,11 @@ fn v4_policy_upload_streams_through_the_shared_write_path_with_signer_permission
     );
     assert!(reply.headers["x-goog-generation"].parse::<i64>().unwrap() > 0);
     let stored = server.get(ADMIN, "/iam-bucket/uploads/post.txt");
-    assert_eq!(stored.ok().body, b"posted bytes");
+    assert_eq!(stored.success().body, b"posted bytes");
     assert_eq!(stored.headers["etag"], reply.headers["etag"]);
     let metadata = server
         .get(ADMIN, "/storage/v1/b/iam-bucket/o/uploads%2Fpost.txt")
-        .ok()
+        .success()
         .json();
     assert_eq!(metadata["contentType"], "text/plain");
     assert_eq!(metadata["cacheControl"], "no-cache");
@@ -150,7 +150,10 @@ fn v4_policy_upload_streams_through_the_shared_write_path_with_signer_permission
         "AccessDenied",
     );
     assert_eq!(
-        server.get(ADMIN, "/iam-bucket/uploads/post.txt").ok().body,
+        server
+            .get(ADMIN, "/iam-bucket/uploads/post.txt")
+            .success()
+            .body,
         b"posted bytes"
     );
     // A signer without create permission is denied before any object is written.
@@ -244,7 +247,7 @@ fn v4_policy_success_status_201_xml_200_and_redirect() {
         "https://app.example.invalid/done?x=1"
     );
     assert_eq!(
-        server.get(ADMIN, "/iam-bucket/redirect.txt").ok().body,
+        server.get(ADMIN, "/iam-bucket/redirect.txt").success().body,
         b"three"
     );
 }
@@ -342,7 +345,7 @@ fn v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations()
     // The bucket condition binds the request target.
     server
         .create_bucket(ADMIN, "project-a", "second-bucket")
-        .ok();
+        .success();
     error(
         &post(&server, "/second-bucket", &valid, b"x"),
         400,
@@ -380,7 +383,10 @@ fn v4_policy_content_length_range_bounds_are_inclusive_and_leave_no_object() {
             None => {
                 assert_eq!(reply.status, status);
                 assert_eq!(
-                    server.get(ADMIN, &format!("/iam-bucket/{key}")).ok().body,
+                    server
+                        .get(ADMIN, &format!("/iam-bucket/{key}"))
+                        .success()
+                        .body,
                     file
                 );
             }
@@ -431,7 +437,7 @@ fn post_object_framing_errors_and_other_routes_stay_rejected() {
         "InvalidArgument",
     );
     assert_eq!(
-        server.get(ADMIN, "/iam-bucket/object").ok().body,
+        server.get(ADMIN, "/iam-bucket/object").success().body,
         b"hello world"
     );
 }
@@ -446,10 +452,13 @@ fn v4_policy_signer_uploads_under_public_access_prevention() {
             ADMIN,
             br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
         )
-        .ok();
+        .success();
     let fields = policy_form("creator@example.invalid", "pap.txt", &FUTURE, &[], &[]);
     assert_eq!(post(&server, "/iam-bucket", &fields, b"pap").status, 204);
-    assert_eq!(server.get(ADMIN, "/iam-bucket/pap.txt").ok().body, b"pap");
+    assert_eq!(
+        server.get(ADMIN, "/iam-bucket/pap.txt").success().body,
+        b"pap"
+    );
 }
 
 #[test]
@@ -473,7 +482,9 @@ fn v4_policy_upload_targets_a_virtual_host_bucket_root() {
             "localhost",
         ],
     );
-    server.create_bucket(ADMIN, "project-a", "iam-bucket").ok();
+    server
+        .create_bucket(ADMIN, "project-a", "iam-bucket")
+        .success();
     let fields = policy_form("admin@example.invalid", "virtual.txt", &FUTURE, &[], &[]);
     let form = body(&fields, "post.txt", b"virtual", "");
     let mut request = format!(
@@ -484,7 +495,7 @@ fn v4_policy_upload_targets_a_virtual_host_bucket_root() {
     request.extend_from_slice(&form);
     assert_eq!(server.raw(&request).status, 204);
     assert_eq!(
-        server.get(ADMIN, "/iam-bucket/virtual.txt").ok().body,
+        server.get(ADMIN, "/iam-bucket/virtual.txt").success().body,
         b"virtual"
     );
 }
@@ -493,11 +504,16 @@ fn v4_policy_upload_targets_a_virtual_host_bucket_root() {
 fn permissive_profile_ignores_policy_credentials_but_enforces_conditions() {
     let data = TestDir::new();
     let (server, _) = Server::start(&data, &[]);
-    server.create_bucket("", "project-a", "iam-bucket").ok();
+    server
+        .create_bucket("", "project-a", "iam-bucket")
+        .success();
     let mut fields = policy_form("anyone@example.invalid", "open.txt", &FUTURE, &[], &[]);
     fields.last_mut().unwrap().1 = "00".into();
     assert_eq!(post(&server, "/iam-bucket", &fields, b"open").status, 204);
-    assert_eq!(server.get("", "/iam-bucket/open.txt").ok().body, b"open");
+    assert_eq!(
+        server.get("", "/iam-bucket/open.txt").success().body,
+        b"open"
+    );
     let expired = policy_form(
         "anyone@example.invalid",
         "expired.txt",

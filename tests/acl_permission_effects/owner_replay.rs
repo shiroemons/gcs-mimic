@@ -16,7 +16,7 @@ fn full_upload_replay_keeps_original_owner_proof_after_generation_deletion() {
         let headers = replay_headers("owned-upload-response");
         let first = server
             .request("POST", path, &headers, b"original bytes")
-            .json();
+            .json_ok();
         assert_eq!(first["owner"], json!({"entity":"user-reader@example.test"}));
         assert!(
             first["acl"]
@@ -31,7 +31,7 @@ fn full_upload_replay_keeps_original_owner_proof_after_generation_deletion() {
         assert_eq!(
             server
                 .request("POST", path, &headers, b"original bytes")
-                .json(),
+                .json_ok(),
             first
         );
         server.put(b"new private bytes");
@@ -49,7 +49,7 @@ fn full_upload_replay_keeps_original_owner_proof_after_generation_deletion() {
         assert_eq!(
             server
                 .request("POST", path, &headers, b"original bytes")
-                .json(),
+                .json_ok(),
             first
         );
         assert_eq!(
@@ -64,17 +64,17 @@ fn full_upload_replay_keeps_original_owner_proof_after_generation_deletion() {
                 BUCKET,
                 json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
             )
-            .json();
+            .json_ok();
         let hidden = server
             .request("POST", path, &headers, b"original bytes")
-            .json();
+            .json_ok();
         assert!(hidden.get("owner").is_none());
         assert!(hidden.get("acl").is_none());
-        server.admin("PATCH", BUCKET, json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"enforced"}})).json();
+        server.admin("PATCH", BUCKET, json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"enforced"}})).json_ok();
         assert_eq!(
             server
                 .request("POST", path, &headers, b"original bytes")
-                .json(),
+                .json_ok(),
             first
         );
         let wrong = headers.replace("Bearer reader", "Bearer other");
@@ -105,12 +105,12 @@ fn upload_replay_resolves_saved_owner_id_against_current_aliases_without_rebindi
     ]});
     let mut server = Server::start_with_registry(&data, &inputs, "disk", &registry);
     server.bucket();
-    server.admin("PUT", &format!("{BUCKET}/iam"), json!({"bindings":[{"role":"roles/storage.legacyBucketWriter","members":["user:local:uploader"]}]})).json();
+    server.admin("PUT", &format!("{BUCKET}/iam"), json!({"bindings":[{"role":"roles/storage.legacyBucketWriter","members":["user:local:uploader"]}]})).json_ok();
     let path = "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=value&projection=full";
     let headers = replay_headers("saved-identity-owner");
     let original = server
         .request("POST", path, &headers, b"saved owner bytes")
-        .json();
+        .json_ok();
     assert_eq!(original["owner"], json!({"entity":"user-old@example.test"}));
     server.stop();
     registry["identities"][1]["acl_entity"] = json!("user-current@example.test");
@@ -118,7 +118,7 @@ fn upload_replay_resolves_saved_owner_id_against_current_aliases_without_rebindi
     server = Server::start_with_registry(&data, &inputs, "disk", &registry);
     let current = server
         .request("POST", path, &headers, b"saved owner bytes")
-        .json();
+        .json_ok();
     assert_eq!(current["generation"], original["generation"]);
     assert_eq!(current["metageneration"], original["metageneration"]);
     assert_eq!(
@@ -152,7 +152,7 @@ fn upload_replay_resolves_saved_owner_id_against_current_aliases_without_rebindi
     assert_eq!(server.request("DELETE", OBJECT, ADMIN, b"").status, 204);
     let replay = server
         .request("POST", path, &headers, b"saved owner bytes")
-        .json();
+        .json_ok();
     assert_eq!(
         replay["owner"],
         json!({"entity":"user-current@example.test"})
@@ -171,7 +171,7 @@ fn full_copy_replay_binds_destination_owner_and_current_source_authority() {
     server.grant("user-reader@example.test", "READER", generation);
     let path = format!("{OBJECT}/copyTo/b/test-bucket/o/copied?projection=full");
     let headers = replay_headers("owned-copy-response");
-    let first = server.request("POST", &path, &headers, b"{}").json();
+    let first = server.request("POST", &path, &headers, b"{}").json_ok();
     assert_eq!(first["owner"], json!({"entity":"user-reader@example.test"}));
     assert_eq!(first["name"], "copied");
     assert_eq!(
@@ -180,7 +180,10 @@ fn full_copy_replay_binds_destination_owner_and_current_source_authority() {
             .status,
         204
     );
-    assert_eq!(server.request("POST", &path, &headers, b"{}").json(), first);
+    assert_eq!(
+        server.request("POST", &path, &headers, b"{}").json_ok(),
+        first
+    );
     assert_eq!(
         server
             .request(
@@ -205,7 +208,10 @@ fn full_copy_replay_binds_destination_owner_and_current_source_authority() {
     );
     assert_eq!(server.request("POST", &path, &headers, b"{}").status, 403);
     server.grant("user-reader@example.test", "READER", generation);
-    assert_eq!(server.request("POST", &path, &headers, b"{}").json(), first);
+    assert_eq!(
+        server.request("POST", &path, &headers, b"{}").json_ok(),
+        first
+    );
     for (query, expected_owner, token) in [
         ("projection=noAcl", false, "no-acl-response"),
         ("projection=full&fields=owner", true, "owner-field-response"),
@@ -214,13 +220,13 @@ fn full_copy_replay_binds_destination_owner_and_current_source_authority() {
             format!("/upload/storage/v1/b/test-bucket/o?uploadType=media&name={token}&{query}");
         let value = server
             .request("POST", &path, &replay_headers(token), b"projection")
-            .json();
+            .json_ok();
         assert_eq!(value.get("owner").is_some(), expected_owner);
         assert!(value.get("acl").is_none());
         assert_eq!(
             server
                 .request("POST", &path, &replay_headers(token), b"projection")
-                .json(),
+                .json_ok(),
             value
         );
     }

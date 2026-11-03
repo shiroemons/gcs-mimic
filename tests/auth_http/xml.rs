@@ -8,7 +8,7 @@ fn fixture() -> (TestDir, TestDir, Server) {
     let (config, data, server) = iam::fixture();
     server
         .upload(ADMIN, "iam-bucket", "object", b"hello world")
-        .ok();
+        .success();
     (config, data, server)
 }
 
@@ -18,7 +18,7 @@ fn grant(server: &Server, member: &str, role: &str) -> Value {
         ADMIN,
         &json!({"bindings":[iam::binding(role, member)]}),
     )
-    .ok()
+    .success()
     .json()
 }
 
@@ -49,7 +49,7 @@ fn public_members_authorize_anonymous_and_registered_callers_without_token_fallb
     ] {
         xml_error(&server.get(auth, OBJECT), status, code);
         let reply = server.get(auth, JSON_OBJECT);
-        reply.error(
+        reply.auth_error(
             status,
             if status == 401 {
                 "required"
@@ -60,17 +60,20 @@ fn public_members_authorize_anonymous_and_registered_callers_without_token_fallb
     }
     grant(&server, "allUsers", "roles/storage.objectViewer");
     for auth in ["", NO_ROLES, ADMIN] {
-        assert_eq!(server.get(auth, OBJECT).ok().body, b"hello world");
-        server.get(auth, JSON_OBJECT).ok();
+        assert_eq!(server.get(auth, OBJECT).success().body, b"hello world");
+        server.get(auth, JSON_OBJECT).success();
         assert_eq!(
             server
                 .get(auth, &format!("{JSON_OBJECT}?alt=media"))
-                .ok()
+                .success()
                 .body,
             b"hello world"
         );
         assert_eq!(
-            server.get(auth, "/storage/v1/b/iam-bucket/o").ok().json()["items"]
+            server
+                .get(auth, "/storage/v1/b/iam-bucket/o")
+                .success()
+                .json()["items"]
                 .as_array()
                 .unwrap()
                 .len(),
@@ -79,7 +82,7 @@ fn public_members_authorize_anonymous_and_registered_callers_without_token_fallb
     }
     server.get("", "/storage/v1/b/iam-bucket").login_required();
     grant(&server, "allUsers", "roles/storage.admin");
-    server.get("", "/storage/v1/b/iam-bucket").ok();
+    server.get("", "/storage/v1/b/iam-bucket").success();
     server
         .get("", "/storage/v1/b?project=project-a")
         .login_required();
@@ -91,8 +94,8 @@ fn public_members_authorize_anonymous_and_registered_callers_without_token_fallb
         "allAuthenticatedUsers",
         "roles/storage.objectViewer",
     );
-    assert_eq!(server.get(NO_ROLES, OBJECT).ok().body, b"hello world");
-    server.get(NO_ROLES, JSON_OBJECT).ok();
+    assert_eq!(server.get(NO_ROLES, OBJECT).success().body, b"hello world");
+    server.get(NO_ROLES, JSON_OBJECT).success();
     xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");
     server.get("", JSON_OBJECT).login_required();
     for member in ["allUsers", "allAuthenticatedUsers"] {
@@ -132,9 +135,11 @@ fn anonymous_object_mutations_require_each_granted_permission() {
         .login_required();
 
     grant(&server, "allUsers", "roles/storage.objectCreator");
-    server.upload("", "iam-bucket", "new", b"new").ok();
-    server.multipart("", "iam-bucket", "multipart", b"new").ok();
-    let before = server.get(ADMIN, JSON_OBJECT).ok().json();
+    server.upload("", "iam-bucket", "new", b"new").success();
+    server
+        .multipart("", "iam-bucket", "multipart", b"new")
+        .success();
+    let before = server.get(ADMIN, JSON_OBJECT).success().json();
     server
         .upload("", "iam-bucket", "object", b"overwrite")
         .login_required();
@@ -151,14 +156,16 @@ fn anonymous_object_mutations_require_each_granted_permission() {
             )
             .login_required();
     }
-    assert_eq!(server.get(ADMIN, JSON_OBJECT).ok().json(), before);
-    assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");
+    assert_eq!(server.get(ADMIN, JSON_OBJECT).success().json(), before);
+    assert_eq!(server.get(ADMIN, OBJECT).success().body, b"hello world");
 
     grant(&server, "allUsers", "roles/storage.objectAdmin");
-    server.upload("", "iam-bucket", "object", b"media").ok();
+    server
+        .upload("", "iam-bucket", "object", b"media")
+        .success();
     server
         .multipart("", "iam-bucket", "object", b"multipart")
-        .ok();
+        .success();
     server
         .request(
             "PATCH",
@@ -166,9 +173,9 @@ fn anonymous_object_mutations_require_each_granted_permission() {
             "",
             br#"{"metadata":{"key":"patched"}}"#,
         )
-        .ok();
+        .success();
     assert_eq!(
-        server.get("", JSON_OBJECT).ok().json()["metadata"]["key"],
+        server.get("", JSON_OBJECT).success().json()["metadata"]["key"],
         "patched"
     );
     server
@@ -178,20 +185,23 @@ fn anonymous_object_mutations_require_each_granted_permission() {
             "",
             br#"{"metadata":{"key":"replaced"}}"#,
         )
-        .ok();
+        .success();
     assert_eq!(
-        server.get("", JSON_OBJECT).ok().json()["metadata"],
+        server.get("", JSON_OBJECT).success().json()["metadata"],
         json!({"key":"replaced"})
     );
     assert_eq!(
-        server.get("", "/storage/v1/b/iam-bucket/o").ok().json()["items"]
+        server
+            .get("", "/storage/v1/b/iam-bucket/o")
+            .success()
+            .json()["items"]
             .as_array()
             .unwrap()
             .len(),
         3
     );
-    server.request("DELETE", JSON_OBJECT, "", b"").ok();
-    server.get("", JSON_OBJECT).error(404, "notFound");
+    server.request("DELETE", JSON_OBJECT, "", b"").success();
+    server.get("", JSON_OBJECT).auth_error(404, "notFound");
 }
 
 #[test]
@@ -208,29 +218,31 @@ fn anonymous_bucket_and_policy_operations_require_granted_permissions() {
             grant(&server, "allUsers", role);
         }
         if role == Some("roles/storage.legacyBucketReader") {
-            server.get("", bucket).ok();
+            server.get("", bucket).success();
         } else {
             server.get("", bucket).login_required();
         }
         if role == Some("roles/storage.objectAdmin") {
-            server.upload("", "iam-bucket", "object", b"hello").ok();
-            assert_eq!(server.get("", OBJECT).ok().body, b"hello");
-            server.request("DELETE", JSON_OBJECT, "", b"").ok();
+            server
+                .upload("", "iam-bucket", "object", b"hello")
+                .success();
+            assert_eq!(server.get("", OBJECT).success().body, b"hello");
+            server.request("DELETE", JSON_OBJECT, "", b"").success();
         }
         server.get("", iam::IAM).login_required();
         iam::set(&server, "", &json!({"bindings":[]})).login_required();
         server.request("DELETE", bucket, "", b"").login_required();
     }
     grant(&server, "allUsers", "roles/storage.admin");
-    server.get("", bucket).ok();
-    let policy = server.get("", iam::IAM).ok().json();
-    iam::set(&server, "", &policy).ok();
-    iam::set(&server, "", &json!({"bindings":[]})).ok();
+    server.get("", bucket).success();
+    let policy = server.get("", iam::IAM).success().json();
+    iam::set(&server, "", &policy).success();
+    iam::set(&server, "", &json!({"bindings":[]})).success();
     iam::set(&server, "", &policy).login_required();
     server.get("", iam::IAM).login_required();
     grant(&server, "allUsers", "roles/storage.admin");
-    server.request("DELETE", bucket, "", b"").ok();
-    server.get(ADMIN, bucket).error(404, "notFound");
+    server.request("DELETE", bucket, "", b"").success();
+    server.get(ADMIN, bucket).auth_error(404, "notFound");
 }
 
 #[test]
@@ -240,25 +252,25 @@ fn public_grants_survive_restart_and_revocation_preserves_etag_checks() {
     let grant = grant(&server, "allUsers", "roles/storage.objectViewer");
     server.stop();
     let server = Server::strict(&data, &identities);
-    assert_eq!(server.get("", OBJECT).ok().body, b"hello world");
-    assert_eq!(server.get(ADMIN, iam::IAM).ok().json(), grant);
+    assert_eq!(server.get("", OBJECT).success().body, b"hello world");
+    assert_eq!(server.get(ADMIN, iam::IAM).success().json(), grant);
     iam::set(
         &server,
         ADMIN,
         &json!({"bindings":[], "etag":"AAAAAAAAAAA="}),
     )
-    .error(412, "conditionNotMet");
-    assert_eq!(server.get("", OBJECT).ok().body, b"hello world");
+    .auth_error(412, "conditionNotMet");
+    assert_eq!(server.get("", OBJECT).success().body, b"hello world");
     iam::set(
         &server,
         ADMIN,
         &json!({"bindings":[], "etag":grant["etag"]}),
     )
-    .ok();
+    .success();
     xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");
     server.get("", JSON_OBJECT).login_required();
     xml_error(&server.get(NO_ROLES, OBJECT), 403, "AccessDenied");
-    assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");
+    assert_eq!(server.get(ADMIN, OBJECT).success().body, b"hello world");
 }
 
 #[test]
@@ -278,7 +290,7 @@ fn public_revocation_racing_xml_and_json_reads_denies_subsequent_requests() {
                     }
                 });
                 barrier.wait();
-                iam::set(&server, ADMIN, &json!({"bindings":[]})).ok();
+                iam::set(&server, ADMIN, &json!({"bindings":[]})).success();
                 read.join().unwrap();
             });
             xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");
@@ -292,7 +304,7 @@ fn xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revo
     let (_config, _data, server) = fixture();
     let old = server
         .upload(ADMIN, "iam-bucket", "object", &vec![b'a'; 8 * 1024 * 1024])
-        .ok()
+        .success()
         .json();
     grant(&server, "allUsers", "roles/storage.objectViewer");
     let mut stream = server.stream();
@@ -313,10 +325,10 @@ fn xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revo
     assert!(headers.contains("cache-control: public, max-age=3600\r\n"));
     let replacement = server
         .upload(ADMIN, "iam-bucket", "object", b"replacement")
-        .ok()
+        .success()
         .json();
     assert_ne!(replacement["generation"], old["generation"]);
-    iam::set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    iam::set(&server, ADMIN, &json!({"bindings":[]})).success();
     // The connection stays open after the body, so read exactly the declared length.
     let length: u64 = headers
         .lines()
@@ -329,14 +341,14 @@ fn xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revo
     assert_eq!(body.len(), 8 * 1024 * 1024 - 1);
     assert!(body.iter().all(|byte| *byte == b'a'));
     xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");
-    assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"replacement");
+    assert_eq!(server.get(ADMIN, OBJECT).success().body, b"replacement");
 }
 
 #[test]
 fn xml_head_matches_get_headers_and_selected_metadata() {
     let (_config, _data, server) = fixture();
     grant(&server, "allUsers", "roles/storage.objectViewer");
-    server.request("PATCH", JSON_OBJECT, ADMIN, br#"{"contentType":"text/plain","contentDisposition":"attachment; filename=hello.txt","contentLanguage":"en","metadata":{"color":"blue"}}"#).ok();
+    server.request("PATCH", JSON_OBJECT, ADMIN, br#"{"contentType":"text/plain","contentDisposition":"attachment; filename=hello.txt","contentLanguage":"en","metadata":{"color":"blue"}}"#).success();
     let get = server.get("", OBJECT);
     let head = server.request("HEAD", OBJECT, "", b"");
     assert_eq!(head.status, 200);
@@ -418,7 +430,7 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
     assert!(head.body.is_empty());
     assert!(!head.headers.contains_key("content-range"));
     assert_eq!(
-        server.get("Range: bytes=1-0\r\n", OBJECT).ok().body,
+        server.get("Range: bytes=1-0\r\n", OBJECT).success().body,
         b"hello world"
     );
     server
@@ -428,7 +440,7 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
             ),
             OBJECT,
         )
-        .ok();
+        .success();
     for headers in [
         "x-goog-if-generation-match: 0\r\n".to_owned(),
         format!(
@@ -444,13 +456,13 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
     );
     server
         .upload(ADMIN, "iam-bucket", "object", b"replacement")
-        .ok();
+        .success();
     xml_error(
         &server.get("", &format!("{OBJECT}?generation={generation}")),
         404,
         "NoSuchKey",
     );
-    assert_eq!(server.get("", OBJECT).ok().body, b"replacement");
+    assert_eq!(server.get("", OBJECT).success().body, b"replacement");
 }
 
 #[test]
@@ -513,19 +525,22 @@ fn xml_public_urls_round_trip_raw_encoded_names_without_normalization() {
                 &encode_object_name(name),
                 name.as_bytes(),
             )
-            .ok();
+            .success();
         let url = public_object_url("http://local", "iam-bucket", name).unwrap();
         assert_eq!(
             server
                 .get("", url.strip_prefix("http://local").unwrap())
-                .ok()
+                .success()
                 .body,
             name.as_bytes(),
             "{name}"
         );
     }
-    assert_eq!(server.get("", "/iam-bucket/a+b").ok().body, b"a+b");
-    assert_eq!(server.get("", "/iam-bucket/a/../b").ok().body, b"a/../b");
+    assert_eq!(server.get("", "/iam-bucket/a+b").success().body, b"a+b");
+    assert_eq!(
+        server.get("", "/iam-bucket/a/../b").success().body,
+        b"a/../b"
+    );
     for name in [
         "%",
         "%GG",
@@ -546,14 +561,14 @@ fn xml_public_urls_round_trip_raw_encoded_names_without_normalization() {
     assert_eq!(
         server
             .get("", "/storage/v1/b/iam-bucket/o/object")
-            .ok()
+            .success()
             .json()["name"],
         "object"
     );
     assert_eq!(
         server
             .get("", "/download/storage/v1/b/iam-bucket/o/object?alt=media")
-            .ok()
+            .success()
             .body,
         b"hello world"
     );
@@ -580,7 +595,7 @@ fn xml_invalid_bucket_paths_keep_json_unknown_route_errors() {
 fn xml_bucket_paths_reserve_only_api_namespaces() {
     let (_config, _data, server) = fixture();
     for bucket in ["batch", "storage", "upload", "download"] {
-        server.create_bucket(ADMIN, "project-a", bucket).ok();
+        server.create_bucket(ADMIN, "project-a", bucket).success();
     }
     for (bucket, name) in [
         ("batch", "x"),
@@ -591,18 +606,18 @@ fn xml_bucket_paths_reserve_only_api_namespaces() {
     ] {
         server
             .upload(ADMIN, bucket, &encode_object_name(name), b"bytes")
-            .ok();
+            .success();
         let url = public_object_url("http://local", bucket, name).unwrap();
         assert_eq!(
             server
                 .get(ADMIN, url.strip_prefix("http://local").unwrap())
-                .ok()
+                .success()
                 .body,
             b"bytes"
         );
     }
     let batch = server.get(ADMIN, "/batch/storage/v1");
-    batch.error(400, "badRequest");
+    batch.auth_error(400, "badRequest");
     assert!(
         batch.json()["error"]["message"]
             .as_str()
@@ -616,8 +631,8 @@ fn xml_bucket_paths_reserve_only_api_namespaces() {
             &format!("{ADMIN}Content-Type: multipart/mixed; boundary=batch\r\n"),
             b"not a multipart envelope",
         )
-        .error(400, "badRequest");
-    assert_eq!(server.get(ADMIN, "/batch/x").ok().body, b"bytes");
+        .auth_error(400, "badRequest");
+    assert_eq!(server.get(ADMIN, "/batch/x").success().body, b"bytes");
     for path in [
         "/batch/storage/v1/x",
         "/storage/v1/x",
@@ -636,7 +651,7 @@ fn xml_bucket_paths_reserve_only_api_namespaces() {
 fn xml_unsupported_operations_fail_before_reading_a_body() {
     let (_config, _data, server) = fixture();
     grant(&server, "allUsers", "roles/storage.objectViewer");
-    let before = server.get(ADMIN, JSON_OBJECT).ok().json();
+    let before = server.get(ADMIN, JSON_OBJECT).success().json();
     for (method, path) in [
         ("GET", "/iam-bucket?acl"),
         ("GET", "/iam-bucket/?uploads=unexpected"),
@@ -664,8 +679,8 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
     let uploads = server.get(ADMIN, "/iam-bucket/?uploads");
     assert_eq!(uploads.status, 200);
     assert!(String::from_utf8_lossy(&uploads.body).contains("<ListMultipartUploadsResult"));
-    assert_eq!(server.get(ADMIN, JSON_OBJECT).ok().json(), before);
-    assert_eq!(server.get("", OBJECT).ok().body, b"hello world");
+    assert_eq!(server.get(ADMIN, JSON_OBJECT).success().json(), before);
+    assert_eq!(server.get("", OBJECT).success().body, b"hello world");
 }
 
 #[test]
@@ -691,7 +706,7 @@ fn xml_delete_checks_permissions_conditions_and_empty_body() {
     let request =
         format!("DELETE {OBJECT} HTTP/1.1\r\nHost: local\r\n{ADMIN}Content-Length: 999999\r\n\r\n");
     xml_error(&server.raw(request.as_bytes()), 400, "UnexpectedContent");
-    assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");
+    assert_eq!(server.get(ADMIN, OBJECT).success().body, b"hello world");
     assert_eq!(server.request("DELETE", OBJECT, ADMIN, b"").status, 204);
     xml_error(&server.get(ADMIN, OBJECT), 404, "NoSuchKey");
 }
@@ -702,7 +717,7 @@ fn xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads() {
     grant(&server, "allUsers", "roles/storage.objectViewer");
     server
         .upload(ADMIN, "iam-bucket", "dir%2Ffixture.bin", b"hello world")
-        .ok();
+        .success();
     let headers = concat!(
         "User-Agent: Go-http-client/1.1\r\n",
         "Accept-Encoding: gzip\r\n",
@@ -711,7 +726,7 @@ fn xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads() {
     );
     let path = "/iam-bucket/dir%2Ffixture.bin";
     let reply = server.get(headers, path);
-    assert_eq!(reply.ok().body, b"hello world");
+    assert_eq!(reply.success().body, b"hello world");
     let head = server.request("HEAD", path, headers, b"");
     assert_eq!(head.status, 200);
     assert_eq!(head.headers["content-length"], "11");
@@ -724,9 +739,9 @@ fn xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads() {
     assert_eq!(range.body, b"world");
     server
         .upload(ADMIN, "iam-bucket", "dir%2Ffixture.bin", b"replacement")
-        .ok();
-    assert_eq!(server.get(headers, path).ok().body, b"replacement");
-    iam::set(&server, ADMIN, &json!({"bindings":[]})).ok();
+        .success();
+    assert_eq!(server.get(headers, path).success().body, b"replacement");
+    iam::set(&server, ADMIN, &json!({"bindings":[]})).success();
     xml_error(&server.get(headers, path), 401, "AuthenticationRequired");
 }
 
@@ -755,11 +770,11 @@ fn xml_read_idempotency_tokens_require_one_nonempty_value() {
         );
         assert!(head.body.is_empty());
     }
-    assert_eq!(server.get("", OBJECT).ok().body, b"hello world");
+    assert_eq!(server.get("", OBJECT).success().body, b"hello world");
     assert_eq!(
         server
             .get("x-goog-gcs-idempotency-token: valid\r\n", OBJECT)
-            .ok()
+            .success()
             .body,
         b"hello world"
     );
@@ -821,10 +836,10 @@ fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
             "InvalidArgument",
         );
     }
-    server.get("Unknown-Header: ignored\r\n", OBJECT).ok();
+    server.get("Unknown-Header: ignored\r\n", OBJECT).success();
     server
         .get("x-goog-api-client: gl-go/1.27.3 gccl/1.70.0\r\n", OBJECT)
-        .ok();
+        .success();
     for headers in [
         "x-goog-if-generation-match: invalid\r\n",
         "x-goog-if-generation-match: -1\r\n",
@@ -858,10 +873,10 @@ fn xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly() {
                 ADMIN,
                 json!({"metadata":metadata}).to_string().as_bytes(),
             )
-            .ok();
+            .success();
         xml_error(&server.get("", OBJECT), 400, "InvalidArgument");
         assert_eq!(
-            server.get("", JSON_OBJECT).ok().json()["metadata"],
+            server.get("", JSON_OBJECT).success().json()["metadata"],
             metadata
         );
         let head = server.request("HEAD", OBJECT, "", b"");
@@ -874,13 +889,13 @@ fn xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly() {
 fn xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated() {
     let (_config, _data, server) = fixture();
     assert_eq!(
-        server.get(ADMIN, OBJECT).ok().headers["cache-control"],
+        server.get(ADMIN, OBJECT).success().headers["cache-control"],
         "private, max-age=0"
     );
     assert_eq!(
         server
             .get(ADMIN, &format!("{JSON_OBJECT}?alt=media"))
-            .ok()
+            .success()
             .headers["cache-control"],
         "no-cache, no-store, max-age=0, must-revalidate"
     );
@@ -890,7 +905,7 @@ fn xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticat
         "roles/storage.objectViewer",
     );
     assert_eq!(
-        server.get(NO_ROLES, OBJECT).ok().headers["cache-control"],
+        server.get(NO_ROLES, OBJECT).success().headers["cache-control"],
         "private, max-age=0"
     );
     grant(&server, "allUsers", "roles/storage.objectViewer");
@@ -902,7 +917,7 @@ fn xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticat
         ),
     ] {
         assert_eq!(
-            server.get("", &path).ok().headers["cache-control"],
+            server.get("", &path).success().headers["cache-control"],
             expected
         );
     }
@@ -913,23 +928,23 @@ fn xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticat
             ADMIN,
             br#"{"cacheControl":"public, max-age=60"}"#,
         )
-        .ok();
+        .success();
     assert_eq!(
         server
             .get("Cache-Control: no-store\r\n", OBJECT)
-            .ok()
+            .success()
             .headers["cache-control"],
         "public, max-age=60"
     );
-    iam::set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    iam::set(&server, ADMIN, &json!({"bindings":[]})).success();
     assert_eq!(
-        server.get(ADMIN, OBJECT).ok().headers["cache-control"],
+        server.get(ADMIN, OBJECT).success().headers["cache-control"],
         "public, max-age=60"
     );
     assert_eq!(
         server
             .get(ADMIN, &format!("{JSON_OBJECT}?alt=media"))
-            .ok()
+            .success()
             .headers["cache-control"],
         "no-cache, no-store, max-age=0, must-revalidate"
     );
@@ -939,16 +954,21 @@ fn xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticat
 fn xml_permissive_reads_ignore_credentials_without_granting_public_policy() {
     let data = TestDir::new();
     let (server, _) = Server::start(&data, &[]);
-    server.create_bucket("", "project-a", "iam-bucket").ok();
+    server
+        .create_bucket("", "project-a", "iam-bucket")
+        .success();
     server
         .upload("", "iam-bucket", "object", b"hello world")
-        .ok();
+        .success();
     assert_eq!(
-        server.get("Authorization: nonsense\r\n", OBJECT).ok().body,
+        server
+            .get("Authorization: nonsense\r\n", OBJECT)
+            .success()
+            .body,
         b"hello world"
     );
     assert_eq!(
-        server.get("", OBJECT).ok().headers["cache-control"],
+        server.get("", OBJECT).success().headers["cache-control"],
         "private, max-age=0"
     );
     xml_error(
@@ -977,7 +997,7 @@ fn uniform_access_settings_fail_closed() {
                     .to_string()
                     .as_bytes(),
             )
-            .ok();
+            .success();
         for method in ["PATCH", "PUT"] {
             server
                 .request(
@@ -986,10 +1006,10 @@ fn uniform_access_settings_fail_closed() {
                     ADMIN,
                     json!({"iamConfiguration":setting}).to_string().as_bytes(),
                 )
-                .ok();
+                .success();
         }
     }
-    assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");
+    assert_eq!(server.get(ADMIN, OBJECT).success().body, b"hello world");
     xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");
 }
 
@@ -997,7 +1017,7 @@ fn uniform_access_settings_fail_closed() {
 fn uniform_access_metadata_and_predefined_acl_rejections() {
     let (_config, _data, server) = fixture();
     let path = "/storage/v1/b/iam-bucket";
-    let conflicting = server.request("PATCH", path, ADMIN, br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false},"bucketPolicyOnly":{"enabled":true}}}"#).ok().json();
+    let conflicting = server.request("PATCH", path, ADMIN, br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false},"bucketPolicyOnly":{"enabled":true}}}"#).success().json();
     assert_eq!(
         conflicting["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"],
         false
@@ -1017,7 +1037,7 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
                     .to_string()
                     .as_bytes(),
             )
-            .ok()
+            .success()
             .json();
         assert_eq!(
             result["iamConfiguration"]["uniformBucketLevelAccess"],
@@ -1031,7 +1051,7 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
             ADMIN,
             br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
         )
-        .ok()
+        .success()
         .json();
     let config = &enabled["iamConfiguration"];
     assert_eq!(config["uniformBucketLevelAccess"]["enabled"], true);
@@ -1040,10 +1060,10 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
         config["bucketPolicyOnly"],
         config["uniformBucketLevelAccess"]
     );
-    assert_eq!(server.get(ADMIN, path).ok().json(), enabled);
+    assert_eq!(server.get(ADMIN, path).success().json(), enabled);
     let listed = server
         .get(ADMIN, "/storage/v1/b?project=project-a")
-        .ok()
+        .success()
         .json();
     assert!(
         listed["items"]
@@ -1060,7 +1080,7 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
                 VIEWER,
                 br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}}"#,
             )
-            .error(403, "forbidden");
+            .auth_error(403, "forbidden");
         server
             .request(
                 method,
@@ -1068,11 +1088,11 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
                 ADMIN,
                 br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}}"#,
             )
-            .error(412, "conditionNotMet");
-        server.request(method, path, ADMIN, br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":[]},"bucketPolicyOnly":{"enabled":false}}}"#).error(400, "invalid");
+            .auth_error(412, "conditionNotMet");
+        server.request(method, path, ADMIN, br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":[]},"bucketPolicyOnly":{"enabled":false}}}"#).auth_error(400, "invalid");
         for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
             let reply = server.request(method, &format!("{path}?{key}=publicRead"), ADMIN, b"{}");
-            reply.error(400, "invalid");
+            reply.auth_error(400, "invalid");
             assert!(
                 reply.json()["error"]["message"]
                     .as_str()
@@ -1082,10 +1102,10 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
         }
     }
     for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
-        server.request("POST", &format!("/storage/v1/b?project=project-a&{key}=private"), ADMIN, br#"{"name":"rejected-create","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#).error(400, "invalid");
+        server.request("POST", &format!("/storage/v1/b?project=project-a&{key}=private"), ADMIN, br#"{"name":"rejected-create","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#).auth_error(400, "invalid");
         server
             .get(ADMIN, "/storage/v1/b/rejected-create")
-            .error(404, "notFound");
+            .auth_error(404, "notFound");
     }
     let routes = [
         "/upload/storage/v1/b/iam-bucket/o?uploadType=media&name=rejected&predefinedAcl=publicRead",
@@ -1098,7 +1118,7 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
     ];
     for route in routes {
         let reply = server.request("POST", route, ADMIN, b"{}");
-        reply.error(400, "invalidArgument");
+        reply.auth_error(400, "invalidArgument");
         assert!(
             reply.json()["error"]["message"]
                 .as_str()
@@ -1108,8 +1128,8 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
     }
     server
         .get(ADMIN, "/storage/v1/b/iam-bucket/o/rejected")
-        .error(404, "notFound");
-    assert_eq!(server.get(ADMIN, path).ok().json(), enabled);
+        .auth_error(404, "notFound");
+    assert_eq!(server.get(ADMIN, path).success().json(), enabled);
     server
         .request(
             "PATCH",
@@ -1117,7 +1137,7 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
             ADMIN,
             br#"{"iamConfiguration":{"bucketPolicyOnly":{"enabled":false}}}"#,
         )
-        .ok();
+        .success();
     // Without uniform access uploads apply predefinedAcl; copy, rewrite and compose still
     // reject destinationPredefinedAcl explicitly.
     for route in &routes[3..6] {
@@ -1127,7 +1147,7 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
             gcs_mimic::json::JsonError::unsupported_object("predefinedAcl").reason
         );
     }
-    let terraform = server.request("POST", "/storage/v1/b?project=project-a", ADMIN, br#"{"name":"terraform-ubla","location":"US","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true},"publicAccessPrevention":"enforced"}}"#).ok().json();
+    let terraform = server.request("POST", "/storage/v1/b?project=project-a", ADMIN, br#"{"name":"terraform-ubla","location":"US","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true},"publicAccessPrevention":"enforced"}}"#).success().json();
     assert_eq!(
         terraform["iamConfiguration"]["publicAccessPrevention"],
         "enforced"

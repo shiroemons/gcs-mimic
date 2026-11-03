@@ -12,7 +12,7 @@ async fn live_cli_lost_resolution_response_does_not_retry_a_committed_restore() 
     let item = &page["items"][0];
     let generation = server
         .request("GET", "/storage/v1/b/test-bucket/o/restore", None, b"")
-        .json()["generation"]
+        .json_ok()["generation"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -85,7 +85,7 @@ async fn live_cli_lost_resolution_response_does_not_retry_a_committed_restore() 
     );
     let winner = server
         .request("GET", "/storage/v1/b/test-bucket/o/restore", None, b"")
-        .json();
+        .json_ok();
     assert_eq!(
         winner["generation"],
         accepted["result_generation"].to_string()
@@ -94,7 +94,7 @@ async fn live_cli_lost_resolution_response_does_not_retry_a_committed_restore() 
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/restore", None, b"")
-            .json(),
+            .json_ok(),
         winner
     );
     assert_eq!(

@@ -1,7 +1,8 @@
+use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command, write_request};
+use common::server::{http_command, write_request};
 use serde_json::{Value, json};
 use std::{io::BufReader, net::TcpStream, time::Duration};
 
@@ -35,7 +36,7 @@ impl Server {
     }
 
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 
@@ -419,3 +420,5 @@ fn epoch_seconds(stamp: &str) -> i64 {
     let days = era * 146_097 + day_of_era - 719_468;
     days * 86_400 + field(11..13) * 3600 + field(14..16) * 60 + field(17..19)
 }
+
+declare_server!();

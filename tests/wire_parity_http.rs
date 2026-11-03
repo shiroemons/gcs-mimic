@@ -2,7 +2,7 @@
 //! cache headers, error bodies, JSON formatting and XML documents.
 
 mod common;
-mod ingress_support;
+use common::ingress as ingress_support;
 
 use common::TestDir;
 use ingress_support::{Reply, Server, gzip};

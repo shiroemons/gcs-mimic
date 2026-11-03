@@ -105,7 +105,7 @@ fn signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes() {
     let get = server.get(ADMIN, "/iam-bucket/resumed");
     let mut expected = first;
     expected.extend_from_slice(b"tail!");
-    assert_eq!(get.ok().body, expected);
+    assert_eq!(get.success().body, expected);
     assert_eq!(get.headers["content-type"], "text/plain");
     assert_eq!(get.headers["x-goog-meta-purpose"], "signed resumable");
     assert_eq!(get.headers["x-goog-generation"], generation);
@@ -230,7 +230,7 @@ fn signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorize
             .as_bytes(),
         )
         .unwrap();
-    error(&Reply::read(stream), 403, "SignatureDoesNotMatch");
+    error(&Reply::read_joined(stream), 403, "SignatureDoesNotMatch");
     // Expiry and the signer's own permissions still apply.
     let expired = sign(
         &server,
@@ -293,7 +293,9 @@ fn permissive_xml_resumable_initiation_needs_no_credentials() {
     let data = TestDir::new();
     let (server, ready) = Server::start(&data, &[]);
     assert_eq!(ready["auth_mode"], "permissive");
-    server.create_bucket("", "project-a", "open-bucket").ok();
+    server
+        .create_bucket("", "project-a", "open-bucket")
+        .success();
     let reply = server.request(
         "POST",
         "/open-bucket/dir%2Fobject",
@@ -304,7 +306,7 @@ fn permissive_xml_resumable_initiation_needs_no_credentials() {
     let done = server.request("PUT", &path, "", b"whole body");
     assert_eq!(done.status, 200, "{}", String::from_utf8_lossy(&done.body));
     let get = server.get("", "/open-bucket/dir%2Fobject");
-    assert_eq!(get.ok().body, b"whole body");
+    assert_eq!(get.success().body, b"whole body");
     assert_eq!(get.headers["content-type"], "text/plain");
     // A signed URL is accepted the same way; permissive mode does not verify it.
     let url = sign_start(

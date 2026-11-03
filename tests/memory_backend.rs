@@ -1,6 +1,7 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
-use object_effects_support::{Reply, common, request};
+use object_effects_support::{Reply, request};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -92,7 +93,7 @@ impl Server {
                 .to_string()
                 .as_bytes(),
         )
-        .json();
+        .json_ok();
     }
 
     fn put(&self, body: &[u8]) -> Reply {
@@ -195,11 +196,11 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
         ],
     );
     server.bucket(true);
-    let first = server.put(b"old\0bytes").json();
+    let first = server.put(b"old\0bytes").json_ok();
     let generation = first["generation"].as_str().unwrap();
     server
         .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
-        .error(401, "required");
+        .json_reason(401, "required");
     assert_eq!(
         server
             .request(
@@ -218,7 +219,7 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
             "Authorization: Bearer viewer\r\n",
             b"denied",
         )
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request(
             "POST",
@@ -226,8 +227,8 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
             AUTH,
             b"wrong",
         )
-        .error(412, "conditionNotMet");
-    let second = server.put(b"new bytes").json();
+        .json_reason(412, "conditionNotMet");
+    let second = server.put(b"new bytes").json_ok();
     assert_ne!(first["generation"], second["generation"]);
     assert_eq!(
         server
@@ -255,13 +256,13 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
             AUTH,
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(listed["items"].as_array().unwrap().len(), 2);
     server
         .request("PATCH", OBJECT, AUTH, br#"{"metadata":{"ram":"yes"}}"#)
-        .json();
+        .json_ok();
     assert_eq!(
-        server.request("GET", OBJECT, AUTH, b"").json()["metadata"]["ram"],
+        server.request("GET", OBJECT, AUTH, b"").json_ok()["metadata"]["ram"],
         "yes"
     );
     assert_eq!(
@@ -300,12 +301,12 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
     let independent = Server::start(&data, &[]);
     independent
         .request("GET", OBJECT, "", b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     server.stop();
     let restarted = Server::start(&data, &[]);
     restarted
         .request("GET", OBJECT, "", b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     assert_eq!(fs::read(&data).unwrap(), b"untouched existing data");
 }
 
@@ -329,11 +330,11 @@ fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tok
     );
     server.bucket(true);
     let body = vec![b'x'; 2 * 1024 * 1024 + 7];
-    let source = server.put(&body).json();
+    let source = server.put(&body).json_ok();
     let copy_path = "/storage/v1/b/test-bucket/o/value/copyTo/b/test-bucket/o/copy";
     server
         .request("POST", copy_path, "Authorization: Bearer viewer\r\n", b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request(
             "POST",
@@ -341,7 +342,7 @@ fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tok
             AUTH,
             b"",
         )
-        .error(412, "conditionNotMet");
+        .json_reason(412, "conditionNotMet");
     let copy = server
         .request(
             "POST",
@@ -349,7 +350,7 @@ fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tok
             AUTH,
             br#"{"metadata":{"kind":"copy"}}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(copy["md5Hash"], source["md5Hash"]);
     assert_eq!(copy["crc32c"], source["crc32c"]);
     assert_eq!(copy["metadata"]["kind"], "copy");
@@ -360,9 +361,9 @@ fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tok
             AUTH,
             b"",
         )
-        .error(412, "conditionNotMet");
+        .json_reason(412, "conditionNotMet");
     let composed = server.request("POST", "/storage/v1/b/test-bucket/o/composite/compose?ifGenerationMatch=0", AUTH,
-        json!({"sourceObjects":[{"name":"copy","generation":copy["generation"]},{"name":"value","generation":source["generation"]}],"destination":{"metadata":{"kind":"composite"}}}).to_string().as_bytes()).json();
+        json!({"sourceObjects":[{"name":"copy","generation":copy["generation"]},{"name":"value","generation":source["generation"]}],"destination":{"metadata":{"kind":"composite"}}}).to_string().as_bytes()).json_ok();
     assert_eq!(composed["size"], (body.len() * 2).to_string());
     assert_eq!(composed["componentCount"], 2);
     assert!(composed.get("md5Hash").is_none());
@@ -384,24 +385,27 @@ fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tok
             AUTH,
             br#"{"storageClass":"NEARLINE"}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(first["done"], false);
     assert_eq!(first["totalBytesRewritten"], "1048576");
     let next = format!(
         "{base}?rewriteToken={}",
         first["rewriteToken"].as_str().unwrap()
     );
-    let second = server.request("POST", &next, AUTH, b"").json();
+    let second = server.request("POST", &next, AUTH, b"").json_ok();
     assert_eq!(second["done"], false);
-    assert_eq!(server.request("POST", &next, AUTH, b"").json(), second);
+    assert_eq!(server.request("POST", &next, AUTH, b"").json_ok(), second);
     let last = format!(
         "{base}?rewriteToken={}",
         second["rewriteToken"].as_str().unwrap()
     );
-    let completed = server.request("POST", &last, AUTH, b"").json();
+    let completed = server.request("POST", &last, AUTH, b"").json_ok();
     assert_eq!(completed["done"], true);
     assert_eq!(completed["resource"]["md5Hash"], source["md5Hash"]);
-    assert_eq!(server.request("POST", &last, AUTH, b"").json(), completed);
+    assert_eq!(
+        server.request("POST", &last, AUTH, b"").json_ok(),
+        completed
+    );
     assert_eq!(
         server
             .request(
@@ -437,7 +441,7 @@ fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tok
             AUTH,
             b"",
         )
-        .json();
+        .json_ok();
     assert_ne!(overwritten["generation"], copy["generation"]);
     assert_eq!(
         server
@@ -462,9 +466,9 @@ fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tok
             AUTH,
             disposal,
         )
-        .error(412, "conditionNotMet");
+        .json_reason(412, "conditionNotMet");
     assert_eq!(
-        server.request("GET", OBJECT, AUTH, b"").json()["generation"],
+        server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         source["generation"]
     );
     let disposed = server
@@ -474,14 +478,14 @@ fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tok
             AUTH,
             disposal,
         )
-        .json();
+        .json_ok();
     assert_eq!(disposed["componentCount"], 2);
     server
         .request("GET", OBJECT, AUTH, b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     server
         .request("GET", "/storage/v1/b/test-bucket/o/copy", AUTH, b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     assert!(!data.exists());
     server.stop();
     assert!(!data.exists());
@@ -496,9 +500,9 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
         &["--memory-max-bytes", "260", "--admin-enabled", "true"],
     );
     server.bucket(false);
-    let first = server.put(b"old!").json();
+    let first = server.put(b"old!").json_ok();
     let capacity = server.put(b"new!");
-    capacity.error(503, "backendError");
+    capacity.json_reason(503, "backendError");
     let message: Value = serde_json::from_slice(&capacity.body).unwrap();
     assert!(
         message["error"]["message"]
@@ -507,7 +511,7 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
             .contains("memory_max_bytes")
     );
     assert_eq!(
-        server.request("GET", OBJECT, AUTH, b"").json()["generation"],
+        server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         first["generation"]
     );
     assert_eq!(
@@ -532,9 +536,9 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
                 b"{}"
             },
         );
-        response.error(503, "backendError");
+        response.json_reason(503, "backendError");
         assert_eq!(
-            server.request("GET", OBJECT, AUTH, b"").json()["generation"],
+            server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
             first["generation"]
         );
     }
@@ -565,7 +569,7 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
         503
     );
     assert_eq!(
-        server.request("GET", OBJECT, AUTH, b"").json()["generation"],
+        server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         first["generation"]
     );
     assert_eq!(
@@ -600,7 +604,7 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
         std::thread::yield_now();
     }
     server.bucket(false);
-    server.put(b"next").json();
+    server.put(b"next").json_ok();
     server.stop();
     assert!(!data.exists());
 }
@@ -623,25 +627,25 @@ fn memory_soft_delete_restore_uses_shared_wire_conditions_and_permissions() {
             identities.to_str().unwrap(),
         ],
     );
-    server.request("POST", "/storage/v1/b?project=local", AUTH, json!({"name":"test-bucket", "versioning":{"enabled":true}, "softDeletePolicy":{"retentionDurationSeconds":"604800"}}).to_string().as_bytes()).json();
-    let first = server.put(b"retained body").json();
+    server.request("POST", "/storage/v1/b?project=local", AUTH, json!({"name":"test-bucket", "versioning":{"enabled":true}, "softDeletePolicy":{"retentionDurationSeconds":"604800"}}).to_string().as_bytes()).json_ok();
+    let first = server.put(b"retained body").json_ok();
     let original_generation = first["generation"].as_str().unwrap();
     let selected = format!("{OBJECT}?generation={original_generation}");
     assert_eq!(server.request("DELETE", &selected, AUTH, b"").status, 204);
     let deleted = server
         .request("GET", &format!("{selected}&softDeleted=true"), AUTH, b"")
-        .json();
+        .json_ok();
     assert!(deleted["softDeleteTime"].is_string());
     let restore = format!("{OBJECT}/restore?generation={original_generation}");
     server
         .request("POST", &restore, "", b"")
-        .error(401, "required");
+        .json_reason(401, "required");
     server
         .request("POST", &restore, "Authorization: Bearer viewer\r\n", b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request("POST", &format!("{restore}&copySourceAcl=true"), AUTH, b"")
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
     server
         .request(
             "POST",
@@ -649,10 +653,10 @@ fn memory_soft_delete_restore_uses_shared_wire_conditions_and_permissions() {
             AUTH,
             b"",
         )
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
     let restored = server
         .request("POST", &format!("{restore}&ifGenerationMatch=0"), AUTH, b"")
-        .json();
+        .json_ok();
     assert_ne!(restored["generation"], first["generation"]);
     assert_eq!(restored["metageneration"], "1");
     assert!(restored["softDeleteTime"].is_null());
@@ -668,12 +672,12 @@ fn memory_soft_delete_restore_uses_shared_wire_conditions_and_permissions() {
     assert_eq!(
         server
             .request("GET", &format!("{selected}&softDeleted=true"), AUTH, b"")
-            .json(),
+            .json_ok(),
         deleted
     );
     server
         .request("POST", &format!("{restore}&ifGenerationMatch=0"), AUTH, b"")
-        .error(412, "conditionNotMet");
+        .json_reason(412, "conditionNotMet");
     let again = server
         .request(
             "POST",
@@ -684,7 +688,7 @@ fn memory_soft_delete_restore_uses_shared_wire_conditions_and_permissions() {
             AUTH,
             b"",
         )
-        .json();
+        .json_ok();
     assert_ne!(again["generation"], restored["generation"]);
     let previous = server.request(
         "GET",
@@ -702,13 +706,13 @@ fn memory_soft_delete_restore_uses_shared_wire_conditions_and_permissions() {
     );
     server
         .request("POST", &live_restore, AUTH, b"")
-        .error(412, "objectNotSoftDeleted");
+        .json_reason(412, "objectNotSoftDeleted");
     assert!(!data.exists());
     server.stop();
     let mut fresh = Server::start(&data, &[]);
     fresh
         .request("GET", "/storage/v1/b/test-bucket", "", b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     fresh.stop();
     assert!(!data.exists());
 }
@@ -729,7 +733,7 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
     ];
     let mut server = Server::start(&data, &options);
     server.bucket(true);
-    let original = server.put(b"old bytes").json();
+    let original = server.put(b"old bytes").json_ok();
     let path = |reply: &Reply| {
         assert_eq!(
             reply.status,
@@ -753,7 +757,7 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
     assert_eq!(first.headers["x-http-status-code-override"], "308");
     assert_eq!(first.headers["range"], "bytes=0-262143");
     assert_eq!(
-        server.request("GET", OBJECT, AUTH, b"").json()["generation"],
+        server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         original["generation"]
     );
     let status = server.request("PUT", &session, "Content-Range: bytes */*\r\n", b"");
@@ -787,14 +791,14 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
             AUTH,
             &expected,
         )
-        .json();
+        .json_ok();
     let crc = reference["crc32c"].as_str().unwrap().to_owned();
     let headers = format!(
         "Content-Range: bytes 262144-262151/262152\r\nX-Goog-Hash: crc32c={crc}\r\nX-Goog-Meta-final: yes\r\n"
     );
     let completed = server
         .request("PUT", &session, &headers, b"tailRAM!")
-        .json();
+        .json_ok();
     assert_eq!(completed["crc32c"], crc);
     assert_eq!(completed["metadata"], json!({"origin":"ram","final":"yes"}));
     assert_eq!(completed["contentType"], "application/test");
@@ -802,13 +806,13 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
     assert_eq!(
         server
             .request("PUT", &session, &headers, b"tailRAM!")
-            .json(),
+            .json_ok(),
         completed
     );
     assert_eq!(
         server
             .request("PUT", &session, "Content-Range: bytes */262152\r\n", b"")
-            .json(),
+            .json_ok(),
         completed
     );
     assert_eq!(
@@ -844,7 +848,7 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
         400
     );
     assert_eq!(
-        server.request("GET", OBJECT, AUTH, b"").json()["generation"],
+        server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         completed["generation"]
     );
     assert_eq!(
@@ -897,7 +901,7 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
         ],
     );
     server.bucket(true);
-    let original = server.put(b"old bytes").json();
+    let original = server.put(b"old bytes").json_ok();
     let begin = || {
         let reply = server.request(
             "POST",
@@ -966,7 +970,7 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
         400
     );
     assert_eq!(
-        server.request("GET", OBJECT, AUTH, b"").json()["generation"],
+        server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         original["generation"]
     );
     let completed = server.request("POST", &target, AUTH, manifest(&etag).as_bytes());
@@ -976,7 +980,7 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
         "{}",
         String::from_utf8_lossy(&completed.body)
     );
-    let metadata = server.request("GET", OBJECT, AUTH, b"").json();
+    let metadata = server.request("GET", OBJECT, AUTH, b"").json_ok();
     assert!(metadata.get("md5Hash").is_none());
     assert!(metadata.get("componentCount").is_none());
     assert_eq!(metadata["metadata"]["kind"], "ram-multipart");
@@ -1008,7 +1012,7 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
         404
     );
     assert_eq!(
-        server.request("GET", OBJECT, AUTH, b"").json()["generation"],
+        server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         metadata["generation"]
     );
     let copied = server
@@ -1018,7 +1022,7 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
             AUTH,
             b"",
         )
-        .json();
+        .json_ok();
     assert!(copied.get("md5Hash").is_some());
     assert_eq!(copied["crc32c"], metadata["crc32c"]);
     let cancelled = begin();
@@ -1032,7 +1036,7 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
     assert_eq!(server.request("DELETE", &cancelled, AUTH, b"").status, 204);
     assert_eq!(server.request("GET", &cancelled, AUTH, b"").status, 404);
     assert_eq!(
-        server.request("GET", OBJECT, AUTH, b"").json()["generation"],
+        server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         metadata["generation"]
     );
     assert!(!data.exists());
@@ -1091,7 +1095,7 @@ fn memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exh
     }
     let bucket = server
         .request("GET", "/storage/v1/b/test-bucket", AUTH, b"")
-        .json();
+        .json_ok();
     assert_ne!(
         bucket["softDeletePolicy"]["retentionDurationSeconds"],
         "604800"
@@ -1109,7 +1113,7 @@ fn memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_nam
     server.bucket(false);
     let bucket = server
         .request("GET", "/storage/v1/b/test-bucket", AUTH, b"")
-        .json();
+        .json_ok();
     assert_eq!(
         bucket["softDeletePolicy"]["retentionDurationSeconds"],
         "604800"
@@ -1125,7 +1129,7 @@ fn memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_nam
         assert_eq!(server.request("DELETE", OBJECT, AUTH, b"").status, 204);
     }
     let exhausted = exhausted.expect("retained soft-deleted data must exhaust the small budget");
-    exhausted.error(503, "backendError");
+    exhausted.json_reason(503, "backendError");
     let message: Value = serde_json::from_slice(&exhausted.body).unwrap();
     let message = message["error"]["message"].as_str().unwrap();
     for needle in [

@@ -154,7 +154,7 @@ fn legacy_headers_sign_response_overrides_while_google_query_retains_documented_
     let key = server.key("signer@example.invalid");
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     for kind in ["GOOG1", "AWS"] {
         let request = header(
             &key,
@@ -217,7 +217,7 @@ fn legacy_headers_sign_response_overrides_while_google_query_retains_documented_
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-            .json(),
+            .json_ok(),
         before
     );
     let request = query_resource(
@@ -244,7 +244,7 @@ fn legacy_headers_cannot_retarget_the_unsigned_generation_to_read_or_delete_priv
             ADMIN,
             br#"{"versioning":{"enabled":true}}"#,
         )
-        .json();
+        .json_ok();
     server.request(
         "PUT",
         "/test-bucket/object",
@@ -253,7 +253,7 @@ fn legacy_headers_cannot_retarget_the_unsigned_generation_to_read_or_delete_priv
     );
     let old = server
         .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     let generation = old["generation"].as_str().unwrap();
     server.request("PUT", "/test-bucket/object", ADMIN, b"latest generation");
     assert_eq!(
@@ -269,7 +269,7 @@ fn legacy_headers_cannot_retarget_the_unsigned_generation_to_read_or_delete_priv
     );
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     let versions = server
         .request(
             "GET",
@@ -277,7 +277,7 @@ fn legacy_headers_cannot_retarget_the_unsigned_generation_to_read_or_delete_priv
             ADMIN,
             b"",
         )
-        .json();
+        .json_ok();
     let key = server.key("signer@example.invalid");
     for kind in ["GOOG1", "AWS"] {
         for method in ["GET", "HEAD", "DELETE"] {
@@ -300,7 +300,7 @@ fn legacy_headers_cannot_retarget_the_unsigned_generation_to_read_or_delete_priv
             assert_eq!(
                 server
                     .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-                    .json(),
+                    .json_ok(),
                 before
             );
             assert_eq!(
@@ -311,7 +311,7 @@ fn legacy_headers_cannot_retarget_the_unsigned_generation_to_read_or_delete_priv
                         ADMIN,
                         b""
                     )
-                    .json(),
+                    .json_ok(),
                 versions
             );
         }
@@ -478,7 +478,7 @@ fn legacy_queries_and_headers_recheck_key_state_restart_and_never_borrow_key_pro
     let keys = "Authorization: Bearer keys\r\n";
     server
         .request("PUT", &path, keys, br#"{"state":"INACTIVE"}"#)
-        .json();
+        .json_ok();
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         error(
             &send(
@@ -494,7 +494,7 @@ fn legacy_queries_and_headers_recheck_key_state_restart_and_never_borrow_key_pro
     }
     server
         .request("PUT", &path, keys, br#"{"state":"ACTIVE"}"#)
-        .json();
+        .json_ok();
     server.stop();
     drop(server);
     let server = Server::start(&dir, "disk");
@@ -513,7 +513,7 @@ fn legacy_queries_and_headers_recheck_key_state_restart_and_never_borrow_key_pro
     }
     server
         .request("PUT", &path, keys, br#"{"state":"INACTIVE"}"#)
-        .json();
+        .json_ok();
     assert_eq!(server.request("DELETE", &path, keys, b"").status, 204);
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         error(
@@ -554,16 +554,16 @@ fn legacy_signatures_keep_public_failures_closed_and_preserve_complete_old_resou
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["allUsers"]}]}"#,
         )
-        .json();
+        .json_ok();
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     let list = server
         .request("GET", "/storage/v1/b/test-bucket/o", ADMIN, b"")
-        .json();
+        .json_ok();
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         let json = signed(lane, &key, "GET", "/storage/v1/b/test-bucket/o/object", &[]);
-        send(&server, "GET", &json, b"", "localhost").error(401, "authError");
+        send(&server, "GET", &json, b"", "localhost").json_reason(401, "authError");
         let mut unknown = signed(lane, &key, "GET", "/test-bucket/object", &[]);
         unknown.path = unknown.path.replace(&key.id, "unknown-access-key");
         unknown.headers = unknown.headers.replace(&key.id, "unknown-access-key");
@@ -649,13 +649,13 @@ fn legacy_signatures_keep_public_failures_closed_and_preserve_complete_old_resou
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-                .json(),
+                .json_ok(),
             before
         );
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/test-bucket/o", ADMIN, b"")
-                .json(),
+                .json_ok(),
             list
         );
         assert_eq!(
@@ -671,7 +671,7 @@ fn legacy_signatures_keep_public_failures_closed_and_preserve_complete_old_resou
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-            .json(),
+            .json_ok(),
         before
     );
     assert_eq!(
@@ -702,7 +702,7 @@ fn legacy_registered_signers_use_current_acl_iam_pap_and_ubla_without_implicit_g
             ADMIN,
             br#"{"entity":"user-scoped@example.invalid","role":"READER"}"#,
         )
-        .json();
+        .json_ok();
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         assert_eq!(
             send(
@@ -734,7 +734,7 @@ fn legacy_registered_signers_use_current_acl_iam_pap_and_ubla_without_implicit_g
             ADMIN,
             br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
         )
-        .json();
+        .json_ok();
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         assert_eq!(
             send(
@@ -755,7 +755,7 @@ fn legacy_registered_signers_use_current_acl_iam_pap_and_ubla_without_implicit_g
             ADMIN,
             br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
         )
-        .json();
+        .json_ok();
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         error(
             &send(
@@ -769,7 +769,7 @@ fn legacy_registered_signers_use_current_acl_iam_pap_and_ubla_without_implicit_g
             "AccessDenied",
         );
     }
-    server.request("PUT","/storage/v1/b/test-bucket/iam",ADMIN,br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json();
+    server.request("PUT","/storage/v1/b/test-bucket/iam",ADMIN,br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json_ok();
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         assert_eq!(
             send(
@@ -785,7 +785,7 @@ fn legacy_registered_signers_use_current_acl_iam_pap_and_ubla_without_implicit_g
     }
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     server
         .request(
             "PUT",
@@ -793,7 +793,7 @@ fn legacy_registered_signers_use_current_acl_iam_pap_and_ubla_without_implicit_g
             ADMIN,
             br#"{"bindings":[]}"#,
         )
-        .json();
+        .json_ok();
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         error(
             &send(
@@ -810,7 +810,7 @@ fn legacy_registered_signers_use_current_acl_iam_pap_and_ubla_without_implicit_g
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-            .json(),
+            .json_ok(),
         before
     );
     assert_eq!(

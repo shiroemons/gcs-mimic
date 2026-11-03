@@ -13,7 +13,7 @@ fn setting(server: &Server, state: &str) -> Value {
                 .to_string()
                 .as_bytes(),
         )
-        .ok()
+        .success()
         .json()
 }
 
@@ -41,14 +41,14 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
                 ADMIN,
                 create.to_string().as_bytes(),
             )
-            .ok()
+            .success()
             .json();
         assert_eq!(
             created["iamConfiguration"],
             json!({"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":false},"bucketPolicyOnly":{"enabled":false}})
         );
-        assert_eq!(server.get(ADMIN, BUCKET).ok().json(), created);
-        assert_eq!(server.get(ADMIN, "/storage/v1/b?project=project-a&fields=items(iamConfiguration/publicAccessPrevention)").ok().json(),
+        assert_eq!(server.get(ADMIN, BUCKET).success().json(), created);
+        assert_eq!(server.get(ADMIN, "/storage/v1/b?project=project-a&fields=items(iamConfiguration/publicAccessPrevention)").success().json(),
             json!({"items":[{"iamConfiguration":{"publicAccessPrevention":"enforced"}}]}));
         assert_eq!(
             server
@@ -56,12 +56,12 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
                     ADMIN,
                     &format!("{BUCKET}?fields=iamConfiguration/publicAccessPrevention")
                 )
-                .ok()
+                .success()
                 .json(),
             json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}})
         );
         for method in ["PATCH", "PUT"] {
-            let before = server.get(ADMIN, BUCKET).ok().json();
+            let before = server.get(ADMIN, BUCKET).success().json();
             let not_match = format!(
                 "ifMetagenerationNotMatch={}",
                 before["metageneration"].as_str().unwrap()
@@ -85,7 +85,7 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
                         "conditionNotMet"
                     );
                 }
-                assert_eq!(server.get(ADMIN, BUCKET).ok().json(), before);
+                assert_eq!(server.get(ADMIN, BUCKET).success().json(), before);
             }
             let meta = before["metageneration"]
                 .as_str()
@@ -93,7 +93,7 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
                 .parse::<i64>()
                 .unwrap();
             let response = server.request(method, &format!("{BUCKET}?ifMetagenerationMatch={meta}&fields=iamConfiguration,metageneration"), ADMIN,
-                br#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#).ok().json();
+                br#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#).success().json();
             assert_eq!(
                 response,
                 json!({"iamConfiguration":{"publicAccessPrevention":"inherited","uniformBucketLevelAccess":{"enabled":false},"bucketPolicyOnly":{"enabled":false}},"metageneration":(meta+1).to_string()})
@@ -107,13 +107,13 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
                 ADMIN,
                 br#"{"iamConfiguration":{"future":true}}"#,
             )
-            .ok()
+            .success()
             .json();
         assert_eq!(
             patched["iamConfiguration"]["publicAccessPrevention"],
             "enforced"
         );
-        let replaced = server.request("PUT", BUCKET, ADMIN, b"{}").ok().json();
+        let replaced = server.request("PUT", BUCKET, ADMIN, b"{}").success().json();
         assert_eq!(
             replaced["iamConfiguration"]["publicAccessPrevention"],
             "enforced"
@@ -121,10 +121,15 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
         let before = setting(&server, "enforced");
         server.stop();
         let (server, _) = Server::start(&data, &args);
-        assert_eq!(server.get(ADMIN, BUCKET).ok().json(), before);
-        server.create_bucket(ADMIN, "project-a", "default-pap").ok();
+        assert_eq!(server.get(ADMIN, BUCKET).success().json(), before);
+        server
+            .create_bucket(ADMIN, "project-a", "default-pap")
+            .success();
         assert_eq!(
-            server.get(ADMIN, "/storage/v1/b/default-pap").ok().json()["iamConfiguration"]["publicAccessPrevention"],
+            server
+                .get(ADMIN, "/storage/v1/b/default-pap")
+                .success()
+                .json()["iamConfiguration"]["publicAccessPrevention"],
             "inherited"
         );
     }
@@ -133,7 +138,7 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
 #[test]
 fn pap_invalid_and_unsupported_settings_preserve_resources() {
     let (_config, _data, server) = fixture();
-    let before = server.get(ADMIN, BUCKET).ok().json();
+    let before = server.get(ADMIN, BUCKET).success().json();
     for method in ["PATCH", "PUT", "POST"] {
         for value in [
             json!(false),
@@ -157,11 +162,11 @@ fn pap_invalid_and_unsupported_settings_preserve_resources() {
             };
             server
                 .request(method, path, ADMIN, body.to_string().as_bytes())
-                .error(400, "invalid");
-            assert_eq!(server.get(ADMIN, BUCKET).ok().json(), before);
+                .auth_error(400, "invalid");
+            assert_eq!(server.get(ADMIN, BUCKET).success().json(), before);
             server
                 .get(ADMIN, "/storage/v1/b/invalid-pap")
-                .error(404, "notFound");
+                .auth_error(404, "notFound");
         }
         for field in ["uniformBucketLevelAccess", "bucketPolicyOnly"] {
             for value in [json!({"enabled":[]}), json!({"enabled":"false"})] {
@@ -177,8 +182,8 @@ fn pap_invalid_and_unsupported_settings_preserve_resources() {
                 }
                 server
                     .request(method, path, ADMIN, body.to_string().as_bytes())
-                    .error(400, "invalid");
-                assert_eq!(server.get(ADMIN, BUCKET).ok().json(), before);
+                    .auth_error(400, "invalid");
+                assert_eq!(server.get(ADMIN, BUCKET).success().json(), before);
             }
         }
     }
@@ -192,7 +197,7 @@ fn pap_invalid_and_unsupported_settings_preserve_resources() {
                 ADMIN,
                 json!({"iamConfiguration":value}).to_string().as_bytes(),
             )
-            .ok()
+            .success()
             .json();
         assert_eq!(patched["iamConfiguration"], before["iamConfiguration"]);
     }
@@ -213,16 +218,16 @@ fn pap_disabled_uniform_access_noop_matches_python_client() {
         }
         let result = server
             .request(method, path, ADMIN, body.to_string().as_bytes())
-            .ok()
+            .success()
             .json();
         assert_eq!(
             result["iamConfiguration"]["publicAccessPrevention"],
             "enforced"
         );
     }
-    server.request("PATCH", BUCKET, ADMIN, br#"{"iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"publicAccessPrevention":"inherited"}}"#).ok();
+    server.request("PATCH", BUCKET, ADMIN, br#"{"iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"publicAccessPrevention":"inherited"}}"#).success();
     assert_eq!(
-        server.get(ADMIN, BUCKET).ok().json()["iamConfiguration"]["publicAccessPrevention"],
+        server.get(ADMIN, BUCKET).success().json()["iamConfiguration"]["publicAccessPrevention"],
         "inherited"
     );
 }
@@ -236,11 +241,11 @@ fn pap_resumable_finalization_rechecks_public_initiator() {
             ADMIN,
             &json!({"bindings":[iam::binding("roles/storage.objectAdmin",member)]}),
         )
-        .ok();
+        .success();
         let caller = if member == "allUsers" { "" } else { NO_ROLES };
         let before = server
             .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-            .ok()
+            .success()
             .json();
         let admitted = server.request(
             "POST",
@@ -248,23 +253,23 @@ fn pap_resumable_finalization_rechecks_public_initiator() {
             &format!("{caller}Content-Type: application/json\r\n"),
             b"{}",
         );
-        admitted.ok();
+        admitted.success();
         let location: Uri = admitted.headers["location"].parse().unwrap();
         let path = location.path_and_query().unwrap().as_str();
         setting(&server, "enforced");
         // The session URI is a capability, but publication still checks its initiating principal.
         server
             .request("PUT", path, "Content-Range: bytes 0-2/3\r\n", b"new")
-            .error(403, "forbidden");
+            .auth_error(403, "forbidden");
         assert_eq!(
             server
                 .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-                .ok()
+                .success()
                 .json(),
             before
         );
         assert_eq!(
-            server.get(ADMIN, "/iam-bucket/object").ok().body,
+            server.get(ADMIN, "/iam-bucket/object").success().body,
             b"hello world"
         );
     }
@@ -277,15 +282,15 @@ fn pap_copy_rewrite_compose_recheck_public_source_and_destination_grants() {
             let (_config, _data, server) = fixture();
             server
                 .create_bucket(ADMIN, "project-a", "destination-bucket")
-                .ok();
+                .success();
             let payload = vec![b'x'; 1048576 + 7];
             let source = server
                 .upload(ADMIN, "iam-bucket", "source", &payload)
-                .ok()
+                .success()
                 .json();
             let destination = server
                 .upload(ADMIN, "destination-bucket", "destination", b"old")
-                .ok()
+                .success()
                 .json();
             for bucket in ["iam-bucket", "destination-bucket"] {
                 server
@@ -297,7 +302,7 @@ fn pap_copy_rewrite_compose_recheck_public_source_and_destination_grants() {
                             .to_string()
                             .as_bytes(),
                     )
-                    .ok();
+                    .success();
             }
             let caller = if member == "allUsers" { "" } else { NO_ROLES };
             let base = "/storage/v1/b/iam-bucket/o/source";
@@ -310,7 +315,7 @@ fn pap_copy_rewrite_compose_recheck_public_source_and_destination_grants() {
                     caller,
                     br#"{"storageClass":"NEARLINE"}"#,
                 )
-                .ok()
+                .success()
                 .json();
             assert_eq!(initial["done"], false);
             let token = initial["rewriteToken"].as_str().unwrap();
@@ -321,7 +326,7 @@ fn pap_copy_rewrite_compose_recheck_public_source_and_destination_grants() {
                     ADMIN,
                     br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
                 )
-                .ok();
+                .success();
             let (status, reason) = if caller.is_empty() {
                 (401, "required")
             } else {
@@ -334,29 +339,32 @@ fn pap_copy_rewrite_compose_recheck_public_source_and_destination_grants() {
             ] {
                 server
                     .request("POST", &path, caller, b"{}")
-                    .error(status, reason);
+                    .auth_error(status, reason);
             }
             server.request("POST", &format!("/storage/v1/b/{enforced_bucket}/o/composed/compose"), caller,
-                json!({"deleteSourceObjects":true,"sourceObjects":[{"name":if enforced_bucket == "iam-bucket" {"source"} else {"destination"}}]}).to_string().as_bytes()).error(status, reason);
+                json!({"deleteSourceObjects":true,"sourceObjects":[{"name":if enforced_bucket == "iam-bucket" {"source"} else {"destination"}}]}).to_string().as_bytes()).auth_error(status, reason);
             assert_eq!(
                 server
                     .get(ADMIN, "/storage/v1/b/iam-bucket/o/source")
-                    .ok()
+                    .success()
                     .json(),
                 source
             );
-            assert_eq!(server.get(ADMIN, "/iam-bucket/source").ok().body, payload);
+            assert_eq!(
+                server.get(ADMIN, "/iam-bucket/source").success().body,
+                payload
+            );
             assert_eq!(
                 server
                     .get(ADMIN, "/storage/v1/b/destination-bucket/o/destination")
-                    .ok()
+                    .success()
                     .json(),
                 destination
             );
             assert_eq!(
                 server
                     .get(ADMIN, "/destination-bucket/destination")
-                    .ok()
+                    .success()
                     .body,
                 b"old"
             );
@@ -365,7 +373,7 @@ fn pap_copy_rewrite_compose_recheck_public_source_and_destination_grants() {
                     ADMIN,
                     &format!("/storage/v1/b/{enforced_bucket}/o/composed"),
                 )
-                .error(404, "notFound");
+                .auth_error(404, "notFound");
         }
     }
 }
@@ -379,19 +387,19 @@ fn pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates() {
             ADMIN,
             &json!({"bindings":[iam::binding("roles/storage.admin",member)]}),
         )
-        .ok()
+        .success()
         .json();
         let auth = if member == "allUsers" { "" } else { NO_ROLES };
         assert_eq!(
-            server.get(auth, "/iam-bucket/object").ok().body,
+            server.get(auth, "/iam-bucket/object").success().body,
             b"hello world"
         );
         server
             .upload(auth, "iam-bucket", "public-json", b"public")
-            .ok();
+            .success();
         server
             .request("PUT", "/iam-bucket/public-xml", auth, b"public")
-            .ok();
+            .success();
         setting(&server, "enforced");
         server
             .request(
@@ -400,7 +408,7 @@ fn pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates() {
                 auth,
                 br#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#,
             )
-            .error(
+            .auth_error(
                 if auth.is_empty() { 401 } else { 403 },
                 if auth.is_empty() {
                     "required"
@@ -415,7 +423,7 @@ fn pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates() {
                 "/storage/v1/b/iam-bucket/o",
             ] {
                 let reply = server.get(caller, path);
-                reply.error(
+                reply.auth_error(
                     if caller.is_empty() { 401 } else { 403 },
                     if caller.is_empty() {
                         "required"
@@ -442,43 +450,43 @@ fn pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates() {
             assert_eq!(reply.status, if caller.is_empty() { 401 } else { 403 });
         }
         assert_eq!(
-            server.get(VIEWER, "/iam-bucket/object").ok().body,
+            server.get(VIEWER, "/iam-bucket/object").success().body,
             b"hello world"
         );
         assert_eq!(
             server
                 .get(VIEWER, "/storage/v1/b/iam-bucket/o/object?alt=media")
-                .ok()
+                .success()
                 .headers["cache-control"],
             "no-cache, no-store, max-age=0, must-revalidate"
         );
         server
             .upload(CREATOR, "iam-bucket", "bearer", b"allowed")
-            .ok();
-        assert_eq!(server.get(ADMIN, iam::IAM).ok().json(), policy);
-        iam::set(&server, ADMIN, &policy).error(412, "conditionNotMet");
-        assert_eq!(server.get(ADMIN, iam::IAM).ok().json(), policy);
+            .success();
+        assert_eq!(server.get(ADMIN, iam::IAM).success().json(), policy);
+        iam::set(&server, ADMIN, &policy).auth_error(412, "conditionNotMet");
+        assert_eq!(server.get(ADMIN, iam::IAM).success().json(), policy);
         for public in ["allUsers", "allAuthenticatedUsers"] {
             iam::set(
                 &server,
                 ADMIN,
                 &json!({"bindings":[iam::binding("roles/storage.objectViewer",public)]}),
             )
-            .error(412, "conditionNotMet");
+            .auth_error(412, "conditionNotMet");
         }
         setting(&server, "inherited");
         assert_eq!(
-            server.get(auth, "/iam-bucket/object").ok().body,
+            server.get(auth, "/iam-bucket/object").success().body,
             b"hello world"
         );
         server
             .upload(auth, "iam-bucket", "reactivated", b"again")
-            .ok();
-        assert_eq!(server.get(ADMIN, iam::IAM).ok().json(), policy);
+            .success();
+        assert_eq!(server.get(ADMIN, iam::IAM).success().json(), policy);
         setting(&server, "enforced");
-        iam::set(&server,ADMIN,&json!({"bindings":[iam::binding("roles/storage.objectViewer","user:no-roles@example.invalid")]})).ok();
+        iam::set(&server,ADMIN,&json!({"bindings":[iam::binding("roles/storage.objectViewer","user:no-roles@example.invalid")]})).success();
         assert_eq!(
-            server.get(NO_ROLES, "/iam-bucket/object").ok().body,
+            server.get(NO_ROLES, "/iam-bucket/object").success().body,
             b"hello world"
         );
     }
@@ -492,10 +500,10 @@ fn pap_signed_requests_suppress_all_authenticated_users_grants() {
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectAdmin","allAuthenticatedUsers")]}),
     )
-    .ok();
+    .success();
     let before = server
         .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-        .ok()
+        .success()
         .json();
     let urls: Vec<_> = [Method::GET, Method::HEAD, Method::PUT]
         .into_iter()
@@ -511,7 +519,7 @@ fn pap_signed_requests_suppress_all_authenticated_users_grants() {
             (method, url)
         })
         .collect();
-    send(&server, "GET", &urls[0].1, "").ok();
+    send(&server, "GET", &urls[0].1, "").success();
     setting(&server, "enforced");
     for (method, url) in urls {
         let reply = put::request(
@@ -533,12 +541,12 @@ fn pap_signed_requests_suppress_all_authenticated_users_grants() {
     assert_eq!(
         server
             .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-            .ok()
+            .success()
             .json(),
         before
     );
     assert_eq!(
-        server.get(ADMIN, "/iam-bucket/object").ok().body,
+        server.get(ADMIN, "/iam-bucket/object").success().body,
         b"hello world"
     );
 }
@@ -551,7 +559,7 @@ fn pap_signed_get_head_put_use_signer_grants_and_reject_tampering() {
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectAdmin","allUsers")]}),
     )
-    .ok();
+    .success();
     let now = SystemTime::now();
     let public_signer = sign(
         &server,
@@ -561,7 +569,7 @@ fn pap_signed_get_head_put_use_signer_grants_and_reject_tampering() {
         now,
         HeaderMap::new(),
     );
-    send(&server, "GET", &public_signer, "").ok();
+    send(&server, "GET", &public_signer, "").success();
     setting(&server, "enforced");
     error(
         &send(&server, "GET", &public_signer, ""),
@@ -578,7 +586,7 @@ fn pap_signed_get_head_put_use_signer_grants_and_reject_tampering() {
             HeaderMap::new(),
         );
         let reply = send(&server, method.as_str(), &url, "");
-        reply.ok();
+        reply.success();
         assert_eq!(
             reply.body,
             if method == Method::HEAD {
@@ -607,7 +615,7 @@ fn pap_signed_get_head_put_use_signer_grants_and_reject_tampering() {
     }
     let before = server
         .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-        .ok()
+        .success()
         .json();
     let url = sign(
         &server,
@@ -625,17 +633,17 @@ fn pap_signed_get_head_put_use_signer_grants_and_reject_tampering() {
     assert_eq!(
         server
             .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-            .ok()
+            .success()
             .json(),
         before
     );
     assert_eq!(
-        server.get(ADMIN, "/iam-bucket/object").ok().body,
+        server.get(ADMIN, "/iam-bucket/object").success().body,
         b"signed bytes"
     );
-    iam::set(&server,ADMIN,&json!({"bindings":[iam::binding("roles/storage.objectAdmin","user:no-roles@example.invalid")]})).ok();
+    iam::set(&server,ADMIN,&json!({"bindings":[iam::binding("roles/storage.objectAdmin","user:no-roles@example.invalid")]})).success();
     assert_eq!(
-        send(&server, "GET", &public_signer, "").ok().body,
+        send(&server, "GET", &public_signer, "").success().body,
         b"signed bytes"
     );
 }
@@ -648,11 +656,11 @@ fn pap_parent_fixture_inheritance_restart_and_release() {
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectAdmin","allUsers")]}),
     )
-    .ok()
+    .success()
     .json();
     server
         .create_bucket(ADMIN, "project-b", "explicit-pap")
-        .ok();
+        .success();
     server
         .request(
             "PATCH",
@@ -660,7 +668,7 @@ fn pap_parent_fixture_inheritance_restart_and_release() {
             ADMIN,
             br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
         )
-        .ok();
+        .success();
     server.stop();
     let path = config.0.join("identities.json");
     let mut value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -668,12 +676,12 @@ fn pap_parent_fixture_inheritance_restart_and_release() {
     std::fs::write(&path, value.to_string()).unwrap();
     let mut server = Server::strict(&data, &path);
     assert_eq!(
-        server.get(ADMIN, BUCKET).ok().json()["iamConfiguration"]["publicAccessPrevention"],
+        server.get(ADMIN, BUCKET).success().json()["iamConfiguration"]["publicAccessPrevention"],
         "inherited"
     );
-    assert_eq!(server.get(ADMIN, iam::IAM).ok().json(), policy);
+    assert_eq!(server.get(ADMIN, iam::IAM).success().json(), policy);
     assert_eq!(server.get("", "/iam-bucket/object").status, 401);
-    iam::set(&server, ADMIN, &policy).error(412, "conditionNotMet");
+    iam::set(&server, ADMIN, &policy).auth_error(412, "conditionNotMet");
     setting(&server, "enforced");
     setting(&server, "inherited");
     assert_eq!(server.get("", "/iam-bucket/object").status, 401);
@@ -685,7 +693,10 @@ fn pap_parent_fixture_inheritance_restart_and_release() {
         SystemTime::now(),
         HeaderMap::new(),
     );
-    assert_eq!(send(&server, "GET", &url, "").ok().body, b"hello world");
+    assert_eq!(
+        send(&server, "GET", &url, "").success().body,
+        b"hello world"
+    );
     let url = sign(
         &server,
         &Method::PUT,
@@ -694,10 +705,10 @@ fn pap_parent_fixture_inheritance_restart_and_release() {
         SystemTime::now(),
         HeaderMap::new(),
     );
-    put::request(&server, "PUT", &url, "", b"parent signed").ok();
+    put::request(&server, "PUT", &url, "", b"parent signed").success();
     server
         .create_bucket(ADMIN, "project-a", "new-inherited")
-        .ok();
+        .success();
     server
         .request(
             "PUT",
@@ -705,8 +716,10 @@ fn pap_parent_fixture_inheritance_restart_and_release() {
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
         )
-        .error(412, "conditionNotMet");
-    server.create_bucket(ADMIN, "project-b", "unaffected").ok();
+        .auth_error(412, "conditionNotMet");
+    server
+        .create_bucket(ADMIN, "project-b", "unaffected")
+        .success();
     server
         .request(
             "PUT",
@@ -714,18 +727,21 @@ fn pap_parent_fixture_inheritance_restart_and_release() {
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
         )
-        .ok();
+        .success();
     server.stop();
     value["public_access_prevention_projects"] = json!([]);
     std::fs::write(&path, value.to_string()).unwrap();
     let server = Server::strict(&data, &path);
     assert_eq!(
-        server.get("", "/iam-bucket/object").ok().body,
+        server.get("", "/iam-bucket/object").success().body,
         b"hello world"
     );
-    assert_eq!(server.get(ADMIN, iam::IAM).ok().json(), policy);
+    assert_eq!(server.get(ADMIN, iam::IAM).success().json(), policy);
     assert_eq!(
-        server.get(ADMIN, "/storage/v1/b/explicit-pap").ok().json()["iamConfiguration"]["publicAccessPrevention"],
+        server
+            .get(ADMIN, "/storage/v1/b/explicit-pap")
+            .success()
+            .json()["iamConfiguration"]["publicAccessPrevention"],
         "enforced"
     );
     server
@@ -735,5 +751,5 @@ fn pap_parent_fixture_inheritance_restart_and_release() {
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
         )
-        .error(412, "conditionNotMet");
+        .auth_error(412, "conditionNotMet");
 }

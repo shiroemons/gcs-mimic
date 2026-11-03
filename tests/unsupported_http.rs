@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Server, common::TestDir};
 use serde_json::{Value, json};
@@ -86,7 +87,7 @@ fn unsupported_google_routes_and_inputs() {
             "",
             b"{}",
         );
-        reply.error(400, "badRequest");
+        reply.json_reason(400, "badRequest");
         let value: Value = serde_json::from_slice(&reply.body).unwrap();
         let message = value["error"]["message"].as_str().unwrap();
         assert!(
@@ -102,7 +103,7 @@ fn unsupported_google_routes_and_inputs() {
             .to_string()
             .as_bytes(),
     );
-    reply.error(400, "badRequest");
+    reply.json_reason(400, "badRequest");
     assert!(String::from_utf8_lossy(&reply.body).contains("website"));
     server
         .request(
@@ -111,13 +112,13 @@ fn unsupported_google_routes_and_inputs() {
             "",
             b"",
         )
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
     server
         .request("GET", "/storage/v1/b/rejected-bucket", "", b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     server
         .request("GET", "/storage/v1/b/test-bucket/o/missing", "", b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     for path in ["/_internal/unknown", "/storage/v1/b/test-bucket/unknown"] {
         assert_eq!(server.request("GET", path, "", b"").status, 404);
     }
@@ -130,7 +131,7 @@ fn unsupported_google_routes_and_inputs() {
             "Authorization: Bearer unknown\r\n",
             b"",
         )
-        .error(401, "authError");
+        .json_reason(401, "authError");
     strict
         .request(
             "GET",
@@ -138,5 +139,5 @@ fn unsupported_google_routes_and_inputs() {
             "Authorization: Bearer admin\r\n",
             b"",
         )
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
 }

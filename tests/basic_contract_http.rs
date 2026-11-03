@@ -1,7 +1,8 @@
+use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Reply, Server, http_command, write_request};
+use common::server::{Reply, http_command, write_request};
 use serde_json::{Value, json};
 use std::{net::TcpStream, time::Duration};
 
@@ -34,7 +35,7 @@ impl Server {
             &format!("{headers}Connection: close\r\n"),
             body,
         );
-        Reply::read(stream)
+        Reply::framed(stream)
     }
 
     fn bucket(&self, name: &str) -> Value {
@@ -43,7 +44,7 @@ impl Server {
             "/storage/v1/b?project=local",
             "Content-Type: application/json\r\n",
             json!({"name":name, "storageClass":"NEARLINE", "labels":{"keep":"original", "replace":"old"}}).to_string().as_bytes(),
-        ).json()
+        ).json_ok()
     }
 
     fn upload(&self, name: &str, headers: &str, body: &[u8]) -> Reply {
@@ -61,13 +62,13 @@ impl Server {
 
     fn seed_object(&self, name: &str) -> (Value, Vec<u8>) {
         self.upload(name, "Content-Type: text/original\r\n", OLD_BYTES)
-            .json();
+            .json_ok();
         self.request(
             "PATCH",
             &format!("/storage/v1/b/test-bucket/o/{name}"),
             "Content-Type: application/json\r\n",
             r#"{"contentEncoding":"identity","contentDisposition":"inline","contentLanguage":"en","cacheControl":"private, no-transform","metadata":{"keep":"original","replace":"old","escaped":"quote\"\n日本語"}}"#.as_bytes(),
-        ).json();
+        ).json_ok();
         let snapshot = self.snapshot(name);
         assert_eq!(snapshot.1, OLD_BYTES);
         assert_eq!(snapshot.0["metageneration"], "2");
@@ -76,7 +77,7 @@ impl Server {
 
     fn snapshot(&self, name: &str) -> (Value, Vec<u8>) {
         let path = format!("/storage/v1/b/test-bucket/o/{name}");
-        let metadata = self.get(&path).json();
+        let metadata = self.get(&path).json_ok();
         let media = self.get(&format!("{path}?alt=media"));
         assert_eq!(media.status, 200);
         (metadata, media.body)
@@ -117,20 +118,11 @@ impl Server {
     }
 
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 
 impl Reply {
-    fn read(stream: TcpStream) -> Self {
-        Self::framed(stream)
-    }
-
-    fn json(&self) -> Value {
-        assert_eq!(self.status, 200, "{}", String::from_utf8_lossy(&self.body));
-        serde_json::from_slice(&self.body).unwrap()
-    }
-
     /// A missing media object is an HTML document naming the object, not a JSON error.
     fn missing_media(&self, name: &str) {
         assert_eq!(self.status, 404, "{}", String::from_utf8_lossy(&self.body));
@@ -203,7 +195,7 @@ fn object_condition_matrix(condition: &str, field: &str, not_match: bool) {
                     .get(&format!("/storage/v1/b/test-bucket/o/{name}?alt=media"))
                     .missing_media(&name);
             } else {
-                let result = common::without_acl(reply.json());
+                let result = common::without_acl(reply.json_ok());
                 let after = server.snapshot(&name);
                 assert_eq!(after.0, result, "{method} {condition}");
                 if matches!(method, "media" | "multipart") {
@@ -294,7 +286,7 @@ fn bucket_condition_matrix(not_match: bool) {
             let name = format!("bucket-{}-{passes}", method.to_ascii_lowercase());
             server.bucket(&name);
             let path = format!("/storage/v1/b/{name}");
-            let before = server.get(&path).json();
+            let before = server.get(&path).json_ok();
             let current = before["metageneration"]
                 .as_str()
                 .unwrap()
@@ -324,14 +316,14 @@ fn bucket_condition_matrix(not_match: bool) {
                 } else {
                     reply.condition_failed();
                 }
-                assert_eq!(server.get(&path).json(), before, "{method} {condition}");
+                assert_eq!(server.get(&path).json_ok(), before, "{method} {condition}");
             } else if method == "DELETE" {
                 assert_eq!(reply.status, 204);
                 assert!(reply.body.is_empty());
                 server.get(&path).error(404);
             } else {
-                let after = common::without_acl(reply.json());
-                assert_eq!(server.get(&path).json(), after);
+                let after = common::without_acl(reply.json_ok());
+                assert_eq!(server.get(&path).json_ok(), after);
                 assert_eq!(after["metageneration"], (current + 1).to_string());
                 assert_eq!(after["storageClass"], "COLDLINE");
                 for field in [
@@ -408,7 +400,7 @@ fn basic_contract_multipart_metadata_only_checksums_validate_stored_bytes() {
                 "Content-Type: multipart/related; boundary=boundary\r\n",
                 body.as_bytes(),
             )
-            .json();
+            .json_ok();
         assert_eq!(uploaded["md5Hash"], MD5);
         assert_eq!(uploaded["crc32c"], CRC32C);
         assert_eq!(uploaded["size"], HASH_BYTES.len().to_string());
@@ -438,7 +430,7 @@ fn basic_contract_single_request_resumable_checksums_validate_stored_bytes() {
             .unwrap();
         let uploaded = server.request("PUT", path,
             &format!("Content-Type: application/octet-stream\r\nContent-Range: bytes 0-8/9\r\nX-Goog-Hash: {hash}\r\n"), HASH_BYTES,
-        ).json();
+        ).json_ok();
         assert_eq!(uploaded["md5Hash"], MD5);
         assert_eq!(uploaded["crc32c"], CRC32C);
         assert_eq!(uploaded["size"], HASH_BYTES.len().to_string());
@@ -467,7 +459,7 @@ fn basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_
                 &format!("Content-Type: application/octet-stream\r\nX-Goog-Hash: {hash}\r\n"),
                 HASH_BYTES,
             )
-            .json();
+            .json_ok();
         assert_eq!(uploaded["md5Hash"], MD5);
         assert_eq!(uploaded["crc32c"], CRC32C);
         assert_eq!(server.snapshot(&name), (uploaded, HASH_BYTES.to_vec()));
@@ -486,7 +478,7 @@ fn basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_
         // digest was stored with 200 and the computed hashes.
         let name = format!("ignored-{index}");
         let headers = format!("Content-Type: application/octet-stream\r\nX-Goog-Hash: {hash}\r\n");
-        let uploaded = server.upload(&name, &headers, HASH_BYTES).json();
+        let uploaded = server.upload(&name, &headers, HASH_BYTES).json_ok();
         assert_eq!(uploaded["md5Hash"], MD5, "{hash}");
         assert_eq!(uploaded["crc32c"], CRC32C, "{hash}");
         assert_eq!(server.snapshot(&name), (uploaded, HASH_BYTES.to_vec()));
@@ -588,7 +580,7 @@ fn basic_contract_json_errors_keep_complete_envelopes_with_fields_selection() {
             assert_eq!(selected, expected, "{method} {path} fields={selector}");
         }
     }
-    assert_eq!(server.get("/storage/v1/b/test-bucket").json(), bucket);
+    assert_eq!(server.get("/storage/v1/b/test-bucket").json_ok(), bucket);
     assert_eq!(server.snapshot("existing"), object);
     server.stop();
 }
@@ -618,8 +610,8 @@ fn basic_contract_strict_denials_keep_complete_json_envelopes_with_fields_select
             admin,
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
-    server.upload("existing", admin, OLD_BYTES).json();
+        .json_ok();
+    server.upload("existing", admin, OLD_BYTES).json_ok();
     for path in [
         "/storage/v1/b/test-bucket",
         "/storage/v1/b/test-bucket/o/existing",
@@ -640,3 +632,5 @@ fn basic_contract_strict_denials_keep_complete_json_envelopes_with_fields_select
     }
     server.stop();
 }
+
+declare_server!();

@@ -32,7 +32,7 @@ pub(super) fn request(
     }
     let mut stream = server.stream();
     stream.write_all(&raw).unwrap();
-    Reply::read_body(stream, method == "HEAD")
+    Reply::read_joined_head(stream, method == "HEAD")
 }
 
 fn early(server: &Server, url: &str, headers: &str) -> Reply {
@@ -42,13 +42,13 @@ fn early(server: &Server, url: &str, headers: &str) -> Reply {
         "PUT {} HTTP/1.1\r\nHost: {}\r\nContent-Length: 999999\r\nExpect: 100-continue\r\n{headers}\r\n",
         uri.path_and_query().unwrap(), uri.authority().unwrap(),
     ).as_bytes()).unwrap();
-    Reply::read(stream)
+    Reply::read_joined(stream)
 }
 
 fn metadata(server: &Server) -> Value {
     server
         .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
-        .ok()
+        .success()
         .json()
 }
 
@@ -73,14 +73,14 @@ fn signed_put_streams_private_bytes_metadata_and_signed_headers() {
         .iter()
         .map(|(k, v)| format!("{k}: {v}\r\n"))
         .collect::<String>();
-    request(&server, "PUT", &url, &wire, b"hello world").ok();
+    request(&server, "PUT", &url, &wire, b"hello world").success();
     error(
         &server.get("", "/iam-bucket/new"),
         401,
         "AuthenticationRequired",
     );
     let get = server.get(ADMIN, "/iam-bucket/new");
-    assert_eq!(get.ok().body, b"hello world");
+    assert_eq!(get.success().body, b"hello world");
     assert_eq!(get.headers["content-type"], "text/plain");
     assert_eq!(get.headers["x-goog-meta-purpose"], "signed upload");
     for (name, value) in values {
@@ -130,7 +130,7 @@ fn signed_put_streams_private_bytes_metadata_and_signed_headers() {
         "Content-Type: text/plain\r\nCache-Control: private\r\nx-extra: allowed\r\n",
         b"extra headers",
     )
-    .ok();
+    .success();
 }
 
 #[test]
@@ -208,10 +208,10 @@ fn signed_put_rejects_credentials_permissions_and_resource_tampering_before_body
     error(&reply, 403, "SignatureDoesNotMatch");
     assert_eq!(metadata(&server), before);
     assert_eq!(
-        server.get(ADMIN, "/iam-bucket/object").ok().body,
+        server.get(ADMIN, "/iam-bucket/object").success().body,
         b"hello world"
     );
-    iam::set(&server, ADMIN, &json!({"bindings":[iam::binding("roles/storage.objectCreator", "user:no-roles@example.invalid")]})).ok();
+    iam::set(&server, ADMIN, &json!({"bindings":[iam::binding("roles/storage.objectCreator", "user:no-roles@example.invalid")]})).success();
     let bucket_creator = sign(
         &server,
         &Method::PUT,
@@ -220,9 +220,9 @@ fn signed_put_rejects_credentials_permissions_and_resource_tampering_before_body
         SystemTime::now(),
         HeaderMap::new(),
     );
-    request(&server, "PUT", &bucket_creator, "", b"bucket grant").ok();
+    request(&server, "PUT", &bucket_creator, "", b"bucket grant").success();
     error(&early(&server, &bucket_creator, ""), 403, "AccessDenied");
-    iam::set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    iam::set(&server, ADMIN, &json!({"bindings":[]})).success();
     error(&early(&server, &bucket_creator, ""), 403, "AccessDenied");
 }
 
@@ -250,7 +250,7 @@ fn signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource() {
             required,
         );
         let wire = format!("x-goog-content-sha256: {hash}\r\n");
-        request(&server, "PUT", &url, &wire, &body).ok();
+        request(&server, "PUT", &url, &wire, &body).success();
         let before = metadata(&server);
         error(
             &request(&server, "PUT", &url, &wire, b"bad body"),
@@ -258,7 +258,7 @@ fn signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource() {
             "BadDigest",
         );
         assert_eq!(metadata(&server), before);
-        assert_eq!(server.get(ADMIN, "/iam-bucket/object").ok().body, body);
+        assert_eq!(server.get(ADMIN, "/iam-bucket/object").success().body, body);
     }
     let url = sign(
         &server,
@@ -288,11 +288,11 @@ fn signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource() {
         "x-goog-content-sha256: UNSIGNED-PAYLOAD\r\n",
         b"arbitrary",
     )
-    .ok();
+    .success();
     server.stop();
     let server = Server::strict(&data, &_config.0.join("identities.json"));
     assert_eq!(
-        server.get(ADMIN, "/iam-bucket/object").ok().body,
+        server.get(ADMIN, "/iam-bucket/object").success().body,
         b"arbitrary"
     );
 }
@@ -325,7 +325,7 @@ fn signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure() {
             .map(|mut stream| {
                 scope.spawn(move || {
                     stream.write_all(b"new").unwrap();
-                    Reply::read(stream).status
+                    Reply::read_joined(stream).status
                 })
             })
             .collect::<Vec<_>>()
@@ -346,7 +346,7 @@ fn signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure() {
         "PreconditionFailed",
     );
     assert_eq!(metadata(&server), before);
-    server.request("PATCH", "/storage/v1/b/iam-bucket", &format!("{ADMIN}Content-Type: application/json\r\n"), br#"{"cors":[{"origin":["https://app.example.invalid"],"method":["PUT","GET"],"responseHeader":["Content-Type","x-goog-generation"],"maxAgeSeconds":60}]}"#).ok();
+    server.request("PATCH", "/storage/v1/b/iam-bucket", &format!("{ADMIN}Content-Type: application/json\r\n"), br#"{"cors":[{"origin":["https://app.example.invalid"],"method":["PUT","GET"],"responseHeader":["Content-Type","x-goog-generation"],"maxAgeSeconds":60}]}"#).success();
     let url = sign(
         &server,
         &Method::PUT,
@@ -362,7 +362,7 @@ fn signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure() {
         "Origin: https://app.example.invalid\r\nAccess-Control-Request-Method: PUT\r\nAccess-Control-Request-Headers: content-type\r\n",
         b"",
     );
-    preflight.ok();
+    preflight.success();
     assert_eq!(
         preflight.headers["access-control-allow-origin"],
         "https://app.example.invalid"

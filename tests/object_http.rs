@@ -1,3 +1,4 @@
+use crate::common::server::declare_server;
 mod common;
 
 #[path = "object_http/resumable_open_end.rs"]
@@ -7,7 +8,7 @@ mod upload_admission;
 #[path = "object_http/upload_replay.rs"]
 mod upload_replay;
 
-use common::server::{Reply, Server, http_command, request_head};
+use common::server::{Reply, http_command, request_head};
 use common::{TestDir, closed_by_server};
 use serde_json::{Value, json};
 use std::{
@@ -77,7 +78,7 @@ impl Server {
     fn raw(&self, request: &[u8]) -> Reply {
         let mut stream = self.stream();
         stream.write_all(request).unwrap();
-        Reply::read(stream)
+        Reply::framed(stream)
     }
 
     /// One-shot requests ask for `Connection: close`, so the server closes first
@@ -127,7 +128,7 @@ impl Server {
     }
 
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 
@@ -143,18 +144,6 @@ fn before_short_deadline<T>(dir: &TestDir, setup: impl FnOnce(&Server) -> T) -> 
 }
 
 impl Reply {
-    fn read(stream: TcpStream) -> Self {
-        Self::framed(stream)
-    }
-
-    fn json(&self) -> Value {
-        serde_json::from_slice(&self.body).unwrap()
-    }
-
-    fn error(&self, status: u16, reason: &str) {
-        self.json_error(status, reason);
-    }
-
     /// A session-continuation failure: a bare `text/plain` page that carries none of the JSON
     /// API cache fields or `Vary`, as the upload front end sends it.
     fn session_error(&self, status: u16, body: &str) {
@@ -166,13 +155,6 @@ impl Reply {
                 self.headers
             );
         }
-    }
-
-    /// A bare text page: the status, content type and the whole body are compared.
-    fn plain_error(&self, status: u16, content_type: &str, body: &str) {
-        assert_eq!(self.status, status);
-        assert_eq!(self.headers["content-type"], content_type);
-        assert_eq!(String::from_utf8_lossy(&self.body), body);
     }
 }
 
@@ -242,7 +224,7 @@ fn obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket() {
     }
     server
         .request("DELETE", "/storage/v1/b/test-bucket", "", b"")
-        .error(409, "conflict");
+        .json_error(409, "conflict");
     let deleted = server.request(
         "DELETE",
         "/storage/v1/b/test-bucket/o/notes%2Fhello%20%E6%97%A5.txt",
@@ -253,7 +235,7 @@ fn obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket() {
     assert!(deleted.body.is_empty());
     server
         .get("notes%2Fhello%20%E6%97%A5.txt")
-        .error(404, "notFound");
+        .json_error(404, "notFound");
     assert_eq!(
         server
             .request("DELETE", "/storage/v1/b/test-bucket", "", b"")
@@ -283,13 +265,13 @@ fn obj_http_zero_multichunk_binary_and_size_limits() {
     request.extend_from_slice(b"0\r\n\r\n");
     assert_eq!(server.raw(&request).json()["size"], "150000");
     assert_eq!(server.get("chunks?alt=media").body, payload);
-    server.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=early HTTP/1.1\r\nHost: local\r\nContent-Length: 200001\r\n\r\n").error(413, "uploadTooLarge");
-    server.get("early").error(404, "notFound");
+    server.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=early HTTP/1.1\r\nHost: local\r\nContent-Length: 200001\r\n\r\n").json_error(413, "uploadTooLarge");
+    server.get("early").json_error(404, "notFound");
     let small = TestDir::new();
     let limited = Server::start(&small, 5, 5000);
     limited.bucket();
-    limited.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=over HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n3\r\ndef\r\n0\r\n\r\n").error(413, "uploadTooLarge");
-    limited.get("over").error(404, "notFound");
+    limited.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=over HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n3\r\ndef\r\n0\r\n\r\n").json_error(413, "uploadTooLarge");
+    limited.get("over").json_error(404, "notFound");
     assert_eq!(limited.upload("name=exact", "", b"12345").status, 200);
 }
 
@@ -316,7 +298,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
         "text/plain; charset=utf-8",
         "Bad content type.  Please use multipart.",
     );
-    server.get("unsupported").error(404, "notFound");
+    server.get("unsupported").json_error(404, "notFound");
     let existing = server.upload("name=existing", "", b"old");
     assert_eq!(existing.status, 200);
     let generation = existing.json()["generation"].as_str().unwrap().to_owned();
@@ -328,8 +310,8 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     ] {
         server
             .upload("name=existing", header, b"new")
-            .error(400, "badRequest");
-        server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=existing HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{header}\r\n").as_bytes()).error(400, "badRequest");
+            .json_error(400, "badRequest");
+        server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=existing HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{header}\r\n").as_bytes()).json_error(400, "badRequest");
         server
             .request(
                 "DELETE",
@@ -337,7 +319,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
                 header,
                 b"",
             )
-            .error(400, "badRequest");
+            .json_error(400, "badRequest");
         for query in ["", "?alt=media"] {
             let reply = server.request(
                 "GET",
@@ -349,7 +331,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
                 assert_eq!(reply.status, 304);
                 assert!(reply.body.is_empty());
             } else {
-                reply.error(read_status, read_reason);
+                reply.json_error(read_status, read_reason);
             }
         }
     }
@@ -368,10 +350,10 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     let key = "X-Goog-Encryption-Key: key\r\n";
     server
         .upload("name=existing", key, b"new")
-        .error(400, "customerEncryptionAlgorithmIsInvalid");
+        .json_error(400, "customerEncryptionAlgorithmIsInvalid");
     server
         .request("DELETE", "/storage/v1/b/test-bucket/o/existing", key, b"")
-        .error(400, "badRequest");
+        .json_error(400, "badRequest");
     for name in ["existing", "missing"] {
         server
             .request(
@@ -380,7 +362,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
                 key,
                 b"",
             )
-            .error(400, "customerEncryptionAlgorithmIsInvalid");
+            .json_error(400, "customerEncryptionAlgorithmIsInvalid");
     }
     assert_eq!(server.get("existing").json()["generation"], generation);
     let partial = server.request(
@@ -409,10 +391,10 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             "",
             b"",
         )
-        .error(400, "notDownload");
+        .json_error(400, "notDownload");
     server
         .upload("name=existing&generation=1", "", b"new")
-        .error(400, "invalidParameter");
+        .json_error(400, "invalidParameter");
     server
         .request(
             "DELETE",
@@ -420,7 +402,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             "",
             b"",
         )
-        .error(400, "invalidParameter");
+        .json_error(400, "invalidParameter");
     assert_eq!(server.get("existing?alt=media").body, b"old");
 }
 
@@ -453,12 +435,12 @@ fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
                 assert_eq!(failed.status, 304);
                 assert!(failed.body.is_empty());
             } else {
-                failed.error(412, "conditionNotMet");
+                failed.json_error(412, "conditionNotMet");
             }
         }
         server
             .upload(&format!("name=conditions&{key}={failing}"), "", b"bad")
-            .error(412, "conditionNotMet");
+            .json_error(412, "conditionNotMet");
         server
             .request(
                 "DELETE",
@@ -466,18 +448,18 @@ fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
                 "",
                 b"",
             )
-            .error(412, "conditionNotMet");
+            .json_error(412, "conditionNotMet");
         assert_eq!(server.get("conditions").json(), original);
         server
             .get(&format!("absent?{key}={failing}"))
-            .error(404, "notFound");
+            .json_error(404, "notFound");
     }
     server
         .get("conditions?ifGenerationMatch=0&ifMetagenerationNotMatch=1")
-        .error(412, "conditionNotMet");
+        .json_error(412, "conditionNotMet");
     server
         .get(&format!("conditions?generation={}", generation + 1))
-        .error(404, "notFound");
+        .json_error(404, "notFound");
     assert_eq!(
         server
             .get(&format!("conditions?generation={generation}"))
@@ -486,7 +468,7 @@ fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
     );
     server
         .upload("name=conditions&ifGenerationMatch=0", "", b"bad")
-        .error(412, "conditionNotMet");
+        .json_error(412, "conditionNotMet");
     for query in [
         format!("ifGenerationMatch={generation}"),
         format!("ifGenerationNotMatch={}", generation + 1),
@@ -495,7 +477,7 @@ fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
     ] {
         server
             .upload(&format!("name=pass&{query}"), "", b"new")
-            .error(412, "conditionNotMet");
+            .json_error(412, "conditionNotMet");
     }
     let replaced = server.upload(&format!("name=conditions&ifGenerationMatch={generation}&ifGenerationNotMatch={}&ifMetagenerationMatch=1&ifMetagenerationNotMatch=2", generation + 1), "", b"replacement");
     assert_eq!(replaced.status, 200);
@@ -534,7 +516,7 @@ fn obj_http_idempotency_token_local_read_delete_rule_and_upload_replay() {
         for method in ["GET", "DELETE"] {
             server
                 .request(method, path, &headers, b"")
-                .error(400, "invalidParameter");
+                .json_error(400, "invalidParameter");
         }
     }
     assert_eq!(server.get("token").json(), original);
@@ -544,10 +526,10 @@ fn obj_http_idempotency_token_local_read_delete_rule_and_upload_replay() {
     // Tokens are accepted locally without deduplication: a retry executes the delete again.
     server
         .request("DELETE", path, token, b"")
-        .error(404, "notFound");
+        .json_error(404, "notFound");
     server
         .request("GET", path, token, b"")
-        .error(404, "notFound");
+        .json_error(404, "notFound");
 }
 
 #[test]
@@ -559,7 +541,7 @@ fn obj_http_disconnected_overwrite_preserves_the_previous_generation() {
     let mut stream = server.stream();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=preserved HTTP/1.1\r\nHost: local\r\nContent-Length: 100\r\n\r\npartial").unwrap();
     stream.shutdown(std::net::Shutdown::Write).unwrap();
-    Reply::read(stream).error(400, "badRequest");
+    Reply::framed(stream).json_error(400, "badRequest");
     assert_eq!(server.get("preserved").json(), original);
     assert_eq!(server.get("preserved?alt=media").body, b"original");
 }
@@ -598,7 +580,7 @@ fn obj_http_encoded_names_and_invalid_names() {
     ] {
         server
             .upload(&format!("name={name}"), "", b"bad")
-            .error(400, "invalidParameter");
+            .json_error(400, "invalidParameter");
     }
 }
 
@@ -661,7 +643,7 @@ fn obj_http_restart_and_sigkill_mid_upload_clean_staging() {
     drop(server);
     let server = Server::start(&dir, 1_000_000, 5000);
     assert_eq!(common::server::staging_count(&dir), 0);
-    server.get("partial").error(404, "notFound");
+    server.get("partial").json_error(404, "notFound");
     assert_eq!(server.get("durable").json(), original);
     assert_eq!(server.get("durable?alt=media").body, b"survives");
 }
@@ -680,16 +662,16 @@ fn obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out() {
         thread::sleep(Duration::from_millis(80));
     }
     stream.write_all(b"0\r\n\r\n").unwrap();
-    assert_eq!(Reply::read(stream).status, 200);
+    assert_eq!(Reply::framed(stream).status, 200);
     assert_eq!(server.get("slow?alt=media").body, b"aaaaaaaaaa");
     let mut stream = server.stream();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=idle HTTP/1.1\r\nHost: local\r\nContent-Length: 100\r\n\r\nx").unwrap();
     let start = Instant::now();
-    let timed_out = Reply::read(stream);
+    let timed_out = Reply::framed(stream);
     assert!(start.elapsed() >= Duration::from_millis(500));
     assert!(start.elapsed() < Duration::from_secs(2));
-    timed_out.error(408, "uploadBrokenConnection");
-    server.get("idle").error(404, "notFound");
+    timed_out.json_error(408, "uploadBrokenConnection");
+    server.get("idle").json_error(404, "notFound");
     assert_eq!(server.upload("name=after-timeout", "", b"ok").status, 200);
 }
 
@@ -723,7 +705,7 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
     }
     for stream in uploads {
         // Lingering close lets the timeout response survive the client's late writes.
-        Reply::read(stream).error(408, "uploadBrokenConnection");
+        Reply::framed(stream).json_error(408, "uploadBrokenConnection");
     }
     assert!(started.elapsed() >= Duration::from_millis(800));
     assert!(started.elapsed() < Duration::from_secs(3));
@@ -735,7 +717,9 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
     assert_eq!(server.get("held-0").json(), original);
     assert_eq!(server.get("held-0?alt=media").body, b"original");
     for index in 1..8 {
-        server.get(&format!("held-{index}")).error(404, "notFound");
+        server
+            .get(&format!("held-{index}"))
+            .json_error(404, "notFound");
     }
     assert_eq!(common::server::blob_count(&dir), 1);
     // Released permits admit a new upload; cleanup of the cancelled stages can
@@ -897,8 +881,8 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
     second.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=queued HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\ntwo").unwrap();
     // Both replies arrive while the lock is still held, so the catalog budget,
     // not the lock release, ended both waits.
-    for reply in [Reply::read(first), Reply::read(second)] {
-        reply.error(503, "backendError");
+    for reply in [Reply::framed(first), Reply::framed(second)] {
+        reply.json_error(503, "backendError");
         assert!(
             reply.json()["error"]["message"]
                 .as_str()
@@ -928,7 +912,7 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
         thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(server.get("committing?alt=media").body, b"one");
-    server.get("queued").error(404, "notFound");
+    server.get("queued").json_error(404, "notFound");
     assert_eq!(
         server
             .upload("name=after-catalog-timeout", "", b"ok")
@@ -950,7 +934,7 @@ fn obj_http_completed_body_waits_for_commit_past_inactivity_deadline() {
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=committed&ifGenerationMatch=0 HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\nnew").unwrap();
     thread::sleep(Duration::from_secs(2));
     database.execute_batch("ROLLBACK").unwrap();
-    assert_eq!(Reply::read(stream).status, 200);
+    assert_eq!(Reply::framed(stream).status, 200);
     assert_eq!(server.get("committed?alt=media").body, b"new");
 }
 
@@ -979,9 +963,9 @@ fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
     let waiting = Instant::now();
     thread::sleep(Duration::from_secs(2));
     database.execute_batch("ROLLBACK").unwrap();
-    assert_eq!(Reply::read(second).status, 200);
+    assert_eq!(Reply::framed(second).status, 200);
     assert!(waiting.elapsed() >= Duration::from_secs(2));
-    assert_eq!(Reply::read(first).status, 200);
+    assert_eq!(Reply::framed(first).status, 200);
     assert_eq!(server.get("first?alt=media").body, b"one");
     assert_eq!(server.get("second?alt=media").body, b"two");
 }
@@ -1018,8 +1002,8 @@ fn obj_http_additional_upload_waits_for_advisory_check() {
         database.execute_batch("ROLLBACK").unwrap();
         reply.join().unwrap()
     });
-    reply.error(404, "notFound");
-    assert_eq!(Reply::read(uploads.remove(0)).status, 200);
+    reply.json_error(404, "notFound");
+    assert_eq!(Reply::framed(uploads.remove(0)).status, 200);
 }
 
 #[test]
@@ -1051,7 +1035,7 @@ fn obj_http_precheck_and_method_alt_reject_before_consuming_body() {
                 format!("POST {path} HTTP/1.1\r\nHost: local\r\nContent-Length: 900000\r\n\r\n")
                     .as_bytes(),
             )
-            .error(status, reason);
+            .json_error(status, reason);
         assert!(
             start.elapsed() < Duration::from_secs(1),
             "response must not wait for the advertised body"
@@ -1064,7 +1048,7 @@ fn obj_http_precheck_and_method_alt_reject_before_consuming_body() {
             "",
             b"",
         )
-        .error(400, "invalidParameter");
+        .json_error(400, "invalidParameter");
     assert_eq!(server.get("exists?alt=media").body, b"old");
     assert_eq!(common::server::staging_count(&dir), 0);
 }
@@ -1078,7 +1062,7 @@ fn obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing()
     let bad_hash = "X-Goog-Hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n";
     server
         .upload("name=exists&ifGenerationMatch=0", bad_hash, b"bad")
-        .error(412, "conditionNotMet");
+        .json_error(412, "conditionNotMet");
     server
         .request(
             "POST",
@@ -1086,7 +1070,7 @@ fn obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing()
             bad_hash,
             b"bad",
         )
-        .error(404, "notFound");
+        .json_error(404, "notFound");
     for delay in [0, 300] {
         for _ in 0..3 {
             let mut stream = server.stream();
@@ -1097,10 +1081,10 @@ fn obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing()
             if delay == 0 {
                 request.extend_from_slice(&body);
                 stream.write_all(&request).unwrap();
-                Reply::read(stream).error(404, "notFound");
+                Reply::framed(stream).json_error(404, "notFound");
             } else {
                 stream.write_all(&request).unwrap();
-                Reply::read(stream.try_clone().unwrap()).error(404, "notFound");
+                Reply::framed(stream.try_clone().unwrap()).json_error(404, "notFound");
                 thread::sleep(Duration::from_millis(delay));
                 // An early 404 may have closed the connection before this delayed body.
                 let _ = stream.write_all(&body);
@@ -1128,7 +1112,7 @@ fn obj_http_early_rejections_survive_body_larger_than_socket_buffers() {
         // Lingering close discards the rest of the body, so neither the write nor
         // the early response is lost to a reset.
         let sending = thread::spawn(move || writer.write_all(&vec![b'x'; 8 * 1024 * 1024]));
-        Reply::read(stream).error(status, reason);
+        Reply::framed(stream).json_error(status, reason);
         sending.join().unwrap().unwrap();
     }
 }
@@ -1142,8 +1126,8 @@ fn obj_http_expect_continue_rejection_skips_the_interim_response() {
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=large HTTP/1.1\r\nHost: local\r\nExpect: 100-continue\r\nContent-Length: 8388608\r\n\r\n").unwrap();
     // A rejection before the body is polled answers without 100 Continue, so the
     // client never sends the body; the first response is already the final one.
-    Reply::read(stream).error(413, "uploadTooLarge");
-    server.get("large").error(404, "notFound");
+    Reply::framed(stream).json_error(413, "uploadTooLarge");
+    server.get("large").json_error(404, "notFound");
 }
 
 #[test]
@@ -1307,7 +1291,7 @@ fn resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail() {
     let path = resumable_path(&server);
     let prefix = 256 * 1024;
     assert_eq!(
-        Reply::read(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).status,
+        Reply::framed(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).status,
         308
     );
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -1330,7 +1314,7 @@ fn resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail() {
     let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
     assert_eq!(status.status, 308);
     assert_eq!(status.headers["range"], format!("bytes=0-{}", prefix - 1));
-    let final_reply = Reply::read(send_resumable_chunk(
+    let final_reply = Reply::framed(send_resumable_chunk(
         &server,
         &path,
         prefix,
@@ -1414,7 +1398,7 @@ fn assert_resumable_precommit_recovery(after_rename: bool) {
     let original = server.upload("name=durable", "", b"old").json();
     let path = resumable_path(&server);
     assert_eq!(
-        Reply::read(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).status,
+        Reply::framed(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).status,
         308
     );
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -1473,7 +1457,7 @@ fn assert_resumable_precommit_recovery(after_rename: bool) {
     let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
     assert_eq!(status.status, 308);
     assert_eq!(status.headers["range"], format!("bytes=0-{}", total - 1));
-    let completed = Reply::read(send_resumable_chunk(
+    let completed = Reply::framed(send_resumable_chunk(
         &server,
         &path,
         prefix,
@@ -1523,3 +1507,5 @@ fn resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot
     assert_eq!(repeated.json(), resource);
     assert_resumable_complete(&server, &dir, &resource);
 }
+
+declare_server!();

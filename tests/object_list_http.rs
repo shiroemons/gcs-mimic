@@ -1,7 +1,8 @@
+use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command, write_request};
+use common::server::{http_command, write_request};
 use serde_json::{Value, json};
 use std::{io::BufReader, net::TcpStream, time::Duration};
 
@@ -99,7 +100,7 @@ impl Server {
     }
 
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 
@@ -653,3 +654,5 @@ fn object_list_default_and_upper_page_limit_are_1000_for_both_projections() {
         json!({"kind":"storage#objects"})
     );
 }
+
+declare_server!();

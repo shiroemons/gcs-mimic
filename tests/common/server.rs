@@ -6,13 +6,35 @@
 use super::{TestDir, server_command, stop_server};
 use serde_json::Value;
 use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
-    net::TcpStream,
+    io::{BufRead, BufReader, Write},
     path::Path,
     process::{Child, ChildStdout, Command, Stdio},
     time::{Duration, Instant},
 };
+
+// Each suite adds scenario-specific methods without extending another suite's server.
+macro_rules! declare_server {
+    () => {
+        pub(crate) struct Server(crate::common::server::Server);
+        impl std::ops::Deref for Server {
+            type Target = crate::common::server::Server;
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+        impl std::ops::DerefMut for Server {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+        impl Server {
+            fn launch(command: &mut std::process::Command) -> Self {
+                Self(crate::common::server::Server::launch(command))
+            }
+        }
+    };
+}
+pub(crate) use declare_server;
 
 pub(crate) fn write_request(
     stream: &mut impl Write,
@@ -38,95 +60,11 @@ pub(crate) fn request_head(
     format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Length: {length}\r\n{headers}\r\n")
 }
 
-pub(crate) struct Reply {
-    pub(crate) status: u16,
-    pub(crate) headers: BTreeMap<String, String>,
-    pub(crate) body: Vec<u8>,
-}
+pub(crate) use super::http::Reply;
 
 impl Reply {
-    pub(crate) fn json_error(&self, status: u16, reason: &str) {
-        assert_eq!(
-            self.status,
-            status,
-            "{}",
-            String::from_utf8_lossy(&self.body)
-        );
-        // The upload front end labelled some JSON envelopes text/html (recorded).
-        let content_type = self.headers["content-type"].as_str();
-        assert!(
-            matches!(
-                content_type,
-                "application/json; charset=UTF-8" | "text/html; charset=UTF-8"
-            ),
-            "{content_type}"
-        );
-        let body: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
-            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
-        });
-        let error = &body["error"];
-        assert_eq!(error["code"], status);
-        assert_eq!(error["errors"][0]["domain"], "global");
-        assert_eq!(error["errors"][0]["reason"], reason, "{error}");
-        assert_eq!(error["errors"][0]["message"], error["message"]);
-    }
-
-    pub(crate) fn framed(stream: TcpStream) -> Self {
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        assert_ne!(reader.read_line(&mut line).unwrap(), 0, "HTTP status");
-        let status = line.split_whitespace().nth(1).unwrap().parse().unwrap();
-        let mut headers = BTreeMap::new();
-        loop {
-            line.clear();
-            assert_ne!(reader.read_line(&mut line).unwrap(), 0, "HTTP headers");
-            if line == "\r\n" {
-                break;
-            }
-            let (key, value) = line.trim_end().split_once(':').unwrap();
-            headers.insert(key.to_ascii_lowercase(), value.trim().to_owned());
-        }
-        let mut body = Vec::new();
-        if !matches!(status, 204 | 304) {
-            if headers
-                .get("transfer-encoding")
-                .is_some_and(|v| v == "chunked")
-            {
-                loop {
-                    line.clear();
-                    assert_ne!(reader.read_line(&mut line).unwrap(), 0, "chunk length");
-                    let length = usize::from_str_radix(line.trim(), 16).unwrap();
-                    if length == 0 {
-                        break;
-                    }
-                    let start = body.len();
-                    body.resize(start + length, 0);
-                    reader.read_exact(&mut body[start..]).unwrap();
-                    let mut crlf = [0; 2];
-                    reader.read_exact(&mut crlf).unwrap();
-                    assert_eq!(&crlf, b"\r\n");
-                }
-            } else {
-                let length = headers["content-length"].parse().unwrap();
-                let read = reader.by_ref().take(length).read_to_end(&mut body);
-                assert!(
-                    read.is_ok() && body.len() as u64 == length,
-                    "HTTP {status} body ended after {} of {length} bytes ({read:?}); headers: {headers:?}",
-                    body.len()
-                );
-            }
-        }
-        if headers
-            .get("connection")
-            .is_some_and(|value| value == "close")
-        {
-            super::await_server_close(&mut reader);
-        }
-        Self {
-            status,
-            headers,
-            body,
-        }
+    pub(crate) fn framed(stream: std::net::TcpStream) -> Self {
+        super::http::receive(stream, false).into_last()
     }
 }
 
@@ -160,6 +98,10 @@ pub(crate) fn http_command(data: &Path) -> Command {
 }
 
 impl Server {
+    pub(crate) fn stop(&mut self) {
+        stop_server(&mut self.child, &mut self.stdout);
+    }
+
     pub(crate) fn launch(command: &mut Command) -> Self {
         let mut child = command.stdout(Stdio::piped()).spawn().unwrap();
         let mut stdout = BufReader::new(child.stdout.take().unwrap());

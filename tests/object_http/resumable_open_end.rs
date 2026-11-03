@@ -49,7 +49,7 @@ fn put_chunked(server: &Server, path: &str, range: &str, body: &[u8]) -> Reply {
     if let Err(error) = stream.write_all(&request) {
         assert!(closed_by_server(&error), "{error}");
     }
-    Reply::read(stream)
+    Reply::framed(stream)
 }
 
 fn put(server: &Server, path: &str, range: &str, body: &[u8]) -> Reply {
@@ -210,8 +210,8 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
     put(&server, &path, "bytes 0-*/5", b"abc")
         .session_error(400, "Content-Length does not match Content-Range");
     // A chunked body that ends before, or runs past, the declared total completes nothing.
-    put_chunked(&server, &path, "bytes 0-*/5", b"abc").error(400, "badRequest");
-    put_chunked(&server, &path, "bytes 0-*/5", b"abcdefg").error(400, "badRequest");
+    put_chunked(&server, &path, "bytes 0-*/5", b"abc").json_error(400, "badRequest");
+    put_chunked(&server, &path, "bytes 0-*/5", b"abcdefg").json_error(400, "badRequest");
     let probe = status(&server, &path);
     assert!(!probe.headers.contains_key("range"), "{:?}", probe.headers);
     assert_eq!(server.get("rejected").status, 404);
@@ -224,14 +224,14 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
     let path = session(&server, "conflict", "X-Upload-Content-Length: 5\r\n");
     put_chunked(&server, &path, "bytes 0-*/6", b"abcdef")
         .session_error(400, "Inconsistent upload total");
-    put_chunked(&server, &path, "bytes 0-*/*", b"abc").error(400, "badRequest");
+    put_chunked(&server, &path, "bytes 0-*/*", b"abc").json_error(400, "badRequest");
     assert!(!status(&server, &path).headers.contains_key("range"));
 
     // A body that ends inside the persisted prefix cannot shrink the object.
     let object = pattern(CHUNK);
     let path = session(&server, "shrink", "");
     put_prefix(&server, &path, &object);
-    put_chunked(&server, &path, "bytes 0-*/*", &object[..100]).error(400, "invalidParameter");
+    put_chunked(&server, &path, "bytes 0-*/*", &object[..100]).json_error(400, "invalidParameter");
     let probe = status(&server, &path);
     assert_eq!(probe.headers["range"], format!("bytes=0-{}", CHUNK - 1));
     // An empty open request at the persisted offset completes the prefix as the object.
@@ -248,9 +248,9 @@ fn open_range_bodies_are_bounded_by_the_object_size_limit() {
     let object = pattern(limit + 1);
 
     let path = session(&server, "capped", "");
-    put_chunked(&server, &path, "bytes 0-*/*", &object).error(413, "uploadTooLarge");
+    put_chunked(&server, &path, "bytes 0-*/*", &object).json_error(413, "uploadTooLarge");
     put_chunked(&server, &path, &format!("bytes 0-*/{}", limit + 1), b"x")
-        .error(413, "uploadTooLarge");
+        .json_error(413, "uploadTooLarge");
     // After a persisted prefix, the remaining allowance is the limit minus the offset.
     put_prefix(&server, &path, &object);
     put_chunked(
@@ -259,7 +259,7 @@ fn open_range_bodies_are_bounded_by_the_object_size_limit() {
         &format!("bytes {CHUNK}-*/*"),
         &object[CHUNK..],
     )
-    .error(413, "uploadTooLarge");
+    .json_error(413, "uploadTooLarge");
     let probe = status(&server, &path);
     assert_eq!(probe.headers["range"], format!("bytes=0-{}", CHUNK - 1));
     // Exactly the limit succeeds.

@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Reply, Server, common::TestDir};
 use serde_json::{Value, json};
@@ -141,7 +142,7 @@ fn comparable(time: &Value) -> String {
 fn object(server: &Server, bucket: &str, name: &str) -> Value {
     server
         .request("GET", &format!("/storage/v1/b/{bucket}/o/{name}"), "", b"")
-        .json()
+        .json_ok()
 }
 
 #[test]
@@ -149,7 +150,7 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
 
-    let created = create(&server, json!({"name":"auto","autoclass":{"enabled":true}})).json();
+    let created = create(&server, json!({"name":"auto","autoclass":{"enabled":true}})).json_ok();
     let autoclass = &created["autoclass"];
     assert_eq!(autoclass["enabled"], true);
     assert_eq!(autoclass["terminalStorageClass"], "NEARLINE");
@@ -159,14 +160,14 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
         created["timeCreated"]
     );
     assert_eq!(created["storageClass"], "STANDARD");
-    assert_eq!(bucket(&server, "auto").json()["autoclass"], *autoclass);
+    assert_eq!(bucket(&server, "auto").json_ok()["autoclass"], *autoclass);
 
     let archive = create(
         &server,
         json!({"name":"auto-archive","storageClass":"STANDARD",
                "autoclass":{"enabled":true,"terminalStorageClass":"ARCHIVE","toggleTime":"2000-01-01T00:00:00Z"}}),
     )
-    .json();
+    .json_ok();
     assert_eq!(archive["autoclass"]["terminalStorageClass"], "ARCHIVE");
     assert_eq!(
         archive["autoclass"]["toggleTime"], archive["timeCreated"],
@@ -183,7 +184,7 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
             {"action":{"type":"Delete"},"condition":{"matchesStorageClass":["STANDARD"]}}]}}),
         json!({"name":"rejected","autoclass":{"enabled":true,"unknown":1}}),
     ] {
-        create(&server, body.clone()).error(400, "invalid");
+        create(&server, body.clone()).json_reason(400, "invalid");
         assert_eq!(bucket(&server, "rejected").status, 404, "{body}");
     }
     // Delete-only lifecycle rules may coexist with Autoclass.
@@ -192,14 +193,14 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
         json!({"name":"auto-delete-rule","autoclass":{"enabled":true},"lifecycle":{"rule":[
             {"action":{"type":"Delete"},"condition":{"age":30}}]}}),
     )
-    .json();
+    .json_ok();
 
     let terminal = patch(
         &server,
         "auto",
         json!({"autoclass":{"terminalStorageClass":"ARCHIVE"}}),
     )
-    .json();
+    .json_ok();
     assert_eq!(terminal["autoclass"]["enabled"], true);
     assert_eq!(terminal["autoclass"]["terminalStorageClass"], "ARCHIVE");
     assert_eq!(terminal["autoclass"]["toggleTime"], autoclass["toggleTime"]);
@@ -215,9 +216,9 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
         json!({"autoclass":{"terminalStorageClass":"COLDLINE"}}),
         json!({"autoclass":"enabled"}),
     ] {
-        patch(&server, "auto", body.clone()).error(400, "invalid");
+        patch(&server, "auto", body.clone()).json_reason(400, "invalid");
         assert_eq!(
-            bucket(&server, "auto").json()["metageneration"],
+            bucket(&server, "auto").json_ok()["metageneration"],
             terminal["metageneration"],
             "{body}"
         );
@@ -231,39 +232,39 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
             "",
             br#"{"labels":{"team":"storage"}}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(replaced["autoclass"], terminal["autoclass"]);
 
-    let disabled = patch(&server, "auto", json!({"autoclass":{"enabled":false}})).json();
+    let disabled = patch(&server, "auto", json!({"autoclass":{"enabled":false}})).json_ok();
     let toggle = &disabled["autoclass"]["toggleTime"];
     assert_eq!(
         disabled["autoclass"],
         json!({"enabled":false,"toggleTime":toggle})
     );
     assert_between(&replaced["updated"], toggle, &disabled["updated"]);
-    patch(&server, "auto", json!({"autoclass":{"enabled":true}})).error(400, "invalid");
+    patch(&server, "auto", json!({"autoclass":{"enabled":true}})).json_reason(400, "invalid");
     patch(
         &server,
         "auto",
         json!({"autoclass":{"terminalStorageClass":"ARCHIVE"}}),
     )
-    .error(400, "invalid");
+    .json_reason(400, "invalid");
     // Disabled Autoclass lifts the class restriction.
     assert_eq!(
-        patch(&server, "auto", json!({"storageClass":"NEARLINE"})).json()["storageClass"],
+        patch(&server, "auto", json!({"storageClass":"NEARLINE"})).json_ok()["storageClass"],
         "NEARLINE"
     );
 
-    let null = patch(&server, "auto-archive", json!({"autoclass":null})).json();
+    let null = patch(&server, "auto-archive", json!({"autoclass":null})).json_ok();
     assert_eq!(null["autoclass"]["enabled"], false);
 
     // The configuration survives a restart.
     server.stop();
     let server = Server::start(&dir, false);
-    let reloaded = bucket(&server, "auto").json();
+    let reloaded = bucket(&server, "auto").json_ok();
     assert_eq!(reloaded["autoclass"], disabled["autoclass"]);
     assert_eq!(
-        bucket(&server, "auto-delete-rule").json()["autoclass"]["enabled"],
+        bucket(&server, "auto-delete-rule").json_ok()["autoclass"]["enabled"],
         true
     );
 }
@@ -272,8 +273,8 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
 fn bucket_autoclass_enable_moves_bucket_and_objects_to_standard() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
-    create(&server, json!({"name":"cold","storageClass":"NEARLINE"})).json();
-    let before = multipart(&server, "cold", "existing", json!({})).json();
+    create(&server, json!({"name":"cold","storageClass":"NEARLINE"})).json_ok();
+    let before = multipart(&server, "cold", "existing", json!({})).json_ok();
     assert_eq!(before["storageClass"], "NEARLINE");
     let archived = multipart(
         &server,
@@ -281,7 +282,7 @@ fn bucket_autoclass_enable_moves_bucket_and_objects_to_standard() {
         "archived",
         json!({"storageClass":"ARCHIVE"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(archived["storageClass"], "ARCHIVE");
 
     // An explicit non-STANDARD class in the enabling request is rejected without mutation.
@@ -290,14 +291,14 @@ fn bucket_autoclass_enable_moves_bucket_and_objects_to_standard() {
         "cold",
         json!({"autoclass":{"enabled":true},"storageClass":"COLDLINE"}),
     )
-    .error(400, "invalid");
-    assert!(bucket(&server, "cold").json().get("autoclass").is_none());
+    .json_reason(400, "invalid");
+    assert!(bucket(&server, "cold").json_ok().get("autoclass").is_none());
     assert_eq!(
         object(&server, "cold", "existing")["storageClass"],
         "NEARLINE"
     );
 
-    let enabled = patch(&server, "cold", json!({"autoclass":{"enabled":true}})).json();
+    let enabled = patch(&server, "cold", json!({"autoclass":{"enabled":true}})).json_ok();
     assert_eq!(enabled["storageClass"], "STANDARD");
     assert_between(
         &archived["timeCreated"],
@@ -315,8 +316,8 @@ fn bucket_autoclass_enable_moves_bucket_and_objects_to_standard() {
 fn object_storage_class_on_write_json_xml_and_autoclass() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
-    create(&server, json!({"name":"plain"})).json();
-    create(&server, json!({"name":"auto","autoclass":{"enabled":true}})).json();
+    create(&server, json!({"name":"plain"})).json_ok();
+    create(&server, json!({"name":"auto","autoclass":{"enabled":true}})).json_ok();
 
     for (name, class) in [
         ("cold", "COLDLINE"),
@@ -324,11 +325,11 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
         ("arch", "ARCHIVE"),
         ("std", "STANDARD"),
     ] {
-        let written = multipart(&server, "plain", name, json!({"storageClass":class})).json();
+        let written = multipart(&server, "plain", name, json!({"storageClass":class})).json_ok();
         assert_eq!(written["storageClass"], class);
         assert_eq!(object(&server, "plain", name)["storageClass"], class);
     }
-    let default = multipart(&server, "plain", "default", json!({"storageClass":null})).json();
+    let default = multipart(&server, "plain", "default", json!({"storageClass":null})).json_ok();
     assert_eq!(default["storageClass"], "STANDARD");
     let resumed = resumable(
         &server,
@@ -336,12 +337,13 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
         "resumed",
         json!({"storageClass":"ARCHIVE"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(resumed["storageClass"], "ARCHIVE");
-    resumable(&server, "plain", "bad", json!({"storageClass":"GLACIER"})).error(400, "invalid");
+    resumable(&server, "plain", "bad", json!({"storageClass":"GLACIER"}))
+        .json_reason(400, "invalid");
 
     // Autoclass stores new objects as STANDARD even when another class is requested.
-    let auto = multipart(&server, "auto", "cold", json!({"storageClass":"COLDLINE"})).json();
+    let auto = multipart(&server, "auto", "cold", json!({"storageClass":"COLDLINE"})).json_ok();
     assert_eq!(auto["storageClass"], "STANDARD");
     let auto_resumed = resumable(
         &server,
@@ -349,9 +351,10 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
         "resumed",
         json!({"storageClass":"ARCHIVE"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(auto_resumed["storageClass"], "STANDARD");
-    multipart(&server, "auto", "bad", json!({"storageClass":"GLACIER"})).error(400, "invalid");
+    multipart(&server, "auto", "bad", json!({"storageClass":"GLACIER"}))
+        .json_reason(400, "invalid");
 
     // Rewrite keeps its class change outside Autoclass and ignores it inside.
     let rewritten = server
@@ -361,7 +364,7 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
             "",
             br#"{"storageClass":"NEARLINE"}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(rewritten["resource"]["storageClass"], "NEARLINE");
     let into_auto = server
         .request(
@@ -370,7 +373,7 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
             "",
             br#"{"storageClass":"NEARLINE"}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(into_auto["resource"]["storageClass"], "STANDARD");
 
     // XML PUT accepts x-goog-storage-class and reports it on reads.
@@ -422,7 +425,7 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
     );
 
     // Metadata updates still treat storageClass as output-only.
-    patch_object_class(&server).error(400, "badRequest");
+    patch_object_class(&server).json_reason(400, "badRequest");
     assert_eq!(object(&server, "plain", "cold")["storageClass"], "COLDLINE");
 }
 

@@ -40,15 +40,15 @@ fn fixture_with(options: &[&str]) -> (TestDir, TestDir, Server) {
             &format!("{ADMIN}Content-Type: text/plain\r\nx-goog-meta-original: keep\r\n"),
             b"hello world",
         )
-        .ok();
+        .success();
     (config, data, server)
 }
 
 fn snapshot(server: &Server, data: &TestDir) -> (Value, Vec<u8>, i64, i64) {
     let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     (
-        server.get(ADMIN, JSON_OBJECT).ok().json(),
-        server.get(ADMIN, OBJECT).ok().body.clone(),
+        server.get(ADMIN, JSON_OBJECT).success().json(),
+        server.get(ADMIN, OBJECT).success().body.clone(),
         connection
             .query_row("SELECT last_generation FROM object_generation", [], |row| {
                 row.get(0)
@@ -122,7 +122,7 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
         format!("crc32c={CRC}, md5={MD5}")
     );
     let get = server.get(&format!("{ADMIN}Accept-Encoding: gzip\r\n"), OBJECT);
-    assert_eq!(get.ok().body, b"hello world");
+    assert_eq!(get.success().body, b"hello world");
     for name in [
         "etag",
         "x-goog-generation",
@@ -145,7 +145,7 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
     assert_eq!(get.headers["content-language"], "en");
     assert_eq!(get.headers["x-goog-meta-project"], "example");
     assert_eq!(get.headers["x-goog-meta-empty"], "");
-    let metadata = server.get(ADMIN, JSON_OBJECT).ok().json();
+    let metadata = server.get(ADMIN, JSON_OBJECT).success().json();
     assert_eq!(metadata["contentType"], "text/plain; charset=UTF-8");
     assert_eq!(metadata["contentEncoding"], "gzip");
     assert_eq!(
@@ -163,11 +163,11 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
     server.stop();
     let identities = identity_file(&_config);
     let server = Server::strict(&data, &identities);
-    assert_eq!(server.get(ADMIN, JSON_OBJECT).ok().json(), metadata);
+    assert_eq!(server.get(ADMIN, JSON_OBJECT).success().json(), metadata);
     assert_eq!(
         server
             .get(&format!("{ADMIN}Accept-Encoding: gzip\r\n"), OBJECT)
-            .ok()
+            .success()
             .body,
         b"hello world"
     );
@@ -179,7 +179,7 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
     );
     assert_eq!(empty.headers["x-goog-stored-content-encoding"], "identity");
     let get = server.get(ADMIN, OBJECT);
-    assert!(get.ok().body.is_empty());
+    assert!(get.success().body.is_empty());
     assert_eq!(get.headers["content-type"], "application/octet-stream");
     for name in [
         "content-encoding",
@@ -191,8 +191,8 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
     }
     for path in ["dir%2F%E7%8C%AB+%252F", "a//b%3F%23", "%2E%2E/child"] {
         let path = format!("/iam-bucket/{path}");
-        server.request("PUT", &path, ADMIN, b"encoded").ok();
-        assert_eq!(server.get(ADMIN, &path).ok().body, b"encoded");
+        server.request("PUT", &path, ADMIN, b"encoded").success();
+        assert_eq!(server.get(ADMIN, &path).success().body, b"encoded");
     }
     clean(&data);
 }
@@ -201,7 +201,9 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
 fn xml_put_chunked_multibuffer_and_configured_size_boundaries() {
     let data = TestDir::new();
     let (server, _) = Server::start(&data, &["--max-object-bytes", "262281"]);
-    server.create_bucket("", "project-a", "iam-bucket").ok();
+    server
+        .create_bucket("", "project-a", "iam-bucket")
+        .success();
     let payload: Vec<u8> = (0..262281).map(|n| (n % 251) as u8).collect();
     let mut stream = server.stream();
     stream
@@ -215,13 +217,13 @@ fn xml_put_chunked_multibuffer_and_configured_size_boundaries() {
         stream.write_all(b"\r\n").unwrap();
     }
     stream.write_all(b"0\r\n\r\n").unwrap();
-    let reply = Reply::read(stream);
+    let reply = Reply::read_joined(stream);
     assert_eq!(reply.status, 200);
     assert_eq!(
         reply.headers["x-goog-stored-content-length"],
         payload.len().to_string()
     );
-    assert_eq!(server.get("", OBJECT).ok().body, payload);
+    assert_eq!(server.get("", OBJECT).success().body, payload);
     assert_eq!(server.request("PUT", OBJECT, "", &payload).status, 200);
     let before = snapshot(&server, &data);
     xml_error(&server.raw(b"PUT /iam-bucket/object HTTP/1.1\r\nHost: local\r\nContent-Length: 262282\r\nExpect: 100-continue\r\n\r\n"), 400, "EntityTooLarge");
@@ -247,13 +249,13 @@ fn xml_put_individual_and_combined_hash_headers_accept_matching_bytes() {
     ] {
         let mut stream = expect_continue(&server, OBJECT, &format!("{ADMIN}{hashes}"), 11);
         stream.write_all(b"hello world").unwrap();
-        let reply = Reply::read(stream);
+        let reply = Reply::read_joined(stream);
         assert_eq!(reply.status, 200);
         assert_eq!(
             reply.headers["x-goog-hash"],
             format!("crc32c={CRC}, md5={MD5}")
         );
-        assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");
+        assert_eq!(server.get(ADMIN, OBJECT).success().body, b"hello world");
     }
     clean(&data);
 }
@@ -480,9 +482,9 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
             &format!("{ADMIN}x-goog-meta-k: {}\r\n", "a".repeat(8191)),
             b"boundary",
         )
-        .ok();
+        .success();
     assert_eq!(
-        server.get(ADMIN, JSON_OBJECT).ok().json()["metadata"]["k"]
+        server.get(ADMIN, JSON_OBJECT).success().json()["metadata"]["k"]
             .as_str()
             .unwrap()
             .len(),
@@ -513,7 +515,7 @@ fn xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens
     }
     server
         .request("PUT", "/iam-bucket/created", CREATOR, b"created")
-        .ok();
+        .success();
     for auth in [VIEWER, ""] {
         xml_error(
             &server.request("PUT", "/iam-bucket/fresh", auth, b"denied"),
@@ -530,10 +532,10 @@ fn xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectCreator", "allUsers")]}),
     )
-    .ok();
+    .success();
     server
         .request("PUT", "/iam-bucket/anonymous", "", b"public creator")
-        .ok();
+        .success();
     xml_error(
         &server.request("PUT", OBJECT, "", b"denied"),
         401,
@@ -544,9 +546,11 @@ fn xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectAdmin", "allUsers")]}),
     )
-    .ok();
+    .success();
     for auth in ["", NO_ROLES, CREATOR] {
-        server.request("PUT", OBJECT, auth, b"public admin").ok();
+        server
+            .request("PUT", OBJECT, auth, b"public admin")
+            .success();
     }
     let public_before = snapshot(&server, &data);
     for auth in [
@@ -565,10 +569,10 @@ fn xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectCreator", "allAuthenticatedUsers")]}),
     )
-    .ok();
+    .success();
     server
         .request("PUT", "/iam-bucket/registered", NO_ROLES, b"registered")
-        .ok();
+        .success();
     xml_error(
         &server.request("PUT", "/iam-bucket/not-anonymous", "", b"denied"),
         401,
@@ -615,7 +619,7 @@ fn xml_put_conditions_and_concurrent_overwrites_are_atomic() {
             thread::spawn(move || {
                 barrier.wait();
                 stream.write_all(b"winner").unwrap();
-                Reply::read(stream)
+                Reply::read_joined(stream)
             })
         })
         .collect();
@@ -631,7 +635,7 @@ fn xml_put_conditions_and_concurrent_overwrites_are_atomic() {
         412,
         "PreconditionFailed",
     );
-    assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"winner");
+    assert_eq!(server.get(ADMIN, OBJECT).success().body, b"winner");
     let counter: i64 = rusqlite::Connection::open(data.0.join("catalog.sqlite3"))
         .unwrap()
         .query_row("SELECT last_generation FROM object_generation", [], |row| {
@@ -640,7 +644,7 @@ fn xml_put_conditions_and_concurrent_overwrites_are_atomic() {
         .unwrap();
     assert_eq!(
         counter.to_string(),
-        server.get(ADMIN, JSON_OBJECT).ok().json()["generation"]
+        server.get(ADMIN, JSON_OBJECT).success().json()["generation"]
             .as_str()
             .unwrap()
     );
@@ -649,7 +653,7 @@ fn xml_put_conditions_and_concurrent_overwrites_are_atomic() {
     let mut b = expect_continue(&server, "/iam-bucket/absent", &headers, 1);
     a.write_all(b"a").unwrap();
     b.write_all(b"b").unwrap();
-    let mut statuses = [Reply::read(a).status, Reply::read(b).status];
+    let mut statuses = [Reply::read_joined(a).status, Reply::read_joined(b).status];
     statuses.sort();
     assert_eq!(statuses, [200, 412]);
     clean(&data);
@@ -659,21 +663,21 @@ fn xml_put_conditions_and_concurrent_overwrites_are_atomic() {
 fn xml_put_rechecks_create_delete_and_bucket_grants_at_publication() {
     let (_config, data, server) = iam::fixture();
     let mut late = expect_continue(&server, OBJECT, CREATOR, 4);
-    server.request("PUT", OBJECT, ADMIN, b"winner").ok();
+    server.request("PUT", OBJECT, ADMIN, b"winner").success();
     let before = snapshot(&server, &data);
     late.write_all(b"late").unwrap();
-    xml_error(&Reply::read(late), 403, "AccessDenied");
+    xml_error(&Reply::read_joined(late), 403, "AccessDenied");
     assert_eq!(snapshot(&server, &data), before);
     iam::set(
         &server,
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectAdmin", "allUsers")]}),
     )
-    .ok();
+    .success();
     let mut revoked = expect_continue(&server, OBJECT, "", 4);
-    iam::set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    iam::set(&server, ADMIN, &json!({"bindings":[]})).success();
     revoked.write_all(b"late").unwrap();
-    xml_error(&Reply::read(revoked), 401, "AuthenticationRequired");
+    xml_error(&Reply::read_joined(revoked), 401, "AuthenticationRequired");
     assert_eq!(snapshot(&server, &data), before);
     clean(&data);
 }
@@ -733,8 +737,10 @@ fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     let data = TestDir::new();
     // The stalled body below must meet the connection deadline before the client's hang guard.
     let (mut server, _) = Server::start(&data, &["--connection-timeout-ms", "2000"]);
-    server.create_bucket("", "project-a", "iam-bucket").ok();
-    server.request("PUT", OBJECT, "", b"previous").ok();
+    server
+        .create_bucket("", "project-a", "iam-bucket")
+        .success();
+    server.request("PUT", OBJECT, "", b"previous").success();
     let before = snapshot(&server, &data);
     xml_error(&server.raw(b"PUT /iam-bucket/object HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nnew\r\n0\r\nx-goog-hash: crc32c=AAAAAA==\r\n\r\n"), 400, "IncompleteBody");
     clean(&data);
@@ -782,8 +788,8 @@ fn xml_put_versioning_and_default_event_holds_match_shared_uploads() {
             ADMIN,
             br#"{"versioning":{"enabled":true}}"#,
         )
-        .ok();
-    let first = server.get(ADMIN, JSON_OBJECT).ok().json();
+        .success();
+    let first = server.get(ADMIN, JSON_OBJECT).success().json();
     server
         .request(
             "PUT",
@@ -791,8 +797,8 @@ fn xml_put_versioning_and_default_event_holds_match_shared_uploads() {
             &format!("{ADMIN}x-goog-if-metageneration-match: 1\r\n"),
             b"second",
         )
-        .ok();
-    let second = server.get(ADMIN, JSON_OBJECT).ok().json();
+        .success();
+    let second = server.get(ADMIN, JSON_OBJECT).success().json();
     assert_ne!(first["generation"], second["generation"]);
     assert_eq!(
         server
@@ -803,13 +809,13 @@ fn xml_put_versioning_and_default_event_holds_match_shared_uploads() {
                     first["generation"].as_str().unwrap()
                 )
             )
-            .ok()
+            .success()
             .body,
         b"hello world"
     );
     let versions = server
         .get(ADMIN, "/storage/v1/b/iam-bucket/o?versions=true")
-        .ok()
+        .success()
         .json();
     assert_eq!(versions["items"].as_array().unwrap().len(), 2);
     server
@@ -819,8 +825,8 @@ fn xml_put_versioning_and_default_event_holds_match_shared_uploads() {
             ADMIN,
             br#"{"defaultEventBasedHold":true}"#,
         )
-        .ok();
-    server.request("PUT", OBJECT, ADMIN, b"held").ok();
+        .success();
+    server.request("PUT", OBJECT, ADMIN, b"held").success();
     let before = snapshot(&server, &data);
     assert_eq!(before.0["eventBasedHold"], true);
     xml_error(
@@ -842,7 +848,7 @@ fn xml_put_versioning_and_default_event_holds_match_shared_uploads() {
                     second["generation"].as_str().unwrap()
                 )
             )
-            .ok()
+            .success()
             .body,
         b"second"
     );
@@ -852,7 +858,7 @@ fn xml_put_versioning_and_default_event_holds_match_shared_uploads() {
 #[test]
 fn xml_put_bucket_cors_covers_preflight_success_and_denials() {
     let (_config, _data, server) = fixture();
-    server.request("PATCH", "/storage/v1/b/iam-bucket", ADMIN, br#"{"cors":[{"origin":["https://browser.example"],"method":["PUT"],"responseHeader":["Content-Type","Content-MD5","ETag","x-goog-generation"],"maxAgeSeconds":73}]}"#).ok();
+    server.request("PATCH", "/storage/v1/b/iam-bucket", ADMIN, br#"{"cors":[{"origin":["https://browser.example"],"method":["PUT"],"responseHeader":["Content-Type","Content-MD5","ETag","x-goog-generation"],"maxAgeSeconds":73}]}"#).success();
     let origin = "Origin: https://browser.example\r\n";
     let preflight = server.request("OPTIONS", OBJECT, &format!("{origin}Access-Control-Request-Method: PUT\r\nAccess-Control-Request-Headers: content-type, content-md5\r\n"), b"");
     assert_eq!(preflight.status, 200);
@@ -870,7 +876,7 @@ fn xml_put_bucket_cors_covers_preflight_success_and_denials() {
     ] {
         let reply = server.request("PUT", OBJECT, &format!("{auth}{origin}{extra}"), b"new");
         if status == 200 {
-            reply.ok();
+            reply.success();
         } else {
             xml_error(&reply, status, code);
         }
@@ -891,7 +897,7 @@ fn xml_put_bucket_cors_covers_preflight_success_and_denials() {
         &format!("{ADMIN}Origin: https://denied.example\r\n"),
         b"allowed by IAM",
     );
-    denied.ok();
+    denied.success();
     assert!(!denied.headers.contains_key("access-control-allow-origin"));
     let denied = server.request("OPTIONS", OBJECT, &format!("{origin}Access-Control-Request-Method: PUT\r\nAccess-Control-Request-Headers: x-unsupported\r\n"), b"");
     assert!(!denied.headers.contains_key("access-control-allow-origin"));
@@ -910,5 +916,5 @@ fn xml_put_upload_admission_is_bounded_and_releases_aborted_slots() {
     clean(&data);
     server
         .request("PUT", "/iam-bucket/after-release", ADMIN, b"slot available")
-        .ok();
+        .success();
 }

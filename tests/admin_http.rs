@@ -1,14 +1,16 @@
+use crate::common::server::declare_server;
 mod admin_fixture_metadata;
 mod admin_reseed;
 mod admin_reset;
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use common::TestDir;
-use common::server::{Server, http_command, write_request};
+use common::server::{http_command, write_request};
 use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use gcs_mimic::config::Config;
 use hyper::{HeaderMap, Method, Uri};
-use object_effects_support::{Reply, common, request};
+use object_effects_support::{Reply, request};
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Write},
@@ -26,7 +28,7 @@ fn server_drop_preserves_original_panic_for_running_and_exited_children() {
             let dir = TestDir::new();
             let mut server = Server::launch(&mut http_command(&dir.0));
             if graceful {
-                server = server.graceful();
+                server = server.with_graceful_shutdown();
             }
             if exited {
                 server.child.kill().unwrap();
@@ -92,7 +94,7 @@ impl Server {
                 .args(["--seed-project", "local"])
                 .args(options),
         )
-        .graceful()
+        .with_graceful_shutdown()
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
@@ -117,14 +119,14 @@ impl Server {
             ADMIN,
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
+        .json_ok();
         self.request(
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=value",
             ADMIN,
             b"original",
         )
-        .json();
+        .json_ok();
     }
 
     fn status_with_host(&self, path: &str, host: &str, headers: &str) -> u16 {
@@ -184,7 +186,7 @@ fn direct_fixtures_preserve_metadata_generation_and_times_across_restart() {
         "{}",
         String::from_utf8_lossy(&reply.body)
     );
-    let resource = reply.json();
+    let resource = reply.json_ok();
     for key in [
         "generation",
         "contentType",
@@ -218,12 +220,12 @@ fn direct_fixtures_preserve_metadata_generation_and_times_across_restart() {
             b"next",
             "",
         )
-        .json();
+        .json_ok();
     assert_eq!(next["generation"], "8000000000000000001");
     assert_eq!(next["timeCreated"], "1999-01-01T00:00:00.000Z");
     drop(server);
     let server = Server::start(&dir, &options);
-    assert_eq!(server.request("GET", path, "", b"").json(), resource);
+    assert_eq!(server.request("GET", path, "", b"").json_ok(), resource);
     assert_eq!(
         server
             .request("GET", &format!("{path}?alt=media"), "", b"")
@@ -240,10 +242,10 @@ fn direct_fixture_rejections_preserve_existing_bytes() {
         &["--admin-enabled", "true", "--max-object-bytes", "16"],
     );
     server.populate();
-    let original = server.request("GET", OBJECT, "", b"").json();
+    let original = server.request("GET", OBJECT, "", b"").json_ok();
     let listing = server
         .request("GET", "/storage/v1/b/test-bucket/o", "", b"")
-        .json();
+        .json_ok();
     let base = json!({"bucket":"test-bucket", "name":"value"});
     for (field, value) in [
         ("generation", json!("0")),
@@ -292,11 +294,11 @@ fn direct_fixture_rejections_preserve_existing_bytes() {
         "--fixture\r\nContent-Type: application/json\r\n\r\n{base}\r\n--fixture\r\nContent-Type: application/octet-stream\r\n\r\ninvalid\r\n--fixture--broken"
     );
     assert_eq!(server.fixture_wire(wire.as_bytes(), "").status, 400);
-    assert_eq!(server.request("GET", OBJECT, "", b"").json(), original);
+    assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), original);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o", "", b"")
-            .json(),
+            .json_ok(),
         listing
     );
     assert_eq!(
@@ -319,7 +321,7 @@ fn initial_fixture_notification_mode_is_request_local_and_preserves_runtime_even
             "",
             br#"{"topic":"projects/local/topics/events"}"#,
         )
-        .json();
+        .json_ok();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     let count = || {
         connection
@@ -335,7 +337,7 @@ fn initial_fixture_notification_mode_is_request_local_and_preserves_runtime_even
             b"initial",
             "",
         )
-        .json();
+        .json_ok();
     assert_eq!(count(), 0);
     server
         .fixture(
@@ -343,7 +345,7 @@ fn initial_fixture_notification_mode_is_request_local_and_preserves_runtime_even
             b"ordinary",
             "",
         )
-        .json();
+        .json_ok();
     assert_eq!(count(), 2);
     assert_eq!(
         server
@@ -374,7 +376,7 @@ fn initial_fixture_notification_mode_is_request_local_and_preserves_runtime_even
             "",
             b"API write",
         )
-        .json();
+        .json_ok();
     assert_eq!(count(), 4);
     drop(connection);
 }
@@ -390,11 +392,11 @@ fn direct_fixture_retention_expiry_range_is_validated_in_the_publication_transac
             "",
             br#"{"name":"retained-fixtures","retentionPolicy":{"retentionPeriod":"60"}}"#,
         )
-        .json();
-    let original = server.fixture(json!({"bucket":"retained-fixtures", "name":"value", "generation":"1", "created":"2000-01-01T00:00:00Z"}), b"original", "").json();
+        .json_ok();
+    let original = server.fixture(json!({"bucket":"retained-fixtures", "name":"value", "generation":"1", "created":"2000-01-01T00:00:00Z"}), b"original", "").json_ok();
     let listing = server
         .request("GET", "/storage/v1/b/retained-fixtures/o", "", b"")
-        .json();
+        .json_ok();
     let rejected = server.fixture(json!({"bucket":"retained-fixtures", "name":"value", "generation":"8000000000000000000", "created":"9999-12-31T23:59:59Z"}), b"rejected", "");
     assert_eq!(
         rejected.status,
@@ -405,7 +407,7 @@ fn direct_fixture_retention_expiry_range_is_validated_in_the_publication_transac
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/retained-fixtures/o/value", "", b"")
-            .json(),
+            .json_ok(),
         original
     );
     assert_eq!(
@@ -422,7 +424,7 @@ fn direct_fixture_retention_expiry_range_is_validated_in_the_publication_transac
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/retained-fixtures/o", "", b"")
-            .json(),
+            .json_ok(),
         listing
     );
     let next = server
@@ -431,7 +433,7 @@ fn direct_fixture_retention_expiry_range_is_validated_in_the_publication_transac
             b"valid",
             "",
         )
-        .json();
+        .json_ok();
     assert!(
         next["generation"].as_str().unwrap().parse::<i64>().unwrap() < 8_000_000_000_000_000_000
     );
@@ -442,14 +444,14 @@ fn direct_fixture_retention_expiry_range_is_validated_in_the_publication_transac
             "",
             br#"{"name":"future-fixtures"}"#,
         )
-        .json();
+        .json_ok();
     server
         .fixture(
             json!({"bucket":"future-fixtures", "name":"value", "created":"9999-12-31T23:59:59Z"}),
             b"valid",
             "",
         )
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .request(
@@ -464,7 +466,7 @@ fn direct_fixture_retention_expiry_range_is_validated_in_the_publication_transac
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/future-fixtures", "", b"")
-            .json(),
+            .json_ok(),
         bucket
     );
     assert_eq!(
@@ -652,12 +654,12 @@ fn endpoint_changes_preserve_media_multipart_and_copy_replay_identity() {
     let media_headers = "X-Goog-Gcs-Idempotency-Token: media-token\r\n";
     let first_media = server
         .request("POST", media_path, media_headers, b"original")
-        .json();
+        .json_ok();
     let copy_path = "/storage/v1/b/test-bucket/o/value/copyTo/b/test-bucket/o/copied";
     let copy_headers = "X-Goog-Gcs-Idempotency-Token: copy-token\r\n";
     let first_copy = server
         .request("POST", copy_path, copy_headers, b"null")
-        .json();
+        .json_ok();
     let multipart = || {
         let body = b"--boundary\r\nContent-Type: application/json\r\n\r\n{\"name\":\"multipart-replay\"}\r\n--boundary\r\nContent-Type: text/plain\r\n\r\noriginal\r\n--boundary--\r\n";
         let mut stream = TcpStream::connect(&server.address).unwrap();
@@ -680,10 +682,10 @@ fn endpoint_changes_preserve_media_multipart_and_copy_replay_identity() {
     );
     let second_media = server
         .request("POST", media_path, media_headers, b"original")
-        .json();
+        .json_ok();
     let second_copy = server
         .request("POST", copy_path, copy_headers, b"null")
-        .json();
+        .json_ok();
     let second_multipart = multipart();
     for (first, replayed) in [
         (&first_media, &second_media),
@@ -701,12 +703,12 @@ fn endpoint_changes_preserve_media_multipart_and_copy_replay_identity() {
     }
     let current = server
         .request("GET", "/storage/v1/b/test-bucket/o/replayed", "", b"")
-        .json();
+        .json_ok();
     assert_eq!(current["generation"], first_media["generation"]);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/copied", "", b"")
-            .json()["generation"],
+            .json_ok()["generation"],
         first_copy["generation"]
     );
     assert_eq!(
@@ -717,7 +719,7 @@ fn endpoint_changes_preserve_media_multipart_and_copy_replay_identity() {
                 "",
                 b""
             )
-            .json()["generation"],
+            .json_ok()["generation"],
         first_multipart["generation"]
     );
 }
@@ -840,14 +842,14 @@ fn config_route_is_disabled_by_default_and_changes_only_future_http_links() {
     }
     let server = Server::start(&dir, &["--admin-enabled", "true"]);
     server.populate();
-    let original = server.request("GET", OBJECT, "", b"").json();
+    let original = server.request("GET", OBJECT, "", b"").json_ok();
     assert_eq!(
         server
             .configure("http://mapped.invalid:9876/proxy/", "public.invalid:9876")
             .status,
         200
     );
-    let changed = server.request("GET", OBJECT, "", b"").json();
+    let changed = server.request("GET", OBJECT, "", b"").json_ok();
     assert_eq!(original["generation"], changed["generation"]);
     assert_eq!(original["metageneration"], changed["metageneration"]);
     assert!(
@@ -858,7 +860,7 @@ fn config_route_is_disabled_by_default_and_changes_only_future_http_links() {
     );
     let bucket = server
         .request("GET", "/storage/v1/b/test-bucket?projection=full", "", b"")
-        .json();
+        .json_ok();
     assert!(
         bucket["selfLink"]
             .as_str()
@@ -883,7 +885,7 @@ fn config_route_is_disabled_by_default_and_changes_only_future_http_links() {
             server.request("PUT", "/_internal/config", "", body).status,
             400
         );
-        assert_eq!(server.request("GET", OBJECT, "", b"").json(), changed);
+        assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), changed);
     }
     assert_eq!(
         server
@@ -914,10 +916,10 @@ fn config_route_is_disabled_by_default_and_changes_only_future_http_links() {
             .status,
         200
     );
-    assert_eq!(server.request("GET", OBJECT, "", b"").json(), changed);
+    assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), changed);
     drop(server);
     let restarted = Server::start(&dir, &["--admin-enabled", "true"]);
-    let resource = restarted.request("GET", OBJECT, "", b"").json();
+    let resource = restarted.request("GET", OBJECT, "", b"").json_ok();
     assert_eq!(resource["generation"], original["generation"]);
     assert!(
         !resource["selfLink"]
@@ -967,7 +969,7 @@ fn changed_mapped_endpoint_reaches_new_resumable_locations_and_keeps_old_session
         );
         assert_eq!(complete.status, 200);
         assert!(
-            complete.json()["selfLink"]
+            complete.json_ok()["selfLink"]
                 .as_str()
                 .unwrap()
                 .starts_with("http://localhost:")
@@ -1016,7 +1018,7 @@ fn config_update_during_upload_retains_the_requests_original_endpoint_snapshot()
     assert!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/slow", "", b"")
-            .json()["selfLink"]
+            .json_ok()["selfLink"]
             .as_str()
             .unwrap()
             .starts_with("http://new.invalid:9876/")
@@ -1106,3 +1108,11 @@ fn strict_config_authorization_and_raw_signed_host_survive_public_host_updates()
         assert_eq!(server.request("GET", &altered, "", b"").status, 403);
     }
 }
+
+impl Server {
+    fn with_graceful_shutdown(mut self) -> Self {
+        self.0 = self.0.graceful();
+        self
+    }
+}
+declare_server!();

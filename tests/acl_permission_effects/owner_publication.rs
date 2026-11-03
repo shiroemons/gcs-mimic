@@ -8,7 +8,7 @@ fn full(server: &Server, name: &str) -> Value {
             ADMIN,
             b"",
         )
-        .json()
+        .json_ok()
 }
 
 fn acl(value: &Value) -> Vec<(String, String)> {
@@ -63,7 +63,7 @@ fn move_preserves_source_owner_and_acl_without_observing_current_default() {
                 READER,
                 b"original owner's bytes",
             )
-            .json();
+            .json_ok();
         let generation = source["generation"].as_str().unwrap();
         server.grant("user-other@example.test", "OWNER", generation);
         server
@@ -73,7 +73,7 @@ fn move_preserves_source_owner_and_acl_without_observing_current_default() {
                 READER,
                 br#"{"metadata":{"source":"retained"},"contentType":"text/source"}"#,
             )
-            .json();
+            .json_ok();
         let target = server
             .request(
                 "POST",
@@ -81,14 +81,14 @@ fn move_preserves_source_owner_and_acl_without_observing_current_default() {
                 ADMIN,
                 b"old target bytes",
             )
-            .json();
+            .json_ok();
         let source = full(&server, "value");
         let before = full(&server, "moved");
         let defaults: Vec<_> = (0..100).map(|index| json!({"entity":format!("user-default{index}@example.test"),"role":"READER"})).collect();
         server
             .admin("PATCH", BUCKET, json!({"defaultObjectAcl":defaults}))
-            .json();
-        server.admin("POST", &format!("{BUCKET}/notificationConfigs"), json!({"topic":"projects/local/topics/moves","event_types":["OBJECT_DELETE","OBJECT_FINALIZE"]})).json();
+            .json_ok();
+        server.admin("POST", &format!("{BUCKET}/notificationConfigs"), json!({"topic":"projects/local/topics/moves","event_types":["OBJECT_DELETE","OBJECT_FINALIZE"]})).json_ok();
         let path = format!("{OBJECT}/moveTo/o/moved?projection=noAcl");
         let db = (backend == "disk")
             .then(|| rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap());
@@ -129,7 +129,7 @@ fn move_preserves_source_owner_and_acl_without_observing_current_default() {
                 OTHER,
                 b"",
             )
-            .json();
+            .json_ok();
         let moved = full(&server, "moved");
         assert_eq!(moved["owner"], json!({"entity":"user-reader@example.test"}));
         assert_eq!(acl(&moved), acl(&source));
@@ -195,7 +195,7 @@ fn move_preserves_legacy_virtual_acl_and_unknown_owner_independently_of_current_
         .collect();
     server
         .admin("PATCH", BUCKET, json!({"defaultObjectAcl":defaults}))
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -203,7 +203,7 @@ fn move_preserves_legacy_virtual_acl_and_unknown_owner_independently_of_current_
             ADMIN,
             b"",
         )
-        .json();
+        .json_ok();
     let moved = full(&server, "legacy");
     assert!(moved.get("owner").is_none());
     assert_eq!(acl(&moved), acl(&source));
@@ -237,7 +237,7 @@ fn derived_publications_assign_the_caller_and_restore_keeps_original_owner_with_
                 READER,
                 b"{}",
             )
-            .json();
+            .json_ok();
         let rewritten = server
             .request(
                 "POST",
@@ -245,7 +245,7 @@ fn derived_publications_assign_the_caller_and_restore_keeps_original_owner_with_
                 READER,
                 b"{}",
             )
-            .json();
+            .json_ok();
         assert_eq!(rewritten["done"], true);
         server
             .request(
@@ -256,7 +256,7 @@ fn derived_publications_assign_the_caller_and_restore_keeps_original_owner_with_
                     .to_string()
                     .as_bytes(),
             )
-            .json();
+            .json_ok();
         for name in ["copied", "rewritten", "composed"] {
             let record = full(&server, name);
             assert_eq!(
@@ -281,7 +281,7 @@ fn derived_publications_assign_the_caller_and_restore_keeps_original_owner_with_
                 READER,
                 b"restored owner's bytes",
             )
-            .json();
+            .json_ok();
         let generation = original["generation"].as_str().unwrap();
         server
             .admin(
@@ -289,8 +289,8 @@ fn derived_publications_assign_the_caller_and_restore_keeps_original_owner_with_
                 &format!("{BUCKET}/o/restored/acl"),
                 json!({"entity":"user-other@example.test","role":"OWNER"}),
             )
-            .json();
-        server.admin("PATCH", BUCKET, json!({"softDeletePolicy":{"retentionDurationSeconds":"604800"},"defaultObjectAcl":[{"entity":"user-other@example.test","role":"READER"}]})).json();
+            .json_ok();
+        server.admin("PATCH", BUCKET, json!({"softDeletePolicy":{"retentionDurationSeconds":"604800"},"defaultObjectAcl":[{"entity":"user-other@example.test","role":"READER"}]})).json_ok();
         assert_eq!(
             server
                 .request(
@@ -315,7 +315,7 @@ fn derived_publications_assign_the_caller_and_restore_keeps_original_owner_with_
         );
         let path = format!("{BUCKET}/o/restored/restore?generation={generation}");
         assert_eq!(server.request("POST", &path, READER, b"").status, 403);
-        let restored = server.request("POST", &path, ADMIN, b"").json();
+        let restored = server.request("POST", &path, ADMIN, b"").json_ok();
         assert_ne!(restored["generation"], original["generation"]);
         let record = full(&server, "restored");
         assert_eq!(
@@ -359,7 +359,7 @@ fn restore_accepts_projection_full_and_omits_acl_and_owner_from_the_response() {
         // copySourceAcl defaults to false, so this source entry must not reach the restored
         // generation, which inherits the bucket default object ACL instead.
         server.grant("user-other@example.test", "OWNER", &generation);
-        server.admin("PATCH", BUCKET, json!({"softDeletePolicy":{"retentionDurationSeconds":"604800"},"defaultObjectAcl":[{"entity":"user-reader@example.test","role":"READER"}]})).json();
+        server.admin("PATCH", BUCKET, json!({"softDeletePolicy":{"retentionDurationSeconds":"604800"},"defaultObjectAcl":[{"entity":"user-reader@example.test","role":"READER"}]})).json_ok();
         let deleted = server.request(
             "DELETE",
             &format!("{OBJECT}?generation={generation}"),
@@ -371,7 +371,7 @@ fn restore_accepts_projection_full_and_omits_acl_and_owner_from_the_response() {
         let restore_without_acl = |query: &str| {
             let restored = server
                 .request("POST", &format!("{restore}{query}"), ADMIN, b"")
-                .json();
+                .json_ok();
             assert_ne!(restored["generation"], json!(generation));
             assert!(restored.get("acl").is_none(), "{query}: {restored}");
             assert!(restored.get("owner").is_none(), "{query}: {restored}");
@@ -401,7 +401,7 @@ fn restore_accepts_projection_full_and_omits_acl_and_owner_from_the_response() {
                 BUCKET,
                 json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
             )
-            .json();
+            .json_ok();
         let restored = restore_without_acl("&projection=full");
         let current = full(&server, "value");
         assert_eq!(current["generation"], restored["generation"]);

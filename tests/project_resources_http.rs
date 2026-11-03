@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Server, common::TestDir};
 use serde_json::{Value, json};
@@ -14,7 +15,7 @@ fn create(server: &Server, email: &str) -> Value {
             ADMIN,
             b"",
         )
-        .json()
+        .json_ok()
 }
 
 fn key_path(access_id: &str) -> String {
@@ -33,7 +34,7 @@ fn set_state(server: &Server, access_id: &str, body: Value) -> object_effects_su
 fn listed(server: &Server, query: &str) -> Vec<String> {
     let value = server
         .request("GET", &format!("{KEYS}?{query}"), ADMIN, b"")
-        .json();
+        .json_ok();
     assert_eq!(value["kind"], "storage#hmacKeysMetadata");
     value["items"]
         .as_array()
@@ -70,7 +71,7 @@ fn hmac_key_lifecycle_state_rules_etags_and_restart() {
     // The secret is returned only by create.
     let fetched = server
         .request("GET", &key_path(&access_id), ADMIN, b"")
-        .json();
+        .json_ok();
     assert_eq!(&fetched, metadata);
     assert!(fetched.get("secret").is_none());
     let partial = server
@@ -80,31 +81,31 @@ fn hmac_key_lifecycle_state_rules_etags_and_restart() {
             ADMIN,
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(partial, json!({"accessId": access_id, "state": "ACTIVE"}));
 
     server
         .request("DELETE", &key_path(&access_id), ADMIN, b"")
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
     set_state(
         &server,
         &access_id,
         json!({"state": "INACTIVE", "etag": "stale"}),
     )
-    .error(412, "conditionNotMet");
-    set_state(&server, &access_id, json!({"state": "DELETED"})).error(400, "invalidArgument");
-    set_state(&server, &access_id, json!({"etag": first_etag})).error(400, "required");
+    .json_reason(412, "conditionNotMet");
+    set_state(&server, &access_id, json!({"state": "DELETED"})).json_reason(400, "invalidArgument");
+    set_state(&server, &access_id, json!({"etag": first_etag})).json_reason(400, "required");
     assert_eq!(
         server
             .request("GET", &key_path(&access_id), ADMIN, b"")
-            .json()["state"],
+            .json_ok()["state"],
         "ACTIVE"
     );
 
     // Read-modify-write clients send back the whole metadata resource.
     let mut round_trip = fetched;
     round_trip["state"] = "INACTIVE".into();
-    let inactive = set_state(&server, &access_id, round_trip).json();
+    let inactive = set_state(&server, &access_id, round_trip).json_ok();
     assert_eq!(inactive["state"], "INACTIVE");
     assert_ne!(inactive["etag"], first_etag);
     assert_eq!(inactive["timeCreated"], metadata["timeCreated"]);
@@ -113,7 +114,7 @@ fn hmac_key_lifecycle_state_rules_etags_and_restart() {
         &access_id,
         json!({"state": "ACTIVE", "etag": first_etag}),
     )
-    .error(412, "conditionNotMet");
+    .json_reason(412, "conditionNotMet");
 
     let reply = server.request("DELETE", &key_path(&access_id), ADMIN, b"");
     assert_eq!(
@@ -124,13 +125,13 @@ fn hmac_key_lifecycle_state_rules_etags_and_restart() {
     );
     let deleted = server
         .request("GET", &key_path(&access_id), ADMIN, b"")
-        .json();
+        .json_ok();
     assert_eq!(deleted["state"], "DELETED");
     assert_ne!(deleted["etag"], inactive["etag"]);
-    set_state(&server, &access_id, json!({"state": "ACTIVE"})).error(400, "badRequest");
+    set_state(&server, &access_id, json!({"state": "ACTIVE"})).json_reason(400, "badRequest");
     server
         .request("DELETE", &key_path(&access_id), ADMIN, b"")
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
     assert!(listed(&server, "").is_empty());
     assert_eq!(
         listed(&server, "showDeletedKeys=true"),
@@ -146,17 +147,17 @@ fn hmac_key_lifecycle_state_rules_etags_and_restart() {
             ADMIN,
             b"",
         )
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     server
         .request("GET", &key_path("GOOG1EMISSING"), ADMIN, b"")
-        .error(404, "notFound");
-    set_state(&server, "GOOG1EMISSING", json!({"state": "ACTIVE"})).error(404, "notFound");
+        .json_reason(404, "notFound");
+    set_state(&server, "GOOG1EMISSING", json!({"state": "ACTIVE"})).json_reason(404, "notFound");
 
     server.stop();
     let server = Server::start(&dir, false);
     let restored = server
         .request("GET", &key_path(&access_id), ADMIN, b"")
-        .json();
+        .json_ok();
     assert_eq!(restored, deleted);
     assert_eq!(listed(&server, ""), std::slice::from_ref(&other_id));
     let catalog = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -211,7 +212,7 @@ fn hmac_key_listing_filters_pages_and_limits() {
         };
         let page = server
             .request("GET", &format!("{KEYS}?{query}"), ADMIN, b"")
-            .json();
+            .json_ok();
         let items = page["items"].as_array().unwrap();
         assert!(items.len() <= 2);
         paged.extend(
@@ -232,7 +233,7 @@ fn hmac_key_listing_filters_pages_and_limits() {
             ADMIN,
             b"",
         )
-        .json();
+        .json_ok();
     let token = page["nextPageToken"].as_str().unwrap();
     // A token is bound to the filters it was issued for.
     server
@@ -242,11 +243,11 @@ fn hmac_key_listing_filters_pages_and_limits() {
             ADMIN,
             b"",
         )
-        .error(400, "invalidParameter");
+        .json_reason(400, "invalidParameter");
     assert!(
         server
             .request("GET", "/storage/v1/projects/elsewhere/hmacKeys", ADMIN, b"")
-            .json()["items"]
+            .json_ok()["items"]
             .as_array()
             .unwrap()
             .is_empty()
@@ -263,12 +264,12 @@ fn hmac_key_listing_filters_pages_and_limits() {
             ADMIN,
             b"",
         )
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
     assert_eq!(
         listed(&server, "serviceAccountEmail=a%40example.invalid").len(),
         10
     );
-    set_state(&server, &first[0], json!({"state": "INACTIVE"})).json();
+    set_state(&server, &first[0], json!({"state": "INACTIVE"})).json_ok();
     assert_eq!(
         server
             .request("DELETE", &key_path(&first[0]), ADMIN, b"")
@@ -284,13 +285,13 @@ fn hmac_key_listing_filters_pages_and_limits() {
             ADMIN,
             b"{}",
         )
-        .error(400, "invalidArgument");
+        .json_reason(400, "invalidArgument");
     server
         .request("POST", KEYS, ADMIN, b"")
-        .error(400, "required");
+        .json_reason(400, "required");
     server
         .request("PATCH", &key_path(&second), ADMIN, b"{}")
-        .error(405, "methodNotAllowed");
+        .json_reason(405, "methodNotAllowed");
 }
 
 /// POST with an explicit content type, as the pinned Ruby client sends create.
@@ -333,7 +334,7 @@ fn service_account_is_deterministic_per_project() {
     let server = Server::start(&dir, false);
     let value = server
         .request("GET", "/storage/v1/projects/123456/serviceAccount", "", b"")
-        .json();
+        .json_ok();
     assert_eq!(
         value,
         json!({"kind": "storage#serviceAccount", "email_address": "service-123456@gs-project-accounts.iam.gserviceaccount.com"})
@@ -345,7 +346,7 @@ fn service_account_is_deterministic_per_project() {
             "",
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(
         named["email_address"],
         "service-0@gs-project-accounts.iam.gserviceaccount.com"
@@ -357,7 +358,7 @@ fn service_account_is_deterministic_per_project() {
             "",
             b"",
         )
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
 }
 
 /// A strict server whose principals separate HMAC key administration from storage
@@ -448,7 +449,7 @@ fn strict_profile_authorizes_project_resources() {
             "keys",
             b"",
         )
-        .json();
+        .json_ok();
     let access_id = created["metadata"]["accessId"].as_str().unwrap().to_owned();
     let create_path = format!("{KEYS}?serviceAccountEmail=sa%40example.invalid");
     // roles/storage.viewer grants hmacKeys get/list only; roles/storage.admin grants none.
@@ -458,11 +459,11 @@ fn strict_profile_authorizes_project_resources() {
     );
     server
         .request("GET", &key_path(&access_id), "reader", b"")
-        .json();
+        .json_ok();
     for token in ["reader", "admin"] {
         server
             .request("POST", &create_path, token, b"")
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
         server
             .request(
                 "PUT",
@@ -470,14 +471,14 @@ fn strict_profile_authorizes_project_resources() {
                 token,
                 br#"{"state":"INACTIVE"}"#,
             )
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
         server
             .request("DELETE", &key_path(&access_id), token, b"")
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
     }
     server
         .request("GET", KEYS, "admin", b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     // Service agent lookup needs only project visibility, which any local grant provides.
     for token in ["keys", "reader", "admin"] {
         assert_eq!(
@@ -488,7 +489,7 @@ fn strict_profile_authorizes_project_resources() {
                     token,
                     b""
                 )
-                .json()["kind"],
+                .json_ok()["kind"],
             "storage#serviceAccount"
         );
     }
@@ -511,7 +512,7 @@ fn strict_profile_authorizes_project_resources() {
         ] {
             server
                 .request(method, &path, token, body.as_bytes())
-                .error(status, reason);
+                .json_reason(status, reason);
         }
     }
     // Project grants are evaluated in the path project.
@@ -522,12 +523,12 @@ fn strict_profile_authorizes_project_resources() {
     ] {
         server
             .request("GET", &path, "keys", b"")
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
     }
     // Authorization does not bypass the state rules.
     server
         .request("DELETE", &key_path(&access_id), "keys", b"")
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
     assert_eq!(
         server
             .request(
@@ -536,7 +537,7 @@ fn strict_profile_authorizes_project_resources() {
                 "keys",
                 br#"{"state":"INACTIVE"}"#
             )
-            .json()["state"],
+            .json_ok()["state"],
         "INACTIVE"
     );
     assert_eq!(
@@ -548,7 +549,7 @@ fn strict_profile_authorizes_project_resources() {
 }
 
 fn listed_as(server: &StrictServer, token: &str) -> Vec<String> {
-    server.request("GET", KEYS, token, b"").json()["items"]
+    server.request("GET", KEYS, token, b"").json_ok()["items"]
         .as_array()
         .unwrap()
         .iter()

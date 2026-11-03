@@ -1,7 +1,8 @@
+use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command, write_request};
+use common::server::{http_command, write_request};
 use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use hyper::{HeaderMap, Method, Uri};
 use serde_json::{Value, json};
@@ -106,7 +107,7 @@ impl Server {
     }
 
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 
@@ -729,3 +730,5 @@ fn signed_preflight_never_grants_permission_and_pap_preserves_signer_access() {
         }
     }
 }
+
+declare_server!();

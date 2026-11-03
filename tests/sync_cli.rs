@@ -1,7 +1,7 @@
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
-mod object_effects_support;
-use object_effects_support::common;
+mod common;
+use common::effects as object_effects_support;
 mod sync_cli {
     use super::*;
     use std::fs;

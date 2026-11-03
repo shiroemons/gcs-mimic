@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Reply, Server, common::TestDir};
 use serde_json::{Value, json};
@@ -72,7 +73,7 @@ fn bucket_acl_crud_round_trips_and_advances_metageneration() {
     let server = Server::start(&dir, false);
     server.bucket();
     let acl = format!("{BUCKET}/acl");
-    let list = call(&server, "GET", &acl).json();
+    let list = call(&server, "GET", &acl).json_ok();
     assert_eq!(list["kind"], "storage#bucketAccessControls");
     assert_eq!(entries(&list), pairs(PROJECT_PRIVATE));
     assert_eq!(
@@ -84,7 +85,7 @@ fn bucket_acl_crud_round_trips_and_advances_metageneration() {
             "projectTeam": {"projectNumber": "0", "team": "owners"}, "etag": "CAE="
         })
     );
-    let before = metageneration(&call(&server, "GET", BUCKET).json());
+    let before = metageneration(&call(&server, "GET", BUCKET).json_ok());
 
     // Go ACL().Set uses update (PUT), which adds an entity that has no entry yet.
     let entry = send(
@@ -93,11 +94,11 @@ fn bucket_acl_crud_round_trips_and_advances_metageneration() {
         &format!("{acl}/allAuthenticatedUsers"),
         json!({"bucket": "test-bucket", "entity": "allAuthenticatedUsers", "role": "READER"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(entry["entity"], "allAuthenticatedUsers");
     assert_eq!(entry["role"], "READER");
     assert_eq!(entry["etag"], "CAI=");
-    let bucket = call(&server, "GET", BUCKET).json();
+    let bucket = call(&server, "GET", BUCKET).json_ok();
     assert_eq!(metageneration(&bucket), before + 1);
 
     // Ruby add_reader uses insert (POST).
@@ -107,7 +108,7 @@ fn bucket_acl_crud_round_trips_and_advances_metageneration() {
         &acl,
         json!({"entity": "user-liz@example.com", "role": "OWNER"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(user["email"], "liz@example.com");
     assert_eq!(user["id"], "test-bucket/user-liz@example.com");
     let patched = send(
@@ -116,7 +117,7 @@ fn bucket_acl_crud_round_trips_and_advances_metageneration() {
         &format!("{acl}/allAuthenticatedUsers"),
         json!({"role": "WRITER"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(patched["role"], "WRITER");
     let unchanged = send(
         &server,
@@ -124,16 +125,16 @@ fn bucket_acl_crud_round_trips_and_advances_metageneration() {
         &format!("{acl}/allAuthenticatedUsers"),
         json!({}),
     )
-    .json();
+    .json_ok();
     assert_eq!(unchanged["role"], "WRITER");
-    let got = call(&server, "GET", &format!("{acl}/user-liz%40example.com")).json();
+    let got = call(&server, "GET", &format!("{acl}/user-liz%40example.com")).json_ok();
     assert_eq!(got["role"], "OWNER");
     let mut expected = pairs(PROJECT_PRIVATE);
     expected.push(("allAuthenticatedUsers".into(), "WRITER".into()));
     expected.push(("user-liz@example.com".into(), "OWNER".into()));
     expected.sort_unstable();
-    assert_eq!(entries(&call(&server, "GET", &acl).json()), expected);
-    let fields = call(&server, "GET", &format!("{acl}?fields=items(entity)")).json();
+    assert_eq!(entries(&call(&server, "GET", &acl).json_ok()), expected);
+    let fields = call(&server, "GET", &format!("{acl}?fields=items(entity)")).json_ok();
     assert_eq!(
         fields["items"][3],
         json!({"entity": "allAuthenticatedUsers"})
@@ -143,10 +144,10 @@ fn bucket_acl_crud_round_trips_and_advances_metageneration() {
     assert_eq!(deleted.status, 204);
     assert!(deleted.body.is_empty());
     for method in ["GET", "DELETE"] {
-        call(&server, method, &format!("{acl}/allAuthenticatedUsers")).error(404, "notFound");
+        call(&server, method, &format!("{acl}/allAuthenticatedUsers")).json_reason(404, "notFound");
     }
     assert_eq!(
-        metageneration(&call(&server, "GET", BUCKET).json()),
+        metageneration(&call(&server, "GET", BUCKET).json_ok()),
         before + 5
     );
 }
@@ -156,8 +157,8 @@ fn acl_requests_reject_invalid_inputs_without_mutation() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
-    server.put("object", b"x").json();
-    let before = call(&server, "GET", BUCKET).json();
+    server.put("object", b"x").json_ok();
+    let before = call(&server, "GET", BUCKET).json_ok();
     for (method, path, body, status, reason) in [
         (
             "POST",
@@ -226,30 +227,30 @@ fn acl_requests_reject_invalid_inputs_without_mutation() {
             "badRequest",
         ),
     ] {
-        send(&server, method, &format!("{BUCKET}/{path}"), body).error(status, reason);
+        send(&server, method, &format!("{BUCKET}/{path}"), body).json_reason(status, reason);
     }
     server
         .request("POST", &format!("{BUCKET}/acl"), ADMIN, b"{")
-        .error(400, "invalid");
+        .json_reason(400, "invalid");
     server
         .request("GET", &format!("{BUCKET}/acl"), ADMIN, b"{}")
-        .error(400, "invalidArgument");
+        .json_reason(400, "invalidArgument");
     send(
         &server,
         "POST",
         "/storage/v1/b/missing-bucket/acl",
         json!({"entity": "allUsers", "role": "READER"}),
     )
-    .error(404, "notFound");
+    .json_reason(404, "notFound");
     call(
         &server,
         "GET",
         "/storage/v1/b/missing-bucket/defaultObjectAcl",
     )
-    .error(404, "notFound");
-    assert_eq!(call(&server, "GET", BUCKET).json(), before);
+    .json_reason(404, "notFound");
+    assert_eq!(call(&server, "GET", BUCKET).json_ok(), before);
     assert_eq!(
-        entries(&call(&server, "GET", &format!("{BUCKET}/acl")).json()),
+        entries(&call(&server, "GET", &format!("{BUCKET}/acl")).json_ok()),
         pairs(PROJECT_PRIVATE)
     );
 }
@@ -260,7 +261,7 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
     let server = Server::start(&dir, false);
     server.bucket();
     let default = format!("{BUCKET}/defaultObjectAcl");
-    let list = call(&server, "GET", &default).json();
+    let list = call(&server, "GET", &default).json_ok();
     assert_eq!(list["kind"], "storage#objectAccessControls");
     assert_eq!(entries(&list), pairs(PROJECT_PRIVATE));
     assert_eq!(
@@ -270,21 +271,21 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
             "projectTeam": {"projectNumber": "0", "team": "viewers"}, "etag": "CAE="
         })
     );
-    server.put("before", b"1").json();
+    server.put("before", b"1").json_ok();
     send(
         &server,
         "POST",
         &default,
         json!({"entity": "allUsers", "role": "READER"}),
     )
-    .json();
-    let current = metageneration(&call(&server, "GET", BUCKET).json());
+    .json_ok();
+    let current = metageneration(&call(&server, "GET", BUCKET).json_ok());
     call(
         &server,
         "GET",
         &format!("{default}?ifMetagenerationMatch={}", current - 1),
     )
-    .error(412, "conditionNotMet");
+    .json_reason(412, "conditionNotMet");
     assert_eq!(
         call(
             &server,
@@ -301,22 +302,22 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
                 "GET",
                 &format!("{default}?ifMetagenerationMatch={current}")
             )
-            .json()
+            .json_ok()
         )
         .len(),
         4
     );
-    server.put("after", b"2").json();
+    server.put("after", b"2").json_ok();
     let mut inherited = pairs(PROJECT_PRIVATE);
     inherited.push(("allUsers".into(), "READER".into()));
     // The unauthenticated creator is recorded as the object owner.
     inherited.push(("user-local-user@gcs-mimic.invalid".into(), "OWNER".into()));
     inherited.sort_unstable();
-    let after = call(&server, "GET", &format!("{BUCKET}/o/after/acl")).json();
+    let after = call(&server, "GET", &format!("{BUCKET}/o/after/acl")).json_ok();
     assert_eq!(entries(&after), inherited);
     assert_eq!(entity(&after["items"], "allUsers")["object"], "after");
     assert_eq!(
-        entries(&call(&server, "GET", &format!("{BUCKET}/o/before/acl")).json()),
+        entries(&call(&server, "GET", &format!("{BUCKET}/o/before/acl")).json_ok()),
         object_private()
     );
     // Changing the default later never rewrites existing objects.
@@ -325,7 +326,7 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
         204
     );
     assert_eq!(
-        entries(&call(&server, "GET", &format!("{BUCKET}/o/after/acl")).json()),
+        entries(&call(&server, "GET", &format!("{BUCKET}/o/after/acl")).json_ok()),
         inherited
     );
     // A replacement generation receives the current default, not the replaced object's ACL.
@@ -335,10 +336,10 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
         &format!("{BUCKET}/o/after/acl/domain-example.com"),
         json!({"role": "OWNER"}),
     )
-    .json();
-    server.put("after", b"3").json();
+    .json_ok();
+    server.put("after", b"3").json_ok();
     assert_eq!(
-        entries(&call(&server, "GET", &format!("{BUCKET}/o/after/acl")).json()),
+        entries(&call(&server, "GET", &format!("{BUCKET}/o/after/acl")).json_ok()),
         object_private()
     );
 }
@@ -348,7 +349,7 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
     server.bucket();
-    let object = server.put("dir%2Fname", b"x").json();
+    let object = server.put("dir%2Fname", b"x").json_ok();
     let generation = object["generation"].as_str().unwrap().to_owned();
     let acl = format!("{BUCKET}/o/dir%2Fname/acl");
     let entry = send(
@@ -357,7 +358,7 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
         &format!("{acl}/allUsers?generation={generation}"),
         json!({"entity": "allUsers", "role": "READER"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(
         entry["id"],
         format!("test-bucket/dir/name/{generation}/allUsers")
@@ -368,7 +369,7 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
     );
     assert_eq!(entry["generation"], generation.as_str());
     assert_eq!(entry["object"], "dir/name");
-    let updated = call(&server, "GET", &format!("{BUCKET}/o/dir%2Fname")).json();
+    let updated = call(&server, "GET", &format!("{BUCKET}/o/dir%2Fname")).json_ok();
     assert_eq!(updated["metageneration"], "2");
     assert!(updated.get("acl").is_none());
 
@@ -377,20 +378,20 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
         "GET",
         &format!("{BUCKET}/o/dir%2Fname?projection=full"),
     )
-    .json();
+    .json_ok();
     assert_eq!(entity(&full["acl"], "allUsers")["etag"], entry["etag"]);
     assert_eq!(
         full["owner"],
         json!({"entity":"user-local-user@gcs-mimic.invalid"})
     );
-    let listed = call(&server, "GET", &format!("{BUCKET}/o?projection=full")).json();
+    let listed = call(&server, "GET", &format!("{BUCKET}/o?projection=full")).json_ok();
     assert_eq!(listed["items"][0]["acl"].as_array().unwrap().len(), 5);
     let selected = call(
         &server,
         "GET",
         &format!("{BUCKET}/o/dir%2Fname?projection=full&fields=acl(entity)"),
     )
-    .json();
+    .json_ok();
     assert_eq!(
         entity(&selected["acl"], "allUsers"),
         &json!({"entity": "allUsers"})
@@ -401,33 +402,33 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
         &format!("{BUCKET}/o/dir%2Fname?projection=full"),
         json!({"contentType": "text/plain"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(patched["acl"].as_array().unwrap().len(), 5);
 
-    let bucket = call(&server, "GET", &format!("{BUCKET}?projection=full")).json();
+    let bucket = call(&server, "GET", &format!("{BUCKET}?projection=full")).json_ok();
     assert_eq!(bucket["acl"].as_array().unwrap().len(), 3);
     assert_eq!(bucket["defaultObjectAcl"][0]["entity"], "project-owners-0");
     assert_eq!(bucket["owner"], json!({"entity": "project-owners-0"}));
-    let plain = call(&server, "GET", BUCKET).json();
+    let plain = call(&server, "GET", BUCKET).json_ok();
     assert!(plain.get("acl").is_none() && plain.get("owner").is_none());
     let buckets = call(
         &server,
         "GET",
         "/storage/v1/b?project=local&projection=full",
     )
-    .json();
+    .json_ok();
     assert_eq!(buckets["items"][0]["acl"].as_array().unwrap().len(), 3);
 
     // ACLs persist across restarts and are removed with their generation.
     server.stop();
     let server = Server::start(&dir, false);
-    let stored = call(&server, "GET", &acl).json();
+    let stored = call(&server, "GET", &acl).json_ok();
     assert_eq!(entries(&stored).len(), 5);
     assert_eq!(
         call(&server, "DELETE", &format!("{BUCKET}/o/dir%2Fname")).status,
         204
     );
-    call(&server, "GET", &acl).error(404, "notFound");
+    call(&server, "GET", &acl).json_reason(404, "notFound");
 }
 
 #[test]
@@ -435,21 +436,21 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
-    server.put("object", b"x").json();
+    server.put("object", b"x").json_ok();
     send(
         &server,
         "PUT",
         &format!("{BUCKET}/acl/domain-example.com"),
         json!({"role": "READER"}),
     )
-    .json();
+    .json_ok();
     send(
         &server,
         "PATCH",
         BUCKET,
         json!({"iamConfiguration": {"publicAccessPrevention": "enforced"}}),
     )
-    .json();
+    .json_ok();
     for path in [
         "acl/allUsers",
         "defaultObjectAcl/allAuthenticatedUsers",
@@ -461,7 +462,7 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
             &format!("{BUCKET}/{path}"),
             json!({"role": "READER"}),
         )
-        .error(412, "conditionNotMet");
+        .json_reason(412, "conditionNotMet");
     }
     send(
         &server,
@@ -469,7 +470,7 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
         &format!("{BUCKET}/o/object/acl/user-liz%40example.com"),
         json!({"role": "READER"}),
     )
-    .json();
+    .json_ok();
 
     let before = send(
         &server,
@@ -477,7 +478,7 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
         BUCKET,
         json!({"iamConfiguration": {"uniformBucketLevelAccess": {"enabled": true}}}),
     )
-    .json();
+    .json_ok();
     for (method, path) in [
         ("GET", "acl"),
         ("GET", "acl/domain-example.com"),
@@ -485,7 +486,7 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
         ("GET", "defaultObjectAcl"),
         ("GET", "o/object/acl"),
     ] {
-        call(&server, method, &format!("{BUCKET}/{path}")).error(400, "invalid");
+        call(&server, method, &format!("{BUCKET}/{path}")).json_reason(400, "invalid");
     }
     for path in ["acl", "defaultObjectAcl", "o/object/acl"] {
         send(
@@ -494,9 +495,9 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
             &format!("{BUCKET}/{path}"),
             json!({"entity": "domain-example.com", "role": "READER"}),
         )
-        .error(400, "invalid");
+        .json_reason(400, "invalid");
     }
-    let full = call(&server, "GET", &format!("{BUCKET}?projection=full")).json();
+    let full = call(&server, "GET", &format!("{BUCKET}?projection=full")).json_ok();
     assert_eq!(metageneration(&full), metageneration(&before));
     assert!(full.get("acl").is_none() && full.get("defaultObjectAcl").is_none());
     assert!(full.get("owner").is_none());
@@ -505,7 +506,7 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
         "GET",
         &format!("{BUCKET}/o/object?projection=full"),
     )
-    .json();
+    .json_ok();
     assert!(object.get("acl").is_none());
 
     // Disabling uniform access again exposes the retained ACLs.
@@ -515,10 +516,10 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
         BUCKET,
         json!({"iamConfiguration": {"uniformBucketLevelAccess": {"enabled": false}}}),
     )
-    .json();
-    let acl = call(&server, "GET", &format!("{BUCKET}/acl")).json();
+    .json_ok();
+    let acl = call(&server, "GET", &format!("{BUCKET}/acl")).json_ok();
     assert_eq!(acl["items"][3]["entity"], "domain-example.com");
-    let object = call(&server, "GET", &format!("{BUCKET}/o/object/acl")).json();
+    let object = call(&server, "GET", &format!("{BUCKET}/o/object/acl")).json_ok();
     assert_eq!(
         entity(&object["items"], "user-liz@example.com")["role"],
         "READER"
@@ -534,9 +535,9 @@ fn metadata_updates_replace_and_clear_acls() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
-    server.put("object", b"x").json();
+    server.put("object", b"x").json_ok();
     let object = format!("{BUCKET}/o/object");
-    let full = call(&server, "GET", &format!("{object}?projection=full")).json();
+    let full = call(&server, "GET", &format!("{object}?projection=full")).json_ok();
     let mut body = full;
     body["contentType"] = json!("text/plain");
     let replaced = send(
@@ -545,21 +546,21 @@ fn metadata_updates_replace_and_clear_acls() {
         &format!("{object}?projection=full"),
         body.clone(),
     )
-    .json();
+    .json_ok();
     assert_eq!(replaced["contentType"], "text/plain");
     assert_eq!(replaced["acl"].as_array().unwrap().len(), 4);
     // Reordered entries still describe the same ACL.
-    let full = call(&server, "GET", &format!("{object}?projection=full")).json();
+    let full = call(&server, "GET", &format!("{object}?projection=full")).json_ok();
     let mut body = full;
     body["acl"].as_array_mut().unwrap().reverse();
-    send(&server, "PATCH", &object, body).json();
-    let bucket = call(&server, "GET", &format!("{BUCKET}?projection=full")).json();
+    send(&server, "PATCH", &object, body).json_ok();
+    let bucket = call(&server, "GET", &format!("{BUCKET}?projection=full")).json_ok();
     let mut body = bucket;
     body["labels"] = json!({"echo": "yes"});
-    let updated = send(&server, "PUT", BUCKET, body).json();
+    let updated = send(&server, "PUT", BUCKET, body).json_ok();
     assert_eq!(updated["labels"], json!({"echo": "yes"}));
     for method in ["PATCH", "PUT"] {
-        let before = metageneration(&call(&server, "GET", BUCKET).json());
+        let before = metageneration(&call(&server, "GET", BUCKET).json_ok());
         let acl = json!([{"entity":"allAuthenticatedUsers","role":"READER"}]);
         let default_acl = json!([{"entity":"domain-example.com","role":"OWNER"}]);
         let updated = send(
@@ -570,7 +571,7 @@ fn metadata_updates_replace_and_clear_acls() {
                 "acl": acl, "defaultObjectAcl": default_acl, "labels":{"changed":"yes"}
             }),
         )
-        .json();
+        .json_ok();
         assert_eq!(updated["acl"][0]["entity"], "allAuthenticatedUsers");
         assert_eq!(
             updated["defaultObjectAcl"][0]["entity"],
@@ -585,16 +586,16 @@ fn metadata_updates_replace_and_clear_acls() {
             }
         );
         assert_eq!(metageneration(&updated), before + 1);
-        server.put("inherited", b"x").json();
+        server.put("inherited", b"x").json_ok();
         assert_eq!(
-            entries(&call(&server, "GET", &format!("{BUCKET}/o/inherited/acl")).json()),
+            entries(&call(&server, "GET", &format!("{BUCKET}/o/inherited/acl")).json_ok()),
             pairs(&[("domain-example.com", "OWNER"), CREATOR])
         );
         assert_eq!(
-            entries(&call(&server, "GET", &format!("{object}/acl")).json()).len(),
+            entries(&call(&server, "GET", &format!("{object}/acl")).json_ok()).len(),
             4
         );
-        let before = metageneration(&call(&server, "GET", &object).json());
+        let before = metageneration(&call(&server, "GET", &object).json_ok());
         let updated = send(
             &server,
             method,
@@ -603,7 +604,7 @@ fn metadata_updates_replace_and_clear_acls() {
                 "acl": acl, "contentType":"application/json", "metadata":{"key":"value"}
             }),
         )
-        .json();
+        .json_ok();
         assert_eq!(
             entries(&json!({"items":updated["acl"]})),
             pairs(&[("allAuthenticatedUsers", "READER"), CREATOR])
@@ -617,7 +618,7 @@ fn metadata_updates_replace_and_clear_acls() {
             &format!("{object}?projection=full"),
             json!({}),
         )
-        .json();
+        .json_ok();
         assert_eq!(
             entity(&omitted["acl"], "allAuthenticatedUsers")["role"],
             "READER"
@@ -633,7 +634,7 @@ fn metadata_updates_replace_and_clear_acls() {
             &format!("{object}?projection=full"),
             json!({"acl":[]}),
         )
-        .json();
+        .json_ok();
         assert_eq!(entries(&json!({"items":cleared["acl"]})), pairs(&[CREATOR]));
         send(
             &server,
@@ -641,21 +642,23 @@ fn metadata_updates_replace_and_clear_acls() {
             BUCKET,
             json!({"acl":[],"defaultObjectAcl":[]}),
         )
-        .json();
+        .json_ok();
         for scope in ["acl", "defaultObjectAcl"] {
-            assert!(entries(&call(&server, "GET", &format!("{BUCKET}/{scope}")).json()).is_empty());
+            assert!(
+                entries(&call(&server, "GET", &format!("{BUCKET}/{scope}")).json_ok()).is_empty()
+            );
         }
-        server.put("empty-default", b"x").json();
+        server.put("empty-default", b"x").json_ok();
         assert_eq!(
-            entries(&call(&server, "GET", &format!("{BUCKET}/o/empty-default/acl")).json()),
+            entries(&call(&server, "GET", &format!("{BUCKET}/o/empty-default/acl")).json_ok()),
             pairs(&[CREATOR])
         );
         // Existing objects keep their own stored ACL when the default changes.
         assert_eq!(
-            entries(&call(&server, "GET", &format!("{BUCKET}/o/inherited/acl")).json()),
+            entries(&call(&server, "GET", &format!("{BUCKET}/o/inherited/acl")).json_ok()),
             pairs(&[("domain-example.com", "OWNER"), CREATOR])
         );
-        send(&server, "PATCH", &object, json!({"acl": PROJECT_PRIVATE.iter().map(|(entity, role)| json!({"entity":entity,"role":role})).collect::<Vec<_>>()})).json();
+        send(&server, "PATCH", &object, json!({"acl": PROJECT_PRIVATE.iter().map(|(entity, role)| json!({"entity":entity,"role":role})).collect::<Vec<_>>()})).json_ok();
     }
 }
 
@@ -664,14 +667,14 @@ fn resource_acl_validation_and_preconditions_preserve_all_metadata() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
-    server.put("object", b"x").json();
+    server.put("object", b"x").json_ok();
     for (path, field) in [
         (BUCKET.to_owned(), "acl"),
         (BUCKET.to_owned(), "defaultObjectAcl"),
         (format!("{BUCKET}/o/object"), "acl"),
     ] {
         let full = format!("{path}?projection=full");
-        let before = call(&server, "GET", &full).json();
+        let before = call(&server, "GET", &full).json_ok();
         for invalid in [
             json!(null),
             json!("private"),
@@ -692,8 +695,8 @@ fn resource_acl_validation_and_preconditions_preserve_all_metadata() {
             };
             body[field] = invalid;
             for method in ["PATCH", "PUT"] {
-                send(&server, method, &path, body.clone()).error(400, "invalid");
-                assert_eq!(call(&server, "GET", &full).json(), before);
+                send(&server, method, &path, body.clone()).json_reason(400, "invalid");
+                assert_eq!(call(&server, "GET", &full).json_ok(), before);
             }
         }
         let mut body = if path.ends_with("/object") {
@@ -715,9 +718,9 @@ fn resource_acl_validation_and_preconditions_preserve_all_metadata() {
                 assert_eq!(reply.status, 304);
                 assert!(reply.body.is_empty());
             } else {
-                reply.error(412, "conditionNotMet");
+                reply.json_reason(412, "conditionNotMet");
             }
-            assert_eq!(call(&server, "GET", &full).json(), before);
+            assert_eq!(call(&server, "GET", &full).json_ok(), before);
         }
     }
 }
@@ -727,8 +730,8 @@ fn resource_acl_policy_failures_roll_back_metadata_and_other_acls() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
-    server.put("object", b"x").json();
-    let before = call(&server, "GET", &format!("{BUCKET}?projection=full")).json();
+    server.put("object", b"x").json_ok();
+    let before = call(&server, "GET", &format!("{BUCKET}?projection=full")).json_ok();
     for policy in [
         json!({"uniformBucketLevelAccess":{"enabled":true}}),
         json!({"publicAccessPrevention":"enforced"}),
@@ -745,9 +748,9 @@ fn resource_acl_policy_failures_roll_back_metadata_and_other_acls() {
         };
         send(&server, "PATCH", BUCKET, json!({"iamConfiguration":policy, "acl":[],
             "defaultObjectAcl":[{"entity":"allUsers","role":"READER"}], "labels":{"changed":"yes"}
-        })).error(status, reason);
+        })).json_reason(status, reason);
         assert_eq!(
-            call(&server, "GET", &format!("{BUCKET}?projection=full")).json(),
+            call(&server, "GET", &format!("{BUCKET}?projection=full")).json_ok(),
             before
         );
     }
@@ -755,14 +758,14 @@ fn resource_acl_policy_failures_roll_back_metadata_and_other_acls() {
         json!({"publicAccessPrevention":"enforced"}),
         json!({"uniformBucketLevelAccess":{"enabled":true}}),
     ] {
-        send(&server, "PATCH", BUCKET, json!({"iamConfiguration":policy})).json();
+        send(&server, "PATCH", BUCKET, json!({"iamConfiguration":policy})).json_ok();
         for (path, field) in [
             (BUCKET.to_owned(), "acl"),
             (BUCKET.to_owned(), "defaultObjectAcl"),
             (format!("{BUCKET}/o/object"), "acl"),
         ] {
             let full = format!("{path}?projection=full");
-            let before = call(&server, "GET", &full).json();
+            let before = call(&server, "GET", &full).json_ok();
             let mut body = if path.ends_with("/object") {
                 json!({"contentType":"text/plain"})
             } else {
@@ -774,8 +777,8 @@ fn resource_acl_policy_failures_roll_back_metadata_and_other_acls() {
             } else {
                 (400, "invalid")
             };
-            send(&server, "PATCH", &path, body).error(status, reason);
-            assert_eq!(call(&server, "GET", &full).json(), before);
+            send(&server, "PATCH", &path, body).json_reason(status, reason);
+            assert_eq!(call(&server, "GET", &full).json_ok(), before);
         }
     }
 }
@@ -791,9 +794,9 @@ fn resource_acl_generation_selection_and_conditioned_races() {
         BUCKET,
         json!({"versioning":{"enabled":true}}),
     )
-    .json();
-    let old = server.put("object", b"old").json();
-    let live = server.put("object", b"new").json();
+    .json_ok();
+    let old = server.put("object", b"old").json_ok();
+    let live = server.put("object", b"new").json_ok();
     let object = format!("{BUCKET}/o/object");
     let old_path = format!(
         "{object}?generation={}",
@@ -805,7 +808,7 @@ fn resource_acl_generation_selection_and_conditioned_races() {
         &old_path,
         json!({"acl":[], "contentType":"text/plain"}),
     )
-    .json();
+    .json_ok();
     assert_eq!(
         entries(
             &call(
@@ -816,12 +819,12 @@ fn resource_acl_generation_selection_and_conditioned_races() {
                     old["generation"].as_str().unwrap()
                 )
             )
-            .json()
+            .json_ok()
         ),
         pairs(&[CREATOR])
     );
     let full = format!("{object}?projection=full");
-    let before = call(&server, "GET", &full).json();
+    let before = call(&server, "GET", &full).json_ok();
     send(
         &server,
         "PATCH",
@@ -831,12 +834,12 @@ fn resource_acl_generation_selection_and_conditioned_races() {
         ),
         json!({"acl":[],"contentType":"text/plain"}),
     )
-    .error(412, "conditionNotMet");
-    assert_eq!(call(&server, "GET", &full).json(), before);
+    .json_reason(412, "conditionNotMet");
+    assert_eq!(call(&server, "GET", &full).json_ok(), before);
     assert_eq!(before["generation"], live["generation"]);
     for path in [BUCKET.to_owned(), object.clone()] {
         let full = format!("{path}?projection=full");
-        let revision = metageneration(&call(&server, "GET", &full).json());
+        let revision = metageneration(&call(&server, "GET", &full).json_ok());
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
         let mut threads = Vec::new();
         for name in ["first", "second"] {
@@ -866,7 +869,7 @@ fn resource_acl_generation_selection_and_conditioned_races() {
         }
         statuses.sort();
         assert_eq!(statuses, [200, 412]);
-        let updated = call(&server, "GET", &full).json();
+        let updated = call(&server, "GET", &full).json_ok();
         let winner = if path.contains("/o/") {
             &updated["metadata"]["winner"]
         } else {
@@ -897,12 +900,12 @@ fn resource_acl_generation_selection_and_conditioned_races() {
                     old["generation"].as_str().unwrap()
                 )
             )
-            .json()
+            .json_ok()
         ),
         pairs(&[CREATOR])
     );
     assert_eq!(
-        entries(&call(&server, "GET", &format!("{object}/acl")).json()).len(),
+        entries(&call(&server, "GET", &format!("{object}/acl")).json_ok()).len(),
         2
     );
 }
@@ -920,7 +923,7 @@ fn acl_entry_limit_is_enforced() {
             &acl,
             json!({"entity": format!("user-u{index}@example.com"), "role": "READER"}),
         )
-        .json();
+        .json_ok();
     }
     send(
         &server,
@@ -928,7 +931,7 @@ fn acl_entry_limit_is_enforced() {
         &acl,
         json!({"entity": "user-extra@example.com", "role": "READER"}),
     )
-    .error(400, "invalid");
+    .json_reason(400, "invalid");
     // Updating an existing entity at the limit still succeeds.
     send(
         &server,
@@ -936,8 +939,8 @@ fn acl_entry_limit_is_enforced() {
         &acl,
         json!({"entity": "user-u3@example.com", "role": "OWNER"}),
     )
-    .json();
-    assert_eq!(entries(&call(&server, "GET", &acl).json()).len(), 100);
+    .json_ok();
+    assert_eq!(entries(&call(&server, "GET", &acl).json_ok()).len(), 100);
 }
 
 #[test]
@@ -945,15 +948,15 @@ fn strict_profile_requires_iam_policy_permissions() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    server.put("object", b"x").json();
+    server.put("object", b"x").json_ok();
     let viewer = "Authorization: Bearer viewer\r\n";
     for path in ["acl", "defaultObjectAcl", "o/object/acl"] {
         server
             .request("GET", &format!("{BUCKET}/{path}"), viewer, b"")
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
         server
             .request("GET", &format!("{BUCKET}/{path}"), "", b"")
-            .error(401, "required");
+            .json_reason(401, "required");
         server
             .request(
                 "GET",
@@ -961,9 +964,9 @@ fn strict_profile_requires_iam_policy_permissions() {
                 "Authorization: Bearer unknown\r\n",
                 b"",
             )
-            .error(401, "authError");
+            .json_reason(401, "authError");
         assert_eq!(
-            entries(&call(&server, "GET", &format!("{BUCKET}/{path}")).json()).len(),
+            entries(&call(&server, "GET", &format!("{BUCKET}/{path}")).json_ok()).len(),
             if path == "o/object/acl" { 4 } else { 3 }
         );
     }
@@ -974,7 +977,7 @@ fn strict_profile_requires_iam_policy_permissions() {
             viewer,
             br#"{"entity":"allUsers","role":"READER"}"#,
         )
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     // A caller who may read the object but not its ACL still gets the resource without ACLs.
     let object = server
         .request(
@@ -983,14 +986,14 @@ fn strict_profile_requires_iam_policy_permissions() {
             viewer,
             b"",
         )
-        .json();
+        .json_ok();
     assert!(object.get("acl").is_none());
     let object = call(
         &server,
         "GET",
         &format!("{BUCKET}/o/object?projection=full"),
     )
-    .json();
+    .json_ok();
     assert_eq!(
         entries(&json!({"items":object["acl"]})),
         pairs(&[
@@ -1012,7 +1015,7 @@ fn strict_profile_requires_iam_policy_permissions() {
                 .to_string()
                 .as_bytes(),
         )
-        .json();
+        .json_ok();
     let mut echoed = json!({"contentType": "text/plain", "acl": object["acl"].clone()});
     for method in ["PATCH", "PUT"] {
         server
@@ -1022,7 +1025,7 @@ fn strict_profile_requires_iam_policy_permissions() {
                 viewer,
                 echoed.to_string().as_bytes(),
             )
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
     }
     echoed.as_object_mut().unwrap().remove("acl");
     let updated = server
@@ -1032,6 +1035,6 @@ fn strict_profile_requires_iam_policy_permissions() {
             viewer,
             echoed.to_string().as_bytes(),
         )
-        .json();
+        .json_ok();
     assert_eq!(updated["contentType"], "text/plain");
 }

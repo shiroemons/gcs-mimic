@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Server, common::TestDir};
 use serde_json::{Value, json};
@@ -10,11 +11,11 @@ const CONFIGS: &str = "/storage/v1/b/test-bucket/notificationConfigs";
 fn insert(server: &Server, headers: &str, body: Value) -> Value {
     server
         .request("POST", CONFIGS, headers, body.to_string().as_bytes())
-        .json()
+        .json_ok()
 }
 
 fn ids(server: &Server, headers: &str) -> Vec<String> {
-    let list = server.request("GET", CONFIGS, headers, b"").json();
+    let list = server.request("GET", CONFIGS, headers, b"").json_ok();
     assert_eq!(list["kind"], "storage#notifications");
     list["items"]
         .as_array()
@@ -30,7 +31,7 @@ fn ids(server: &Server, headers: &str) -> Vec<String> {
 fn metageneration(server: &Server) -> String {
     server
         .request("GET", "/storage/v1/b/test-bucket", ADMIN, b"")
-        .json()["metageneration"]
+        .json_ok()["metageneration"]
         .as_str()
         .unwrap()
         .to_owned()
@@ -41,7 +42,7 @@ fn notification_configs_round_trip_persist_and_follow_bucket_lifecycle() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
     server.bucket();
-    let empty = server.request("GET", CONFIGS, "", b"").json();
+    let empty = server.request("GET", CONFIGS, "", b"").json_ok();
     assert_eq!(empty, json!({"kind": "storage#notifications"}));
 
     let minimal = insert(
@@ -90,19 +91,19 @@ fn notification_configs_round_trip_persist_and_follow_bucket_lifecycle() {
     assert_eq!(
         server
             .request("GET", &format!("{CONFIGS}/2"), "", b"")
-            .json(),
+            .json_ok(),
         full
     );
     assert_eq!(
         server
             .request("GET", &format!("{CONFIGS}/2?fields=id,topic"), "", b"")
-            .json(),
+            .json_ok(),
         json!({"id": "2", "topic": "//pubsub.googleapis.com/projects/local/topics/archive"})
     );
     assert_eq!(
         server
             .request("GET", &format!("{CONFIGS}?fields=items(id)"), "", b"")
-            .json(),
+            .json_ok(),
         json!({"items": [{"id": "1"}, {"id": "2"}]})
     );
 
@@ -112,7 +113,7 @@ fn notification_configs_round_trip_persist_and_follow_bucket_lifecycle() {
     assert_eq!(
         server
             .request("GET", &format!("{CONFIGS}/1"), "", b"")
-            .json(),
+            .json_ok(),
         minimal
     );
 
@@ -127,7 +128,7 @@ fn notification_configs_round_trip_persist_and_follow_bucket_lifecycle() {
     ] {
         server
             .request(method, &path, "", b"")
-            .error(404, "notFound");
+            .json_reason(404, "notFound");
     }
     assert_eq!(ids(&server, ""), ["2"]);
     assert_eq!(metageneration(&server), "4");
@@ -150,10 +151,10 @@ fn notification_configs_round_trip_persist_and_follow_bucket_lifecycle() {
     );
     server
         .request("GET", CONFIGS, "", b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     server
         .request("GET", &format!("{CONFIGS}/2"), "", b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     server
         .request(
             "POST",
@@ -161,7 +162,7 @@ fn notification_configs_round_trip_persist_and_follow_bucket_lifecycle() {
             "",
             br#"{"topic":"projects/local/topics/uploads"}"#,
         )
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     server.bucket();
     assert!(ids(&server, "").is_empty());
     assert_eq!(
@@ -205,7 +206,7 @@ fn notification_requests_reject_invalid_input_without_mutation() {
     ] {
         server
             .request("POST", CONFIGS, "", body)
-            .error(400, reason);
+            .json_reason(400, reason);
     }
     for (method, path, body, status, reason) in [
         ("PUT", CONFIGS.to_owned(), &b""[..], 405, "methodNotAllowed"),
@@ -255,10 +256,10 @@ fn notification_requests_reject_invalid_input_without_mutation() {
     ] {
         server
             .request(method, &path, "", body)
-            .error(status, reason);
+            .json_reason(status, reason);
     }
     let reply = server.request("GET", CONFIGS, "If-None-Match: \"1\"\r\n", b"");
-    reply.error(400, "badRequest");
+    reply.json_reason(400, "badRequest");
     assert!(ids(&server, "").is_empty());
     assert_eq!(metageneration(&server), "1");
 
@@ -273,7 +274,7 @@ fn notification_requests_reject_invalid_input_without_mutation() {
             "",
             br#"{"topic":"projects/p/topics/topic","event_types":["OBJECT_ARCHIVE"]}"#,
         )
-        .error(400, "invalid");
+        .json_reason(400, "invalid");
     assert_eq!(ids(&server, "").len(), 10);
 }
 
@@ -301,18 +302,18 @@ fn notification_strict_permissions_follow_bucket_get_and_update() {
     ] {
         server
             .request(method, &path, VIEWER, body)
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
         server
             .request(method, &path, "", body)
-            .error(401, "required");
+            .json_reason(401, "required");
         server
             .request(method, &path, "Authorization: Bearer unknown\r\n", body)
-            .error(401, "authError");
+            .json_reason(401, "authError");
     }
     // A bucket-scoped legacyBucketReader grant allows reads but not configuration changes.
     let mut policy = server
         .request("GET", "/storage/v1/b/test-bucket/iam", ADMIN, b"")
-        .json();
+        .json_ok();
     policy["bindings"].as_array_mut().unwrap().push(json!({
         "role": "roles/storage.legacyBucketReader",
         "members": ["user:viewer@example.test"]
@@ -324,9 +325,9 @@ fn notification_strict_permissions_follow_bucket_get_and_update() {
             ADMIN,
             policy.to_string().as_bytes(),
         )
-        .json();
+        .json_ok();
     assert_eq!(ids(&server, VIEWER), ["1"]);
-    assert_eq!(server.request("GET", &item, VIEWER, b"").json(), created);
+    assert_eq!(server.request("GET", &item, VIEWER, b"").json_ok(), created);
     server
         .request(
             "POST",
@@ -334,10 +335,10 @@ fn notification_strict_permissions_follow_bucket_get_and_update() {
             VIEWER,
             br#"{"topic":"projects/local/topics/t2"}"#,
         )
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request("DELETE", &item, VIEWER, b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     assert_eq!(server.request("DELETE", &item, ADMIN, b"").status, 204);
     assert!(ids(&server, ADMIN).is_empty());
 }
@@ -365,7 +366,7 @@ fn deprecated_object_change_notification_routes_are_not_recreated() {
     assert!(ids(&server, "").is_empty());
     server
         .request("GET", "/storage/v1/b/test-bucket/o/watch", "", b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
 }
 
 fn queued_messages(dir: &TestDir) -> Vec<Value> {
@@ -389,8 +390,8 @@ fn notification_effects_follow_http_mutations_and_persist_without_a_publisher() 
         "",
         json!({"topic":"projects/local/topics/uploads", "object_name_prefix":"incoming/"}),
     );
-    server.put("unmatched", b"ignored").json();
-    let first = server.put("incoming%2Fitem", b"first").json();
+    server.put("unmatched", b"ignored").json_ok();
+    let first = server.put("incoming%2Fitem", b"first").json_ok();
     let object = "/storage/v1/b/test-bucket/o/incoming%2Fitem";
     let changed = server
         .request(
@@ -399,7 +400,7 @@ fn notification_effects_follow_http_mutations_and_persist_without_a_publisher() 
             "",
             br#"{"contentType":"application/test","metadata":{"team":"storage"}}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(changed["metageneration"], "2");
     server
         .request(
@@ -408,11 +409,11 @@ fn notification_effects_follow_http_mutations_and_persist_without_a_publisher() 
             "",
             br#"{"contentType":"rejected"}"#,
         )
-        .error(412, "conditionNotMet");
+        .json_reason(412, "conditionNotMet");
     server
         .request("DELETE", &format!("{object}?ifGenerationMatch=0"), "", b"")
-        .error(412, "conditionNotMet");
-    let second = server.put("incoming%2Fitem", b"second").json();
+        .json_reason(412, "conditionNotMet");
+    let second = server.put("incoming%2Fitem", b"second").json_ok();
     assert_eq!(server.request("DELETE", object, "", b"").status, 204);
     server.stop();
     let messages = queued_messages(&dir);
@@ -586,22 +587,22 @@ fn legacy_global_notification_rules_and_json_configs_publish_to_the_explicit_loc
             "/storage/v1/b?project=local",
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
-    server.request("POST", CONFIGS, br#"{"topic":"projects/local/topics/explicit","payload_format":"NONE","object_name_prefix":"incoming/","custom_attributes":{"team":"storage"}}"#).json();
+        .json_ok();
+    server.request("POST", CONFIGS, br#"{"topic":"projects/local/topics/explicit","payload_format":"NONE","object_name_prefix":"incoming/","custom_attributes":{"team":"storage"}}"#).json_ok();
     server
         .request(
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=unmatched",
             b"ignored",
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=incoming%2Fitem",
             b"published",
         )
-        .json();
+        .json_ok();
     let first = receiver
         .recv_timeout(std::time::Duration::from_secs(5))
         .unwrap();
@@ -633,7 +634,7 @@ fn opted_in_pubsub_emulator_receives_the_notification() {
     let suffix = dir.0.file_name().unwrap().to_str().unwrap();
     let topic = format!("projects/local/topics/{suffix}");
     let subscription = format!("projects/local/subscriptions/{suffix}");
-    object_effects_support::request(&address, "PUT", &format!("/v1/{topic}"), "", b"{}").json();
+    object_effects_support::request(&address, "PUT", &format!("/v1/{topic}"), "", b"{}").json_ok();
     object_effects_support::request(
         &address,
         "PUT",
@@ -641,7 +642,7 @@ fn opted_in_pubsub_emulator_receives_the_notification() {
         "",
         json!({"topic": topic}).to_string().as_bytes(),
     )
-    .json();
+    .json_ok();
     let mut server = EventServer::start(&dir, &address, &[]);
     server
         .request(
@@ -649,7 +650,7 @@ fn opted_in_pubsub_emulator_receives_the_notification() {
             "/storage/v1/b?project=local",
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -658,14 +659,14 @@ fn opted_in_pubsub_emulator_receives_the_notification() {
                 .to_string()
                 .as_bytes(),
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=received",
             b"payload",
         )
-        .json();
+        .json_ok();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let result = object_effects_support::request(
@@ -675,7 +676,7 @@ fn opted_in_pubsub_emulator_receives_the_notification() {
             "",
             br#"{"maxMessages":10,"returnImmediately":true}"#,
         )
-        .json();
+        .json_ok();
         if let Some(messages) = result["receivedMessages"].as_array()
             && !messages.is_empty()
         {
@@ -759,7 +760,7 @@ fn serve_topic_lookups(
 }
 
 fn event_server_ids(server: &EventServer) -> Vec<String> {
-    let list = server.request("GET", CONFIGS, b"").json();
+    let list = server.request("GET", CONFIGS, b"").json_ok();
     list["items"]
         .as_array()
         .map(|items| {
@@ -785,10 +786,10 @@ fn creating_a_config_checks_the_topic_against_the_configured_emulator() {
             "/storage/v1/b?project=local",
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
+        .json_ok();
     let create = |body: &str| server.request("POST", CONFIGS, body.as_bytes());
 
-    let created = create(r#"{"topic":"projects/local/topics/present"}"#).json();
+    let created = create(r#"{"topic":"projects/local/topics/present"}"#).json_ok();
     assert_eq!(
         created["topic"],
         "//pubsub.googleapis.com/projects/local/topics/present"

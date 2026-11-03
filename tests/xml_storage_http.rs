@@ -1,7 +1,8 @@
+use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command, write_request};
+use common::server::{http_command, write_request};
 use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use serde_json::{Value, json};
 use std::{io::BufReader, net::TcpStream, time::Duration};
@@ -18,7 +19,7 @@ impl Server {
                 ])
                 .args(options),
         )
-        .graceful()
+        .with_graceful_shutdown()
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &str) -> (u16, String) {
@@ -1030,3 +1031,11 @@ fn xml_copy_v4_signature_binds_source_and_destination_conditions() {
         412
     );
 }
+
+impl Server {
+    fn with_graceful_shutdown(mut self) -> Self {
+        self.0 = self.0.graceful();
+        self
+    }
+}
+declare_server!();

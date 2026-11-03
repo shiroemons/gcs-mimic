@@ -11,12 +11,12 @@ fn object_acl_reads_are_generation_scoped_on_disk_and_memory() {
         let generation = first["generation"].as_str().unwrap();
         server.grant("user-reader@example.test", "READER", generation);
         let path = format!("{OBJECT}?generation={generation}");
-        let record = server.request("GET", &path, READER, b"").json();
+        let record = server.request("GET", &path, READER, b"").json_ok();
         assert_eq!(record["generation"], generation);
         assert!(
             server
                 .request("GET", &format!("{path}&projection=full"), READER, b"")
-                .json()
+                .json_ok()
                 .get("acl")
                 .is_none()
         );
@@ -105,7 +105,7 @@ fn public_acl_pap_uniform_access_and_restart_recheck_the_selected_generation() {
     let generation = object["generation"].as_str().unwrap();
     server.grant("allAuthenticatedUsers", "READER", generation);
     assert_eq!(server.request("GET", OBJECT, "", b"").status, 401);
-    server.request("GET", OBJECT, OTHER, b"").json();
+    server.request("GET", OBJECT, OTHER, b"").json_ok();
     server.grant("allUsers", "READER", generation);
     let public = server.request("GET", &format!("{OBJECT}?alt=media"), "", b"");
     assert_eq!(public.body, b"public body");
@@ -120,30 +120,30 @@ fn public_acl_pap_uniform_access_and_restart_recheck_the_selected_generation() {
             BUCKET,
             json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
         )
-        .json();
+        .json_ok();
     assert_eq!(server.request("GET", OBJECT, "", b"").status, 401);
     assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
-    server.request("GET", OBJECT, READER, b"").json();
+    server.request("GET", OBJECT, READER, b"").json_ok();
     server
         .admin(
             "PATCH",
             BUCKET,
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
         )
-        .json();
+        .json_ok();
     assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
-    server.request("GET", OBJECT, ADMIN, b"").json();
+    server.request("GET", OBJECT, ADMIN, b"").json_ok();
     server
         .admin(
             "PATCH",
             BUCKET,
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}}),
         )
-        .json();
-    server.request("GET", OBJECT, READER, b"").json();
+        .json_ok();
+    server.request("GET", OBJECT, READER, b"").json_ok();
     server.stop();
     let server = Server::start(&data, &inputs, "disk");
-    server.request("GET", OBJECT, READER, b"").json();
+    server.request("GET", OBJECT, READER, b"").json_ok();
     assert_eq!(server.request("GET", OBJECT, "", b"").status, 401);
     assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
 }
@@ -162,7 +162,7 @@ fn object_acl_read_does_not_bypass_customer_key_validation() {
             &format!("{ADMIN}{key}"),
             b"keyed body",
         )
-        .json();
+        .json_ok();
     server.grant(
         "user-reader@example.test",
         "READER",

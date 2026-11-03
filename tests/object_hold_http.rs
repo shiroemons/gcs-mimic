@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 use object_effects_support::{Server, common::TestDir, settings};
 use serde_json::{Value, json};
 
@@ -59,7 +60,10 @@ fn multipart(server: &Server, name: &str, hold: Option<bool>) -> Value {
 #[test]
 fn default_hold_applies_to_all_upload_modes() {
     let (dir, server) = setup(false);
-    assert_eq!(server.put("media", b"bytes").json()["eventBasedHold"], true);
+    assert_eq!(
+        server.put("media", b"bytes").json_ok()["eventBasedHold"],
+        true
+    );
     assert_eq!(
         multipart(&server, "multipart", None)["eventBasedHold"],
         true
@@ -72,7 +76,7 @@ fn default_hold_applies_to_all_upload_modes() {
     assert_eq!(
         server
             .request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"bytes")
-            .json()["eventBasedHold"],
+            .json_ok()["eventBasedHold"],
         true
     );
     let path = resumable(
@@ -86,7 +90,7 @@ fn default_hold_applies_to_all_upload_modes() {
     assert_eq!(
         server
             .request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"bytes")
-            .json()["eventBasedHold"],
+            .json_ok()["eventBasedHold"],
         false
     );
     let path = resumable(&server, "changed-default", json!({}));
@@ -94,15 +98,15 @@ fn default_hold_applies_to_all_upload_modes() {
     assert!(
         server
             .request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"bytes")
-            .json()
+            .json_ok()
             .get("eventBasedHold")
             .is_none()
     );
-    assert_eq!(server.get("media").json()["eventBasedHold"], true);
+    assert_eq!(server.get("media").json_ok()["eventBasedHold"], true);
     assert!(
         server
             .put("after-disable", b"bytes")
-            .json()
+            .json_ok()
             .get("eventBasedHold")
             .is_none()
     );
@@ -110,17 +114,17 @@ fn default_hold_applies_to_all_upload_modes() {
         multipart(&server, "explicit", Some(true))["eventBasedHold"],
         true
     );
-    let previous = server.get("override").json();
+    let previous = server.get("override").json_ok();
     let path = resumable(&server, "override", json!({"eventBasedHold":false}));
     server
         .request("PUT", &path, "Content-Range: bytes 0-2/3\r\n", b"new")
-        .json();
+        .json_ok();
     let old = server
         .get(&format!(
             "override?generation={}",
             previous["generation"].as_str().unwrap()
         ))
-        .json();
+        .json_ok();
     assert!(old.get("timeDeleted").is_some());
     assert_eq!(old["eventBasedHold"], false);
 }
@@ -128,7 +132,7 @@ fn default_hold_applies_to_all_upload_modes() {
 #[test]
 fn held_objects_reject_delete_and_replacement() {
     let (_dir, server) = setup(false);
-    let original = server.put("held", b"original").json();
+    let original = server.put("held", b"original").json_ok();
     server
         .request("DELETE", "/storage/v1/b/test-bucket/o/held", "", b"")
         .hold_error();
@@ -144,16 +148,16 @@ fn held_objects_reject_delete_and_replacement() {
             b"",
         )
         .hold_error();
-    assert_eq!(server.get("held").json(), original);
+    assert_eq!(server.get("held").json_ok(), original);
     assert_eq!(server.get("held?alt=media").body, b"original");
     let path = resumable(&server, "race", json!({}));
-    server.put("race", b"winner").json();
+    server.put("race", b"winner").json_ok();
     server
         .request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"loser")
         .hold_error();
     assert_eq!(server.get("race?alt=media").body, b"winner");
-    update(&server, "PATCH", "held", json!({"eventBasedHold":false})).json();
-    server.put("held", b"new").json();
+    update(&server, "PATCH", "held", json!({"eventBasedHold":false})).json_ok();
+    server.put("held", b"new").json_ok();
     update(
         &server,
         "PATCH",
@@ -163,7 +167,7 @@ fn held_objects_reject_delete_and_replacement() {
         ),
         json!({"eventBasedHold":true}),
     )
-    .json();
+    .json_ok();
     server
         .request(
             "DELETE",
@@ -180,14 +184,14 @@ fn held_objects_reject_delete_and_replacement() {
 #[test]
 fn event_hold_metadata_release_and_restart() {
     let (dir, mut server) = setup(false);
-    let original = server.put("held", b"bytes").json();
+    let original = server.put("held", b"bytes").json_ok();
     let unchanged = update(
         &server,
         "PATCH",
         "held",
         json!({"metadata":{"key":"value"}}),
     )
-    .json();
+    .json_ok();
     assert_eq!(unchanged["eventBasedHold"], true);
     // A PUT replaces the resource, so it keeps a hold only when it names it (recorded).
     let unchanged = update(
@@ -196,7 +200,7 @@ fn event_hold_metadata_release_and_restart() {
         "held",
         json!({"contentType":"text/plain","eventBasedHold":true}),
     )
-    .json();
+    .json_ok();
     assert_eq!(unchanged["eventBasedHold"], true);
     update(
         &server,
@@ -204,14 +208,14 @@ fn event_hold_metadata_release_and_restart() {
         "held?ifMetagenerationMatch=1",
         json!({"eventBasedHold":false}),
     )
-    .error(412, "conditionNotMet");
+    .json_reason(412, "conditionNotMet");
     let released = update(
         &server,
         "PATCH",
         "held?ifMetagenerationMatch=3",
         json!({"eventBasedHold":false}),
     )
-    .json();
+    .json_ok();
     assert_eq!(released["eventBasedHold"], false);
     assert_eq!(released["metageneration"], "4");
     for field in ["generation", "size", "md5Hash", "crc32c", "timeCreated"] {
@@ -220,26 +224,26 @@ fn event_hold_metadata_release_and_restart() {
     server.stop();
     drop(server);
     let server = Server::start(&dir, false);
-    assert_eq!(server.get("held").json(), released);
+    assert_eq!(server.get("held").json_ok(), released);
     let generation = original["generation"].as_str().unwrap();
-    server.put("held", b"new").json();
+    server.put("held", b"new").json_ok();
     update(
         &server,
         "PATCH",
         &format!("held?generation={generation}"),
         json!({"eventBasedHold":true}),
     )
-    .json();
+    .json_ok();
     let archived = update(
         &server,
         "PUT",
         &format!("held?generation={generation}"),
         json!({"eventBasedHold":false}),
     )
-    .json();
+    .json_ok();
     assert_eq!(archived["eventBasedHold"], false);
     assert!(archived.get("timeDeleted").is_some());
-    assert_eq!(server.get("held").json()["eventBasedHold"], true);
+    assert_eq!(server.get("held").json_ok()["eventBasedHold"], true);
     assert_eq!(
         server
             .request(
@@ -256,7 +260,7 @@ fn event_hold_metadata_release_and_restart() {
 #[test]
 fn event_hold_permissions_and_invalid_input() {
     let (_dir, server) = setup(true);
-    let original = server.put("held", b"bytes").json();
+    let original = server.put("held", b"bytes").json_ok();
     // A hold of another type is not an error: Cloud Storage left the hold as it was (see the
     // parity tests), so only authorization is refused here.
     for token in ["viewer", "creator"] {
@@ -267,7 +271,7 @@ fn event_hold_permissions_and_invalid_input() {
                 &format!("Authorization: Bearer {token}\r\n"),
                 br#"{"eventBasedHold":false}"#,
             )
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
         server
             .request(
                 "DELETE",
@@ -275,7 +279,7 @@ fn event_hold_permissions_and_invalid_input() {
                 &format!("Authorization: Bearer {token}\r\n"),
                 b"",
             )
-            .error(403, "forbidden");
+            .json_reason(403, "forbidden");
     }
     server
         .request(
@@ -284,9 +288,9 @@ fn event_hold_permissions_and_invalid_input() {
             "Authorization: Bearer creator\r\n",
             b"",
         )
-        .error(403, "forbidden");
-    assert_eq!(server.get("held").json(), original);
-    update(&server, "PUT", "held", json!({"eventBasedHold":false})).json();
+        .json_reason(403, "forbidden");
+    assert_eq!(server.get("held").json_ok(), original);
+    update(&server, "PUT", "held", json!({"eventBasedHold":false})).json_ok();
     assert_eq!(
         server
             .request(

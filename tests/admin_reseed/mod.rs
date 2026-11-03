@@ -22,7 +22,7 @@ fn disk_reseed_suppresses_only_fixture_events_and_keeps_runtime_delivery_selecti
             "",
             br#"{"topic":"projects/local/topics/events"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -30,7 +30,7 @@ fn disk_reseed_suppresses_only_fixture_events_and_keeps_runtime_delivery_selecti
             "",
             b"API edit",
         )
-        .json();
+        .json_ok();
     let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     let count = || {
         connection
@@ -40,7 +40,9 @@ fn disk_reseed_suppresses_only_fixture_events_and_keeps_runtime_delivery_selecti
             .unwrap()
     };
     assert_eq!(count(), 2);
-    server.request("POST", "/_internal/reseed", "", b"").json();
+    server
+        .request("POST", "/_internal/reseed", "", b"")
+        .json_ok();
     assert_eq!(count(), 2);
     server
         .fixture(
@@ -48,7 +50,7 @@ fn disk_reseed_suppresses_only_fixture_events_and_keeps_runtime_delivery_selecti
             b"runtime",
             "",
         )
-        .json();
+        .json_ok();
     assert_eq!(count(), 4);
 }
 
@@ -81,7 +83,7 @@ fn configured_reseed_is_atomic_and_uses_disk_merge_or_ram_replacement() {
                 "",
                 b"API edit",
             )
-            .json();
+            .json_ok();
         server
             .request(
                 "POST",
@@ -89,10 +91,10 @@ fn configured_reseed_is_atomic_and_uses_disk_merge_or_ram_replacement() {
                 "",
                 b"keep",
             )
-            .json();
+            .json_ok();
         let listing = server
             .request("GET", "/storage/v1/b/test-bucket/o", "", b"")
-            .json();
+            .json_ok();
         std::fs::create_dir(source.0.join("new-empty-bucket")).unwrap();
         std::fs::create_dir(source.0.join("z-Invalid")).unwrap();
         std::fs::write(source.0.join("z-Invalid/bad"), b"invalid").unwrap();
@@ -100,11 +102,11 @@ fn configured_reseed_is_atomic_and_uses_disk_merge_or_ram_replacement() {
             server.request("POST", "/_internal/reseed", "", b"").status,
             503
         );
-        assert_eq!(server.request("GET", OBJECT, "", b"").json(), old);
+        assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), old);
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/test-bucket/o", "", b"")
-                .json(),
+                .json_ok(),
             listing
         );
         assert_eq!(
@@ -114,9 +116,11 @@ fn configured_reseed_is_atomic_and_uses_disk_merge_or_ram_replacement() {
             404
         );
         std::fs::remove_dir_all(source.0.join("z-Invalid")).unwrap();
-        let replay = server.request("PUT", "/_internal/reseed", "", b"").json();
+        let replay = server
+            .request("PUT", "/_internal/reseed", "", b"")
+            .json_ok();
         assert_eq!(replay["outcome"], "imported");
-        let updated = server.request("GET", OBJECT, "", b"").json();
+        let updated = server.request("GET", OBJECT, "", b"").json_ok();
         assert!(
             updated["generation"]
                 .as_str()
@@ -161,7 +165,9 @@ fn configured_reseed_is_atomic_and_uses_disk_merge_or_ram_replacement() {
             200
         );
         assert_eq!(server.request("GET", OBJECT, "", b"").status, 404);
-        server.request("POST", "/_internal/reseed", "", b"").json();
+        server
+            .request("POST", "/_internal/reseed", "", b"")
+            .json_ok();
         assert_eq!(
             server
                 .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
@@ -271,21 +277,21 @@ fn reseed_rejects_protection_without_changing_any_selected_objects() {
     );
     let original = server
         .request("PATCH", OBJECT, "", br#"{"temporaryHold":true}"#)
-        .json();
+        .json_ok();
     let listing = server
         .request("GET", "/storage/v1/b/test-bucket/o", "", b"")
-        .json();
+        .json_ok();
     std::fs::write(source.0.join("test-bucket/value"), b"changed").unwrap();
     std::fs::write(source.0.join("test-bucket/a-first"), b"changed").unwrap();
     assert_eq!(
         server.request("POST", "/_internal/reseed", "", b"").status,
         403
     );
-    assert_eq!(server.request("GET", OBJECT, "", b"").json(), original);
+    assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), original);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o", "", b"")
-            .json(),
+            .json_ok(),
         listing
     );
     assert_eq!(

@@ -55,11 +55,11 @@ fn strict_jwt_bearer_upload_download_and_iam_denial_match_opaque_tokens() {
     let creator = bearer("creator@example.invalid");
     server
         .upload(&admin, "iam-bucket", "jwt-object", b"jwt bytes")
-        .ok();
+        .success();
     let path = "/storage/v1/b/iam-bucket/o/jwt-object?alt=media";
-    assert_eq!(server.get(&viewer, path).ok().body, b"jwt bytes");
+    assert_eq!(server.get(&viewer, path).success().body, b"jwt bytes");
     assert_eq!(
-        server.get(&viewer, "/iam-bucket/jwt-object").ok().body,
+        server.get(&viewer, "/iam-bucket/jwt-object").success().body,
         b"jwt bytes"
     );
     server
@@ -75,7 +75,7 @@ fn strict_jwt_bearer_upload_download_and_iam_denial_match_opaque_tokens() {
     server
         .get(&bearer("unknown@example.invalid"), path)
         .invalid_credentials();
-    assert_eq!(server.get(ADMIN, path).ok().body, b"jwt bytes");
+    assert_eq!(server.get(ADMIN, path).success().body, b"jwt bytes");
     server.get("", path).login_required();
     let mut tampered = admin.into_bytes();
     let signature = tampered.iter().rposition(|b| *b == b'.').unwrap() + 1;
@@ -87,7 +87,7 @@ fn strict_jwt_bearer_upload_download_and_iam_denial_match_opaque_tokens() {
     server
         .get(std::str::from_utf8(&tampered).unwrap(), path)
         .invalid_credentials();
-    assert_eq!(server.get(ADMIN, path).ok().body, b"jwt bytes");
+    assert_eq!(server.get(ADMIN, path).success().body, b"jwt bytes");
 }
 
 #[test]
@@ -100,19 +100,19 @@ fn jwt_public_principals_pap_and_preflight_remain_independent_of_authentication(
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectViewer", "allAuthenticatedUsers")]}),
     )
-    .ok();
+    .success();
     server
         .get("", "/storage/v1/b/iam-bucket/o/object?alt=media")
         .login_required();
     assert_eq!(
-        server.get(&no_roles, "/iam-bucket/object").ok().body,
+        server.get(&no_roles, "/iam-bucket/object").success().body,
         b"hello world"
     );
     server.request("PATCH", "/storage/v1/b/iam-bucket", &admin,
-        br#"{"cors":[{"origin":["http://localhost:3000"],"method":["PUT"],"responseHeader":["Content-Type","Content-MD5","Cache-Control"]}]}"#).ok();
+        br#"{"cors":[{"origin":["http://localhost:3000"],"method":["PUT"],"responseHeader":["Content-Type","Content-MD5","Cache-Control"]}]}"#).success();
     let preflight = server.request("OPTIONS", "/iam-bucket/object",
         "Origin: http://localhost:3000\r\nAccess-Control-Request-Method: PUT\r\nAccess-Control-Request-Headers: content-type,content-md5,cache-control\r\n", b"");
-    preflight.ok();
+    preflight.success();
     assert_eq!(
         preflight.headers["access-control-allow-origin"],
         "http://localhost:3000"
@@ -127,12 +127,12 @@ fn jwt_public_principals_pap_and_preflight_remain_independent_of_authentication(
             &admin,
             br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
         )
-        .ok();
+        .success();
     server
         .get(&no_roles, "/storage/v1/b/iam-bucket/o/object?alt=media")
         .forbidden();
     assert_eq!(
-        server.get(&admin, "/iam-bucket/object").ok().body,
+        server.get(&admin, "/iam-bucket/object").success().body,
         b"hello world"
     );
     let url = sign(
@@ -143,7 +143,10 @@ fn jwt_public_principals_pap_and_preflight_remain_independent_of_authentication(
         SystemTime::now(),
         HeaderMap::new(),
     );
-    assert_eq!(send(&server, "GET", &url, "").ok().body, b"hello world");
+    assert_eq!(
+        send(&server, "GET", &url, "").success().body,
+        b"hello world"
+    );
     server
         .request(
             "PATCH",
@@ -151,15 +154,15 @@ fn jwt_public_principals_pap_and_preflight_remain_independent_of_authentication(
             &admin,
             br#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#,
         )
-        .ok();
+        .success();
     iam::set(
         &server,
         ADMIN,
         &json!({"bindings":[iam::binding("roles/storage.objectViewer", "allUsers")]}),
     )
-    .ok();
+    .success();
     assert_eq!(
-        server.get("", "/iam-bucket/object").ok().body,
+        server.get("", "/iam-bucket/object").success().body,
         b"hello world"
     );
     server
@@ -183,11 +186,11 @@ fn jwt_key_rotation_takes_effect_at_restart_and_keeps_native_and_legacy_profiles
         let mut server = Server::strict_with(&data, &path, &options);
         server
             .create_bucket(ADMIN, "project-a", "jwt-rotation")
-            .ok();
+            .success();
         let jwt = bearer("admin@example.invalid");
         server
             .upload(&jwt, "jwt-rotation", "object", b"persisted")
-            .ok();
+            .success();
         // Registry changes are deliberate restart operations, never untrusted token key URLs.
         value["identities"][0]
             .as_object_mut()
@@ -195,7 +198,7 @@ fn jwt_key_rotation_takes_effect_at_restart_and_keeps_native_and_legacy_profiles
             .remove("public_keys");
         std::fs::write(&path, value.to_string()).unwrap();
         assert_eq!(
-            server.get(&jwt, "/jwt-rotation/object").ok().body,
+            server.get(&jwt, "/jwt-rotation/object").success().body,
             b"persisted"
         );
         server.stop();
@@ -204,7 +207,7 @@ fn jwt_key_rotation_takes_effect_at_restart_and_keeps_native_and_legacy_profiles
             .get(&jwt, "/storage/v1/b/jwt-rotation/o/object?alt=media")
             .invalid_credentials();
         assert_eq!(
-            server.get(ADMIN, "/jwt-rotation/object").ok().body,
+            server.get(ADMIN, "/jwt-rotation/object").success().body,
             b"persisted"
         );
         value["identities"][0]["public_keys"] = json!([PUBLIC]);
@@ -212,7 +215,7 @@ fn jwt_key_rotation_takes_effect_at_restart_and_keeps_native_and_legacy_profiles
         server.stop();
         let server = Server::strict_with(&data, &path, &options);
         assert_eq!(
-            server.get(&jwt, "/jwt-rotation/object").ok().body,
+            server.get(&jwt, "/jwt-rotation/object").success().body,
             b"persisted"
         );
     }

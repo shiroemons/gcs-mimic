@@ -1,11 +1,10 @@
-mod object_effects_support;
+use crate::common::server::declare_server;
+mod common;
+use common::effects as object_effects_support;
 
-use common::server::{Server, http_command, write_request};
+use common::server::{http_command, write_request};
 use gcs_mimic::auth::signature::{encode_query_component, sign_policy, timestamp};
-use object_effects_support::{
-    Reply,
-    common::{self, TestDir},
-};
+use object_effects_support::{Reply, common::TestDir};
 use ring::hmac;
 use serde_json::{Value, json};
 use std::{
@@ -54,7 +53,7 @@ impl Server {
             ADMIN,
             json!({"name":name}).to_string().as_bytes(),
         )
-        .json();
+        .json_ok();
     }
     fn key(&self, email: &str) -> Key {
         let value = self
@@ -67,7 +66,7 @@ impl Server {
                 "Authorization: Bearer keys\r\n",
                 b"",
             )
-            .json();
+            .json_ok();
         Key {
             id: value["metadata"]["accessId"].as_str().unwrap().into(),
             secret: value["secret"].as_str().unwrap().into(),
@@ -124,7 +123,7 @@ impl Server {
         }
     }
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 fn base64(bytes: &[u8]) -> String {
@@ -341,7 +340,7 @@ fn v4_rsa_and_hmac_policy_upload_exact_binary_on_disk_and_ram() {
             );
             let metadata = server
                 .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-                .json();
+                .json_ok();
             assert_eq!(metadata["metadata"]["version"], "policy");
         }
     }
@@ -357,10 +356,10 @@ fn v4_hmac_policy_keys_revoke_restart_and_never_borrow_key_admin_or_project_perm
     assert_eq!(server.post("policy-bucket", &form, b"original").status, 204);
     let before = server
         .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     let list = server
         .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-        .json();
+        .json_ok();
     for email in [
         "reader@example.invalid",
         "keys@example.invalid",
@@ -384,7 +383,7 @@ fn v4_hmac_policy_keys_revoke_restart_and_never_borrow_key_admin_or_project_perm
     let keys = "Authorization: Bearer keys\r\n";
     server
         .request("PUT", &path, keys, br#"{"state":"INACTIVE"}"#)
-        .json();
+        .json_ok();
     error(
         &server.post("policy-bucket", &form, b"denied"),
         403,
@@ -399,15 +398,15 @@ fn v4_hmac_policy_keys_revoke_restart_and_never_borrow_key_admin_or_project_perm
     );
     server
         .request("PUT", &path, keys, br#"{"state":"ACTIVE"}"#)
-        .json();
+        .json_ok();
     assert_eq!(server.post("policy-bucket", &form, b"original").status, 204);
     let current = server
         .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     assert_ne!(current["generation"], before["generation"]);
     server
         .request("PUT", &path, keys, br#"{"state":"INACTIVE"}"#)
-        .json();
+        .json_ok();
     assert_eq!(server.request("DELETE", &path, keys, b"").status, 204);
     error(
         &server.post("policy-bucket", &form, b"denied"),
@@ -422,12 +421,12 @@ fn v4_hmac_policy_keys_revoke_restart_and_never_borrow_key_admin_or_project_perm
     );
     let after = server
         .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     assert_eq!(after, current);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-            .json()["items"]
+            .json_ok()["items"]
             .as_array()
             .unwrap()
             .len(),
@@ -459,13 +458,13 @@ fn v4_hmac_policy_rejections_preserve_the_complete_old_resource_even_when_public
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["allUsers"]}]}"#,
         )
-        .json();
+        .json_ok();
     let before = server
         .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     let list = server
         .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-        .json();
+        .json_ok();
     let replace = |name: &str, value: &str| {
         valid
             .iter()
@@ -528,13 +527,13 @@ fn v4_hmac_policy_rejections_preserve_the_complete_old_resource_even_when_public
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-                .json(),
+                .json_ok(),
             before
         );
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-                .json(),
+                .json_ok(),
             list
         );
         assert_eq!(
@@ -595,7 +594,7 @@ fn v2_rsa_policy_uses_base64_signature_and_its_own_bucket_coverage_and_expiratio
         );
         let before = server
             .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-            .json();
+            .json_ok();
         for name in ["GoogleAccessId", "signature", "policy"] {
             let partial = bound
                 .iter()
@@ -633,7 +632,7 @@ fn v2_rsa_policy_uses_base64_signature_and_its_own_bucket_coverage_and_expiratio
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-                .json(),
+                .json_ok(),
             before
         );
         assert_eq!(
@@ -662,10 +661,10 @@ fn v2_hmac_policy_uses_active_literal_secret_sha1_and_preserves_rejected_overwri
         );
         let before = server
             .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-            .json();
+            .json_ok();
         let list = server
             .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-            .json();
+            .json_ok();
         let mut tampered = valid.clone();
         let signature = &mut tampered
             .iter_mut()
@@ -705,7 +704,7 @@ fn v2_hmac_policy_uses_active_literal_secret_sha1_and_preserves_rejected_overwri
         let admin = "Authorization: Bearer keys\r\n";
         server
             .request("PUT", &path, admin, br#"{"state":"INACTIVE"}"#)
-            .json();
+            .json_ok();
         error(
             &server.post("policy-bucket", &valid, b"changed"),
             403,
@@ -722,10 +721,10 @@ fn v2_hmac_policy_uses_active_literal_secret_sha1_and_preserves_rejected_overwri
         }
         server
             .request("PUT", &path, admin, br#"{"state":"ACTIVE"}"#)
-            .json();
+            .json_ok();
         server
             .request("PUT", &path, admin, br#"{"state":"INACTIVE"}"#)
-            .json();
+            .json_ok();
         assert_eq!(server.request("DELETE", &path, admin, b"").status, 204);
         error(
             &server.post("policy-bucket", &valid, b"changed"),
@@ -741,13 +740,13 @@ fn v2_hmac_policy_uses_active_literal_secret_sha1_and_preserves_rejected_overwri
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
-                .json(),
+                .json_ok(),
             before
         );
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-                .json(),
+                .json_ok(),
             list
         );
     }
@@ -801,10 +800,10 @@ fn every_policy_variant_checks_inclusive_ranges_and_creator_only_overwrites() {
                 ADMIN,
                 b"",
             )
-            .json();
+            .json_ok();
         let list = server
             .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-            .json();
+            .json_ok();
         error(
             &server.post("policy-bucket", &form, b"changed"),
             403,
@@ -818,13 +817,13 @@ fn every_policy_variant_checks_inclusive_ranges_and_creator_only_overwrites() {
                     ADMIN,
                     b""
                 )
-                .json(),
+                .json_ok(),
             before
         );
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-                .json(),
+                .json_ok(),
             list
         );
         assert_eq!(
@@ -857,10 +856,10 @@ fn every_policy_variant_checks_inclusive_ranges_and_creator_only_overwrites() {
                 ADMIN,
                 b"",
             )
-            .json();
+            .json_ok();
         let list = server
             .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-            .json();
+            .json_ok();
         for (bytes, code) in [
             (b"ab".as_slice(), "EntityTooSmall"),
             (b"abcdef".as_slice(), "EntityTooLarge"),
@@ -874,13 +873,13 @@ fn every_policy_variant_checks_inclusive_ranges_and_creator_only_overwrites() {
                         ADMIN,
                         b""
                     )
-                    .json(),
+                    .json_ok(),
                 before
             );
             assert_eq!(
                 server
                     .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-                    .json(),
+                    .json_ok(),
                 list
             );
             assert_eq!(
@@ -949,8 +948,8 @@ fn every_policy_variant_rechecks_scoped_iam_under_pap_and_ubla() {
     let server = Server::start(&dir, "disk");
     server.bucket("policy-bucket");
     let key = server.key("scoped@example.invalid");
-    server.request("PUT","/storage/v1/b/policy-bucket/iam",ADMIN,br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json();
-    server.request("PATCH","/storage/v1/b/policy-bucket",ADMIN,br#"{"iamConfiguration":{"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true}}}"#).json();
+    server.request("PUT","/storage/v1/b/policy-bucket/iam",ADMIN,br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json_ok();
+    server.request("PATCH","/storage/v1/b/policy-bucket",ADMIN,br#"{"iamConfiguration":{"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true}}}"#).json_ok();
     let variants = [
         (FormVersion::V4, Signer::Rsa("scoped@example.invalid")),
         (FormVersion::V4, Signer::Hmac(&key)),
@@ -963,7 +962,7 @@ fn every_policy_variant_rechecks_scoped_iam_under_pap_and_ubla() {
     }
     let before = server
         .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-        .json();
+        .json_ok();
     server
         .request(
             "PUT",
@@ -971,7 +970,7 @@ fn every_policy_variant_rechecks_scoped_iam_under_pap_and_ubla() {
             ADMIN,
             br#"{"bindings":[]}"#,
         )
-        .json();
+        .json_ok();
     for (index, (version, signer)) in variants.into_iter().enumerate() {
         let form = variant_fields(version, signer, &format!("scoped-{index}"), &[], &[]);
         error(
@@ -989,7 +988,7 @@ fn every_policy_variant_rechecks_scoped_iam_under_pap_and_ubla() {
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
-            .json(),
+            .json_ok(),
         before
     );
 }
@@ -1039,7 +1038,7 @@ fn policy_credentials_never_mix_with_headers_or_partial_versions_and_anonymous_e
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["allUsers"]}]}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .post("policy-bucket", &plain, b"public anonymous")
@@ -1062,3 +1061,5 @@ fn policy_credentials_never_mix_with_headers_or_partial_versions_and_anonymous_e
         b"public anonymous"
     );
 }
+
+declare_server!();

@@ -52,13 +52,13 @@ fn stored(server: &Server, name: &str) -> Vec<(String, String)> {
             ADMIN,
             b"",
         )
-        .json())
+        .json_ok())
 }
 
 fn absent(server: &Server, name: &str) {
     server
         .request("GET", &format!("{BUCKET}/o/{name}"), ADMIN, b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
 }
 
 /// Sends a multipart upload, whose outer content type the shared JSON helper cannot set.
@@ -121,7 +121,7 @@ fn media_upload_predefined_acls_replace_the_default_object_acl() {
                 &format!("{BUCKET}/defaultObjectAcl"),
                 json!({"entity":"user-reader@example.test","role":"READER"}),
             )
-            .json();
+            .json_ok();
         let cases = [
             ("private", vec![ADMIN_OWNER]),
             (
@@ -158,7 +158,7 @@ fn media_upload_predefined_acls_replace_the_default_object_acl() {
                     ADMIN,
                     b"bytes",
                 )
-                .json();
+                .json_ok();
             assert_eq!(acl(&created), pairs(&expected), "{backend} {value}");
             assert_eq!(
                 stored(&server, &name),
@@ -173,7 +173,7 @@ fn media_upload_predefined_acls_replace_the_default_object_acl() {
                 ADMIN,
                 b"x",
             )
-            .json();
+            .json_ok();
         assert_eq!(
             stored(&server, "inherited"),
             inherited("user-reader@example.test")
@@ -195,7 +195,7 @@ fn media_upload_predefined_acls_replace_the_default_object_acl() {
                     ADMIN,
                     b"bytes",
                 )
-                .error(400, "invalidParameter");
+                .json_reason(400, "invalidParameter");
         }
         absent(&server, "invalid");
     }
@@ -227,16 +227,16 @@ fn multipart_and_resumable_uploads_apply_predefined_acl_at_publication() {
             &format!("{BUCKET}/defaultObjectAcl"),
             json!({"entity":"user-other@example.test","role":"READER"}),
         )
-        .json();
+        .json_ok();
     server.stop();
     let server = Server::start(&data, &inputs, "disk");
-    finish(&server, &session).json();
+    finish(&server, &session).json_ok();
     assert_eq!(
         stored(&server, "resumable"),
         pairs(&[ADMIN_OWNER, ("project-owners-0", "READER")])
     );
     let session = initiate(&server, "name=resumable-default");
-    finish(&server, &session).json();
+    finish(&server, &session).json_ok();
     assert_eq!(
         stored(&server, "resumable-default"),
         inherited("user-other@example.test")
@@ -250,7 +250,7 @@ fn multipart_and_resumable_uploads_apply_predefined_acl_at_publication() {
             BUCKET,
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
         )
-        .json();
+        .json_ok();
     for (reply, reason) in [
         (finish(&server, &pending), "invalid"),
         (
@@ -263,7 +263,7 @@ fn multipart_and_resumable_uploads_apply_predefined_acl_at_publication() {
             "invalidArgument",
         ),
     ] {
-        reply.error(400, reason);
+        reply.json_reason(400, reason);
         assert!(
             serde_json::from_slice::<Value>(&reply.body).unwrap()["error"]["message"]
                 .as_str()
@@ -290,7 +290,7 @@ fn predefined_acl_uploads_need_only_create_and_respect_access_settings() {
             READER,
             b"bytes",
         )
-        .json();
+        .json_ok();
     assert_eq!(
         stored(&server, "writer"),
         pairs(&[
@@ -307,9 +307,9 @@ fn predefined_acl_uploads_need_only_create_and_respect_access_settings() {
             b"bytes",
         )
     };
-    anonymous("&predefinedAcl=private").error(400, "invalidArgument");
+    anonymous("&predefinedAcl=private").json_reason(400, "invalidArgument");
     absent(&server, "anonymous");
-    anonymous("").json();
+    anonymous("").json_ok();
 
     // A session initiated before public access prevention is enforced is rechecked at
     // completion, inside the publishing transaction.
@@ -320,8 +320,8 @@ fn predefined_acl_uploads_need_only_create_and_respect_access_settings() {
             BUCKET,
             json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
         )
-        .json();
-    finish(&server, &pending).error(412, "conditionNotMet");
+        .json_ok();
+    finish(&server, &pending).json_reason(412, "conditionNotMet");
     absent(&server, "late-public");
     for value in ["publicRead", "authenticatedRead"] {
         server
@@ -331,7 +331,7 @@ fn predefined_acl_uploads_need_only_create_and_respect_access_settings() {
                 ADMIN,
                 b"bytes",
             )
-            .error(412, "conditionNotMet");
+            .json_reason(412, "conditionNotMet");
         absent(&server, "public");
     }
     server
@@ -341,7 +341,7 @@ fn predefined_acl_uploads_need_only_create_and_respect_access_settings() {
             ADMIN,
             b"bytes",
         )
-        .json();
+        .json_ok();
     assert_eq!(stored(&server, "private"), pairs(&[ADMIN_OWNER]));
 
     // The ACL row commits with the generation: a failed ACL write publishes nothing.

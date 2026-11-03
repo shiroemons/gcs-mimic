@@ -1,7 +1,8 @@
 //! `buckets.getStorageLayout`: the resource, its parameters and the `storage.objects.list`
 //! permission the reference names for it.
 
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Server, common::TestDir};
 use serde_json::{Value, json};
@@ -34,10 +35,10 @@ fn storage_layout_reports_the_bucket_location_without_namespace_or_placement() {
             "",
             br#"{"name":"regional-bucket","location":"asia-northeast1"}"#,
         )
-        .json();
+        .json_ok();
 
     assert_eq!(
-        layout(&server, "test-bucket", "", "").json(),
+        layout(&server, "test-bucket", "", "").json_ok(),
         json!({
             "kind": "storage#storageLayout",
             "bucket": "test-bucket",
@@ -46,13 +47,13 @@ fn storage_layout_reports_the_bucket_location_without_namespace_or_placement() {
         })
     );
     // gcloud 591.0.0 sends exactly this request before every copy to or from a bucket.
-    let regional = layout(&server, "regional-bucket", "?alt=json", "").json();
+    let regional = layout(&server, "regional-bucket", "?alt=json", "").json_ok();
     assert_eq!(regional["location"], "ASIA-NORTHEAST1");
     assert_eq!(regional["locationType"], "region");
     // The layout agrees with the bucket resource the same caller reads.
     let bucket = server
         .request("GET", "/storage/v1/b/regional-bucket", "", b"")
-        .json();
+        .json_ok();
     assert_eq!(regional["location"], bucket["location"]);
     assert_eq!(regional["locationType"], bucket["locationType"]);
 }
@@ -71,17 +72,17 @@ fn storage_layout_parameters_select_fields_and_scope_the_permission_check() {
             "?prefix=logs%2F&prettyPrint=false",
             ""
         )
-        .json(),
-        layout(&server, "test-bucket", "", "").json()
+        .json_ok(),
+        layout(&server, "test-bucket", "", "").json_ok()
     );
     assert_eq!(
-        layout(&server, "test-bucket", "?fields=bucket,locationType", "").json(),
+        layout(&server, "test-bucket", "?fields=bucket,locationType", "").json_ok(),
         json!({"bucket": "test-bucket", "locationType": "multi-region"})
     );
-    layout(&server, "test-bucket", "?fields=storageClass", "").error(400, "invalidParameter");
-    layout(&server, "test-bucket", "?projection=full", "").error(400, "invalidParameter");
-    layout(&server, "test-bucket", "?alt=media", "").error(400, "badRequest");
-    layout(&server, "test-bucket", "?userProject=billing", "").error(400, "badRequest");
+    layout(&server, "test-bucket", "?fields=storageClass", "").json_reason(400, "invalidParameter");
+    layout(&server, "test-bucket", "?projection=full", "").json_reason(400, "invalidParameter");
+    layout(&server, "test-bucket", "?alt=media", "").json_reason(400, "badRequest");
+    layout(&server, "test-bucket", "?userProject=billing", "").json_reason(400, "badRequest");
 }
 
 #[test]
@@ -90,8 +91,8 @@ fn storage_layout_rejects_missing_buckets_bodies_and_other_methods() {
     let server = Server::start(&dir, false);
     server.bucket();
 
-    layout(&server, "missing-bucket", "", "").error(404, "notFound");
-    layout(&server, "Invalid_Bucket", "", "").error(400, "invalidParameter");
+    layout(&server, "missing-bucket", "", "").json_reason(404, "notFound");
+    layout(&server, "Invalid_Bucket", "", "").json_reason(400, "invalidParameter");
     server
         .request(
             "GET",
@@ -99,10 +100,10 @@ fn storage_layout_rejects_missing_buckets_bodies_and_other_methods() {
             "Content-Type: application/json\r\n",
             b"{}",
         )
-        .error(400, "invalidArgument");
+        .json_reason(400, "invalidArgument");
     for method in ["POST", "PUT", "PATCH", "DELETE"] {
         let reply = server.request(method, "/storage/v1/b/test-bucket/storageLayout", "", b"");
-        reply.error(405, "methodNotAllowed");
+        reply.json_reason(405, "methodNotAllowed");
         assert_eq!(reply.headers["allow"], "GET", "{method}");
     }
 }
@@ -114,7 +115,7 @@ fn storage_layout_requires_object_list_permission_in_strict_mode() {
     server.bucket();
 
     assert_eq!(
-        layout(&server, "test-bucket", "", ADMIN).json()["bucket"],
+        layout(&server, "test-bucket", "", ADMIN).json_ok()["bucket"],
         "test-bucket"
     );
     // roles/storage.objectViewer grants storage.objects.list.
@@ -125,7 +126,7 @@ fn storage_layout_requires_object_list_permission_in_strict_mode() {
             "",
             "Authorization: Bearer viewer\r\n"
         )
-        .json()["bucket"],
+        .json_ok()["bucket"],
         "test-bucket"
     );
     // roles/storage.objectCreator lacks it, as does a principal without any grant.
@@ -136,16 +137,16 @@ fn storage_layout_requires_object_list_permission_in_strict_mode() {
             "?prefix=logs%2F",
             &format!("Authorization: Bearer {token}\r\n"),
         )
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     }
-    layout(&server, "test-bucket", "", "").error(401, "required");
+    layout(&server, "test-bucket", "", "").json_reason(401, "required");
     layout(
         &server,
         "test-bucket",
         "",
         "Authorization: Bearer unknown\r\n",
     )
-    .error(401, "authError");
+    .json_reason(401, "authError");
     // A missing bucket answers as buckets.get does for the same caller.
     let missing = layout(&server, "missing-bucket", "", ADMIN);
     let get = server.request("GET", "/storage/v1/b/missing-bucket", ADMIN, b"");
@@ -168,11 +169,11 @@ fn storage_layout_follows_the_legacy_profile_location() {
             "",
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
+        .json_ok();
     let bucket = server
         .request("GET", "/storage/v1/b/test-bucket", "", b"")
-        .json();
-    let layout = layout(&server, "test-bucket", "", "").json();
+        .json_ok();
+    let layout = layout(&server, "test-bucket", "", "").json_ok();
     assert_eq!(layout["location"], bucket["location"]);
     assert_eq!(layout["locationType"], bucket["locationType"]);
 }

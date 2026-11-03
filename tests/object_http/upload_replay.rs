@@ -13,7 +13,7 @@ fn upload_replay_unconditional_response_survives_overwrite_and_restart() {
     assert_eq!(server.upload(query, token, b"original").body, original.body);
     server
         .upload(query, token, b"different")
-        .error(400, "invalid");
+        .json_error(400, "invalid");
     // The declared hash is not examined (recorded), so the retry replays the first response.
     assert_eq!(
         server
@@ -57,7 +57,7 @@ fn upload_replay_concurrent_requests_publish_one_generation() {
                 stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
                 barrier.wait();
                 stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=race HTTP/1.1\r\nHost: local\r\nContent-Length: 7\r\nX-Goog-Gcs-Idempotency-Token: race\r\n\r\npayload").unwrap();
-                Reply::read(stream)
+                Reply::framed(stream)
             })
         }).collect();
         handles
@@ -113,6 +113,6 @@ fn upload_replay_lost_response_and_recreated_bucket_do_not_duplicate_mutations()
     server.bucket();
     server
         .upload("name=lost", token, b"payload")
-        .error(400, "invalid");
-    server.get("lost").error(404, "notFound");
+        .json_error(400, "invalid");
+    server.get("lost").json_error(404, "notFound");
 }

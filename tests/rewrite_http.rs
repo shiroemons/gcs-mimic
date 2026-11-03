@@ -1,9 +1,6 @@
-mod object_effects_support;
-use object_effects_support::{
-    Server,
-    common::{self, TestDir},
-    request, settings,
-};
+mod common;
+use common::effects as object_effects_support;
+use object_effects_support::{Server, common::TestDir, request, settings};
 use serde_json::{Value, json};
 use std::{
     sync::{Arc, Barrier},
@@ -18,7 +15,7 @@ fn setup(strict: bool, size: usize) -> (TestDir, Server, Vec<u8>, Value) {
     let server = Server::start(&dir, strict);
     server.bucket();
     let payload: Vec<_> = (0..size).map(|index| (index % 251) as u8).collect();
-    let source = server.put("source", &payload).json();
+    let source = server.put("source", &payload).json_ok();
     (dir, server, payload, source)
 }
 fn multi(server: &Server, query: &str) -> Value {
@@ -29,7 +26,7 @@ fn multi(server: &Server, query: &str) -> Value {
             ADMIN,
             br#"{"storageClass":"NEARLINE","metadata":{"team":"rewrite"}}"#,
         )
-        .json()
+        .json_ok()
 }
 fn continue_path(token: &str) -> String {
     format!("{BASE}?rewriteToken={token}")
@@ -42,7 +39,7 @@ fn rewrite_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
         br#"{"temporaryHold":false}"#.as_slice(),
         br#"{"customTime":null}"#,
     ] {
-        let result = server.request("POST", BASE, ADMIN, body).json();
+        let result = server.request("POST", BASE, ADMIN, body).json_ok();
         assert_eq!(result["done"], true);
         // An explicit false is kept as sent (not recorded at create time); null names nothing.
         assert_eq!(
@@ -57,7 +54,7 @@ fn rewrite_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
         assert!(result["resource"].get("customTime").is_none());
         assert_eq!(server.get("destination?alt=media").body, payload);
     }
-    let before = server.get("destination").json();
+    let before = server.get("destination").json_ok();
     server
         .request(
             "POST",
@@ -65,8 +62,8 @@ fn rewrite_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
             ADMIN,
             br#"{"customTime":"2026-10-20T01:02:03Z"}"#,
         )
-        .error(400, "badRequest");
-    assert_eq!(server.get("destination").json(), before);
+        .json_reason(400, "badRequest");
+    assert_eq!(server.get("destination").json_ok(), before);
 }
 
 #[test]
@@ -80,8 +77,8 @@ fn rewrite_one_call_empty_metadata_fields_and_same_name() {
                 ADMIN,
                 br#"{"contentType":"text/plain","metadata":{"original":"value"}}"#,
             )
-            .json();
-        let result = server.request("POST", BASE, ADMIN, b"").json();
+            .json_ok();
+        let result = server.request("POST", BASE, ADMIN, b"").json_ok();
         assert_eq!(result["kind"], "storage#rewriteResponse");
         assert_eq!(result["done"], true);
         assert_eq!(result["objectSize"], size.to_string());
@@ -89,14 +86,14 @@ fn rewrite_one_call_empty_metadata_fields_and_same_name() {
         assert!(result.get("rewriteToken").is_none());
         assert_eq!(result["resource"]["contentType"], "text/plain");
         assert_eq!(result["resource"]["metadata"]["original"], "value");
-        let null_body = server.request("POST", BASE, ADMIN, b" \nnull\t").json();
+        let null_body = server.request("POST", BASE, ADMIN, b" \nnull\t").json_ok();
         assert_eq!(null_body["resource"]["contentType"], "text/plain");
         assert_eq!(null_body["resource"]["metadata"]["original"], "value");
         for hash in ["md5Hash", "crc32c"] {
             assert_eq!(result["resource"][hash], source[hash]);
         }
         assert_eq!(server.get("destination?alt=media").body, payload);
-        let same=server.request("POST","/storage/v1/b/test-bucket/o/source/rewriteTo/b/test-bucket/o/source?fields=done,resource(generation,name)",ADMIN,b"{}").json();
+        let same=server.request("POST","/storage/v1/b/test-bucket/o/source/rewriteTo/b/test-bucket/o/source?fields=done,resource(generation,name)",ADMIN,b"{}").json_ok();
         assert_eq!(same["done"], true);
         assert_ne!(same["resource"]["generation"], source["generation"]);
         assert!(same.get("objectSize").is_none());
@@ -125,8 +122,8 @@ fn abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart() {
                 ADMIN,
                 br#"{"storageClass":"NEARLINE"}"#,
             )
-            .error(503, "backendError");
-        server.get("destination").error(404, "notFound");
+            .json_reason(503, "backendError");
+        server.get("destination").json_reason(404, "notFound");
         let copied = server
             .request(
                 "POST",
@@ -134,7 +131,7 @@ fn abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart() {
                 ADMIN,
                 b"",
             )
-            .json();
+            .json_ok();
         assert_eq!(copied["md5Hash"], source["md5Hash"]);
         assert_eq!(server.get("copied?alt=media").body, payload);
         let composed = server
@@ -144,7 +141,7 @@ fn abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart() {
                 ADMIN,
                 br#"{"sourceObjects":[{"name":"source"},{"name":"copied"}]}"#,
             )
-            .json();
+            .json_ok();
         assert_eq!(composed["componentCount"], 2);
         assert_eq!(server.get("composed?alt=media").body, payload.repeat(2));
         let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -171,7 +168,7 @@ fn abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart() {
     }
     let completed = server
         .request("POST", &continue_path(&token.unwrap()), ADMIN, b"")
-        .json();
+        .json_ok();
     assert_eq!(completed["done"], true);
     assert_eq!(server.get("destination?alt=media").body, payload);
     assert_eq!(multi(&server, "")["done"], false);
@@ -184,27 +181,27 @@ fn rewrite_progress_retry_restart_and_completion_replay_publish_once() {
     assert_eq!(first["done"], false);
     assert_eq!(first["totalBytesRewritten"], "1048576");
     assert!(first.get("resource").is_none());
-    server.get("destination").error(404, "notFound");
+    server.get("destination").json_reason(404, "notFound");
     let first_token = first["rewriteToken"].as_str().unwrap();
     let path = continue_path(first_token);
-    let second = server.request("POST", &path, ADMIN, b"").json();
+    let second = server.request("POST", &path, ADMIN, b"").json_ok();
     assert_eq!(second["totalBytesRewritten"], "2097152");
-    assert_eq!(server.request("POST", &path, ADMIN, b"").json(), second);
+    assert_eq!(server.request("POST", &path, ADMIN, b"").json_ok(), second);
     server.stop();
     let server = Server::start(&dir, false);
     let last_path = continue_path(second["rewriteToken"].as_str().unwrap());
-    let completed = server.request("POST", &last_path, ADMIN, b"").json();
+    let completed = server.request("POST", &last_path, ADMIN, b"").json_ok();
     assert_eq!(completed["done"], true);
     assert_eq!(completed["totalBytesRewritten"], payload.len().to_string());
     assert!(completed.get("rewriteToken").is_none());
     assert_eq!(server.get("destination?alt=media").body, payload);
     assert_eq!(
-        server.get("destination").json(),
+        server.get("destination").json_ok(),
         common::without_acl(completed["resource"].clone())
     );
-    server.put("destination", b"later").json();
+    server.put("destination", b"later").json_ok();
     assert_eq!(
-        server.request("POST", &last_path, ADMIN, b"").json(),
+        server.request("POST", &last_path, ADMIN, b"").json_ok(),
         completed
     );
     assert_eq!(server.get("destination?alt=media").body, b"later");
@@ -238,11 +235,11 @@ fn rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget() {
     ] {
         server
             .request("POST", &format!("{path}&{query}"), ADMIN, b"")
-            .error(400, "invalid");
+            .json_reason(400, "invalid");
     }
     server
         .request("POST", &path, ADMIN, b"{}")
-        .error(400, "invalid");
+        .json_reason(400, "invalid");
     server
         .request(
             "POST",
@@ -250,7 +247,7 @@ fn rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget() {
             ADMIN,
             b"",
         )
-        .error(400, "invalid");
+        .json_reason(400, "invalid");
     for index in 0..token.len() {
         let mut tampered = token.to_owned();
         tampered.replace_range(
@@ -263,13 +260,13 @@ fn rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget() {
         );
         server
             .request("POST", &continue_path(&tampered), ADMIN, b"")
-            .error(410, "gone");
+            .json_reason(410, "gone");
     }
     server
         .request("POST", &continue_path("not-a-token"), ADMIN, b"")
-        .error(400, "invalid");
+        .json_reason(400, "invalid");
     assert_eq!(
-        server.request("POST", &path, ADMIN, b"").json()["done"],
+        server.request("POST", &path, ADMIN, b"").json_ok()["done"],
         true
     );
 }
@@ -281,7 +278,7 @@ fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
         let first = multi(&server, "");
         match mutation {
             "overwrite" => {
-                server.put("source", b"replacement").json();
+                server.put("source", b"replacement").json_ok();
             }
             "delete" => {
                 assert_eq!(
@@ -299,7 +296,7 @@ fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
                         ADMIN,
                         br#"{"metadata":{"changed":"yes"}}"#,
                     )
-                    .json();
+                    .json_ok();
             }
         }
         server
@@ -309,8 +306,8 @@ fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
                 ADMIN,
                 b"",
             )
-            .error(412, "conditionNotMet");
-        server.get("destination").error(404, "notFound");
+            .json_reason(412, "conditionNotMet");
+        server.get("destination").json_reason(404, "notFound");
         server
             .request(
                 "POST",
@@ -318,7 +315,7 @@ fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
                 ADMIN,
                 b"",
             )
-            .error(410, "gone");
+            .json_reason(410, "gone");
         let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
         for table in ["rewrite_sessions", "derived_transfers", "derived_inputs"] {
             assert_eq!(
@@ -336,7 +333,7 @@ fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
 #[test]
 fn rewrite_all_conditions_preserve_failed_destination_and_retained_source() {
     let (dir, server, payload, source) = setup(false, 17);
-    let old = server.put("destination", b"previous").json();
+    let old = server.put("destination", b"previous").json_ok();
     for key in [
         "ifGenerationMatch",
         "ifMetagenerationMatch",
@@ -345,8 +342,8 @@ fn rewrite_all_conditions_preserve_failed_destination_and_retained_source() {
     ] {
         server
             .request("POST", &format!("{BASE}?{key}=999"), ADMIN, b"")
-            .error(412, "conditionNotMet");
-        assert_eq!(server.get("destination").json(), old);
+            .json_reason(412, "conditionNotMet");
+        assert_eq!(server.get("destination").json_ok(), old);
     }
     for (key, value) in [
         ("ifGenerationNotMatch", old["generation"].as_str().unwrap()),
@@ -359,11 +356,11 @@ fn rewrite_all_conditions_preserve_failed_destination_and_retained_source() {
     ] {
         server
             .request("POST", &format!("{BASE}?{key}={value}"), ADMIN, b"")
-            .error(412, "conditionNotMet");
-        assert_eq!(server.get("destination").json(), old);
+            .json_reason(412, "conditionNotMet");
+        assert_eq!(server.get("destination").json_ok(), old);
     }
     settings(&dir, true, false);
-    server.put("source", b"new").json();
+    server.put("source", b"new").json_ok();
     let copied = server
         .request(
             "POST",
@@ -374,7 +371,7 @@ fn rewrite_all_conditions_preserve_failed_destination_and_retained_source() {
             ADMIN,
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(copied["done"], true);
     assert_eq!(server.get("destination?alt=media").body, payload);
 }
@@ -421,7 +418,7 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
         assert_eq!(server.request("POST", BASE, header, b"").status, status);
     }
     settings(&dir, true, true);
-    let first = server.request("POST", BASE, ADMIN, b"").json();
+    let first = server.request("POST", BASE, ADMIN, b"").json_ok();
     assert_eq!(first["resource"]["eventBasedHold"], true);
     server.request("POST", BASE, ADMIN, b"").hold_error();
     assert_eq!(server.get("destination?alt=media").body, payload);
@@ -433,7 +430,7 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
     ] {
         server
             .request("POST", &format!("{BASE}?{query}"), ADMIN, b"")
-            .error(400, "badRequest");
+            .json_reason(400, "badRequest");
     }
     for field in ["acl", "retention", "contexts", "kmsKeyName"] {
         server
@@ -443,17 +440,17 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
                 ADMIN,
                 json!({field:{}}).to_string().as_bytes(),
             )
-            .error(400, "badRequest");
+            .json_reason(400, "badRequest");
     }
     server
         .request("POST", BASE, ADMIN, br#"{"temporaryHold":true}"#)
-        .error(400, "badRequest");
+        .json_reason(400, "badRequest");
     assert_eq!(
         first["resource"]["owner"],
         json!({"entity": "user-admin@example.test"})
     );
     assert_eq!(
-        server.get("destination").json(),
+        server.get("destination").json_ok(),
         common::without_acl(first["resource"].clone())
     );
 }
@@ -461,19 +458,23 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
 #[test]
 fn rewrite_expired_token_and_restart_cleanup_preserve_live_destination() {
     let (dir, mut server, _payload, _source) = setup(false, 1048576 + 3);
-    let previous = server.put("destination", b"previous").json();
+    let previous = server.put("destination", b"previous").json_ok();
     let first = multi(&server, "");
     let path = continue_path(first["rewriteToken"].as_str().unwrap());
     rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
         .unwrap()
         .execute("UPDATE rewrite_sessions SET deadline=0", [])
         .unwrap();
-    server.request("POST", &path, ADMIN, b"").error(410, "gone");
-    assert_eq!(server.get("destination").json(), previous);
+    server
+        .request("POST", &path, ADMIN, b"")
+        .json_reason(410, "gone");
+    assert_eq!(server.get("destination").json_ok(), previous);
     server.stop();
     let server = Server::start(&dir, false);
-    server.request("POST", &path, ADMIN, b"").error(410, "gone");
-    assert_eq!(server.get("destination").json(), previous);
+    server
+        .request("POST", &path, ADMIN, b"")
+        .json_reason(410, "gone");
+    assert_eq!(server.get("destination").json_ok(), previous);
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     for table in ["rewrite_sessions", "derived_transfers", "derived_inputs"] {
         assert_eq!(
@@ -494,15 +495,15 @@ fn rewrite_continuation_rechecks_strict_grants_and_destination_conditions() {
     let path = continue_path(initial["rewriteToken"].as_str().unwrap());
     server
         .request("POST", &path, "Authorization: Bearer viewer\r\n", b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request("POST", &path, "Authorization: Bearer creator\r\n", b"")
-        .error(403, "forbidden");
-    let concurrent = server.put("destination", b"concurrent").json();
+        .json_reason(403, "forbidden");
+    let concurrent = server.put("destination", b"concurrent").json_ok();
     server
         .request("POST", &path, ADMIN, b"")
-        .error(412, "conditionNotMet");
-    assert_eq!(server.get("destination").json(), concurrent);
+        .json_reason(412, "conditionNotMet");
+    assert_eq!(server.get("destination").json_ok(), concurrent);
     assert_eq!(server.get("destination?alt=media").body, b"concurrent");
     let db = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     assert_eq!(
@@ -541,18 +542,18 @@ fn rewrite_concurrent_token_retry_has_one_progress_checkpoint() {
     let mut success = None;
     for reply in replies {
         if reply.status == 200 {
-            let json = reply.json();
+            let json = reply.json_ok();
             assert_eq!(json["totalBytesRewritten"], "2097152");
             if let Some(previous) = &success {
                 assert_eq!(previous, &json);
             }
             success = Some(json);
         } else {
-            reply.error(503, "backendError");
+            reply.json_reason(503, "backendError");
         }
     }
     assert_eq!(
-        server.request("POST", &path, ADMIN, b"").json(),
+        server.request("POST", &path, ADMIN, b"").json_ok(),
         success.expect("one retry must succeed")
     );
 }
@@ -567,7 +568,7 @@ fn rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds() {
             ADMIN,
             br#"{"name":"destination-bucket","location":"EU"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "PATCH",
@@ -575,7 +576,7 @@ fn rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds() {
             ADMIN,
             br#"{"eventBasedHold":true}"#,
         )
-        .json();
+        .json_ok();
     let set_policy = |bindings: Value| {
         server
             .request(
@@ -586,7 +587,7 @@ fn rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds() {
                     .to_string()
                     .as_bytes(),
             )
-            .json()
+            .json_ok()
     };
     let grant =
         json!([{"role":"roles/storage.objectCreator","members":["user:viewer@example.test"]}]);
@@ -600,7 +601,7 @@ fn rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds() {
             viewer,
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(first["done"], false);
     let path = format!(
         "{base}?rewriteToken={}",
@@ -609,9 +610,9 @@ fn rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds() {
     set_policy(json!([]));
     server
         .request("POST", &path, viewer, b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     set_policy(grant);
-    let complete = server.request("POST", &path, viewer, b"").json();
+    let complete = server.request("POST", &path, viewer, b"").json_ok();
     assert_eq!(complete["done"], true);
     assert_ne!(complete["resource"]["eventBasedHold"], true);
     assert_eq!(
@@ -627,7 +628,7 @@ fn rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds() {
     );
     server
         .request("POST", base, viewer, b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     assert_eq!(
         server
             .request(
@@ -636,7 +637,7 @@ fn rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds() {
                 ADMIN,
                 b""
             )
-            .json(),
+            .json_ok(),
         common::without_acl(complete["resource"].clone())
     );
 }
@@ -652,7 +653,7 @@ fn rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite() {
             source["generation"].as_str().unwrap()
         ),
     );
-    server.put("source", b"new live revision").json();
+    server.put("source", b"new live revision").json_ok();
     let complete = server
         .request(
             "POST",
@@ -660,7 +661,7 @@ fn rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite() {
             ADMIN,
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(complete["done"], true);
     assert_eq!(server.get("destination?alt=media").body, payload);
     assert_eq!(server.get("source?alt=media").body, b"new live revision");
@@ -687,11 +688,11 @@ fn rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_ta
         .unwrap();
     let server = Server::start(&dir, false);
     assert_eq!(std::fs::metadata(stage).unwrap().len(), 1048576);
-    let complete = server.request("POST", &path, ADMIN, b"").json();
+    let complete = server.request("POST", &path, ADMIN, b"").json_ok();
     assert_eq!(complete["done"], true);
     assert_eq!(server.get("destination?alt=media").body, payload);
     assert_eq!(
-        server.get("destination").json(),
+        server.get("destination").json_ok(),
         common::without_acl(complete["resource"].clone())
     );
 }
@@ -699,30 +700,30 @@ fn rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_ta
 #[test]
 fn rewrite_metadata_checksums_validate_and_identity_is_path_selected() {
     let (_dir, server, payload, source) = setup(false, 23);
-    let previous = server.put("destination", b"previous").json();
+    let previous = server.put("destination", b"previous").json_ok();
     for body in [
         json!({"md5Hash":"AAAAAAAAAAAAAAAAAAAAAA=="}),
         json!({"crc32c":"AAAAAA=="}),
     ] {
         server
             .request("POST", BASE, ADMIN, body.to_string().as_bytes())
-            .error(400, "invalid");
-        assert_eq!(server.get("destination").json(), previous);
+            .json_reason(400, "invalid");
+        assert_eq!(server.get("destination").json_ok(), previous);
     }
     let body = json!({"kind":"storage#object","name":"ignored","bucket":"ignored","md5Hash":source["md5Hash"],"crc32c":source["crc32c"],"contentType":"application/x-rewrite","metadata":{"team":"雪"}});
     let completed = server
         .request("POST", BASE, ADMIN, body.to_string().as_bytes())
-        .json();
+        .json_ok();
     assert_eq!(completed["resource"]["name"], "destination");
     assert_eq!(completed["resource"]["bucket"], "test-bucket");
     assert_eq!(completed["resource"]["metadata"]["team"], "雪");
     assert_eq!(server.get("destination?alt=media").body, payload);
     // An empty resource keeps the source metadata like an absent one (recorded for `{}`).
-    let kept = server.request("POST", BASE, ADMIN, b"{}").json();
+    let kept = server.request("POST", BASE, ADMIN, b"{}").json_ok();
     assert_eq!(kept["resource"]["contentType"], source["contentType"]);
     let cleared = server
         .request("POST", BASE, ADMIN, br#"{"cacheControl":"no-cache"}"#)
-        .json();
+        .json_ok();
     assert!(cleared["resource"].get("metadata").is_none());
     assert!(cleared["resource"].get("contentType").is_none());
     assert_eq!(
@@ -736,7 +737,7 @@ fn rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart() {
     use std::io::Write;
     for damage in ["missing", "truncated", "corrupted"] {
         let (dir, mut server, _payload, _source) = setup(false, 1048576 + 1);
-        let previous = server.put("destination", b"previous").json();
+        let previous = server.put("destination", b"previous").json_ok();
         let first = multi(&server, "");
         let path = continue_path(first["rewriteToken"].as_str().unwrap());
         server.stop();
@@ -761,8 +762,10 @@ fn rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart() {
                 .unwrap(),
         }
         let server = Server::start(&dir, false);
-        server.request("POST", &path, ADMIN, b"").error(410, "gone");
-        assert_eq!(server.get("destination").json(), previous);
+        server
+            .request("POST", &path, ADMIN, b"")
+            .json_reason(410, "gone");
+        assert_eq!(server.get("destination").json_ok(), previous);
         assert_eq!(server.get("destination?alt=media").body, b"previous");
         assert_eq!(
             rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
@@ -781,7 +784,7 @@ fn rewrite_completion_replay_rejects_recreated_buckets() {
     let first = multi(&server, "");
     let path = continue_path(first["rewriteToken"].as_str().unwrap());
     assert_eq!(
-        server.request("POST", &path, ADMIN, b"").json()["done"],
+        server.request("POST", &path, ADMIN, b"").json_ok()["done"],
         true
     );
     for name in ["source", "destination"] {
@@ -804,11 +807,11 @@ fn rewrite_completion_replay_rejects_recreated_buckets() {
         204
     );
     server.bucket();
-    server.put("source", b"new bucket incarnation").json();
+    server.put("source", b"new bucket incarnation").json_ok();
     server
         .request("POST", &path, ADMIN, b"")
-        .error(412, "conditionNotMet");
-    server.get("destination").error(404, "notFound");
+        .json_reason(412, "conditionNotMet");
+    server.get("destination").json_reason(404, "notFound");
 }
 
 #[test]
@@ -816,7 +819,7 @@ fn rewrite_progress_replay_reclaims_state_after_bucket_recreation() {
     let (dir, server, _payload, _source) = setup(false, 3 * 1048576 + 1);
     let first = multi(&server, "");
     let replay_path = continue_path(first["rewriteToken"].as_str().unwrap());
-    let second = server.request("POST", &replay_path, ADMIN, b"").json();
+    let second = server.request("POST", &replay_path, ADMIN, b"").json_ok();
     assert_eq!(second["done"], false);
     assert_eq!(
         server
@@ -833,12 +836,14 @@ fn rewrite_progress_replay_reclaims_state_after_bucket_recreation() {
     server.bucket();
     server
         .request("POST", &replay_path, ADMIN, b"")
-        .error(412, "conditionNotMet");
+        .json_reason(412, "conditionNotMet");
     for path in [
         replay_path,
         continue_path(second["rewriteToken"].as_str().unwrap()),
     ] {
-        server.request("POST", &path, ADMIN, b"").error(410, "gone");
+        server
+            .request("POST", &path, ADMIN, b"")
+            .json_reason(410, "gone");
     }
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     for table in ["rewrite_sessions", "derived_transfers", "derived_inputs"] {
@@ -851,7 +856,7 @@ fn rewrite_progress_replay_reclaims_state_after_bucket_recreation() {
         );
     }
     assert_eq!(common::server::staging_count(&dir), 0);
-    server.get("destination").error(404, "notFound");
+    server.get("destination").json_reason(404, "notFound");
 }
 
 #[test]
@@ -864,13 +869,13 @@ fn rewrite_composite_source_preserves_or_resets_component_count_without_md5() {
             [],
         )
         .unwrap();
-    let same = server.request("POST", BASE, ADMIN, b"").json();
+    let same = server.request("POST", BASE, ADMIN, b"").json_ok();
     assert_eq!(same["resource"]["componentCount"], 3);
     assert!(same["resource"].get("md5Hash").is_none());
     assert_eq!(same["resource"]["crc32c"], source["crc32c"]);
     let changed = server
         .request("POST", BASE, ADMIN, br#"{"storageClass":"NEARLINE"}"#)
-        .json();
+        .json_ok();
     assert_eq!(changed["resource"]["componentCount"], 1);
     assert!(changed["resource"].get("md5Hash").is_none());
     assert_eq!(changed["resource"]["crc32c"], source["crc32c"]);
@@ -895,7 +900,7 @@ fn rewrite_composite_count_uses_the_bucket_class_selected_at_publication() {
                 ADMIN,
                 br#"{"metadata":{"k":"v"}}"#,
             )
-            .json();
+            .json_ok();
         assert_eq!(first["done"], false);
         server
             .request(
@@ -904,7 +909,7 @@ fn rewrite_composite_count_uses_the_bucket_class_selected_at_publication() {
                 ADMIN,
                 json!({"storageClass":class}).to_string().as_bytes(),
             )
-            .json();
+            .json_ok();
         let complete = server
             .request(
                 "POST",
@@ -912,7 +917,7 @@ fn rewrite_composite_count_uses_the_bucket_class_selected_at_publication() {
                 ADMIN,
                 b"",
             )
-            .json();
+            .json_ok();
         assert_eq!(complete["done"], true);
         assert_eq!(complete["resource"]["storageClass"], class);
         assert_eq!(complete["resource"]["componentCount"], count);
@@ -928,7 +933,7 @@ fn rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget() {
     server.stop();
     let server = Server::start_with_catalog_wait(&dir, false, 1);
     let started = std::time::Instant::now();
-    let complete = server.request("POST", BASE, ADMIN, b"").json();
+    let complete = server.request("POST", BASE, ADMIN, b"").json_ok();
     assert!(started.elapsed() > std::time::Duration::from_millis(1));
     assert_eq!(complete["done"], true);
     assert_eq!(complete["totalBytesRewritten"], payload.len().to_string());
@@ -941,7 +946,7 @@ fn rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget() {
 #[test]
 fn rewrite_expired_completed_session_never_journals_the_live_blob_on_restart() {
     let (dir, mut server, payload, _source) = setup(false, 29);
-    let complete = server.request("POST", BASE, ADMIN, b"").json();
+    let complete = server.request("POST", BASE, ADMIN, b"").json_ok();
     server.stop();
     rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
         .unwrap()
@@ -949,7 +954,7 @@ fn rewrite_expired_completed_session_never_journals_the_live_blob_on_restart() {
         .unwrap();
     let server = Server::start(&dir, false);
     assert_eq!(
-        server.get("destination").json(),
+        server.get("destination").json_ok(),
         common::without_acl(complete["resource"].clone())
     );
     assert_eq!(server.get("destination?alt=media").body, payload);
@@ -968,14 +973,14 @@ fn rewrite_expired_completed_session_never_journals_the_live_blob_on_restart() {
 #[test]
 fn rewrite_completed_cache_evicts_without_rejecting_new_rewrites() {
     let (dir, server, payload, _source) = setup(false, 1);
-    server.request("POST", BASE, ADMIN, b"").json();
+    server.request("POST", BASE, ADMIN, b"").json_ok();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     let first: String = connection
         .query_row("SELECT token FROM rewrite_sessions", [], |row| row.get(0))
         .unwrap();
     for _ in 0..129 {
         assert_eq!(
-            server.request("POST", BASE, ADMIN, b"").json()["done"],
+            server.request("POST", BASE, ADMIN, b"").json_ok()["done"],
             true
         );
     }
@@ -1001,7 +1006,7 @@ fn rewrite_completed_cache_evicts_without_rejecting_new_rewrites() {
     );
     server
         .request("POST", &continue_path(&first), ADMIN, b"")
-        .error(410, "gone");
+        .json_reason(410, "gone");
     assert_eq!(server.get("destination?alt=media").body, payload);
 }
 
@@ -1032,7 +1037,7 @@ fn rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success() 
         (started + 2 * request_budget).saturating_duration_since(std::time::Instant::now()),
     );
     connection.execute_batch("COMMIT;").unwrap();
-    let complete = worker.join().unwrap().json();
+    let complete = worker.join().unwrap().json_ok();
     assert_eq!(complete["done"], true);
     assert_eq!(
         connection
@@ -1058,7 +1063,7 @@ fn rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success() 
     let server = Server::start(&dir, false);
     assert_eq!(server.get("destination?alt=media").body, payload);
     assert_eq!(
-        server.get("destination").json(),
+        server.get("destination").json_ok(),
         common::without_acl(complete["resource"].clone())
     );
 }
@@ -1073,7 +1078,7 @@ fn rewrite_revoked_overwrite_delete_permission_preserves_destination_and_release
             ADMIN,
             br#"{"name":"destination-bucket","location":"EU"}"#,
         )
-        .json();
+        .json_ok();
     let old = server
         .request(
             "POST",
@@ -1081,9 +1086,9 @@ fn rewrite_revoked_overwrite_delete_permission_preserves_destination_and_release
             ADMIN,
             b"previous",
         )
-        .json();
+        .json_ok();
     let policy = |role: &str| {
-        server.request("PUT","/storage/v1/b/destination-bucket/iam",ADMIN,json!({"version":1,"bindings":[{"role":role,"members":["user:viewer@example.test"]}]}).to_string().as_bytes()).json()
+        server.request("PUT","/storage/v1/b/destination-bucket/iam",ADMIN,json!({"version":1,"bindings":[{"role":role,"members":["user:viewer@example.test"]}]}).to_string().as_bytes()).json_ok()
     };
     policy("roles/storage.objectAdmin");
     let base = "/storage/v1/b/test-bucket/o/source/rewriteTo/b/destination-bucket/o/destination";
@@ -1095,7 +1100,7 @@ fn rewrite_revoked_overwrite_delete_permission_preserves_destination_and_release
             viewer,
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(first["done"], false);
     policy("roles/storage.objectCreator");
     let path = format!(
@@ -1104,7 +1109,7 @@ fn rewrite_revoked_overwrite_delete_permission_preserves_destination_and_release
     );
     server
         .request("POST", &path, viewer, b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     assert_eq!(
         server
             .request(
@@ -1113,12 +1118,12 @@ fn rewrite_revoked_overwrite_delete_permission_preserves_destination_and_release
                 ADMIN,
                 b""
             )
-            .json(),
+            .json_ok(),
         old
     );
     server
         .request("POST", &path, viewer, b"")
-        .error(410, "gone");
+        .json_reason(410, "gone");
     assert_eq!(
         rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
             .unwrap()

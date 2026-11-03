@@ -1,5 +1,5 @@
 mod common;
-mod ingress_support;
+use common::ingress as ingress_support;
 
 use common::TestDir;
 use ingress_support::{Reply, Server};

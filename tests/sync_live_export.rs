@@ -1,9 +1,10 @@
 // Directory synchronization supports only Linux and macOS; elsewhere roots are rejected.
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
-mod object_effects_support;
+mod common;
 use bytes::Bytes;
 use common::TestDir;
+use common::effects as object_effects_support;
 use gcs_mimic::{
     clock::SystemClock,
     config::Config,
@@ -17,7 +18,6 @@ use gcs_mimic::{
     },
     sync,
 };
-use object_effects_support::common;
 use std::{
     fs,
     io::{BufRead, BufReader},
@@ -90,7 +90,7 @@ fn live_wait_observes_source_work_beyond_the_connection_inactivity_budget() {
         "{}",
         String::from_utf8_lossy(&waited.body)
     );
-    assert!(waited.json()["completed"].as_bool().unwrap());
+    assert!(waited.json_ok()["completed"].as_bool().unwrap());
     assert!(started.elapsed() >= Duration::from_millis(100));
     assert_eq!(
         server
@@ -123,15 +123,15 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
         "{}",
         String::from_utf8_lossy(&scanned.body)
     );
-    let status = server.request("GET", "/_internal/sync", b"").json();
+    let status = server.request("GET", "/_internal/sync", b"").json_ok();
     assert_eq!(status["auth_mode"], "permissive");
     assert_eq!(status["state"], "Ready");
     server
         .request("PUT", "/_internal/sync", b"{}")
-        .error(405, "methodNotAllowed");
+        .json_reason(405, "methodNotAllowed");
     server
         .request("GET", "/_internal/sync?limit=1", b"")
-        .error(400, "invalidArgument");
+        .json_reason(400, "invalidArgument");
     let waited = server.request("POST", "/_internal/sync/wait", b"{}");
     assert_eq!(
         waited.status,
@@ -139,7 +139,7 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
         "{}",
         String::from_utf8_lossy(&waited.body)
     );
-    assert_eq!(waited.json()["completed"], true);
+    assert_eq!(waited.json_ok()["completed"], true);
     fs::remove_file(tree.0.join("test-bucket/body")).unwrap();
     assert_eq!(
         server
@@ -149,14 +149,14 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
     );
     server
         .request("GET", "/storage/v1/b/test-bucket/o/body", b"")
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     server
         .request(
             "POST",
             "/_internal/sync/approve",
             br#"{"deletion_set":"00000000000000000000000000000000"}"#,
         )
-        .error(409, "conflict");
+        .json_reason(409, "conflict");
     fs::write(tree.0.join("test-bucket/body"), b"recreated externally").unwrap();
     assert_eq!(
         server
@@ -409,35 +409,35 @@ async fn live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_d
             "/storage/v1/b?project=owner",
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
             "/storage/v1/b?project=owner",
             br#"{"name":"empty-bucket"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=source",
             b"\0\xffsource",
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
             "/storage/v1/b/test-bucket/o/source/copyTo/b/test-bucket/o/copied",
             b"",
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
             "/storage/v1/b/test-bucket/o/composed/compose",
             br#"{"sourceObjects":[{"name":"source"},{"name":"copied"}]}"#,
         )
-        .json();
+        .json_ok();
     wait_body(&tree.0.join("test-bucket/copied"), Some(b"\0\xffsource")).await;
     wait_body(
         &tree.0.join("test-bucket/composed"),
@@ -480,14 +480,14 @@ async fn live_export_sigterm_during_api_writes_restarts_to_the_committed_live_bo
             "/storage/v1/b?project=owner",
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=body",
             b"initial",
         )
-        .json();
+        .json_ok();
     wait_body(&tree.0.join("test-bucket/body"), Some(b"initial")).await;
     let address = server.address.clone();
     let running = Arc::new(AtomicBool::new(true));

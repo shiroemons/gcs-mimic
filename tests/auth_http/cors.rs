@@ -63,7 +63,7 @@ fn json_cors_preflight_defaults_never_authenticate_or_grant_access() {
         assert_eq!(reply.headers["access-control-allow-credentials"], "true");
     }
     let invalid = server.request("OPTIONS", "/storage/v1/b/iam-bucket", &format!("Origin: {ORIGIN}\r\nAccess-Control-Request-Method: GET\r\nAccess-Control-Request-Headers: valid, invalid header\r\n"), b"");
-    invalid.error(400, "invalidArgument");
+    invalid.auth_error(400, "invalidArgument");
     assert!(!invalid.headers.contains_key("access-control-allow-origin"));
     let denied = cors_request(
         &server,
@@ -72,11 +72,11 @@ fn json_cors_preflight_defaults_never_authenticate_or_grant_access() {
         NO_ROLES,
         b"denied",
     );
-    denied.error(403, "forbidden");
+    denied.auth_error(403, "forbidden");
     assert_cors(&denied);
     server
         .get(ADMIN, "/storage/v1/b/iam-bucket/o/denied")
-        .error(404, "notFound");
+        .auth_error(404, "notFound");
 }
 
 #[test]
@@ -180,17 +180,19 @@ fn xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions() {
     let (_config, _data, mut server) = iam::fixture();
     let bucket = "/storage/v1/b/iam-bucket";
     let object = "/iam-bucket/item";
-    server.upload(ADMIN, "iam-bucket", "item", b"hello").ok();
-    let initial = server.get(ADMIN, bucket).ok().json();
+    server
+        .upload(ADMIN, "iam-bucket", "item", b"hello")
+        .success();
+    let initial = server.get(ADMIN, bucket).success().json();
     let rules = json!({"cors":[{"origin":[ORIGIN], "method":["GET","HEAD"], "responseHeader":["Authorization","X-Probe","ETag","X-Goog-Generation"], "maxAgeSeconds":0}]});
     for auth in [NO_ROLES, VIEWER] {
         server
             .request("PATCH", bucket, auth, rules.to_string().as_bytes())
-            .error(403, "forbidden");
+            .auth_error(403, "forbidden");
         assert_eq!(server.get(ADMIN, bucket).json(), initial);
     }
     let configured = server.request("PATCH", bucket, ADMIN, rules.to_string().as_bytes());
-    configured.ok();
+    configured.success();
     let meta = configured.json()["metageneration"]
         .as_str()
         .unwrap()
@@ -277,14 +279,14 @@ fn xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions() {
             ADMIN,
             br#"{"cors":[]}"#,
         )
-        .error(412, "conditionNotMet");
+        .auth_error(412, "conditionNotMet");
     assert_eq!(
         cors_request(&server, "GET", object, ADMIN, b"").headers["access-control-allow-origin"],
         ORIGIN
     );
     server
         .request("PATCH", bucket, ADMIN, br#"{"cors":[]}"#)
-        .ok();
+        .success();
     let cleared = cors_request(&server, "GET", object, ADMIN, b"");
     assert_eq!(cleared.status, 200);
     assert!(!cleared.headers.contains_key("access-control-allow-origin"));
@@ -309,7 +311,7 @@ fn mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently(
     let path = "/iam-bucket/mobile";
     server
         .upload(ADMIN, "iam-bucket", "mobile", b"mobile bytes")
-        .ok();
+        .success();
     let origins = json!([
         "capacitor://localhost",
         "ionic://localhost",
@@ -322,7 +324,7 @@ fn mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently(
     let rules = json!({"cors":[{"origin":origins,"method":["GET","HEAD"],"responseHeader":["Authorization","ETag"]}]});
     let stored = server
         .request("PATCH", bucket, ADMIN, rules.to_string().as_bytes())
-        .ok()
+        .success()
         .json();
     assert_eq!(stored["cors"], rules["cors"]);
     for origin in [
@@ -375,7 +377,7 @@ fn mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently(
     server.stop();
     let mut restarted = Server::strict(&data, &config.0.join("identities.json"));
     assert_eq!(
-        restarted.get(ADMIN, bucket).ok().json()["cors"],
+        restarted.get(ADMIN, bucket).success().json()["cors"],
         rules["cors"]
     );
     let reply = restarted.request(
@@ -398,8 +400,8 @@ fn allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_o
         Server::start_with_stderr(&data, &["--cors-fallback", "allow-all"], Stdio::piped());
     assert_eq!(ready["cors_fallback"], "allow-all");
     for bucket in ["open-bucket", "ruled-bucket"] {
-        server.create_bucket("", "project-a", bucket).ok();
-        server.upload("", bucket, "item", b"hello").ok();
+        server.create_bucket("", "project-a", bucket).success();
+        server.upload("", bucket, "item", b"hello").success();
     }
     server
         .request(
@@ -410,7 +412,7 @@ fn allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_o
                 .to_string()
                 .as_bytes(),
         )
-        .ok();
+        .success();
     let other = "Origin: https://other.example.invalid\r\n";
     let preflight = server.request(
         "OPTIONS",
@@ -471,8 +473,12 @@ fn unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback() {
     let data = TestDir::new();
     let (mut server, ready) = Server::start_with_stderr(&data, &[], Stdio::piped());
     assert_eq!(ready["cors_fallback"], "none");
-    server.create_bucket("", "project-a", "plain-bucket").ok();
-    server.upload("", "plain-bucket", "item", b"hello").ok();
+    server
+        .create_bucket("", "project-a", "plain-bucket")
+        .success();
+    server
+        .upload("", "plain-bucket", "item", b"hello")
+        .success();
     // Requests without Origin are not browser CORS failures and stay silent.
     server.get("", "/plain-bucket/item");
     for _ in 0..2 {
@@ -501,7 +507,9 @@ fn unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback() {
 fn xml_cors_lookup_failure_does_not_precede_authentication() {
     let (_config, data, server) = iam::fixture();
     let object = "/iam-bucket/item";
-    server.upload(ADMIN, "iam-bucket", "item", b"hello").ok();
+    server
+        .upload(ADMIN, "iam-bucket", "item", b"hello")
+        .success();
     let database = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     database.busy_timeout(Duration::from_secs(5)).unwrap();
     database
@@ -540,7 +548,9 @@ fn xml_cors_lookup_failure_does_not_precede_authentication() {
 fn xml_cors_lookup_failure_does_not_apply_the_allow_all_fallback() {
     let (_config, data, server) = iam::fixture_with(&["--cors-fallback", "allow-all"]);
     let object = "/iam-bucket/item";
-    server.upload(ADMIN, "iam-bucket", "item", b"hello").ok();
+    server
+        .upload(ADMIN, "iam-bucket", "item", b"hello")
+        .success();
     let granted = cors_request(&server, "GET", object, ADMIN, b"");
     assert_eq!(granted.headers["access-control-allow-origin"], "*");
     let database = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();

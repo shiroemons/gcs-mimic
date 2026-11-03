@@ -6,7 +6,7 @@
 mod common;
 
 use common::TestDir;
-use common::server::Server;
+use common::server::declare_server;
 use md5::{Digest, Md5};
 use serde_json::Value;
 use std::{
@@ -58,7 +58,7 @@ impl Server {
     }
 
     fn stop(mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 
@@ -194,3 +194,5 @@ fn every_supported_release_has_a_fixture() {
     present.sort();
     assert_eq!(present, SUPPORTED_RELEASES);
 }
+
+declare_server!();

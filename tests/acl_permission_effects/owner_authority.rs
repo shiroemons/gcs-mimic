@@ -23,11 +23,11 @@ fn object_owner_grants_metadata_and_acl_authority_only_on_its_selected_generatio
         server.put(b"private replacement");
         let changed = server
             .request("PATCH", &target, READER, br#"{"metadata":{"by":"owner"}}"#)
-            .json();
+            .json_ok();
         assert_eq!(changed["metadata"], json!({"by":"owner"}));
         let full = server
             .request("GET", &format!("{target}&projection=full"), READER, b"")
-            .json();
+            .json_ok();
         assert_eq!(full["owner"], json!({"entity":"user-admin@example.test"}));
         assert!(
             full["acl"]
@@ -39,8 +39,8 @@ fn object_owner_grants_metadata_and_acl_authority_only_on_its_selected_generatio
         );
         server
             .request("PUT", &target, READER, full.to_string().as_bytes())
-            .json();
-        server.request("GET", &acl, READER, b"").json();
+            .json_ok();
+        server.request("GET", &acl, READER, b"").json_ok();
         server
             .request(
                 "POST",
@@ -48,7 +48,7 @@ fn object_owner_grants_metadata_and_acl_authority_only_on_its_selected_generatio
                 READER,
                 br#"{"entity":"user-other@example.test","role":"OWNER"}"#,
             )
-            .json();
+            .json_ok();
         server
             .request(
                 "PATCH",
@@ -56,7 +56,7 @@ fn object_owner_grants_metadata_and_acl_authority_only_on_its_selected_generatio
                 OTHER,
                 br#"{"metadata":{"by":"other-owner"}}"#,
             )
-            .json();
+            .json_ok();
         assert_eq!(
             server
                 .request(
@@ -97,7 +97,7 @@ fn object_owner_grants_metadata_and_acl_authority_only_on_its_selected_generatio
         );
         assert_eq!(server.request("PATCH", &target, READER, br#"{"retention":{"mode":"Unlocked","retainUntilTime":"2030-01-01T00:00:00Z"}}"#).status, 403);
         assert_eq!(server.request("POST", &format!("{BUCKET}/iam/testPermissions"), READER, br#"{"permissions":["storage.objects.getIamPolicy","storage.objects.update","storage.objects.create","storage.objects.delete"]}"#).status, 405);
-        let probe = server.request("GET", &format!("{BUCKET}/iam/testPermissions?permissions=storage.objects.getIamPolicy&permissions=storage.objects.update&permissions=storage.objects.create&permissions=storage.objects.delete"), READER, b"").json();
+        let probe = server.request("GET", &format!("{BUCKET}/iam/testPermissions?permissions=storage.objects.getIamPolicy&permissions=storage.objects.update&permissions=storage.objects.create&permissions=storage.objects.delete"), READER, b"").json_ok();
         assert_eq!(probe["permissions"], json!([]));
         assert_eq!(
             server
@@ -140,9 +140,9 @@ fn object_acl_full_projection_rechecks_each_listed_generation_separately() {
                 ADMIN,
                 b"another private object",
             )
-            .json();
+            .json_ok();
         let path = format!("{BUCKET}/o?versions=true&projection=full");
-        let list = server.request("GET", &path, READER, b"").json();
+        let list = server.request("GET", &path, READER, b"").json_ok();
         let items = list["items"].as_array().unwrap();
         assert_eq!(items.len(), 3);
         for item in items {
@@ -165,7 +165,7 @@ fn object_acl_full_projection_rechecks_each_listed_generation_separately() {
                 .status,
             204
         );
-        let revoked = server.request("GET", &path, READER, b"").json();
+        let revoked = server.request("GET", &path, READER, b"").json_ok();
         for item in revoked["items"].as_array().unwrap() {
             assert!(item.get("acl").is_none());
             assert!(item.get("owner").is_none());
@@ -187,7 +187,7 @@ fn uploader_owner_authority_survives_bucket_revocation_and_obeys_uniform_access(
             READER,
             b"owned bytes",
         )
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .request(
@@ -206,14 +206,14 @@ fn uploader_owner_authority_survives_bucket_revocation_and_obeys_uniform_access(
             READER,
             br#"{"metadata":{"owner":"uploader"}}"#,
         )
-        .json();
+        .json_ok();
     let view = server
         .request("GET", &format!("{OBJECT}?projection=full"), READER, b"")
-        .json();
+        .json_ok();
     assert_eq!(view["owner"], json!({"entity":"user-reader@example.test"}));
     server
         .request("PUT", OBJECT, READER, view.to_string().as_bytes())
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -221,28 +221,28 @@ fn uploader_owner_authority_survives_bucket_revocation_and_obeys_uniform_access(
             READER,
             br#"{"entity":"user-other@example.test","role":"READER"}"#,
         )
-        .json();
+        .json_ok();
     server
         .admin(
             "PATCH",
             BUCKET,
             json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
         )
-        .json();
-    server.request("PATCH", OBJECT, READER, b"{}").json();
+        .json_ok();
+    server.request("PATCH", OBJECT, READER, b"{}").json_ok();
     server.stop();
     server = Server::start(&data, &inputs, "disk");
     server
         .request("GET", &format!("{OBJECT}/acl"), READER, b"")
-        .json();
-    server.request("PATCH", OBJECT, READER, b"{}").json();
+        .json_ok();
+    server.request("PATCH", OBJECT, READER, b"{}").json_ok();
     server
         .admin(
             "PATCH",
             BUCKET,
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
         )
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .request("GET", &format!("{OBJECT}/acl"), READER, b"")
@@ -262,8 +262,8 @@ fn uploader_owner_authority_survives_bucket_revocation_and_obeys_uniform_access(
             BUCKET,
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}}),
         )
-        .json();
-    server.request("PATCH", OBJECT, READER, b"{}").json();
+        .json_ok();
+    server.request("PATCH", OBJECT, READER, b"{}").json_ok();
     assert_eq!(server.request("DELETE", OBJECT, READER, b"").status, 403);
 }
 
@@ -278,11 +278,11 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
         .collect();
     server
         .admin("PATCH", BUCKET, json!({"defaultObjectAcl":entries}))
-        .json();
+        .json_ok();
     let original = server.put(b"bounded ACL publication");
     let generation = original["generation"].as_str().unwrap();
     let path = format!("{OBJECT}?projection=full");
-    let view = server.request("GET", &path, ADMIN, b"").json();
+    let view = server.request("GET", &path, ADMIN, b"").json_ok();
     assert_eq!(view["acl"].as_array().unwrap().len(), 100);
     assert_eq!(view["owner"], json!({"entity":"user-admin@example.test"}));
     let db = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
@@ -309,7 +309,7 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
     entries.push(json!({"entity":"user-extra@example.test","role":"READER"}));
     server
         .admin("PATCH", BUCKET, json!({"defaultObjectAcl":entries}))
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .request(
@@ -328,7 +328,7 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
         .unwrap(),
         allocator
     );
-    assert_eq!(server.request("GET", &path, ADMIN, b"").json(), view);
+    assert_eq!(server.request("GET", &path, ADMIN, b"").json_ok(), view);
     assert_eq!(
         server
             .request("GET", &format!("{OBJECT}?alt=media"), ADMIN, b"")
@@ -339,7 +339,7 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
         server.admin("PATCH", OBJECT, json!({"acl":entries})).status,
         400
     );
-    assert_eq!(server.request("GET", &path, ADMIN, b"").json(), view);
+    assert_eq!(server.request("GET", &path, ADMIN, b"").json_ok(), view);
     assert_eq!(
         server
             .admin(
@@ -354,7 +354,7 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
     assert_eq!(
         server
             .admin("PUT", &owner_path, json!({"role":"READER"}))
-            .json()["role"],
+            .json_ok()["role"],
         "OWNER"
     );
     assert_eq!(
@@ -362,7 +362,7 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
         204
     );
     assert_eq!(
-        server.request("GET", &path, ADMIN, b"").json()["acl"]
+        server.request("GET", &path, ADMIN, b"").json_ok()["acl"]
             .as_array()
             .unwrap()
             .len(),
@@ -370,8 +370,10 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
     );
     entries.pop();
     entries.push(json!({"entity":"user-admin@example.test","role":"READER"}));
-    server.admin("PATCH", OBJECT, json!({"acl":entries})).json();
-    let normalized = server.request("GET", &path, ADMIN, b"").json();
+    server
+        .admin("PATCH", OBJECT, json!({"acl":entries}))
+        .json_ok();
+    let normalized = server.request("GET", &path, ADMIN, b"").json_ok();
     assert_eq!(normalized["acl"].as_array().unwrap().len(), 100);
     assert!(
         normalized["acl"]
@@ -393,7 +395,7 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
     let acl = format!("{OBJECT}/acl");
     server.grant("allAuthenticatedUsers", "OWNER", generation);
     assert_eq!(server.request("GET", &acl, "", b"").status, 401);
-    server.request("GET", &acl, OTHER, b"").json();
+    server.request("GET", &acl, OTHER, b"").json_ok();
     server
         .request(
             "PATCH",
@@ -401,7 +403,7 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
             OTHER,
             br#"{"metadata":{"by":"registered"}}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .request("GET", &acl, "Authorization: Bearer unknown\r\n", b"")
@@ -422,12 +424,12 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
     server.grant("allUsers", "OWNER", generation);
     let view = server
         .request("GET", &format!("{OBJECT}?projection=full"), "", b"")
-        .json();
+        .json_ok();
     assert_eq!(view["owner"], json!({"entity":"user-admin@example.test"}));
-    server.request("GET", &acl, "", b"").json();
+    server.request("GET", &acl, "", b"").json_ok();
     server
         .request("PATCH", OBJECT, "", br#"{"metadata":{"by":"anonymous"}}"#)
-        .json();
+        .json_ok();
     assert_eq!(server.request("DELETE", OBJECT, "", b"").status, 401);
     server.grant("user-reader@example.test", "OWNER", generation);
     server
@@ -436,7 +438,7 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
             BUCKET,
             json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
         )
-        .json();
+        .json_ok();
     assert_eq!(server.request("GET", &acl, "", b"").status, 401);
     assert_eq!(server.request("PATCH", OBJECT, "", b"{}").status, 401);
     assert_eq!(server.request("PATCH", OBJECT, OTHER, b"{}").status, 403);
@@ -447,14 +449,14 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
             READER,
             br#"{"metadata":{"explicit":"owner"}}"#,
         )
-        .json();
+        .json_ok();
     server
         .admin(
             "PATCH",
             BUCKET,
             json!({"iamConfiguration":{"publicAccessPrevention":"inherited"}}),
         )
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .request("DELETE", &format!("{acl}/allUsers"), "", b"")
@@ -465,7 +467,7 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
     assert_eq!(server.request("GET", &acl, "", b"").status, 401);
     let owner = server
         .request("GET", &format!("{OBJECT}?projection=full"), ADMIN, b"")
-        .json();
+        .json_ok();
     assert_eq!(owner["owner"], json!({"entity":"user-admin@example.test"}));
     assert_eq!(owner["metadata"]["explicit"], "owner");
 }
@@ -480,7 +482,7 @@ fn metadata_mutation_rechecks_owner_revocation_after_request_body_admission() {
         let source = server.put(b"revocation keeps immutable bytes");
         let generation = source["generation"].as_str().unwrap();
         server.grant("user-reader@example.test", "OWNER", generation);
-        let before = server.request("GET", OBJECT, ADMIN, b"").json();
+        let before = server.request("GET", OBJECT, ADMIN, b"").json_ok();
         let mut stream = TcpStream::connect(&server.address).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(3)))
@@ -511,7 +513,7 @@ fn metadata_mutation_rechecks_owner_revocation_after_request_body_admission() {
         );
         let revoked = server
             .request("GET", &format!("{OBJECT}?projection=full"), ADMIN, b"")
-            .json();
+            .json_ok();
         stream.write_all(body).unwrap();
         let mut reply = String::new();
         reader.read_to_string(&mut reply).unwrap();
@@ -519,7 +521,7 @@ fn metadata_mutation_rechecks_owner_revocation_after_request_body_admission() {
         assert_eq!(
             server
                 .request("GET", &format!("{OBJECT}?projection=full"), ADMIN, b"")
-                .json(),
+                .json_ok(),
             revoked
         );
         assert_eq!(

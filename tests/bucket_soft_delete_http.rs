@@ -1,9 +1,10 @@
+use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command, write_request};
+use common::server::http_command;
 use serde_json::{Value, json};
-use std::{io::BufReader, net::TcpStream, time::Duration};
+use std::time::Duration;
 
 impl Server {
     fn start(dir: &TestDir, options: &[&str]) -> Self {
@@ -27,29 +28,14 @@ impl Server {
         let authorization = token
             .map(|token| format!("Authorization: Bearer {token}\r\n"))
             .unwrap_or_default();
-        let mut stream = TcpStream::connect(&self.address).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        write_request(
-            &mut stream,
-            method,
-            path,
-            "local.invalid",
-            &format!("{authorization}Content-Type: application/json\r\nConnection: close\r\n"),
-            body.as_bytes(),
-        );
-        let mut reader = BufReader::new(stream);
-        let reply = common::read_http_response(&mut reader, false).unwrap();
-        let reply = String::from_utf8(reply).unwrap();
-        let (headers, body) = reply.split_once("\r\n\r\n").unwrap();
-        if headers.contains("\r\nconnection: close") {
-            common::await_server_close(&mut reader);
+        Client {
+            address: &self.address,
+            host: "local.invalid",
+            headers: "Content-Type: application/json\r\n",
+            timeout: Duration::from_secs(5),
         }
-        Reply {
-            status: headers.split_whitespace().nth(1).unwrap().parse().unwrap(),
-            body: body.into(),
-        }
+        .request(method, path, &authorization, body.as_bytes())
+        .into_text()
     }
 
     fn request(&self, method: &str, path: &str, body: &str) -> Reply {
@@ -67,36 +53,11 @@ impl Server {
     }
 
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 
-struct Reply {
-    status: u16,
-    body: String,
-}
-
-impl Reply {
-    fn json(&self) -> Value {
-        serde_json::from_str(&self.body).unwrap()
-    }
-
-    fn ok(&self) -> Value {
-        assert_eq!(self.status, 200, "{}", self.body);
-        self.json()
-    }
-
-    fn error(&self, status: u16, reason: &str) -> Value {
-        assert_eq!(self.status, status, "{}", self.body);
-        let value = self.json();
-        assert_eq!(
-            value["error"]["errors"][0]["reason"], reason,
-            "{}",
-            self.body
-        );
-        value
-    }
-}
+use common::http::{Client, TextReply as Reply};
 
 const POLICY: &str = r#"{"retentionDurationSeconds":"604800"}"#;
 
@@ -107,7 +68,7 @@ fn create(server: &Server, name: &str, policy: Option<&str>) -> Value {
     };
     server
         .request("POST", "/storage/v1/b?project=project", &body)
-        .ok()
+        .json_ok()
 }
 
 fn generation(bucket: &Value) -> String {
@@ -123,7 +84,9 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
     let bucket = create(&server, "soft-bucket", Some(POLICY));
     let generation = generation(&bucket);
     assert_eq!(
-        server.request("GET", "/storage/v1/b/soft-bucket", "").ok()["generation"],
+        server
+            .request("GET", "/storage/v1/b/soft-bucket", "")
+            .json_ok()["generation"],
         generation
     );
     let object = server.upload("soft-bucket", "kept.txt", "kept");
@@ -142,10 +105,10 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
     );
     server
         .request("GET", "/storage/v1/b/soft-bucket", "")
-        .error(404, "notFound");
+        .json_reason_value(404, "notFound");
     let required = server
         .request("GET", "/storage/v1/b/soft-bucket?softDeleted=true", "")
-        .error(400, "required");
+        .json_reason_value(400, "required");
     assert_eq!(
         required["error"]["message"],
         "Bucket generation is required."
@@ -156,14 +119,14 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
             &format!("/storage/v1/b/soft-bucket?generation={generation}"),
             "",
         )
-        .error(400, "required");
+        .json_reason_value(400, "required");
     let soft = server
         .request(
             "GET",
             &format!("/storage/v1/b/soft-bucket?softDeleted=true&generation={generation}"),
             "",
         )
-        .ok();
+        .json_ok();
     assert_eq!(soft["name"], "soft-bucket");
     assert_eq!(soft["generation"], generation);
     assert!(soft["softDeleteTime"].is_string(), "{soft}");
@@ -174,17 +137,17 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
             "/storage/v1/b/soft-bucket?softDeleted=true&generation=1",
             "",
         )
-        .error(404, "notFound");
+        .json_reason_value(404, "notFound");
     let listed = server
         .request("GET", "/storage/v1/b?project=project&softDeleted=true", "")
-        .ok();
+        .json_ok();
     assert_eq!(listed["items"].as_array().unwrap().len(), 1, "{listed}");
     assert_eq!(listed["items"][0]["generation"], generation);
     assert!(listed["items"][0]["softDeleteTime"].is_string());
     // The soft-deleted version is not a live bucket.
     let live = server
         .request("GET", "/storage/v1/b?project=project", "")
-        .ok();
+        .json_ok();
     assert!(live.get("items").is_none(), "{live}");
 
     // A recreated live bucket blocks restore and never sees the retained objects.
@@ -192,7 +155,7 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
     assert_ne!(recreated["generation"], generation);
     let hidden = server
         .request("GET", "/storage/v1/b/soft-bucket/o?softDeleted=true", "")
-        .ok();
+        .json_ok();
     assert!(hidden.get("items").is_none(), "{hidden}");
     server
         .request(
@@ -200,7 +163,7 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
             &format!("/storage/v1/b/soft-bucket/restore?generation={generation}"),
             "",
         )
-        .error(409, "conflict");
+        .json_reason_value(409, "conflict");
     assert_eq!(
         server
             .request("DELETE", "/storage/v1/b/soft-bucket", "")
@@ -210,10 +173,10 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
 
     server
         .request("POST", "/storage/v1/b/soft-bucket/restore", "")
-        .error(400, "required");
+        .json_reason_value(400, "required");
     server
         .request("POST", "/storage/v1/b/soft-bucket/restore?generation=1", "")
-        .error(404, "notFound");
+        .json_reason_value(404, "notFound");
     // Restart between deletion and restore: the soft-deleted state is durable.
     server.stop();
     let server = Server::start(&dir, &[]);
@@ -223,27 +186,29 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
             &format!("/storage/v1/b/soft-bucket/restore?generation={generation}"),
             "",
         )
-        .ok();
+        .json_ok();
     assert_eq!(restored["generation"], generation);
     assert_eq!(restored["softDeletePolicy"], bucket["softDeletePolicy"]);
     assert!(restored.get("softDeleteTime").is_none(), "{restored}");
     assert!(restored.get("hardDeleteTime").is_none(), "{restored}");
     assert_eq!(
-        server.request("GET", "/storage/v1/b/soft-bucket", "").ok(),
+        server
+            .request("GET", "/storage/v1/b/soft-bucket", "")
+            .json_ok(),
         restored
     );
     let soft_list = server
         .request("GET", "/storage/v1/b?project=project&softDeleted=true", "")
-        .ok();
+        .json_ok();
     assert!(soft_list.get("items").is_none(), "{soft_list}");
 
     // Restoring the bucket leaves its objects soft-deleted; they restore separately.
     server
         .request("GET", "/storage/v1/b/soft-bucket/o/kept.txt", "")
-        .error(404, "notFound");
+        .json_reason_value(404, "notFound");
     let retained = server
         .request("GET", "/storage/v1/b/soft-bucket/o?softDeleted=true", "")
-        .ok();
+        .json_ok();
     assert_eq!(retained["items"][0]["generation"], object_generation);
     server
         .request(
@@ -251,7 +216,7 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
             &format!("/storage/v1/b/soft-bucket/o/kept.txt/restore?generation={object_generation}"),
             "",
         )
-        .ok();
+        .json_ok();
     let media = server.request("GET", "/storage/v1/b/soft-bucket/o/kept.txt?alt=media", "");
     assert_eq!((media.status, media.body.as_str()), (200, "kept"));
 }
@@ -274,14 +239,14 @@ fn bucket_without_soft_delete_policy_is_deleted_permanently() {
             &format!("/storage/v1/b/hard-bucket?softDeleted=true&generation={generation}"),
             "",
         )
-        .error(404, "notFound");
+        .json_reason_value(404, "notFound");
     server
         .request(
             "POST",
             &format!("/storage/v1/b/hard-bucket/restore?generation={generation}"),
             "",
         )
-        .error(404, "notFound");
+        .json_reason_value(404, "notFound");
 }
 
 #[test]
@@ -310,7 +275,7 @@ fn soft_deleted_bucket_listing_pages_by_name_and_generation() {
         if let Some(token) = &token {
             path.push_str(&format!("&pageToken={token}"));
         }
-        let page = server.request("GET", &path, "").ok();
+        let page = server.request("GET", &path, "").json_ok();
         for item in page["items"].as_array().unwrap() {
             seen.push((
                 item["name"].as_str().unwrap().to_owned(),
@@ -333,7 +298,7 @@ fn soft_deleted_bucket_listing_pages_by_name_and_generation() {
                 "/storage/v1/b?project=project&prefix=page&maxResults=1",
                 "",
             )
-            .ok()["nextPageToken"]
+            .json_ok()["nextPageToken"]
             .as_str()
             .unwrap()
             .to_owned()
@@ -346,7 +311,7 @@ fn soft_deleted_bucket_listing_pages_by_name_and_generation() {
             ),
             "",
         )
-        .error(400, "invalidParameter");
+        .json_reason_value(400, "invalidParameter");
 }
 
 #[test]
@@ -380,7 +345,7 @@ fn strict_soft_deleted_bucket_access_uses_project_permissions() {
             "/storage/v1/b?project=project",
             &format!(r#"{{"name":"strict-soft","softDeletePolicy":{POLICY}}}"#),
         )
-        .ok();
+        .json_ok();
     let generation = generation(&bucket);
     assert_eq!(
         server
@@ -390,13 +355,15 @@ fn strict_soft_deleted_bucket_access_uses_project_permissions() {
     );
     let get = format!("/storage/v1/b/strict-soft?softDeleted=true&generation={generation}");
     let restore = format!("/storage/v1/b/strict-soft/restore?generation={generation}");
-    server.send(None, "GET", &get, "").error(401, "required");
+    server
+        .send(None, "GET", &get, "")
+        .json_reason_value(401, "required");
     server
         .send(None, "POST", &restore, "")
-        .error(401, "required");
+        .json_reason_value(401, "required");
     server
         .send(Some("other"), "GET", &get, "")
-        .error(403, "forbidden");
+        .json_reason_value(403, "forbidden");
     server
         .send(
             Some("other"),
@@ -404,13 +371,13 @@ fn strict_soft_deleted_bucket_access_uses_project_permissions() {
             "/storage/v1/b?project=project&softDeleted=true",
             "",
         )
-        .error(403, "forbidden");
+        .json_reason_value(403, "forbidden");
     server
         .send(Some("other"), "POST", &restore, "")
-        .error(403, "forbidden");
+        .json_reason_value(403, "forbidden");
     // bucketViewer has storage.buckets.get and list but not storage.buckets.restore.
     assert_eq!(
-        server.send(Some("viewer"), "GET", &get, "").ok()["generation"],
+        server.send(Some("viewer"), "GET", &get, "").json_ok()["generation"],
         generation
     );
     assert_eq!(
@@ -421,14 +388,14 @@ fn strict_soft_deleted_bucket_access_uses_project_permissions() {
                 "/storage/v1/b?project=project&softDeleted=true",
                 ""
             )
-            .ok()["items"][0]["generation"],
+            .json_ok()["items"][0]["generation"],
         generation
     );
     server
         .send(Some("viewer"), "POST", &restore, "")
-        .error(403, "forbidden");
+        .json_reason_value(403, "forbidden");
     assert_eq!(
-        server.send(admin, "POST", &restore, "").ok()["generation"],
+        server.send(admin, "POST", &restore, "").json_ok()["generation"],
         generation
     );
 }
@@ -461,7 +428,7 @@ fn new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted() 
             &format!("/storage/v1/b/defaulted?softDeleted=true&generation={generation}"),
             "",
         )
-        .ok();
+        .json_ok();
     assert_eq!(soft["name"], "defaulted");
     server
         .request(
@@ -469,7 +436,7 @@ fn new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted() 
             &format!("/storage/v1/b/defaulted/restore?generation={generation}"),
             "",
         )
-        .ok();
+        .json_ok();
 }
 
 #[test]
@@ -512,7 +479,7 @@ fn explicit_zero_policy_overrides_the_default_and_deletes_permanently() {
             &format!("/storage/v1/b/opt-out?softDeleted=true&generation={generation}"),
             "",
         )
-        .error(404, "notFound");
+        .json_reason_value(404, "notFound");
 }
 
 #[test]
@@ -524,7 +491,7 @@ fn zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchang
     server.stop();
     // Raising the default later does not rewrite a bucket created before.
     let server = Server::start(&dir, &DEFAULT_ON);
-    let kept = server.request("GET", "/storage/v1/b/plain", "").ok();
+    let kept = server.request("GET", "/storage/v1/b/plain", "").json_ok();
     assert!(kept.get("softDeletePolicy").is_none(), "{kept}");
     let fresh = create(&server, "fresh", None);
     assert_eq!(
@@ -572,3 +539,5 @@ fn invalid_default_retention_is_rejected_at_startup() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+declare_server!();

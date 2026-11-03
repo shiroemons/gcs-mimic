@@ -1,7 +1,8 @@
+use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Server, write_request};
+use common::server::write_request;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -91,7 +92,7 @@ impl Server {
     }
 
     fn stop(mut self) -> String {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
         let mut stderr = String::new();
         self.child
             .stderr
@@ -725,3 +726,5 @@ fn invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutatio
         assert!(keys.iter().any(|k| k == key), "{key} in {keys:?}");
     }
 }
+
+declare_server!();

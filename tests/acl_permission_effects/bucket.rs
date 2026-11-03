@@ -7,7 +7,7 @@ pub(super) fn grant(server: &Server, entity: &str, role: &str) {
             &format!("{BUCKET}/acl"),
             json!({"entity":entity,"role":role}),
         )
-        .json();
+        .json_ok();
 }
 
 #[test]
@@ -22,12 +22,12 @@ fn bucket_acl_roles_grant_bucket_and_write_actions_without_object_reads() {
         grant(&server, "user-reader@example.test", "READER");
         let bucket = server
             .request("GET", &format!("{BUCKET}?projection=full"), READER, b"")
-            .json();
+            .json_ok();
         assert!(bucket.get("acl").is_none());
         assert!(bucket.get("defaultObjectAcl").is_none());
         let list = server
             .request("GET", &format!("{BUCKET}/o"), READER, b"")
-            .json();
+            .json_ok();
         assert_eq!(list["items"][0]["generation"], generation);
         for path in [
             format!("{BUCKET}/acl"),
@@ -48,10 +48,10 @@ fn bucket_acl_roles_grant_bucket_and_write_actions_without_object_reads() {
         assert_eq!(server.request("POST", upload, READER, b"new").status, 403);
 
         grant(&server, "user-reader@example.test", "WRITER");
-        server.request("POST", upload, READER, b"new").json();
+        server.request("POST", upload, READER, b"new").json_ok();
         server
             .request("POST", upload, READER, b"replacement")
-            .json();
+            .json_ok();
         assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
         assert_eq!(server.request("PATCH", OBJECT, READER, b"{}").status, 403);
         assert_eq!(
@@ -89,11 +89,11 @@ fn bucket_acl_owner_changes_metadata_and_acls_without_other_resource_authority()
             "/storage/v1/b?project=local",
             json!({"name":"other-bucket"}),
         )
-        .json();
+        .json_ok();
     grant(&server, "user-reader@example.test", "OWNER");
     let bucket = server
         .request("GET", &format!("{BUCKET}?projection=full"), READER, b"")
-        .json();
+        .json_ok();
     assert!(bucket["acl"].is_array());
     assert!(bucket["defaultObjectAcl"].is_array());
     server
@@ -103,7 +103,7 @@ fn bucket_acl_owner_changes_metadata_and_acls_without_other_resource_authority()
             READER,
             br#"{"labels":{"operator":"reader"}}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -111,7 +111,7 @@ fn bucket_acl_owner_changes_metadata_and_acls_without_other_resource_authority()
             READER,
             br#"{"entity":"user-other@example.test","role":"READER"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -119,8 +119,8 @@ fn bucket_acl_owner_changes_metadata_and_acls_without_other_resource_authority()
             READER,
             br#"{"entity":"user-other@example.test","role":"READER"}"#,
         )
-        .json();
-    server.request("GET", BUCKET, OTHER, b"").json();
+        .json_ok();
+    server.request("GET", BUCKET, OTHER, b"").json_ok();
     for path in [
         OBJECT,
         "/storage/v1/b/other-bucket",
@@ -145,11 +145,11 @@ fn bucket_acl_public_grants_obey_pap_ubla_and_restart_without_suppressing_iam() 
     server.put(b"private");
     grant(&server, "allAuthenticatedUsers", "READER");
     assert_eq!(server.request("GET", BUCKET, "", b"").status, 401);
-    server.request("GET", BUCKET, OTHER, b"").json();
+    server.request("GET", BUCKET, OTHER, b"").json_ok();
     grant(&server, "allUsers", "READER");
     server
         .request("GET", &format!("{BUCKET}/o"), "", b"")
-        .json();
+        .json_ok();
     assert_eq!(server.request("GET", OBJECT, "", b"").status, 401);
     grant(&server, "user-reader@example.test", "READER");
     server
@@ -158,23 +158,23 @@ fn bucket_acl_public_grants_obey_pap_ubla_and_restart_without_suppressing_iam() 
             BUCKET,
             json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
         )
-        .json();
+        .json_ok();
     assert_eq!(server.request("GET", BUCKET, "", b"").status, 401);
     assert_eq!(server.request("GET", BUCKET, OTHER, b"").status, 403);
-    server.request("GET", BUCKET, READER, b"").json();
+    server.request("GET", BUCKET, READER, b"").json_ok();
     server.stop();
     let server = Server::start(&data, &inputs, "disk");
-    server.request("GET", BUCKET, READER, b"").json();
+    server.request("GET", BUCKET, READER, b"").json_ok();
     server
         .admin(
             "PATCH",
             BUCKET,
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
         )
-        .json();
-    server.request("GET", BUCKET, READER, b"").json();
-    server.admin("PUT", &format!("{BUCKET}/iam"), json!({"bindings":[{"role":"roles/storage.bucketViewer","members":["user:reader@example.test"]}]})).json();
-    server.request("GET", BUCKET, READER, b"").json();
+        .json_ok();
+    server.request("GET", BUCKET, READER, b"").json_ok();
+    server.admin("PUT", &format!("{BUCKET}/iam"), json!({"bindings":[{"role":"roles/storage.bucketViewer","members":["user:reader@example.test"]}]})).json_ok();
+    server.request("GET", BUCKET, READER, b"").json_ok();
     assert_eq!(
         server
             .request("GET", &format!("{BUCKET}/o"), READER, b"")

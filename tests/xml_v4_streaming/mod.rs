@@ -250,10 +250,10 @@ fn signed_chunk_tampering_lengths_terminal_eof_and_trailers_preserve_the_complet
     server.request("PUT", "/test-bucket/object", ADMIN, b"old");
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-        .json();
+        .json_ok();
     let list = server
         .request("GET", "/storage/v1/b/test-bucket/o", ADMIN, b"")
-        .json();
+        .json_ok();
     let bytes = vec![b'a'; 9000];
     let signed = headers(&key, "/test-bucket/object", 9000, Some("aws-chunked"));
     let body = chain(&key, &signed, &[&bytes[..8192], &bytes[8192..]]);
@@ -293,13 +293,13 @@ fn signed_chunk_tampering_lengths_terminal_eof_and_trailers_preserve_the_complet
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-                .json(),
+                .json_ok(),
             before
         );
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/test-bucket/o", ADMIN, b"")
-                .json(),
+                .json_ok(),
             list
         );
         assert_eq!(
@@ -344,7 +344,7 @@ fn signed_chunk_tampering_lengths_terminal_eof_and_trailers_preserve_the_complet
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-            .json(),
+            .json_ok(),
         before
     );
     assert_eq!(
@@ -408,7 +408,7 @@ fn signed_chunks_validate_decoded_md5_and_remove_only_the_aws_encoding_token() {
     assert_eq!(reply.headers["content-encoding"], "gzip");
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/encoding", ADMIN, b"")
-        .json();
+        .json_ok();
     let wrong = sign(
         &key,
         "PUT",
@@ -437,7 +437,7 @@ fn signed_chunks_validate_decoded_md5_and_remove_only_the_aws_encoding_token() {
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/encoding", ADMIN, b"")
-            .json(),
+            .json_ok(),
         before
     );
 }
@@ -456,7 +456,7 @@ fn signed_chunks_enforce_decoded_object_limit_and_reject_malformed_header_and_ch
     );
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/limit", ADMIN, b"")
-        .json();
+        .json_ok();
     let too_large = headers(&key, "/test-bucket/limit", 8193, Some("aws-chunked"));
     error(
         &send(
@@ -516,7 +516,7 @@ fn signed_chunks_enforce_decoded_object_limit_and_reject_malformed_header_and_ch
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/limit", ADMIN, b"")
-            .json(),
+            .json_ok(),
         before
     );
     assert_eq!(
@@ -563,7 +563,7 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
             },
         );
     }
-    server.request("PATCH", "/storage/v1/b/test-bucket", ADMIN, br#"{"iamConfiguration":{"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true}}}"#).json();
+    server.request("PATCH", "/storage/v1/b/test-bucket", ADMIN, br#"{"iamConfiguration":{"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true}}}"#).json_ok();
     let key = server.key("scoped@example.invalid");
     let signed = headers(&key, "/test-bucket/scoped", 3, Some("aws-chunked"));
     let body = chain(&key, &signed, &[b"yes"]);
@@ -572,11 +572,11 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
         403,
         "AccessDenied",
     );
-    server.request("PUT", "/storage/v1/b/test-bucket/iam", ADMIN, br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json();
+    server.request("PUT", "/storage/v1/b/test-bucket/iam", ADMIN, br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json_ok();
     assert_eq!(send(&server, &signed, &body, None, false).status, 200);
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/scoped", ADMIN, b"")
-        .json();
+        .json_ok();
     server
         .request(
             "PUT",
@@ -584,7 +584,7 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
             ADMIN,
             br#"{"bindings":[]}"#,
         )
-        .json();
+        .json_ok();
     error(
         &send(&server, &signed, &body, None, false),
         403,
@@ -593,15 +593,15 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/scoped", ADMIN, b"")
-            .json(),
+            .json_ok(),
         before
     );
-    server.request("PUT", "/storage/v1/b/test-bucket/iam", ADMIN, br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json();
+    server.request("PUT", "/storage/v1/b/test-bucket/iam", ADMIN, br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json_ok();
     let path = format!("{KEYS}/{}", key.id);
     let admin = "Authorization: Bearer keys\r\n";
     server
         .request("PUT", &path, admin, br#"{"state":"INACTIVE"}"#)
-        .json();
+        .json_ok();
     error(
         &send(&server, &signed, &body, None, false),
         403,
@@ -609,14 +609,14 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
     );
     server
         .request("PUT", &path, admin, br#"{"state":"ACTIVE"}"#)
-        .json();
+        .json_ok();
     server.stop();
     drop(server);
     let server = Server::start(&dir, "disk");
     assert_eq!(send(&server, &signed, &body, None, false).status, 200);
     server
         .request("PUT", &path, admin, br#"{"state":"INACTIVE"}"#)
-        .json();
+        .json_ok();
     assert_eq!(server.request("DELETE", &path, admin, b"").status, 204);
     error(
         &send(&server, &signed, &body, None, false),
@@ -631,7 +631,7 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
     );
     let after = server
         .request("GET", "/storage/v1/b/test-bucket/o/scoped", ADMIN, b"")
-        .json();
+        .json_ok();
     assert_ne!(after["generation"], before["generation"]);
     server
         .request(
@@ -640,7 +640,7 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
             ADMIN,
             br#"{"bindings":[]}"#,
         )
-        .json();
+        .json_ok();
     error(
         &send(&server, &signed, &body, None, false),
         403,
@@ -661,7 +661,7 @@ fn invalid_streaming_seed_and_non_object_routes_fail_before_continue_without_pub
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["allUsers"]}]}"#,
         )
-        .json();
+        .json_ok();
     for path in [
         "/test-bucket/object",
         "/test-bucket/object?uploadId=missing&partNumber=1",
@@ -682,7 +682,7 @@ fn invalid_streaming_seed_and_non_object_routes_fail_before_continue_without_pub
     error(&server.raw(&format!("PUT {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 200\r\nExpect: 100-continue\r\n{}\r\n",good.path,good.headers),"PUT"),400,"InvalidAuthentication");
     server
         .request("GET", "/storage/v1/b/test-bucket/o", ADMIN, b"")
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .request("GET", "/test-bucket/object", ADMIN, b"")

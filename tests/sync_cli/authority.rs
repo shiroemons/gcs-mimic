@@ -48,7 +48,7 @@ async fn live_cli_requires_retained_original_owner_after_bucket_recreation_and_r
             Some("all"),
             br#"{"name":"test-bucket"}"#,
         )
-        .json();
+        .json_ok();
     scan_with_conflicts(&server, Some("all"));
     server.stop();
     let server = Server::start_with(&data, Some(&tree), &options);

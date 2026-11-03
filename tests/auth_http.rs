@@ -1,3 +1,4 @@
+use crate::common::server::declare_server;
 mod common;
 
 #[path = "auth_http/iam.rs"]
@@ -19,10 +20,9 @@ mod signing;
 mod virtual_host;
 
 use common::TestDir;
-use common::server::{Server, http_command, request_head};
+use common::server::{http_command, request_head};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
     path::{Path, PathBuf},
@@ -119,7 +119,7 @@ impl Server {
     fn raw(&self, request: &[u8]) -> Reply {
         let mut stream = self.stream();
         stream.write_all(request).unwrap();
-        Reply::read(stream)
+        common::http::receive(stream, false).into_joined()
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
@@ -127,7 +127,7 @@ impl Server {
         request.extend_from_slice(body);
         let mut stream = self.stream();
         stream.write_all(&close_after_response(&request)).unwrap();
-        Reply::read_body(stream, method == "HEAD")
+        common::http::receive(stream, method == "HEAD").into_joined()
     }
 
     fn create_bucket(&self, auth: &str, project: &str, name: &str) -> Reply {
@@ -168,7 +168,7 @@ impl Server {
     }
 
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 
@@ -184,131 +184,7 @@ fn close_after_response(request: &[u8]) -> Vec<u8> {
     [&request[..line], b"Connection: close\r\n", &request[line..]].concat()
 }
 
-struct Reply {
-    status: u16,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
-}
-
-impl Reply {
-    fn read(stream: TcpStream) -> Self {
-        Self::read_body(stream, false)
-    }
-
-    /// A HEAD reply is checked for stray body bytes until EOF, so callers send HEAD
-    /// requests through [`close_after_response`] to have the persistent connection closed.
-    fn read_body(stream: TcpStream, head: bool) -> Self {
-        let mut reader = BufReader::new(stream);
-        let mut bytes = Vec::new();
-        while !bytes.ends_with(b"\r\n\r\n") {
-            assert_ne!(reader.read_until(b'\n', &mut bytes).unwrap(), 0);
-        }
-        let text = std::str::from_utf8(&bytes[..bytes.len() - 4]).unwrap();
-        let mut lines = text.split("\r\n");
-        let status = lines
-            .next()
-            .unwrap()
-            .split_whitespace()
-            .nth(1)
-            .unwrap()
-            .parse()
-            .unwrap();
-        // Repeated fields combine as an RFC 9110 list, so a test can tell two
-        // header lines from one comma-separated line.
-        let mut headers = BTreeMap::<String, String>::new();
-        for line in lines {
-            let (key, value) = line.split_once(':').unwrap();
-            headers
-                .entry(key.to_ascii_lowercase())
-                .and_modify(|joined| {
-                    joined.push_str(", ");
-                    joined.push_str(value.trim());
-                })
-                .or_insert_with(|| value.trim().into());
-        }
-        let length = if head || matches!(status, 204 | 304) {
-            0
-        } else {
-            headers["content-length"].parse().unwrap()
-        };
-        let mut body = Vec::with_capacity(length);
-        // A short body names the response, so a rare truncation identifies its request.
-        let read = reader.by_ref().take(length as u64).read_to_end(&mut body);
-        assert!(
-            read.is_ok() && body.len() == length,
-            "HTTP {status} body ended after {} of {length} bytes ({read:?}); headers: {headers:?}",
-            body.len()
-        );
-        if head {
-            let mut extra = Vec::new();
-            reader.read_to_end(&mut extra).unwrap();
-            assert!(extra.is_empty(), "HEAD emitted a response body");
-        } else if headers
-            .get("connection")
-            .is_some_and(|value| value == "close")
-        {
-            common::await_server_close(&mut reader);
-        }
-        Self {
-            status,
-            headers,
-            body,
-        }
-    }
-
-    fn json(&self) -> Value {
-        serde_json::from_slice(&self.body).unwrap()
-    }
-
-    fn ok(&self) -> &Self {
-        assert!(
-            matches!(self.status, 200 | 204),
-            "{}: {}",
-            self.status,
-            String::from_utf8_lossy(&self.body)
-        );
-        self
-    }
-
-    fn error(&self, status: u16, reason: &str) {
-        assert_eq!(
-            self.status,
-            status,
-            "{}",
-            String::from_utf8_lossy(&self.body)
-        );
-        assert_eq!(
-            self.headers["content-type"],
-            "application/json; charset=UTF-8"
-        );
-        assert_eq!(self.json()["error"]["errors"][0]["reason"], reason);
-        assert!(!self.headers.contains_key("www-authenticate"));
-    }
-
-    fn login_required(&self) {
-        self.error(401, "required");
-        assert_eq!(
-            self.json(),
-            json!({"error":{"errors":[{"domain":"global","reason":"required","message":"Login Required","locationType":"header","location":"Authorization"}],"code":401,"message":"Login Required"}})
-        );
-    }
-
-    fn invalid_credentials(&self) {
-        self.error(401, "authError");
-        assert_eq!(
-            self.json(),
-            json!({"error":{"errors":[{"domain":"global","reason":"authError","message":"Invalid Credentials","locationType":"header","location":"Authorization"}],"code":401,"message":"Invalid Credentials"}})
-        );
-    }
-
-    fn forbidden(&self) {
-        self.error(403, "forbidden");
-        assert_eq!(
-            self.json(),
-            json!({"error":{"errors":[{"domain":"global","reason":"forbidden","message":"Forbidden"}],"code":403,"message":"Forbidden"}})
-        );
-    }
-}
+use common::http::Reply;
 
 fn identity_file(config: &TestDir) -> PathBuf {
     let path = config.0.join("identities.json");
@@ -411,9 +287,9 @@ fn auth_http_permissive_ignores_any_authorization() {
         "Authorization: garbage\r\nAuthorization: more garbage\r\n",
     ] {
         let name = format!("bucket-{}", auth.len());
-        server.create_bucket(auth, "local", &name).ok();
-        server.get(auth, &format!("/storage/v1/b/{name}")).ok();
-        server.upload(auth, &name, "o", b"data").ok();
+        server.create_bucket(auth, "local", &name).success();
+        server.get(auth, &format!("/storage/v1/b/{name}")).success();
+        server.upload(auth, &name, "o", b"data").success();
         assert_eq!(
             server
                 .get(auth, &format!("/storage/v1/b/{name}/o/o?alt=media"))
@@ -428,8 +304,10 @@ fn auth_http_strict_rejects_anonymous_and_unsupported_credentials() {
     let config = TestDir::new();
     let dir = TestDir::new();
     let server = Server::strict(&dir, &identity_file(&config));
-    server.create_bucket(ADMIN, "project-a", "bucket-a").ok();
-    server.upload(ADMIN, "bucket-a", "o", b"data").ok();
+    server
+        .create_bucket(ADMIN, "project-a", "bucket-a")
+        .success();
+    server.upload(ADMIN, "bucket-a", "o", b"data").success();
     // Anonymous callers need a login on every supported route, even for a missing bucket.
     server
         .create_bucket("", "project-a", "anon")
@@ -535,7 +413,7 @@ fn auth_http_strict_rejects_anonymous_and_unsupported_credentials() {
         .invalid_credentials();
     server
         .get("", "/storage/v1/b/INVALID/o/o")
-        .error(400, "invalidParameter");
+        .auth_error(400, "invalidParameter");
     // Known unsupported routes validate credentials; unknown routes and probes retain their handling.
     server
         .request(
@@ -549,7 +427,7 @@ fn auth_http_strict_rejects_anonymous_and_unsupported_credentials() {
         if auth != "Authorization: Bearer unknown\r\n" {
             server
                 .request("POST", "/storage/v1/b/bucket-a/o", auth, b"{}")
-                .error(400, "badRequest");
+                .auth_error(400, "badRequest");
         }
         assert_eq!(server.get(auth, "/storage/v1/unknown").status, 404);
         assert_eq!(server.get(auth, "/INVALID").status, 404);
@@ -570,26 +448,32 @@ fn auth_http_admin_full_crud_and_restart_with_same_registry() {
     let identities = identity_file(&config);
     let dir = TestDir::new();
     let mut server = Server::strict(&dir, &identities);
-    server.create_bucket(ADMIN, "project-a", "bucket-a").ok();
+    server
+        .create_bucket(ADMIN, "project-a", "bucket-a")
+        .success();
     assert_eq!(
-        server.get(ADMIN, "/storage/v1/b/bucket-a").ok().json()["name"],
+        server.get(ADMIN, "/storage/v1/b/bucket-a").success().json()["name"],
         "bucket-a"
     );
     assert_eq!(
         server
             .get(ADMIN, "/storage/v1/b?project=project-a")
-            .ok()
+            .success()
             .json()["items"][0]["name"],
         "bucket-a"
     );
-    server.upload(ADMIN, "bucket-a", "media", b"one").ok();
-    server.upload(ADMIN, "bucket-a", "media", b"two").ok();
-    server.multipart(ADMIN, "bucket-a", "multi", b"three").ok();
-    server.multipart(ADMIN, "bucket-a", "multi", b"four").ok();
+    server.upload(ADMIN, "bucket-a", "media", b"one").success();
+    server.upload(ADMIN, "bucket-a", "media", b"two").success();
+    server
+        .multipart(ADMIN, "bucket-a", "multi", b"three")
+        .success();
+    server
+        .multipart(ADMIN, "bucket-a", "multi", b"four")
+        .success();
     assert_eq!(
         server
             .get(ADMIN, "/storage/v1/b/bucket-a/o/media")
-            .ok()
+            .success()
             .json()["size"],
         "3"
     );
@@ -600,7 +484,10 @@ fn auth_http_admin_full_crud_and_restart_with_same_registry() {
         b"four"
     );
     assert_eq!(
-        server.get(ADMIN, "/storage/v1/b/bucket-a/o").ok().json()["items"]
+        server
+            .get(ADMIN, "/storage/v1/b/bucket-a/o")
+            .success()
+            .json()["items"]
             .as_array()
             .unwrap()
             .len(),
@@ -613,7 +500,7 @@ fn auth_http_admin_full_crud_and_restart_with_same_registry() {
             &format!("{ADMIN}Content-Type: application/json\r\n"),
             br#"{"metadata":{"k":"v"}}"#,
         )
-        .ok()
+        .success()
         .json();
     assert_eq!(patch["metadata"]["k"], "v");
     server
@@ -623,7 +510,7 @@ fn auth_http_admin_full_crud_and_restart_with_same_registry() {
             &format!("{ADMIN}Content-Type: application/json\r\n"),
             br#"{"contentType":"text/plain"}"#,
         )
-        .ok();
+        .success();
     server.stop();
 
     let mut server = Server::strict(&dir, &identities);
@@ -642,14 +529,14 @@ fn auth_http_admin_full_crud_and_restart_with_same_registry() {
                 ADMIN,
                 b"",
             )
-            .ok();
+            .success();
     }
     server
         .request("DELETE", "/storage/v1/b/bucket-a", ADMIN, b"")
-        .ok();
+        .success();
     server
         .get(ADMIN, "/storage/v1/b/bucket-a")
-        .error(404, "notFound");
+        .auth_error(404, "notFound");
     server.stop();
 }
 
@@ -658,8 +545,10 @@ fn null_generation_metadata_updates_keep_strict_authorization() {
     let config = TestDir::new();
     let dir = TestDir::new();
     let mut server = Server::strict(&dir, &identity_file(&config));
-    server.create_bucket(ADMIN, "project-a", "bucket-a").ok();
-    server.upload(ADMIN, "bucket-a", "o", b"original").ok();
+    server
+        .create_bucket(ADMIN, "project-a", "bucket-a")
+        .success();
+    server.upload(ADMIN, "bucket-a", "o", b"original").success();
     let path = "/storage/v1/b/bucket-a/o/o";
     let body = br#"{"generation":null,"metadata":{"fixture":"updated"}}"#;
     for (method, headers) in [
@@ -667,7 +556,7 @@ fn null_generation_metadata_updates_keep_strict_authorization() {
         ("PUT", ""),
         ("POST", "X-HTTP-Method-Override: PATCH\r\n"),
     ] {
-        let before = server.get(ADMIN, path).ok().json();
+        let before = server.get(ADMIN, path).success().json();
         for (auth, status, reason) in [("", 401, "required"), (VIEWER, 403, "forbidden")] {
             server
                 .request(
@@ -676,8 +565,8 @@ fn null_generation_metadata_updates_keep_strict_authorization() {
                     &format!("{auth}{headers}Content-Type: application/json\r\n"),
                     body,
                 )
-                .error(status, reason);
-            assert_eq!(server.get(ADMIN, path).ok().json(), before);
+                .auth_error(status, reason);
+            assert_eq!(server.get(ADMIN, path).success().json(), before);
         }
         let updated = server
             .request(
@@ -686,14 +575,17 @@ fn null_generation_metadata_updates_keep_strict_authorization() {
                 &format!("{ADMIN}{headers}Content-Type: application/json\r\n"),
                 body,
             )
-            .ok()
+            .success()
             .json();
         assert_eq!(updated["metadata"], json!({"fixture":"updated"}));
         for field in ["generation", "size", "md5Hash", "crc32c"] {
             assert_eq!(updated[field], before[field]);
         }
         assert_eq!(
-            server.get(ADMIN, &format!("{path}?alt=media")).ok().body,
+            server
+                .get(ADMIN, &format!("{path}?alt=media"))
+                .success()
+                .body,
             b"original"
         );
     }
@@ -705,15 +597,25 @@ fn auth_http_project_roles_gate_each_route() {
     let config = TestDir::new();
     let dir = TestDir::new();
     let server = Server::strict(&dir, &identity_file(&config));
-    server.create_bucket(ADMIN, "project-a", "bucket-a").ok();
-    server.create_bucket(ADMIN, "project-b", "bucket-b").ok();
-    server.upload(ADMIN, "bucket-a", "o", b"old").ok();
-    server.upload(ADMIN, "bucket-b", "o", b"b").ok();
-    let original = server.get(ADMIN, "/storage/v1/b/bucket-a/o/o").ok().json();
+    server
+        .create_bucket(ADMIN, "project-a", "bucket-a")
+        .success();
+    server
+        .create_bucket(ADMIN, "project-b", "bucket-b")
+        .success();
+    server.upload(ADMIN, "bucket-a", "o", b"old").success();
+    server.upload(ADMIN, "bucket-b", "o", b"b").success();
+    let original = server
+        .get(ADMIN, "/storage/v1/b/bucket-a/o/o")
+        .success()
+        .json();
 
     // objectViewer reads objects but cannot see bucket metadata or mutate objects.
     assert_eq!(
-        server.get(VIEWER, "/storage/v1/b/bucket-a/o/o").ok().json(),
+        server
+            .get(VIEWER, "/storage/v1/b/bucket-a/o/o")
+            .success()
+            .json(),
         original
     );
     assert_eq!(
@@ -722,7 +624,7 @@ fn auth_http_project_roles_gate_each_route() {
             .body,
         b"old"
     );
-    server.get(VIEWER, "/storage/v1/b/bucket-a/o").ok();
+    server.get(VIEWER, "/storage/v1/b/bucket-a/o").success();
     server.get(VIEWER, "/storage/v1/b/bucket-a").forbidden();
     server
         .get(VIEWER, "/storage/v1/b?project=project-a")
@@ -750,11 +652,11 @@ fn auth_http_project_roles_gate_each_route() {
     // objectCreator creates new objects, but overwriting needs storage.objects.delete.
     let created = server
         .upload(CREATOR, "bucket-a", "created", b"new")
-        .ok()
+        .success()
         .json();
     server
         .multipart(CREATOR, "bucket-a", "created-multi", b"new")
-        .ok();
+        .success();
     server
         .upload(CREATOR, "bucket-a", "o", b"overwrite")
         .forbidden();
@@ -772,9 +674,12 @@ fn auth_http_project_roles_gate_each_route() {
             CREATOR,
             b"x",
         )
-        .error(412, "conditionNotMet");
+        .auth_error(412, "conditionNotMet");
     assert_eq!(
-        server.get(ADMIN, "/storage/v1/b/bucket-a/o/o").ok().json(),
+        server
+            .get(ADMIN, "/storage/v1/b/bucket-a/o/o")
+            .success()
+            .json(),
         original
     );
     assert_eq!(
@@ -792,7 +697,7 @@ fn auth_http_project_roles_gate_each_route() {
     assert_eq!(
         server
             .get(CREATOR, "/storage/v1/b/bucket-a/o/created")
-            .ok()
+            .success()
             .json(),
         created
     );
@@ -816,8 +721,10 @@ fn auth_http_project_roles_gate_each_route() {
     // storage.editor creates and lists buckets but lacks storage.buckets.get.
     server
         .create_bucket(EDITOR, "project-a", "editor-bucket")
-        .ok();
-    server.get(EDITOR, "/storage/v1/b?project=project-a").ok();
+        .success();
+    server
+        .get(EDITOR, "/storage/v1/b?project=project-a")
+        .success();
     server
         .get(EDITOR, "/storage/v1/b/editor-bucket")
         .forbidden();
@@ -827,7 +734,9 @@ fn auth_http_project_roles_gate_each_route() {
     server.get(EDITOR, "/storage/v1/b/bucket-a/o/o").forbidden();
 
     // Roles in project A never apply to a bucket owned by project B.
-    server.get(PROJECT_A_ONLY, "/storage/v1/b/bucket-a").ok();
+    server
+        .get(PROJECT_A_ONLY, "/storage/v1/b/bucket-a")
+        .success();
     for path in [
         "/storage/v1/b/bucket-b",
         "/storage/v1/b/bucket-b/o",
@@ -856,16 +765,16 @@ fn auth_http_project_roles_gate_each_route() {
     // A missing bucket is 404 only for callers holding the permission in some project.
     server
         .get(ADMIN, "/storage/v1/b/missing-bucket")
-        .error(404, "notFound");
+        .auth_error(404, "notFound");
     server
         .get(VIEWER, "/storage/v1/b/missing-bucket/o/o")
-        .error(404, "notFound");
+        .auth_error(404, "notFound");
     server
         .get(VIEWER, "/storage/v1/b/missing-bucket/o")
-        .error(404, "notFound");
+        .auth_error(404, "notFound");
     server
         .upload(CREATOR, "missing-bucket", "o", b"x")
-        .error(404, "notFound");
+        .auth_error(404, "notFound");
     server
         .get(VIEWER, "/storage/v1/b/missing-bucket")
         .forbidden();
@@ -888,8 +797,10 @@ fn auth_http_rejected_uploads_do_not_read_or_stage_the_body() {
     let config = TestDir::new();
     let dir = TestDir::new();
     let server = Server::strict(&dir, &identity_file(&config));
-    server.create_bucket(ADMIN, "project-a", "bucket-a").ok();
-    server.upload(ADMIN, "bucket-a", "exists", b"old").ok();
+    server
+        .create_bucket(ADMIN, "project-a", "bucket-a")
+        .success();
+    server.upload(ADMIN, "bucket-a", "exists", b"old").success();
     for (auth, query, status, reason) in [
         ("", "uploadType=media&name=new", 401, "required"),
         (
@@ -918,7 +829,9 @@ fn auth_http_rejected_uploads_do_not_read_or_stage_the_body() {
             // Rejection may interrupt the write; the response must still reach the reader.
             let _ = writer.write_all(&vec![b'x'; 8 * 1024 * 1024]);
         });
-        Reply::read(stream).error(status, reason);
+        common::http::receive(stream, false)
+            .into_joined()
+            .auth_error(status, reason);
         sending.join().unwrap();
         assert!(
             start.elapsed() < Duration::from_secs(2),
@@ -938,7 +851,10 @@ fn auth_http_rejected_uploads_do_not_read_or_stage_the_body() {
         b"old"
     );
     assert_eq!(
-        server.get(ADMIN, "/storage/v1/b/bucket-a/o").ok().json()["items"]
+        server
+            .get(ADMIN, "/storage/v1/b/bucket-a/o")
+            .success()
+            .json()["items"]
             .as_array()
             .unwrap()
             .len(),
@@ -952,7 +868,7 @@ fn auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden() {
     let config = TestDir::new();
     let dir = TestDir::new();
     let server = Server::strict(&dir, &identity_file(&config));
-    server.create_bucket(ADMIN, "project-a", "race").ok();
+    server.create_bucket(ADMIN, "project-a", "race").success();
     let mut stream = server.stream();
     stream
         .write_all(
@@ -969,12 +885,14 @@ fn auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden() {
     assert!(interim.starts_with(b"HTTP/1.1 100"), "{interim:?}");
     server
         .request("DELETE", "/storage/v1/b/race", ADMIN, b"")
-        .ok();
-    server.create_bucket(ADMIN, "project-b", "race").ok();
+        .success();
+    server.create_bucket(ADMIN, "project-b", "race").success();
     stream.write_all(b"late").unwrap();
     // The caller holds no role in project-b, so publication must not reach the new bucket.
-    Reply::read(stream).forbidden();
-    let listing = server.get(ADMIN, "/storage/v1/b/race/o").ok().json();
+    common::http::receive(stream, false)
+        .into_joined()
+        .forbidden();
+    let listing = server.get(ADMIN, "/storage/v1/b/race/o").success().json();
     assert!(listing.get("items").is_none(), "{listing}");
     // The same caller still learns nothing about the recreated bucket's objects.
     server
@@ -991,7 +909,9 @@ fn auth_http_concurrent_creates_without_delete_have_one_winner() {
     let config = TestDir::new();
     let dir = TestDir::new();
     let server = Server::strict(&dir, &identity_file(&config));
-    server.create_bucket(ADMIN, "project-a", "bucket-a").ok();
+    server
+        .create_bucket(ADMIN, "project-a", "bucket-a")
+        .success();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
     let results = thread::scope(|scope| {
         let handles: Vec<_> = (0..8)
@@ -1224,3 +1144,5 @@ fn auth_http_startup_rejects_invalid_profiles_and_registries() {
     assert_eq!(ready["identities"], 6);
     common::stop_server(&mut child, &mut stdout);
 }
+
+declare_server!();

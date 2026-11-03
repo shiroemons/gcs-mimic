@@ -1,4 +1,5 @@
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Server, common::TestDir};
 use serde_json::json;
@@ -26,12 +27,12 @@ fn ruby_default_create_bucket() {
                     .to_string()
                     .as_bytes(),
             )
-            .json();
+            .json_ok();
         assert_eq!(created["name"], name);
         assert!(created.get("autoclass").is_none());
         let fetched = server
             .request("GET", &format!("/storage/v1/b/{name}"), "", b"")
-            .json();
+            .json_ok();
         assert!(fetched.get("autoclass").is_none());
     }
     // Enabled Autoclass is covered by bucket_autoclass_http; malformed settings still fail.
@@ -50,7 +51,7 @@ fn ruby_default_create_bucket() {
                     .to_string()
                     .as_bytes(),
             )
-            .error(400, "invalid");
+            .json_reason(400, "invalid");
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/unsupported-autoclass", "", b"")
@@ -81,10 +82,10 @@ fn ruby_default_create_file_content_type() {
                 "Content-Range: bytes 0-2/3\r\n",
                 b"abc",
             )
-            .json();
+            .json_ok();
         assert_eq!(object["contentType"], "application/octet-stream");
         assert_eq!(
-            server.get(name).json()["contentType"],
+            server.get(name).json_ok()["contentType"],
             object["contentType"]
         );
         assert_eq!(
@@ -114,10 +115,10 @@ fn ruby_default_compose() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
     server.bucket();
-    server.put("source", b"abc").json();
+    server.put("source", b"abc").json_ok();
     let path = "/storage/v1/b/test-bucket/o/composed/compose";
     let result = server.request("POST", path, "Authorization: Bearer admin\r\n",
-        br#"{"sourceObjects":[{"name":"source"},{"name":"source"}],"deleteSourceObjects":null,"destination":null}"#).json();
+        br#"{"sourceObjects":[{"name":"source"},{"name":"source"}],"deleteSourceObjects":null,"destination":null}"#).json_ok();
     assert_eq!(result["size"], "6");
     assert!(result.get("contentType").is_none());
     let bytes = server.request(
@@ -128,7 +129,7 @@ fn ruby_default_compose() {
     );
     assert_eq!(bytes.body, b"abcabc");
     assert_eq!(bytes.headers["content-type"], "application/octet-stream");
-    assert_eq!(server.get("source").json()["size"], "3");
+    assert_eq!(server.get("source").json_ok()["size"], "3");
     server
         .request(
             "POST",
@@ -136,9 +137,9 @@ fn ruby_default_compose() {
             "Authorization: Bearer admin\r\n",
             br#"{"sourceObjects":[{"name":"source"}],"deleteSourceObjects":true}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(server.get("source").status, 404);
     server.request("POST", path, "Authorization: Bearer admin\r\n",
-        br#"{"sourceObjects":[{"name":"composed"}],"destination":{"acl":[]},"deleteSourceObjects":null}"#).error(400, "badRequest");
-    assert_eq!(server.get("composed").json()["size"], "3");
+        br#"{"sourceObjects":[{"name":"composed"}],"destination":{"acl":[]},"deleteSourceObjects":null}"#).json_reason(400, "badRequest");
+    assert_eq!(server.get("composed").json_ok()["size"], "3");
 }

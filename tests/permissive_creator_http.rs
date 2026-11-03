@@ -1,6 +1,7 @@
 //! The permissive profile records a configured local creator as owner; it never authorizes.
 
-mod object_effects_support;
+mod common;
+use common::effects as object_effects_support;
 
 use object_effects_support::{Server, common::TestDir};
 use serde_json::{Value, json};
@@ -16,7 +17,7 @@ fn full(server: &Server, name: &str) -> Value {
             "",
             b"",
         )
-        .json()
+        .json_ok()
 }
 
 fn owner_and_acl(object: &Value) -> (String, Vec<String>) {
@@ -58,9 +59,9 @@ fn default_creator_owns_every_creation_path_in_json_and_xml() {
     let dir = TestDir::new();
     let server = Server::start_with_args(&dir, &[]);
     server.bucket();
-    server.put("plain", b"a").json();
+    server.put("plain", b"a").json_ok();
     assert_creator(&full(&server, "plain"), DEFAULT);
-    server.put("second", b"b").json();
+    server.put("second", b"b").json_ok();
     let copied = server
         .request(
             "POST",
@@ -68,7 +69,7 @@ fn default_creator_owns_every_creation_path_in_json_and_xml() {
             "",
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(copied["name"], "copied");
     // Without the full projection a copy response names the owner but not the ACL.
     assert_eq!(copied["owner"], json!({"entity": DEFAULT}));
@@ -83,7 +84,7 @@ fn default_creator_owns_every_creation_path_in_json_and_xml() {
                 .to_string()
                 .as_bytes(),
         )
-        .json();
+        .json_ok();
     assert_eq!(composed["name"], "composed");
     assert_creator(&full(&server, "composed"), DEFAULT);
     let rewritten = server
@@ -93,7 +94,7 @@ fn default_creator_owns_every_creation_path_in_json_and_xml() {
             "",
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(rewritten["done"], true);
     assert_eq!(rewritten["resource"]["owner"], json!({"entity": DEFAULT}));
     assert_creator(&full(&server, "rewritten"), DEFAULT);
@@ -142,20 +143,20 @@ fn changing_or_disabling_the_creator_follows_restarts_without_authorizing_anythi
     let dir = TestDir::new();
     let mut server = Server::start_with_args(&dir, &[]);
     server.bucket();
-    server.put("kept", b"a").json();
+    server.put("kept", b"a").json_ok();
     server.stop();
 
     let mut server = Server::start_with_args(&dir, &["--local-creator-email", "dev@example.test"]);
     // The stored creator is shown under the configured address after a restart.
     assert_creator(&full(&server, "kept"), "user-dev@example.test");
-    server.put("fresh", b"b").json();
+    server.put("fresh", b"b").json_ok();
     assert_creator(&full(&server, "fresh"), "user-dev@example.test");
     server.stop();
 
     let server = Server::start_with_args(&dir, &["--local-creator-email", ""]);
     // Disabled: what was recorded stays; new objects keep the project owners.
     assert_creator(&full(&server, "kept"), "user-dev@example.test");
-    server.put("plain-owners", b"c").json();
+    server.put("plain-owners", b"c").json_ok();
     let object = full(&server, "plain-owners");
     assert_eq!(object["owner"]["entity"], "project-owners-0");
     assert_eq!(object["acl"].as_array().unwrap().len(), 3);
@@ -173,7 +174,7 @@ fn legacy_profile_and_invalid_addresses_are_not_accepted_or_changed() {
     let dir = TestDir::new();
     let mut server = Server::start_with_args(&dir, &["--compat-profile", "legacy-emulator"]);
     server.bucket();
-    server.put("legacy", b"a").json();
+    server.put("legacy", b"a").json_ok();
     let object = full(&server, "legacy");
     assert_ne!(object["owner"]["entity"], DEFAULT);
     let copied = server
@@ -183,7 +184,7 @@ fn legacy_profile_and_invalid_addresses_are_not_accepted_or_changed() {
             "",
             b"",
         )
-        .json();
+        .json_ok();
     assert!(copied.get("owner").is_none());
     assert!(
         !object["acl"]

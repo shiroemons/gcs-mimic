@@ -1,21 +1,17 @@
+use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command, write_request};
+use common::server::http_command;
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{Read, Write},
     net::TcpStream,
     sync::{Arc, Barrier},
     time::Duration,
 };
 
-struct Reply {
-    status: u16,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
-}
+use common::http::{Client, Reply};
 
 impl Server {
     fn start(dir: &TestDir) -> Self {
@@ -39,7 +35,7 @@ impl Server {
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%2Ffile",
             b"payload",
         )
-        .json()
+        .json_ok()
     }
     fn update(&self, method: &str, query: &str, body: Value) -> Reply {
         self.request(
@@ -49,31 +45,7 @@ impl Server {
         )
     }
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-impl Reply {
-    fn json(&self) -> Value {
-        assert_eq!(self.status, 200, "{}", String::from_utf8_lossy(&self.body));
-        serde_json::from_slice(&self.body).unwrap()
-    }
-    fn error(&self, status: u16, reason: &str) {
-        assert_eq!(
-            self.status,
-            status,
-            "{}",
-            String::from_utf8_lossy(&self.body)
-        );
-        // A missing media object is an HTML document naming the object, not a JSON error.
-        if self.headers["content-type"] == "text/html; charset=UTF-8" {
-            assert_eq!((status, reason), (404, "notFound"));
-            assert!(self.body.starts_with(b"No such object: "));
-            return;
-        }
-        let value: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
-            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
-        });
-        assert_eq!(value["error"]["errors"][0]["reason"], reason, "{value}");
+        self.0.stop();
     }
 }
 fn request(address: &str, method: &str, path: &str, body: &[u8]) -> Reply {
@@ -81,59 +53,14 @@ fn request(address: &str, method: &str, path: &str, body: &[u8]) -> Reply {
 }
 
 fn request_headers(address: &str, method: &str, path: &str, body: &[u8], headers: &str) -> Reply {
-    let mut stream = TcpStream::connect(address).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
-    write_request(
-        &mut stream,
-        method,
-        path,
-        "localhost",
-        &format!("Content-Type: application/json\r\n{headers}Connection: close\r\n"),
-        body,
-    );
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
-    let status = line.split_whitespace().nth(1).unwrap().parse().unwrap();
-    let mut headers = BTreeMap::new();
-    loop {
-        line.clear();
-        reader.read_line(&mut line).unwrap();
-        if line == "\r\n" {
-            break;
-        }
-        let (key, value) = line.trim_end().split_once(':').unwrap();
-        headers.insert(key.to_ascii_lowercase(), value.trim().to_owned());
+    Client {
+        address,
+        host: "localhost",
+        headers: "Content-Type: application/json\r\n",
+        timeout: Duration::from_secs(5),
     }
-    let mut body = Vec::new();
-    if headers
-        .get("transfer-encoding")
-        .is_some_and(|value| value == "chunked")
-    {
-        loop {
-            line.clear();
-            reader.read_line(&mut line).unwrap();
-            let size = usize::from_str_radix(line.trim(), 16).unwrap();
-            if size == 0 {
-                break;
-            }
-            let start = body.len();
-            body.resize(start + size, 0);
-            reader.read_exact(&mut body[start..]).unwrap();
-            let mut crlf = [0; 2];
-            reader.read_exact(&mut crlf).unwrap();
-            assert_eq!(&crlf, b"\r\n");
-        }
-    } else {
-        reader.read_to_end(&mut body).unwrap();
-    }
-    Reply {
-        status,
-        headers,
-        body,
-    }
+    .request(method, path, headers, body)
+    .into_last()
 }
 
 #[test]
@@ -158,8 +85,8 @@ fn null_generation_metadata_updates_preserve_identity_and_enforce_conditions() {
         };
         let body = json!({"bucket":"test-bucket", "name":"dir/file", "generation":null,
             "metadata":{"fixture":method}});
-        let before = server.request("GET", path, b"").json();
-        let updated = send("", body.clone()).json();
+        let before = server.request("GET", path, b"").json_ok();
+        let updated = send("", body.clone()).json_ok();
         assert_eq!(updated["metadata"], json!({"fixture":method}));
         assert_eq!(
             updated["metageneration"]
@@ -190,11 +117,11 @@ fn null_generation_metadata_updates_preserve_identity_and_enforce_conditions() {
             ("&ifGenerationMatch=0", 412, "conditionNotMet"),
             ("&ifMetagenerationMatch=1", 412, "conditionNotMet"),
         ] {
-            send(query, rejected.clone()).error(status, reason);
+            send(query, rejected.clone()).metadata_error(status, reason);
             assert_eq!(
                 server
                     .request("GET", &format!("{path}?projection=full"), b"")
-                    .json(),
+                    .json_ok(),
                 updated
             );
         }
@@ -203,11 +130,11 @@ fn null_generation_metadata_updates_preserve_identity_and_enforce_conditions() {
                 "",
                 json!({"generation":generation, "metadata":{"fixture":"rejected"}}),
             )
-            .error(400, "badRequest");
+            .metadata_error(400, "badRequest");
             assert_eq!(
                 server
                     .request("GET", &format!("{path}?projection=full"), b"")
-                    .json(),
+                    .json_ok(),
                 updated
             );
         }
@@ -224,7 +151,9 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
     let mut server = Server::start(&dir);
     let original = server.setup();
     let initial = json!({"contentType":"text/plain", "contentEncoding":"br", "contentDisposition":"attachment; filename=hello.txt", "contentLanguage":"en", "cacheControl":"private, max-age=60", "metadata":{"keep":"one","drop":"two"}});
-    let first = server.update("PATCH", "?projection=full", initial).json();
+    let first = server
+        .update("PATCH", "?projection=full", initial)
+        .json_ok();
     assert_eq!(first["metageneration"], "2");
     for field in [
         "generation",
@@ -237,10 +166,12 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
         assert_eq!(first[field], original[field], "{field}");
     }
     assert_ne!(first["etag"], original["etag"]);
-    let identical = server.update("PUT", "", first).json();
+    let identical = server.update("PUT", "", first).json_ok();
     assert_eq!(identical["metageneration"], "3");
     assert_eq!(
-        server.update("PATCH", "", json!({"contentType":""})).json()["contentType"],
+        server
+            .update("PATCH", "", json!({"contentType":""}))
+            .json_ok()["contentType"],
         "text/plain"
     );
     for key in [
@@ -264,7 +195,7 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
     ] {
         let value = server
             .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
-            .json();
+            .json_ok();
         assert_eq!(
             server.update("PATCH", "", json!({key:value[key]})).status,
             200,
@@ -272,11 +203,11 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
         );
         server
             .update("PATCH", "", json!({key:"changed"}))
-            .error(400, "badRequest");
+            .metadata_error(400, "badRequest");
     }
     let second = server
         .update("PATCH", "", json!({"metadata":{"drop":null,"add":"three"}}))
-        .json();
+        .json_ok();
     assert_eq!(second["metadata"], json!({"keep":"one","add":"three"}));
     assert_eq!(second["contentType"], "text/plain");
     let media = server.request(
@@ -304,7 +235,7 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
-            .json(),
+            .json_ok(),
         second
     );
     let replaced = server
@@ -313,7 +244,7 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
             "?projection=noAcl",
             json!({"metadata":{"only":"new"}}),
         )
-        .json();
+        .json_ok();
     assert!(replaced.get("contentType").is_none());
     assert_eq!(replaced["metadata"], json!({"only":"new"}));
     for key in [
@@ -339,12 +270,12 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
     );
     let cleared = server
         .update("PATCH", "", json!({"metadata":null,"contentType":null}))
-        .json();
+        .json_ok();
     assert!(cleared.get("metadata").is_none());
     assert!(cleared.get("contentType").is_none());
     let empty_value = server
         .update("PATCH", "", json!({"metadata":{"empty":""}}))
-        .json();
+        .json_ok();
     assert_eq!(empty_value["metadata"], json!({"empty":""}));
     let media = server.request(
         "GET",
@@ -380,14 +311,14 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
     for method in ["PATCH", "PUT"] {
         server
             .update(method, "", json!({"contentLanguage":""}))
-            .error(400, "invalidArgument");
+            .metadata_error(400, "invalidArgument");
         server
             .request(
                 method,
                 "/storage/v1/b/test-bucket/o/dir%2Ffile",
                 &vec![b' '; 65537],
             )
-            .error(413, "uploadTooLarge");
+            .metadata_error(413, "uploadTooLarge");
         for (key, equal_succeeds) in [
             ("ifGenerationMatch", true),
             ("ifGenerationNotMatch", false),
@@ -397,7 +328,7 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
             for success in [false, true] {
                 let current = server
                     .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
-                    .json();
+                    .json_ok();
                 let actual = if key.contains("Metageneration") {
                     current["metageneration"]
                         .as_str()
@@ -410,13 +341,13 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
                 let value = actual + i64::from(success != equal_succeeds);
                 let reply = server.update(method, &format!("?{key}={value}"), json!({}));
                 if success {
-                    assert_eq!(reply.json()["generation"], original["generation"]);
+                    assert_eq!(reply.json_ok()["generation"], original["generation"]);
                 } else {
-                    reply.error(412, "conditionNotMet");
+                    reply.metadata_error(412, "conditionNotMet");
                     assert_eq!(
                         server
                             .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
-                            .json(),
+                            .json_ok(),
                         current
                     );
                 }
@@ -424,7 +355,7 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
         }
         server
             .update(method, "?generation=0", json!({}))
-            .error(404, "notFound");
+            .metadata_error(404, "notFound");
         assert_eq!(
             server
                 .update(method, &format!("?generation={generation}"), json!({}))
@@ -433,7 +364,7 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
         );
         server
             .update(method, "?ifGenerationMatch=0", json!({}))
-            .error(412, "conditionNotMet");
+            .metadata_error(412, "conditionNotMet");
         assert_eq!(
             server
                 .update(method, "?ifGenerationNotMatch=0", json!({}))
@@ -448,7 +379,7 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
                 "",
                 json!({"cacheControl":"private", "metadata":{"old":"value"}}),
             )
-            .json();
+            .json_ok();
         let barrier = Arc::new(Barrier::new(3));
         let threads: Vec<_> = (0..2)
             .map(|_| {
@@ -474,7 +405,7 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
         assert_eq!(statuses, [200, 412]);
         let after = server
             .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
-            .json();
+            .json_ok();
         assert_eq!(
             after,
             common::without_acl(
@@ -482,14 +413,14 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
                     .iter()
                     .find(|reply| reply.status == 200)
                     .unwrap()
-                    .json()
+                    .json_ok()
             )
         );
         replies
             .iter()
             .find(|reply| reply.status == 412)
             .unwrap()
-            .error(412, "conditionNotMet");
+            .metadata_error(412, "conditionNotMet");
         if method == "PUT" {
             assert_eq!(after["metadata"], json!({"winner":"yes"}));
             assert!(after.get("cacheControl").is_none());
@@ -521,7 +452,7 @@ fn conditional_delete_and_metadata_patch_have_one_winner() {
     server.setup();
     let path = "/storage/v1/b/test-bucket/o/dir%2Ffile";
     for attempt in 0..12 {
-        let before = server.request("GET", path, b"").json();
+        let before = server.request("GET", path, b"").json_ok();
         let condition = format!(
             "{path}?ifMetagenerationMatch={}",
             before["metageneration"].as_str().unwrap()
@@ -567,15 +498,17 @@ fn conditional_delete_and_metadata_patch_have_one_winner() {
         };
         match (delete.status, patch.status) {
             (204, 404) => {
-                patch.error(404, "notFound");
+                patch.metadata_error(404, "notFound");
                 assert!(delete.body.is_empty());
-                server.request("GET", path, b"").error(404, "notFound");
+                server
+                    .request("GET", path, b"")
+                    .metadata_error(404, "notFound");
                 server
                     .request("GET", &format!("{path}?alt=media"), b"")
-                    .error(404, "notFound");
+                    .metadata_error(404, "notFound");
                 let listing = server
                     .request("GET", "/storage/v1/b/test-bucket/o", b"")
-                    .json();
+                    .json_ok();
                 assert!(listing.get("items").is_none());
                 server
                     .request(
@@ -583,12 +516,12 @@ fn conditional_delete_and_metadata_patch_have_one_winner() {
                         "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%2Ffile",
                         b"payload",
                     )
-                    .json();
+                    .json_ok();
             }
             (412, 200) => {
-                delete.error(412, "conditionNotMet");
-                let after = server.request("GET", path, b"").json();
-                assert_eq!(after, patch.json());
+                delete.metadata_error(412, "conditionNotMet");
+                let after = server.request("GET", path, b"").json_ok();
+                assert_eq!(after, patch.json_ok());
                 assert_eq!(after["metadata"], json!({"winner":"patch"}));
                 assert_eq!(after["generation"], before["generation"]);
                 assert_eq!(
@@ -631,10 +564,10 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
                 "",
                 json!({"contentDisposition":"filename=日本語.txt"}),
             )
-            .error(400, "badRequest");
+            .metadata_error(400, "badRequest");
         server
             .update(method, "", json!({"cacheControl":"private\tmax-age=0"}))
-            .error(400, "invalid");
+            .metadata_error(400, "invalid");
         for (body, reason) in [
             ("{", "invalid"),
             ("[]", "invalidArgument"),
@@ -650,7 +583,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
                     "/storage/v1/b/test-bucket/o/dir%2Ffile",
                     body.as_bytes(),
                 )
-                .error(400, reason);
+                .metadata_error(400, reason);
         }
         for field in [
             "predefinedAcl",
@@ -670,15 +603,15 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
         ] {
             server
                 .update(method, "", json!({field:null}))
-                .error(400, "badRequest");
+                .metadata_error(400, "badRequest");
         }
         server
             .update(method, "", json!({"acl":null}))
-            .error(400, "invalid");
+            .metadata_error(400, "invalid");
         for query in ["predefinedAcl=private", "userProject=test"] {
             server
                 .update(method, &format!("?{query}"), json!({}))
-                .error(400, "badRequest");
+                .metadata_error(400, "badRequest");
         }
         for query in [
             "generation=x",
@@ -689,19 +622,21 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
         ] {
             server
                 .update(method, &format!("?{query}"), json!({}))
-                .error(400, "invalidParameter");
+                .metadata_error(400, "invalidParameter");
         }
         for path in [
             "/storage/v1/b/absent-bucket/o/file",
             "/storage/v1/b/test-bucket/o/absent",
         ] {
-            server.request(method, path, b"{}").error(404, "notFound");
+            server
+                .request(method, path, b"{}")
+                .metadata_error(404, "notFound");
         }
     }
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
-            .json(),
+            .json_ok(),
         original
     );
     assert_eq!(
@@ -712,7 +647,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
     );
     server
         .update("PATCH", "", json!({"metadata":{"b":""}}))
-        .error(400, "invalidArgument");
+        .metadata_error(400, "invalidArgument");
     assert_eq!(
         server
             .update(
@@ -725,10 +660,10 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
     );
     server
         .update("PUT", "", json!({"metadata":{"雪":"x".repeat(8190)}}))
-        .error(400, "invalidArgument");
+        .metadata_error(400, "invalidArgument");
     server
         .update("PATCH", "", json!({"contentEncoding":"gzip"}))
-        .json();
+        .json_ok();
     let mut stream = TcpStream::connect(&server.address).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
@@ -743,7 +678,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
     assert!(response.ends_with(b"Bad Request"));
     server
         .update("PATCH", "", json!({"cacheControl":"no-transform"}))
-        .json();
+        .json_ok();
     assert_eq!(
         server
             .request(
@@ -770,17 +705,17 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
     );
     server
         .update("PATCH", "", json!({"contentLanguage":"a".repeat(101)}))
-        .error(400, "invalid");
+        .metadata_error(400, "invalid");
     server
         .update(
             "PATCH",
             "",
             json!({"contentDisposition":"attachment; filename=雪"}),
         )
-        .error(400, "badRequest");
+        .metadata_error(400, "badRequest");
     server
         .update("PATCH", "", json!({"metadata":{"":"value"}}))
-        .error(400, "badRequest");
+        .metadata_error(400, "badRequest");
     let compressed = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x4b\x4c\x4a\x06\x00\xc2\x41\x24\x35\x03\x00\x00\x00";
     let uploaded = server
         .request(
@@ -788,14 +723,14 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%2Ffile",
             compressed,
         )
-        .json();
+        .json_ok();
     server
         .update(
             "PATCH",
             "",
             json!({"contentEncoding":"gzip","metadata":{"key":"value"}}),
         )
-        .json();
+        .json_ok();
     for (encoding, status, expanded) in [
         ("gzip", 200, false),
         ("gzip;q=1.0", 200, false),
@@ -824,7 +759,7 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
             assert_eq!(reply.body, compressed);
             assert_eq!(reply.headers["content-encoding"], "gzip");
         } else {
-            reply.error(400, "invalidParameter");
+            reply.metadata_error(400, "invalidParameter");
         }
     }
     let replaced = server
@@ -833,7 +768,7 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%2Ffile",
             b"new bytes",
         )
-        .json();
+        .json_ok();
     assert_ne!(replaced["generation"], uploaded["generation"]);
     assert_eq!(replaced["metageneration"], "1");
     for key in [
@@ -847,3 +782,5 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
     }
     server.stop();
 }
+
+declare_server!();

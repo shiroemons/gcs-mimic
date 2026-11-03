@@ -84,7 +84,7 @@ fn live_cli_inspects_stopped_sparse_recovery_and_requires_exact_confirmed_discar
     settle(&server, None);
     let winner = server
         .request("GET", "/storage/v1/b/test-bucket/o/body", None, b"")
-        .json();
+        .json_ok();
     server.stop();
     interrupted_workspace(&data, &tree);
     let registry = inputs.0.join("identities.json");
@@ -177,12 +177,12 @@ fn live_cli_inspects_stopped_sparse_recovery_and_requires_exact_confirmed_discar
             Some("all"),
             &serde_json::to_vec(&unconfirmed).unwrap(),
         )
-        .error(400, "recovery_confirmation_required");
+        .json_reason(400, "recovery_confirmation_required");
     retained(&tree);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/body", Some("all"), b"")
-            .json(),
+            .json_ok(),
         winner
     );
     let outcome = server.cli_with_token("resolve", &exact, Some("all"), true);
@@ -208,7 +208,7 @@ fn live_cli_inspects_stopped_sparse_recovery_and_requires_exact_confirmed_discar
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/body", Some("all"), b"")
-            .json(),
+            .json_ok(),
         winner
     );
     assert_eq!(
@@ -225,7 +225,7 @@ fn live_cli_inspects_stopped_sparse_recovery_and_requires_exact_confirmed_discar
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/body", Some("all"), b"")
-            .json(),
+            .json_ok(),
         winner
     );
     assert_eq!(

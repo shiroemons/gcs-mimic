@@ -1,13 +1,12 @@
-mod object_effects_support;
+use crate::common::server::declare_server;
+mod common;
+use common::effects as object_effects_support;
 mod xml_v2_hmac;
 mod xml_v4_streaming;
 
-use common::server::{Server, http_command};
+use common::server::http_command;
 use gcs_mimic::auth::signature::{encode_query_component, timestamp};
-use object_effects_support::{
-    Reply,
-    common::{self, TestDir},
-};
+use object_effects_support::{Reply, common::TestDir};
 use ring::{digest, hmac};
 use serde_json::json;
 use std::{
@@ -108,7 +107,7 @@ impl Server {
             ADMIN,
             json!({"name":name}).to_string().as_bytes(),
         )
-        .json();
+        .json_ok();
     }
     fn key(&self, email: &str) -> Key {
         let value = self
@@ -121,14 +120,14 @@ impl Server {
                 "Authorization: Bearer keys\r\n",
                 b"",
             )
-            .json();
+            .json_ok();
         Key {
             id: value["metadata"]["accessId"].as_str().unwrap().into(),
             secret: value["secret"].as_str().unwrap().into(),
         }
     }
     fn stop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
+        self.0.stop();
     }
 }
 fn hex(bytes: &[u8]) -> String {
@@ -393,15 +392,15 @@ fn hmac_revocation_restart_and_identity_permissions_do_not_follow_key_project() 
     let admin = "Authorization: Bearer keys\r\n";
     server
         .request("PUT", &key_path, admin, br#"{"state":"INACTIVE"}"#)
-        .json();
+        .json_ok();
     error(&server.signed("GET", &get, b""), 403, "InvalidAccessKeyId");
     server
         .request("PUT", &key_path, admin, br#"{"state":"ACTIVE"}"#)
-        .json();
+        .json_ok();
     assert_eq!(server.signed("GET", &get, b"").body, b"durable");
     server
         .request("PUT", &key_path, admin, br#"{"state":"INACTIVE"}"#)
-        .json();
+        .json_ok();
     assert_eq!(server.request("DELETE", &key_path, admin, b"").status, 204);
     error(&server.signed("GET", &get, b""), 403, "InvalidAccessKeyId");
     server.stop();
@@ -438,10 +437,10 @@ fn signed_payload_hash_mismatch_preserves_bytes_metadata_generation_and_count() 
         );
         let before = server
             .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-            .json();
+            .json_ok();
         let list = server
             .request("GET", "/storage/v1/b/test-bucket/o", ADMIN, b"")
-            .json();
+            .json_ok();
         let digest = hex(digest::digest(&digest::SHA256, b"correct").as_ref());
         for aws in [false, true] {
             for header in [false, true] {
@@ -463,13 +462,13 @@ fn signed_payload_hash_mismatch_preserves_bytes_metadata_generation_and_count() 
                 assert_eq!(
                     server
                         .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
-                        .json(),
+                        .json_ok(),
                     before
                 );
                 assert_eq!(
                     server
                         .request("GET", "/storage/v1/b/test-bucket/o", ADMIN, b"")
-                        .json(),
+                        .json_ok(),
                     list
                 );
                 assert_eq!(server.request("GET", path, ADMIN, b"").body, b"old");
@@ -831,7 +830,9 @@ fn malformed_mixed_tampered_and_expired_signatures_never_fall_back_or_reach_json
                 &[],
                 now,
             );
-            server.signed("GET", &json, b"").error(401, "authError");
+            server
+                .signed("GET", &json, b"")
+                .json_reason(401, "authError");
             let mut duplicate = Signed {
                 path: good.path.clone(),
                 headers: good.headers.clone(),
@@ -952,7 +953,7 @@ fn hmac_acl_reader_ubla_pap_and_public_invalid_signature_preserve_authorization(
             ADMIN,
             br#"{"entity":"user-scoped@example.invalid","role":"READER"}"#,
         )
-        .json();
+        .json_ok();
     let read = sign(&scoped, "GET", path, true, false, &[], SystemTime::now());
     assert_eq!(server.signed("GET", &read, b"").body, b"protected");
     server
@@ -962,7 +963,7 @@ fn hmac_acl_reader_ubla_pap_and_public_invalid_signature_preserve_authorization(
             ADMIN,
             br#"{"entity":"allUsers","role":"READER"}"#,
         )
-        .json();
+        .json_ok();
     assert_eq!(server.request("GET", path, "", b"").status, 200);
     let bad = Signed {
         path: read.path.replace("X-Amz-Signature=", "X-Amz-Signature=00"),
@@ -980,7 +981,7 @@ fn hmac_acl_reader_ubla_pap_and_public_invalid_signature_preserve_authorization(
             ADMIN,
             br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
         )
-        .json();
+        .json_ok();
     assert_ne!(server.request("GET", path, "", b"").status, 200);
     assert_eq!(server.signed("GET", &read, b"").body, b"protected");
     server
@@ -990,7 +991,7 @@ fn hmac_acl_reader_ubla_pap_and_public_invalid_signature_preserve_authorization(
             ADMIN,
             br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
         )
-        .json();
+        .json_ok();
     error(&server.signed("GET", &read, b""), 403, "AccessDenied");
     assert_eq!(
         server
@@ -1010,7 +1011,7 @@ fn hmac_acl_reader_ubla_pap_and_public_invalid_signature_preserve_authorization(
             ADMIN,
             policy.to_string().as_bytes(),
         )
-        .json();
+        .json_ok();
     for (aws, header) in [(false, false), (true, true)] {
         assert_eq!(
             server
@@ -1030,7 +1031,7 @@ fn hmac_acl_reader_ubla_pap_and_public_invalid_signature_preserve_authorization(
             ADMIN,
             br#"{"bindings":[]}"#,
         )
-        .json();
+        .json_ok();
     error(&server.signed("GET", &read, b""), 403, "AccessDenied");
 }
 
@@ -1172,3 +1173,5 @@ fn hmac_virtual_hosts_raw_paths_and_repeated_signed_header_wire_order_are_bound(
         "SignatureDoesNotMatch",
     );
 }
+
+declare_server!();

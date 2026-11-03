@@ -1,9 +1,6 @@
-mod object_effects_support;
-use object_effects_support::{
-    Reply, Server,
-    common::{self, TestDir},
-    settings,
-};
+mod common;
+use common::effects as object_effects_support;
+use object_effects_support::{Reply, Server, common::TestDir, settings};
 use serde_json::{Value, json};
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
@@ -63,7 +60,7 @@ fn assert_no_transfer_files(dir: &TestDir) {
 #[test]
 fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
     let (dir, mut server) = setup(false);
-    server.put("source", b"original bytes").json();
+    server.put("source", b"original bytes").json_ok();
     let path = path(
         "source",
         "test-bucket",
@@ -72,10 +69,10 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
     );
     let headers = "X-Goog-Gcs-Idempotency-Token: retained-copy\r\n";
     let body = br#"{"metadata":{"copied":"yes"}}"#;
-    server.put("copy", b"existing destination").json();
+    server.put("copy", b"existing destination").json_ok();
     server
         .request("POST", &path, headers, body)
-        .error(412, "conditionNotMet");
+        .json_reason(412, "conditionNotMet");
     assert_eq!(
         server
             .request("DELETE", "/storage/v1/b/test-bucket/o/copy", ADMIN, b"")
@@ -84,9 +81,9 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
     );
     let original = server.request("POST", &path, headers, body);
     assert_eq!(original.status, 200);
-    assert!(original.json()["acl"].is_array());
-    server.put("source", b"changed source").json();
-    server.put("copy", b"changed destination").json();
+    assert!(original.json_ok()["acl"].is_array());
+    server.put("source", b"changed source").json_ok();
+    server.put("copy", b"changed destination").json_ok();
     assert_eq!(
         server.request("POST", &path, headers, body).body,
         original.body
@@ -114,7 +111,7 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
         server.request("POST", &path, headers, body).body,
         original.body
     );
-    server.get("copy").error(404, "notFound");
+    server.get("copy").json_reason(404, "notFound");
     for changed in [
         path.replace("ifGenerationMatch=0", "ifGenerationMatch=1"),
         path.replace("/o/copy?", "/o/other?"),
@@ -122,11 +119,11 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
     ] {
         server
             .request("POST", &changed, headers, body)
-            .error(400, "invalid");
+            .json_reason(400, "invalid");
     }
     server
         .request("POST", &path, headers, b"{}")
-        .error(400, "invalid");
+        .json_reason(400, "invalid");
     server
         .request(
             "POST",
@@ -134,7 +131,7 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
             "X-Goog-Gcs-Idempotency-Token: fresh-copy\r\n",
             body,
         )
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     assert_no_transfer_files(&dir);
     assert_eq!(object_effects_support::blobs(&dir), 0);
 }
@@ -142,7 +139,7 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
 #[test]
 fn concurrent_copy_token_retries_publish_one_generation_without_extra_blobs() {
     let (dir, server) = setup(false);
-    server.put("source", &vec![b'x'; 1024 * 1024 + 3]).json();
+    server.put("source", &vec![b'x'; 1024 * 1024 + 3]).json_ok();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
     let workers: Vec<_> = (0..8)
         .map(|_| {
@@ -162,7 +159,7 @@ fn concurrent_copy_token_retries_publish_one_generation_without_extra_blobs() {
         .collect();
     let results: Vec<_> = workers
         .into_iter()
-        .map(|worker| worker.join().unwrap().json())
+        .map(|worker| worker.join().unwrap().json_ok())
         .collect();
     assert!(results.iter().all(|value| value == &results[0]));
     let last: i64 = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
@@ -179,7 +176,7 @@ fn concurrent_copy_token_retries_publish_one_generation_without_extra_blobs() {
 #[test]
 fn copy_token_rechecks_source_destination_and_acl_permissions() {
     let (dir, server) = setup(true);
-    server.put("source", b"data").json();
+    server.put("source", b"data").json_ok();
     server
         .request(
             "POST",
@@ -187,7 +184,7 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
             ADMIN,
             br#"{"name":"destination-bucket"}"#,
         )
-        .json();
+        .json_ok();
     let policy = |bucket: &str, role: Option<&str>| {
         let bindings = role
             .map(|role| vec![json!({"role":role,"members":["user:scoped@example.test"]})])
@@ -199,7 +196,7 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
                 ADMIN,
                 json!({"bindings":bindings}).to_string().as_bytes(),
             )
-            .json();
+            .json_ok();
     };
     policy("test-bucket", Some("roles/storage.objectViewer"));
     policy("destination-bucket", Some("roles/storage.objectAdmin"));
@@ -212,20 +209,20 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
     let headers = "Authorization: Bearer scoped\r\nX-Goog-Gcs-Idempotency-Token: scoped-copy\r\n";
     let original = server.request("POST", &path, headers, b"");
     assert_eq!(original.status, 200);
-    assert!(original.json()["acl"].is_array());
+    assert!(original.json_ok()["acl"].is_array());
     policy("test-bucket", None);
     server
         .request("POST", &path, headers, b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     policy("test-bucket", Some("roles/storage.objectViewer"));
     policy("destination-bucket", None);
     server
         .request("POST", &path, headers, b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     policy("destination-bucket", Some("roles/storage.objectCreator"));
     let retry = server.request("POST", &path, headers, b"");
     assert_eq!(retry.status, 200);
-    assert_eq!(retry.json(), original.json());
+    assert_eq!(retry.json_ok(), original.json_ok());
     policy("destination-bucket", Some("roles/storage.objectAdmin"));
     assert_eq!(
         server.request("POST", &path, headers, b"").body,
@@ -238,7 +235,7 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
             "Authorization: Bearer admin\r\nX-Goog-Gcs-Idempotency-Token: scoped-copy\r\n",
             b"",
         )
-        .error(400, "invalid");
+        .json_reason(400, "invalid");
     assert_no_transfer_files(&dir);
 }
 
@@ -246,7 +243,7 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
 fn copy_token_rejects_recreated_source_or_destination_buckets() {
     for recreate in ["test-bucket", "destination-bucket"] {
         let (_dir, server) = setup(false);
-        server.put("source", b"data").json();
+        server.put("source", b"data").json_ok();
         server
             .request(
                 "POST",
@@ -254,10 +251,10 @@ fn copy_token_rejects_recreated_source_or_destination_buckets() {
                 ADMIN,
                 br#"{"name":"destination-bucket"}"#,
             )
-            .json();
+            .json_ok();
         let path = path("source", "destination-bucket", "copy", "");
         let headers = "X-Goog-Gcs-Idempotency-Token: incarnation-copy\r\n";
-        server.request("POST", &path, headers, b"").json();
+        server.request("POST", &path, headers, b"").json_ok();
         let object = if recreate == "test-bucket" {
             "source"
         } else {
@@ -287,22 +284,22 @@ fn copy_token_rejects_recreated_source_or_destination_buckets() {
                 ADMIN,
                 json!({"name":recreate}).to_string().as_bytes(),
             )
-            .json();
+            .json_ok();
         server
             .request("POST", &path, headers, b"")
-            .error(400, "invalid");
+            .json_reason(400, "invalid");
     }
 }
 
 #[test]
 fn copy_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
     let (_dir, server) = setup(false);
-    server.put("source", b"source bytes").json();
+    server.put("source", b"source bytes").json_ok();
     for body in [
         br#"{"temporaryHold":false}"#.as_slice(),
         br#"{"customTime":null}"#,
     ] {
-        let result = copy(&server, "source", "target", "", body).json();
+        let result = copy(&server, "source", "target", "", body).json_ok();
         assert_eq!(result["name"], "target");
         // An explicit false is kept as sent (not recorded at create time); null names nothing.
         assert_eq!(
@@ -320,10 +317,10 @@ fn copy_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
 #[test]
 fn copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it() {
     let (_dir, server) = setup(false);
-    let source = server.put("dir%2F%E7%8C%AB%252F", b"contents").json();
+    let source = server.put("dir%2F%E7%8C%AB%252F", b"contents").json_ok();
     server.request("PATCH", "/storage/v1/b/test-bucket/o/dir%2F%E7%8C%AB%252F", ADMIN,
-        br#"{"contentType":"text/plain","contentEncoding":"identity","contentDisposition":"inline","contentLanguage":"en","cacheControl":"private","metadata":{"source":"one","other":"two"},"eventBasedHold":true}"#).json();
-    let copied = copy(&server, "dir%2F%E7%8C%AB%252F", "copy", "", b"").json();
+        br#"{"contentType":"text/plain","contentEncoding":"identity","contentDisposition":"inline","contentLanguage":"en","cacheControl":"private","metadata":{"source":"one","other":"two"},"eventBasedHold":true}"#).json_ok();
+    let copied = copy(&server, "dir%2F%E7%8C%AB%252F", "copy", "", b"").json_ok();
     assert_eq!(copied["metadata"], json!({"source":"one","other":"two"}));
     assert_eq!(copied["contentType"], "text/plain");
     assert_eq!(copied["contentLanguage"], "en");
@@ -333,11 +330,11 @@ fn copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it() {
     assert_ne!(copied["generation"], source["generation"]);
     assert_eq!(copied["metageneration"], "1");
     assert_eq!(media(&server, "test-bucket", "copy"), b"contents");
-    let null_copy = copy(&server, "dir%2F%E7%8C%AB%252F", "null-copy", "", b" null\n").json();
+    let null_copy = copy(&server, "dir%2F%E7%8C%AB%252F", "null-copy", "", b" null\n").json_ok();
     assert_eq!(null_copy["metadata"], copied["metadata"]);
     assert_eq!(null_copy["contentType"], copied["contentType"]);
     assert!(null_copy.get("eventBasedHold").is_none());
-    let replaced = copy(&server, "dir%2F%E7%8C%AB%252F", "replaced", "", br#"{"bucket":"ignored","name":"ignored","metadata":{"new":"three"},"storageClass":"NEARLINE"}"#).json();
+    let replaced = copy(&server, "dir%2F%E7%8C%AB%252F", "replaced", "", br#"{"bucket":"ignored","name":"ignored","metadata":{"new":"three"},"storageClass":"NEARLINE"}"#).json_ok();
     assert_eq!(replaced["bucket"], "test-bucket");
     assert_eq!(replaced["name"], "replaced");
     assert_eq!(replaced["metadata"], json!({"new":"three"}));
@@ -351,12 +348,12 @@ fn copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it() {
     ] {
         assert!(replaced.get(field).is_none(), "{field}");
     }
-    let empty = copy(&server, "dir%2F%E7%8C%AB%252F", "empty-metadata", "", b"{}").json();
+    let empty = copy(&server, "dir%2F%E7%8C%AB%252F", "empty-metadata", "", b"{}").json_ok();
     // An empty resource keeps the source metadata like an absent one (recorded for `{}`).
     assert_eq!(empty["metadata"], copied["metadata"]);
     assert_eq!(empty["contentType"], copied["contentType"]);
     assert_eq!(
-        server.get("dir%2F%E7%8C%AB%252F").json()["eventBasedHold"],
+        server.get("dir%2F%E7%8C%AB%252F").json_ok()["eventBasedHold"],
         true
     );
 }
@@ -366,8 +363,8 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
     let (dir, mut server) = setup(false);
     settings(&dir, true, false);
     let payload = vec![b'x'; 200_003];
-    let original = server.put("source", &payload).json();
-    server.put("source", b"new live bytes").json();
+    let original = server.put("source", &payload).json_ok();
+    server.put("source", b"new live bytes").json_ok();
     server
         .request(
             "POST",
@@ -375,7 +372,7 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
             ADMIN,
             br#"{"name":"destination-bucket"}"#,
         )
-        .json();
+        .json_ok();
     let copied = server
         .request(
             "POST",
@@ -391,13 +388,13 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
             ADMIN,
             b"",
         )
-        .json();
+        .json_ok();
     // The copy receives the destination bucket's default object ACL.
     assert_eq!(copied["acl"][0]["bucket"], "destination-bucket");
     let copied = object_effects_support::common::without_acl(copied);
     assert_eq!(copied["md5Hash"], original["md5Hash"]);
     assert_eq!(media(&server, "destination-bucket", "cross"), payload);
-    let before = server.get("source").json();
+    let before = server.get("source").json_ok();
     let same = copy(
         &server,
         "source",
@@ -408,7 +405,7 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
         ),
         b"",
     )
-    .json();
+    .json_ok();
     assert_ne!(before["generation"], same["generation"]);
     assert_eq!(media(&server, "test-bucket", "source"), b"new live bytes");
     let mut retired = server
@@ -421,7 +418,7 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
             ADMIN,
             b"",
         )
-        .json();
+        .json_ok();
     assert!(retired["timeDeleted"].is_string());
     retired.as_object_mut().unwrap().remove("timeDeleted");
     assert_eq!(retired, before);
@@ -432,11 +429,11 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
         "?fields=name,size&projection=noAcl",
         b"",
     )
-    .json();
+    .json_ok();
     assert_eq!(selected, json!({"name":"selected","size":"14"}));
-    server.put("zero", b"").json();
+    server.put("zero", b"").json_ok();
     assert_eq!(
-        copy(&server, "zero", "zero-copy", "", b"").json()["size"],
+        copy(&server, "zero", "zero-copy", "", b"").json_ok()["size"],
         "0"
     );
     server.stop();
@@ -449,7 +446,7 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
                 ADMIN,
                 b""
             )
-            .json(),
+            .json_ok(),
         copied
     );
     assert_eq!(media(&server, "destination-bucket", "cross"), payload);
@@ -458,8 +455,8 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
 #[test]
 fn copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets() {
     let (dir, server) = setup(false);
-    let source = server.put("source", b"source").json();
-    let target = server.put("target", b"target").json();
+    let source = server.put("source", b"source").json_ok();
+    let target = server.put("target", b"target").json_ok();
     let generation = source["generation"].as_str().unwrap();
     for query in [
         "?ifSourceGenerationMatch=1".to_owned(),
@@ -475,13 +472,13 @@ fn copy_checks_all_source_and_destination_conditions_and_preserves_failed_target
         "?ifMetagenerationMatch=2".to_owned(),
         "?ifMetagenerationNotMatch=1".to_owned(),
     ] {
-        copy(&server, "source", "target", &query, b"").error(412, "conditionNotMet");
-        assert_eq!(server.get("target").json(), target);
+        copy(&server, "source", "target", &query, b"").json_reason(412, "conditionNotMet");
+        assert_eq!(server.get("target").json_ok(), target);
         assert_no_transfer_files(&dir);
     }
     copy(&server, "source", "missing", "?ifGenerationNotMatch=0", b"")
-        .error(412, "conditionNotMet");
-    let first = copy(&server, "source", "missing", "?ifGenerationMatch=0", b"").json();
+        .json_reason(412, "conditionNotMet");
+    let first = copy(&server, "source", "missing", "?ifGenerationMatch=0", b"").json_ok();
     copy(
         &server,
         "source",
@@ -489,16 +486,16 @@ fn copy_checks_all_source_and_destination_conditions_and_preserves_failed_target
         "?ifGenerationNotMatch=0&ifMetagenerationMatch=1",
         b"",
     )
-    .json();
+    .json_ok();
     assert_ne!(
-        server.get("missing").json()["generation"],
+        server.get("missing").json_ok()["generation"],
         first["generation"]
     );
     let combined = format!(
         "?ifSourceGenerationMatch={generation}&ifSourceGenerationNotMatch=0&ifSourceMetagenerationMatch=1&ifSourceMetagenerationNotMatch=2&ifGenerationMatch={}&ifGenerationNotMatch=0&ifMetagenerationMatch=1&ifMetagenerationNotMatch=2",
         target["generation"].as_str().unwrap()
     );
-    copy(&server, "source", "target", &combined, b"").json();
+    copy(&server, "source", "target", &combined, b"").json_ok();
     assert_eq!(media(&server, "test-bucket", "target"), b"source");
     let same = copy(
         &server,
@@ -507,7 +504,7 @@ fn copy_checks_all_source_and_destination_conditions_and_preserves_failed_target
         &format!("?ifSourceGenerationMatch={generation}"),
         b"",
     )
-    .json();
+    .json_ok();
     assert_ne!(same["generation"], source["generation"]);
     assert_eq!(media(&server, "test-bucket", "source"), b"source");
 }
@@ -515,9 +512,9 @@ fn copy_checks_all_source_and_destination_conditions_and_preserves_failed_target
 #[test]
 fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
     let (dir, server) = setup(false);
-    let original = server.put("source", b"bytes").json();
-    server.put("target", b"old").json();
-    copy(&server, "source", "target", "", br#"{"crc32c":"AAAAAA=="}"#).error(400, "invalid");
+    let original = server.put("source", b"bytes").json_ok();
+    server.put("target", b"old").json_ok();
+    copy(&server, "source", "target", "", br#"{"crc32c":"AAAAAA=="}"#).json_reason(400, "invalid");
     assert_eq!(media(&server, "test-bucket", "target"), b"old");
     assert_no_transfer_files(&dir);
     copy(
@@ -527,7 +524,7 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
         "",
         br#"{"md5Hash":"AAAAAAAAAAAAAAAAAAAAAA=="}"#,
     )
-    .error(400, "invalid");
+    .json_reason(400, "invalid");
     assert_eq!(media(&server, "test-bucket", "target"), b"old");
     assert_no_transfer_files(&dir);
     copy(
@@ -539,10 +536,10 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
             .to_string()
             .as_bytes(),
     )
-    .json();
+    .json_ok();
     settings(&dir, true, true);
     assert_eq!(
-        copy(&server, "source", "held", "", b"").json()["eventBasedHold"],
+        copy(&server, "source", "held", "", b"").json_ok()["eventBasedHold"],
         true
     );
     copy(&server, "source", "held", "", b"").hold_error();
@@ -556,7 +553,7 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
             "",
             br#"{"eventBasedHold":false}"#
         )
-        .json()["eventBasedHold"],
+        .json_ok()["eventBasedHold"],
         false
     );
 }
@@ -564,18 +561,19 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
 #[test]
 fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
     let (dir, server) = setup(false);
-    server.put("source", b"source").json();
+    server.put("source", b"source").json_ok();
     for query in [
         "destinationPredefinedAcl=publicRead",
         "destinationKmsKeyName=key",
         "userProject=local",
         "dropContextGroups=custom",
     ] {
-        copy(&server, "source", "target", &format!("?{query}"), b"").error(400, "badRequest");
+        copy(&server, "source", "target", &format!("?{query}"), b"").json_reason(400, "badRequest");
     }
     // prettyPrint only selects the body layout; a non-boolean value is still rejected.
-    copy(&server, "source", "pretty", "?prettyPrint=true", b"").json();
-    copy(&server, "source", "target", "?prettyPrint=maybe", b"").error(400, "invalidParameter");
+    copy(&server, "source", "pretty", "?prettyPrint=true", b"").json_ok();
+    copy(&server, "source", "target", "?prettyPrint=maybe", b"")
+        .json_reason(400, "invalidParameter");
     for query in [
         "sourceGeneration=0",
         "sourceGeneration=-1",
@@ -583,7 +581,8 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
         "ifGenerationMatch=1&ifGenerationMatch=2",
         "unknown=yes",
     ] {
-        copy(&server, "source", "target", &format!("?{query}"), b"").error(400, "invalidParameter");
+        copy(&server, "source", "target", &format!("?{query}"), b"")
+            .json_reason(400, "invalidParameter");
     }
     for body in [
         br#"{"acl":[]}"#.as_slice(),
@@ -592,10 +591,10 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
         br#"{"retention":{}}"#,
         br#"{"generation":"1"}"#,
     ] {
-        copy(&server, "source", "target", "", body).error(400, "badRequest");
+        copy(&server, "source", "target", "", body).json_reason(400, "badRequest");
     }
-    copy(&server, "source", "target", "", b"invalid").error(400, "invalid");
-    copy(&server, "missing", "target", "", b"").error(404, "notFound");
+    copy(&server, "source", "target", "", b"invalid").json_reason(400, "invalid");
+    copy(&server, "missing", "target", "", b"").json_reason(404, "notFound");
     server
         .request(
             "POST",
@@ -603,7 +602,7 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
             ADMIN,
             b"",
         )
-        .error(404, "notFound");
+        .json_reason(404, "notFound");
     server
         .request(
             "POST",
@@ -611,8 +610,8 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
             ADMIN,
             b"",
         )
-        .error(404, "notFound");
-    copy(&server, "source", "bad%0Aname", "", b"").error(400, "invalidParameter");
+        .json_reason(404, "notFound");
+    copy(&server, "source", "bad%0Aname", "", b"").json_reason(400, "invalidParameter");
     server
         .request(
             "GET",
@@ -620,7 +619,7 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
             ADMIN,
             b"",
         )
-        .error(405, "methodNotAllowed");
+        .json_reason(405, "methodNotAllowed");
     // Incomplete customer-supplied keys fail with their documented reason before mutation.
     for header in [
         "X-Goog-Encryption-Key: key\r\n",
@@ -633,7 +632,7 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
                 header,
                 b"",
             )
-            .error(400, "customerEncryptionAlgorithmIsInvalid");
+            .json_reason(400, "customerEncryptionAlgorithmIsInvalid");
     }
     for header in [
         "X-Goog-Encryption-Kms-Key-Name: key\r\n",
@@ -647,23 +646,23 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
                 header,
                 b"",
             )
-            .error(400, "badRequest");
+            .json_reason(400, "badRequest");
     }
-    server.get("target").error(404, "notFound");
+    server.get("target").json_reason(404, "notFound");
     assert_no_transfer_files(&dir);
 }
 
 #[test]
 fn strict_copy_requires_source_read_destination_create_and_delete_for_overwrite() {
     let (dir, server) = setup(true);
-    server.put("source", b"source").json();
+    server.put("source", b"source").json_ok();
     let route = path("source", "test-bucket", "copy", "");
     server
         .request("POST", &route, "Authorization: Bearer viewer\r\n", b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request("POST", &route, "Authorization: Bearer creator\r\n", b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request(
             "PUT",
@@ -671,19 +670,19 @@ fn strict_copy_requires_source_read_destination_create_and_delete_for_overwrite(
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
         )
-        .json();
+        .json_ok();
     let first = server
         .request("POST", &route, "Authorization: Bearer creator\r\n", b"")
-        .json();
+        .json_ok();
     server
         .request("POST", &route, "Authorization: Bearer creator\r\n", b"")
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     assert_eq!(
         first["owner"],
         json!({"entity": "user-creator@example.test"})
     );
     assert_eq!(
-        server.get("copy").json(),
+        server.get("copy").json_ok(),
         object_effects_support::common::without_acl(first)
     );
     server
@@ -693,9 +692,9 @@ fn strict_copy_requires_source_read_destination_create_and_delete_for_overwrite(
             "Authorization: Bearer creator\r\n",
             b"",
         )
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     assert_no_transfer_files(&dir);
-    server.request("POST", &route, ADMIN, b"").json();
+    server.request("POST", &route, ADMIN, b"").json_ok();
     assert_eq!(media(&server, "test-bucket", "copy"), b"source");
 }
 
@@ -704,7 +703,7 @@ fn concurrent_copy_create_if_absent_publishes_exactly_one_generation() {
     use std::sync::{Arc, Barrier};
     let (_dir, server) = setup(false);
     let payload = vec![b's'; 200_003];
-    server.put("source", &payload).json();
+    server.put("source", &payload).json_ok();
     let barrier = Arc::new(Barrier::new(3));
     let threads: Vec<_> = (0..2)
         .map(|_| {
@@ -736,9 +735,9 @@ fn concurrent_copy_create_if_absent_publishes_exactly_one_generation() {
 #[test]
 fn copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes() {
     let (dir, server) = setup(false);
-    server.put("source", b"composite bytes").json();
+    server.put("source", b"composite bytes").json_ok();
     rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap().execute("UPDATE objects SET component_count = 2, storage_class = 'NEARLINE' WHERE name = 'source'", []).unwrap();
-    let inherited = copy(&server, "source", "inherited", "", b"").json();
+    let inherited = copy(&server, "source", "inherited", "", b"").json_ok();
     assert_eq!(inherited["storageClass"], "NEARLINE");
     assert_eq!(inherited["componentCount"], 2);
     assert!(inherited.get("md5Hash").is_none());
@@ -749,7 +748,7 @@ fn copy_preserves_composite_identity_and_inherited_class_until_class_or_location
         "",
         br#"{"storageClass":"STANDARD"}"#,
     )
-    .json();
+    .json_ok();
     assert_eq!(replaced["storageClass"], "STANDARD");
     assert_eq!(replaced["componentCount"], 1);
     assert!(replaced.get("md5Hash").is_none());
@@ -760,7 +759,7 @@ fn copy_preserves_composite_identity_and_inherited_class_until_class_or_location
             ADMIN,
             br#"{"name":"asia-bucket","location":"ASIA"}"#,
         )
-        .json();
+        .json_ok();
     let moved = server
         .request(
             "POST",
@@ -768,7 +767,7 @@ fn copy_preserves_composite_identity_and_inherited_class_until_class_or_location
             ADMIN,
             b"",
         )
-        .json();
+        .json_ok();
     assert_eq!(moved["storageClass"], "NEARLINE");
     assert_eq!(moved["componentCount"], 1);
     assert!(moved.get("md5Hash").is_none());
@@ -781,7 +780,7 @@ fn copy_preserves_composite_identity_and_inherited_class_until_class_or_location
 #[test]
 fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
     let (dir, server) = setup(true);
-    server.put("source", b"source").json();
+    server.put("source", b"source").json_ok();
     server
         .request(
             "POST",
@@ -789,7 +788,7 @@ fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
             ADMIN,
             br#"{"name":"target-bucket"}"#,
         )
-        .json();
+        .json_ok();
     server
         .request(
             "PUT",
@@ -797,15 +796,15 @@ fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
             ADMIN,
             br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
         )
-        .json();
+        .json_ok();
     let route = path("source", "target-bucket", "copy", "");
     server
         .request("POST", &route, "Authorization: Bearer creator\r\n", b"")
-        .json();
+        .json_ok();
     let reverse = "/storage/v1/b/target-bucket/o/copy/copyTo/b/test-bucket/o/reverse";
     server
         .request("POST", reverse, "Authorization: Bearer creator\r\n", b"")
-        .json();
+        .json_ok();
     assert_eq!(media(&server, "test-bucket", "reverse"), b"source");
     server
         .request(
@@ -814,7 +813,7 @@ fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
             ADMIN,
             b"private",
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -822,7 +821,7 @@ fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
             "Authorization: Bearer creator\r\n",
             b"",
         )
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request(
             "GET",
@@ -830,11 +829,11 @@ fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
             "Authorization: Bearer creator\r\n",
             b"",
         )
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     server
         .request("POST", &route, "Authorization: Bearer viewer\r\n", b"")
-        .error(403, "forbidden");
-    server.request("PUT", "/storage/v1/b/target-bucket/iam", ADMIN, br#"{"bindings":[{"role":"roles/storage.objectCreator","members":["user:viewer@example.test"]}]}"#).json();
+        .json_reason(403, "forbidden");
+    server.request("PUT", "/storage/v1/b/target-bucket/iam", ADMIN, br#"{"bindings":[{"role":"roles/storage.objectCreator","members":["user:viewer@example.test"]}]}"#).json_ok();
     server
         .request(
             "POST",
@@ -842,7 +841,7 @@ fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
             "Authorization: Bearer viewer\r\n",
             b"",
         )
-        .json();
+        .json_ok();
     server
         .request(
             "POST",
@@ -850,6 +849,6 @@ fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
             "Authorization: Bearer viewer\r\n",
             b"",
         )
-        .error(403, "forbidden");
+        .json_reason(403, "forbidden");
     assert_no_transfer_files(&dir);
 }
