@@ -28,13 +28,86 @@ async fn reset_classifies_every_catalog_table() {
     let (_dir, catalog, _admin) = setup().await;
     catalog.run::<_, CatalogError>(|connection| {
         let tables = connection.prepare_cached("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")?.query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
-        let retained = ["object_generation", "bucket_generation", "policy_revision", "catalog_identity", "change_journal_state", "notification_outbox_state", "pending_blob_deletions"];
-        let cascaded = ["acl_bucket_entries", "acl_object_entries", "bucket_notifications", "bucket_notification_ids"];
-        let cleared = CLEAR.iter().filter_map(|statement| statement.strip_prefix("DELETE FROM ").or_else(|| statement.strip_prefix("UPDATE ").and_then(|value| value.split_whitespace().next()))).collect::<Vec<_>>();
-        let unclassified = tables.iter().filter(|table| !cleared.contains(&table.as_str()) && !retained.contains(&table.as_str()) && !cascaded.contains(&table.as_str())).collect::<Vec<_>>();
-        assert!(unclassified.is_empty(), "tables missing reset policy: {unclassified:?}");
+        let cleared = CLEAR.iter().filter_map(|statement| statement.strip_prefix("DELETE FROM ")).collect::<Vec<_>>();
+        for table in &tables {
+            let classifications = [cleared.contains(&table.as_str()), RETAINED.contains(&table.as_str()), CASCADED.contains(&table.as_str())];
+            assert_eq!(classifications.into_iter().filter(|classified| *classified).count(), 1, "ambiguous or missing reset policy: {table}");
+        }
+        for table in cleared.iter().chain(RETAINED).chain(CASCADED) {
+            assert!(tables.iter().any(|existing| existing == table), "obsolete reset policy: {table}");
+        }
         Ok(())
     }).await.unwrap();
+    catalog.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn reclaim_retains_the_whole_page_until_every_directory_is_synced() {
+    use crate::storage::{
+        BlobId,
+        catalog::fault::{Fault, Step},
+    };
+    let (dir, catalog, _admin) = setup().await;
+    let ids = [
+        "01000000000000000000000000000000",
+        "01000000000000000000000000000001",
+        "01000000000000000000000000000002",
+    ]
+    .map(|id| BlobId::parse(id).unwrap());
+    for id in ids {
+        for path in [
+            id.blob_path(&dir.0),
+            id.staging_path(&dir.0),
+            dir.0.join("appendable").join(id.to_hex()),
+        ] {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"unreferenced").unwrap();
+        }
+    }
+    let root = dir.0.clone();
+    catalog
+        .run::<_, CatalogError>(move |connection| {
+            for id in ids {
+                sql::exec(
+                    connection,
+                    "INSERT INTO pending_blob_deletions (blob_id) VALUES (?1)",
+                    [id],
+                )?;
+            }
+            super::super::super::fault::arm(
+                &root,
+                Step::ResetReclaimSync,
+                1,
+                Fault::Io(io::ErrorKind::Other),
+            );
+            assert!(reclaim(connection, &root).is_err());
+            assert_eq!(
+                sql::scalar::<i64>(
+                    connection,
+                    "SELECT count(*) FROM pending_blob_deletions",
+                    []
+                )?,
+                3
+            );
+            for id in ids {
+                assert!(!id.blob_path(&root).exists());
+                assert!(!id.staging_path(&root).exists());
+                assert!(!root.join("appendable").join(id.to_hex()).exists());
+            }
+            reclaim(connection, &root)?;
+            assert_eq!(
+                sql::scalar::<i64>(
+                    connection,
+                    "SELECT count(*) FROM pending_blob_deletions",
+                    []
+                )?,
+                0
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
     catalog.close().await.unwrap();
 }
 
@@ -302,6 +375,23 @@ async fn reset_waits_for_staged_files_session_and_appendable_writers_and_clears_
         .unwrap();
     admin.reset().await.unwrap();
     assert!(catalog.get_derived(&transfer.id).await.is_err());
+    catalog
+        .run::<_, CatalogError>(|connection| {
+            for table in CLEAR
+                .iter()
+                .filter_map(|statement| statement.strip_prefix("DELETE FROM "))
+                .chain(CASCADED.iter().copied())
+            {
+                let count: i64 =
+                    connection.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })?;
+                assert_eq!(count, 0, "reset retained rows in {table}");
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
     assert!(
         catalog
             .resumable_session(&session.id, "reset-bucket")
