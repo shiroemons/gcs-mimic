@@ -337,6 +337,8 @@ impl Catalog {
                 }
                 return Err(unavailable(error).into());
             }
+            #[cfg(test)]
+            super::fault::hit(&catalog.0.data_dir, super::fault::Step::SessionCreated).map_err(unavailable)?;
             sql::row(connection, "SELECT * FROM resumable_sessions WHERE id = ?1", [&id], read_session).map_err(|e|unavailable(e).into())
         }).await?;
         self.0.maintenance_wake.notify_one();

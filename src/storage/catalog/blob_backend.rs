@@ -10,6 +10,9 @@ use std::{
 };
 use tokio::io::AsyncSeekExt;
 
+#[cfg(all(test, unix))]
+mod durability_tests;
+
 pub(super) enum ReadAccess {
     WriteOnly,
     ReadWrite,
@@ -290,10 +293,18 @@ impl BlobBackend {
             .write(true)
             .create_new(true)
             .open(&path)?;
+        #[cfg(all(test, unix))]
+        super::fault::file_created(&path);
         let synced = (|| -> io::Result<()> {
             file.sync_all()?;
+            #[cfg(test)]
+            super::fault::file_synced(root, &file.metadata()?);
             #[cfg(unix)]
-            fs::File::open(root.join("staging"))?.sync_all()?;
+            {
+                #[cfg(test)]
+                hit_io(root, super::fault::Step::SessionCreateSync)?;
+                objects::sync_dir(&root.join("staging"))?;
+            }
             Ok(())
         })();
         if let Err(error) = synced {
@@ -313,14 +324,22 @@ impl BlobBackend {
 
     pub(super) fn remove_draft_durable(&self, id: &BlobId) -> io::Result<()> {
         match self {
-            Self::Disk(root) => unlink_synced(&id.staging_path(root)),
+            Self::Disk(root) => unlink_synced(
+                &id.staging_path(root),
+                #[cfg(all(test, unix))]
+                root,
+            ),
             Self::Memory(_) => self.remove_draft(id),
         }
     }
 
     pub(super) fn remove_durable(&self, id: &BlobId) -> io::Result<()> {
         match self {
-            Self::Disk(root) => unlink_synced(&id.blob_path(root)),
+            Self::Disk(root) => unlink_synced(
+                &id.blob_path(root),
+                #[cfg(all(test, unix))]
+                root,
+            ),
             Self::Memory(_) => self.remove(id),
         }
     }
@@ -373,16 +392,45 @@ impl BlobBackend {
     }
 }
 
-fn unlink_synced(path: &Path) -> io::Result<()> {
+fn unlink_synced(path: &Path, #[cfg(all(test, unix))] data_dir: &Path) -> io::Result<()> {
+    #[cfg(all(test, unix))]
+    let retained = if super::fault::pending(data_dir) > 0 {
+        match fs::File::open(path) {
+            Ok(file) => Some(file),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        }
+    } else {
+        None
+    };
     match fs::remove_file(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        result => result?,
+        Ok(()) =>
+        {
+            #[cfg(all(test, unix))]
+            if let Some(file) = retained {
+                super::fault::unlinked(path, &file)?;
+            }
+        }
+        Err(error) => return Err(error),
     }
     #[cfg(unix)]
     if let Some(parent) = path.parent()
         && parent.exists()
     {
-        fs::File::open(parent).and_then(|directory| directory.sync_all())?;
+        #[cfg(test)]
+        hit_io(data_dir, super::fault::Step::SessionCleanupSync)?;
+        objects::sync_dir(parent)?;
+        #[cfg(test)]
+        hit_io(data_dir, super::fault::Step::SessionCleanupSynced)?;
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+fn hit_io(data_dir: &Path, step: super::fault::Step) -> io::Result<()> {
+    super::fault::hit(data_dir, step).map_err(|error| match error {
+        super::fault::Injected::Io(error) => error,
+        super::fault::Injected::Sqlite(error) => io::Error::other(error),
+    })
 }

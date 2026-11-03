@@ -102,6 +102,14 @@ pub(crate) enum Step {
     SessionFailureCommit,
     /// After committing a terminal resumable error, before reclaiming staged bytes.
     SessionFailureCommitted,
+    /// The session row must not commit if its staging entry cannot be synced.
+    SessionCreateSync,
+    /// Acknowledging a session requires a durable staging entry.
+    SessionCreated,
+    /// Keep the cleanup journal until directory removal is durable.
+    SessionCleanupSync,
+    /// A removed entry must not reappear after its directory sync.
+    SessionCleanupSynced,
     /// After the staged file is durable, before it is renamed into `blobs/`.
     BeforePublish,
     /// After the rename and shard sync, before the catalog transaction.
