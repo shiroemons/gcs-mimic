@@ -241,8 +241,7 @@ async fn finalization_inherits_default_acl_and_autoclass_class() {
                 .execute(
                     "INSERT INTO acl_bucket_entries VALUES ('auto', 'defaultObject', '[{\"entity\":\"allUsers\",\"role\":\"READER\"}]')",
                     [],
-                )
-                .map_err(object_unavailable)?;
+                )?;
             Ok(())
         })
         .await
@@ -384,8 +383,7 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
                 .execute(
                     "INSERT INTO appendable_objects VALUES ('append', 'crash', ?1, ?2, ?3, ?4, 3, 0, 1, 1, ?5, 1)",
                     params![generation, incarnation, id, encoded, "0".repeat(32)],
-                )
-                .map_err(object_unavailable)?;
+                )?;
             Ok(())
         })
         .await

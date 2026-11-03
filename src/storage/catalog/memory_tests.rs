@@ -662,25 +662,17 @@ async fn ram_default_budgets_accept_one_thousand_small_objects_and_report_databa
     }
     let pages = catalog
         .run::<_, CatalogError>(|connection| {
-            let main: i64 = connection
-                .pragma_query_value(None, "page_count", |row| row.get(0))
-                .map_err(unavailable)?;
-            let limit: i64 = connection
-                .pragma_query_value(None, "max_page_count", |row| row.get(0))
-                .map_err(unavailable)?;
-            let page_size: i64 = connection
-                .pragma_query_value(None, "page_size", |row| row.get(0))
-                .map_err(unavailable)?;
-            let temp: i64 = connection
-                .pragma_query_value(Some("temp"), "page_count", |row| row.get(0))
-                .map_err(unavailable)?;
+            let main: i64 = connection.pragma_query_value(None, "page_count", |row| row.get(0))?;
+            let limit: i64 =
+                connection.pragma_query_value(None, "max_page_count", |row| row.get(0))?;
+            let page_size: i64 =
+                connection.pragma_query_value(None, "page_size", |row| row.get(0))?;
+            let temp: i64 =
+                connection.pragma_query_value(Some("temp"), "page_count", |row| row.get(0))?;
             let filenames = connection
-                .prepare_cached("PRAGMA database_list")
-                .map_err(unavailable)?
-                .query_map([], |row| row.get::<_, String>(2))
-                .map_err(unavailable)?
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(unavailable)?;
+                .prepare_cached("PRAGMA database_list")?
+                .query_map([], |row| row.get::<_, String>(2))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             assert!(filenames.iter().all(String::is_empty));
             Ok((main, limit, page_size, temp))
         })
@@ -755,26 +747,19 @@ async fn ram_pragmas_keep_main_and_temp_page_limits_and_memory_journaling() {
     catalog
         .run::<_, CatalogError>(|connection| {
             for schema in [None, Some("temp")] {
-                let pages: i64 = connection
-                    .pragma_query_value(schema, "max_page_count", |row| row.get(0))
-                    .map_err(unavailable)?;
+                let pages: i64 =
+                    connection.pragma_query_value(schema, "max_page_count", |row| row.get(0))?;
                 assert_eq!(pages, 256);
             }
-            let mode: String = connection
-                .pragma_query_value(None, "journal_mode", |row| row.get(0))
-                .map_err(unavailable)?;
+            let mode: String =
+                connection.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
             assert_eq!(mode, "memory");
-            let temp: i64 = connection
-                .pragma_query_value(None, "temp_store", |row| row.get(0))
-                .map_err(unavailable)?;
+            let temp: i64 = connection.pragma_query_value(None, "temp_store", |row| row.get(0))?;
             assert_eq!(temp, 2);
             let files = connection
-                .prepare_cached("PRAGMA database_list")
-                .map_err(unavailable)?
-                .query_map([], |row| row.get::<_, String>(2))
-                .map_err(unavailable)?
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(unavailable)?;
+                .prepare_cached("PRAGMA database_list")?
+                .query_map([], |row| row.get::<_, String>(2))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             assert!(files.iter().all(String::is_empty));
             Ok(())
         })

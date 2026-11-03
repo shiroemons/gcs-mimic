@@ -386,11 +386,11 @@ async fn full_outbox_rolls_back_the_object_mutation() {
     let dir = TestDir::new();
     let catalog = setup(&dir, false).await;
     catalog.run(|connection| {
-        let transaction = connection.transaction().map_err(unavailable)?;
+        let transaction = connection.transaction()?;
         for id in 1..=4096 {
-            sql::exec(&transaction, "INSERT INTO notification_outbox VALUES (?1, '//pubsub.googleapis.com/projects/p/topics/topic', '{\"messages\":[]}', 0, 0)", [id]).map_err(unavailable)?;
+            sql::exec(&transaction, "INSERT INTO notification_outbox VALUES (?1, '//pubsub.googleapis.com/projects/p/topics/topic', '{\"messages\":[]}', 0, 0)", [id])?;
         }
-        sql::exec(&transaction, "UPDATE notification_outbox_state SET last_id = 4096", []).map_err(unavailable)?;
+        sql::exec(&transaction, "UPDATE notification_outbox_state SET last_id = 4096", [])?;
         transaction.commit().map_err(unavailable)
     }).await.unwrap();
     assert!(matches!(
@@ -774,7 +774,7 @@ async fn byte_budget_and_count_budget_both_rollback_the_mutation() {
     let catalog = setup(&dir, false).await;
     catalog
         .run(|connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
+            let transaction = connection.transaction()?;
             let message = json!({"padding": "x".repeat(130_000)}).to_string();
             let topic = "//pubsub.googleapis.com/projects/p/topics/topic";
             let size = message.len() + topic.len();
@@ -784,8 +784,7 @@ async fn byte_budget_and_count_budget_both_rollback_the_mutation() {
                     &transaction,
                     "INSERT INTO notification_outbox VALUES (?1, ?2, ?3, 0, 0)",
                     params![id as i64, topic, message],
-                )
-                .map_err(unavailable)?;
+                )?;
             }
             // Leave less capacity than even the smallest notification, without exceeding a row bound.
             let remainder = 16_777_216 - count * size;
@@ -794,14 +793,12 @@ async fn byte_budget_and_count_budget_both_rollback_the_mutation() {
                 &transaction,
                 "INSERT INTO notification_outbox VALUES (?1, ?2, ?3, 0, 0)",
                 params![count as i64 + 1, topic, last],
-            )
-            .map_err(unavailable)?;
+            )?;
             sql::exec(
                 &transaction,
                 "UPDATE notification_outbox_state SET last_id = ?1",
                 [count as i64 + 1],
-            )
-            .map_err(unavailable)?;
+            )?;
             transaction.commit().map_err(unavailable)
         })
         .await

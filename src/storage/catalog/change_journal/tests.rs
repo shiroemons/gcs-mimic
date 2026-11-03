@@ -172,7 +172,7 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
     let baseline = catalog.enable_change_journal().await.unwrap();
     catalog
         .run::<_, CatalogError>(|connection| {
-            let tx = connection.transaction().map_err(unavailable)?;
+            let tx = connection.transaction()?;
             // Real retention boundary with fixed metadata, without staging 65,537 blobs.
             for _ in 0..=MAX_RECORDS {
                 append(
@@ -440,9 +440,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
     catalog
         .run::<_, CatalogError>(|connection| {
             for index in 0..40 {
-                connection
-                    .execute_batch(&format!("CREATE TABLE zz_extra_{index}(value);"))
-                    .map_err(unavailable)?;
+                connection.execute_batch(&format!("CREATE TABLE zz_extra_{index}(value);"))?;
             }
             assert!(super::super::validate_schema(connection, 16).is_err());
             Ok(())

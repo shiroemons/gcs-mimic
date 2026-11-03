@@ -840,9 +840,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
     );
     catalog
         .run(|connection| {
-            let pages: i64 = connection
-                .pragma_query_value(None, "page_count", |row| row.get(0))
-                .map_err(unavailable)?;
+            let pages: i64 = connection.pragma_query_value(None, "page_count", |row| row.get(0))?;
             connection
                 .pragma_update(None, "max_page_count", pages + 2)
                 .map_err(unavailable)
@@ -1128,8 +1126,8 @@ async fn admin_corrupt_sqlite_and_stored_values_remain_typed() {
 
 async fn fail_retirement_with_disk_full(catalog: &Catalog) {
     catalog.run(|connection| {
-        connection.execute_batch("CREATE TEMP TRIGGER full_retirement BEFORE DELETE ON objects BEGIN UPDATE buckets SET labels = hex(zeroblob(65536)) WHERE name = 'test-bucket'; END;").map_err(unavailable)?;
-        let pages: i64 = connection.pragma_query_value(None, "page_count", |row| row.get(0)).map_err(unavailable)?;
+        connection.execute_batch("CREATE TEMP TRIGGER full_retirement BEFORE DELETE ON objects BEGIN UPDATE buckets SET labels = hex(zeroblob(65536)) WHERE name = 'test-bucket'; END;")?;
+        let pages: i64 = connection.pragma_query_value(None, "page_count", |row| row.get(0))?;
         connection.pragma_update(None, "max_page_count", pages + 2).map_err(unavailable)
     }).await.unwrap();
 }
@@ -1137,9 +1135,7 @@ async fn fail_retirement_with_disk_full(catalog: &Catalog) {
 async fn allow_retirement(catalog: &Catalog) {
     catalog
         .run(|connection| {
-            connection
-                .execute_batch("DROP TRIGGER full_retirement")
-                .map_err(unavailable)?;
+            connection.execute_batch("DROP TRIGGER full_retirement")?;
             connection
                 .pragma_update(None, "max_page_count", 1_073_741_823)
                 .map_err(unavailable)
