@@ -97,6 +97,76 @@ pub(super) struct PublicationDefaults {
     pub(super) owner: Option<crate::object::owner::ObjectOwner>,
 }
 
+/// Bucket settings shared by every check and mutation in one publication.
+pub(super) struct BucketPublication {
+    default_class: StorageClass,
+    autoclass: Option<crate::bucket::autoclass::Autoclass>,
+    pub(super) versioning: Versioning,
+    pub(super) default_event_hold: bool,
+    retention_period: Option<u64>,
+    soft_delete_seconds: i64,
+}
+
+impl BucketPublication {
+    pub(super) fn load(connection: &Connection, bucket: &str) -> Result<Self, ObjectError> {
+        let (default_class, autoclass, versioning, default_event_hold, retention_period, soft_delete_seconds) = sql::row(
+            connection,
+            "SELECT storage_class, autoclass, versioning_enabled, default_event_based_hold, json_extract(retention_policy, '$.retention_period'), COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0) FROM buckets WHERE name = ?1",
+            [bucket],
+            |row| Ok((row.get(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, bool>(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        ).optional()?.ok_or(ObjectError::BucketNotFound)?;
+        let autoclass = autoclass
+            .map(|value| serde_json::from_str(&value))
+            .transpose()
+            .map_err(|error| {
+                ObjectError::Corrupt(crate::storage::failure::BackendCause::with_source(
+                    format!("bucket autoclass: {error}"),
+                    error,
+                ))
+            })?;
+        Ok(Self {
+            default_class,
+            autoclass,
+            versioning: if versioning {
+                Versioning::Enabled
+            } else {
+                Versioning::Disabled
+            },
+            default_event_hold,
+            retention_period,
+            soft_delete_seconds,
+        })
+    }
+
+    pub(super) fn storage_class(&self, requested: Option<StorageClass>) -> StorageClass {
+        crate::bucket::autoclass::object_storage_class(
+            self.autoclass.as_ref(),
+            requested,
+            self.default_class,
+        )
+    }
+
+    pub(super) fn retention_expiration(
+        &self,
+        created: std::time::SystemTime,
+    ) -> Result<Option<std::time::SystemTime>, ObjectError> {
+        self.retention_period
+            .map(|period| expiration_after(created, period))
+            .transpose()
+    }
+
+    fn soft_delete_deadline(&self, micros: i64) -> Result<Option<i64>, ObjectError> {
+        if self.soft_delete_seconds <= 0 {
+            return Ok(None);
+        }
+        self.soft_delete_seconds
+            .checked_mul(1_000_000)
+            .and_then(|duration| micros.checked_add(duration))
+            .map(Some)
+            .ok_or(ObjectError::InvalidMetadata)
+    }
+}
+
 /// The clock reading shared by every check and timestamp in one publication transaction.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PublicationTime {
@@ -182,13 +252,17 @@ pub(super) fn retention_expiration(
         [&record.bucket],
     )?;
     period
-        .map(|period| {
-            record
-                .time_created
-                .checked_add(std::time::Duration::from_secs(period))
-                .ok_or(ObjectError::InvalidMetadata)
-        })
+        .map(|period| expiration_after(record.time_created, period))
         .transpose()
+}
+
+pub(super) fn expiration_after(
+    created: std::time::SystemTime,
+    period: u64,
+) -> Result<std::time::SystemTime, ObjectError> {
+    created
+        .checked_add(std::time::Duration::from_secs(period))
+        .ok_or(ObjectError::InvalidMetadata)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -992,8 +1066,7 @@ impl UploadCommit {
     fn commit(self, connection: &mut Connection) -> Result<CommitOutcome, ObjectError> {
         let transaction = sql::immediate(connection)?;
         let now = PublicationTime::read(self.clock.as_ref())?;
-        let (storage_class, delete_permission) =
-            authorized_bucket(&transaction, &self.bucket, &self.access)?;
+        let (_, delete_permission) = authorized_bucket(&transaction, &self.bucket, &self.access)?;
         let micros = now.micros;
         let fingerprint = self.replay.as_ref().map(|_| self.fingerprint());
         if let (Some(replay), Some(fingerprint)) = (&self.replay, &fingerprint) {
@@ -1003,14 +1076,8 @@ impl UploadCommit {
             }
             super::upload_replay::capacity(&transaction, micros)?;
         }
-        let storage_class = super::bucket_autoclass::object_storage_class(
-            &transaction,
-            &self.bucket,
-            self.metadata.storage_class,
-            storage_class,
-        )?;
-        let (versioning, default_hold) =
-            Catalog::bucket_settings_in_transaction(&transaction, &self.bucket)?;
+        let bucket = BucketPublication::load(&transaction, &self.bucket)?;
+        let storage_class = bucket.storage_class(self.metadata.storage_class);
         let previous = lookup(&transaction, &self.bucket, &self.name)?;
         // Rechecked under the write lock so a concurrent create cannot be overwritten.
         check_publication(
@@ -1033,7 +1100,7 @@ impl UploadCommit {
         }
         let defaults = PublicationDefaults {
             storage_class,
-            event_based_hold: default_hold,
+            event_based_hold: bucket.default_event_hold,
             time: now.time,
             owner: match &self.owner {
                 OwnerAssignment::Request => Some(super::object_owner::for_publication(
@@ -1049,7 +1116,7 @@ impl UploadCommit {
         let (record, retired, ()) = publish_in_transaction(
             &transaction,
             previous.as_ref(),
-            versioning,
+            &bucket,
             NewVersion {
                 blob_id: self.blob_id,
                 assignment: self.identity.assignment(),
@@ -1672,9 +1739,9 @@ pub(super) fn delete_selected(
         RequestKind::Write,
         access,
     )?;
-    let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, bucket)?;
+    let publication = BucketPublication::load(&transaction, bucket)?;
     // Deleting a live version in a versioned bucket only makes it noncurrent.
-    let retirement = if versioning == Versioning::Enabled && generation.is_none() {
+    let retirement = if publication.versioning == Versioning::Enabled && generation.is_none() {
         Retirement::Noncurrent
     } else {
         Retirement::Removed
@@ -1697,10 +1764,13 @@ pub(super) fn delete_selected(
         &transaction,
         Some(&StoredObject { record, blob: id }),
         retirement,
-        unix_micros(clock.now())?,
-        super::change_journal::origin(access),
-        None,
-        NotificationMode::for_access(access),
+        &publication,
+        RetirementContext {
+            micros: unix_micros(clock.now())?,
+            origin: super::change_journal::origin(access),
+            replacement: None,
+            notification_mode: NotificationMode::for_access(access),
+        },
     )?;
     transaction.commit()?;
     Ok(())
@@ -2473,7 +2543,7 @@ pub(super) enum GenerationAssignment {
 pub(super) fn publish_in_transaction<T>(
     transaction: &Transaction<'_>,
     previous: Option<&StoredObject>,
-    versioning: Versioning,
+    bucket: &BucketPublication,
     version: NewVersion<'_>,
     prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
 ) -> Result<(ObjectRecord, Option<BlobId>, T), ObjectError> {
@@ -2502,10 +2572,10 @@ pub(super) fn publish_in_transaction<T>(
     if let Some(owner) = &mut record.owner {
         super::object_owner::canonicalize(owner, owner_profile);
     }
-    record.retention_expiration_time = retention_expiration(transaction, &record)?;
+    record.retention_expiration_time = bucket.retention_expiration(record.time_created)?;
     let now = system_time_micros(micros)?;
     // A retained live version may become noncurrent, but it cannot be replaced outright.
-    if versioning == Versioning::Disabled
+    if bucket.versioning == Versioning::Disabled
         && let Some(StoredObject {
             record: previous, ..
         }) = previous
@@ -2535,7 +2605,7 @@ pub(super) fn publish_in_transaction<T>(
         .map(serde_json::to_string)
         .transpose()
         .map_err(object_unavailable)?;
-    let retirement = match versioning {
+    let retirement = match bucket.versioning {
         Versioning::Enabled => Retirement::Noncurrent,
         Versioning::Disabled => Retirement::Removed,
     };
@@ -2543,10 +2613,13 @@ pub(super) fn publish_in_transaction<T>(
         transaction,
         previous,
         retirement,
-        micros,
-        origin,
-        Some(generation),
-        notification_mode,
+        bucket,
+        RetirementContext {
+            micros,
+            origin,
+            replacement: Some(generation),
+            notification_mode,
+        },
     )?;
     sql::exec(
         transaction,
@@ -2689,15 +2762,27 @@ impl Catalog {
     }
 }
 
-pub(super) fn retire_previous(
-    connection: &Connection,
-    previous: Option<&StoredObject>,
-    retirement: Retirement,
+#[derive(Clone, Copy)]
+struct RetirementContext {
     micros: i64,
     origin: super::admin::Origin,
     replacement: Option<i64>,
     notification_mode: NotificationMode,
+}
+
+fn retire_previous(
+    connection: &Connection,
+    previous: Option<&StoredObject>,
+    retirement: Retirement,
+    bucket: &BucketPublication,
+    context: RetirementContext,
 ) -> Result<Option<BlobId>, ObjectError> {
+    let RetirementContext {
+        micros,
+        origin,
+        replacement,
+        notification_mode,
+    } = context;
     let Some(StoredObject { record, blob: id }) = previous else {
         return Ok(None);
     };
@@ -2723,15 +2808,7 @@ pub(super) fn retire_previous(
         )?;
         Ok(None)
     } else {
-        let duration = super::soft_delete::retention_seconds(connection, &record.bucket)?;
-        if duration > 0 {
-            let deadline = micros
-                .checked_add(
-                    duration
-                        .checked_mul(1_000_000)
-                        .ok_or(ObjectError::InvalidMetadata)?,
-                )
-                .ok_or(ObjectError::InvalidMetadata)?;
+        if let Some(deadline) = bucket.soft_delete_deadline(micros)? {
             sql::exec(
                 connection,
                 "UPDATE objects SET time_deleted = COALESCE(time_deleted, ?2), soft_delete_time = ?2, hard_delete_time = ?3 WHERE blob_id = ?1",
@@ -2840,6 +2917,68 @@ mod tests {
     use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::UNIX_EPOCH;
+
+    #[tokio::test]
+    async fn retention_expiration_matches_between_publication_and_reads() {
+        for period in [0, 1, 3_155_760_000] {
+            let data = crate::test_support::TestDir::new();
+            let catalog = Catalog::open(&data.0).await.unwrap();
+            create_bucket(&catalog, "project").await;
+            catalog.run(move |connection| {
+                sql::exec(connection,
+                    "UPDATE buckets SET retention_policy = json_object('retention_period', ?1, 'is_locked', json('false')) WHERE name = 'bucket'", [period])?;
+                Ok::<_, ObjectError>(())
+            }).await.unwrap();
+            let published = put(&catalog, "object", b"body").await;
+            let expected = Some(expiration_after(published.time_created, period).unwrap());
+            assert_eq!(published.retention_expiration_time, expected);
+            let loaded = catalog
+                .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+                .await
+                .unwrap();
+            assert_eq!(loaded.retention_expiration_time, expected);
+            let page = catalog
+                .list_objects(
+                    ObjectListQuery {
+                        bucket: "bucket".into(),
+                        ..Default::default()
+                    },
+                    1000,
+                    PERMISSIVE,
+                )
+                .await
+                .unwrap();
+            assert_eq!(page.items.len(), 1);
+            assert_eq!(page.items[0].retention_expiration_time, expected);
+            catalog.close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn publication_settings_reject_missing_buckets_and_corrupt_autoclass() {
+        let data = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&data.0).await.unwrap();
+        create_bucket(&catalog, "project").await;
+        catalog
+            .run(|connection| {
+                assert!(matches!(
+                    BucketPublication::load(connection, "missing"),
+                    Err(ObjectError::BucketNotFound)
+                ));
+                sql::exec(
+                    connection,
+                    "UPDATE buckets SET autoclass = 'broken' WHERE name = 'bucket'",
+                    [],
+                )?;
+                let error = BucketPublication::load(connection, "bucket").err().unwrap();
+                assert!(matches!(error, ObjectError::Corrupt(_)));
+                assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+                Ok::<_, ObjectError>(())
+            })
+            .await
+            .unwrap();
+        catalog.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn staging_recovery_keeps_entry_context_and_the_io_failure_kind() {

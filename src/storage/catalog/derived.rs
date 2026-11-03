@@ -834,7 +834,7 @@ impl Catalog {
                 fault::hit(&data_dir, Step::AfterPublish).map_err(object_unavailable)?;
                 }
                 let transaction = sql::immediate(connection)?;
-                let (default_class, delete_permission) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
+                let (_, delete_permission) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
                 let micros = unix_micros(clock.now())?;
                 let cached = replay.as_ref().map(|replay| replay.cached(&transaction, micros)).transpose()?.flatten();
                 let record = if let Some(record) = cached {
@@ -843,8 +843,8 @@ impl Catalog {
                 } else {
                 if replay.is_some() { super::upload_replay::capacity(&transaction, micros)?; }
                 // Autoclass ignores rewrite/copy/compose class requests and stores STANDARD.
-                let storage_class = super::bucket_autoclass::object_storage_class(&transaction, &destination.bucket, destination.storage_class, default_class)?;
-                let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &destination.bucket)?;
+                let bucket = objects::BucketPublication::load(&transaction, &destination.bucket)?;
+                let storage_class = bucket.storage_class(destination.storage_class);
                 let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
                 objects::check_publication(previous.as_ref(), destination.conditions, delete_permission, clock.now())?;
                 if destination.expected.md5.is_some_and(|hash| hash != md5) || destination.expected.crc32c.is_some_and(|hash| hash != crc32c) { return Err(ObjectError::ChecksumMismatch); }
@@ -852,10 +852,10 @@ impl Catalog {
                 now.duration_since(std::time::UNIX_EPOCH).map_err(object_unavailable)?;
                 let time = system_time_micros(micros)?;
                 let version = objects::NewVersion { blob_id: query, assignment: objects::GenerationAssignment::Automatic, micros, origin: super::change_journal::origin(&destination.access), notification_mode: crate::notification::NotificationMode::Emit, owner_profile: principals.as_ref(), acl: super::acl::PublicationAcl::InheritDefault };
-                let (record, _retired, ()) = objects::publish_in_transaction(&transaction, previous.as_ref(), versioning, version, |generation| {
+                let (record, _retired, ()) = objects::publish_in_transaction(&transaction, previous.as_ref(), &bucket, version, |generation| {
                 let defaults = objects::PublicationDefaults {
                     owner: Some(super::object_owner::for_publication(&transaction, &destination.bucket, &destination.access, principals.as_ref())?),
-                    storage_class, time, event_based_hold: default_hold,
+                    storage_class, time, event_based_hold: bucket.default_event_hold,
                 };
                 let target = ObjectTarget::new(destination.bucket, destination.name, generation);
                 let mut record = defaults.record(target, destination.content_type, progress.total, Hashes { md5, crc32c });

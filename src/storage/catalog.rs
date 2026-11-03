@@ -1454,6 +1454,7 @@ impl Catalog {
     }
 
     /// Reads (versioning, default event-based hold) in the caller's mutation transaction.
+    #[cfg(test)]
     pub(crate) fn bucket_settings_in_transaction(
         transaction: &rusqlite::Transaction<'_>,
         name: &str,

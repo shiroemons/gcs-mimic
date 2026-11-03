@@ -17,12 +17,6 @@ pub(crate) struct RestoreAccess<'a> {
     pub(crate) create: &'a BucketAccess,
 }
 
-pub(super) fn retention_seconds(connection: &Connection, bucket: &str) -> Result<i64, ObjectError> {
-    sql::scalar(connection,
-            "SELECT COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0) FROM buckets WHERE name = ?1", [bucket])
-        .map_err(object_unavailable)
-}
-
 pub(super) fn purge_expired(
     connection: &mut Connection,
     bucket: &str,
@@ -128,8 +122,7 @@ fn restore_in_transaction(
         ));
     }
     published?.map_err(object_unavailable)?;
-    let (versioning, _) =
-        Catalog::bucket_settings_in_transaction(&transaction, &request.target.bucket)?;
+    let bucket = objects::BucketPublication::load(&transaction, &request.target.bucket)?;
     record.metageneration = 1;
     record.time_created = now.time;
     record.updated = now.time;
@@ -139,7 +132,7 @@ fn restore_in_transaction(
     let (record, _, ()) = objects::publish_in_transaction(
         &transaction,
         previous.as_ref(),
-        versioning,
+        &bucket,
         objects::NewVersion {
             blob_id: id,
             assignment: objects::GenerationAssignment::Automatic,

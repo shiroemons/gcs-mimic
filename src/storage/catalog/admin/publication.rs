@@ -876,15 +876,9 @@ fn publish_entry(
     let access = BucketAccess::Admin(grant.clone());
     let bucket = entry.bucket.as_str();
     let name = entry.name.as_str();
-    let (storage_class, delete_permission) =
-        objects::authorized_bucket(transaction, bucket, &access)?;
-    let storage_class = super::super::bucket_autoclass::object_storage_class(
-        transaction,
-        bucket,
-        entry.request.metadata.storage_class,
-        storage_class,
-    )?;
-    let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(transaction, bucket)?;
+    let (_, delete_permission) = objects::authorized_bucket(transaction, bucket, &access)?;
+    let publication = objects::BucketPublication::load(transaction, bucket)?;
+    let storage_class = publication.storage_class(entry.request.metadata.storage_class);
     let previous = objects::lookup(transaction, bucket, name)?;
     objects::check_publication(
         previous.as_ref(),
@@ -930,7 +924,7 @@ fn publish_entry(
     let defaults = objects::PublicationDefaults {
         storage_class,
         time,
-        event_based_hold: staged.import_identity.is_none() && default_hold,
+        event_based_hold: staged.import_identity.is_none() && publication.default_event_hold,
         owner: if staged.import_identity.is_some() {
             None
         } else {
@@ -945,7 +939,7 @@ fn publish_entry(
     let (mut record, _, ()) = objects::publish_in_transaction(
         transaction,
         previous.as_ref(),
-        versioning,
+        &publication,
         objects::NewVersion {
             blob_id: *id,
             assignment: staged
