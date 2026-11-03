@@ -91,16 +91,7 @@ impl Drop for DerivedSource {
         if let Some(backend) = &self.backend
             && let Err(error) = backend.remove_pin(&self.id)
         {
-            let kind = if backend.is_memory() {
-                "RAM"
-            } else {
-                "derived"
-            };
-            crate::diagnostics::emit(
-                crate::diagnostics::LogLevel::Warn,
-                "derived_cleanup_deferred",
-                serde_json::json!({"message":format!("deferred {kind} source cleanup: {error}")}),
-            );
+            deferred_cleanup(&error);
         }
     }
 }
@@ -251,6 +242,9 @@ fn begin_transfer(
             deadline: system_time_millis(draft.deadline)?,
         };
         bind(&transaction, &transfer)?;
+        #[cfg(test)]
+        fault::hit(&fault::database_dir(&transaction), Step::DerivedBeginCommit)
+            .map_err(object_unavailable)?;
         if let Err(error) = transaction.commit() {
             // Failed probes retain every possibly committed reference for recovery.
             ambiguous = true;
@@ -310,31 +304,21 @@ impl Drop for DerivedRequestGuard {
                             if let Err(error) = catalog.cleanup_derived(&id).await
                                 && error != ObjectError::DerivedTransferNotFound
                             {
-                                crate::diagnostics::emit(
-                                    crate::diagnostics::LogLevel::Warn,
-                                    "derived_cleanup_deferred",
-                                    serde_json::json!({"message":format!("deferred abandoned derived cleanup: {error}")}),
-                                );
+                                deferred_cleanup(&error);
                             }
                             return;
                         }
                         Err(ObjectError::DerivedTransferBusy) => notified.await,
                         Err(error) => {
-                            crate::diagnostics::emit(
-                                crate::diagnostics::LogLevel::Warn,
-                                "derived_cleanup_deferred",
-                                serde_json::json!({"message":format!("deferred abandoned derived cleanup: {error}")}),
-                            );
+                            deferred_cleanup(&error);
                             return;
                         }
                     }
                 }
             });
         } else {
-            crate::diagnostics::emit(
-                crate::diagnostics::LogLevel::Warn,
-                "derived_cleanup_deferred",
-                serde_json::json!({"message":"abandoned derived transfer cleanup needs a runtime; deferred until expiry"}),
+            deferred_cleanup(
+                &"abandoned derived transfer cleanup needs a runtime; deferred until expiry",
             );
         }
     }
@@ -814,6 +798,10 @@ impl Catalog {
                     super::customer_keys::check(&object, key)?;
                     let id = random_id()?;
                     backend.pin(&original, &id)?;
+                    #[cfg(all(test, unix))]
+                    if let super::BlobBackend::Disk(root) = &backend {
+                        fault::file_created(&id.staging_path(root));
+                    }
                     Ok(DerivedSource {
                         object,
                         backend: Some(backend.clone()),
@@ -873,6 +861,12 @@ impl Catalog {
             ));
         }
         let total = derived_total(&segments, max_bytes)?;
+        let admission = self
+            .0
+            .admission
+            .clone()
+            .try_acquire_owned()
+            .map_err(|error| super::admission_error(&error))?;
         let permit = self.admit_object_upload()?;
         let backend = self.0.backend.clone();
         let created = unix_millis(self.0.clock.now())?;
@@ -890,20 +884,28 @@ impl Catalog {
         let result = crate::task::spawn_supervised("derived-begin", async move {
             let (_permit, _writer) = (permit, writer);
             let files = backend.clone();
+            #[cfg(test)]
+            let root = catalog.0.data_dir.clone();
             let prepared = crate::task::run_blocking("derived-create", move || {
                 files.create_draft(&id)?;
+                #[cfg(all(test, unix))]
+                if let super::BlobBackend::Disk(root) = &files {
+                    fault::file_created(&id.staging_path(root));
+                }
+                #[cfg(test)]
+                fault::hit(&root, Step::DerivedDraftSync).map_err(object_unavailable)?;
                 // This sync makes both the draft and the selected input links durable before SQL.
                 #[cfg(unix)]
                 files.sync_staging_dir()?;
-                Ok::<_, std::io::Error>(())
+                Ok::<_, ObjectError>(())
             })
             .await
             .map_err(object_unavailable)
-            .and_then(|result| result.map_err(object_unavailable));
+            .flatten();
             let (outcome, returned) = match prepared {
                 Ok(()) => {
                     catalog
-                        .run(move |connection| {
+                        .run_admitted(admission, move |connection| {
                             let outcome = begin_transfer(
                                 connection,
                                 &BeginTransfer {
@@ -1124,7 +1126,7 @@ impl Catalog {
             // Check SQL references even after an ambiguous commit error before removing bytes.
             if matches!(&result, Err(error) if !error.is_backend_failure() && !matches!(error, ObjectError::DerivedTransferBusy | ObjectError::DerivedTransferIncomplete | ObjectError::DerivedTransferNotFound))
                 && let Err(error) = catalog.cleanup_derived(&id).await {
-                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred derived cleanup: {error}")}));
+                deferred_cleanup(&error);
             }
             result
         }).await?
@@ -1142,13 +1144,20 @@ impl Catalog {
 
     async fn release_transfer(&self, discarded: DiscardedTransfer) {
         let backend = self.0.backend.clone();
+        #[cfg(test)]
+        let root = self.0.data_dir.clone();
         match crate::task::run_blocking("derived-release", move || {
+            #[cfg(test)]
+            fault::hit(&root, Step::DerivedCleanup).map_err(object_unavailable)?;
             for pin in discarded.pins {
                 if let Err(error) = backend.remove_pin(&pin) {
                     deferred_cleanup(&error);
                 }
             }
-            backend.remove_draft(&discarded.id)
+            backend.remove_draft(&discarded.id)?;
+            #[cfg(test)]
+            fault::hit(&root, Step::DerivedCleaned).map_err(object_unavailable)?;
+            Ok::<_, ObjectError>(())
         })
         .await
         {
@@ -1266,10 +1275,10 @@ struct DiscardedTransfer {
 }
 
 fn discard_transfer(
-    connection: &Connection,
+    connection: &mut Connection,
     id: &BlobId,
 ) -> Result<DiscardedTransfer, ObjectError> {
-    let transaction = connection.unchecked_transaction()?;
+    let transaction = sql::immediate(connection)?;
     let exists: bool = sql::scalar(
         &transaction,
         "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)",
@@ -1299,6 +1308,12 @@ fn discard_transfer(
         "DELETE FROM derived_transfers WHERE id=?1",
         [id],
     )?;
+    #[cfg(test)]
+    fault::hit(
+        &fault::database_dir(&transaction),
+        Step::DerivedCleanupCommit,
+    )
+    .map_err(object_unavailable)?;
     transaction.commit()?;
     Ok(DiscardedTransfer { id: *id, pins })
 }
@@ -1545,6 +1560,200 @@ mod tests {
             .await
             .unwrap();
         (catalog, path)
+    }
+
+    #[tokio::test]
+    async fn catalog_admission_rejection_does_not_leave_a_derived_draft() {
+        let (catalog, path) = setup().await;
+        put(&catalog, "source", b"bytes").await;
+        let selected = source(&catalog, "source").await;
+        let permits = catalog
+            .0
+            .admission
+            .clone()
+            .acquire_many_owned(catalog.0.admission.available_permits() as u32)
+            .await
+            .unwrap();
+        assert!(matches!(
+            catalog.begin_derived(vec![selected.whole()], 5).await,
+            Err(ObjectError::Unavailable(_))
+        ));
+        assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+        drop(permits);
+        assert_eq!(bytes(&catalog, "source").await, b"bytes");
+        let transfer = ready(&catalog, "source").await;
+        catalog.cancel_derived(&transfer.id).await.unwrap();
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_draft_sync_and_begin_commit_release_unreferenced_files() {
+        for step in [Step::DerivedDraftSync, Step::DerivedBeginCommit] {
+            let (catalog, path) = setup().await;
+            put(&catalog, "source", b"bytes").await;
+            catalog.inject(step, 0, fault::Fault::Io(std::io::ErrorKind::Other));
+            let selected = source(&catalog, "source").await;
+            assert!(matches!(
+                catalog.begin_derived(vec![selected.whole()], 5).await,
+                Err(ObjectError::Io(_))
+            ));
+            assert_eq!(catalog.pending_faults(), 0);
+            assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+            catalog
+                .run::<_, CatalogError>(|connection| {
+                    assert_eq!(
+                        sql::scalar::<i64>(
+                            connection,
+                            "SELECT count(*) FROM derived_transfers",
+                            []
+                        )?,
+                        0
+                    );
+                    Ok(())
+                })
+                .await
+                .unwrap();
+            assert_eq!(bytes(&catalog, "source").await, b"bytes");
+            catalog.close().await.unwrap();
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn begin_snapshots_recover_unreferenced_files_or_one_durable_transfer() {
+        use super::super::fault::Crash;
+        for &crash in Crash::ALL {
+            for step in [
+                Step::DerivedDraftSync,
+                Step::DerivedBeginCommit,
+                Step::AfterCommit,
+            ] {
+                let (catalog, path) = setup().await;
+                put(&catalog, "source", b"bytes").await;
+                let snapshot = crate::test_support::TestDir::new();
+                catalog.inject(step, 0, crash.fault(snapshot.0.clone()));
+                let selected = source(&catalog, "source").await;
+                let transfer = catalog
+                    .begin_derived(vec![selected.whole()], 5)
+                    .await
+                    .unwrap();
+                if step == Step::AfterCommit {
+                    // Keep the model armed across input pinning, draft creation and the commit.
+                    fault::hit(&path, step).unwrap();
+                }
+                assert_eq!(catalog.pending_faults(), 0);
+                catalog.cancel_derived(&transfer.id).await.unwrap();
+                catalog.close().await.unwrap();
+                let recovered = Catalog::open(&snapshot.0).await.unwrap();
+                assert_eq!(bytes(&recovered, "source").await, b"bytes");
+                if step == Step::AfterCommit {
+                    assert_eq!(
+                        recovered
+                            .advance_derived(&transfer.id, 5)
+                            .await
+                            .unwrap()
+                            .offset,
+                        5
+                    );
+                    recovered
+                        .publish_derived(&transfer.id, destination("copy"), |_, _| Ok(()))
+                        .await
+                        .unwrap();
+                    assert_eq!(bytes(&recovered, "copy").await, b"bytes");
+                } else {
+                    assert_eq!(
+                        recovered.get_derived(&transfer.id).await,
+                        Err(ObjectError::DerivedTransferNotFound)
+                    );
+                }
+                assert_eq!(fs::read_dir(snapshot.0.join("staging")).unwrap().count(), 0);
+                recovered.close().await.unwrap();
+                fs::remove_dir_all(path).unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_reports_success_after_commit_when_unlink_fails() {
+        let (catalog, path) = setup().await;
+        put(&catalog, "source", b"bytes").await;
+        let transfer = ready(&catalog, "source").await;
+        catalog.inject(
+            Step::DerivedCleanupCommit,
+            0,
+            fault::Fault::Io(std::io::ErrorKind::Other),
+        );
+        assert!(matches!(
+            catalog.cancel_derived(&transfer.id).await,
+            Err(ObjectError::Io(_))
+        ));
+        assert_eq!(catalog.get_derived(&transfer.id).await.unwrap(), transfer);
+        catalog.inject(
+            Step::DerivedCleanup,
+            0,
+            fault::Fault::Io(std::io::ErrorKind::PermissionDenied),
+        );
+        catalog.cancel_derived(&transfer.id).await.unwrap();
+        assert_eq!(catalog.pending_faults(), 0);
+        assert_eq!(
+            catalog.get_derived(&transfer.id).await,
+            Err(ObjectError::DerivedTransferNotFound)
+        );
+        assert_eq!(
+            catalog.cancel_derived(&transfer.id).await,
+            Err(ObjectError::DerivedTransferNotFound)
+        );
+        assert_ne!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+        catalog.close().await.unwrap();
+        let recovered = Catalog::open(&path).await.unwrap();
+        assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+        assert_eq!(bytes(&recovered, "source").await, b"bytes");
+        assert_eq!(
+            recovered.get_derived(&transfer.id).await,
+            Err(ObjectError::DerivedTransferNotFound)
+        );
+        recovered.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancel_snapshots_keep_the_transfer_or_reclaim_all_unreferenced_data() {
+        use super::super::fault::Crash;
+        for &crash in Crash::ALL {
+            for step in [
+                Step::DerivedCleanupCommit,
+                Step::DerivedCleanup,
+                Step::DerivedCleaned,
+            ] {
+                let (catalog, path) = setup().await;
+                put(&catalog, "source", b"bytes").await;
+                let transfer = ready(&catalog, "source").await;
+                let snapshot = crate::test_support::TestDir::new();
+                catalog.inject(step, 0, crash.fault(snapshot.0.clone()));
+                catalog.cancel_derived(&transfer.id).await.unwrap();
+                assert_eq!(catalog.pending_faults(), 0);
+                catalog.close().await.unwrap();
+                let recovered = Catalog::open(&snapshot.0).await.unwrap();
+                assert_eq!(bytes(&recovered, "source").await, b"bytes");
+                if step == Step::DerivedCleanupCommit {
+                    assert_eq!(recovered.get_derived(&transfer.id).await.unwrap(), transfer);
+                    recovered
+                        .publish_derived(&transfer.id, destination("copy"), |_, _| Ok(()))
+                        .await
+                        .unwrap();
+                    assert_eq!(bytes(&recovered, "copy").await, b"bytes");
+                } else {
+                    assert_eq!(
+                        recovered.get_derived(&transfer.id).await,
+                        Err(ObjectError::DerivedTransferNotFound)
+                    );
+                }
+                assert_eq!(fs::read_dir(snapshot.0.join("staging")).unwrap().count(), 0);
+                recovered.close().await.unwrap();
+                fs::remove_dir_all(path).unwrap();
+            }
+        }
     }
 
     #[tokio::test]
@@ -2651,7 +2860,7 @@ mod tests {
 
     #[test]
     fn foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine() {
-        let connection = Connection::open_in_memory().unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE objects(blob_id TEXT); CREATE TABLE pending_blob_deletions(blob_id TEXT PRIMARY KEY);").unwrap();
         connection.execute_batch(SCHEMA).unwrap();
         connection.execute_batch("CREATE TABLE bindings(transfer_id TEXT PRIMARY KEY REFERENCES derived_transfers(id) ON DELETE CASCADE, snapshot TEXT NOT NULL);").unwrap();
@@ -2671,7 +2880,7 @@ mod tests {
                 .unwrap();
             match mode {
                 "cancel" => {
-                    let _discarded = discard_transfer(&connection, &id).unwrap();
+                    let _discarded = discard_transfer(&mut connection, &id).unwrap();
                 }
                 "expiry" => recover(&connection, &std::env::temp_dir(), 1).unwrap(),
                 "quarantine" => recover(&connection, &std::env::temp_dir(), 0).unwrap(),
