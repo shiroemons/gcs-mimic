@@ -22,6 +22,58 @@ fn options() -> ResumableOptions {
     options
 }
 
+#[tokio::test]
+async fn reserved_publication_reclaims_memory_appendable_without_a_previous_object() {
+    let catalog = Catalog::open_memory_for_server(
+        8192,
+        1024 * 1024,
+        Arc::new(crate::clock::SystemClock),
+        super::super::admin::LocalAdmin::Disabled,
+    )
+    .await
+    .unwrap();
+    insert_bucket(&catalog).await;
+    let mut writer = catalog
+        .create_appendable("append", "reserved", options())
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"data"), 1024)
+        .await
+        .unwrap();
+    let identity = ReservedGeneration::from_record(&writer.record).unwrap();
+    let record = catalog
+        .put_object_with_mode(
+            crate::storage::test_fixtures::permissive_upload("append", "reserved", 1024),
+            body(vec![Bytes::from_static(b"data")]),
+            catalog.admit_object_upload().unwrap(),
+            super::super::admin::PublishMode::Replace,
+            super::super::objects::PublishIdentity::Reserved(identity),
+            super::super::objects::OwnerAssignment::Preserve(writer.record.owner.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(record.generation, writer.record.generation);
+    let pending: i64 = catalog
+        .run_upload(|connection| {
+            Ok(sql::scalar(
+                connection,
+                "SELECT count(*) FROM pending_blob_deletions",
+                [],
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(pending, 0);
+    let (_, mut reader) = catalog
+        .open_object(live("append", "reserved"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(read_all(&mut reader).await, b"data");
+    drop((reader, writer));
+    catalog.close().await.unwrap();
+}
+
 #[test]
 fn concurrent_finalization_exceeds_the_blocking_pool_without_stalling() {
     let dir = TestDir::new();

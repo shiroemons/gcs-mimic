@@ -738,21 +738,24 @@ pub(super) fn retire_published(
     connection: &Connection,
     record: &ObjectRecord,
     backend: crate::config::Backend,
-) -> Result<(), ObjectError> {
+) -> Result<super::objects::Journaled, ObjectError> {
+    let mut journaled = super::objects::Journaled::NOTHING;
     if let Some(id) = sql::optional_scalar::<BlobId>(
         connection,
         "SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3",
         params![record.bucket, record.name, record.generation],
     )? {
         // AppendWriter::retire releases disk data after this publication commits.
-        let _data = unreference(connection, backend, &id)?;
+        if let Unreferenced::Journaled = unreference(connection, backend, &id)? {
+            journaled = super::objects::Journaled::SOME;
+        }
     }
     sql::exec(
         connection,
         "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
         params![record.bucket, record.name, record.generation],
     )?;
-    Ok(())
+    Ok(journaled)
 }
 
 /// A data file that no row references is never read, and startup recovery removes every such

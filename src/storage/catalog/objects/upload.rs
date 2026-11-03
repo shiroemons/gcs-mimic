@@ -202,7 +202,7 @@ impl UploadCommit {
                 Ok((record, ()))
             },
         )?;
-        self.finish_metadata(&transaction, &record)?;
+        let appendable = self.finish_metadata(&transaction, &record)?;
         if let (Some(replay), Some(fingerprint)) = (&self.replay, &fingerprint) {
             replay.store(
                 &transaction,
@@ -216,7 +216,7 @@ impl UploadCommit {
         commit_publication(transaction)?;
         Ok(CommitOutcome::Published {
             record,
-            journaled: retired.into(),
+            journaled: Journaled::from(retired) | appendable,
         })
     }
 
@@ -224,7 +224,7 @@ impl UploadCommit {
         &self,
         transaction: &Transaction<'_>,
         record: &ObjectRecord,
-    ) -> Result<(), ObjectError> {
+    ) -> Result<Journaled, ObjectError> {
         super::super::admin::apply_acl(
             transaction,
             self.metadata.acl.as_deref(),
@@ -233,9 +233,9 @@ impl UploadCommit {
         )?;
         // Only a reserved generation can match an appendable row.
         if self.identity.retires_appendable() {
-            super::super::appendable::retire_published(transaction, record, self.backend)?;
+            return super::super::appendable::retire_published(transaction, record, self.backend);
         }
-        Ok(())
+        Ok(Journaled::NOTHING)
     }
 }
 
