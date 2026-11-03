@@ -1,5 +1,5 @@
 use super::buckets::validate_bucket_name_for_profile;
-use super::{JsonError, decode_page_token, page_token::hex};
+use super::{JsonError, decode_page_token};
 use crate::{bucket::BucketConditions, config::CompatProfile};
 use hyper::{Method, StatusCode, Uri};
 use std::collections::BTreeMap;
@@ -751,10 +751,11 @@ pub(crate) fn decode(raw: &str, decoding: Decoding) -> Result<String, JsonError>
     let mut input = raw.bytes();
     while let Some(byte) = input.next() {
         bytes.push(match byte {
-            b'%' => {
-                (hex(input.next().ok_or_else(invalid)?).ok_or_else(invalid)? << 4)
-                    | hex(input.next().ok_or_else(invalid)?).ok_or_else(invalid)?
-            }
+            b'%' => crate::hex::byte(&[
+                input.next().ok_or_else(invalid)?,
+                input.next().ok_or_else(invalid)?,
+            ])
+            .ok_or_else(invalid)?,
             b'+' if decoding == Decoding::Form => b' ',
             byte => byte,
         });

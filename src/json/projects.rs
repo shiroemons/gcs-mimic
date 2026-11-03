@@ -413,8 +413,7 @@ fn decode_list_token(token: &str, params: &HmacKeyListParams) -> Result<String, 
     }
     let mut bytes = Vec::with_capacity(encoded.len() / 2);
     for pair in encoded.as_bytes().as_chunks::<2>().0 {
-        let digit = |byte| super::page_token::hex(byte).ok_or_else(invalid);
-        bytes.push((digit(pair[0])? << 4) | digit(pair[1])?);
+        bytes.push(crate::hex::byte(pair).ok_or_else(invalid)?);
     }
     if u64::from_str_radix(digest, 16).map_err(|_| invalid())? != checksum(&bytes) {
         return Err(invalid());
