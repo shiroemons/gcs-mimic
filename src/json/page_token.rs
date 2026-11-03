@@ -260,6 +260,11 @@ pub(super) fn hex(byte: u8) -> Option<u8> {
 mod tests {
     use super::*;
 
+    fn forged_token(payload: &str) -> String {
+        let encoded = crate::hashing::encode_lower(payload.as_bytes());
+        format!("{encoded}.{:016x}", checksum(payload.as_bytes()))
+    }
+
     #[test]
     fn object_list_tokens_reject_valid_checksums_with_invalid_payloads() {
         let query = ObjectListQuery {
@@ -283,8 +288,7 @@ mod tests {
             serde_json::json!({}),
         ] {
             let payload = payload.to_string();
-            let encoded: String = payload.bytes().map(|byte| format!("{byte:02x}")).collect();
-            let token = format!("{encoded}.{:016x}", checksum(payload.as_bytes()));
+            let token = forged_token(&payload);
             assert!(
                 decode_object_page_token(&token, &query, projection).is_err(),
                 "{payload}"
@@ -296,7 +300,10 @@ mod tests {
             "0.0000000000000000",
             &"a".repeat(16385),
         ] {
-            assert!(decode_object_page_token(token, &query, projection).is_err());
+            assert!(
+                decode_object_page_token(token, &query, projection).is_err(),
+                "{token}"
+            );
         }
         let query = ObjectListQuery {
             versions: true,
@@ -309,21 +316,8 @@ mod tests {
             ("a", false, Some(-1)),
             ("a/", true, Some(1)),
         ] {
-            let cursor = ObjectListCursor {
-                name: name.into(),
-                is_prefix,
-                generation,
-            };
-            let payload = serde_json::json!([
-                "o2",
-                scope,
-                cursor.name,
-                cursor.is_prefix,
-                cursor.generation
-            ])
-            .to_string();
-            let encoded: String = payload.bytes().map(|byte| format!("{byte:02x}")).collect();
-            let token = format!("{encoded}.{:016x}", checksum(payload.as_bytes()));
+            let payload = serde_json::json!(["o2", scope, name, is_prefix, generation]).to_string();
+            let token = forged_token(&payload);
             assert!(
                 decode_object_page_token(&token, &query, projection).is_err(),
                 "{payload}"
@@ -352,8 +346,7 @@ mod tests {
             r#"[1,"p","","abc"]"#,
             "not JSON",
         ] {
-            let encoded: String = payload.bytes().map(|byte| format!("{byte:02x}")).collect();
-            let token = format!("{encoded}.{:016x}", checksum(payload.as_bytes()));
+            let token = forged_token(payload);
             assert!(decode_page_token(&token, "p", "").is_err(), "{payload}");
         }
     }

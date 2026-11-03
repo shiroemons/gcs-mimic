@@ -1,11 +1,21 @@
 use super::*;
 use crate::object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget};
-use hyper::{HeaderMap, Method, StatusCode, header::HeaderValue};
+use hyper::{HeaderMap, Method, StatusCode, header::HeaderName};
 use serde_json::json;
 use std::time::{Duration, UNIX_EPOCH};
 
+#[track_caller]
 fn request(method: Method, path: &str) -> Result<ObjectRequest, JsonError> {
     route_object(&method, &path.parse().unwrap()).expect("object route")
+}
+
+#[track_caller]
+fn header_map<'a>(entries: impl IntoIterator<Item = (&'static str, &'a str)>) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    for (name, value) in entries {
+        headers.append(HeaderName::from_static(name), value.parse().unwrap());
+    }
+    headers
 }
 
 pub(super) fn record() -> ObjectRecord {
@@ -472,12 +482,10 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
             (StatusCode::BAD_REQUEST, "notDownload")
         );
     }
-    let mut headers = HeaderMap::new();
-    headers.insert("if-range", HeaderValue::from_static("opaque"));
+    let headers = header_map([("if-range", "opaque")]);
     // Cloud Storage ignored an If-Range validator and applied the Range anyway.
     assert!(validate_object_get_headers(&headers).is_ok());
-    let mut headers = HeaderMap::new();
-    headers.insert("x-goog-meta-example", HeaderValue::from_static("value"));
+    let headers = header_map([("x-goog-meta-example", "value")]);
     assert_eq!(
         parse_object_upload_headers(&headers, Default::default())
             .unwrap_err()
@@ -488,11 +496,7 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
 
 #[test]
 fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions() {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "x-goog-gcs-idempotency-token",
-        HeaderValue::from_static("opaque, token=1"),
-    );
+    let headers = header_map([("x-goog-gcs-idempotency-token", "opaque, token=1")]);
     for generation in [i64::MIN, -1, 0, 1, i64::MAX] {
         assert!(
             parse_object_upload_headers(
@@ -528,13 +532,11 @@ fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditio
         vec!["same", "same"],
         vec!["first", "second"],
     ] {
-        let mut headers = HeaderMap::new();
-        for value in values {
-            headers.append(
-                "x-goog-gcs-idempotency-token",
-                HeaderValue::from_str(value).unwrap(),
-            );
-        }
+        let headers = header_map(
+            values
+                .iter()
+                .map(|&value| ("x-goog-gcs-idempotency-token", value)),
+        );
         for generation in [None, Some(0), Some(1)] {
             let error = parse_object_upload_headers(
                 &headers,
@@ -546,13 +548,15 @@ fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditio
             .unwrap_err();
             assert_eq!(
                 (error.status, error.reason),
-                (StatusCode::BAD_REQUEST, "invalidParameter")
+                (StatusCode::BAD_REQUEST, "invalidParameter"),
+                "{values:?}: generation {generation:?}"
             );
         }
         let error = validate_object_get_headers(&headers).unwrap_err();
         assert_eq!(
             (error.status, error.reason),
-            (StatusCode::BAD_REQUEST, "invalidParameter")
+            (StatusCode::BAD_REQUEST, "invalidParameter"),
+            "{values:?}"
         );
     }
 }
@@ -565,44 +569,38 @@ fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
         (String::new(), ExpectedHashes::default())
     );
     for combined in [true, false] {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "content-type",
-            HeaderValue::from_static("text/plain; charset=utf-8"),
-        );
+        let mut entries = vec![("content-type", "text/plain; charset=utf-8")];
         if combined {
-            headers.insert(
+            entries.push((
                 "x-goog-hash",
-                HeaderValue::from_static("crc32c=AQIDBA==, md5=AAAAAAAAAAAAAAAAAAAAAA=="),
-            );
+                "crc32c=AQIDBA==, md5=AAAAAAAAAAAAAAAAAAAAAA==",
+            ));
         } else {
-            headers.append("x-goog-hash", HeaderValue::from_static("crc32c=AQIDBA=="));
-            headers.append(
-                "x-goog-hash",
-                HeaderValue::from_static("md5=AAAAAAAAAAAAAAAAAAAAAA=="),
-            );
+            entries.extend([
+                ("x-goog-hash", "crc32c=AQIDBA=="),
+                ("x-goog-hash", "md5=AAAAAAAAAAAAAAAAAAAAAA=="),
+            ]);
         }
+        let headers = header_map(entries);
         // Media uploads do not examine the header; resumable initiation still reads it.
         assert_eq!(
             parse_object_upload_headers(&headers, Default::default()).unwrap(),
             (
                 "text/plain; charset=utf-8".to_owned(),
                 ExpectedHashes::default()
-            )
+            ),
+            "combined: {combined}"
         );
         assert_eq!(
             declared_hashes(&headers).unwrap(),
             ExpectedHashes {
                 md5: Some([0; 16]),
                 crc32c: Some(0x01020304)
-            }
+            },
+            "combined: {combined}"
         );
     }
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "x-goog-hash",
-        HeaderValue::from_static("md5=1B2M2Y8AsgTpgAmY7PhCfg=="),
-    );
+    let headers = header_map([("x-goog-hash", "md5=1B2M2Y8AsgTpgAmY7PhCfg==")]);
     assert_eq!(
         declared_hashes(&headers).unwrap().md5.unwrap(),
         [
@@ -628,15 +626,17 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         "md5=AQIDBA==",
         "md5=AAAAAAAAAAAAAAAAAAAAAB==",
     ] {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-goog-hash", HeaderValue::from_str(value).unwrap());
+        let headers = header_map([("x-goog-hash", value)]);
         assert_eq!(
             declared_hashes(&headers).unwrap_err().status,
             StatusCode::BAD_REQUEST,
             "{value}"
         );
         // The media-upload parser never looks at the header.
-        assert!(parse_object_upload_headers(&headers, Default::default()).is_ok());
+        assert!(
+            parse_object_upload_headers(&headers, Default::default()).is_ok(),
+            "{value}"
+        );
     }
     // Upload routes parse customer-supplied keys themselves; incomplete keys are rejected there.
     for (name, value, reason) in [
@@ -656,9 +656,11 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
             "customerEncryptionAlgorithmIsInvalid",
         ),
     ] {
-        let mut headers = HeaderMap::new();
-        headers.insert(name, HeaderValue::from_static(value));
-        assert!(parse_object_upload_headers(&headers, Default::default()).is_ok());
+        let headers = header_map([(name, value)]);
+        assert!(
+            parse_object_upload_headers(&headers, Default::default()).is_ok(),
+            "{name}"
+        );
         let error = super::request_key(&headers).unwrap_err();
         assert_eq!(
             (error.status, error.reason),
@@ -671,8 +673,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         "x-goog-copy-source-encryption-algorithm",
         "x-goog-encryption-kms-key-name",
     ] {
-        let mut headers = HeaderMap::new();
-        headers.insert(name, HeaderValue::from_static("AES256"));
+        let headers = header_map([(name, "AES256")]);
         assert_eq!(
             parse_object_upload_headers(&headers, Default::default())
                 .unwrap_err()
@@ -687,8 +688,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         ("x-goog-user-project", "p"),
         ("x-http-method-override", "PATCH"),
     ] {
-        let mut headers = HeaderMap::new();
-        headers.insert(name, HeaderValue::from_static(value));
+        let headers = header_map([(name, value)]);
         assert_eq!(
             parse_object_upload_headers(&headers, Default::default())
                 .unwrap_err()
@@ -705,46 +705,42 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         "text/a/b",
         "text/plain, text/html",
     ] {
-        let mut headers = HeaderMap::new();
-        headers.insert("content-type", HeaderValue::from_str(value).unwrap());
+        let headers = header_map([("content-type", value)]);
         assert!(
             parse_object_upload_headers(&headers, Default::default()).is_err(),
             "{value}"
         );
     }
-    let mut headers = HeaderMap::new();
-    headers.append("content-type", HeaderValue::from_static("text/plain"));
-    headers.append("content-type", HeaderValue::from_static("text/html"));
+    let headers = header_map([
+        ("content-type", "text/plain"),
+        ("content-type", "text/html"),
+    ]);
     assert!(parse_object_upload_headers(&headers, Default::default()).is_err());
-    let mut headers = HeaderMap::new();
-    headers.append("x-goog-hash", HeaderValue::from_static("crc32c=AQIDBA=="));
-    headers.append("x-goog-hash", HeaderValue::from_static("crc32c=AQIDBA=="));
+    let headers = header_map([
+        ("x-goog-hash", "crc32c=AQIDBA=="),
+        ("x-goog-hash", "crc32c=AQIDBA=="),
+    ]);
     assert!(declared_hashes(&headers).is_err());
 }
 
 #[test]
 fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected() {
     for value in ["bytes=0-1", "", "invalid"] {
-        let mut headers = HeaderMap::new();
-        headers.insert("range", HeaderValue::from_str(value).unwrap());
-        assert!(validate_object_get_headers(&headers).is_ok());
+        let headers = header_map([("range", value)]);
+        assert!(validate_object_get_headers(&headers).is_ok(), "{value}");
     }
     for key in ["if-match", "if-none-match"] {
-        let mut headers = HeaderMap::new();
-        headers.insert(key, HeaderValue::from_static("\"value\""));
-        assert!(validate_object_get_headers(&headers).is_ok());
+        let headers = header_map([(key, "\"value\"")]);
+        assert!(validate_object_get_headers(&headers).is_ok(), "{key}");
         assert_eq!(
             parse_object_upload_headers(&headers, Default::default())
                 .unwrap_err()
                 .status,
-            StatusCode::BAD_REQUEST
+            StatusCode::BAD_REQUEST,
+            "{key}"
         );
     }
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "x-goog-encryption-key-sha256",
-        HeaderValue::from_static("value"),
-    );
+    let headers = header_map([("x-goog-encryption-key-sha256", "value")]);
     assert_eq!(
         validate_object_get_headers(&headers).unwrap_err().status,
         StatusCode::BAD_REQUEST

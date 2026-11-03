@@ -15,8 +15,26 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[track_caller]
 fn request(method: Method, path: &str) -> Result<BucketRequest, JsonError> {
     route(&method, &path.parse::<Uri>().unwrap()).expect("bucket route")
+}
+
+#[track_caller]
+fn assert_query_boolean_spellings<T: std::fmt::Debug + PartialEq>(
+    case: &str,
+    supported: bool,
+    parse: impl Fn(&str) -> Result<T, JsonError>,
+) {
+    for (canonical, python) in [("true", "True"), ("false", "False")] {
+        let parsed = parse(python);
+        assert_eq!(parsed, parse(canonical), "{case}: {python}");
+        if canonical == "true" && !supported {
+            assert_eq!(parsed.unwrap_err().reason, "badRequest", "{case}: {python}");
+        } else {
+            parsed.unwrap_or_else(|error| panic!("{case}: {python}: {error:?}"));
+        }
+    }
 }
 
 #[test]
@@ -162,18 +180,9 @@ fn bucket_query_booleans_keep_supported_and_unsupported_semantics() {
             }
             continue;
         }
-        for (canonical, python) in [("true", "True"), ("false", "False")] {
-            let parsed = request(method.clone(), &format!("{path}{python}"));
-            assert_eq!(
-                parsed,
-                request(method.clone(), &format!("{path}{canonical}"))
-            );
-            if canonical == "true" && !supported {
-                assert_eq!(parsed.unwrap_err().reason, "badRequest");
-            } else {
-                parsed.unwrap();
-            }
-        }
+        assert_query_boolean_spellings(&format!("{method} {path}"), supported, |wire| {
+            request(method.clone(), &format!("{path}{wire}"))
+        });
         assert_eq!(
             request(method, &format!("{path}yes")).unwrap_err().reason,
             "invalidParameter"
@@ -241,31 +250,19 @@ fn object_and_project_query_booleans_use_the_same_parser() {
     ] {
         let parse =
             |wire: &str| route_object(&method, &format!("{path}{wire}").parse().unwrap()).unwrap();
-        for (canonical, python) in [("true", "True"), ("false", "False")] {
-            let parsed = parse(python);
-            assert_eq!(parsed, parse(canonical), "{path}");
-            if canonical == "true" && !supported {
-                assert_eq!(parsed.unwrap_err().reason, "badRequest");
-            } else {
-                parsed.unwrap();
-            }
-        }
+        assert_query_boolean_spellings(&format!("{method} {path}"), supported, parse);
         assert_eq!(parse("1").unwrap_err().reason, "invalidParameter");
     }
-    for (canonical, python) in [("true", "True"), ("false", "False")] {
-        let parse = |wire| {
-            route_project(
-                &Method::GET,
-                &format!("/storage/v1/projects/p/hmacKeys?showDeletedKeys={wire}")
-                    .parse()
-                    .unwrap(),
-            )
-            .unwrap()
-            .unwrap()
-            .0
-        };
-        assert_eq!(parse(canonical), parse(python));
-    }
+    assert_query_boolean_spellings("showDeletedKeys", true, |wire| {
+        route_project(
+            &Method::GET,
+            &format!("/storage/v1/projects/p/hmacKeys?showDeletedKeys={wire}")
+                .parse()
+                .unwrap(),
+        )
+        .unwrap()
+        .map(|(request, _)| request)
+    });
 }
 
 pub(super) fn record() -> BucketRecord {
