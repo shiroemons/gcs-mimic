@@ -95,12 +95,12 @@ pub(super) fn recover(
     while drain(connection, data_dir).map_err(super::super::unavailable)? {}
     let mut after = String::new();
     loop {
-        let part:Option<(String,i64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        let part:Option<(String,u64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         let Some((id, size)) = part else { break };
         let blob = super::super::super::blob_id::BlobId::parse(&id)
             .ok_or_else(|| super::super::unavailable("invalid multipart blob ID"))?;
         let metadata = std::fs::symlink_metadata(blob.staging_path(data_dir))?;
-        if !metadata.is_file() || metadata.len() != size as u64 {
+        if !metadata.is_file() || metadata.len() != size {
             return Err(super::super::unavailable(
                 "multipart part is missing or truncated",
             ));

@@ -11,6 +11,30 @@ use bytes::Bytes;
 
 mod observation;
 
+#[test]
+fn journal_sequences_preserve_sqlite_integer_bounds() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    for value in [0, u64::try_from(i64::MAX).unwrap()] {
+        let sequence = JournalSeq(value);
+        assert_eq!(
+            connection
+                .query_row("SELECT ?1", [sequence], |row| row.get::<_, JournalSeq>(0))
+                .unwrap(),
+            sequence
+        );
+    }
+    assert!(matches!(
+        connection.query_row("SELECT -1", [], |row| row.get::<_, JournalSeq>(0)),
+        Err(rusqlite::Error::IntegralValueOutOfRange(0, -1))
+    ));
+    assert!(
+        connection
+            .query_row("SELECT ?1", [JournalSeq(u64::MAX)], |row| row
+                .get::<_, JournalSeq>(0))
+            .is_err()
+    );
+}
+
 fn bucket(name: &str) -> BucketDefinition {
     BucketDefinition::default_for(&BucketName::new(name).unwrap(), "project", &SystemClock).unwrap()
 }

@@ -78,7 +78,7 @@ impl RootLease {
             let tx = connection.transaction()?;
             lease.control_scope().authorize(&tx)?;
             tx.prepare_cached("SELECT bucket,incarnation FROM sync_buckets WHERE root_id=?1 AND bucket>?2 ORDER BY bucket LIMIT ?3")?
-                .query_map(params![root,after,limit as i64], |r|Ok((r.get(0)?,r.get(1)?)))?
+                .query_map(params![root,after,limit], |r|Ok((r.get(0)?,r.get(1)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(RootError::from)
     }

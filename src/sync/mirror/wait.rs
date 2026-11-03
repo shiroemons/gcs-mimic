@@ -106,7 +106,7 @@ impl LiveControl<'_> {
             completed: reason == "Ready",
             timed_out: reason == "Timeout",
             journal_fence: Some(WaitFence {
-                sequence: fence.sequence.0,
+                sequence: fence.sequence.get(),
                 epoch: fence.revision,
             }),
             reconciliation: Some(summary),

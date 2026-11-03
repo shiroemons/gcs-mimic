@@ -50,7 +50,7 @@ impl Catalog {
                 let transaction=connection.transaction().map_err(object_unavailable)?;
                 active(&transaction,&target,&access,now)?;
                 objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
-                sql::scalar::<i64>(&transaction, "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2", params![target.id,request.number]).map(|value|value as u64).map_err(object_unavailable).map_err(Error::from)
+                sql::scalar::<u64>(&transaction, "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2", params![target.id,request.number]).map_err(object_unavailable).map_err(Error::from)
             }).await?;
             let budget=request.max_bytes.checked_sub(retained).ok_or(ObjectError::TooLarge)?.min(MAX_PART_BYTES);
             let blob=super::super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
@@ -80,7 +80,7 @@ impl Catalog {
                     active(&transaction,&target,&access,now)?;
                     objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
                     sql::exec(&transaction, "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![target.id,request.number]).map_err(object_unavailable)?;
-                    sql::exec(&transaction, "INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated", params![target.id,request.number,id,size as i64,md5.as_slice(),crc32c,now]).map_err(object_unavailable)?;
+                    sql::exec(&transaction, "INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated", params![target.id,request.number,id,size,md5.as_slice(),crc32c,now]).map_err(object_unavailable)?;
                     let stored=part(&transaction,&target.id,request.number)?;
                     objects::commit_publication(transaction)?;
                     Ok(stored)
@@ -320,14 +320,7 @@ impl Catalog {
             sql::exec(
                 connection,
                 "INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)",
-                params![
-                    id,
-                    total as i64,
-                    state.as_slice(),
-                    crc32c,
-                    now,
-                    now + 900000
-                ],
+                params![id, total, state.as_slice(), crc32c, now, now + 900000],
             )?;
             file.acknowledge(total);
             Ok(())

@@ -363,7 +363,7 @@ impl RootLease {
         };
         state.db(move |connection| {
             connection.prepare_cached("INSERT INTO sync_writeback_roots(root_id,max_bytes,max_entries,reserved,retained,entries,protected,recovery,io_failure,workspace_device,workspace_inode,sequence,epoch) VALUES(?1,?2,?3,?4,?4,0,0,0,0,?5,?6,NULL,NULL) ON CONFLICT(root_id) DO UPDATE SET max_bytes=excluded.max_bytes,max_entries=excluded.max_entries WHERE workspace_device=excluded.workspace_device AND workspace_inode=excluded.workspace_inode")?
-                .execute(params![root,limits.bytes as i64,limits.entries as i64,[0u8;16],identity.device.to_be_bytes(),identity.inode.to_be_bytes()])?;
+                .execute(params![root,limits.bytes,limits.entries,[0u8;16],identity.device.to_be_bytes(),identity.inode.to_be_bytes()])?;
             let current:([u8;8],[u8;8])=connection.prepare_cached("SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root],|r|Ok((r.get(0)?,r.get(1)?)))?;
             if current!=(identity.device.to_be_bytes(),identity.inode.to_be_bytes()){return Err(Error::WorkspaceChanged);}
             Ok(())
@@ -415,26 +415,26 @@ fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlit
         },
         phase: Phase::read(row.get(9)?)?,
         fence: JournalFence {
-            sequence: JournalSeq(row.get::<_, i64>(11)? as u64),
+            sequence: row.get(11)?,
             revision: row.get(12)?,
         },
         workspace_entry: WorkspaceEntry(id),
         reserved_bytes: u64::from_be_bytes(row.get(13)?),
         retained_bytes: row.get::<_, Option<[u8; 8]>>(14)?.map(u64::from_be_bytes),
-        size: row.get::<_, i64>(15)? as u64,
+        size: row.get(15)?,
         md5: row.get(16)?,
         crc32c: row.get(17)?,
     })
 }
 fn status(connection: &Connection, root: RootId) -> Result<Status, Error> {
     let mut value = connection.prepare_cached("SELECT max_bytes,max_entries,reserved,retained,entries,protected,recovery,io_failure,sequence,epoch FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root.as_bytes()], |r| {
-        let sequence: Option<i64> = r.get(8)?;
+        let sequence: Option<JournalSeq> = r.get(8)?;
         let epoch: Option<i64> = r.get(9)?;
         let progress = match (sequence,epoch) {
-            (None,None)=>None,(Some(s),Some(e))=>Some(JournalFence {sequence:JournalSeq(s as u64),revision:e}),
+            (None,None)=>None,(Some(s),Some(e))=>Some(JournalFence {sequence:s,revision:e}),
             _=>return Err(rusqlite::Error::InvalidQuery),
         };
-        Ok(Status { limits:Limits {bytes:r.get::<_,i64>(0)? as u64,entries:r.get::<_,i64>(1)? as u64}, reserved_bytes:u128::from_be_bytes(r.get(2)?),retained_bytes:u128::from_be_bytes(r.get(3)?),entries:r.get::<_,i64>(4)? as u64,protected_entries:r.get::<_,i64>(5)? as u64,recovery:r.get(6)?,io_failure:r.get(7)?,progress,stop:Stop::Ready,conflicts:Default::default(),captured_entries:0 })
+        Ok(Status { limits:Limits {bytes:r.get(0)?,entries:r.get(1)?}, reserved_bytes:u128::from_be_bytes(r.get(2)?),retained_bytes:u128::from_be_bytes(r.get(3)?),entries:r.get(4)?,protected_entries:r.get(5)?,recovery:r.get(6)?,io_failure:r.get(7)?,progress,stop:Stop::Ready,conflicts:Default::default(),captured_entries:0 })
     })?;
     value.io_failure |= connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND io_failure!=0)")?.query_row([root.as_bytes()],|r|r.get::<_,bool>(0))?;
     value.conflicts =
@@ -466,7 +466,7 @@ pub(super) fn observation(
         protected_entries: value.protected_entries,
         max_bytes: value.limits.bytes,
         max_entries: value.limits.entries,
-        journal_sequence: value.progress.map(|f| f.sequence.0),
+        journal_sequence: value.progress.map(|f| f.sequence.get()),
         journal_epoch: value.progress.map(|f| f.revision),
         over_limit: value.over_limit(),
     })
@@ -474,11 +474,11 @@ pub(super) fn observation(
 fn save_status(connection: &Connection, root: RootId, value: &Status) -> Result<(), Error> {
     // Aggregated operation failures must never be copied into the workspace-only root flag.
     connection.prepare_cached("UPDATE sync_writeback_roots SET reserved=?2,retained=?3,entries=?4,protected=?5,recovery=?6,sequence=?7,epoch=?8 WHERE root_id=?1")?
-        .execute(params![root.as_bytes(),value.reserved_bytes.to_be_bytes(),value.retained_bytes.to_be_bytes(),value.entries as i64,value.protected_entries as i64,value.recovery,value.progress.map(|p|p.sequence.0 as i64),value.progress.map(|p|p.revision)])?;
+        .execute(params![root.as_bytes(),value.reserved_bytes.to_be_bytes(),value.retained_bytes.to_be_bytes(),value.entries,value.protected_entries,value.recovery,value.progress.map(|p|p.sequence),value.progress.map(|p|p.revision)])?;
     Ok(())
 }
 fn check_fence(connection: &Connection, fence: JournalFence) -> Result<(), Error> {
-    let valid: bool = connection.prepare_cached("SELECT enabled AND epoch=?1 AND ?2 BETWEEN floor AND sequence FROM change_journal_state WHERE singleton=1")?.query_row(params![fence.revision,i64::try_from(fence.sequence.0).map_err(|_|stale())?], |r|r.get(0))?;
+    let valid: bool = connection.prepare_cached("SELECT enabled AND epoch=?1 AND ?2 BETWEEN floor AND sequence FROM change_journal_state WHERE singleton=1")?.query_row(params![fence.revision,i64::try_from(fence.sequence.get()).map_err(|_|stale())?], |r|r.get(0))?;
     if !valid {
         return Err(stale());
     }
@@ -530,7 +530,7 @@ fn original_with_protection(
             if held {
                 return Err(AdminError::Hold.into());
             }
-            let valid: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4 AND size=?5 AND md5=?6 AND crc32c=?7)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation.get(),item.size as i64,item.md5,item.crc32c],|r|r.get(0))?;
+            let valid: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4 AND size=?5 AND md5=?6 AND crc32c=?7)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation.get(),item.size,item.md5,item.crc32c],|r|r.get(0))?;
             if !valid {
                 return Err(stale());
             }
@@ -795,7 +795,7 @@ impl Writeback {
         let (catalog, root) = self.identities();
         self.db(move |c| {
             Ok(c.prepare_cached(SELECT_PENDING_PAGE)?
-                .query_map(params![root.as_bytes(), after, limit as i64], |r| {
+                .query_map(params![root.as_bytes(), after, limit], |r| {
                     pending(r, catalog, root)
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
@@ -873,11 +873,11 @@ impl Writeback {
             let (owner,incarnation):(String,String)=tx.query_row("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1",[&bucket],|r|Ok((r.get(0)?,r.get(1)?)))?;
             let (size,md5,crc32c)=match kind {
                 Kind::Publish=>{let value=objects::lookup(&tx,&bucket,&name)?.ok_or_else(stale)?.0;(value.size,value.md5,value.crc32c)},
-                Kind::Remove=>tx.query_row("SELECT size,md5,crc32c FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![bucket,name,incarnation,generation.get()],|r|Ok((r.get::<_,i64>(0)? as u64,r.get(1)?,r.get(2)?)))?,
+                Kind::Remove=>tx.query_row("SELECT size,md5,crc32c FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![bucket,name,incarnation,generation.get()],|r|Ok((r.get::<_,u64>(0)?,r.get(1)?,r.get(2)?)))?,
             };
             let id=BlobId::generate().map_err(|e|Error::Admin(AdminError::backend(e)))?.to_hex();
             tx.execute("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)",
-                params![id,root.as_bytes(),owner,bucket,incarnation,name,path,generation.get(),kind as i64,fence.sequence.0 as i64,fence.revision,reservation.to_be_bytes(),size as i64,md5,crc32c])?;
+                params![id,root.as_bytes(),owner,bucket,incarnation,name,path,generation.get(),kind as i64,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
             let item=load(&tx,catalog,root,&id)?;original(&tx,&item)?;
             usage.entries+=1;usage.reserved_bytes+=u128::from(reservation);save_status(&tx,root,&usage)?;tx.commit()?;Ok(item)
         }).await

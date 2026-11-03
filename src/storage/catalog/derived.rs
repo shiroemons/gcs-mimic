@@ -174,7 +174,7 @@ fn derived_total(segments: &[DerivedSegment], max_bytes: u64) -> Result<u64, Obj
         }
         total
             .checked_add(segment.length)
-            .filter(|total| *total <= max_bytes && *total <= i64::MAX as u64)
+            .filter(|total| *total <= max_bytes && i64::try_from(*total).is_ok())
             .ok_or(ObjectError::TooLarge)
     })
 }
@@ -189,11 +189,11 @@ fn insert_inputs(
     for (position, segment) in segments.iter().enumerate() {
         statement.execute(params![
             id,
-            position as i64,
+            position,
             segment.source.id,
-            segment.offset as i64,
-            segment.length as i64,
-            segment.source.object.size as i64
+            segment.offset,
+            segment.length,
+            segment.source.object.size
         ])?;
     }
     Ok(())
@@ -301,7 +301,7 @@ struct Input {
 }
 
 fn inputs(connection: &Connection, id: &str) -> Result<Vec<Input>, ObjectError> {
-    connection.prepare_cached("SELECT blob_id, start, length, size FROM derived_inputs WHERE transfer_id = ?1 ORDER BY position LIMIT 33")?.query_map([id], |row| Ok(Input { id: row.get(0)?, start: row.get::<_, i64>(1)? as u64, length: row.get::<_, i64>(2)? as u64, size: row.get::<_, i64>(3)? as u64 }))?.collect::<rusqlite::Result<_>>().map_err(object_unavailable)
+    connection.prepare_cached("SELECT blob_id, start, length, size FROM derived_inputs WHERE transfer_id = ?1 ORDER BY position LIMIT 33")?.query_map([id], |row| Ok(Input { id: row.get(0)?, start: row.get(1)?, length: row.get(2)?, size: row.get(3)? }))?.collect::<rusqlite::Result<_>>().map_err(object_unavailable)
 }
 
 fn transfer(
@@ -310,7 +310,7 @@ fn transfer(
     now: i64,
 ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
     const SELECT: &str = "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1";
-    let (total, offset, state, crc, created, deadline): (i64, i64, Vec<u8>, u32, i64, i64) =
+    let (total, offset, state, crc, created, deadline): (u64, u64, Vec<u8>, u32, i64, i64) =
         sql::row(connection, SELECT, [id], |row| {
             Ok((
                 row.get(0)?,
@@ -326,12 +326,12 @@ fn transfer(
     if now >= deadline {
         return Err(ObjectError::DerivedTransferExpired);
     }
-    let hasher = Hasher::from_md5_state(&state, crc, offset as u64).map_err(object_unavailable)?;
+    let hasher = Hasher::from_md5_state(&state, crc, offset).map_err(object_unavailable)?;
     Ok((
         DerivedTransfer {
             id: id.into(),
-            total: total as u64,
-            offset: offset as u64,
+            total,
+            offset,
             created: system_time_millis(created)?,
             deadline: system_time_millis(deadline)?,
         },
@@ -598,12 +598,12 @@ impl Catalog {
         let result = self
             .run(move |connection| {
                 let (_permit, _writer) = (permit, writer);
-                let count: i64 = sql::scalar(
+                let count: usize = sql::scalar(
                     connection,
                     "SELECT count(*) FROM derived_transfers WHERE ephemeral = ?1",
                     [ephemeral],
                 )?;
-                if count >= MAX_TRANSFERS_PER_KIND as i64 {
+                if count >= MAX_TRANSFERS_PER_KIND {
                     return Err(object_unavailable("derived transfer limit reached"));
                 }
                 let path = transfer_io::create_empty(&data_dir, memory.as_ref(), &id)?;
@@ -619,7 +619,7 @@ impl Catalog {
                         "INSERT INTO derived_transfers VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6, 0)",
                         params![
                             id,
-                            total as i64,
+                            total,
                             Hasher::default().md5_state().0.as_slice(),
                             ephemeral,
                             created,
@@ -755,7 +755,7 @@ impl Catalog {
             output.finish(&catalog).await?;
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();
-                sql::exec(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1", params![id, progress.offset as i64, md5_state.as_slice(), crc])?;
+                sql::exec(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1", params![id, progress.offset, md5_state.as_slice(), crc])?;
                 // The queued SQL job owns the draft until its acknowledged prefix is updated.
                 output.acknowledge(progress.offset);
                 Ok(progress)
@@ -1092,7 +1092,7 @@ pub(super) fn recover(
     reclaim_derived_deletions(connection, data_dir, None)?;
     let over_limit: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM derived_transfers GROUP BY ephemeral HAVING count(*) > ?1)",
-        [MAX_TRANSFERS_PER_KIND as i64],
+        [MAX_TRANSFERS_PER_KIND],
         |row| row.get(0),
     )?;
     if over_limit {
@@ -1100,7 +1100,7 @@ pub(super) fn recover(
     }
     let ids = connection
         .prepare_cached("SELECT id FROM derived_transfers ORDER BY id LIMIT ?1")?
-        .query_map([(2 * MAX_TRANSFERS_PER_KIND + 1) as i64], |row| {
+        .query_map([2 * MAX_TRANSFERS_PER_KIND + 1], |row| {
             row.get::<_, String>(0)
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;

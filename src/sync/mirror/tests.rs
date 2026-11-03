@@ -1473,7 +1473,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
                 .unwrap()
                 .fence
                 .sequence
-                .0
+                .get()
     );
     assert_eq!(
         fs::read(tree.0.join("test-bucket/object")).unwrap(),

@@ -15,7 +15,7 @@ pub(in crate::storage) fn usage(connection: &Connection, root: [u8; 16]) -> Resu
         .prepare_cached("SELECT state,size FROM sync_conflicts WHERE root_id=?1 AND state!=2")?;
     let mut rows = statement.query([root])?;
     while let Some(row) = rows.next()? {
-        let size = row.get::<_, i64>(1)? as u128;
+        let size = u128::from(row.get::<_, u64>(1)?);
         if row.get::<_, i64>(0)? == 0 {
             result.reserved_bytes += size
         } else {
@@ -38,14 +38,14 @@ pub(super) fn total_usage(connection: &Connection, root: [u8; 16]) -> Result<Usa
             Ok((
                 row.get::<_, [u8; 16]>(0)?,
                 row.get::<_, [u8; 16]>(1)?,
-                row.get::<_, i64>(2)?,
+                row.get::<_, u64>(2)?,
             ))
         })
         .optional()?;
     if let Some((reserved, retained, entries)) = workspace {
         result.reserved_bytes += u128::from_be_bytes(reserved);
         result.retained_bytes += u128::from_be_bytes(retained);
-        result.entries += entries as u64;
+        result.entries += entries;
         result.entries = result
             .entries
             .checked_sub(transfer::captured_entries(connection, root)?)
@@ -102,14 +102,14 @@ impl RootLease {
             if revision.is_some_and(|revision|revision!=current) {return Err(Error::RevisionMismatch)}
             let usage=total_usage(&tx,root)?;
             let mut statement=tx.prepare_cached("SELECT ordinal,id,revision,owner,bucket,incarnation,name,generation,size,retained,state FROM sync_conflicts WHERE root_id=?1 AND ordinal>?2 AND state!=2 ORDER BY ordinal LIMIT ?3")?;
-            let mut rows=statement.query(params![root,after,(limit+1) as i64])?;
+            let mut rows=statement.query(params![root,after,limit+1])?;
             let mut items=Vec::with_capacity(limit);
             let mut bytes=0;
             let mut more=false;
             while let Some(row)=rows.next()? {
                 let retained:Option<Vec<u8>>=row.get(9)?;
                 let hashes=retained.as_deref().map(Observation::decode).transpose()?.and_then(|observation|observation.hashes).map(|h|Hashes {md5:h.md5,crc32c:h.crc32c});
-                let item=Conflict {ordinal:row.get(0)?,conflict_id:row.get(1)?,revision:row.get(2)?,owner_project:row.get(3)?,bucket:row.get(4)?,bucket_incarnation:row.get(5)?,name:row.get(6)?,generation:row.get(7)?,size:row.get::<_,i64>(8)? as u64,hashes,
+                let item=Conflict {ordinal:row.get(0)?,conflict_id:row.get(1)?,revision:row.get(2)?,owner_project:row.get(3)?,bucket:row.get(4)?,bucket_incarnation:row.get(5)?,name:row.get(6)?,generation:row.get(7)?,size:row.get(8)?,hashes,
                     phase:if row.get::<_,i64>(10)?==0 {"capturing"} else {"registered"},remedy:"Inspect the current generation, then restore or explicitly discard this revision."};
                 let size=serde_json::to_vec(&item).map_err(AdminError::backend)?.len();
                 if items.len()==limit || bytes+size>240_000 {more=true;break}

@@ -146,7 +146,7 @@ impl RootLease {
             let tx = c.transaction()?;
             lease.control_scope().authorize(&tx)?;
             tx.prepare_cached("SELECT ordinal,bucket,name,incarnation,generation,reason FROM sync_findings INDEXED BY sync_findings_page WHERE root_id=?1 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")?
-                .query_map(params![status.root_id.as_bytes(),after,limit as i64], |r| {
+                .query_map(params![status.root_id.as_bytes(),after,limit], |r| {
                     Ok(Finding {catalog_id:status.catalog_id,root_id:status.root_id,ordinal:r.get(0)?,bucket:r.get(1)?,name:r.get(2)?,incarnation:r.get(3)?,generation:Generation::new(r.get(4)?).map_err(|_|rusqlite::Error::InvalidQuery)?,reason:read_reason(&r.get::<_,String>(5)?)?})
                 })?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(RootError::from)

@@ -150,13 +150,13 @@ fn publication_record(
     );
     options.metadata.reject_past_retention(time)?;
     options.metadata.apply(&mut record)?;
-    let period: Option<i64> = sql::scalar(
+    let period: Option<u64> = sql::scalar(
         connection,
         "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1",
         [&record.bucket],
     )?;
     record.retention_expiration_time =
-        period.map(|period| time + std::time::Duration::from_secs(period as u64));
+        period.map(|period| time + std::time::Duration::from_secs(period));
     Ok(record)
 }
 

@@ -650,7 +650,7 @@ impl Admin {
                  LEFT JOIN bucket_incarnations i ON i.bucket = buckets.name
                  WHERE name > ?1 ORDER BY name LIMIT ?2"
                 ))?;
-                let mut rows = statement.query(rusqlite::params![after, limit as i64 + 1])?;
+                let mut rows = statement.query(rusqlite::params![after, limit + 1])?;
                 let mut items = Vec::new();
                 let mut remaining = super::BUCKET_LIST_METADATA_BUDGET;
                 let mut has_more = false;

@@ -10,10 +10,7 @@ use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     object::{ObjectError, ObjectRecord},
-    storage::{
-        admin::AdminError,
-        change_journal::{JournalFence, JournalSeq},
-    },
+    storage::{admin::AdminError, change_journal::JournalFence},
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
@@ -134,7 +131,7 @@ fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
         [],
         |row| {
             Ok(JournalFence {
-                sequence: JournalSeq(row.get::<_, i64>(0)? as u64),
+                sequence: row.get(0)?,
                 revision: row.get(1)?,
             })
         },
@@ -157,7 +154,7 @@ fn matching(connection: &Connection, root: [u8; 16], revision: &str) -> Result<(
 
 fn read_set(connection: &Connection, root: [u8; 16]) -> Result<Option<DeletionSet>, CatalogError> {
     sql::row(connection, "SELECT revision,scan_revision,baseline_count,candidate_count,guard_enabled,guarded,authorization,d.sequence,d.epoch,(SELECT count(*) FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=1) FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE root_id=?1 AND valid=1 AND complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence", [root],|row|Ok(DeletionSet {
-            revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get::<_,i64>(2)? as u64,candidate_count:row.get::<_,i64>(3)? as u64,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get::<_,i64>(7)? as u64,epoch:row.get(8)?},completed_count:row.get::<_,i64>(9)? as u64,
+            revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get(2)?,candidate_count:row.get(3)?,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get(7)?,epoch:row.get(8)?},completed_count:row.get(9)?,
         })).optional().map_err(unavailable)
 }
 
@@ -237,7 +234,7 @@ impl RootLease {
             authority.authorize(&tx,root)?;
             matching(&tx,root,&revision)?;
             tx.prepare_cached("SELECT bucket,name,owner_project,incarnation,generation,path,ordinal FROM sync_deletion_members WHERE root_id=?1 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")
-                .and_then(|mut statement|statement.query_map(params![root,after,limit as i64],read_candidate)?.collect()).map_err(unavailable)
+                .and_then(|mut statement|statement.query_map(params![root,after,limit],read_candidate)?.collect()).map_err(unavailable)
         }).await?)
     }
 
