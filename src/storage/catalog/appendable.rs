@@ -911,8 +911,9 @@ impl Catalog {
                 if committed.is_ok() || !matches!(referenced, Ok(false)) { checkpoint.commit(); }
             }
             committed?;
-            if backend.is_memory() && let Some(stale) = &stale {
-                backend.remove_appendable(stale)?;
+            if backend.is_memory() && let Some(stale) = &stale
+                && let Err(error) = backend.remove_appendable(stale) {
+                deferred_cleanup(&error);
             }
             Ok(Ok((stale, created)))
         })
@@ -1067,39 +1068,48 @@ impl Catalog {
         let catalog = self.clone();
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
-        self.run_upload(move |connection| {
-            let transaction = sql::immediate(connection)?;
-            let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
-            let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {
-                return Err(ObjectError::ObjectNotFound);
-            };
-            if generation.is_some_and(|generation| generation != row.generation) {
-                return Err(ObjectError::ObjectNotFound);
-            }
-            let record = record(
-                &transaction,
-                &bucket,
-                &name,
-                storage_class,
-                &row,
-                principals.as_ref(),
-            )?;
-            check_conditions(
-                Some(&record),
-                conditions,
-                super::objects::RequestKind::Write,
-            )?;
-            record.check_retention(clock.now())?;
-            sql::exec(
-                &transaction,
-                "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
-                params![bucket, name],
-            )?;
-            transaction.commit()?;
-            data::remove(&catalog, &row.blob_id)
-        })
-        .await?;
+        let id = self
+            .run_upload(move |connection| {
+                let transaction = sql::immediate(connection)?;
+                let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
+                let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {
+                    return Err(ObjectError::ObjectNotFound);
+                };
+                if generation.is_some_and(|generation| generation != row.generation) {
+                    return Err(ObjectError::ObjectNotFound);
+                }
+                let record = record(
+                    &transaction,
+                    &bucket,
+                    &name,
+                    storage_class,
+                    &row,
+                    principals.as_ref(),
+                )?;
+                check_conditions(
+                    Some(&record),
+                    conditions,
+                    super::objects::RequestKind::Write,
+                )?;
+                record.check_retention(clock.now())?;
+                sql::exec(
+                    &transaction,
+                    "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
+                    params![bucket, name],
+                )?;
+                transaction.commit()?;
+                Ok(row.blob_id)
+            })
+            .await?;
         guard.owner = None;
+        if let Err(error) =
+            crate::task::run_blocking("append-delete", move || data::remove(&catalog, &id))
+                .await
+                .map_err(object_unavailable)
+                .and_then(|removed| removed)
+        {
+            deferred_cleanup(&error);
+        }
         Ok(())
     }
 }

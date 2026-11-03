@@ -23,6 +23,38 @@ fn options() -> ResumableOptions {
 }
 
 #[tokio::test]
+async fn committed_delete_succeeds_when_data_cleanup_fails() {
+    let dir = TestDir::new();
+    let catalog = catalog_with_bucket(&dir).await;
+    let writer = catalog
+        .create_appendable("append", "cleanup", options())
+        .await
+        .unwrap();
+    let path = data_path(&dir.0, &writer.blob_id);
+    fs::remove_file(&path).unwrap();
+    fs::create_dir(&path).unwrap();
+    catalog
+        .delete_appendable(live("append", "cleanup"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert!(writer.slot.lock().await.owner.is_none());
+    assert_eq!(
+        catalog
+            .delete_appendable(live("append", "cleanup"), Default::default(), PERMISSIVE)
+            .await,
+        Err(ObjectError::ObjectNotFound)
+    );
+    let replacement = catalog
+        .create_appendable("append", "cleanup", options())
+        .await
+        .unwrap();
+    assert!(replacement.record.generation > writer.record.generation);
+    fs::remove_dir(path).unwrap();
+    drop((writer, replacement));
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn retained_memory_slots_do_not_alias_a_replacement_catalog() {
     let dir = TestDir::new();
     let open = || {
