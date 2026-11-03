@@ -1,4 +1,4 @@
-use super::{Error, MinValue, ReadRequest, number};
+use super::{Error, MinValue, ReadRequest, XmlCode, number};
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth::{self, Caller},
@@ -32,8 +32,7 @@ pub(super) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'
     };
     if values.next().is_some() {
         return Err(Error::new(
-            StatusCode::BAD_REQUEST,
-            "ExcessHeaderValues",
+            XmlCode::ExcessHeaderValues,
             "Expected one header value.",
         ));
     }
@@ -66,13 +65,7 @@ pub(super) fn headers(
     } else {
         auth::signature::payload_hash(headers)
     }
-    .map_err(|_| {
-        Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidDigest",
-            "Invalid SHA256 declaration.",
-        )
-    })?;
+    .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration."))?;
     Ok(Headers {
         content_type,
         expected,
@@ -160,8 +153,7 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
     }
     if length.is_none() && chunked.is_none() {
         return Err(Error::new(
-            StatusCode::LENGTH_REQUIRED,
-            "MissingContentLength",
+            XmlCode::MissingContentLength,
             "Content-Length or chunked transfer encoding is required.",
         ));
     }
@@ -202,24 +194,14 @@ pub(super) fn content_type_and_hashes(
         if error.kind == json::ErrorKind::Unsupported {
             return Error::from(error);
         }
-        Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidDigest",
-            "Invalid x-goog-hash digest.",
-        )
+        Error::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
     })?;
     if let Some(md5) = single(headers, "content-md5")? {
-        let content_md5 = json::decode_hash::<16>(md5).map_err(|_| {
-            Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidDigest",
-                "Invalid Content-MD5.",
-            )
-        })?;
+        let content_md5 = json::decode_hash::<16>(md5)
+            .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid Content-MD5."))?;
         if expected.md5.is_some_and(|value| value != content_md5) {
             return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidDigest",
+                XmlCode::InvalidDigest,
                 "Conflicting MD5 declarations.",
             ));
         }
@@ -266,8 +248,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     }
     if custom_bytes > 8192 {
         return Err(Error::new(
-            StatusCode::BAD_REQUEST,
-            "MetadataTooLarge",
+            XmlCode::MetadataTooLarge,
             "Custom metadata exceeds 8 KiB.",
         ));
     }
@@ -293,8 +274,7 @@ fn upload_error(
     };
     if crc_failed {
         let mut failure = Error::new(
-            StatusCode::BAD_REQUEST,
-            "CrcMismatch",
+            XmlCode::CrcMismatch,
             "The CRC32C you specified did not match what we computed.",
         );
         if let ObjectError::HashMismatch(mismatch) = &error {
@@ -307,8 +287,7 @@ fn upload_error(
         return failure;
     }
     let mut failure = Error::new(
-        StatusCode::BAD_REQUEST,
-        "BadDigest",
+        XmlCode::BadDigest,
         "The MD5 you specified in Content-MD5 or x-goog-hash did not match what we computed.",
     );
     failure.details = Some(object);
@@ -326,20 +305,16 @@ fn crc_detail(digest: &[u8]) -> String {
 pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> Error {
     match error {
         ObjectError::ChecksumMismatch | ObjectError::HashMismatch(_) => Error::new(
-            StatusCode::BAD_REQUEST,
-            "BadDigest",
+            XmlCode::BadDigest,
             "The supplied checksum does not match the uploaded object.",
         ),
         ObjectError::TooLarge => Error::new(
-            StatusCode::BAD_REQUEST,
-            "EntityTooLarge",
+            XmlCode::EntityTooLarge,
             "The upload exceeds the configured object size limit.",
         ),
-        ObjectError::BodyAborted(_) => Error::new(
-            StatusCode::BAD_REQUEST,
-            "IncompleteBody",
-            "The upload body did not complete.",
-        ),
+        ObjectError::BodyAborted(_) => {
+            Error::new(XmlCode::IncompleteBody, "The upload body did not complete.")
+        }
         error => anonymous_error(error.into(), caller).into(),
     }
 }

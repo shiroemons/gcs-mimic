@@ -1,6 +1,6 @@
 //! XML multipart protocol adapter; storage owns session transitions and durable bytes.
 
-use super::{Error, ReadRequest, element, put, signing_parameter};
+use super::{Error, ReadRequest, XmlCode, element, put, signing_parameter};
 use crate::{
     auth, json,
     object::{ObjectError, UploadChunk},
@@ -166,22 +166,18 @@ fn request_headers(
 
 fn storage_error(error: storage::Error, ctx: ObjectCtx<'_>) -> Error {
     let code = match &error {
-        storage::Error::NoSuchUpload => "NoSuchUpload",
-        storage::Error::InvalidPart => "InvalidPart",
-        storage::Error::InvalidPartOrder => "InvalidPartOrder",
-        storage::Error::PartTooSmall => "InvalidArgument",
-        storage::Error::Busy => "ServiceUnavailable",
-        storage::Error::Object(_) => "",
+        storage::Error::NoSuchUpload => XmlCode::NoSuchUpload,
+        storage::Error::InvalidPart => XmlCode::InvalidPart,
+        storage::Error::InvalidPartOrder => XmlCode::InvalidPartOrder,
+        storage::Error::PartTooSmall | storage::Error::Object(_) => {
+            XmlCode::InvalidArgument(StatusCode::BAD_REQUEST)
+        }
+        storage::Error::Busy => XmlCode::ServiceUnavailable,
     };
     if let storage::Error::Object(error) = error {
         return put::storage_error(error, ctx.caller);
     }
-    let status = match error {
-        storage::Error::NoSuchUpload => StatusCode::NOT_FOUND,
-        storage::Error::Busy => StatusCode::SERVICE_UNAVAILABLE,
-        _ => StatusCode::BAD_REQUEST,
-    };
-    Error::new(status, code, error.to_string())
+    Error::new(code, error.to_string())
 }
 
 fn response(body: String) -> Response<ResponseBody> {
@@ -290,8 +286,7 @@ fn validate_sha256(expected: Option<[u8; 32]>, bytes: &[u8]) -> Result<(), Error
         expected.as_slice() != ring::digest::digest(&ring::digest::SHA256, bytes).as_ref()
     }) {
         return Err(Error::new(
-            StatusCode::BAD_REQUEST,
-            "BadDigest",
+            XmlCode::BadDigest,
             "The signed body digest does not match",
         ));
     }
