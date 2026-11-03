@@ -9,12 +9,13 @@ mod unix;
 use unix as imp;
 #[cfg(not(unix))]
 mod unsupported;
+#[cfg(not(unix))]
+use unsupported as imp;
+
 pub(crate) use imp::{create_regular_at, directory_at, unlink_file_at};
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
-#[cfg(not(unix))]
-use unsupported as imp;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CopyMethod {
@@ -901,7 +902,7 @@ mod tests {
     #[test]
     fn descriptor_copy_preserves_bytes_offsets_and_exclusive_names() {
         use std::io::{Seek, SeekFrom};
-        let directory = super::test_support::SourceDir::new();
+        let directory = crate::test_support::TestDir::new();
         let bytes: Vec<u8> = (0..150_003).map(|i| (i % 251) as u8).collect();
         std::fs::write(directory.0.join("source"), &bytes).unwrap();
         let mut source = File::open(directory.0.join("source")).unwrap();
@@ -949,7 +950,7 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn conditional_replace_preserves_displaced_and_conflicting_bytes() {
-        let directory = super::test_support::SourceDir::new();
+        let directory = crate::test_support::TestDir::new();
         let root = File::open(&directory.0).unwrap();
         std::fs::write(directory.0.join("stage"), b"first").unwrap();
         assert_eq!(
@@ -994,7 +995,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn export_directory_walk_rejects_redirects_and_unsafe_components() {
-        let directory = super::test_support::SourceDir::new();
+        let directory = crate::test_support::TestDir::new();
         let root = open_directory_nofollow(&directory.0).unwrap();
         let nested = directory_path_at(
             &root,
@@ -1032,7 +1033,7 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn export_replace_between_directories_retains_displaced_entries() {
-        let directory = super::test_support::SourceDir::new();
+        let directory = crate::test_support::TestDir::new();
         let root = open_directory_nofollow(&directory.0).unwrap();
         let workspace =
             directory_path_at(&root, "work".as_ref(), DirectoryOpen::CreateIfMissing).unwrap();
@@ -1099,7 +1100,7 @@ mod tests {
     #[test]
     fn identity_observes_nanosecond_metadata_changes() {
         use std::os::unix::fs::MetadataExt;
-        let directory = super::test_support::SourceDir::new();
+        let directory = crate::test_support::TestDir::new();
         std::fs::write(directory.0.join("body"), b"a").unwrap();
         let file = File::open(directory.0.join("body")).unwrap();
         let identity = stat_identity(&file).unwrap();
@@ -1168,7 +1169,7 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn descriptor_xattr_reads_are_bounded_and_read_only() {
-        let directory = super::test_support::SourceDir::new();
+        let directory = crate::test_support::TestDir::new();
         let path = directory.0.join("body");
         std::fs::write(&path, b"hello").unwrap();
         let file = File::open(path).unwrap();
@@ -1219,36 +1220,9 @@ mod tests {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub(crate) mod test_support {
     //! Test-only snapshot creation; production source readers never call this module.
-    use std::{fs, io, path::PathBuf};
-
-    pub(crate) struct SourceDir(pub PathBuf);
-    impl SourceDir {
-        pub(crate) fn new() -> Self {
-            let mut random = [0; 8];
-            getrandom::fill(&mut random).expect("test directory randomness");
-            let path = std::env::temp_dir().join(format!(
-                "gcs-mimic-source-{}-{}",
-                std::process::id(),
-                u64::from_ne_bytes(random)
-            ));
-            fs::create_dir(&path).expect("test source directory");
-            Self(path)
-        }
-    }
-    impl Drop for SourceDir {
-        fn drop(&mut self) {
-            if let Err(error) = fs::remove_dir_all(&self.0) {
-                if std::thread::panicking() {
-                    eprintln!("source fixture cleanup failed: {error}");
-                } else {
-                    panic!("source fixture cleanup failed: {error}");
-                }
-            }
-        }
-    }
+    use std::{fs, io};
 
     #[cfg_attr(
         any(target_os = "linux", target_os = "macos"),

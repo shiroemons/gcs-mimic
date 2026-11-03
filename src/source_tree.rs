@@ -160,7 +160,7 @@ mod tests {
     use super::*;
     #[test]
     fn root_snapshot_is_shared_with_the_walk() {
-        let directory = crate::fsutil::test_support::SourceDir::new();
+        let directory = crate::test_support::TestDir::new();
         fs::create_dir(directory.0.join("abc")).unwrap();
         let walk = Walker::new(&directory.0, 8, 2).unwrap();
         let roots: Vec<_> = walk.root_entries().map(Path::to_owned).collect();

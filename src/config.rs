@@ -1187,6 +1187,7 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+    use crate::test_support::TestDir;
 
     #[test]
     fn legacy_json_members_remain_ignored_without_environment_warnings() {
@@ -1231,7 +1232,7 @@ mod tests {
     fn grpc_listener_configuration_precedence_and_diagnostics() {
         let empty = BTreeMap::new();
         assert!(Config::load(&[], &empty).unwrap().grpc_listen.is_none());
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"grpc_listen":"127.0.0.1:4444"}"#).unwrap();
         let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
@@ -1281,7 +1282,7 @@ mod tests {
         let empty = BTreeMap::new();
         let load = |args: &[String], env| Config::load(args, env).unwrap().cors_fallback;
         assert_eq!(load(&[], &empty), CorsFallback::None);
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"cors_fallback":"allow-all"}"#).unwrap();
         let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
@@ -1385,7 +1386,7 @@ mod tests {
     fn default_location_validates_precedence_and_native_profile() {
         let empty = BTreeMap::new();
         assert_eq!(Config::load(&[], &empty).unwrap().default_location, "US");
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"default_location":"EU"}"#).unwrap();
         let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
@@ -1442,7 +1443,7 @@ mod tests {
     fn log_level_defaults_precedence_alias_and_invalid_values() {
         let empty = BTreeMap::new();
         assert_eq!(Config::load(&[], &empty).unwrap().log_level, LogLevel::Info);
-        let directory = PublicConfigDir::new();
+        let directory = TestDir::new();
         let file = directory.0.join("settings.json");
         std::fs::write(&file, r#"{"log_level":"debug"}"#).unwrap();
         let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
@@ -1467,28 +1468,6 @@ mod tests {
             assert_eq!(report.diagnostics.errors[0].key, "GCS_MIMIC_LOG_LEVEL");
             assert!(!report.diagnostics.to_string().contains("secret"));
             assert_eq!(Config::load(&args, &env).unwrap().log_level, LogLevel::Warn);
-        }
-    }
-
-    struct PublicConfigDir(PathBuf);
-
-    impl PublicConfigDir {
-        fn new() -> Self {
-            let mut suffix = [0u8; 8];
-            getrandom::fill(&mut suffix).unwrap();
-            let path = std::env::temp_dir().join(format!(
-                "gcs-mimic-public-config-{}-{:x}",
-                std::process::id(),
-                u64::from_ne_bytes(suffix)
-            ));
-            std::fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for PublicConfigDir {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap();
         }
     }
 
@@ -1623,10 +1602,8 @@ mod tests {
 
     #[test]
     fn config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources() {
-        let file = std::env::temp_dir().join(format!(
-            "gcs-mimic-config-count-{}.json",
-            std::process::id()
-        ));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         let args = ["--config".into(), file.to_str().unwrap().into()];
         for (count, accepted) in [(1023, true), (1024, false), (1025, false), (1026, false)] {
             let fields = vec!["\"max_connections\":32"; count].join(",");
@@ -1696,7 +1673,7 @@ mod tests {
 
     #[test]
     fn config_file_diagnostics_keep_the_selected_source_and_field() {
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let missing = dir.0.join("missing.json");
         let report = Config::preflight(
             &[],
@@ -1721,7 +1698,7 @@ mod tests {
 
     #[test]
     fn public_origin_merges_bounded_domains_and_preserves_input_precedence() {
-        let dir = PublicConfigDir::new();
+        let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"public_base_url":"http://file.invalid"}"#).unwrap();
         let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
@@ -1862,8 +1839,8 @@ mod tests {
                 .xml_virtual_host_domains
                 .is_empty()
         );
-        let file =
-            std::env::temp_dir().join(format!("gcs-mimic-host-config-{}.json", std::process::id()));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"xml_virtual_host_domains":"file.invalid"}"#).unwrap();
         let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
         assert_eq!(
@@ -1967,8 +1944,8 @@ mod tests {
         );
         assert_eq!(load_http(&[], &BTreeMap::new()).unwrap().api_base_url, None);
         assert_eq!(defaults.tls_handshake_timeout_ms, 5_000);
-        let file =
-            std::env::temp_dir().join(format!("gcs-mimic-tls-config-{}.json", std::process::id()));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"scheme":"https","tls_cert":"file-cert.pem","tls_key":"file-key.pem","tls_handshake_timeout_ms":100}"#).unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let loaded = Config::load(&args, &BTreeMap::new()).unwrap();
@@ -2150,10 +2127,8 @@ mod tests {
     #[test]
     fn compat_profile_precedence_and_validation() {
         assert_eq!(Config::default().compat_profile, CompatProfile::Native);
-        let path = std::env::temp_dir().join(format!(
-            "gcs-mimic-compat-config-{}.json",
-            std::process::id()
-        ));
+        let dir = TestDir::new();
+        let path = dir.0.join("config.json");
         std::fs::write(&path, r#"{"compat_profile":"legacy-emulator"}"#).unwrap();
         let args = vec!["--config".into(), path.to_str().unwrap().into()];
         assert_eq!(
@@ -2200,8 +2175,8 @@ mod tests {
             ("catalog_wait_timeout_ms", 30_000, 60_000),
             ("keep_alive_timeout_ms", 120_000, 600_000),
         ] {
-            let file = std::env::temp_dir()
-                .join(format!("gcs-mimic-{setting}-{}.json", std::process::id()));
+            let dir = TestDir::new();
+            let file = dir.0.join("config.json");
             let value = |config: Config| match setting {
                 "object_request_timeout_ms" => config.object_request_timeout_ms,
                 "catalog_wait_timeout_ms" => config.catalog_wait_timeout_ms,
@@ -2241,10 +2216,8 @@ mod tests {
 
     #[test]
     fn object_limit_precedence_and_bounds() {
-        let file = std::env::temp_dir().join(format!(
-            "gcs-mimic-object-config-{}.json",
-            std::process::id()
-        ));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"max_object_bytes":64}"#).unwrap();
         let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_MAX_OBJECT_BYTES".into(), "128".into())]);
@@ -2360,8 +2333,8 @@ mod tests {
 
     #[test]
     fn authentication_profile_precedence_and_validation() {
-        let file =
-            std::env::temp_dir().join(format!("gcs-mimic-auth-config-{}.json", std::process::id()));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let defaults = load_http(&[], &BTreeMap::new()).unwrap();
         assert_eq!(defaults.auth_mode, AuthMode::Permissive);
@@ -2440,8 +2413,8 @@ mod tests {
 
     #[test]
     fn data_directory_precedence_and_validation() {
-        let file =
-            std::env::temp_dir().join(format!("gcs-mimic-data-config-{}.json", std::process::id()));
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"data_dir":"file-data"}"#).unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_DATA_DIR".into(), "env-data".into())]);
