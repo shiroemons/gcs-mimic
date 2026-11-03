@@ -134,7 +134,7 @@ impl Catalog {
             })
             .await?;
         if journaled.any() {
-            self.reclaim_pending().await?;
+            self.reclaim_after_commit().await;
         }
         Ok(())
     }
@@ -217,5 +217,59 @@ impl Catalog {
             )
         });
         task.await?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::test_fixtures::{body, bucket, permissive_upload};
+
+    #[tokio::test]
+    async fn discard_succeeds_while_an_unrelated_live_journal_entry_remains() {
+        let data = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&data.0).await.unwrap();
+        catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        catalog
+            .put_object(
+                permissive_upload("bucket", "live", 1000),
+                body(vec![Bytes::from_static(b"live")]),
+            )
+            .await
+            .unwrap();
+        let live = catalog
+            .run_upload(|connection| {
+                let id = lookup(connection, "bucket", "live")?.unwrap().blob;
+                sql::exec(
+                    connection,
+                    "INSERT INTO pending_blob_deletions VALUES (?1)",
+                    [id],
+                )?;
+                Ok(id)
+            })
+            .await
+            .unwrap();
+        let id = BlobId::generate().unwrap();
+        let path = id.blob_path(&data.0);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"orphan").unwrap();
+        catalog
+            .try_discard_staged(StagedBlob { id, stage: None })
+            .await
+            .unwrap();
+        assert!(!path.exists());
+        assert_eq!(fs::read(live.blob_path(&data.0)).unwrap(), b"live");
+        assert!(
+            catalog
+                .reclaim_pending()
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains(&live.to_hex())
+        );
+        catalog.close().await.unwrap();
     }
 }

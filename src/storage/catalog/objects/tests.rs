@@ -424,6 +424,13 @@ async fn replayed_upload_keeps_its_record_when_discard_fails() {
     assert_eq!(catalog.0.uploads.lock().unwrap().active, 0);
     catalog.close().await.unwrap();
     let recovered = Catalog::open(&data.0).await.unwrap();
+    assert_eq!(
+        fs::read_dir(data.0.join("blobs"))
+            .unwrap()
+            .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
+            .sum::<usize>(),
+        1
+    );
     recovered.close().await.unwrap();
 }
 
