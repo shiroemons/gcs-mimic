@@ -478,6 +478,7 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
 
     // Rebuild the schema 45 state: microsecond-scale generations, no bucket allocator.
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    crate::storage::catalog::test_support::downgrade_deletion_history_schema(&connection);
     // Reopening verifies that every referenced blob exists, so give the retained row its file.
     let blob: String = connection
         .query_row("SELECT blob_id FROM objects", [], |row| row.get(0))
