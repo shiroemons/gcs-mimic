@@ -82,6 +82,7 @@ pub(crate) fn known_method(path: &str) -> bool {
 fn object_access_error(error: ObjectError, caller: Option<Caller<'_>>) -> Status {
     crate::grpc::v2::status::anonymous(error.into(), caller)
 }
+/// `?` would bypass the legacy adapter's own NotEmpty wording.
 fn catalog_error(error: CatalogError) -> Status {
     if matches!(error, CatalogError::NotEmpty) {
         Status::failed_precondition("Bucket is not empty; delete objects and versions first")

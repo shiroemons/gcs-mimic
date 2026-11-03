@@ -6,6 +6,7 @@ use crate::{bucket::CatalogError, json};
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
+/// `?` would bypass the v2 NotEmpty wording and anonymous authorization mapping.
 fn catalog_error(error: CatalogError, caller: Option<Caller<'_>>) -> Status {
     if matches!(error, CatalogError::NotEmpty) {
         return Status::failed_precondition(

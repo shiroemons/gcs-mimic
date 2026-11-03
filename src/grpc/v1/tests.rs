@@ -59,6 +59,57 @@ fn names(response: &pb::ListBucketsResponse) -> Vec<&str> {
 }
 
 #[tokio::test]
+async fn nonempty_bucket_deletion_keeps_each_grpc_versions_wording() {
+    use crate::grpc::generated::google::storage::v2::{
+        self as v2_pb, storage_server::Storage as V2Storage,
+    };
+    let dir = TestDir::new();
+    let storage = storage(&dir, Auth::permissive()).await;
+    let (tx, rx) = tokio::sync::mpsc::channel(2);
+    tx.send(Ok(crate::object::UploadChunk::End)).await.unwrap();
+    drop(tx);
+    storage
+        .state
+        .catalog
+        .put_object(
+            crate::storage::test_fixtures::permissive_upload("list-a", "object", 1024),
+            rx,
+        )
+        .await
+        .unwrap();
+    let legacy = assert_code(
+        storage
+            .delete_bucket(Request::new(pb::DeleteBucketRequest {
+                bucket: "list-a".into(),
+                ..Default::default()
+            }))
+            .await,
+        tonic::Code::FailedPrecondition,
+    );
+    assert_eq!(
+        legacy.message(),
+        "Bucket is not empty; delete objects and versions first"
+    );
+    let modern = fixtures::storage_with(storage.state.clone(), 1024);
+    let modern = assert_code(
+        V2Storage::delete_bucket(
+            &modern,
+            Request::new(v2_pb::DeleteBucketRequest {
+                name: "projects/_/buckets/list-a".into(),
+                ..Default::default()
+            }),
+        )
+        .await,
+        tonic::Code::FailedPrecondition,
+    );
+    assert_eq!(
+        modern.message(),
+        "Bucket is not empty; delete its objects and versions before deleting the bucket"
+    );
+    storage.state.catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn object_listing_preserves_encoded_query_and_uri_limits() {
     let dir = TestDir::new();
     let storage = storage(&dir, Auth::permissive()).await;

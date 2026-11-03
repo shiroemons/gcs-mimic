@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, watch};
 use tonic::codegen::tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, Response, Status, Streaming};
 
+/// `?` would use JSON's unsupported-setting description instead of the v2 metadata wording.
 pub(super) fn object_status(error: ObjectError) -> Status {
     if matches!(error, ObjectError::UnsupportedMetadata(_)) {
         return unsupported_for(&error.to_string(), None);
