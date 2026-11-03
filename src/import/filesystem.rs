@@ -19,8 +19,7 @@ use ring::digest::{Context, SHA256, digest};
 use std::{
     collections::VecDeque,
     fs::{self, File, OpenOptions},
-    io::{self, Read, Write},
-    path::Path,
+    io::{self, BufReader, BufWriter, Read, Seek, Write},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -105,25 +104,57 @@ enum ImportStart {
 
 /// This execution's disk-backed observations are never resume authority.
 pub(super) struct Baseline {
-    file: File,
-    mode: BaselineMode,
+    file: BaselineIo,
+}
+enum BaselineIo {
+    Record(BufWriter<File>),
+    Verify(BufReader<File>),
 }
 
 impl Baseline {
-    pub(super) fn open(path: &Path, mode: BaselineMode) -> io::Result<Self> {
-        let file = if mode == BaselineMode::Record {
-            let mut options = OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
+    pub(super) fn open(mut file: File, mode: BaselineMode) -> io::Result<Self> {
+        file.rewind()?;
+        let file = match mode {
+            BaselineMode::Record => {
+                file.set_len(0)?;
+                BaselineIo::Record(BufWriter::new(file))
             }
-            options.open(path)?
-        } else {
-            File::open(path)?
+            BaselineMode::Verify => BaselineIo::Verify(BufReader::new(file)),
         };
-        Ok(Self { file, mode })
+        Ok(Self { file })
+    }
+
+    pub(super) fn finish(&mut self) -> io::Result<()> {
+        if let BaselineIo::Record(file) = &mut self.file {
+            file.flush()?;
+        }
+        Ok(())
+    }
+
+    fn create() -> io::Result<File> {
+        let mut random = [0; 16];
+        getrandom::fill(&mut random).map_err(io::Error::other)?;
+        let path = std::env::temp_dir().join(format!(
+            "gcs-mimic-import-{}",
+            crate::hashing::encode_lower(&random)
+        ));
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options
+                .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_DELETE_ON_CLOSE);
+        }
+        let file = options.open(&path)?;
+        #[cfg(unix)]
+        fs::remove_file(path)?;
+        Ok(file)
     }
 
     pub(super) fn check(&mut self, record: &Record) -> Result<(), ImportFailure> {
@@ -139,27 +170,28 @@ impl Baseline {
         if let Record::Object { fingerprint, .. } = record {
             bytes[58..].copy_from_slice(&fingerprint.device.unwrap_or_default().to_be_bytes());
         }
-        if self.mode == BaselineMode::Record {
-            self.file.write_all(&bytes)?;
-        } else {
-            let mut expected = [0; 66];
-            if let Err(error) = self.file.read_exact(&mut expected) {
-                return Err(if error.kind() == io::ErrorKind::UnexpectedEof {
-                    ImportFailure::SourceChanged {
-                        fields: vec![super::ChangedField::Metadata],
-                    }
-                } else {
-                    error.into()
-                });
-            }
-            if expected != bytes {
-                return Err(ImportFailure::SourceChanged {
-                    fields: if expected[..32] != bytes[..32] {
-                        vec![super::ChangedField::Metadata]
+        match &mut self.file {
+            BaselineIo::Record(file) => file.write_all(&bytes)?,
+            BaselineIo::Verify(file) => {
+                let mut expected = [0; 66];
+                if let Err(error) = file.read_exact(&mut expected) {
+                    return Err(if error.kind() == io::ErrorKind::UnexpectedEof {
+                        ImportFailure::SourceChanged {
+                            fields: vec![super::ChangedField::Metadata],
+                        }
                     } else {
-                        vec![super::ChangedField::Inode, super::ChangedField::Ctime]
-                    },
-                });
+                        error.into()
+                    });
+                }
+                if expected != bytes {
+                    return Err(ImportFailure::SourceChanged {
+                        fields: if expected[..32] != bytes[..32] {
+                            vec![super::ChangedField::Metadata]
+                        } else {
+                            vec![super::ChangedField::Inode, super::ChangedField::Ctime]
+                        },
+                    });
+                }
             }
         }
         Ok(())
@@ -252,14 +284,14 @@ fn findings(page: &Page, diagnostics: &mut impl Write) -> Result<(), ImportError
 
 async fn metadata_scan(
     options: &Options,
-    baseline: &Path,
+    baseline: &File,
     mode: BaselineMode,
     diagnostics: &mut impl Write,
 ) -> Result<Summary, ImportError> {
     let (mut receive, worker) = scan_with_baseline(
         options.clone(),
         crate::fsutil::read_source_metadata,
-        Some((baseline.into(), mode)),
+        Some((baseline.try_clone()?, mode)),
         super::ScanPurpose::Inspect,
     )?;
     let result = async {
@@ -378,43 +410,27 @@ pub fn execute(
         )
         .into());
     }
-    let mut random = [0; 16];
-    getrandom::fill(&mut random).map_err(io::Error::other)?;
-    let baseline = std::env::temp_dir().join(format!(
-        "gcs-mimic-import-{}",
-        crate::hashing::encode_lower(&random)
-    ));
+    let baseline = Baseline::create()?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(2)
         .enable_all()
         .build()?;
-    let result = runtime.block_on(run(
+    runtime.block_on(run(
         &options,
         source_id,
         start,
         &baseline,
         &mut output,
         &mut diagnostics,
-    ));
-    match fs::remove_file(&baseline) {
-        Ok(()) => (),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
-        Err(error) => {
-            return Err(match result {
-                Ok(_) => ImportError::ObservationCleanup(error),
-                Err(original) => original.with_cleanup(CleanupOperation::Observations, error),
-            });
-        }
-    }
-    result
+    ))
 }
 
 async fn run(
     options: &Options,
     source: [u8; 32],
     start: ImportStart,
-    baseline: &Path,
+    baseline: &File,
     output: &mut impl Write,
     diagnostics: &mut impl Write,
 ) -> Result<Summary, ImportError> {
@@ -500,7 +516,7 @@ async fn import(
     catalog: &Catalog,
     binding: &ImportBinding,
     preflight: &Summary,
-    baseline: &Path,
+    baseline: &File,
     output: &mut impl Write,
     diagnostics: &mut impl Write,
 ) -> Result<Summary, ImportError> {
@@ -510,7 +526,7 @@ async fn import(
     let (mut receive, worker) = scan_with_baseline(
         options.clone(),
         crate::fsutil::read_source_metadata,
-        Some((baseline.into(), BaselineMode::Verify)),
+        Some((baseline.try_clone()?, BaselineMode::Verify)),
         super::ScanPurpose::Publish,
     )?;
     let mut bytes_hashed = 0;
@@ -592,10 +608,13 @@ async fn import(
 async fn join_scan(
     worker: super::ScanWorker,
 ) -> Result<Result<Summary, ImportFailure>, ImportError> {
-    crate::task::run_blocking("import-scanner-join", move || worker.join())
-        .await
-        .map_err(io::Error::other)?
-        .map_err(|_| invalid("import scanner panicked").into())
+    worker.await.map_err(|cause| {
+        io::Error::other(crate::storage::failure::BackendCause::with_source(
+            "import scanner stopped without a result",
+            cause,
+        ))
+        .into()
+    })
 }
 
 async fn publish(

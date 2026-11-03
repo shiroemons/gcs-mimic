@@ -17,6 +17,27 @@ fn xattr_setup() -> (TestDir, Options) {
     );
     (directory, options)
 }
+
+#[tokio::test]
+async fn scanner_panics_arrive_as_typed_results() {
+    fn fail<'a>(
+        _: &File,
+        _: &'a mut SourceMetadataBuffer,
+    ) -> Result<Option<&'a [u8]>, SourceMetadataError> {
+        panic!("injected scanner panic")
+    }
+    let (_dir, mut options) = xattr_setup();
+    fs::write(options.source.join("bucket-one/body"), b"body").unwrap();
+    options.metadata_mode = MetadataMode::Xattr;
+    let (mut pages, completion) =
+        scan_with_baseline(options, fail, None, ScanPurpose::Inspect).unwrap();
+    while pages.recv().await.is_some() {}
+    let error = completion.await.unwrap().unwrap_err();
+    assert!(
+        crate::error::causes(&error)
+            .any(|cause| cause.to_string().contains("import scanner panicked"))
+    );
+}
 #[cfg(not(unix))]
 #[test]
 fn snapshot_import_is_rejected_before_reading_on_non_unix_hosts() {

@@ -535,9 +535,7 @@ fn inspect_with_xattr(
         Ok(())
     })();
     drop(receive);
-    let joined = worker
-        .join()
-        .map_err(|_| io::Error::other("import worker panicked"))?;
+    let joined = worker.blocking_recv().map_err(io::Error::other)?;
     write_result?;
     let summary = joined?;
     serde_json::to_writer(
@@ -548,13 +546,13 @@ fn inspect_with_xattr(
     Ok(summary)
 }
 
-type ScanWorker = std::thread::JoinHandle<Result<Summary, ImportFailure>>;
+type ScanWorker = tokio::sync::oneshot::Receiver<Result<Summary, ImportFailure>>;
 type Scan = (mpsc::Receiver<Page>, ScanWorker);
 
 fn scan_with_baseline(
     options: Options,
     xattr: reader::XattrReader,
-    baseline: Option<(PathBuf, filesystem::BaselineMode)>,
+    baseline: Option<(fs::File, filesystem::BaselineMode)>,
     purpose: ScanPurpose,
 ) -> io::Result<Scan> {
     let (send, receive) = mpsc::channel(2);
@@ -566,62 +564,78 @@ fn spawn_scan(
     options: Options,
     xattr: reader::XattrReader,
     send: PageSender,
-    baseline: Option<(PathBuf, filesystem::BaselineMode)>,
+    baseline: Option<(fs::File, filesystem::BaselineMode)>,
     purpose: ScanPurpose,
 ) -> io::Result<ScanWorker> {
-    let worker = crate::task::spawn_thread("import-inspection", move || {
-        let mut reporter = Reporter {
-            send,
-            page: Page::default(),
-            summary: Summary {
-                mixed_format_absence_verified: true,
-                ..Summary::default()
-            },
-            manifest: digest_context(b"export"),
-            observations: digest_context(b"stat"),
-            body_manifest: digest_context(b"bodies"),
-            baseline: baseline
-                .map(|(path, mode)| filesystem::Baseline::open(&path, mode))
-                .transpose()?,
-            purpose,
-        };
-        reporter.manifest(
-            "options",
-            "",
-            &option_fields(&options).each_ref().map(Vec::as_slice),
-        );
-        let result = match options.source_format {
-            SourceFormat::Filesystem => reader::scan(&options, &mut reporter, xattr),
-            SourceFormat::Snapshot => snapshot::scan(&options, &mut reporter),
-        };
-        match result {
-            Ok(()) => reporter.summary.complete = true,
-            Err(ImportFailure::ReportClosed) => return Err(ImportFailure::ReportClosed),
-            Err(error) => reporter.failure(".", &error)?,
-        }
-        reporter.summary.eligible =
-            reporter.summary.complete && reporter.summary.blocking_findings == 0;
-        reporter.summary.bodies_verified = options.verify_bodies && reporter.summary.eligible;
-        reporter.manifest(
-            "totals",
-            "",
-            &[
-                &reporter.summary.entries.to_be_bytes(),
-                &reporter.summary.skipped_os_metadata.to_be_bytes(),
-            ],
-        );
-        reporter.summary.fingerprint_format = FINGERPRINT_FORMAT;
-        if reporter.summary.eligible {
-            reporter.summary.manifest_sha256 = Some(finish_digest(reporter.manifest.clone()));
-            reporter.summary.stat_observations_sha256 =
-                Some(finish_digest(reporter.observations.clone()));
-        }
-        if reporter.summary.bodies_verified {
-            reporter.summary.body_digests_sha256 =
-                Some(finish_digest(reporter.body_manifest.clone()));
-        }
-        reporter.flush()?;
-        Ok(reporter.summary)
+    let (completion, worker) = tokio::sync::oneshot::channel();
+    crate::task::spawn_thread("import-inspection", move || {
+        let result = crate::task::catch_job("import-inspection", || {
+            let mut reporter = Reporter {
+                send,
+                page: Page::default(),
+                summary: Summary {
+                    mixed_format_absence_verified: true,
+                    ..Summary::default()
+                },
+                manifest: digest_context(b"export"),
+                observations: digest_context(b"stat"),
+                body_manifest: digest_context(b"bodies"),
+                baseline: baseline
+                    .map(|(file, mode)| filesystem::Baseline::open(file, mode))
+                    .transpose()?,
+                purpose,
+            };
+            reporter.manifest(
+                "options",
+                "",
+                &option_fields(&options).each_ref().map(Vec::as_slice),
+            );
+            let result = match options.source_format {
+                SourceFormat::Filesystem => reader::scan(&options, &mut reporter, xattr),
+                SourceFormat::Snapshot => snapshot::scan(&options, &mut reporter),
+            };
+            match result {
+                Ok(()) => reporter.summary.complete = true,
+                Err(ImportFailure::ReportClosed) => return Err(ImportFailure::ReportClosed),
+                Err(error) => reporter.failure(".", &error)?,
+            }
+            reporter.summary.eligible =
+                reporter.summary.complete && reporter.summary.blocking_findings == 0;
+            reporter.summary.bodies_verified = options.verify_bodies && reporter.summary.eligible;
+            reporter.manifest(
+                "totals",
+                "",
+                &[
+                    &reporter.summary.entries.to_be_bytes(),
+                    &reporter.summary.skipped_os_metadata.to_be_bytes(),
+                ],
+            );
+            reporter.summary.fingerprint_format = FINGERPRINT_FORMAT;
+            if reporter.summary.eligible {
+                reporter.summary.manifest_sha256 = Some(finish_digest(reporter.manifest.clone()));
+                reporter.summary.stat_observations_sha256 =
+                    Some(finish_digest(reporter.observations.clone()));
+            }
+            if reporter.summary.bodies_verified {
+                reporter.summary.body_digests_sha256 =
+                    Some(finish_digest(reporter.body_manifest.clone()));
+            }
+            reporter.flush()?;
+            if let Some(baseline) = &mut reporter.baseline {
+                baseline.finish()?;
+            }
+            Ok(reporter.summary)
+        })
+        .unwrap_or_else(|cause| {
+            Err(
+                io::Error::other(crate::storage::failure::BackendCause::with_source(
+                    "import scanner panicked",
+                    cause,
+                ))
+                .into(),
+            )
+        });
+        let _ = completion.send(result);
     })?;
     Ok(worker)
 }
