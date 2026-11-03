@@ -18,10 +18,7 @@ use crate::{
     },
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path};
 
 const BUFFER_SIZE: usize = 64 * 1024;
 const MAX_TRANSFERS_PER_KIND: usize = 128;
@@ -1052,20 +1049,18 @@ fn discard_record(connection: &Connection, id: &BlobId) -> Result<(), ObjectErro
     transaction.commit().map_err(object_unavailable)
 }
 
-fn restore_stage(data_dir: &Path, id: &BlobId) -> Result<PathBuf, ObjectError> {
-    super::BlobBackend::Disk(data_dir.to_owned()).restore_draft(id)?;
-    Ok(stage_path(data_dir, id))
-}
-
 #[expect(
     clippy::disallowed_methods,
     reason = "transfer quotas and each retained transfer are inspected once during open-time recovery"
 )]
 pub(super) fn recover(
     connection: &Connection,
-    data_dir: &Path,
+    backend: &super::BlobBackend,
     now: i64,
 ) -> Result<(), ObjectError> {
+    let super::BlobBackend::Disk(data_dir) = backend else {
+        return Ok(());
+    };
     reclaim_derived_deletions(connection, data_dir, None)?;
     let over_limit: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM derived_transfers GROUP BY ephemeral HAVING count(*) > ?1)",
@@ -1103,7 +1098,8 @@ pub(super) fn recover(
             {
                 return Err(object_unavailable("invalid derived sources"));
             }
-            let stage = restore_stage(data_dir, &id)?;
+            backend.restore_draft(&id)?;
+            let stage = stage_path(data_dir, &id);
             let mut output = fs::OpenOptions::new().write(true).read(true).open(stage)?;
             if output.metadata()?.len() < progress.offset {
                 return Err(object_unavailable(
@@ -1157,6 +1153,7 @@ mod tests {
     use bytes::Bytes;
     use md5::{Digest, Md5, digest::common::hazmat::SerializableState};
     use std::io::Write;
+    use std::path::PathBuf;
     use std::time::UNIX_EPOCH;
     use tokio::sync::mpsc;
 
@@ -2247,8 +2244,18 @@ mod tests {
                 .unwrap();
             match mode {
                 "cancel" => cleanup_record(&connection, &std::env::temp_dir(), &id).unwrap(),
-                "expiry" => recover(&connection, &std::env::temp_dir(), 1).unwrap(),
-                "quarantine" => recover(&connection, &std::env::temp_dir(), 0).unwrap(),
+                "expiry" => recover(
+                    &connection,
+                    &super::super::BlobBackend::Disk(std::env::temp_dir()),
+                    1,
+                )
+                .unwrap(),
+                "quarantine" => recover(
+                    &connection,
+                    &super::super::BlobBackend::Disk(std::env::temp_dir()),
+                    0,
+                )
+                .unwrap(),
                 _ => unreachable!(),
             }
             assert_eq!(

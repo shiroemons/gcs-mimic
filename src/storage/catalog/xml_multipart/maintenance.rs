@@ -16,13 +16,6 @@ pub(super) fn retire(connection: &Connection, id: &str) -> Result<(), ObjectErro
 }
 
 /// A journal entry survives a failed unlink or directory sync and is retried by maintenance.
-pub(super) fn drain(connection: &Connection, data_dir: &Path) -> Result<bool, ObjectError> {
-    drain_storage(
-        connection,
-        &super::super::BlobBackend::Disk(data_dir.to_owned()),
-    )
-}
-
 pub(super) fn drain_storage(
     connection: &Connection,
     backend: &super::super::BlobBackend,
@@ -87,9 +80,12 @@ fn due(connection: &Connection, now: i64) -> Result<Vec<String>, CatalogError> {
 
 pub(super) fn recover(
     connection: &Connection,
-    data_dir: &Path,
+    backend: &super::super::BlobBackend,
     now: i64,
 ) -> Result<(), CatalogError> {
+    let super::super::BlobBackend::Disk(data_dir) = backend else {
+        return Ok(());
+    };
     for id in due(connection, now)? {
         connection.execute_batch("BEGIN IMMEDIATE")?;
         if let Err(error) = retire(connection, &id) {
@@ -98,7 +94,7 @@ pub(super) fn recover(
         }
         connection.execute_batch("COMMIT")?;
     }
-    while drain(connection, data_dir).map_err(super::super::unavailable)? {}
+    while drain_storage(connection, backend).map_err(super::super::unavailable)? {}
     let mut after = String::new();
     loop {
         let part:Option<(BlobId,u64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;

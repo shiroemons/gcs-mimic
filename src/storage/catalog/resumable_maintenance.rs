@@ -4,10 +4,9 @@ use super::{
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, params};
-use std::{
-    path::Path,
-    time::{Duration, SystemTime},
-};
+#[cfg(test)]
+use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 const PAGE_SIZE: i64 = 16;
 const RETRY_DELAY: Duration = Duration::from_secs(1);
@@ -44,10 +43,9 @@ fn clean_record(
 
 pub(super) fn recover_due(
     connection: &Connection,
-    data_dir: &Path,
+    backend: &BlobBackend,
     now: i64,
 ) -> Result<(), CatalogError> {
-    let backend = BlobBackend::Disk(data_dir.to_owned());
     let mut after = String::new();
     loop {
         let rows = cleanup_page(connection, now, &after)?;
@@ -55,7 +53,7 @@ pub(super) fn recover_due(
             return Ok(());
         }
         for (id, blob_id, deadline) in rows {
-            clean_record(connection, &backend, &id, &blob_id, deadline, now)?;
+            clean_record(connection, backend, &id, &blob_id, deadline, now)?;
             after = id;
         }
     }

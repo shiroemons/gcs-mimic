@@ -458,9 +458,12 @@ pub(super) fn reclaim(
 
 pub(super) fn recover(
     connection: &Connection,
-    data_dir: &Path,
+    backend: &super::BlobBackend,
     now: i64,
 ) -> Result<(), CatalogError> {
+    let super::BlobBackend::Disk(data_dir) = backend else {
+        return Ok(());
+    };
     // The phases run in this order: staging and derived state first, then the deletion
     // journal, so the reference and orphan scans only see committed, durable state.
     let recover = || -> Result<(), ObjectError> {
@@ -473,7 +476,7 @@ pub(super) fn recover(
             sync_dir(&data_dir.join("blobs"))?;
         }
         super::resumable_recovery::recover(connection, data_dir)?;
-        super::derived::recover(connection, data_dir, now)?;
+        super::derived::recover(connection, backend, now)?;
         remove_unretained_staging(connection, data_dir)?;
         drain_deletion_journal(connection, data_dir)?;
         verify_referenced_blobs(connection, data_dir)?;

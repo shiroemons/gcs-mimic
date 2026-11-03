@@ -876,9 +876,12 @@ const MIGRATIONS: &[(i64, Migration)] = &[
 )]
 fn recover_on_open(
     connection: &mut Connection,
-    data_dir: &Path,
+    backend: &BlobBackend,
     clock: &dyn Clock,
 ) -> Result<(), CatalogError> {
+    let BlobBackend::Disk(data_dir) = backend else {
+        return Ok(());
+    };
     let pending: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)",
         [],
@@ -919,9 +922,9 @@ fn recover_on_open(
     }
     let recovery_now = unix_millis(clock.now())?;
     rewrite::recover_due(connection, recovery_now)?;
-    resumable_maintenance::recover_due(connection, data_dir, recovery_now)?;
-    xml_multipart::recover(connection, data_dir, recovery_now)?;
-    objects::recover(connection, data_dir, recovery_now)?;
+    resumable_maintenance::recover_due(connection, backend, recovery_now)?;
+    xml_multipart::recover(connection, backend, recovery_now)?;
+    objects::recover(connection, backend, recovery_now)?;
     appendable::recover(connection, data_dir)
 }
 
@@ -986,6 +989,10 @@ impl Catalog {
         memory_limits: Option<(u64, u64)>,
     ) -> Result<Self, CatalogError> {
         let catalog = tokio::task::spawn_blocking(move || -> Result<Self, CatalogError> {
+            let backend = match memory_limits {
+                Some((bytes, _)) => BlobBackend::Memory(super::memory::Store::new(bytes)),
+                None => BlobBackend::Disk(data_dir.clone()),
+            };
             let (lock, stored_version, mut connection) = if let Some((_, bytes)) = memory_limits {
                 (None, 0, open_memory(bytes)?)
             } else {
@@ -1018,7 +1025,7 @@ impl Catalog {
                 connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
                 notification_outbox::open(&connection)?;
             } else {
-                recover_on_open(&mut connection, &data_dir, &*clock)?;
+                recover_on_open(&mut connection, &backend, &*clock)?;
             }
             Ok(Self(Arc::new(Inner {
                 principals: OnceLock::new(),
@@ -1047,10 +1054,7 @@ impl Catalog {
                 pubsub_endpoint: OnceLock::new(),
                 default_soft_delete_retention: AtomicU64::new(0),
                 notification_attempts: Arc::new(Semaphore::new(1)),
-                backend: match memory_limits {
-                    Some((bytes, _)) => BlobBackend::Memory(super::memory::Store::new(bytes)),
-                    None => BlobBackend::Disk(data_dir.clone()),
-                },
+                backend,
                 data_dir,
                 clock,
                 session_writers: Mutex::new(Default::default()),

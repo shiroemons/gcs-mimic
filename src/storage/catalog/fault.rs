@@ -375,7 +375,7 @@ pub(crate) fn dir_created(path: &Path) {
     });
 }
 
-/// Records a new conflict file's entry separately from its content durability.
+/// Records a new file directory entry, volatile until its parent is synced; content durability is tracked separately.
 #[cfg(unix)]
 pub(crate) fn file_created(path: &Path) {
     record(path, |ledger, path| {
