@@ -859,25 +859,15 @@ mod tests {
 
     #[tokio::test]
     async fn expiry_during_copy_returns_gone_when_checkpointing_the_next_token() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        struct ExpiringClock(AtomicUsize);
-        impl crate::clock::Clock for ExpiringClock {
-            fn now(&self) -> SystemTime {
-                let expired = self.0.fetch_add(1, Ordering::SeqCst) >= 3;
-                UNIX_EPOCH + Duration::from_millis(if expired { 604801000 } else { 1000 })
-            }
-        }
         let dir = crate::test_support::TestDir::new();
-        let clock = Arc::new(ExpiringClock(AtomicUsize::new(0)));
+        let clock = Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_millis(1000)));
         let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
             .await
             .unwrap();
-        clock.0.store(0, Ordering::SeqCst);
         catalog
             .insert_bucket(bucket("bucket", "project"))
             .await
             .unwrap();
-        clock.0.store(0, Ordering::SeqCst);
         catalog
             .put_object(
                 permissive_upload("bucket", "source", 8),
@@ -885,7 +875,6 @@ mod tests {
             )
             .await
             .unwrap();
-        clock.0.store(0, Ordering::SeqCst);
         let (token, mut owner) = new_session(&catalog).await.unwrap();
         owner.disarm();
         catalog
@@ -895,11 +884,11 @@ mod tests {
                     "UPDATE rewrite_sessions SET request=json_set(request,'$.budget',1)",
                     [],
                 )?;
+                sql::exec(connection, "CREATE TRIGGER expire_after_progress AFTER UPDATE OF offset ON derived_transfers WHEN NEW.offset > OLD.offset BEGIN UPDATE rewrite_sessions SET deadline=0 WHERE id=NEW.id; END", [])?;
                 Ok(())
             })
             .await
             .unwrap();
-        clock.0.store(0, Ordering::SeqCst);
         assert!(matches!(
             catalog
                 .continue_rewrite(
@@ -911,6 +900,14 @@ mod tests {
                 .await,
             Err(RewriteError::Gone)
         ));
+        let original = token.clone();
+        catalog.run::<_, CatalogError>(move |connection| {
+            let (token, deadline, offset): (String, i64, u64) = sql::row(connection, "SELECT r.token, r.deadline, d.offset FROM rewrite_sessions r JOIN derived_transfers d ON d.id=r.id", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+            assert_eq!(token, original);
+            assert_eq!(deadline, 0);
+            assert_eq!(offset, 1);
+            Ok(())
+        }).await.unwrap();
         catalog.close().await.unwrap();
     }
 
