@@ -25,6 +25,11 @@ rewriteは共有の継続セッションを使い、token単独での継続と�
 
 同じ種類の世代にmatchとnot-matchを同時に指定するとINVALID_ARGUMENTです。JSONの複合条件の優先順位までは、この範囲では再現しません。
 
+ComposeObject・RewriteObject・MoveObject・RestoreObjectの書き込み結果も共通のowner・ACL表示処理を使います。
+ACL読み取り権限がない場合とUBLAでは、owner・ACLを返しません。
+これらの派生RPCはWriteObject・UpdateObjectの観測からの推定で、Googleでは未観測です。
+SPEC-GRPC-DERIVED-OWNER-VIEWに記録し、保存する完了応答は呼び出し元に依存させず、返却時に現在の権限を適用します。
+
 Go Storage 1.70.0の既定の高水準APIを使い、permissiveとstrictを検証します。型検査後、Rustでmask・世代条件・保持ロック・分割rewriteの再送・32/33個の境界を検証します。コンテナ・ガイド・性能測定・実Google Cloudとの比較は実施しません。最終検証結果は英語版に記録します。
 
 IAM設定の保持については、修正前にRustとGoの両方で失敗を再現しました。最終ソースで担当Rustテスト5件とjust check-sdkが成功し、Goの更新・strict・foundationも確認しています。共通のstatus::from_jsonを使い、410はFAILED_PRECONDITION、501はErrorInfo付きUNIMPLEMENTEDです。未対応呼び出しの確認にはRapidの書き込みを使います。CancelResumableWriteは[オブジェクト入出力](grpc-v2-object-io.md)の契約で実装しています。HTTP実行のため、既存のGo V2署名テスト1件だけスキップしました。

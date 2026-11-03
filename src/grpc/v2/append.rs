@@ -273,7 +273,7 @@ impl Storage {
                     tx,
                     pb::BidiWriteObjectResponse {
                         write_status: Some(pb::bidi_write_object_response::WriteStatus::Resource(
-                            convert::object(&record)?,
+                            self.written_object(&record, caller).await?,
                         )),
                         ..Default::default()
                     },

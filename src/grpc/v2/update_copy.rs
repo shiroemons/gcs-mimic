@@ -305,6 +305,7 @@ impl Storage {
         };
         let binding = session.as_ref().map(|s| &s.binding);
         let target = RewriteTarget::resolve(&r, binding)?;
+        let destination_bucket = target.destination_bucket;
         let read = self
             .access(caller, target.source_bucket, auth::OBJECTS_GET)
             .await?;
@@ -349,7 +350,7 @@ impl Storage {
             })
             .await
             .map_err(rewrite_error)?;
-        let resource = progress
+        let mut resource = progress
             .resource
             .map(|v| {
                 let bytes: Vec<u8> = serde_json::from_value(v["proto"].clone())
@@ -360,6 +361,10 @@ impl Storage {
             .transpose()?;
         if let Some(owner) = &mut owner {
             owner.disarm();
+        }
+        if let Some(resource) = &mut resource {
+            self.add_written_owner_fields(caller, destination_bucket, resource)
+                .await?;
         }
         Ok(Response::new(pb::RewriteResponse {
             total_bytes_rewritten: crate::grpc::convert::signed(progress.offset, "rewrite offset")?,
@@ -714,10 +719,7 @@ impl Storage {
             )
             .await
             .map_err(|e| Status::from(JsonError::from(e).naming_object(bucket, name)))?;
-        let mut object = convert::object(&record)?;
-        self.add_written_owner_fields(caller, bucket, &mut object)
-            .await?;
-        Ok(Response::new(object))
+        Ok(Response::new(self.written_object(&record, caller).await?))
     }
     pub(super) async fn compose_object(
         &self,
@@ -807,7 +809,7 @@ impl Storage {
                 self.max_object_bytes,
             )
             .await?;
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(self.written_object(&record, caller).await?))
     }
     pub(super) async fn move_object(
         &self,
@@ -844,7 +846,7 @@ impl Storage {
                 },
             )
             .await?;
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(self.written_object(&record, caller).await?))
     }
     pub(super) async fn restore_object(
         &self,
@@ -873,7 +875,7 @@ impl Storage {
             create: &create,
         };
         let record = self.state.catalog.restore_object(target, c, access).await?;
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(self.written_object(&record, caller).await?))
     }
 }
 

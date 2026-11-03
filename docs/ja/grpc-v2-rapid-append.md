@@ -28,6 +28,9 @@ gcs-mimic はゾーンの Rapid バケットを作れず、SDK のプローブ�
 
 ## 制限
 
+Rapidの確定応答も共通のowner・ACL表示処理を使い、UBLAとACL読み取り権限がない場合は返しません。
+通常の書き込みの観測からの推定であり、Googleでの確認はSPEC-GRPC-DERIVED-OWNER-VIEWに残します。
+
 - 未確定オブジェクトは JSON・XML・ListObjects に出ず、バケット削除も妨げない。UpdateObject・コピー・rewrite・compose・move の対象にもならない。
 - 既存オブジェクトを新しい appendable 世代で置き換える操作、appendable の `object_size`、CSEK は UNIMPLEMENTED。`finish_write`のないメッセージの`object_checksums`とspecの`resource.checksums`はINVALID_ARGUMENT。
 - BidiReadObject は開いた時点の永続化済みサイズまでのスナップショットを読む。後の追記を読むには開き直す。

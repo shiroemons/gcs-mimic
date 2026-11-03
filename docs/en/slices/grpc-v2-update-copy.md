@@ -56,6 +56,21 @@ UpdateBucket, UpdateObject and TestIamPermissions retain LOCAL_SIMULATION achiev
 
 ## Verification
 
+Write results share one permission-aware owner/ACL view, including ComposeObject,
+RewriteObject, MoveObject and RestoreObject. Callers without ACL read permission
+and UBLA buckets receive no owner/ACL fields. The derived-method behavior is
+inferred from WriteObject/UpdateObject observations, not provider-verified;
+SPEC-GRPC-DERIVED-OWNER-VIEW tracks that boundary. Completion snapshots stay
+caller-independent and the response applies the current caller's view.
+
+On 2026-11-04, all 116 gRPC library tests passed, including
+`grpc_derived_writes_return_owner_and_acl`,
+`grpc_derived_write_views_respect_acl_permissions_and_uniform_access` and Rapid's
+`append_strict_requires_create_and_allows_viewer_reads`. The derived-result and
+Rapid owner assertions failed before the shared response view was applied.
+Workspace checking, production lint, formatting and compatibility rendering
+passed. No SDK or provider request was made for this response change.
+
 The direct IAM conversion passed ten IAM-related library tests and the shared
 typed-policy test on 2026-11-04. Cases include JSON mixed-error precedence and
 opaque ETags, invalid/raw permission strings, unsupported predefined permissions,

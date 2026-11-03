@@ -1480,6 +1480,17 @@
       "required_resolution": "Observe multiple pending ranges when a provider stream fails, then align their status values and ordering before claiming exact error-detail parity."
     },
     {
+      "id": "SPEC-GRPC-DERIVED-OWNER-VIEW",
+      "title": "Derived write owner and ACL response fields need provider evidence",
+      "status": "OPEN",
+      "affected_features": ["RPC-STORAGE-010", "RPC-STORAGE-012", "RPC-STORAGE-019", "RPC-STORAGE-021", "RPC-STORAGE-024", "BEHAVIOR-RAPID-004"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-04",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The common response view applies the owner/ACL behavior observed for WriteObject and UpdateObject on 2026-11-01 to ComposeObject, RewriteObject, MoveObject, RestoreObject and Rapid finalization. Local wire tests cover these results, ACL permission denial and UBLA suppression. No provider observation establishes these derived-method response fields; stored completion snapshots remain caller-independent.",
+      "required_resolution": "Observe the derived RPCs and Rapid finalization with and without object ACL read permission and with UBLA enabled, then align their owner/ACL views before claiming exact parity."
+    },
+    {
       "id": "LOCAL-RETENTION-WINDOWS-TICK",
       "title": "Object retention times keep only whole 100 ns ticks on Windows",
       "status": "OPEN",

@@ -6,7 +6,9 @@ use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     grpc::validate::{self, request_conditions},
     json,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget, UploadChunk},
+    object::{
+        ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, UploadChunk,
+    },
     storage::{
         Finality, ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState,
     },
@@ -371,6 +373,17 @@ impl Storage {
     }
     /// Fills ACL and owner on the resource a write or update answers with. A caller that may
     /// write but not read the ACL still gets its result, with both fields empty.
+    pub(super) async fn written_object(
+        &self,
+        record: &ObjectRecord,
+        caller: Option<Caller<'_>>,
+    ) -> Result<pb::Object, Status> {
+        let mut object = convert::object(record)?;
+        self.add_written_owner_fields(caller, &record.bucket, &mut object)
+            .await?;
+        Ok(object)
+    }
+
     pub(super) async fn add_written_owner_fields(
         &self,
         caller: Option<Caller<'_>>,
@@ -1133,9 +1146,7 @@ impl Storage {
                 return Err(object_status(error));
             }
         };
-        let mut resource = convert::object(&record)?;
-        self.add_written_owner_fields(caller, &bucket, &mut resource)
-            .await?;
+        let resource = self.written_object(&record, caller).await?;
         let result = pb::bidi_write_object_response::WriteStatus::Resource(resource);
         if let Some(tx) = responses {
             send_status(tx, &result).await?;
@@ -1470,6 +1481,7 @@ mod tests {
             Auth::strict(registry(&[
                 ("admin", "project", "roles/storage.admin"),
                 ("reader", "project", "roles/storage.objectViewer"),
+                ("user", "project", "roles/storage.objectUser"),
             ]))
         } else {
             Auth::permissive()
@@ -1513,10 +1525,18 @@ mod tests {
         storage: &Storage,
         messages: Vec<pb::BidiWriteObjectRequest>,
     ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
+        write_as(storage, messages, None).await
+    }
+
+    async fn write_as(
+        storage: &Storage,
+        messages: Vec<pb::BidiWriteObjectRequest>,
+        caller: Option<Caller<'_>>,
+    ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
         storage
             .receive_write(
                 &mut tonic::codegen::tokio_stream::iter(messages.into_iter().map(Ok)),
-                None,
+                caller,
                 None,
                 EndOfStream::Required,
             )
@@ -1875,6 +1895,173 @@ mod tests {
         "hard_delete_time",
         "retention",
     ];
+
+    #[tokio::test]
+    async fn grpc_derived_writes_return_owner_and_acl() {
+        let (_dir, storage) = setup(true).await;
+        let admin = fixtures::caller(&storage, "admin");
+        let bucket = "projects/_/buckets/grpc-io";
+        let pb::bidi_write_object_response::WriteStatus::Resource(source) =
+            write_as(&storage, vec![message("source", b"data")], admin)
+                .await
+                .unwrap()
+        else {
+            panic!("finished write must return metadata")
+        };
+        let composed = storage
+            .compose_object(
+                Request::new(pb::ComposeObjectRequest {
+                    destination: Some(pb::Object {
+                        bucket: bucket.into(),
+                        name: "composed".into(),
+                        ..Default::default()
+                    }),
+                    source_objects: vec![pb::compose_object_request::SourceObject {
+                        name: "source".into(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                admin,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let rewritten = storage
+            .rewrite_object(
+                Request::new(pb::RewriteObjectRequest {
+                    source_bucket: bucket.into(),
+                    source_object: "source".into(),
+                    destination_bucket: bucket.into(),
+                    destination_name: "rewritten".into(),
+                    ..Default::default()
+                }),
+                admin,
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .resource
+            .unwrap();
+        let moved = storage
+            .move_object(
+                Request::new(pb::MoveObjectRequest {
+                    bucket: bucket.into(),
+                    source_object: "composed".into(),
+                    destination_object: "moved".into(),
+                    ..Default::default()
+                }),
+                admin,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        storage
+            .state
+            .catalog
+            .patch_bucket(
+                "grpc-io",
+                crate::bucket::BucketMetadataUpdate {
+                    versioning_enabled: Some(false),
+                    soft_delete_retention: Some(604800),
+                    ..Default::default()
+                },
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        storage
+            .state
+            .catalog
+            .delete_object(
+                ObjectTarget::new("grpc-io", "rewritten", Some(rewritten.generation)),
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        let restored = storage
+            .restore_object(
+                Request::new(pb::RestoreObjectRequest {
+                    bucket: bucket.into(),
+                    object: "rewritten".into(),
+                    generation: rewritten.generation,
+                    ..Default::default()
+                }),
+                admin,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        for object in [composed, rewritten, moved, restored] {
+            assert_eq!(object.owner, source.owner, "{} owner", object.name);
+            assert!(!object.acl.is_empty(), "{} ACL", object.name);
+        }
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_derived_write_views_respect_acl_permissions_and_uniform_access() {
+        let (_dir, storage) = setup(true).await;
+        let admin = fixtures::caller(&storage, "admin");
+        let user = fixtures::caller(&storage, "user");
+        let bucket = "projects/_/buckets/grpc-io";
+        write_as(&storage, vec![message("source", b"data")], admin)
+            .await
+            .unwrap();
+        let moved = storage
+            .move_object(
+                Request::new(pb::MoveObjectRequest {
+                    bucket: bucket.into(),
+                    source_object: "source".into(),
+                    destination_object: "moved".into(),
+                    ..Default::default()
+                }),
+                user,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(moved.owner.is_none());
+        assert!(moved.acl.is_empty());
+        storage
+            .state
+            .catalog
+            .patch_bucket(
+                "grpc-io",
+                crate::bucket::BucketMetadataUpdate {
+                    uniform_bucket_level_access_enabled: Some(true),
+                    ..Default::default()
+                },
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        let composed = storage
+            .compose_object(
+                Request::new(pb::ComposeObjectRequest {
+                    destination: Some(pb::Object {
+                        bucket: bucket.into(),
+                        name: "uniform".into(),
+                        ..Default::default()
+                    }),
+                    source_objects: vec![pb::compose_object_request::SourceObject {
+                        name: "moved".into(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                admin,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(composed.owner.is_none());
+        assert!(composed.acl.is_empty());
+        storage.state.catalog.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn grpc_io_write_returns_acl_and_owner_and_read_ends_with_data() {

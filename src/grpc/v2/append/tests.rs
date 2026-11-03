@@ -630,4 +630,14 @@ async fn append_strict_requires_create_and_allows_viewer_reads() {
         .unwrap()
         .into_inner();
     assert_eq!(object.size, 6);
+    let mut finish = take_over("strict", generation, None);
+    finish.finish_write = true;
+    let (result, responses) = append(&storage, vec![Ok(finish)], admin).await;
+    result.unwrap();
+    let WriteStatus::Resource(object) = responses.last().unwrap().write_status.as_ref().unwrap()
+    else {
+        panic!("finalization must return metadata");
+    };
+    assert!(object.owner.is_some());
+    assert!(!object.acl.is_empty());
 }

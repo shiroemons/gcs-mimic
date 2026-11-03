@@ -54,6 +54,11 @@ Google documents early namespace visibility for appendable objects and no JSON w
 
 ## Limitations
 
+Rapid finalization uses the common permission-aware write owner/ACL view, with
+no fields under UBLA or without ACL read permission. This is inferred from
+ordinary write observations; provider verification remains pending in
+SPEC-GRPC-DERIVED-OWNER-VIEW.
+
 - An unfinalized object is not listed, does not block bucket deletion, and is not a source for UpdateObject, copy, rewrite, compose or move (NOT_FOUND).
 - Replacing an existing object with a new appendable generation returns UNIMPLEMENTED; delete the object first.
 - BidiReadObject reads a snapshot bounded by the size persisted when the stream or read handle opened; reopen to observe later appends.
