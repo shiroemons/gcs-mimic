@@ -3,6 +3,17 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-HMAC-RETENTION",
+      "title": "Deleted HMAC key retention uses a bounded local policy",
+      "status": "OPEN",
+      "affected_features": ["JSON-PROJECTS-HMACKEYS-002", "JSON-PROJECTS-HMACKEYS-003", "JSON-PROJECTS-HMACKEYS-004"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/list", "https://docs.cloud.google.com/storage/docs/authentication/managing-hmackeys"],
+      "observed_at": "2026-11-03",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Cloud Storage exposes DELETED metadata through showDeletedKeys without documenting a retention period. Each successful local deletion retains the newest 128 DELETED keys in that project by updated time and access ID, purging older tombstones in the same transaction. Purged metadata returns 404; secrets are erased immediately on deletion. Existing overfull projects converge on their next successful deletion. The separate ten-live-key service-account quota is unchanged. Contract: docs/en/slices/project-hmac-keys.md.",
+      "required_resolution": "Keep the method rows PARTIAL and identify this count bound as local policy. Do not claim exact provider tombstone retention without authoritative evidence. Preserve project isolation and immediate secret erasure."
+    },
+    {
       "id": "SPEC-V2-LEGACY",
       "title": "Legacy V2 provider, encoding and SDK boundaries beyond the accepted native cores",
       "status": "OPEN",
