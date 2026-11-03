@@ -171,7 +171,7 @@ struct Slot {
 #[derive(Clone, Hash, PartialEq, Eq)]
 enum Namespace {
     Disk(PathBuf),
-    Memory(u64),
+    Memory(crate::storage::memory::StoreId),
 }
 
 type SlotKey = (Namespace, String, String);
@@ -201,7 +201,7 @@ struct SlotHandle {
 impl SlotHandle {
     fn new(catalog: &Catalog, bucket: &str, name: &str) -> Self {
         let namespace = match &catalog.0.memory {
-            Some(memory) => Namespace::Memory(memory.id),
+            Some(memory) => Namespace::Memory(memory.id()),
             None => Namespace::Disk(catalog.0.data_dir.clone()),
         };
         let key = (namespace, bucket.to_owned(), name.to_owned());

@@ -12,7 +12,11 @@ use std::{
 
 const CHUNK_OVERHEAD: u64 = 128;
 const BLOCK_SIZE: u64 = 64 * 1024;
+// Cancelled append jobs can retain slots after their Store's address becomes reusable.
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct StoreId(u64);
 
 struct Budget {
     limit: u64,
@@ -95,7 +99,7 @@ impl Drop for Reservation {
 }
 
 pub(super) struct Store {
-    pub(super) id: u64,
+    id: StoreId,
     budget: Arc<Budget>,
     blobs: Mutex<HashMap<String, Arc<Blob>>>,
     drafts: Mutex<HashMap<String, Box<Stage>>>,
@@ -121,7 +125,7 @@ pub(super) struct Stage {
 impl Store {
     pub(super) fn new(limit: u64) -> Arc<Self> {
         Arc::new(Self {
-            id: NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed),
+            id: StoreId(NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed)),
             budget: Arc::new(Budget {
                 limit,
                 used: AtomicU64::new(0),
@@ -130,6 +134,10 @@ impl Store {
             drafts: Mutex::new(HashMap::new()),
             failed: AtomicBool::new(false),
         })
+    }
+
+    pub(super) fn id(&self) -> StoreId {
+        self.id
     }
 
     pub(super) fn is_healthy(&self) -> bool {
@@ -420,15 +428,6 @@ impl Seek for Reader {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn store_ids_remain_unique_after_stores_are_dropped() {
-        let mut ids = std::collections::HashSet::new();
-        for _ in 0..1024 {
-            let store = Store::new(1024);
-            assert!(ids.insert(store.id));
-        }
-    }
 
     #[test]
     fn retained_namespace_preserves_new_blobs_and_charges_old_reader_references() {

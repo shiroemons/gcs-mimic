@@ -23,6 +23,27 @@ fn options() -> ResumableOptions {
 }
 
 #[tokio::test]
+async fn retained_memory_slots_do_not_alias_a_replacement_catalog() {
+    let dir = TestDir::new();
+    let open = || {
+        Catalog::open_backend(
+            dir.0.clone(),
+            Arc::new(crate::clock::SystemClock),
+            super::super::admin::LocalAdmin::Enabled,
+            Some((8192, 1024 * 1024)),
+        )
+    };
+    let first = open().await.unwrap();
+    let first_slot = SlotHandle::new(&first, "bucket", "object");
+    drop(first);
+    let replacement = open().await.unwrap();
+    let replacement_slot = SlotHandle::new(&replacement, "bucket", "object");
+    assert!(first_slot.key != replacement_slot.key);
+    assert!(!Arc::ptr_eq(&first_slot.slot, &replacement_slot.slot));
+    replacement.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn ram_and_disk_cancelled_takeover_keeps_slot_registered_until_truncation_finishes() {
     for backend in [crate::config::Backend::Disk, crate::config::Backend::Memory] {
         let dir = TestDir::new();
