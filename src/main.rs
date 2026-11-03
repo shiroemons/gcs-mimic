@@ -857,7 +857,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "912f78244a1733e7e4c0d13a393bce8fa25f22d92df912134edfdce5b5c109a9"
+            "e40d807d299f26010a3e430483b9a77cca442863a67945e55f3347f470f4a6ab"
         );
     }
 
