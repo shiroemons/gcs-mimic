@@ -469,7 +469,13 @@ async fn concurrent_create_if_absent_has_exactly_one_winner_and_no_orphans() {
     assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
 }
 
-fn conditions(generation: i64, index: usize, pass: bool) -> ObjectConditions {
+enum ConditionOutcome {
+    Pass,
+    Fail,
+}
+
+fn conditions(generation: i64, index: usize, outcome: ConditionOutcome) -> ObjectConditions {
+    let pass = matches!(outcome, ConditionOutcome::Pass);
     match index {
         0 => ObjectConditions {
             if_generation_match: Some(generation + i64::from(!pass)),
@@ -503,7 +509,7 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
     .await
     .unwrap();
     for index in 0..4 {
-        let fail = conditions(record.generation, index, false);
+        let fail = conditions(record.generation, index, ConditionOutcome::Fail);
         let read_error = if index % 2 == 1 {
             ObjectError::NotModified
         } else {
@@ -537,7 +543,7 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
             Err(ObjectError::PreconditionFailed)
         );
         assert_eq!(blobs(&dir.0).len(), 1);
-        let pass = conditions(record.generation, index, true);
+        let pass = conditions(record.generation, index, ConditionOutcome::Pass);
         assert_eq!(
             catalog
                 .get_object(live("bucket", "conditions"), pass, PERMISSIVE)
@@ -561,7 +567,7 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
         catalog
             .delete_object(
                 live("bucket", "conditions"),
-                conditions(record.generation, index, true),
+                conditions(record.generation, index, ConditionOutcome::Pass),
                 PERMISSIVE,
             )
             .await
