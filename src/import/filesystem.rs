@@ -17,6 +17,7 @@ use crate::{
 };
 use ring::digest::{Context, SHA256, digest};
 use std::{
+    collections::VecDeque,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::Path,
@@ -224,32 +225,28 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Impo
             event_based_hold: None,
             ..Default::default()
         },
-        expected: ExpectedHashes {
-            md5: Some(
-                crate::json::decode_hash::<16>(&attrs.md5_hash)
-                    .map_err(|_| invalid("invalid source MD5"))?,
-            ),
-            crc32c: Some(u32::from_be_bytes(
-                crate::json::decode_hash::<4>(&attrs.crc32c)
-                    .map_err(|_| invalid("invalid source CRC32C"))?,
-            )),
-        },
+        expected: expected_hashes(attrs)?,
         condition: Some(GenerationCondition::Absent),
         max_bytes: cap,
         mode: PublishMode::Replace,
     })
 }
 
+fn expected_hashes(attrs: &codec::ObjectAttrs) -> Result<ExpectedHashes, ImportError> {
+    Ok(ExpectedHashes {
+        md5: Some(
+            crate::json::decode_hash::<16>(&attrs.md5_hash)
+                .map_err(|_| invalid("invalid source MD5"))?,
+        ),
+        crc32c: Some(u32::from_be_bytes(
+            crate::json::decode_hash::<4>(&attrs.crc32c)
+                .map_err(|_| invalid("invalid source CRC32C"))?,
+        )),
+    })
+}
+
 fn findings(page: &Page, diagnostics: &mut impl Write) -> Result<(), ImportError> {
-    let mut batch = crate::diagnostics::Diagnostics::default();
-    for finding in &page.findings {
-        if finding.blocking {
-            batch.errors.push(finding.diagnostic.clone());
-        } else {
-            batch.warnings.push(finding.diagnostic.clone());
-        }
-    }
-    batch.write(diagnostics)?;
+    crate::diagnostics::Diagnostics::from(page).write(diagnostics)?;
     Ok(())
 }
 
@@ -286,9 +283,7 @@ async fn metadata_scan(
     }
     .await;
     drop(receive);
-    let joined = worker
-        .join()
-        .map_err(|_| invalid("import scanner panicked"))?;
+    let joined = join_scan(worker).await?;
     result?;
     let summary = joined?;
     require_eligible(&summary)?;
@@ -350,24 +345,20 @@ pub fn execute(
     if options.source_format == super::SourceFormat::Snapshot {
         source_context.update(b"memory-snapshot\0\x01");
     }
+    let fields = super::option_fields(&options);
+    let fields = fields.each_ref().map(Vec::as_slice);
     super::digest_fields(
         &mut source_context,
         "source",
         source,
         &[
-            super::SOURCE_REVISION.as_bytes(),
+            fields[0],
             &[super::FINGERPRINT_FORMAT],
-            &[match options.metadata_mode {
-                super::MetadataMode::Xattr => 0,
-                super::MetadataMode::Sidecar => 1,
-            }],
-            &[match options.source_platform {
-                super::SourcePlatform::Unix => 0,
-                super::SourcePlatform::Windows => 1,
-            }],
-            &options.max_object_bytes.to_be_bytes(),
-            &(options.max_entries as u64).to_be_bytes(),
-            &(options.max_depth as u64).to_be_bytes(),
+            fields[1],
+            fields[2],
+            fields[3],
+            fields[4],
+            fields[5],
         ],
     );
     let mut source_id = [0; 32];
@@ -527,19 +518,23 @@ async fn import(
     let result = async {
         let mut ordinal = 0;
         let mut cursor = progress.cursor;
+        let mut committed_page = VecDeque::new();
         while let Some(page) = receive.recv().await {
             findings(&page, diagnostics)?;
             for record in page.records {
                 let Some(observed) = element(&record, ordinal + 1) else { continue };
                 ordinal += 1;
                 if let Record::Object { path, attributes, .. } = &record {
-                    let expected = publication(attributes, options.max_object_bytes)?.expected;
+                    let expected = expected_hashes(attributes)?;
                     if let (Some(md5), Some(crc)) = (expected.md5, expected.crc32c) {
                         super::digest_fields(&mut body_digests, "body", path, &[&md5, &crc.to_be_bytes()]);
                     }
                 }
                 if ordinal <= progress.cursor {
-                    let committed = journal.page(binding.clone(), ordinal - 1, 1).await?.into_iter().next().ok_or_else(|| invalid("missing committed import observation"))?;
+                    if committed_page.is_empty() {
+                        committed_page = journal.page(binding.clone(), ordinal - 1, 256).await?.into();
+                    }
+                    let committed = committed_page.pop_front().filter(|element| element.ordinal == ordinal).ok_or_else(|| invalid("missing committed import observation"))?;
                     if committed.fingerprint != observed.fingerprint { return Err(invalid("source_changed: committed source identity differs").into()); }
                     verify_committed(catalog, &admin, &record).await?;
                     if committed.inode != observed.inode || committed.ctime_ns != observed.ctime_ns {
@@ -570,9 +565,7 @@ async fn import(
         Ok::<_, ImportError>(())
     }.await;
     drop(receive);
-    let joined = worker
-        .join()
-        .map_err(|_| invalid("import scanner panicked"))?;
+    let joined = join_scan(worker).await?;
     result?;
     let published = joined?;
     same_export(preflight, &published)?;
@@ -594,6 +587,15 @@ async fn import(
     )?;
     writeln!(output)?;
     Ok(summary)
+}
+
+async fn join_scan(
+    worker: super::ScanWorker,
+) -> Result<Result<Summary, ImportFailure>, ImportError> {
+    crate::task::run_blocking("import-scanner-join", move || worker.join())
+        .await
+        .map_err(io::Error::other)?
+        .map_err(|_| invalid("import scanner panicked").into())
 }
 
 async fn publish(

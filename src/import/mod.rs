@@ -262,6 +262,20 @@ pub(crate) struct Page {
     pub findings: Vec<Finding>,
 }
 
+impl From<&Page> for Diagnostics {
+    fn from(page: &Page) -> Self {
+        let mut diagnostics = Self::default();
+        for finding in &page.findings {
+            if finding.blocking {
+                diagnostics.errors.push(finding.diagnostic.clone());
+            } else {
+                diagnostics.warnings.push(finding.diagnostic.clone());
+            }
+        }
+        diagnostics
+    }
+}
+
 #[derive(Debug, Default, Serialize)]
 pub struct Summary {
     pub complete: bool,
@@ -510,14 +524,7 @@ fn inspect_with_xattr(
     )?;
     let write_result = (|| -> io::Result<()> {
         for page in &receive {
-            let mut batch = Diagnostics::default();
-            for finding in &page.findings {
-                if finding.blocking {
-                    batch.errors.push(finding.diagnostic.clone());
-                } else {
-                    batch.warnings.push(finding.diagnostic.clone());
-                }
-            }
+            let batch = Diagnostics::from(&page);
             serde_json::to_writer(
                 &mut output,
                 &serde_json::json!({"event":"import_page", "page": page}),
@@ -581,20 +588,7 @@ fn spawn_scan(
         reporter.manifest(
             "options",
             "",
-            &[
-                SOURCE_REVISION.as_bytes(),
-                &[match options.metadata_mode {
-                    MetadataMode::Xattr => 0,
-                    MetadataMode::Sidecar => 1,
-                }],
-                &[match options.source_platform {
-                    SourcePlatform::Unix => 0,
-                    SourcePlatform::Windows => 1,
-                }],
-                &options.max_object_bytes.to_be_bytes(),
-                &(options.max_entries as u64).to_be_bytes(),
-                &(options.max_depth as u64).to_be_bytes(),
-            ],
+            &option_fields(&options).each_ref().map(Vec::as_slice),
         );
         let result = match options.source_format {
             SourceFormat::Filesystem => reader::scan(&options, &mut reporter, xattr),
@@ -630,6 +624,23 @@ fn spawn_scan(
         Ok(reporter.summary)
     })?;
     Ok(worker)
+}
+
+fn option_fields(options: &Options) -> [Vec<u8>; 6] {
+    [
+        SOURCE_REVISION.as_bytes().to_vec(),
+        vec![match options.metadata_mode {
+            MetadataMode::Xattr => 0,
+            MetadataMode::Sidecar => 1,
+        }],
+        vec![match options.source_platform {
+            SourcePlatform::Unix => 0,
+            SourcePlatform::Windows => 1,
+        }],
+        options.max_object_bytes.to_be_bytes().to_vec(),
+        (options.max_entries as u64).to_be_bytes().to_vec(),
+        (options.max_depth as u64).to_be_bytes().to_vec(),
+    ]
 }
 
 pub fn cli(args: &[String]) -> Result<(), ImportError> {
