@@ -131,7 +131,7 @@ pub(crate) mod acl;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = 49;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 50;
 const BUCKET_VERSIONING_PRESENCE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN versioning_configured INTEGER NOT NULL DEFAULT 0 CHECK(versioning_configured IN (0, 1));
 ALTER TABLE soft_deleted_buckets ADD COLUMN versioning_configured INTEGER NOT NULL DEFAULT 0 CHECK(versioning_configured IN (0, 1));
 PRAGMA user_version = 49;";
@@ -375,6 +375,7 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (47, objects::retention::SUB_MICRO_SCHEMA, None),
     (48, object_hold::SCHEMA, None),
     (49, BUCKET_VERSIONING_PRESENCE_SCHEMA, None),
+    (50, sync_state::deletions::history::SCHEMA, None),
 ];
 
 #[expect(
@@ -874,6 +875,10 @@ const MIGRATIONS: &[(i64, Migration)] = &[
     ),
     (48, Migration::Statements(object_hold::SCHEMA)),
     (49, Migration::Statements(BUCKET_VERSIONING_PRESENCE_SCHEMA)),
+    (
+        50,
+        Migration::Statements(sync_state::deletions::history::SCHEMA),
+    ),
 ];
 
 /// Resets volatile state and completes crash recovery before the catalog serves requests.

@@ -1,4 +1,4 @@
-//! Readers retain the last complete observation while the actor rebuilds deletion membership.
+//! Readers retain completed deletion membership while live safety findings continue to refresh.
 
 use super::*;
 use crate::storage::{change_journal::JournalFence, sync_state::deletions::DeletionSet};
@@ -8,7 +8,6 @@ pub(in crate::storage::catalog::sync_state) type Published = Arc<Mutex<Option<Ar
 
 #[derive(Clone)]
 pub(in crate::storage::catalog::sync_state) struct Snapshot {
-    summary: Summary,
     deletions: Option<DeletionSet>,
     fence: Option<JournalFence>,
 }
@@ -49,7 +48,6 @@ fn snapshot(
         })
         .optional()?;
     Ok(Snapshot {
-        summary: read_summary(connection, root)?,
         deletions: super::super::deletions::read_set(connection, root.as_bytes())?,
         fence,
     })
@@ -93,7 +91,7 @@ impl RootLease {
                     .as_deref()
                     .filter(|published| published.fence == current.fence)
                     .unwrap_or(&current);
-                Ok((selected.summary.clone(), selected.deletions.clone()))
+                Ok((read_summary(&tx, root)?, selected.deletions.clone()))
             })
             .await?)
     }

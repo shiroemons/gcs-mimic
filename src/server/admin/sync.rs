@@ -248,7 +248,7 @@ async fn mutate(
         let summary = observe(ctx, receive)
             .await?
             .map_err(|error| control_error(&error))?;
-        json!({"operation_id":crate::hashing::encode_lower(&operation),"completed":true,"reconciliation":summary})
+        json!({"operation_id":crate::hashing::encode_lower(&operation),"completed":!summary.source_changing && !summary.interrupted,"reason":summary.source_changing.then_some(crate::sync::control::WaitReason::SourceChanging),"reconciliation":summary})
     };
     let mut response = bounded(&value)?;
     *response.status_mut() = StatusCode::ACCEPTED;

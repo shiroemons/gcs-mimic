@@ -61,9 +61,17 @@ Google endpoint fallback is used.
 Private-network HTTP remains available for container networks; use HTTPS outside
 loopback to protect bearer tokens in transit.
 
-While deletion candidates are being recomputed, status retains the last complete
-observation. Every read rechecks authority and the journal fence; revision-bound
+While deletion candidates are being recomputed, status retains their last complete
+membership while refreshing current safety findings and revisions. Every read
+rechecks authority and the journal fence; revision-bound
 pages and approval reject an invalidated revision with 409.
+During native quiet settling, rescan returns `completed:false` and
+`reason:SourceChanging`; wait reports SourceChanging with HTTP 409. Request
+observation again after settling rather than treating the response as a completed
+scan. Automatic deletion history is durable across restart and guarded rescans;
+approval, a new complete baseline or a zero-candidate explicit rescan resets it.
+The quiet interval has a ten-second cap, so a longer operation may have committed
+deletions below the cumulative threshold before approval becomes required.
 
 HTTPS verifies the embedded development CA by default. `--ca-cert PATH`
 replaces it with the supplied CA while retaining hostname verification. That

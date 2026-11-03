@@ -1449,6 +1449,10 @@
   ],
   "resolved_research_items": [
     {
+      "title": "Cumulative deletion guard and bounded native quiet observation",
+      "resolution": "The former root-wide guard counted only each scan, allowing one bulk directory removal to be consumed as smaller unguarded batches. Schema 50 persists automatic deletion history in the same object-delete transaction and retains it across restart and guarded rescans. Native observation coalesces events through 1-second quiet with a 10-second cap while controls report SourceChanging. Below-threshold automatic deletions may already commit in operations longer than the cap; cumulative approval does not undo them. This fixes the existing per-scan data-loss boundary without claiming an atomic filesystem snapshot or physical power-loss evidence. Parent sync and platform gaps remain open."
+    },
+    {
       "title": "Directory synchronization ownership and observation boundaries",
       "resolution": "macOS observation uses one local-filesystem FSEvents stream with a notification pipe; Linux retains inotify directory registrations without one open descriptor per watched entry. Read-only traversal does not create or sync parents, scans and catalog reads use bounded pages, and ingest staging runs outside the file job that opens its pinned source. Workspace I/O causes remain retryable without persisting an identity replacement stop. Root markers are published from synced staging and matching staged markers can recover on restart. Writeback evidence uses the production live export/recovery entry points, including modified-copy protection, baseline-gated deletion and paired fault snapshots. Wait reasons retain their wire spellings as an enum; deadlines stop between owned steps and do not complete an interrupted scan. These emulator-local changes do not establish Linux runtime, Windows, remote-filesystem or physical power-loss parity; the existing LOCAL-MIGRATION-INTEGRATION gap remains open."
     },

@@ -105,6 +105,7 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
         root.deletion_set().await.unwrap().unwrap().completed_count,
         0
     );
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
     assert!(
         catalog
             .sync_state()
@@ -144,6 +145,7 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
         root.deletion_set().await.unwrap().unwrap().completed_count,
         1
     );
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 1);
     drop(root);
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&data.0).await.unwrap();

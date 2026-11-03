@@ -615,10 +615,42 @@ tracked names absent in that scan. Exclude ignored/unrepresentable/unobserved
 names and stale incarnations. A candidate's live generation must still equal
 its last successfully synchronized generation; a newer API generation is
 write-back work, never a newly inferred deletion. An incomplete scan never generates deletions.
-Guard when enabled and `D >= 100` and
-`100 * D > 50 * N`, using checked wide arithmetic; `N=0`
+Let `A` be automatic deletions committed since the last approved or newly
+completed baseline. Guard when enabled and `A + D >= 100` and
+`100 * (A + D) > 50 * (A + N)`, using wide arithmetic; `N=0`
 has no deletions. Freeze this root-wide denominator and exact candidate set;
 do not recompute the fraction per page or convert a marker failure into a scan.
+
+Schema 50 persists `A` in the same transaction as each automatic deletion.
+Existing catalogs initialize this new history to zero; earlier deleted names
+cannot be reconstructed from the previous schema.
+Approval resets it; a newly completed baseline or a completed explicit rescan
+with zero candidates also resets it. Restart and rescanning a guarded set never
+reset it. Approved-set execution does not count as a new automatic deletion.
+Public set counts still describe the current frozen members and baseline;
+the threshold also includes the retained automatic history.
+
+Native notifications wait for one second of quiet, restarting that interval
+after another notification, with a ten-second total cap. Controls remain
+available during this interval: wait reports SourceChanging, and rescan returns
+`completed:false`, `reason:SourceChanging` and a deferred reconciliation rather
+than claiming completion. A caller may request observation again after quiet.
+The cumulative guard protects split scans even when the cap expires. It cannot
+undo automatic deletions below the threshold during a longer operation; the
+quiet interval is a coalescing heuristic, not an atomic snapshot of a writer.
+The former per-scan-only calculation could delete a 100-object batch as smaller
+unguarded batches; this was already present before the observation changes.
+Migration from 49 to 50 is forward-only: back up the stopped data directory
+and restore it with the matching executable instead of editing user_version.
+
+Native macOS validation on 2026-11-04 passed six focused cases covering split
+12/88 deletion scans, restart and approval history, zero-candidate reset, migration
+rollback/retry and older-reader rejection, split bulk deletion during quiet with
+zero automatic deletions, bounded control replies, quiet-cap cancellation and
+the HTTP SourceChanging response. The production HTTP control suite passed
+21 cases; the native sync integration suite passed all 23, including the fixed
+100-object three-page approval journey and an individual successful wait request
+that exceeds its connection inactivity budget. No negative assertion was removed.
 
 The pending deletion set has an opaque revision tied to catalog/root IDs,
 root identity, completed scan revision, journal fence, thresholds, candidate

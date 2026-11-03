@@ -14,6 +14,7 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+pub(in crate::storage) mod history;
 mod scan;
 #[cfg(test)]
 mod tests;
@@ -254,6 +255,7 @@ impl RootLease {
             matching(&transaction,root,&revision)?;
             let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET authorization=1 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}
+            sql::exec(&transaction,"UPDATE sync_deletion_history SET automatic_count=0 WHERE root_id=?1",[root])?;
             let snapshot=read_set(&transaction,root)?.ok_or(CatalogError::PreconditionFailed)?;
             transaction.commit()?;
             Ok(snapshot)
@@ -297,6 +299,18 @@ pub(super) fn consume(
     )?;
     if count != 1 {
         return Err(ObjectError::PreconditionFailed);
+    }
+    let guarded: bool = sql::scalar(
+        transaction,
+        "SELECT guarded FROM sync_deletion_sets WHERE root_id=?1",
+        [permit.root],
+    )
+    .map_err(super::super::objects::object_unavailable)?;
+    if !guarded {
+        let changed=sql::exec(transaction,"UPDATE sync_deletion_history SET automatic_count=automatic_count+1 WHERE root_id=?1 AND automatic_count<9223372036854775807",[permit.root]).map_err(super::super::objects::object_unavailable)?;
+        if changed != 1 {
+            return Err(ObjectError::PreconditionFailed);
+        }
     }
     sql::exec(
         transaction,

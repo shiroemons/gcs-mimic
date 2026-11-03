@@ -61,12 +61,23 @@ mutation, foreign sessions and restart reject stale cursors with 409. Root
 source findings cover unmappable entries without inventing a bucket/object or
 returning host paths. A repaired complete scan clears that finding.
 
-While the observer rebuilds deletion membership, status retains the last complete
-observation instead of exposing an intermediate Ready state. The published value
+While the observer rebuilds deletion membership, status retains its last complete
+deletion set instead of exposing an intermediate Ready state. The published value
 is cloned under a short lock; readers never wait for the scan. Every read still
 checks current management authority and the journal fence. Revision-bound pages
 and approval use the current database, so a stale published revision cannot
-authorize deletion. Completion or failure releases the previous snapshot.
+authorize deletion. Safety findings, retained-workspace observations and their
+revisions always refresh from the current transaction. Completion or failure
+releases the previous deletion snapshot.
+
+Native notifications also coalesce through a one-second quiet interval with a
+ten-second cap. Further events restart quiet without starving control requests;
+wait and incomplete rescan report SourceChanging. Schema 50 retains automatic
+deletion history across scans and restart, so the absolute and percentage guard
+cannot be reset by splitting one operation into smaller scans. During an operation
+longer than the quiet cap, earlier deletions below the cumulative threshold may
+already have committed; approval cannot undo them. See the
+[deletion contract](directory-synchronization.md#external-deletion-and-approval).
 
 The live actor accepts bounded rescan, approval, wait and resolution commands.
 Wait captures a source scan and finite journal fence; later unrelated API writes

@@ -49,10 +49,12 @@ async fn export_checkpoint(phase: &str) {
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
 
+mod observation;
 mod wait;
 
 #[derive(Default, Debug, serde::Serialize)]
 pub struct Reconciliation {
+    pub source_changing: bool,
     pub interrupted: bool,
     pub ingested: u64,
     pub blocked_buckets: u64,
@@ -81,6 +83,7 @@ struct DirectoryWatch {
     watch: crate::source_tree::watch::Watch,
     // Vnode descriptors must close before the lease can release exclusive root ownership.
     _root: RootLease,
+    pending: Option<observation::Pending>,
 }
 
 impl DirectoryWatch {
@@ -96,6 +99,7 @@ impl DirectoryWatch {
         Ok(Self {
             watch: crate::source_tree::watch::Watch::new(native)?,
             _root: lease,
+            pending: None,
         })
     }
 
@@ -159,15 +163,25 @@ fn watch_retryable(error: &io::Error) -> bool {
 impl Task {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) async fn rescan(&self) -> io::Result<Reconciliation> {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        self.rescan
-            .send(Command::Rescan {
-                reply: sender,
-                identity: None,
-            })
-            .await
-            .map_err(io::Error::other)?;
-        receiver.await.map_err(io::Error::other)?
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            self.rescan
+                .send(Command::Rescan {
+                    reply: sender,
+                    identity: None,
+                })
+                .await
+                .map_err(io::Error::other)?;
+            let summary = receiver.await.map_err(io::Error::other)??;
+            if !summary.source_changing {
+                return Ok(summary);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            tokio::time::sleep(Duration::from_millis(super::SETTLE_MS)).await;
+        }
     }
     pub(crate) fn stop(&self) {
         self.stop.send_replace(true);
@@ -424,9 +438,12 @@ async fn run_live_config(
         mut baseline_complete,
         writeback,
     } = initialize_live(run, stopping).await?;
+    let mut publication = None;
     while !*stopping.borrow() {
         if let Ok(request) = requests.try_recv() {
-            if matches!(&request, Command::Rescan { .. } | Command::Wait { .. }) {
+            if watcher.pending.is_none()
+                && matches!(&request, Command::Rescan { .. } | Command::Wait { .. })
+            {
                 watcher.rebuild(root, stopping, health).await?;
             }
             if *stopping.borrow() {
@@ -442,7 +459,7 @@ async fn run_live_config(
                 baseline_complete: &mut baseline_complete,
                 cursor: &mut cursor,
             }
-            .handle(request)
+            .handle(request, watcher.control_state())
             .await?;
             continue;
         }
@@ -469,25 +486,31 @@ async fn run_live_config(
             tokio::select! {
                 biased;
                 _ = stopping.changed() => break,
-                observed = watcher.watch.changed() => {
-                    let observed=observed?;
-                    let _publication = root.begin_observation_publication().await.map_err(io::Error::other)?;
-                    root.invalidate_deletions().await.map_err(io::Error::other)?;
-                    #[cfg(test)]
-                    export_checkpoint("observation-invalidated").await;
-                    // Register before scanning so edits during reconciliation cause another pass.
-                    if observed==crate::source_tree::watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
-                    if *stopping.borrow() { break }
-                    let summary = ingest_external(catalog, root, config,&writeback, stopping, &mut ingest_complete, &mut baseline_complete).await?;
-                    diagnostics::emit(LogLevel::Info, "sync_ingested", &summary);
-                    health.pass_succeeded();
+                observed = watcher.next_observation() => {
+                    match observed? {
+                        observation::Observed::Pending => {
+                            publication=Some(root.begin_observation_publication().await.map_err(io::Error::other)?);
+                            root.invalidate_deletions().await.map_err(io::Error::other)?;
+                            #[cfg(test)]
+                            export_checkpoint("observation-invalidated").await;
+                        }
+                        observation::Observed::Settled(observed) => {
+                            if observed==crate::source_tree::watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
+                            if *stopping.borrow() {break}
+                            let summary=ingest_external(catalog,root,config,&writeback,stopping,&mut ingest_complete,&mut baseline_complete).await?;
+                            publication.take();
+                            diagnostics::emit(LogLevel::Info,"sync_ingested",&summary);
+                            health.pass_succeeded();
+                        }
+                    }
                 }
                 Some(request) = requests.recv() => {
-                    if matches!(&request,Command::Rescan {..}|Command::Wait {..}) {
+                    let control_state=watcher.control_state();
+                    if watcher.pending.is_none() && matches!(&request,Command::Rescan {..}|Command::Wait {..}) {
                         watcher.rebuild(root,stopping,health).await?;
                     }
                     if *stopping.borrow() { break }
-                    LiveControl {catalog,root,config,writeback:&writeback,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request).await?;
+                    LiveControl {catalog,root,config,writeback:&writeback,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request,control_state).await?;
                 }
                 result = catalog.wait_for_changes(cursor) => { result.map_err(io::Error::other)?; }
             }
@@ -815,7 +838,7 @@ struct LiveControl<'a> {
 impl LiveControl<'_> {
     async fn rescan(&mut self) -> io::Result<Reconciliation> {
         let writeback = recover_writeback(self.root).await?;
-        ingest_external(
+        let summary = ingest_external(
             self.catalog,
             self.root,
             self.config,
@@ -824,10 +847,21 @@ impl LiveControl<'_> {
             self.ingest_complete,
             self.baseline_complete,
         )
-        .await
+        .await?;
+        if !summary.interrupted && summary.deferred == 0 && summary.unrepresentable == 0 {
+            self.root
+                .reset_empty_deletion_history()
+                .await
+                .map_err(io::Error::other)?;
+        }
+        Ok(summary)
     }
 
-    fn handle(&mut self, request: Command) -> impl Future<Output = io::Result<()>> + '_ {
+    fn handle(
+        &mut self,
+        request: Command,
+        observation: observation::ControlState,
+    ) -> impl Future<Output = io::Result<()>> + '_ {
         // The single worker boxes one control future to bound nested reconciliation stack use.
         Box::pin(async move {
             let identity = match &request {
@@ -846,7 +880,7 @@ impl LiveControl<'_> {
                 .writeback
                 .with_root(&scoped)
                 .map_err(io::Error::other)?;
-            LiveControl {
+            let mut control = LiveControl {
                 catalog: self.catalog,
                 root: &scoped,
                 config: self.config,
@@ -855,9 +889,13 @@ impl LiveControl<'_> {
                 ingest_complete: self.ingest_complete,
                 baseline_complete: self.baseline_complete,
                 cursor: self.cursor,
+            };
+            match observation {
+                observation::ControlState::Quiet => control.handle_authorized(request).await,
+                observation::ControlState::Changing => {
+                    control.handle_source_changing(request).await
+                }
             }
-            .handle_authorized(request)
-            .await
         })
     }
 

@@ -213,6 +213,34 @@ impl Fixture {
         &self,
         method: &str,
         path: &str,
+        payload: &[u8],
+        token: Option<&str>,
+    ) -> Result<Response<Full<Bytes>>, JsonError> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            let response = self.request_once(method, path, payload, token).await?;
+            if method != "POST"
+                || path != "/_internal/sync/rescan"
+                || response.status() != StatusCode::ACCEPTED
+            {
+                return Ok(response);
+            }
+            let value: Value = serde_json::from_slice(
+                &response.body().clone().collect().await.unwrap().to_bytes(),
+            )
+            .unwrap();
+            if value["reason"] != "SourceChanging" {
+                return Ok(response);
+            }
+            assert!(tokio::time::Instant::now() < deadline, "{value}");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    async fn request_once(
+        &self,
+        method: &str,
+        path: &str,
         body: &[u8],
         token: Option<&str>,
     ) -> Result<Response<Full<Bytes>>, JsonError> {
@@ -1245,6 +1273,32 @@ async fn strict_control_authority_precedes_body_parsing_and_requires_each_explic
 }
 
 #[tokio::test]
+async fn rescan_during_native_quiet_reports_source_changing_without_false_completion() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
+    fs::write(fixture.tree.0.join("test-bucket/body"), b"pending").unwrap();
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while root.deletion_set().await.unwrap().is_some() {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let result = tokio::time::timeout(
+        Duration::from_millis(500),
+        fixture.request_once("POST", "/_internal/sync/rescan", b"{}", None),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result.status(), StatusCode::ACCEPTED);
+    let result = body(result).await;
+    assert_eq!(result["completed"], false);
+    assert_eq!(result["reason"], "SourceChanging");
+    drop(root);
+    fixture.finish().await;
+}
+
+#[tokio::test]
 async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval()
 {
     let fixture = Fixture::new(Tree::LongNames).await;
@@ -1270,7 +1324,14 @@ async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizi
         during["pending_deletion_count"],
         before["pending_deletion_count"]
     );
-    assert_eq!(during["observation"], before["observation"]);
+    assert!(
+        during["observation"]["revision"].as_i64().unwrap()
+            > before["observation"]["revision"].as_i64().unwrap()
+    );
+    assert_eq!(
+        during["observation"]["tracked_objects"],
+        before["observation"]["tracked_objects"]
+    );
     assert_eq!(
         status_of(
             fixture

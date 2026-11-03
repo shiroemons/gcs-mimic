@@ -17,6 +17,7 @@ use gcs_mimic::{
     },
     sync,
 };
+use serde_json::Value;
 use std::{
     fs,
     io::{BufRead, BufReader},
@@ -67,6 +68,45 @@ impl SyncServer {
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
     }
+    fn rescan(&self) -> common::effects::Reply {
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            let reply = self.request("POST", "/_internal/sync/rescan", b"{}");
+            reply.expect(202);
+            let value: Value = serde_json::from_slice(&reply.body).unwrap();
+            if value["reason"] != "SourceChanging" {
+                assert_eq!(value["completed"], true);
+                return reply;
+            }
+            assert!(std::time::Instant::now() < deadline, "{value}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    fn wait(&self, payload: &[u8]) -> (common::effects::Reply, Duration) {
+        let mut payload: Value = serde_json::from_slice(payload).unwrap();
+        let budget = payload["timeout_ms"].as_u64().unwrap_or(10_000);
+        let deadline = std::time::Instant::now() + Duration::from_millis(budget);
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "wait did not stabilize within its original budget"
+            );
+            payload["timeout_ms"] = serde_json::json!(remaining.as_millis().max(1));
+            let started = std::time::Instant::now();
+            let reply = self.request(
+                "POST",
+                "/_internal/sync/wait",
+                &serde_json::to_vec(&payload).unwrap(),
+            );
+            let elapsed = started.elapsed();
+            let value: Value = serde_json::from_slice(&reply.body).unwrap();
+            if reply.status != 409 || value["reason"] != "SourceChanging" {
+                return (reply, elapsed);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
 }
 
 #[test]
@@ -75,16 +115,15 @@ fn live_wait_observes_source_work_beyond_the_connection_inactivity_budget() {
     let tree = TestDir::new();
     let mut server =
         SyncServer::start_with_args(&data.0, &tree.0, &["--connection-timeout-ms", "100"]);
-    server
-        .request("POST", "/_internal/sync/wait", b"{}")
-        .expect(200);
+    server.wait(b"{}").0.expect(200);
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     fs::write(tree.0.join("test-bucket/body"), b"waited body").unwrap();
     let started = std::time::Instant::now();
-    let waited = server.request("POST", "/_internal/sync/wait", br#"{"timeout_ms":5000}"#);
+    let (waited, request_elapsed) = server.wait(br#"{"timeout_ms":5000}"#);
     waited.expect(200);
     assert!(waited.json_ok()["completed"].as_bool().unwrap());
     assert!(started.elapsed() >= Duration::from_millis(100));
+    assert!(request_elapsed >= Duration::from_millis(100));
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/body?alt=media", b"")
@@ -109,7 +148,7 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     fs::write(tree.0.join("test-bucket/body"), b"initial").unwrap();
     let mut server = SyncServer::start(&data.0, &tree.0);
-    let scanned = server.request("POST", "/_internal/sync/rescan", b"{}");
+    let scanned = server.rescan();
     scanned.expect(202);
     let status = server.request("GET", "/_internal/sync", b"").json_ok();
     assert_eq!(status["auth_mode"], "permissive");
@@ -120,13 +159,11 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
     server
         .request("GET", "/_internal/sync?limit=1", b"")
         .json_reason(400, "invalidArgument");
-    let waited = server.request("POST", "/_internal/sync/wait", b"{}");
+    let (waited, _) = server.wait(b"{}");
     waited.expect(200);
     assert_eq!(waited.json_ok()["completed"], true);
     fs::remove_file(tree.0.join("test-bucket/body")).unwrap();
-    server
-        .request("POST", "/_internal/sync/rescan", b"{}")
-        .expect(202);
+    server.rescan().expect(202);
     server
         .request("GET", "/storage/v1/b/test-bucket/o/body", b"")
         .json_reason(404, "notFound");
@@ -138,9 +175,7 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
         )
         .json_reason(409, "conflict");
     fs::write(tree.0.join("test-bucket/body"), b"recreated externally").unwrap();
-    server
-        .request("POST", "/_internal/sync/rescan", b"{}")
-        .expect(202);
+    server.rescan().expect(202);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/body?alt=media", b"")

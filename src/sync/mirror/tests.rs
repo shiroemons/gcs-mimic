@@ -81,6 +81,99 @@ async fn live_fixture_with(name: &str) -> (TestDir, TestDir, Catalog, BucketName
 }
 
 #[tokio::test]
+async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls() {
+    use crate::sync::control::WaitReason;
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    for index in 0..100 {
+        fs::write(tree.0.join(format!("test-bucket/{index:03}")), b"body").unwrap();
+    }
+    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let (commands, mut requests) = tokio::sync::mpsc::channel(2);
+    let worker_root = root.clone();
+    let worker_catalog = catalog.clone();
+    let hook = std::sync::Arc::new(Hook {
+        phase: "idle,observation-invalidated",
+        entered: Default::default(),
+        release: Default::default(),
+    });
+    let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+        run_live_config(
+            LiveRun {
+                catalog: &worker_catalog,
+                root: &worker_root,
+                config: &Config::default(),
+                health: &crate::task::TaskHealth::default(),
+                resume: None,
+            },
+            &mut stopping,
+            &mut requests,
+        )
+        .await
+    }));
+    tokio::time::timeout(Duration::from_secs(60), hook.entered.notified())
+        .await
+        .unwrap();
+    for index in 0..12 {
+        fs::remove_file(tree.0.join(format!("test-bucket/{index:03}"))).unwrap();
+    }
+    hook.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        .await
+        .unwrap();
+    let (wait_reply, wait_result) = tokio::sync::oneshot::channel();
+    commands
+        .send(Command::Wait {
+            deadline: tokio::time::Instant::now() + Duration::from_secs(5),
+            reply: wait_reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    let (scan_reply, scan_result) = tokio::sync::oneshot::channel();
+    commands
+        .send(Command::Rescan {
+            reply: scan_reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    hook.release.notify_one();
+    let waited = tokio::time::timeout(Duration::from_millis(500), wait_result)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(waited.reason, WaitReason::SourceChanging);
+    let scanned = tokio::time::timeout(Duration::from_millis(500), scan_result)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(scanned.deferred, 1);
+    tokio::time::timeout(Duration::from_secs(5), hook.entered.notified())
+        .await
+        .unwrap();
+    assert_eq!(root.observation().await.unwrap().tracked_objects, 100);
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
+    fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+    hook.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        .await
+        .unwrap();
+    let set = root.deletion_set().await.unwrap().unwrap();
+    assert!(set.guarded);
+    assert_eq!(set.candidate_count, 100);
+    assert_eq!(root.observation().await.unwrap().tracked_objects, 100);
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
+    stop.send(true).unwrap();
+    hook.release.notify_one();
+    worker.await.unwrap().unwrap();
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes() {
     let (_data, tree, catalog, _bucket, root) = live_fixture().await;
     fs::create_dir(tree.0.join("test-bucket")).unwrap();

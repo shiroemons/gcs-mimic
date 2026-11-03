@@ -40,6 +40,87 @@ async fn fixture(count: usize) -> (TestDir, TestDir, Catalog, RootLease, Config)
 }
 
 #[tokio::test]
+async fn cumulative_deletions_require_approval_after_split_scans_rescan_and_restart() {
+    let (data, tree, catalog, root, config) = fixture(100).await;
+    let summary = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    for index in 0..12 {
+        fs::remove_file(tree.0.join(format!("test-bucket/{index:04}"))).unwrap();
+    }
+    let set = inventory(&root, &config, &summary, &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!set.guarded);
+    assert_eq!(execute(&catalog, &root, set, &stopping).await.unwrap(), 12);
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 12);
+    fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+    let set = inventory(&root, &config, &summary, &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(set.candidate_count, 88);
+    assert!(set.guarded);
+    root.reset_empty_deletion_history().await.unwrap();
+    root.complete_baseline().await.unwrap();
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 12);
+    assert_eq!(execute(&catalog, &root, set, &stopping).await.unwrap(), 0);
+    drop(root);
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    catalog.enable_change_journal().await.unwrap();
+    let root = catalog
+        .sync_state()
+        .activate_root(&tree.0, Activation::Open)
+        .await
+        .unwrap();
+    let set = inventory(&root, &config, &summary, &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(set.guarded);
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 12);
+    let approved = root.approve_deletions(set.revision).await.unwrap();
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
+    assert_eq!(
+        execute(&catalog, &root, approved, &stopping).await.unwrap(),
+        88
+    );
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn empty_explicit_rescan_resets_automatic_deletion_history() {
+    let (_data, tree, catalog, root, config) = fixture(1).await;
+    let summary = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    fs::remove_file(tree.0.join("test-bucket/0000")).unwrap();
+    let set = inventory(&root, &config, &summary, &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(execute(&catalog, &root, set, &stopping).await.unwrap(), 1);
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 1);
+    let set = inventory(&root, &config, &summary, &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(set.candidate_count, 0);
+    root.reset_empty_deletion_history().await.unwrap();
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate() {
     let (_data, tree, catalog, root, config) = fixture(1).await;
     fs::remove_file(tree.0.join("test-bucket/0000")).unwrap();

@@ -101,27 +101,40 @@ impl Server {
         token: Option<&str>,
         success: bool,
     ) -> Value {
-        let mut client = common::server_command();
-        if let Some(token) = token {
-            client.env("GCS_MIMIC_SYNC_TOKEN", token);
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            let mut client = common::server_command();
+            if let Some(token) = token {
+                client.env("GCS_MIMIC_SYNC_TOKEN", token);
+            }
+            let Output {
+                status,
+                stdout,
+                stderr,
+            } = client
+                .args(["sync", command, "--endpoint", &self.endpoint])
+                .args(options)
+                .output()
+                .unwrap();
+            let value: Value = serde_json::from_slice(&stdout).unwrap();
+            assert_eq!(
+                status.success(),
+                success,
+                "command={command} options={options:?} stdout={} stderr={}",
+                String::from_utf8_lossy(&stdout),
+                String::from_utf8_lossy(&stderr)
+            );
+            if command == "rescan"
+                && success
+                && value["completed"] == false
+                && value["reason"] == "SourceChanging"
+            {
+                assert!(std::time::Instant::now() < deadline, "{value}");
+                std::thread::sleep(Duration::from_millis(20));
+                continue;
+            }
+            return value;
         }
-        let Output {
-            status,
-            stdout,
-            stderr,
-        } = client
-            .args(["sync", command, "--endpoint", &self.endpoint])
-            .args(options)
-            .output()
-            .unwrap();
-        assert_eq!(
-            status.success(),
-            success,
-            "command={command} options={options:?} stdout={} stderr={}",
-            String::from_utf8_lossy(&stdout),
-            String::from_utf8_lossy(&stderr)
-        );
-        serde_json::from_slice(&stdout).unwrap()
     }
 }
 

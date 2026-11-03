@@ -51067,6 +51067,12 @@
           "test_ids": ["scans_cross_pages_once_and_reject_replaced_directories", "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync", "staging_finishes_while_another_file_worker_is_occupied", "racy_exported_bytes_are_verified_without_staging_again", "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors", "descriptor_exhaustion_does_not_persist_workspace_recovery", "wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan", "expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate", "failed_explicit_rescan_records_the_pause_before_replying"]
         },
         {
+          "id": "sync-cumulative-deletion-guard",
+          "description": "Schema 50 accumulates automatic deletions in the object-delete transaction and combines them with each frozen scan for the 100-object/over-half guard. Approval, a newly completed baseline or a zero-candidate explicit rescan resets history; guarded rescans and restart retain it. Native observation waits for 1 second quiet, capped at 10 seconds, and answers controls with explicit SourceChanging rather than false completion. The previous per-scan-only calculation could delete a bulk operation in smaller unguarded batches. Operations longer than the quiet cap can still commit earlier automatic deletions below the cumulative threshold; the guard does not undo them. Scope: docs/en/slices/directory-synchronization.md#external-deletion-and-approval.",
+          "result": "PASS",
+          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_reports_source_changing_without_false_completion"]
+        },
+        {
           "id": "sync-api-writeback",
           "description": "sync-live-export acceptance: notification-driven fenced journal replay, bounded coalescing and gap reconciliation, fingerprint-checked API create/overwrite/delete/copy/compose, retained externally edited bodies with findings, pending-work-only I/O retry, object-boundary shutdown and restart reconciliation. Bucket deletion retains directories; ingestion, conflict transfer and control routes remain PENDING. Scope: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
@@ -51400,6 +51406,12 @@
         "staging_finishes_while_another_file_worker_is_occupied",
         "racy_exported_bytes_are_verified_without_staging_again",
         "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors",
+        "cumulative_deletions_require_approval_after_split_scans_rescan_and_restart",
+        "empty_explicit_rescan_resets_automatic_deletion_history",
+        "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers",
+        "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls",
+        "native_quiet_deadline_is_capped_and_survives_cancelled_waits",
+        "rescan_during_native_quiet_reports_source_changing_without_false_completion",
         "delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes",
         "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval",
         "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling",
@@ -51655,6 +51667,13 @@
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/continuous-directory-observation.md",
           "test_ids": ["native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors", "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling", "native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- cumulative_deletions empty_explicit_rescan automatic_deletion_history quiet_native_observation native_quiet_deadline rescan_during_native_quiet --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_reports_source_changing_without_false_completion"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
