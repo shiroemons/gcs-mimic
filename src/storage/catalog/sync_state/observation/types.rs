@@ -25,11 +25,7 @@ impl PauseReason {
     }
 }
 
-impl serde::Serialize for PauseReason {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
-    }
-}
+crate::serde_util::serialize_as_str!(PauseReason);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FindingCategory {
@@ -44,11 +40,7 @@ sql::text_enum!(pub(crate) FindingCategory, "invalid synchronization finding cat
     PathStop => "path-stop", Conflict => "conflict",
 });
 
-impl serde::Serialize for FindingCategory {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
-    }
-}
+crate::serde_util::serialize_as_str!(FindingCategory);
 
 #[derive(Debug)]
 pub(crate) enum FindingReason {
@@ -70,8 +62,4 @@ impl FindingReason {
     }
 }
 
-impl serde::Serialize for FindingReason {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
-    }
-}
+crate::serde_util::serialize_as_str!(FindingReason);

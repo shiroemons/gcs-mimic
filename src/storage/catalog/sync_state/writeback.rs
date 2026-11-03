@@ -241,15 +241,18 @@ pub(crate) enum Stop {
     ConflictCapacity,
     IoFailure,
 }
-sql::text_enum!(pub(crate) Stop, "invalid synchronization writeback state", {
-    Ready => "Ready", RecoveryRequired => "RecoveryRequired", ProtectedBody => "ProtectedBody",
-    ConflictCapacity => "ConflictCapacity", IoFailure => "IoFailure",
-});
-impl serde::Serialize for Stop {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
+impl Stop {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "Ready",
+            Self::RecoveryRequired => "RecoveryRequired",
+            Self::ProtectedBody => "ProtectedBody",
+            Self::ConflictCapacity => "ConflictCapacity",
+            Self::IoFailure => "IoFailure",
+        }
     }
 }
+crate::serde_util::serialize_as_str!(Stop);
 impl std::fmt::Display for Stop {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "write-back stopped: {}", self.as_str())

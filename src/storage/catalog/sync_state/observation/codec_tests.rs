@@ -66,13 +66,15 @@ fn synchronization_enums_keep_sql_and_json_spellings() {
         (FindingCategory::PathStop, "path-stop"),
         (FindingCategory::Conflict, "conflict"),
     ]);
-    text_values(&[
+    for (stop, expected) in [
         (writeback::Stop::Ready, "Ready"),
         (writeback::Stop::RecoveryRequired, "RecoveryRequired"),
         (writeback::Stop::ProtectedBody, "ProtectedBody"),
         (writeback::Stop::ConflictCapacity, "ConflictCapacity"),
         (writeback::Stop::IoFailure, "IoFailure"),
-    ]);
+    ] {
+        assert_eq!(serde_json::to_value(stop).unwrap(), expected);
+    }
 }
 
 #[test]
