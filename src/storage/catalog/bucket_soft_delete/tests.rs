@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, bucket};
 use crate::{bucket::BucketMetadataUpdate, clock::ManualClock, test_support::TestDir};
 use std::{
     sync::Arc,
@@ -11,27 +11,10 @@ const START: Duration = Duration::from_secs(1_000_000);
 
 fn record(name: &str) -> BucketRecord {
     BucketRecord {
-        name: name.into(),
-        project: "project".into(),
-        location: "US".into(),
-        location_type: "multi-region".into(),
-        storage_class: "STANDARD".into(),
-        autoclass: None,
         labels: [("team".to_owned(), "storage".to_owned())].into(),
-        versioning_enabled: false,
-        versioning_configured: false,
-        default_event_based_hold: false,
-        public_access_prevention_enforced: false,
-        uniform_bucket_level_access_locked_time: None,
-        lifecycle: Vec::new(),
-        retention_policy: None,
-        soft_delete_policy: None,
-        object_retention_enabled: false,
-        cors: Vec::new(),
-        metageneration: 1,
-        generation: 0,
         time_created: UNIX_EPOCH + START,
         updated: UNIX_EPOCH + START,
+        ..bucket(name, "project")
     }
 }
 

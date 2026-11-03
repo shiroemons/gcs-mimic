@@ -13,23 +13,25 @@ use bytes::Bytes;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, time::UNIX_EPOCH};
 
-async fn setup(dir: &TestDir, versioning: bool) -> Catalog {
-    setup_with_clock(
-        dir,
-        versioning,
-        std::sync::Arc::new(crate::clock::SystemClock),
-    )
-    .await
+#[derive(Clone, Copy)]
+enum VersionHistory {
+    Preserve,
+    Discard,
+}
+
+async fn setup(dir: &TestDir, history: VersionHistory) -> Catalog {
+    setup_with_clock(dir, history, std::sync::Arc::new(crate::clock::SystemClock)).await
 }
 
 async fn setup_with_clock(
     dir: &TestDir,
-    versioning: bool,
+    history: VersionHistory,
     clock: std::sync::Arc<dyn crate::clock::Clock>,
 ) -> Catalog {
     let catalog = Catalog::open_for_server(&dir.0, clock, super::super::admin::LocalAdmin::Enabled)
         .await
         .unwrap();
+    let versioning = matches!(history, VersionHistory::Preserve);
     let bucket = crate::json::parse_insert(
         json!({"name":"test-bucket", "versioning":{"enabled":versioning}})
             .to_string()
@@ -110,7 +112,8 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
         notification::NotificationMode,
         storage::admin::{AdminError, GenerationCondition, LocalAdmin, Origin},
     };
-    for versioning in [false, true] {
+    for history in [VersionHistory::Discard, VersionHistory::Preserve] {
+        let versioning = matches!(history, VersionHistory::Preserve);
         for memory in [false, true] {
             let dir = TestDir::new();
             let catalog = if memory {
@@ -151,7 +154,7 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
                     .unwrap();
                 catalog
             } else {
-                setup(&dir, versioning).await
+                setup(&dir, history).await
             };
             catalog
                 .configure_notifications(&Runtime {
@@ -294,7 +297,7 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
 #[tokio::test]
 async fn finalize_archive_delete_snapshots_survive_restart_and_failed_mutations_emit_nothing() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, true).await;
+    let catalog = setup(&dir, VersionHistory::Preserve).await;
     put(&catalog, "ignored", Default::default()).await.unwrap();
     assert!(catalog.next_notification().await.unwrap().is_none());
     let first = put(&catalog, "prefix/item", Default::default())
@@ -371,7 +374,7 @@ async fn finalize_archive_delete_snapshots_survive_restart_and_failed_mutations_
 #[tokio::test]
 async fn full_outbox_rolls_back_the_object_mutation() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, false).await;
+    let catalog = setup(&dir, VersionHistory::Discard).await;
     catalog.run(|connection| {
         let transaction = connection.transaction()?;
         for id in 1..=4096 {
@@ -409,7 +412,7 @@ async fn full_outbox_rolls_back_the_object_mutation() {
 #[tokio::test]
 async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time_snapshots() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, false).await;
+    let catalog = setup(&dir, VersionHistory::Discard).await;
     let first = put(&catalog, "prefix/item", Default::default())
         .await
         .unwrap();
@@ -506,7 +509,7 @@ async fn publication_failures_and_crash_snapshots_keep_objects_and_events_atomic
         Step::BeforeCommit,
     ] {
         let dir = TestDir::new();
-        let catalog = setup(&dir, false).await;
+        let catalog = setup(&dir, VersionHistory::Discard).await;
         fault::arm(&dir.0, step, 0, Fault::Io(std::io::ErrorKind::Other));
         assert!(
             put(&catalog, "prefix/item", Default::default())
@@ -529,7 +532,7 @@ async fn publication_failures_and_crash_snapshots_keep_objects_and_events_atomic
     for step in [Step::BeforeCommit, Step::AfterCommit] {
         let dir = TestDir::new();
         let snapshot = TestDir::new();
-        let catalog = setup(&dir, false).await;
+        let catalog = setup(&dir, VersionHistory::Discard).await;
         fault::arm(&dir.0, step, 0, Fault::Snapshot(snapshot.0.clone()));
         put(&catalog, "prefix/item", Default::default())
             .await
@@ -564,7 +567,7 @@ async fn power_loss_keeps_publication_and_outbox_in_the_same_commit() {
     ] {
         let dir = TestDir::new();
         let snapshot = TestDir::new();
-        let catalog = setup(&dir, false).await;
+        let catalog = setup(&dir, VersionHistory::Discard).await;
         fault::arm(&dir.0, step, 0, Fault::PowerLoss(snapshot.0.clone()));
         put(&catalog, "prefix/item", Default::default())
             .await
@@ -632,7 +635,7 @@ async fn wait_for_pending(catalog: &Catalog, check: impl Fn(&Option<Pending>) ->
 async fn missing_acknowledgement_retries_the_same_snapshot_after_restart() {
     use tokio::io::AsyncWriteExt;
     let dir = TestDir::new();
-    let catalog = setup(&dir, false).await;
+    let catalog = setup(&dir, VersionHistory::Discard).await;
     put(&catalog, "prefix/item", Default::default())
         .await
         .unwrap();
@@ -681,7 +684,7 @@ async fn reset_is_busy_during_network_attempt_and_clears_retry_payloads_afterwar
     let clock = std::sync::Arc::new(crate::clock::ManualClock::new(
         UNIX_EPOCH + std::time::Duration::from_micros(42_000_000),
     ));
-    let catalog = setup_with_clock(&dir, false, clock.clone()).await;
+    let catalog = setup_with_clock(&dir, VersionHistory::Discard, clock.clone()).await;
     put(&catalog, "prefix/item", Default::default())
         .await
         .unwrap();
@@ -749,7 +752,7 @@ async fn reset_is_busy_during_network_attempt_and_clears_retry_payloads_afterwar
 #[tokio::test]
 async fn byte_budget_and_count_budget_both_rollback_the_mutation() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, false).await;
+    let catalog = setup(&dir, VersionHistory::Discard).await;
     catalog
         .run(|connection| {
             let transaction = connection.transaction()?;
@@ -809,7 +812,7 @@ async fn byte_budget_and_count_budget_both_rollback_the_mutation() {
 async fn retry_deadline_allows_other_messages_and_close_waits_for_the_active_attempt() {
     use tokio::io::AsyncWriteExt;
     let dir = TestDir::new();
-    let catalog = setup(&dir, false).await;
+    let catalog = setup(&dir, VersionHistory::Discard).await;
     put(&catalog, "prefix/first", Default::default())
         .await
         .unwrap();
@@ -868,7 +871,7 @@ async fn retry_deadline_allows_other_messages_and_close_waits_for_the_active_att
 #[tokio::test]
 async fn schema_migration_preserves_configs_and_inconsistent_accounting_fails_read_only() {
     let dir = TestDir::new();
-    let catalog = setup(&dir, false).await;
+    let catalog = setup(&dir, VersionHistory::Discard).await;
     catalog.close().await.unwrap();
     let path = dir.0.join("catalog.sqlite3");
     let connection = rusqlite::Connection::open(&path).unwrap();

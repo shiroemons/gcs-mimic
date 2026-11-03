@@ -2,7 +2,9 @@ use super::admin::{BucketDefinition, Origin, Publication, PublishMode};
 use super::{Catalog, ObjectReader, ObjectUpload, RestoreAccess};
 use crate::bucket::{BucketAccess, BucketRecord};
 use crate::object::{ObjectTarget, UploadChunk};
+use crate::test_support::TestDir;
 use bytes::Bytes;
+use rusqlite::Connection;
 use std::time::UNIX_EPOCH;
 
 pub(in crate::storage) fn guidance_source_failures() -> Vec<(
@@ -150,4 +152,35 @@ pub(crate) async fn read_all(reader: &mut ObjectReader) -> Vec<u8> {
         bytes.extend_from_slice(&chunk);
     }
     bytes
+}
+
+pub(crate) async fn downgraded<T>(
+    dir: &TestDir,
+    catalog: &Catalog,
+    downgrade: impl FnOnce(&Connection) -> T,
+) -> T {
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    downgrade(&connection)
+}
+
+pub(crate) async fn migrated(
+    dir: &TestDir,
+    record: BucketRecord,
+    downgrade: impl FnOnce(&Connection),
+) -> (Catalog, BucketRecord) {
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let original = catalog.insert_bucket(record).await.unwrap();
+    downgraded(dir, &catalog, downgrade).await;
+    (Catalog::open(&dir.0).await.unwrap(), original)
+}
+
+#[track_caller]
+pub(crate) fn assert_current_schema(connection: &Connection) {
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        super::CATALOG_SCHEMA_VERSION
+    );
 }
