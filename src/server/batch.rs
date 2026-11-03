@@ -6,6 +6,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::{
     HeaderMap, Method, Request, Response, StatusCode,
     body::{Body, Bytes},
+    header::{CONTENT_TYPE, HeaderValue},
 };
 use tokio::sync::Semaphore;
 
@@ -15,6 +16,8 @@ const REQUEST_LIMIT: usize = 10_000_000;
 const RESPONSE_LIMIT: usize = 10_000_000;
 const PART_RESPONSE_LIMIT: usize = 512 * 1024;
 const BOUNDARY: &str = "gcs_mimic_batch_response";
+const RESPONSE_CONTENT_TYPE: HeaderValue =
+    HeaderValue::from_static("multipart/mixed; boundary=gcs_mimic_batch_response");
 static PARSERS: Semaphore = Semaphore::const_new(1);
 
 struct Part {
@@ -96,12 +99,9 @@ async fn execute(
     }
     output.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
     let mut response = Response::new(Full::new(Bytes::from(output)));
-    response.headers_mut().insert(
-        "content-type",
-        format!("multipart/mixed; boundary={BOUNDARY}")
-            .parse()
-            .map_err(|_| invalid("Batch response header failed"))?,
-    );
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, RESPONSE_CONTENT_TYPE);
     Ok(response)
 }
 
@@ -208,6 +208,14 @@ async fn append_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn response_content_type_matches_the_body_boundary() {
+        assert_eq!(
+            RESPONSE_CONTENT_TYPE.to_str().unwrap(),
+            format!("multipart/mixed; boundary={BOUNDARY}")
+        );
+    }
 
     #[test]
     fn parser_worker_failures_are_retryable_server_errors() {
