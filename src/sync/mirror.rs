@@ -559,6 +559,14 @@ struct Initialized {
 fn pause_reason(error: &io::Error) -> crate::storage::sync_state::observation::PauseReason {
     use crate::storage::sync_state::observation::PauseReason;
     for cause in crate::error::causes(error) {
+        if let Some(stop) = cause.downcast_ref::<Stop>() {
+            return match stop {
+                Stop::ConflictCapacity => PauseReason::ConflictCapacity,
+                Stop::IoFailure => PauseReason::IoFailure,
+                Stop::RecoveryRequired | Stop::ProtectedBody => PauseReason::RecoveryRequired,
+                Stop::Ready => PauseReason::ObserverFailure,
+            };
+        }
         if matches!(
             cause.downcast_ref::<crate::storage::sync_state::conflicts::Error>(),
             Some(crate::storage::sync_state::conflicts::Error::Capacity)
@@ -661,11 +669,7 @@ async fn recover_writeback(root: &RootLease) -> io::Result<Writeback> {
         .await
         .map_err(io::Error::other)?;
     if recovered.stop != Stop::Ready {
-        return Err(io::Error::other(match recovered.stop {
-            Stop::ConflictCapacity => writeback::Error::Capacity,
-            Stop::IoFailure => writeback::Error::Admin(AdminError::Io(io::ErrorKind::Other.into())),
-            _ => writeback::Error::RecoveryRequired,
-        }));
+        return Err(io::Error::other(recovered.stop));
     }
     Ok(writeback)
 }

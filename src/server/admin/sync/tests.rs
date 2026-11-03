@@ -1,18 +1,4 @@
 use super::*;
-
-#[test]
-fn nested_io_control_errors_keep_status_and_text() {
-    for error in [
-        RootError::Admin(crate::storage::admin::AdminError::Forbidden),
-        RootError::Admin(crate::storage::admin::AdminError::Precondition),
-        RootError::InUse,
-    ] {
-        let expected = root_error(&error);
-        let actual = control_error(&io::Error::other(io::Error::other(error)));
-        assert_eq!(actual.status, expected.status);
-        assert_eq!(actual.message, expected.message);
-    }
-}
 use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     auth::{Auth, Registry},
@@ -27,6 +13,35 @@ use crate::{
 };
 use http_body_util::BodyExt;
 use std::{fs, time::Duration};
+
+#[test]
+fn nested_io_control_errors_keep_status_and_text() {
+    for error in [
+        RootError::Admin(crate::storage::admin::AdminError::Forbidden),
+        RootError::Admin(crate::storage::admin::AdminError::Precondition),
+        RootError::InUse,
+    ] {
+        let expected = root_error(&error);
+        let actual = control_error(&io::Error::other(io::Error::other(error)));
+        assert_eq!(actual.status, expected.status);
+        assert_eq!(actual.message, expected.message);
+    }
+}
+
+#[test]
+fn recovered_writeback_stops_keep_the_admin_busy_response() {
+    let expected = busy();
+    for stop in [
+        Stop::ConflictCapacity,
+        Stop::IoFailure,
+        Stop::RecoveryRequired,
+        Stop::ProtectedBody,
+    ] {
+        let actual = control_error(&io::Error::other(stop));
+        assert_eq!(actual.status, expected.status);
+        assert_eq!(actual.message, expected.message);
+    }
+}
 
 struct AuthorizationHook {
     entered: tokio::sync::Notify,

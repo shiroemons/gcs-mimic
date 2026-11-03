@@ -1550,6 +1550,28 @@ fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
     }
 }
 
+#[test]
+fn recovered_writeback_stops_pause_without_fabricating_io_causes() {
+    use crate::storage::sync_state::observation::PauseReason;
+    for (stop, reason) in [
+        (Stop::ConflictCapacity, PauseReason::ConflictCapacity),
+        (Stop::IoFailure, PauseReason::IoFailure),
+        (Stop::RecoveryRequired, PauseReason::RecoveryRequired),
+        (Stop::ProtectedBody, PauseReason::RecoveryRequired),
+    ] {
+        let error = io::Error::other(stop);
+        assert_eq!(error.get_ref().unwrap().downcast_ref::<Stop>(), Some(&stop));
+        assert!(!is_transient(&error));
+        assert!(!watch_retryable(&error));
+        assert_eq!(pause_reason(&error), reason);
+        assert!(
+            crate::error::causes(&error)
+                .skip(1)
+                .all(|cause| !cause.is::<io::Error>())
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_mirror_stopped_by_shutdown_stays_ready() {
     let (_data, _tree, catalog, task) = started_mirror(None).await;

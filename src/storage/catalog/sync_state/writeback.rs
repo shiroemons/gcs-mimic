@@ -250,6 +250,12 @@ impl serde::Serialize for Stop {
         serializer.serialize_str(self.as_str())
     }
 }
+impl std::fmt::Display for Stop {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "write-back stopped: {}", self.as_str())
+    }
+}
+impl std::error::Error for Stop {}
 #[derive(Clone, Debug)]
 pub(crate) struct Status {
     pub reserved_bytes: u128,
