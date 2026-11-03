@@ -448,8 +448,13 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
 
 /// Look up a role by exact name; unknown roles, including basic roles, return `None`.
 pub(crate) fn permissions(role: &str) -> Option<&'static [&'static str]> {
-    PREDEFINED_ROLES
+    definition(role).map(|(_, permissions)| permissions)
+}
+
+pub(crate) fn definition(role: &str) -> Option<(GrantLevel, &'static [&'static str])> {
+    let index = PREDEFINED_ROLES
         .binary_search_by(|(name, _, _)| name.cmp(&role))
-        .ok()
-        .map(|index| PREDEFINED_ROLES[index].2)
+        .ok()?;
+    let (_, level, permissions) = PREDEFINED_ROLES.get(index)?;
+    Some((*level, permissions))
 }
