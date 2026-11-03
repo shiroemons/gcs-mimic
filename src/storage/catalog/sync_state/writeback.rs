@@ -625,7 +625,6 @@ fn fingerprint(
     workspace: &File,
     item: &Pending,
     observed_ns: i128,
-    staged: Option<fsutil::FileIdentity>,
 ) -> Result<Option<SyncFingerprint>, Error> {
     if entry(workspace, &item.token.id)?.is_some() {
         return Err(Error::Protected);
@@ -638,23 +637,9 @@ fn fingerprint(
             if before.device != fsutil::stat_identity(root)?.device || before.size != item.size {
                 return Err(stale());
             }
-            let hashes = if let Some(staged) = staged {
-                if staged.device != before.device
-                    || staged.inode != before.inode
-                    || staged.size != before.size
-                    || staged.modified_ns != before.modified_ns
-                {
-                    return Err(stale());
-                }
-                crate::hashing::Hashes {
-                    md5: item.md5,
-                    crc32c: item.crc32c,
-                }
-            } else {
-                match fsutil::hash_exact(&file, item.size, |_| Ok::<_, io::Error>(()))? {
-                    fsutil::HashOutcome::Complete(hashes) => hashes,
-                    _ => return Err(stale()),
-                }
+            let hashes = match fsutil::hash_exact(&file, item.size, |_| Ok::<_, io::Error>(()))? {
+                fsutil::HashOutcome::Complete(hashes) => hashes,
+                _ => return Err(stale()),
             };
             file.sync_all()?;
             if before != fsutil::stat_identity(&file)?

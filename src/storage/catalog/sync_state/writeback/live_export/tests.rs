@@ -215,6 +215,47 @@ async fn live_export_observed_external_change_cancels_the_unpublished_copy_and_r
 }
 
 #[tokio::test]
+async fn durable_rehash_rejects_same_inode_edits_with_restored_mtime() {
+    let fixture = Fixture::new().await;
+    fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    for _ in 0..2 {
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap();
+    }
+    let path = fixture.tree.0.join("test-bucket/object");
+    let modified = fs::metadata(&path).unwrap().modified().unwrap();
+    let before = fsutil::stat_identity(&File::open(&path).unwrap()).unwrap();
+    fs::write(&path, b"bad").unwrap();
+    File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    let after = fsutil::stat_identity(&File::open(&path).unwrap()).unwrap();
+    assert_eq!(
+        (before.device, before.inode, before.size, before.modified_ns),
+        (after.device, after.inode, after.size, after.modified_ns)
+    );
+    let result = fixture
+        .writeback
+        .advance_live_export(operation.clone())
+        .await;
+    let bytes = fs::read(&path).unwrap();
+    drop(operation);
+    fixture.close().await;
+    assert!(
+        result.is_err(),
+        "durability accepted modified bytes: {result:?}"
+    );
+    assert_eq!(bytes, b"bad");
+}
+
+#[tokio::test]
 async fn live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes() {
     for body in [&b""[..], &b"\0\xff binary"[..]] {
         let fixture = Fixture::new().await;

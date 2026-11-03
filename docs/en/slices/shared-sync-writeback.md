@@ -25,9 +25,10 @@ deletion or recreation.
    inspecting an existing parent never creates directories or calls fsync.
    Installation retries sync existing ancestors too: an earlier failed sync can
    leave a newly created ancestor visible without making its name durable.
-4. The durable step verifies the target and records Durable. A verified staged
-   inode with unchanged size/mtime reuses its known hashes; observations without
-   such provenance hash the exact body. The acknowledgement compares stat
+4. The durable step hashes the installed target and records Durable. A writer
+   can preserve its inode/size and restore mtime, while rename itself changes
+   ctime, so the private copy's old hashes cannot prove the installed bytes.
+   The acknowledgement compares the complete recorded stat
    identity, syncs the affected parents, atomically updates synchronization state
    and deletes the completed intent. A failed transaction changes neither tracking
    nor the pending intent. Completion does not maintain a separate journal cursor.
@@ -36,8 +37,7 @@ Fingerprint timestamps use the injected catalog clock. A stat observation within
 two seconds of the latest mtime/ctime remains racy. Ingest hashes a matching racy
 file in place before considering staging; equal hashes acknowledge the same
 generation without copying it back to storage. A later stable observation clears
-the racy flag. This conservative interval also covers timestamp granularity when
-the installed inode's hashes are reused.
+the racy flag. This interval conservatively covers filesystem timestamp granularity.
 
 ## Conflict, cancellation and recovery
 
@@ -84,5 +84,9 @@ and syncs, restart, and paired crash/power-loss snapshots. Schema tests retain
 negative rollback, SQLite FULL and retry cases.
 
 These are cooperative fault-model tests, not physical host-power-loss evidence.
+`durable_rehash_rejects_same_inode_edits_with_restored_mtime` fails when private
+copy hashes are reused at Durable and passes with installed-body verification.
+Only the acknowledgement's extra body hash is removed; checksum verification
+at Durable remains mandatory.
 See [continuous observation](continuous-directory-observation.md) and
 [conflict recovery](sync-conflict-recovery.md) for management and platform scope.

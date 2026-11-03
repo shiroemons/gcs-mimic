@@ -626,9 +626,8 @@ impl Writeback {
         failure(item.token.root, "durable")?;
         let selected = item.clone();
         let observed_ns = self.lease.observation_time_ns()?;
-        let staged = operation.staged;
         let fp = match self
-            .fs(move |root, workspace| fingerprint(root, workspace, &selected, observed_ns, staged))
+            .fs(move |root, workspace| fingerprint(root, workspace, &selected, observed_ns))
             .await
         {
             Ok(fp) => fp,
