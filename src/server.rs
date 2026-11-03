@@ -36,13 +36,13 @@ use tokio::{
 pub use crate::grpc::v2::ReadHandles;
 
 pub struct State {
+    pub grpc_read_handles: ReadHandles,
     pub ready: AtomicBool,
     pub clock: Arc<dyn Clock>,
     pub catalog: Catalog,
     pub api_base_url: String,
     pub default_location: String,
     pub auth: Auth,
-    pub grpc_read_handles: ReadHandles,
 }
 
 impl State {

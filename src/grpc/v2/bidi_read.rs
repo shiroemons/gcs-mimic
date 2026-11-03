@@ -330,77 +330,90 @@ mod tests {
     use super::*;
     use crate::grpc::test_support::assert_code;
     use crate::grpc::v2::access_status;
-    use crate::object::ObjectConditions;
     use crate::storage::test_fixtures::PERMISSIVE;
 
-    #[tokio::test]
-    async fn read_handles_are_isolated_by_state_and_survive_reconnection() {
+    async fn readable_state() -> Arc<crate::server::State> {
         use crate::{
             auth::Auth,
             clock::SystemClock,
-            grpc::test_support::{state, storage_with},
             storage::{Catalog, admin::LocalAdmin},
         };
-        let mut states = Vec::new();
-        for _ in 0..2 {
-            let catalog = Catalog::open_memory_for_server(
-                1024 * 1024,
-                1024 * 1024,
-                Arc::new(SystemClock),
-                LocalAdmin::Enabled,
+        let catalog = Catalog::open_memory_for_server(
+            1024 * 1024,
+            1024 * 1024,
+            Arc::new(SystemClock),
+            LocalAdmin::Enabled,
+        )
+        .await
+        .unwrap();
+        catalog
+            .insert_bucket(crate::storage::test_fixtures::bucket("handle-bucket", "p"))
+            .await
+            .unwrap();
+        let (tx, rx) = mpsc::channel(2);
+        tx.send(Ok(crate::object::UploadChunk::Data(
+            bytes::Bytes::from_static(b"handle data"),
+        )))
+        .await
+        .unwrap();
+        tx.send(Ok(crate::object::UploadChunk::End)).await.unwrap();
+        drop(tx);
+        catalog
+            .put_object(
+                crate::storage::test_fixtures::permissive_upload("handle-bucket", "object", 1024),
+                rx,
             )
             .await
             .unwrap();
-            catalog
-                .insert_bucket(crate::storage::test_fixtures::bucket("handle-bucket", "p"))
-                .await
-                .unwrap();
-            let (tx, rx) = mpsc::channel(2);
-            tx.send(Ok(crate::object::UploadChunk::Data(
-                bytes::Bytes::from_static(b"handle data"),
-            )))
-            .await
-            .unwrap();
-            tx.send(Ok(crate::object::UploadChunk::End)).await.unwrap();
-            drop(tx);
-            catalog
-                .put_object(
-                    crate::storage::test_fixtures::permissive_upload(
-                        "handle-bucket",
-                        "object",
-                        1024,
-                    ),
-                    rx,
-                )
-                .await
-                .unwrap();
-            states.push(Arc::new(state(catalog, Auth::permissive())));
-        }
+        Arc::new(crate::grpc::test_support::state(
+            catalog,
+            Auth::permissive(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn read_handles_are_isolated_by_state_and_survive_reconnection() {
+        use crate::grpc::test_support::{rpc, storage_with};
+        let states = [readable_state().await, readable_state().await];
         let mut selected = Vec::new();
+        let mut handles = Vec::new();
         for state in &states {
-            let storage = storage_with(state.clone(), 1024);
-            let (record, reader, finality) = storage
-                .open_readable(
-                    ObjectTarget::new("handle-bucket", "object", None),
-                    ObjectConditions::default(),
-                    PERMISSIVE,
-                )
-                .await
-                .unwrap();
-            selected.push(Arc::new(Selected {
-                record,
-                reader: Mutex::new(reader),
-                finality,
-            }));
-        }
-        states[0]
-            .grpc_read_handles
-            .insert(Handle {
-                token: vec![42],
-                project: None,
-                selected: selected[0].clone(),
-            })
+            let request = pb::BidiReadObjectRequest {
+                read_object_spec: Some(pb::BidiReadObjectSpec {
+                    bucket: "projects/_/buckets/handle-bucket".into(),
+                    object: "object".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let (code, responses): (_, Vec<pb::BidiReadObjectResponse>) = rpc(
+                "/google.storage.v2.Storage/BidiReadObject",
+                None,
+                &[request],
+                async |request| {
+                    crate::grpc::v2::dispatch(
+                        crate::grpc::v2::service(state.clone(), 1024),
+                        request,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
             .await;
+            assert_eq!(code, tonic::Code::Ok);
+            assert_eq!(responses.len(), 1);
+            let token = responses[0].read_handle.as_ref().unwrap().handle.clone();
+            let entries = state.grpc_read_handles.0.lock().await;
+            selected.push(
+                entries
+                    .iter()
+                    .find(|entry| entry.token == token)
+                    .unwrap()
+                    .selected
+                    .clone(),
+            );
+            handles.push(token);
+        }
         for token in 0..=MAX_HANDLES {
             states[1]
                 .grpc_read_handles
@@ -411,10 +424,26 @@ mod tests {
                 })
                 .await;
         }
+        let retained: Vec<_> = states[1]
+            .grpc_read_handles
+            .0
+            .lock()
+            .await
+            .iter()
+            .map(|entry| entry.token.clone())
+            .collect();
+        assert_eq!(
+            retained,
+            (1..=MAX_HANDLES)
+                .map(|token| token.to_le_bytes().to_vec())
+                .collect::<Vec<_>>()
+        );
         let spec = pb::BidiReadObjectSpec {
             bucket: "projects/_/buckets/handle-bucket".into(),
             object: "object".into(),
-            read_handle: Some(pb::BidiReadHandle { handle: vec![42] }),
+            read_handle: Some(pb::BidiReadHandle {
+                handle: handles[0].clone(),
+            }),
             ..Default::default()
         };
         let reconnected = storage_with(states[0].clone(), 1024);
@@ -423,7 +452,7 @@ mod tests {
             .await
             .unwrap();
         assert!(Arc::ptr_eq(&resumed, &selected[0]));
-        assert_eq!(token, [42]);
+        assert_eq!(token, handles[0]);
         assert_eq!(
             resumed
                 .reader
@@ -434,10 +463,6 @@ mod tests {
                 .unwrap()
                 .unwrap(),
             b"handle data".as_slice()
-        );
-        assert_eq!(
-            states[1].grpc_read_handles.0.lock().await.len(),
-            MAX_HANDLES
         );
         let other = storage_with(states[1].clone(), 1024);
         assert_code(
