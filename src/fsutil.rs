@@ -573,14 +573,100 @@ fn sync_replace_parent(directory: &File) -> io::Result<()> {
     directory.sync_all()
 }
 
-/// Retains displaced bytes under the source name; errors after rename require reconciliation.
-#[cfg_attr(
-    any(target_os = "linux", target_os = "macos"),
-    expect(
-        unsafe_code,
-        reason = "renameat2 and renameatx_np exchanges have no safe std equivalent"
-    )
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[derive(Clone, Copy)]
+enum RenameMode {
+    NoReplace,
+    Exchange,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[expect(
+    unsafe_code,
+    reason = "exclusive and exchange renames have no safe std equivalent"
 )]
+fn rename_at(
+    source_directory: libc::c_int,
+    source: &std::ffi::CStr,
+    destination_directory: libc::c_int,
+    destination: &std::ffi::CStr,
+    mode: RenameMode,
+) -> Result<(), FsError> {
+    // SAFETY: the C strings remain live and the descriptors belong to the caller or AT_FDCWD.
+    let result = unsafe {
+        #[cfg(target_os = "linux")]
+        {
+            // musl 1.2.5 has no renameat2 wrapper.
+            libc::syscall(
+                libc::SYS_renameat2,
+                source_directory,
+                source.as_ptr(),
+                destination_directory,
+                destination.as_ptr(),
+                match mode {
+                    RenameMode::NoReplace => libc::RENAME_NOREPLACE,
+                    RenameMode::Exchange => libc::RENAME_EXCHANGE,
+                },
+            )
+        }
+        #[cfg(target_os = "macos")]
+        {
+            libc::renameatx_np(
+                source_directory,
+                source.as_ptr(),
+                destination_directory,
+                destination.as_ptr(),
+                match mode {
+                    RenameMode::NoReplace => libc::RENAME_EXCL,
+                    RenameMode::Exchange => libc::RENAME_SWAP,
+                },
+            )
+        }
+    };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if matches!(
+        error.raw_os_error(),
+        Some(libc::ENOSYS | libc::ENOTSUP | libc::EINVAL)
+    ) {
+        return Err(FsError::Unsupported);
+    }
+    Err(error.into())
+}
+
+/// Refuses to replace an existing entry. A fallback crash may leave both names, which
+/// startup's staging recovery handles before admitting requests.
+#[cfg(unix)]
+pub(crate) fn rename_noreplace(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let source = std::ffi::CString::new(from.as_os_str().as_bytes())?;
+        let destination = std::ffi::CString::new(to.as_os_str().as_bytes())?;
+        match rename_at(
+            libc::AT_FDCWD,
+            &source,
+            libc::AT_FDCWD,
+            &destination,
+            RenameMode::NoReplace,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(FsError::Unsupported) => {}
+            Err(FsError::Io(error)) => return Err(error),
+        }
+    }
+    link_then_unlink(from, to)
+}
+
+#[cfg(unix)]
+fn link_then_unlink(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
+    std::fs::hard_link(from, to)?;
+    std::fs::remove_file(from)
+}
+
+/// Retains displaced bytes under the source name; errors after rename require reconciliation.
 pub(crate) fn durable_replace_between(
     source_directory: &File,
     staged_name: &std::ffi::OsStr,
@@ -612,49 +698,17 @@ pub(crate) fn durable_replace_between(
         };
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            // SAFETY: validated components are relative to their respective live directory descriptors.
-            let result = unsafe {
-                // musl 1.2.5 has no renameat2 wrapper, so the release musl archives call the syscall directly.
-                #[cfg(target_os = "linux")]
-                {
-                    libc::syscall(
-                        libc::SYS_renameat2,
-                        source_directory.as_raw_fd(),
-                        staged.as_ptr(),
-                        destination_directory.as_raw_fd(),
-                        destination.as_ptr(),
-                        if expected.is_some() {
-                            libc::RENAME_EXCHANGE
-                        } else {
-                            libc::RENAME_NOREPLACE
-                        },
-                    )
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    libc::renameatx_np(
-                        source_directory.as_raw_fd(),
-                        staged.as_ptr(),
-                        destination_directory.as_raw_fd(),
-                        destination.as_ptr(),
-                        if expected.is_some() {
-                            libc::RENAME_SWAP
-                        } else {
-                            libc::RENAME_EXCL
-                        },
-                    )
-                }
-            };
-            if result != 0 {
-                let error = io::Error::last_os_error();
-                if matches!(
-                    error.raw_os_error(),
-                    Some(libc::ENOSYS | libc::ENOTSUP | libc::EINVAL)
-                ) {
-                    return Err(FsError::Unsupported);
-                }
-                return Err(error.into());
-            }
+            rename_at(
+                source_directory.as_raw_fd(),
+                &staged,
+                destination_directory.as_raw_fd(),
+                &destination,
+                if expected.is_some() {
+                    RenameMode::Exchange
+                } else {
+                    RenameMode::NoReplace
+                },
+            )?;
             sync_replace_parent(source_directory)?;
             if !same_directory {
                 sync_replace_parent(destination_directory)?;
@@ -881,6 +935,27 @@ pub(crate) fn read_source_metadata<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn exclusive_rename_and_link_fallback_preserve_existing_destinations() {
+        for rename in [rename_noreplace, link_then_unlink] {
+            let directory = crate::test_support::TestDir::new();
+            let source = directory.0.join("source");
+            let destination = directory.0.join("destination");
+            std::fs::write(&source, b"first").unwrap();
+            rename(&source, &destination).unwrap();
+            assert!(!source.exists());
+            assert_eq!(std::fs::read(&destination).unwrap(), b"first");
+            std::fs::write(&source, b"second").unwrap();
+            assert_eq!(
+                rename(&source, &destination).unwrap_err().kind(),
+                io::ErrorKind::AlreadyExists
+            );
+            assert_eq!(std::fs::read(&source).unwrap(), b"second");
+            assert_eq!(std::fs::read(&destination).unwrap(), b"first");
+        }
+    }
 
     #[test]
     fn source_metadata_reads_only_into_the_dedicated_buffer() {

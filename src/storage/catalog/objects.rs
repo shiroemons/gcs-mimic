@@ -457,7 +457,7 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
     }
     #[cfg(unix)]
     {
-        fs::rename(source, destination)?;
+        crate::fsutil::rename_noreplace(source, destination)?;
         #[cfg(test)]
         fault::renamed(source, destination);
         sync_dir(shard)
@@ -878,18 +878,9 @@ impl ObjectReader {
     }
 }
 
-/// Creates the staging file for a new blob, refusing an ID whose final path already exists.
-pub(super) async fn create_upload_stage(
-    stage: PathBuf,
-    published: PathBuf,
-) -> Result<File, ObjectError> {
+/// Creates an exclusive staging file; publication checks the final name atomically.
+pub(super) async fn create_upload_stage(stage: PathBuf) -> Result<File, ObjectError> {
     crate::task::run_blocking("upload-stage", move || -> io::Result<File> {
-        if published.try_exists()? {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "blob ID collision",
-            ));
-        }
         fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -2970,6 +2961,25 @@ mod tests {
     use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::UNIX_EPOCH;
+
+    #[cfg(unix)]
+    #[test]
+    fn publish_refuses_to_replace_an_existing_blob() {
+        let data = crate::test_support::TestDir::new();
+        fs::create_dir_all(data.0.join("staging")).unwrap();
+        let id = BlobId::generate().unwrap();
+        let stage = id.staging_path(&data.0);
+        let destination = id.blob_path(&data.0);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::write(&stage, b"replacement").unwrap();
+        fs::write(&destination, b"live bytes").unwrap();
+        assert_eq!(
+            publish_blob(&stage, &destination).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(fs::read(&stage).unwrap(), b"replacement");
+        assert_eq!(fs::read(&destination).unwrap(), b"live bytes");
+    }
 
     #[tokio::test]
     async fn glob_listing_pages_through_non_matching_rows() {

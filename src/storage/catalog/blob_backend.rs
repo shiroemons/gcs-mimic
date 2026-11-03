@@ -283,12 +283,10 @@ impl BlobBackend {
         id: &BlobId,
     ) -> Result<UploadSink, crate::object::ObjectError> {
         match self {
-            Self::Disk(root) => {
-                objects::create_upload_stage(id.staging_path(root), id.blob_path(root))
-                    .await
-                    .map(tokio::fs::File::from_std)
-                    .map(UploadSink::Disk)
-            }
+            Self::Disk(root) => objects::create_upload_stage(id.staging_path(root))
+                .await
+                .map(tokio::fs::File::from_std)
+                .map(UploadSink::Disk),
             Self::Memory(store) => Ok(UploadSink::Memory(store.stage()?)),
         }
     }
@@ -299,7 +297,7 @@ impl BlobBackend {
     ) -> Result<Output, crate::object::ObjectError> {
         match self {
             Self::Disk(root) => Ok(Output::Disk(tokio::fs::File::from_std(
-                objects::create_upload_stage(id.staging_path(root), id.blob_path(root)).await?,
+                objects::create_upload_stage(id.staging_path(root)).await?,
             ))),
             Self::Memory(_) => {
                 self.create_draft(id)?;
