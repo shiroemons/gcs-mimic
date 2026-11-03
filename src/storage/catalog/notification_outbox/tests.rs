@@ -677,17 +677,10 @@ async fn missing_acknowledgement_retries_the_same_snapshot_after_restart() {
 #[tokio::test]
 async fn reset_is_busy_during_network_attempt_and_clears_retry_payloads_afterward() {
     use tokio::io::AsyncWriteExt;
-    struct ControlledClock(std::sync::atomic::AtomicU64);
-    impl crate::clock::Clock for ControlledClock {
-        fn now(&self) -> std::time::SystemTime {
-            UNIX_EPOCH
-                + std::time::Duration::from_micros(self.0.load(std::sync::atomic::Ordering::SeqCst))
-        }
-    }
     let dir = TestDir::new();
-    let clock = std::sync::Arc::new(ControlledClock(std::sync::atomic::AtomicU64::new(
-        42_000_000,
-    )));
+    let clock = std::sync::Arc::new(crate::clock::ManualClock::new(
+        UNIX_EPOCH + std::time::Duration::from_micros(42_000_000),
+    ));
     let catalog = setup_with_clock(&dir, false, clock.clone()).await;
     put(&catalog, "prefix/item", Default::default())
         .await
@@ -740,9 +733,7 @@ async fn reset_is_busy_during_network_attempt_and_clears_retry_payloads_afterwar
     assert!(catalog.next_notification().await.unwrap().is_none());
     // Release the attempt fence and advance beyond backoff before observing the
     // listener; a blocked publisher must not make the no-resend assertion pass.
-    clock
-        .0
-        .store(42_200_000, std::sync::atomic::Ordering::SeqCst);
+    clock.set(UNIX_EPOCH + std::time::Duration::from_micros(42_200_000));
     catalog.0.notification_wake.notify_one();
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(150), listener.accept())
