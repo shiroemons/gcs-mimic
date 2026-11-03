@@ -154,6 +154,37 @@ impl From<&ObjectRecord> for pb::Object {
 mod tests {
     use super::*;
     use crate::grpc::test_support::assert_code;
+    use crate::json::{self, Projection};
+
+    #[test]
+    fn md5_hash_matches_json_visibility() {
+        let record = crate::grpc::test_support::object_record(
+            "example-bucket",
+            std::time::UNIX_EPOCH + std::time::Duration::new(1_700_000_000, 123_456_000),
+        );
+        for record in [
+            record.clone(),
+            ObjectRecord {
+                component_count: Some(2),
+                ..record.clone()
+            },
+            ObjectRecord {
+                md5_availability: crate::object::Md5Availability::Unavailable,
+                ..record.clone()
+            },
+            ObjectRecord {
+                customer_key_sha256: Some([0; 32]),
+                ..record.clone()
+            },
+        ] {
+            let json = json::object_resource(&record, "", Projection::NoAcl).unwrap();
+            let legacy = pb::Object::from(&record);
+            assert_eq!(
+                legacy.md5_hash,
+                json["md5Hash"].as_str().unwrap_or_default()
+            );
+        }
+    }
 
     #[test]
     fn grpc_v1_output_fields_accept_unchanged_and_reject_changes() {

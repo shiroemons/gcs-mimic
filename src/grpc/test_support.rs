@@ -21,6 +21,42 @@ pub(crate) fn state(catalog: Catalog, auth: Auth) -> State {
     }
 }
 
+pub(super) fn object_record(
+    bucket: &str,
+    now: std::time::SystemTime,
+) -> crate::object::ObjectRecord {
+    crate::object::ObjectRecord {
+        bucket: bucket.into(),
+        name: "folder/%2F.txt".into(),
+        generation: 42,
+        metageneration: 2,
+        owner: None,
+        content_type: "text/plain".into(),
+        content_encoding: Some("gzip".into()),
+        content_disposition: None,
+        content_language: Some("en".into()),
+        cache_control: Some("private".into()),
+        metadata: std::collections::BTreeMap::from([("key".into(), "value".into())]),
+        size: 5,
+        md5: [3; 16],
+        md5_availability: Default::default(),
+        crc32c: 123,
+        component_count: None,
+        storage_class: "STANDARD".into(),
+        time_created: now,
+        updated: now,
+        time_deleted: None,
+        soft_delete_time: None,
+        hard_delete_time: None,
+        event_based_hold: None,
+        temporary_hold: Some(true),
+        custom_time: Some("2026-10-20T01:02:03.123456789Z".into()),
+        retention_expiration_time: None,
+        retention: None,
+        customer_key_sha256: None,
+    }
+}
+
 pub(super) fn storage_with(state: Arc<State>, max_object_bytes: u64) -> super::v2::Storage {
     super::v2::Storage {
         state,
