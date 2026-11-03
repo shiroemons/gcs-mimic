@@ -3,7 +3,7 @@
 use crate::{
     auth::Identity,
     json::{self, JsonError},
-    server::{RequestBody, RequestCtx, json_response},
+    server::{RequestBody, RequestCtx, json_response_body},
     storage::sync_state::{
         authority::ControlAuthority,
         deletions::DeletionSet,
@@ -23,7 +23,9 @@ const RESPONSE_LIMIT: usize = 256 * 1024;
 mod tests;
 
 mod conflicts;
+mod cursor;
 mod findings;
+use cursor::SyncCursor;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -307,15 +309,7 @@ impl Page {
                     "A paged view requires its current revision from status",
                 )
             })?;
-        let limit = values
-            .remove("limit")
-            .map(|value| value.parse::<usize>())
-            .transpose()
-            .map_err(|_| JsonError::invalid_argument("limit must be 1 through 256"))?
-            .unwrap_or(256);
-        if !(1..=256).contains(&limit) {
-            return Err(JsonError::invalid_argument("limit must be 1 through 256"));
-        }
+        let limit = parse_limit(values.remove("limit"))?;
         let after = values.remove("cursor");
         if !values.is_empty() {
             return Err(JsonError::invalid_argument(
@@ -329,6 +323,18 @@ impl Page {
             after,
         })
     }
+}
+
+fn parse_limit(value: Option<String>) -> Result<usize, JsonError> {
+    let limit = value
+        .map(|value| value.parse::<usize>())
+        .transpose()
+        .map_err(|_| JsonError::invalid_argument("limit must be 1 through 256"))?
+        .unwrap_or(256);
+    if !(1..=256).contains(&limit) {
+        return Err(JsonError::invalid_argument("limit must be 1 through 256"));
+    }
+    Ok(limit)
 }
 
 async fn status(
@@ -399,17 +405,10 @@ async fn findings_page(
     let prefix = format!("{}{}{revision}", ids.catalog_id, ids.root_id);
     let after = match &page.after {
         None => (0, 0),
-        Some(cursor)
-            if cursor.len() == 130 && cursor.starts_with(&prefix) && hex(&cursor[112..], 18) =>
-        {
-            let kind = i64::from_str_radix(&cursor[112..114], 16).map_err(|_| stale())?;
-            let ordinal = i64::from_str_radix(&cursor[114..], 16).map_err(|_| stale())?;
-            if kind > 4 {
-                return Err(stale());
-            }
-            (kind, ordinal)
-        }
-        Some(_) => return Err(stale()),
+        Some(cursor) => match SyncCursor::decode(cursor, &prefix)? {
+            SyncCursor::Findings { kind, ordinal } => (kind, ordinal),
+            _ => return Err(stale()),
+        },
     };
     let mut items = root
         .observation_page_for(observation.revision, after, page.limit + 1, authority)
@@ -419,14 +418,18 @@ async fn findings_page(
     items.truncate(page.limit);
     let mut truncated = false;
     loop {
-        let next = items
-            .last()
-            .filter(|_| full || truncated)
-            .map(|item| format!("{prefix}{:02x}{:016x}", item.kind, item.ordinal));
+        let next = items.last().filter(|_| full || truncated).map(|item| {
+            SyncCursor::Findings {
+                kind: item.kind,
+                ordinal: item.ordinal,
+            }
+            .encode(&prefix)
+        });
         let value = json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"view":"findings","revision":revision,
             "total_count":observation.mapping_findings+observation.pending_writeback+observation.path_stops+observation.unresolved_conflicts+u64::from(observation.paused_reason.is_some())+u64::from(observation.scan_stop.is_some()),"items":items.iter().map(|item|findings::value(item,&prefix,observation.writeback.as_ref())).collect::<Vec<_>>(),"next_cursor":next});
-        if value.to_string().len() <= RESPONSE_LIMIT {
-            return bounded(&value);
+        let body = json::render_body(&value);
+        if body.len() <= RESPONSE_LIMIT {
+            return Ok(json_response_body(&value, body));
         }
         if items.len() <= 1 {
             return Err(busy());
@@ -446,10 +449,10 @@ async fn deletion_page(
     let prefix = format!("{}{}{}", ids.catalog_id, ids.root_id, set.revision);
     let after = match &page.after {
         None => 0,
-        Some(cursor) if cursor.len() == 112 && cursor.starts_with(&prefix) => {
-            i64::from_str_radix(&cursor[96..], 16).map_err(|_| stale())?
-        }
-        Some(_) => return Err(stale()),
+        Some(cursor) => match SyncCursor::decode(cursor, &prefix)? {
+            SyncCursor::Deletions(ordinal) => ordinal,
+            _ => return Err(stale()),
+        },
     };
     let mut items = root
         .deletion_page_for(set.revision.clone(), after, page.limit, authority)
@@ -457,13 +460,15 @@ async fn deletion_page(
         .map_err(|error| root_error(&error))?;
     loop {
         let last = items.last().map_or(after, |item| item.ordinal);
-        let next = ((last as u64) < set.candidate_count).then(|| format!("{prefix}{last:016x}"));
+        let next = ((last as u64) < set.candidate_count)
+            .then(|| SyncCursor::Deletions(last).encode(&prefix));
         let value = json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"view":"deletions","revision":set.revision,
             "total_count":set.candidate_count,"scan_revision":set.scan_revision,"journal_fence":set.journal_fence,
             "baseline_count":set.baseline_count,"candidate_count":set.candidate_count,"guard_enabled":set.guard_enabled,
             "min_objects":100,"percent":50,"items":items,"next_cursor":next});
-        if value.to_string().len() <= RESPONSE_LIMIT {
-            return bounded(&value);
+        let body = json::render_body(&value);
+        if body.len() <= RESPONSE_LIMIT {
+            return Ok(json_response_body(&value, body));
         }
         if items.len() <= 1 {
             return Err(busy());
@@ -482,10 +487,11 @@ fn hex(value: &str, len: usize) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 fn bounded(value: &Value) -> Result<Response<Full<Bytes>>, JsonError> {
-    if value.to_string().len() > RESPONSE_LIMIT {
+    let body = json::render_body(value);
+    if body.len() > RESPONSE_LIMIT {
         Err(busy())
     } else {
-        Ok(json_response(value))
+        Ok(json_response_body(value, body))
     }
 }
 fn stale() -> JsonError {

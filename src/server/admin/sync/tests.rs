@@ -173,6 +173,27 @@ async fn body(response: Response<Full<Bytes>>) -> Value {
 }
 
 #[tokio::test]
+async fn response_limit_counts_the_exact_rendered_bytes() {
+    let overhead = json::render_body(&json!({"items": ""})).len();
+    let value = json!({"items": "x".repeat(RESPONSE_LIMIT - overhead)});
+    let bytes = bounded(&value)
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    assert_eq!(bytes.len(), RESPONSE_LIMIT);
+    assert_eq!(bytes.as_ref(), json::render_body(&value).as_bytes());
+    let oversized = json!({"items": "x".repeat(RESPONSE_LIMIT - overhead + 1)});
+    assert!(oversized.to_string().len() <= RESPONSE_LIMIT);
+    assert_eq!(
+        bounded(&oversized).unwrap_err().status,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
+#[tokio::test]
 async fn unmappable_source_entries_have_a_durable_root_finding_until_repaired() {
     let fixture = Fixture::new(false).await;
     fs::create_dir(fixture.tree.0.join("INVALID-BUCKET")).unwrap();

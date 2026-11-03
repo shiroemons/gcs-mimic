@@ -1267,7 +1267,11 @@ pub(crate) fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
 
 /// A `200 OK` JSON API resource.
 fn json_response(value: &serde_json::Value) -> Response<Full<Bytes>> {
-    let mut response = Response::new(Full::new(Bytes::from(json::render_body(value))));
+    json_response_body(value, json::render_body(value))
+}
+
+fn json_response_body(value: &serde_json::Value, body: String) -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(Bytes::from(body)));
     response.headers_mut().insert(
         "content-type",
         hyper::header::HeaderValue::from_static("application/json; charset=UTF-8"),
