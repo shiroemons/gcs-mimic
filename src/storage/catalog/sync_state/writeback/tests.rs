@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{

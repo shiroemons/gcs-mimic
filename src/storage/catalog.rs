@@ -988,7 +988,7 @@ impl Catalog {
         local_admin: admin::LocalAdmin,
         memory_limits: Option<(u64, u64)>,
     ) -> Result<Self, CatalogError> {
-        let catalog = crate::task::spawn_blocking("catalog-open", move || -> Result<Self, CatalogError> {
+        crate::task::spawn_blocking("catalog-open", move || -> Result<Self, CatalogError> {
             let backend = match memory_limits {
                 Some((bytes, _)) => BlobBackend::Memory(super::memory::Store::new(bytes)),
                 None => BlobBackend::Disk(data_dir.clone()),
@@ -1070,8 +1070,7 @@ impl Catalog {
                 maintenance_panics: std::sync::atomic::AtomicUsize::new(0),
             })))
         })
-        .await???;
-        Ok(catalog)
+        .await??
     }
 
     /// Arms a one-shot fault for the `skip + 1`-th time a write path reaches `step`.
@@ -2315,8 +2314,11 @@ mod tests {
         connection.execute_batch(BUCKET_SCHEMA).unwrap();
         connection.pragma_update(None, "user_version", 7).unwrap();
         // The first added column fits; the second exceeds this connection-local limit.
+        #[expect(
+            unsafe_code,
+            reason = "Test-only SQLite limits avoid enabling the limits feature in the production dependency."
+        )]
         // SAFETY: The connection owns the SQLite handle throughout this synchronous call.
-        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_limit(
                 connection.handle(),
@@ -2346,8 +2348,11 @@ mod tests {
                 .iter()
                 .any(|name| name == "versioning_enabled" || name == "default_event_based_hold")
         );
+        #[expect(
+            unsafe_code,
+            reason = "Restore the test-only SQLite limit without adding production dependency features."
+        )]
         // SAFETY: Restore the limit on the same live connection before retrying the migration.
-        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_limit(
                 connection.handle(),

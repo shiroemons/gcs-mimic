@@ -1198,5 +1198,6 @@ async fn owned<T: Send + 'static>(
         .map_err(|e| Error::Admin(AdminError::backend(e)))?
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod tests;

@@ -545,7 +545,7 @@ impl AppendWriter {
         .await
         .map_err(object_unavailable)
         .and_then(|result| result.map_err(object_unavailable))
-        .unwrap_or_else(|error| (None, Err(object_unavailable(error))));
+        .unwrap_or_else(|error| (None, Err(error)));
         let checkpoint = match synced {
             Ok(checkpoint) => checkpoint,
             Err(error) => {

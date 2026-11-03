@@ -280,7 +280,6 @@ fn class_character(chars: &[char], position: &mut usize) -> Result<char, GlobErr
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
     use super::*;
 
     #[test]

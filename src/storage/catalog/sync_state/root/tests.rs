@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use super::*;
 use crate::{storage::Catalog, test_support::TestDir};
 use std::{fs, os::unix::fs::symlink, time::Duration};
