@@ -24,7 +24,7 @@ fn populated_request_keeps_its_json_bytes() {
             expected: options.expected,
             conditions: options.conditions,
             access: BucketAccess::Permissive,
-            storage_class: Some("COLDLINE".into()),
+            storage_class: Some(crate::bucket::StorageClass::Coldline),
             component_count: Some(2),
         },
         source_conditions: ObjectConditions {

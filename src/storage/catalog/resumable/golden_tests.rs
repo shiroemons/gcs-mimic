@@ -81,7 +81,7 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
             })),
             override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
             customer_key_sha256: Some([2; 32]),
-            storage_class: Some("NEARLINE".into()),
+            storage_class: Some(crate::bucket::StorageClass::Nearline),
         },
         expected: ExpectedHashes {
             md5: Some([1; 16]),

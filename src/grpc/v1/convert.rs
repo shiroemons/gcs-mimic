@@ -13,7 +13,7 @@ pub(super) fn bucket(record: &BucketRecord) -> pb::Bucket {
         metageneration: record.metageneration,
         location: record.location.clone(),
         location_type: record.location_type.clone(),
-        storage_class: record.storage_class.clone(),
+        storage_class: record.storage_class.as_str().into(),
         labels: record.labels.clone().into_iter().collect(),
         default_event_based_hold: record.default_event_based_hold,
         versioning: Some(pb::bucket::Versioning {
@@ -119,7 +119,7 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
         generation: record.generation,
         metageneration: record.metageneration,
         size: crate::grpc::convert::signed(record.size, "size")?,
-        storage_class: record.storage_class.clone(),
+        storage_class: record.storage_class.as_str().into(),
         content_type: record.content_type.clone(),
         content_encoding: record.content_encoding.clone().unwrap_or_default(),
         content_disposition: record.content_disposition.clone().unwrap_or_default(),
@@ -165,7 +165,7 @@ mod tests {
             "MULTI_REGIONAL",
             "DURABLE_REDUCED_AVAILABILITY",
         ] {
-            record.storage_class = class.into();
+            record.storage_class = class.parse().unwrap();
             for (hold, expected) in [(None, false), (Some(false), false), (Some(true), true)] {
                 record.event_based_hold = hold;
                 record.temporary_hold = hold;

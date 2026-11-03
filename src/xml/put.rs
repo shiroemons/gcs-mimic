@@ -244,13 +244,14 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
         *field = single(headers, name)?.map(|value| Some(value.to_owned()));
     }
     if let Some(class) = single(headers, "x-goog-storage-class")? {
-        crate::object::validate_object_storage_class(class).map_err(|error| match error {
-            ObjectError::UnsupportedMetadata(reason) => Error::unsupported(&reason),
-            _ => Error::invalid(
-                "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
-            ),
-        })?;
-        metadata.storage_class = Some(class.to_owned());
+        let class =
+            crate::object::validate_object_storage_class(class).map_err(|error| match error {
+                ObjectError::UnsupportedMetadata(reason) => Error::unsupported(&reason),
+                _ => Error::invalid(
+                    "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
+                ),
+            })?;
+        metadata.storage_class = Some(class);
     }
     let mut custom = BTreeMap::new();
     let mut custom_bytes = 0usize;

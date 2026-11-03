@@ -37,7 +37,7 @@ struct Metadata<T, C> {
     retention: Value,
     customer_key_sha256: Option<[u8; 32]>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    storage_class: Option<String>,
+    storage_class: Option<crate::bucket::StorageClass>,
     #[serde(skip_serializing_if = "Option::is_none")]
     predefined_acl: Option<Value>,
 }
@@ -48,9 +48,6 @@ impl<T, C> Metadata<T, C> {
         string: impl Fn(T) -> Option<String>,
         custom: impl Fn(C) -> Option<CustomMetadata>,
     ) -> Result<ObjectMetadataUpdate, InvalidOptions> {
-        if let Some(class) = &self.storage_class {
-            crate::bucket::validate_storage_class(class).map_err(InvalidOptions::from_error)?;
-        }
         Ok(ObjectMetadataUpdate {
             acl: None,
             replace: self.replace.unwrap_or(false),
@@ -119,7 +116,7 @@ impl StoredOptions {
             metadata: m.metadata.clone().map(|value| Field { value }),
             retention: super::super::objects::retention::session_value(m.retention.as_ref()),
             customer_key_sha256: m.customer_key_sha256,
-            storage_class: m.storage_class.clone(),
+            storage_class: m.storage_class,
             predefined_acl: m.predefined_acl.map(|value| value.as_str().into()),
         };
         let access = match &options.access {

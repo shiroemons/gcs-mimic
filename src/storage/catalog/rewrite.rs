@@ -117,7 +117,7 @@ struct StoredRequest {
     source_incarnation: String,
     destination_incarnation: String,
     options: Value,
-    class: Option<String>,
+    class: Option<crate::bucket::StorageClass>,
     components: Option<i64>,
     source_conditions: [Option<i64>; 4],
     budget: u64,
@@ -148,7 +148,7 @@ fn encode(start: &RewriteStart, source: &str, destination: &str) -> Value {
         source_incarnation: source.into(),
         destination_incarnation: destination.into(),
         options: resumable::encode_options(&options),
-        class: start.destination.storage_class.clone(),
+        class: start.destination.storage_class,
         components: start.destination.component_count,
         source_conditions: [
             conditions.if_generation_match,
@@ -166,10 +166,6 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
     let options = resumable::decode_options(&request.options)
         .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
-    if let Some(class) = &request.class {
-        crate::bucket::validate_storage_class(class)
-            .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
-    }
     if request.budget == 0 {
         return Err(sql::conversion_error(
             3,
@@ -576,7 +572,7 @@ impl Catalog {
                 let source = check_source(connection,&validate_session,&source_access)?;
                 let same_location: bool = sql::scalar(connection, "SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1", params![source.bucket,record.bucket])?;
                 let location = if same_location { crate::json::DestinationLocation::Same } else { crate::json::DestinationLocation::Different };
-                record.component_count = crate::json::derived_component_count(&source,&record.storage_class,location);
+                record.component_count = crate::json::derived_component_count(&source,record.storage_class,location);
                 Ok(())
             },move |connection,record| {
                 let response=json!({"offset":record.size,"resource":render(record)?});

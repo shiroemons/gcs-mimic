@@ -838,6 +838,7 @@ impl Storage {
         } else {
             std::mem::take(&mut resource.content_type)
         };
+        let storage_class = std::mem::take(&mut resource.storage_class);
         let mut metadata = ObjectMetadataUpdate {
             content_encoding: (!resource.content_encoding.is_empty())
                 .then(|| Some(std::mem::take(&mut resource.content_encoding))),
@@ -860,8 +861,6 @@ impl Storage {
                 .take()
                 .map(|time| time.to_string())
                 .map(Some),
-            storage_class: (!resource.storage_class.is_empty())
-                .then(|| std::mem::take(&mut resource.storage_class)),
             ..Default::default()
         };
         resource.temporary_hold = false;
@@ -876,6 +875,10 @@ impl Storage {
             ));
         }
         metadata.content_type = Some(Some(content_type.clone()));
+        metadata.storage_class = (!storage_class.is_empty())
+            .then(|| crate::object::validate_object_storage_class(&storage_class))
+            .transpose()
+            .map_err(object_status)?;
         metadata.validate().map_err(object_status)?;
         let conditions = request_conditions!(conditions, spec)?;
         let total = spec
@@ -1833,7 +1836,7 @@ mod tests {
             .get_object(live("grpc-io", "cold"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
-        assert_eq!(stored.storage_class, "COLDLINE");
+        assert_eq!(stored.storage_class.as_str(), "COLDLINE");
         for (class, code) in [
             ("GLACIER", tonic::Code::InvalidArgument),
             ("REGIONAL", tonic::Code::Unimplemented),

@@ -14,6 +14,9 @@ macro_rules! text_enum {
                 match value { $($value => Some(Self::$variant)),+, _ => None }
             }
         }
+        $crate::storage::catalog::sql::text_enum!($name, $invalid, Self::parse);
+    };
+    ($name:ty, $invalid:literal, $parse:expr) => {
         impl rusqlite::ToSql for $name {
             fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
                 Ok(rusqlite::types::ToSqlOutput::Borrowed(self.as_str().into()))
@@ -21,7 +24,7 @@ macro_rules! text_enum {
         }
         impl rusqlite::types::FromSql for $name {
             fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
-                Self::parse(value.as_str()?).ok_or_else(|| rusqlite::types::FromSqlError::Other($invalid.into()))
+                ($parse)(value.as_str()?).ok_or_else(|| rusqlite::types::FromSqlError::Other($invalid.into()))
             }
         }
     };
@@ -46,19 +49,18 @@ macro_rules! integer_enum {
 
 pub(super) use {integer_enum, text_enum};
 
+text_enum!(
+    crate::bucket::StorageClass,
+    "invalid stored storage class",
+    |value: &str| value.parse().ok()
+);
+
 pub(super) fn conversion_error(
     index: usize,
     kind: rusqlite::types::Type,
     error: impl Into<Box<dyn std::error::Error + Send + Sync>>,
 ) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(index, kind, error.into())
-}
-
-pub(super) fn storage_class(row: &Row<'_>, index: usize) -> rusqlite::Result<String> {
-    let value: String = row.get(index)?;
-    crate::bucket::validate_storage_class(&value)
-        .map_err(|error| conversion_error(index, rusqlite::types::Type::Text, error))?;
-    Ok(value)
 }
 
 pub(super) fn row<T>(
@@ -119,7 +121,7 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         for class in ["unknown", "standard", "REGIONAL", "RAPID", ""] {
             let error = row(&connection, "SELECT ?1", [class], |row| {
-                storage_class(row, 0)
+                row.get::<_, crate::bucket::StorageClass>(0)
             })
             .unwrap_err();
             assert!(
@@ -186,6 +188,7 @@ mod tests {
 
     #[test]
     fn stored_enum_values_keep_the_catalog_format() {
+        use crate::bucket::StorageClass;
         use crate::storage::catalog::{
             admin::Origin,
             change_journal::ChangeKind,
@@ -196,6 +199,17 @@ mod tests {
             },
         };
         use crate::sync::mapping::Reason;
+        text_values(&[
+            (StorageClass::Standard, "STANDARD"),
+            (StorageClass::Nearline, "NEARLINE"),
+            (StorageClass::Coldline, "COLDLINE"),
+            (StorageClass::Archive, "ARCHIVE"),
+            (StorageClass::MultiRegional, "MULTI_REGIONAL"),
+            (
+                StorageClass::DurableReducedAvailability,
+                "DURABLE_REDUCED_AVAILABILITY",
+            ),
+        ]);
         text_values(&[
             (Origin::Api, "api"),
             (Origin::Seed, "seed"),

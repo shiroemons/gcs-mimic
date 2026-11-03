@@ -3,7 +3,6 @@ use crate::auth::{Identity, OBJECTS_DELETE, Policy};
 use crate::bucket::{
     BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError, LabelPart,
     UNIFORM_ACCESS_LOCK_PERIOD, cors_from_value, cors_value, valid_label, validate_cors,
-    validate_storage_class,
 };
 use crate::clock::{Clock, SystemClock};
 use crate::storage::failure::{BackendFailure, unavailable};
@@ -1773,7 +1772,6 @@ fn apply_plain_settings(
     update: &mut BucketMetadataUpdate,
 ) -> Result<(), CatalogError> {
     if let Some(class) = update.storage_class.take() {
-        validate_storage_class(&class)?;
         record.storage_class = class;
     }
     if let Some(enabled) = update.versioning_enabled {
@@ -2103,7 +2101,7 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         project: row.get(1)?,
         location: row.get(2)?,
         location_type: row.get(3)?,
-        storage_class: sql::storage_class(row, 4)?,
+        storage_class: row.get(4)?,
         autoclass: bucket_autoclass::read(row)?,
         labels: serde_json::from_str(&labels)
             .map_err(|e| sql::conversion_error(5, Type::Text, e))?,
@@ -2285,7 +2283,7 @@ mod tests {
         {
             let name = format!("bucket-{index}");
             let mut record = crate::storage::test_fixtures::bucket(&name, "project");
-            record.storage_class = class.into();
+            record.storage_class = class.parse().unwrap();
             catalog.insert_bucket(record).await.unwrap();
             for role in ["READER", "WRITER", "OWNER"] {
                 catalog

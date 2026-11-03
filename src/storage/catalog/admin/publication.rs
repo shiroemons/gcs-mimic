@@ -881,7 +881,7 @@ fn publish_entry(
     let storage_class = super::super::bucket_autoclass::object_storage_class(
         transaction,
         bucket,
-        entry.request.metadata.storage_class.clone(),
+        entry.request.metadata.storage_class,
         storage_class,
     )?;
     let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(transaction, bucket)?;

@@ -167,7 +167,7 @@ pub(crate) async fn execute(
                         .map_err(ObjectError::backend)?;
                     destination.component_count = json::derived_component_count(
                         &source_record,
-                        &destination.storage_class,
+                        destination.storage_class,
                         json::DestinationLocation::of(source_location.as_deref(), &location),
                     );
                 }
@@ -656,7 +656,7 @@ mod tests {
             .unwrap();
         resume.send(()).unwrap();
         let copied = request.await.unwrap().unwrap();
-        assert_eq!(copied.storage_class, "NEARLINE");
+        assert_eq!(copied.storage_class.as_str(), "NEARLINE");
         assert_eq!(copied.component_count, Some(3));
         clean(&catalog, &path.0, &progress.id).await;
         catalog.close().await.unwrap();

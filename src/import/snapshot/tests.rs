@@ -99,7 +99,7 @@ fn pinned_source_export_imports_selected_bodies_and_metadata_after_restart() {
                 let name = ObjectName::new(name).unwrap();
                 let selected = Some(Generation::new(generation).unwrap());
                 let record = admin.get_object(&bucket, &name, selected).await.unwrap();
-                assert_eq!(record.storage_class, class);
+                assert_eq!(record.storage_class.as_str(), class);
                 assert_eq!(record.metadata.get("source").map(String::as_str), metadata);
                 assert_eq!(record.time_deleted.is_some(), generation != 7);
                 assert!(record.content_language.is_none());
@@ -222,7 +222,7 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
                 .await
                 .unwrap();
             assert_eq!(live.generation, 7);
-            assert_eq!(live.storage_class, "NEARLINE");
+            assert_eq!(live.storage_class.as_str(), "NEARLINE");
             assert_eq!(live.event_based_hold, None);
             let archived = admin
                 .get_object(

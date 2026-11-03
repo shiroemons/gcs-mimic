@@ -36,7 +36,7 @@ pub(super) fn record() -> ObjectRecord {
         md5_availability: Default::default(),
         crc32c: 0x01020304,
         component_count: None,
-        storage_class: "STANDARD".to_owned(),
+        storage_class: crate::bucket::StorageClass::Standard,
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
         updated: UNIX_EPOCH + Duration::from_millis(2345),
         time_deleted: None,

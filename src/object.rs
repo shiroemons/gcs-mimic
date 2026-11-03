@@ -1,6 +1,9 @@
 //! Transport-independent object state shared by the catalog and protocol adapters.
 
-use crate::storage::failure::{BackendCause, IoCause};
+use crate::{
+    bucket::StorageClass,
+    storage::failure::{BackendCause, IoCause},
+};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 use unix_nanos::UnixNanos;
 
@@ -45,7 +48,7 @@ pub struct ObjectRecord {
     pub md5_availability: Md5Availability,
     pub crc32c: u32,
     pub component_count: Option<i64>,
-    pub storage_class: String,
+    pub storage_class: StorageClass,
     /// Microsecond precision in the catalog; protocol adapters retain their wire precision.
     pub time_created: SystemTime,
     pub updated: SystemTime,
@@ -230,10 +233,10 @@ pub struct ObjectMetadataUpdate {
     pub customer_key_sha256: Option<[u8; 32]>,
     /// Requested class for a new generation; creation resolves it against the bucket's
     /// default and Autoclass. Metadata updates never change the class (rewrite does).
-    pub storage_class: Option<String>,
+    pub storage_class: Option<StorageClass>,
 }
 
-pub(crate) fn validate_object_storage_class(class: &str) -> Result<(), ObjectError> {
+pub(crate) fn validate_object_storage_class(class: &str) -> Result<StorageClass, ObjectError> {
     crate::bucket::validate_storage_class(class).map_err(|error| match error {
         crate::bucket::CatalogError::UnsupportedMetadata(reason) => {
             ObjectError::UnsupportedMetadata(format!("storageClass={class}: {reason}"))
@@ -246,9 +249,6 @@ pub(crate) fn validate_object_storage_class(class: &str) -> Result<(), ObjectErr
 
 impl ObjectMetadataUpdate {
     pub(crate) fn validate(&self) -> Result<(), ObjectError> {
-        if let Some(class) = &self.storage_class {
-            validate_object_storage_class(class)?;
-        }
         if let Some(Some(value)) = &self.custom_time {
             custom_time_key(value)?;
         }

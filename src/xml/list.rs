@@ -388,7 +388,7 @@ fn render_item(
     element(body, "ETag", &super::object_etag(object));
     element(body, "Size", &object.size.to_string());
     if params.v2 || params.interop {
-        element(body, "StorageClass", &object.storage_class);
+        element(body, "StorageClass", object.storage_class.as_str());
     }
     body.push_str("</");
     body.push_str(tag);

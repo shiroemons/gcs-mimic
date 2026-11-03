@@ -28,7 +28,7 @@ pub(super) fn object_record(
         md5_availability: Default::default(),
         crc32c: 123,
         component_count: None,
-        storage_class: "STANDARD".into(),
+        storage_class: crate::bucket::StorageClass::Standard,
         time_created: now,
         updated: now,
         time_deleted: None,

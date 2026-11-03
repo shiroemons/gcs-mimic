@@ -939,7 +939,7 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
         ("cache-control", cache),
         ("etag", &etag),
         ("last-modified", &date),
-        ("x-goog-storage-class", &record.storage_class),
+        ("x-goog-storage-class", record.storage_class.as_str()),
     ] {
         headers.insert(
             key,

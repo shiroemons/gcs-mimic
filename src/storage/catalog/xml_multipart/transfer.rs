@@ -145,7 +145,7 @@ impl Catalog {
                 name: target.name.clone(),
                 content_type: lease.upload.options.content_type.clone(),
                 metadata: lease.upload.options.metadata.clone(),
-                storage_class: lease.upload.options.metadata.storage_class.clone(),
+                storage_class: lease.upload.options.metadata.storage_class,
                 expected: Default::default(),
                 conditions: Default::default(),
                 access: access_for(&access, Permission::ObjectsCreate),

@@ -1,7 +1,7 @@
 use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
 use crate::storage::{BlobId, catalog::sql};
 use crate::{
-    bucket::{BucketAccess, CatalogError},
+    bucket::{BucketAccess, CatalogError, StorageClass},
     clock::Clock,
     hashing::{Hasher, Hashes},
     notification::NotificationMode,
@@ -89,7 +89,7 @@ pub(super) struct NewVersion<'a> {
 }
 
 pub(super) struct PublicationDefaults {
-    pub(super) storage_class: String,
+    pub(super) storage_class: StorageClass,
     pub(super) event_based_hold: bool,
     pub(super) time: std::time::SystemTime,
     pub(super) owner: Option<crate::object::owner::ObjectOwner>,
@@ -848,7 +848,7 @@ impl UploadCommit {
         let storage_class = super::bucket_autoclass::object_storage_class(
             &transaction,
             &self.bucket,
-            self.metadata.storage_class.clone(),
+            self.metadata.storage_class,
             storage_class,
         )?;
         let (versioning, default_hold) =
@@ -2095,12 +2095,12 @@ pub(super) fn authorized_bucket(
     connection: &Connection,
     bucket: &str,
     access: &BucketAccess,
-) -> Result<(String, DeletePermission), ObjectError> {
-    let (storage_class, project): (String, String) = sql::row(
+) -> Result<(StorageClass, DeletePermission), ObjectError> {
+    let (storage_class, project): (StorageClass, String) = sql::row(
         connection,
         "SELECT storage_class, project FROM buckets WHERE name = ?1",
         [bucket],
-        |r| Ok((sql::storage_class(r, 0)?, r.get(1)?)),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )
     .optional()?
     .ok_or(ObjectError::BucketNotFound)?;
@@ -2650,7 +2650,7 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<StoredObject> {
             md5_availability: super::md5_availability::read(row, 28)?,
             crc32c: row.get(7)?,
             component_count: row.get(19)?,
-            storage_class: sql::storage_class(row, 8)?,
+            storage_class: row.get(8)?,
             time_created: system_time_micros(row.get(9)?)?,
             updated: system_time_micros(row.get(10)?)?,
             time_deleted: row

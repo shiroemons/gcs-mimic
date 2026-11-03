@@ -159,7 +159,6 @@ impl BucketDefinition {
         crate::json::validate_project(&record.project)
             .map_err(|error| AdminError::Invalid(error.message))?;
         crate::bucket::validate_cors(&record.cors)?;
-        crate::bucket::validate_storage_class(&record.storage_class)?;
         let (location, location_type) = crate::bucket::bucket_location(&record.location)?;
         if record.metageneration <= 0
             || record.location != location

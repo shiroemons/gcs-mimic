@@ -151,7 +151,7 @@ pub(crate) fn bucket(record: &BucketRecord) -> Result<pb::Bucket, tonic::Status>
         metageneration: record.metageneration,
         location: record.location.clone(),
         location_type: record.location_type.clone(),
-        storage_class: record.storage_class.clone(),
+        storage_class: record.storage_class.as_str().into(),
         autoclass: record
             .autoclass
             .as_ref()
@@ -279,7 +279,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversi
         generation: record.generation,
         metageneration: record.metageneration,
         size: crate::grpc::convert::signed(record.size, "size")?,
-        storage_class: record.storage_class.clone(),
+        storage_class: record.storage_class.as_str().into(),
         content_type: record.content_type.clone(),
         content_encoding: record.content_encoding.clone().unwrap_or_default(),
         content_disposition: record.content_disposition.clone().unwrap_or_default(),
@@ -392,7 +392,7 @@ mod tests {
             "MULTI_REGIONAL",
             "DURABLE_REDUCED_AVAILABILITY",
         ] {
-            record.storage_class = class.into();
+            record.storage_class = class.parse().unwrap();
             for (hold, json_hold, grpc_hold) in [
                 (None, None, false),
                 (Some(false), Some(serde_json::json!(false)), false),
@@ -533,7 +533,7 @@ mod tests {
             project: "123".into(),
             location: "US".into(),
             location_type: "multi-region".into(),
-            storage_class: "STANDARD".into(),
+            storage_class: crate::bucket::StorageClass::Standard,
             autoclass: None,
             labels: BTreeMap::from([("team".into(), "dev".into())]),
             cors: vec![crate::bucket::CorsRule {

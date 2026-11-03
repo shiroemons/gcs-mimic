@@ -21,8 +21,6 @@ struct Completion {
 fn decode_completion(stored: &str, index: usize) -> rusqlite::Result<Completion> {
     let conversion = |error| sql::conversion_error(index, rusqlite::types::Type::Text, error);
     let completion: Completion = serde_json::from_str(stored).map_err(conversion)?;
-    crate::bucket::validate_storage_class(&completion.record.storage_class)
-        .map_err(|error| sql::conversion_error(index, rusqlite::types::Type::Text, error))?;
     for entry in completion.acl.iter().flatten() {
         crate::acl::validate_role(crate::acl::AclKind::Object, entry.role.as_str())
             .map_err(|error| sql::conversion_error(index, rusqlite::types::Type::Text, error))?;
@@ -568,7 +566,7 @@ mod tests {
     #[test]
     fn completion_decoding_and_startup_reject_corrupt_enums_and_json() {
         let record = objects::PublicationDefaults {
-            storage_class: "STANDARD".into(),
+            storage_class: crate::bucket::StorageClass::Standard,
             event_based_hold: false,
             time: std::time::UNIX_EPOCH,
             owner: None,

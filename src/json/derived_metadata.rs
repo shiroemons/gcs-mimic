@@ -22,7 +22,7 @@ impl DestinationLocation {
 
 pub(crate) fn derived_component_count(
     source: &ObjectRecord,
-    destination_class: &str,
+    destination_class: crate::bucket::StorageClass,
     location: DestinationLocation,
 ) -> Option<i64> {
     source.component_count.map(|count| {
@@ -39,7 +39,14 @@ pub(crate) fn derived_component_count(
 pub(crate) fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
-) -> Result<(ObjectMetadataUpdate, Option<String>, ExpectedHashes), JsonError> {
+) -> Result<
+    (
+        ObjectMetadataUpdate,
+        Option<crate::bucket::StorageClass>,
+        ExpectedHashes,
+    ),
+    JsonError,
+> {
     // An absent, `null` or empty-object resource keeps the source metadata (recorded for `{}`).
     if bytes.is_empty()
         || std::str::from_utf8(bytes)
@@ -61,7 +68,7 @@ pub(crate) fn derived_metadata(
                 )),
                 ..Default::default()
             },
-            Some(source.storage_class.clone()),
+            Some(source.storage_class),
             ExpectedHashes::default(),
         ));
     }
@@ -104,8 +111,7 @@ pub(crate) fn derived_metadata(
             let class = value
                 .as_str()
                 .ok_or_else(|| JsonError::invalid_argument("storageClass must be a string"))?;
-            crate::bucket::validate_storage_class(class).map_err(JsonError::from)?;
-            Ok::<_, JsonError>(class.to_owned())
+            crate::bucket::validate_storage_class(class).map_err(JsonError::from)
         })
         .transpose()?;
     let mut expected = ExpectedHashes::default();
@@ -301,22 +307,26 @@ mod tests {
         );
         source.component_count = Some(3);
         assert_eq!(
-            derived_component_count(&source, &source.storage_class, DestinationLocation::Same),
+            derived_component_count(&source, source.storage_class, DestinationLocation::Same),
             Some(3)
         );
         assert_eq!(
-            derived_component_count(&source, "NEARLINE", DestinationLocation::Same),
+            derived_component_count(
+                &source,
+                crate::bucket::StorageClass::Nearline,
+                DestinationLocation::Same
+            ),
             Some(1)
         );
         assert_eq!(
             derived_component_count(
                 &source,
-                &source.storage_class,
+                source.storage_class,
                 DestinationLocation::Different
             ),
             Some(1)
         );
-        assert_eq!(class, Some(source.storage_class.clone()));
+        assert_eq!(class, Some(source.storage_class));
         assert_eq!(inherit.event_based_hold, None);
         let (replace, class, _) = derived_metadata(
             br#"{"metadata":{"destination":"value"},"name":"overridden"}"#,

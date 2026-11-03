@@ -838,7 +838,7 @@ fn bkt_ins_001_defaults_and_server_owned_values() {
     assert_eq!(bucket.project, "p");
     assert_eq!(bucket.location, "US");
     assert_eq!(bucket.location_type, "multi-region");
-    assert_eq!(bucket.storage_class, "STANDARD");
+    assert_eq!(bucket.storage_class.as_str(), "STANDARD");
     assert!(bucket.labels.is_empty());
     assert_eq!(bucket.metageneration, 1);
     assert_eq!(bucket.time_created, now);
@@ -1060,7 +1060,7 @@ fn bkt_ins_003_location_and_storage_class_subset() {
             let body = json!({"name":"abc", "location":location, "storageClass":class});
             let bucket = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap();
             assert_eq!(bucket.location, location);
-            assert_eq!(bucket.storage_class, class);
+            assert_eq!(bucket.storage_class.as_str(), class);
             assert_eq!(bucket.location_type, "multi-region");
         }
     }

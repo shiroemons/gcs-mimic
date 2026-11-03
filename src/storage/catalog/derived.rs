@@ -263,7 +263,7 @@ pub(crate) struct DerivedDestination {
     pub name: String,
     pub content_type: String,
     pub metadata: ObjectMetadataUpdate,
-    pub storage_class: Option<String>,
+    pub storage_class: Option<crate::bucket::StorageClass>,
     pub expected: ExpectedHashes,
     pub conditions: ObjectConditions,
     pub access: BucketAccess,
@@ -843,7 +843,7 @@ impl Catalog {
                 } else {
                 if replay.is_some() { super::upload_replay::capacity(&transaction, micros)?; }
                 // Autoclass ignores rewrite/copy/compose class requests and stores STANDARD.
-                let storage_class = super::bucket_autoclass::object_storage_class(&transaction, &destination.bucket, destination.storage_class.clone(), default_class)?;
+                let storage_class = super::bucket_autoclass::object_storage_class(&transaction, &destination.bucket, destination.storage_class, default_class)?;
                 let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &destination.bucket)?;
                 let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
                 objects::check_publication(previous.as_ref(), destination.conditions, delete_permission, clock.now())?;
@@ -853,7 +853,6 @@ impl Catalog {
                 let time = system_time_micros(micros)?;
                 let version = objects::NewVersion { blob_id: query, assignment: objects::GenerationAssignment::Automatic, micros, origin: super::change_journal::origin(&destination.access), notification_mode: crate::notification::NotificationMode::Emit, owner_profile: principals.as_ref(), acl: super::acl::PublicationAcl::InheritDefault };
                 let (record, _retired, ()) = objects::publish_in_transaction(&transaction, previous.as_ref(), versioning, version, |generation| {
-                crate::bucket::validate_storage_class(&storage_class).map_err(|error| match error { crate::bucket::CatalogError::InvalidMetadata(reason) | crate::bucket::CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason), error => ObjectError::from(error) })?;
                 let defaults = objects::PublicationDefaults {
                     owner: Some(super::object_owner::for_publication(&transaction, &destination.bucket, &destination.access, principals.as_ref())?),
                     storage_class, time, event_based_hold: default_hold,

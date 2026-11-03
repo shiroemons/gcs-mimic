@@ -1818,7 +1818,7 @@ mod tests {
         assert_eq!(records[0].updated, FixedClock.now());
         assert_eq!(records[0].metageneration, 1);
         assert_eq!(records[0].location, "EU");
-        assert_eq!(records[0].storage_class, "NEARLINE");
+        assert_eq!(records[0].storage_class.as_str(), "NEARLINE");
         assert_eq!(records[0].labels["env"], "dev");
         assert_eq!(records[0].cors[0].max_age_seconds, Some(3600));
         assert!(records[0].versioning_enabled);
@@ -1827,7 +1827,7 @@ mod tests {
         let defaults = parsed(r#"{"version":1,"buckets":[{"name":"default-bucket","cors":null,"versioning":{},"iamConfiguration":{}}]}"#).unwrap();
         assert_eq!(defaults[0].project, "seed-project");
         assert_eq!(defaults[0].location, "US");
-        assert_eq!(defaults[0].storage_class, "STANDARD");
+        assert_eq!(defaults[0].storage_class.as_str(), "STANDARD");
         assert!(!defaults[0].versioning_enabled);
         assert!(!defaults[0].default_event_based_hold);
         assert!(!defaults[0].public_access_prevention_enforced);
