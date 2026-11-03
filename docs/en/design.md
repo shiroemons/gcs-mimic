@@ -178,7 +178,7 @@ so committed frames remain visible. Immutable preflight does not consider a hot 
 The preflight closes before a single operational
 connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
 file-backed temporary storage and a 256-page auto-checkpoint. The current catalog
-schema is version 48; later migrations are described in their slice contracts.
+schema is version 49; later migrations are described in their slice contracts.
 Schema version 7 stored buckets, live objects, unique opaque blob references, pending blob deletions,
 seed initialization, bucket IAM policies and persistent object/policy revision
 high-water marks. It retains the bucket `(project, name)`
