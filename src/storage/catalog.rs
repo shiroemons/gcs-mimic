@@ -88,11 +88,9 @@ pub(crate) use appendable::{AppendError, AppendWriter};
 
 mod object_move;
 pub(crate) use object_move::{MoveAccess, MoveConditions, MoveNames};
+mod bucket_soft_delete;
 mod object_owner;
 mod objects;
-#[cfg(test)]
-pub(crate) use objects::Versioning;
-mod bucket_soft_delete;
 mod soft_delete;
 pub(crate) use objects::{
     ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader, ObjectUpload,
@@ -1451,29 +1449,6 @@ impl Catalog {
             Ok(record)
         })
         .await
-    }
-
-    /// Reads (versioning, default event-based hold) in the caller's mutation transaction.
-    #[cfg(test)]
-    pub(crate) fn bucket_settings_in_transaction(
-        transaction: &rusqlite::Transaction<'_>,
-        name: &str,
-    ) -> Result<(objects::Versioning, bool), CatalogError> {
-        sql::row(
-            transaction,
-            "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
-            [name],
-            |row| {
-                let versioning = if row.get(0)? {
-                    objects::Versioning::Enabled
-                } else {
-                    objects::Versioning::Disabled
-                };
-                Ok((versioning, row.get(1)?))
-            },
-        )
-        .optional()?
-        .ok_or(CatalogError::NotFound)
     }
 
     /// Reads the bucket and checks `access` against the owner observed by the same read.

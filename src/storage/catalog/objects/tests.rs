@@ -8,6 +8,125 @@ use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload}
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::UNIX_EPOCH;
 
+#[tokio::test]
+async fn bucket_settings_migrate_supported_catalogs() {
+    use crate::storage::catalog::test_support as common;
+    use crate::storage::catalog_tests::bucket;
+    use crate::storage::test_fixtures::{assert_current_schema, downgraded};
+    use crate::test_support::TestDir;
+    for version in [4, 5, 6, 7] {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let expected = catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        let path = dir.0.join("catalog.sqlite3");
+        let objects_sql = downgraded(&dir, &catalog, |connection| {
+            let objects_sql: String = connection
+                .query_row(
+                    "SELECT sql FROM sqlite_schema WHERE name = 'objects'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            connection.execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold;").unwrap();
+            common::downgrade_object_schema(connection);
+            if version < 7 {
+                connection
+                    .execute_batch("DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations;")
+                    .unwrap();
+            }
+            if version < 6 {
+                connection
+                    .execute_batch("DROP TABLE bucket_policies; DROP TABLE policy_revision;")
+                    .unwrap();
+            }
+            if version < 5 {
+                connection
+                    .execute_batch("DROP TABLE startup_seed;")
+                    .unwrap();
+            }
+            connection
+                .pragma_update(None, "user_version", version)
+                .unwrap();
+            objects_sql
+        }).await;
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        assert_eq!(
+            catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
+            Some(expected),
+            "version {version}"
+        );
+        for (index, (versioning, hold)) in
+            [(false, false), (false, true), (true, false), (true, true)]
+                .into_iter()
+                .enumerate()
+        {
+            let mut record = bucket(&format!("settings-{index}"), "project");
+            record.versioning_enabled = versioning;
+            record.default_event_based_hold = hold;
+            catalog.insert_bucket(record).await.unwrap();
+        }
+        catalog.close().await.unwrap();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        for (index, settings) in [(false, false), (false, true), (true, false), (true, true)]
+            .into_iter()
+            .enumerate()
+        {
+            let record = catalog
+                .get_bucket(&format!("settings-{index}"), PERMISSIVE)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                (record.versioning_enabled, record.default_event_based_hold),
+                settings
+            );
+        }
+        catalog.close().await.unwrap();
+        let mut connection = Connection::open(path).unwrap();
+        assert_current_schema(&connection);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT sql FROM sqlite_schema WHERE name = 'objects'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            objects_sql
+        );
+        let transaction = connection.transaction().unwrap();
+        transaction
+            .execute(
+                "UPDATE buckets SET versioning_enabled = 1 WHERE name = 'bucket'",
+                [],
+            )
+            .unwrap();
+        let settings = BucketPublication::load(&transaction, "bucket").unwrap();
+        assert_eq!(
+            (settings.versioning, settings.default_event_hold),
+            (Versioning::Enabled, false)
+        );
+        assert!(matches!(
+            BucketPublication::load(&transaction, "missing"),
+            Err(ObjectError::BucketNotFound)
+        ));
+        assert!(
+            transaction
+                .execute("UPDATE buckets SET default_event_based_hold = 2", [])
+                .is_err()
+        );
+        assert!(
+            transaction
+                .execute("UPDATE buckets SET versioning_enabled = NULL", [])
+                .is_err()
+        );
+        transaction.rollback().unwrap();
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn shard_cleanup_keeps_the_original_sync_failure() {
