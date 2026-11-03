@@ -3,6 +3,7 @@
     reason = "Clippy does not exempt platform-gated test modules; fixture unwraps must fail the test"
 )]
 use super::*;
+use crate::storage::sync_state::conflicts::ConflictTarget;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::sync::test_support::hooked_worker;
 use crate::{
@@ -199,11 +200,13 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
             crate::storage::sync_state::conflicts::ResolveRequest {
                 operation_id: "discard-preserved-revision".into(),
                 action: crate::storage::sync_state::conflicts::Action::Discard,
-                target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict {
-                    conflict_id: page.items[0].conflict_id.clone(),
-                    revision: page.items[0].revision.clone(),
-                    expected_generation: Some(winner.generation),
-                },
+                target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict(
+                    ConflictTarget {
+                        conflict_id: page.items[0].conflict_id.clone(),
+                        revision: page.items[0].revision.clone(),
+                        expected_generation: winner.generation,
+                    },
+                ),
             },
             crate::storage::sync_state::authority::ControlAuthority::Permissive,
             4096,
@@ -290,11 +293,13 @@ async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore
             crate::storage::sync_state::conflicts::ResolveRequest {
                 operation_id: "restore-after-api-deletion".into(),
                 action: crate::storage::sync_state::conflicts::Action::Restore,
-                target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict {
-                    conflict_id: page.items[0].conflict_id.clone(),
-                    revision: page.items[0].revision.clone(),
-                    expected_generation: Some(0),
-                },
+                target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict(
+                    ConflictTarget {
+                        conflict_id: page.items[0].conflict_id.clone(),
+                        revision: page.items[0].revision.clone(),
+                        expected_generation: 0,
+                    },
+                ),
             },
             crate::storage::sync_state::authority::ControlAuthority::Permissive,
             4096,
@@ -1262,11 +1267,13 @@ async fn persistent_disk_full_pauses_for_controls_and_shutdown_releases_the_root
             request: crate::storage::sync_state::conflicts::ResolveRequest {
                 operation_id: "missing-but-observed".into(),
                 action: crate::storage::sync_state::conflicts::Action::Discard,
-                target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict {
-                    conflict_id: "0".repeat(32),
-                    revision: "0".repeat(32),
-                    expected_generation: Some(record.generation),
-                },
+                target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict(
+                    ConflictTarget {
+                        conflict_id: "0".repeat(32),
+                        revision: "0".repeat(32),
+                        expected_generation: record.generation,
+                    },
+                ),
             },
             reply,
             identity: None,

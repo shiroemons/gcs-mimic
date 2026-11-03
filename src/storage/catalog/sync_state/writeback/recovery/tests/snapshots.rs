@@ -273,7 +273,7 @@ async fn live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack() {
 async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_rescan() {
     use crate::storage::catalog::sync_state::{
         authority::ControlAuthority,
-        conflicts::{Action, Confirmation, ResolveRequest, ResolveTarget},
+        conflicts::{Action, Confirmation, RecoveryTarget, ResolveRequest, ResolveTarget},
     };
     for power_loss in [false, true] {
         let fixture = Fixture::new().await;
@@ -364,12 +364,12 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
                 ResolveRequest {
                     operation_id: "explicit-discard".into(),
                     action: Action::Discard,
-                    target: ResolveTarget::Recovery {
+                    target: ResolveTarget::Recovery(RecoveryTarget {
                         recovery_id: item.token.id.clone(),
                         revision: inspected.recovery_revision,
                         target_identity: inspected.target_identity,
-                        confirmation: Some(Confirmation::BackupVerified),
-                    },
+                        confirmation: Confirmation::BackupVerified,
+                    }),
                 },
                 ControlAuthority::Permissive,
                 4096,

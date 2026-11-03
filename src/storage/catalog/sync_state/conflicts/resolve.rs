@@ -17,26 +17,31 @@ pub(crate) enum Confirmation {
     BackupVerified,
     DiscardWithoutBackup,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) enum ResolveTarget {
-    Conflict {
-        conflict_id: String,
-        revision: String,
-        expected_generation: Option<i64>,
-    },
-    Recovery {
-        recovery_id: String,
-        revision: String,
-        target_identity: String,
-        confirmation: Option<Confirmation>,
-    },
+    Conflict(ConflictTarget),
+    Recovery(RecoveryTarget),
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct ConflictTarget {
+    pub conflict_id: String,
+    pub revision: String,
+    pub expected_generation: i64,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct RecoveryTarget {
+    pub recovery_id: String,
+    pub revision: String,
+    pub target_identity: String,
+    pub confirmation: Confirmation,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct ResolveRequest {
     pub operation_id: String,
     pub action: Action,
     pub target: ResolveTarget,
 }
+
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ResolveOutcome {
     pub operation_id: String,
@@ -201,12 +206,12 @@ impl RootLease {
         let lease = self.with_authority(authority.clone());
         self.conflict_serial(async move {
             match request.target {
-                ResolveTarget::Conflict { .. } => {
+                ResolveTarget::Conflict(_) => {
                     lease
                         .resolve_registered(request, authority, max_bytes)
                         .await
                 }
-                ResolveTarget::Recovery { .. } => lease.resolve_recovery(request, authority).await,
+                ResolveTarget::Recovery(_) => lease.resolve_recovery(request, authority).await,
             }
         })
         .await
@@ -218,18 +223,15 @@ impl RootLease {
         authority: ControlAuthority,
         max_bytes: u64,
     ) -> Result<ResolveOutcome, Error> {
-        let ResolveTarget::Conflict {
+        let ResolveTarget::Conflict(ConflictTarget {
             conflict_id,
             revision,
             expected_generation,
-        } = &request.target
+        }) = &request.target
         else {
             return Err(Error::InvalidResolution);
         };
-        if !valid_id(conflict_id)
-            || !valid_id(revision)
-            || expected_generation.is_some_and(|generation| generation < 0)
-        {
+        if !valid_id(conflict_id) || !valid_id(revision) || *expected_generation < 0 {
             return Err(Error::InvalidResolution);
         }
         let root = self.status().root_id.as_bytes();
@@ -245,8 +247,8 @@ impl RootLease {
             if prior.is_none() {
                 if row.0!=inspected || row.6==2 || (req.action==Action::Restore && row.6!=1) {return Err(Error::RevisionMismatch)}
                 if req.action==Action::Restore {
-                    let ResolveTarget::Conflict {expected_generation,..}=req.target else {return Err(Error::InvalidResolution)};
-                    let expected=expected_generation.filter(|g|*g!=0).map(Generation::new).transpose()?;
+                    let ResolveTarget::Conflict(ConflictTarget {expected_generation,..})=req.target else {return Err(Error::InvalidResolution)};
+                    let expected=(expected_generation!=0).then(||Generation::new(expected_generation)).transpose()?;
                     let binding=SyncBinding {catalog:super::super::catalog_id(&tx)?,bucket:row.2.clone(),incarnation:row.3.clone(),deletion:None,control:None};
                     if check_original(&tx,&binding,&ObjectName::new(row.4.clone())?,expected)?!=row.1 {return Err(Error::TargetChanged)}
                 }
@@ -302,16 +304,15 @@ impl RootLease {
                 Ok(file)
             })
             .await?;
-        let ResolveTarget::Conflict {
+        let ResolveTarget::Conflict(ConflictTarget {
             expected_generation,
             ..
-        } = request.target
+        }) = request.target
         else {
             return Err(Error::InvalidResolution);
         };
-        let generation = expected_generation
-            .filter(|g| *g != 0)
-            .map(Generation::new)
+        let generation = (expected_generation != 0)
+            .then(|| Generation::new(expected_generation))
             .transpose()?;
         let bucket = BucketName::new(selected.bucket.clone())?;
         let name = ObjectName::new(selected.name.clone())?;

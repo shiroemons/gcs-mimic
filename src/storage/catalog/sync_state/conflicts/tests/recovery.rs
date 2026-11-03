@@ -25,12 +25,12 @@ async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_disca
         let request = ResolveRequest {
             operation_id: "workspace-discard".into(),
             action: Action::Discard,
-            target: ResolveTarget::Recovery {
+            target: ResolveTarget::Recovery(RecoveryTarget {
                 recovery_id: id.clone(),
                 revision: inspected.recovery_revision,
                 target_identity: inspected.target_identity,
-                confirmation: Some(Confirmation::BackupVerified),
-            },
+                confirmation: Confirmation::BackupVerified,
+            }),
         };
         fixture
             .catalog
@@ -104,11 +104,11 @@ async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_disca
                 .pop()
                 .unwrap();
             let mut fresh_request = request.clone();
-            if let ResolveTarget::Recovery {
+            if let ResolveTarget::Recovery(RecoveryTarget {
                 revision,
                 target_identity,
                 ..
-            } = &mut fresh_request.target
+            }) = &mut fresh_request.target
             {
                 *revision = fresh.recovery_revision;
                 *target_identity = fresh.target_identity;
@@ -173,12 +173,12 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
     let request = ResolveRequest {
         operation_id: "protected".into(),
         action: Action::Discard,
-        target: ResolveTarget::Recovery {
+        target: ResolveTarget::Recovery(RecoveryTarget {
             recovery_id: id.clone(),
             revision: item.recovery_revision,
             target_identity: item.target_identity,
-            confirmation: Some(Confirmation::BackupVerified),
-        },
+            confirmation: Confirmation::BackupVerified,
+        }),
     };
     assert!(matches!(
         fixture
@@ -220,12 +220,12 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
     let confirmed = ResolveRequest {
         operation_id: "reinspected".into(),
         action: Action::Discard,
-        target: ResolveTarget::Recovery {
+        target: ResolveTarget::Recovery(RecoveryTarget {
             recovery_id: fresh.recovery_id,
             revision: fresh.recovery_revision,
             target_identity: fresh.target_identity,
-            confirmation: Some(Confirmation::BackupVerified),
-        },
+            confirmation: Confirmation::BackupVerified,
+        }),
     };
     assert!(
         fixture
@@ -286,12 +286,12 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
             let request = ResolveRequest {
                 operation_id: "paired-discard".into(),
                 action: Action::Discard,
-                target: ResolveTarget::Recovery {
+                target: ResolveTarget::Recovery(RecoveryTarget {
                     recovery_id: id.clone(),
                     revision: item.recovery_revision,
                     target_identity: item.target_identity,
-                    confirmation: Some(Confirmation::BackupVerified),
-                },
+                    confirmation: Confirmation::BackupVerified,
+                }),
             };
             let snapshots = TestDir::new();
             let data_snapshot = snapshots.0.join("data");

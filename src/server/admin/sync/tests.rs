@@ -537,19 +537,26 @@ async fn recovery_http_refreshes_changed_workspace_identity_and_requires_exact_d
     assert_eq!(selected["retained_bytes"], 22);
     assert_ne!(selected["target_identity"], original["target_identity"]);
     let mut payload = json!({"recovery_id":id,"revision":selected["recovery_revision"],"target_identity":selected["target_identity"],"action":"discard","operation_id":"http-confirmed-recovery"});
-    assert_eq!(
-        fixture
+    for explicit_null in [false, true] {
+        if explicit_null {
+            payload["confirmation"] = Value::Null;
+        }
+        let rejected = fixture
             .request(
                 "POST",
                 "/_internal/sync/resolve",
                 &serde_json::to_vec(&payload).unwrap(),
-                None
+                None,
             )
             .await
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
+            .unwrap_err();
+        assert_eq!(rejected.status, StatusCode::BAD_REQUEST);
+        assert_eq!(rejected.reason, "recovery_confirmation_required");
+        assert_eq!(
+            rejected.message,
+            "Confirm backup_verified or discard_without_backup for the exact inspected recovery identity"
+        );
+    }
     payload["confirmation"] = json!("discard_without_backup");
     for mixed in ["conflict_id", "expected_generation"] {
         payload[mixed] = Value::Null;

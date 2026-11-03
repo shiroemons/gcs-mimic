@@ -318,21 +318,21 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                 ResolveRequest {
                     operation_id: "snapshot".into(),
                     action: Action::Discard,
-                    target: ResolveTarget::Conflict {
+                    target: ResolveTarget::Conflict(ConflictTarget {
                         conflict_id: captured.id.clone(),
                         revision: captured.revision.clone(),
-                        expected_generation: Some(record.generation),
-                    },
+                        expected_generation: record.generation,
+                    }),
                 }
             } else {
                 ResolveRequest {
                     operation_id: "fresh-recovery".into(),
                     action: Action::Discard,
-                    target: ResolveTarget::Conflict {
+                    target: ResolveTarget::Conflict(ConflictTarget {
                         conflict_id: state.0.0,
                         revision: page.items[0].revision.clone(),
-                        expected_generation: None,
-                    },
+                        expected_generation: 0,
+                    }),
                 }
             };
             assert!(
