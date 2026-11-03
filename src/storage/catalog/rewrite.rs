@@ -162,11 +162,11 @@ fn encode(start: &RewriteStart, source: &str, destination: &str) -> Value {
 
 fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
     let request: StoredRequest = serde_json::from_str(&row.get::<_, String>(3)?)
-        .map_err(|error| conversion_error(3, rusqlite::types::Type::Text, error))?;
+        .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
     let options = resumable::decode_options(&request.options)
-        .map_err(|error| conversion_error(3, rusqlite::types::Type::Text, error))?;
+        .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
     if request.budget == 0 {
-        return Err(conversion_error(
+        return Err(sql::conversion_error(
             3,
             rusqlite::types::Type::Text,
             "invalid rewrite budget",
@@ -219,36 +219,26 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         destination_incarnation: request.destination_incarnation,
         source_key_sha256: request.source_key_sha256,
         budget: request.budget,
-        offset: u64::try_from(row.get::<_, i64>(4)?)
-            .map_err(|error| conversion_error(4, rusqlite::types::Type::Integer, error))?,
-        total: u64::try_from(row.get::<_, i64>(5)?)
-            .map_err(|error| conversion_error(5, rusqlite::types::Type::Integer, error))?,
+        offset: row.get(4)?,
+        total: row.get(5)?,
         deadline: row.get(6)?,
         response: row
             .get::<_, Option<String>>(7)?
             .map(|value| {
                 serde_json::from_str(&value)
-                    .map_err(|error| conversion_error(7, rusqlite::types::Type::Text, error))
+                    .map_err(|error| sql::conversion_error(7, rusqlite::types::Type::Text, error))
             })
             .transpose()?,
     };
     let transfer_id: Option<String> = row.get(8)?;
     if !session_consistent(&session, transfer_id.as_deref()) {
-        return Err(conversion_error(
+        return Err(sql::conversion_error(
             3,
             rusqlite::types::Type::Text,
             "invalid rewrite session",
         ));
     }
     Ok(session)
-}
-
-fn conversion_error(
-    index: usize,
-    kind: rusqlite::types::Type,
-    error: impl Into<Box<dyn std::error::Error + Send + Sync>>,
-) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(index, kind, error.into())
 }
 
 /// Whether a decoded session's identifiers, progress and stored response agree; an
@@ -442,7 +432,7 @@ impl Catalog {
                         transfer.id,
                         token,
                         request.to_string(),
-                        transfer.total as i64,
+                        transfer.total,
                         deadline
                     ],
                 )?;
@@ -609,7 +599,7 @@ impl Catalog {
         let id = session.id.clone();
         let now = unix_millis(self.0.clock.now())?;
         self.run(move |connection| {
-            let changed=sql::exec(connection, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5", params![id,next,current.offset as i64,saved,now])?;
+            let changed=sql::exec(connection, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5", params![id,next,current.offset,saved,now])?;
             if changed!=1 {return Err(ObjectError::PreconditionFailed);}Ok(())
         }).await?;
         progress(&session, &response).map_err(Into::into)
@@ -757,10 +747,17 @@ mod tests {
                 )
                 .err()
                 .unwrap();
-            assert!(
-                matches!(error, rusqlite::Error::FromSqlConversionFailure(index, _, _) if index == column)
-            );
-            assert!(std::error::Error::source(&error).is_some());
+            if column == 7 {
+                assert!(matches!(
+                    error,
+                    rusqlite::Error::FromSqlConversionFailure(7, _, _)
+                ));
+                assert!(std::error::Error::source(&error).is_some());
+            } else {
+                assert!(
+                    matches!(error, rusqlite::Error::IntegralValueOutOfRange(index, -1) if index == column)
+                );
+            }
         }
     }
     impl Clock for TestClock {

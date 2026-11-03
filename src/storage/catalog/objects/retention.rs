@@ -64,20 +64,9 @@ pub(super) fn read(
     let (Some(mode), Some(until)) = (mode, until) else {
         return Ok(None);
     };
-    let mode = RetentionMode::parse(&mode).ok_or_else(|| {
-        rusqlite::Error::FromSqlConversionFailure(
-            index,
-            Type::Text,
-            "invalid retention mode".into(),
-        )
-    })?;
-    let invalid = || {
-        rusqlite::Error::FromSqlConversionFailure(
-            index + 1,
-            Type::Integer,
-            "invalid retain-until time".into(),
-        )
-    };
+    let mode = RetentionMode::parse(&mode)
+        .ok_or_else(|| sql::conversion_error(index, Type::Text, "invalid retention mode"))?;
+    let invalid = || sql::conversion_error(index + 1, Type::Integer, "invalid retain-until time");
     let remainder = u32::try_from(row.get::<_, i64>(sub_index)?).map_err(|_| invalid())?;
     let retain_until =
         UnixNanos::from_micros_and_remainder(until, remainder).ok_or_else(invalid)?;

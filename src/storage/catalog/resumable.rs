@@ -256,13 +256,13 @@ fn admit_session(
     transaction: &rusqlite::Transaction<'_>,
     catalog: &Catalog,
 ) -> Result<Vec<WriterGuard>, CatalogError> {
-    let (active, terminal): (i64, i64) = sql::row(
+    let (active, terminal): (usize, i64) = sql::row(
         transaction,
         "SELECT coalesce(sum(state = 'ACTIVE'), 0), coalesce(sum(state != 'ACTIVE'), 0) FROM resumable_sessions",
         [],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    if active >= MAX_SESSIONS as i64 {
+    if active >= MAX_SESSIONS {
         return Err(unavailable("retained upload session limit reached"));
     }
     let mut excess = terminal - MAX_TERMINAL_SESSIONS;
@@ -340,7 +340,7 @@ impl Catalog {
             let blob = super::super::blob_id::BlobId::generate().map_err(unavailable)?;
             let blob_id = blob.to_hex();
             let now = unix_millis(catalog.0.clock.now())?;
-            let deadline = now.checked_add(SESSION_LIFETIME.as_millis() as i64).ok_or_else(|| unavailable("upload deadline overflow"))?;
+            let deadline = now.checked_add(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?).ok_or_else(|| unavailable("upload deadline overflow"))?;
             let encoded = encode_options(&options).to_string();
             let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
             create_session_bytes(&catalog, &blob_id)?;
@@ -500,11 +500,8 @@ impl Catalog {
             ));
         }
         let (changed, output) = self.run_waiting::<_, CatalogError>(move |connection| {
-            let offset = i64::try_from(offset).map_err(unavailable)?;
-            let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
-            let old = i64::try_from(old).map_err(unavailable)?;
             let changed = sql::exec(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded])?;
-            if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset as u64); }
+            if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset); }
             Ok((changed, output))
         }).await?;
         if changed != 1 {
@@ -563,12 +560,8 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptio
     options::decode(v)
 }
 
-/// A stored session row that does not decode, keeping the decoding error as the source.
-fn invalid(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, error.into())
-}
-
 pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> {
+    use rusqlite::types::Type;
     let id: String = row.get(0)?;
     let blob_id: String = row.get(1)?;
     if id.len() != 64
@@ -578,9 +571,14 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
             .chain(blob_id.bytes())
             .all(|b| b.is_ascii_hexdigit())
     {
-        return Err(invalid("invalid upload opaque ID"));
+        return Err(sql::conversion_error(
+            0,
+            Type::Text,
+            "invalid upload opaque ID",
+        ));
     }
-    let options = serde_json::from_str::<Value>(&row.get::<_, String>(5)?).map_err(invalid)?;
+    let options = serde_json::from_str::<Value>(&row.get::<_, String>(5)?)
+        .map_err(|error| sql::conversion_error(5, Type::Text, error))?;
     // Keep terminal reasons in the versioned options document so existing catalogs need no migration.
     let state = match (
         row.get::<_, String>(10)?.as_str(),
@@ -593,7 +591,13 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
         ("CANCELLED", Some(Value::String(reason))) if reason == "content-range" => {
             SessionState::InvalidContentRange
         }
-        _ => return Err(invalid("invalid upload state")),
+        _ => {
+            return Err(sql::conversion_error(
+                10,
+                Type::Text,
+                "invalid upload state",
+            ));
+        }
     };
     let completion: Option<String> = row.get(11)?;
     Ok(ResumableSession {
@@ -602,17 +606,18 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
         bucket: row.get(2)?,
         name: row.get(3)?,
         incarnation: row.get(4)?,
-        options: decode_options(&options).map_err(invalid)?,
-        total: row
-            .get::<_, Option<i64>>(6)?
-            .map(|n| u64::try_from(n).map_err(invalid))
-            .transpose()?,
-        offset: u64::try_from(row.get::<_, i64>(7)?).map_err(invalid)?,
+        options: decode_options(&options)
+            .map_err(|error| sql::conversion_error(5, Type::Text, error))?,
+        total: row.get(6)?,
+        offset: row.get(7)?,
         created: system_time_millis(row.get(8)?)?,
         deadline: system_time_millis(row.get(9)?)?,
         state,
         completion: completion
-            .map(|v| serde_json::from_str(&v).map_err(invalid))
+            .map(|v| {
+                serde_json::from_str(&v)
+                    .map_err(|error| sql::conversion_error(11, Type::Text, error))
+            })
             .transpose()?,
     })
 }

@@ -52,7 +52,7 @@ fn populated_request_keeps_its_json_bytes() {
     let session = connection
         .query_row(
             "SELECT ?1,?2,NULL,?3,0,8,604801000,NULL,?1",
-            params!["00000000000000000000000000000003", "0".repeat(64), encoded],
+            params!["00000000000000000000000000000003", "0".repeat(64), &encoded],
             read,
         )
         .unwrap();
@@ -67,4 +67,43 @@ fn populated_request_keeps_its_json_bytes() {
         start.destination.component_count
     );
     assert_eq!(session.source_key_sha256, start.source_key_sha256);
+    assert_eq!(session.source_conditions, start.source_conditions);
+    assert_eq!(session.destination.expected, start.destination.expected);
+    assert_eq!(session.destination.conditions, start.destination.conditions);
+    assert_eq!(
+        session.destination.content_type,
+        start.destination.content_type
+    );
+    assert_eq!(session.source_metageneration, start.source_metageneration);
+    assert_eq!(
+        session.source_incarnation,
+        "00000000000000000000000000000001"
+    );
+    assert_eq!(
+        session.destination_incarnation,
+        "00000000000000000000000000000002"
+    );
+    assert_eq!(session.budget, start.budget);
+    let mut invalid: Value = serde_json::from_str(&encoded).unwrap();
+    invalid["budget"] = 0.into();
+    let error = connection
+        .query_row(
+            "SELECT ?1,?2,NULL,?3,0,8,604801000,NULL,?1",
+            params![
+                "00000000000000000000000000000003",
+                "0".repeat(64),
+                invalid.to_string()
+            ],
+            read,
+        )
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error,
+        rusqlite::Error::FromSqlConversionFailure(3, _, _)
+    ));
+    assert_eq!(
+        std::error::Error::source(&error).unwrap().to_string(),
+        "invalid rewrite budget"
+    );
 }

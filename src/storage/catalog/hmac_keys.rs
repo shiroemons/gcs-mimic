@@ -161,11 +161,7 @@ fn record(row: &Row<'_>) -> rusqlite::Result<HmacKeyRecord> {
         project: row.get(1)?,
         service_account_email: row.get(2)?,
         state: HmacKeyState::parse(&state).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
-                3,
-                rusqlite::types::Type::Text,
-                "invalid HMAC key state".into(),
-            )
+            sql::conversion_error(3, rusqlite::types::Type::Text, "invalid HMAC key state")
         })?,
         time_created: system_time_millis(row.get(4)?)?,
         updated: system_time_millis(row.get(5)?)?,
@@ -294,7 +290,7 @@ impl Catalog {
                             query.service_account_email,
                             query.show_deleted,
                             query.after,
-                            (query.limit + 1) as i64
+                            query.limit + 1
                         ],
                         record,
                     )?

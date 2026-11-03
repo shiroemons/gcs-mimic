@@ -12,21 +12,21 @@ PRAGMA user_version=39;";
 
 pub(super) fn read(row: &Row<'_>, micros: i64, column: &str) -> rusqlite::Result<SystemTime> {
     let index = row.as_ref().column_index(column)?;
-    let remainder: i64 = row.get(column)?;
+    let remainder: u64 = row.get(column)?;
     if !(0..=999).contains(&remainder) {
-        return Err(rusqlite::Error::FromSqlConversionFailure(
+        return Err(sql::conversion_error(
             index,
             Type::Integer,
-            "invalid bucket nanosecond remainder".into(),
+            "invalid bucket nanosecond remainder",
         ));
     }
     system_time_micros(micros)?
-        .checked_add(Duration::from_nanos(remainder as u64))
+        .checked_add(Duration::from_nanos(remainder))
         .ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
+            sql::conversion_error(
                 index,
                 Type::Integer,
-                "bucket timestamp outside SystemTime range".into(),
+                "bucket timestamp outside SystemTime range",
             )
         })
 }

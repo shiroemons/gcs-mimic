@@ -4,6 +4,14 @@ use rusqlite::{
     Connection, OptionalExtension, Params, Row, Transaction, TransactionBehavior, types::FromSql,
 };
 
+pub(super) fn conversion_error(
+    index: usize,
+    kind: rusqlite::types::Type,
+    error: impl Into<Box<dyn std::error::Error + Send + Sync>>,
+) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(index, kind, error.into())
+}
+
 pub(super) fn row<T>(
     connection: &Connection,
     sql: &'static str,
@@ -57,6 +65,28 @@ pub(super) fn validate(
 mod tests {
     use super::*;
 
+    #[test]
+    fn unsigned_sql_values_preserve_bounds_without_wrapping() {
+        let connection = Connection::open_in_memory().unwrap();
+        for value in [0, u64::try_from(i64::MAX).unwrap()] {
+            assert_eq!(
+                scalar::<u64>(&connection, "SELECT ?1", [value]).unwrap(),
+                value
+            );
+        }
+        assert!(matches!(
+            scalar::<u64>(&connection, "SELECT -1", []),
+            Err(rusqlite::Error::IntegralValueOutOfRange(0, -1))
+        ));
+        assert!(matches!(
+            scalar::<usize>(&connection, "SELECT -1", []),
+            Err(rusqlite::Error::IntegralValueOutOfRange(0, -1))
+        ));
+        assert!(scalar::<u64>(&connection, "SELECT ?1", [u64::MAX]).is_err());
+        if usize::BITS == 64 {
+            assert!(scalar::<usize>(&connection, "SELECT ?1", [usize::MAX]).is_err());
+        }
+    }
     #[test]
     fn cached_statements_preserve_missing_rows_nulls_and_rollback() {
         let mut connection = Connection::open_in_memory().unwrap();

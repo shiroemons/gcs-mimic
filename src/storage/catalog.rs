@@ -1887,7 +1887,9 @@ fn bucket_list_page(
     if let Some(upper) = upper {
         values.push(Value::Blob(upper));
     }
-    values.push(Value::Integer(limit as i64 + 1));
+    values.push(Value::Integer(
+        i64::try_from(limit).map_err(unavailable)? + 1,
+    ));
     let mut statement = connection.prepare_cached(sql)?;
     let mut rows = statement.query(rusqlite::params_from_iter(values))?;
     let mut records = Vec::new();
@@ -2067,11 +2069,7 @@ fn signed_system_time(value: i64, unit: fn(u64) -> Duration) -> rusqlite::Result
         UNIX_EPOCH.checked_add(duration)
     };
     time.ok_or_else(|| {
-        rusqlite::Error::FromSqlConversionFailure(
-            0,
-            Type::Integer,
-            "timestamp outside SystemTime range".into(),
-        )
+        sql::conversion_error(0, Type::Integer, "timestamp outside SystemTime range")
     })
 }
 
@@ -2091,19 +2089,11 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
     Ok(BucketRecord {
         soft_delete_policy: row
             .get::<_, Option<String>>(16)?
-            .map(|v| {
-                serde_json::from_str(&v).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(16, Type::Text, Box::new(e))
-                })
-            })
+            .map(|v| serde_json::from_str(&v).map_err(|e| sql::conversion_error(16, Type::Text, e)))
             .transpose()?,
         retention_policy: row
             .get::<_, Option<String>>(15)?
-            .map(|v| {
-                serde_json::from_str(&v).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(15, Type::Text, Box::new(e))
-                })
-            })
+            .map(|v| serde_json::from_str(&v).map_err(|e| sql::conversion_error(15, Type::Text, e)))
             .transpose()?,
         name: row.get(0)?,
         project: row.get(1)?,
@@ -2112,9 +2102,9 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         storage_class: row.get(4)?,
         autoclass: bucket_autoclass::read(row)?,
         labels: serde_json::from_str(&labels)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(e)))?,
+            .map_err(|e| sql::conversion_error(5, Type::Text, e))?,
         lifecycle: serde_json::from_str(&row.get::<_, String>(14)?)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(14, Type::Text, Box::new(e)))?,
+            .map_err(|e| sql::conversion_error(14, Type::Text, e))?,
         metageneration: row.get(6)?,
         generation: row.get("generation")?,
         time_created: bucket_timestamps::read(row, row.get(7)?, "time_created_nanos")?,
@@ -2129,11 +2119,10 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
             .map(system_time_micros)
             .transpose()?,
         cors: cors_from_value(
-            &serde_json::from_str(&row.get::<_, String>(11)?).map_err(|e| {
-                rusqlite::Error::FromSqlConversionFailure(11, Type::Text, Box::new(e))
-            })?,
+            &serde_json::from_str(&row.get::<_, String>(11)?)
+                .map_err(|e| sql::conversion_error(11, Type::Text, e))?,
         )
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(11, Type::Text, Box::new(e)))?,
+        .map_err(|e| sql::conversion_error(11, Type::Text, e))?,
     })
 }
 

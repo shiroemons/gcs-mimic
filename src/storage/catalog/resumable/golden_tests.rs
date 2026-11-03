@@ -63,3 +63,15 @@ fn populated_options_keep_their_json_bytes() {
         options
     );
 }
+
+#[test]
+fn invalid_predefined_acl_keeps_its_corruption_reason() {
+    for predefined in [json!(5), json!("bogus")] {
+        let mut encoded = encode_options(&populated_options());
+        encoded["metadata"]["predefinedAcl"] = predefined;
+        assert_eq!(
+            decode_options(&encoded).unwrap_err().to_string(),
+            "invalid resumable predefinedAcl"
+        );
+    }
+}

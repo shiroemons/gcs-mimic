@@ -1,5 +1,6 @@
 //! Persist explicit MD5 absence separately from composite component counts.
 
+use super::sql;
 use crate::object::Md5Availability;
 use rusqlite::{Row, types::Type};
 
@@ -9,10 +10,10 @@ pub(super) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Md5Availabil
     match row.get::<_, i64>(index)? {
         0 => Ok(Md5Availability::Unavailable),
         1 => Ok(Md5Availability::Available),
-        _ => Err(rusqlite::Error::FromSqlConversionFailure(
+        _ => Err(sql::conversion_error(
             index,
             Type::Integer,
-            "invalid MD5 availability".into(),
+            "invalid MD5 availability",
         )),
     }
 }

@@ -536,7 +536,9 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
             .prepare_cached(
                 "SELECT blob_id, size FROM objects WHERE blob_id > ?1 ORDER BY blob_id LIMIT 128",
             )?
-            .query_map([&after], |r| Ok((r.get::<_, String>(0)?, read_size(r, 1)?)))?
+            .query_map([&after], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?))
+            })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if rows.is_empty() {
             return Ok(());
@@ -2342,7 +2344,7 @@ pub(super) fn publish_in_transaction<T>(
     if let Some(owner) = &mut record.owner {
         super::object_owner::canonicalize(owner, owner_profile);
     }
-    let period: Option<i64> = sql::scalar(
+    let period: Option<u64> = sql::scalar(
         transaction,
         "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name = ?1",
         [&record.bucket],
@@ -2351,7 +2353,7 @@ pub(super) fn publish_in_transaction<T>(
         .map(|period| {
             record
                 .time_created
-                .checked_add(std::time::Duration::from_secs(period as u64))
+                .checked_add(std::time::Duration::from_secs(period))
                 .ok_or(ObjectError::InvalidMetadata)
         })
         .transpose()?;
@@ -2667,9 +2669,9 @@ pub(super) fn check_conditions(
 
 pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
     let md5: Vec<u8> = row.get(6)?;
-    let md5 = md5.try_into().map_err(|_| {
-        rusqlite::Error::FromSqlConversionFailure(6, Type::Blob, "invalid MD5 length".into())
-    })?;
+    let md5 = md5
+        .try_into()
+        .map_err(|_| sql::conversion_error(6, Type::Blob, "invalid MD5 length"))?;
     Ok((
         ObjectRecord {
             bucket: row.get(0)?,
@@ -2682,10 +2684,9 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, Stri
             content_disposition: row.get(13)?,
             content_language: row.get(14)?,
             cache_control: row.get(15)?,
-            metadata: serde_json::from_str(&row.get::<_, String>(16)?).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(16, Type::Text, Box::new(error))
-            })?,
-            size: read_size(row, 5)?,
+            metadata: serde_json::from_str(&row.get::<_, String>(16)?)
+                .map_err(|error| sql::conversion_error(16, Type::Text, error))?,
+            size: row.get(5)?,
             md5,
             md5_availability: super::md5_availability::read(row, 28)?,
             crc32c: row.get(7)?,
@@ -2717,13 +2718,6 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, Stri
         },
         row.get(11)?,
     ))
-}
-
-fn read_size(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
-    let value: i64 = row.get(index)?;
-    value.try_into().map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
-    })
 }
 
 #[cfg(test)]

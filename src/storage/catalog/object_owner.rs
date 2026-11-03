@@ -180,9 +180,8 @@ pub(super) fn for_publication(
 pub(super) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<ObjectOwner>> {
     row.get::<_, Option<String>>(index)?
         .map(|value| {
-            serde_json::from_str(&value).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
-            })
+            serde_json::from_str(&value)
+                .map_err(|error| sql::conversion_error(index, Type::Text, error))
         })
         .transpose()
 }
