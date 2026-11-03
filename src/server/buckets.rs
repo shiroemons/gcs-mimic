@@ -50,7 +50,7 @@ pub(super) async fn respond<'a>(
     validate_request(&request, &operation)?;
     let fields = response_fields(&request, &operation)?;
     // ACL entries of a soft-deleted version are kept for restore but not rendered.
-    let acl_full = acl::bucket_full_projection(request.method(), request.uri().query(), profile)
+    let acl_full = operation.projection() == json::Projection::Full
         && !matches!(
             operation,
             BucketRequest::GetSoftDeleted { .. }

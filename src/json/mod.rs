@@ -56,9 +56,11 @@ pub(crate) use envelope::{
     Call as EnvelopeCall, apply as apply_envelope, etag_header, forbid_caching,
 };
 pub use error::JsonError;
+#[cfg(test)]
+pub(crate) use error::PRECONDITION_NOT_HELD;
 pub(crate) use error::{
     ErrorKind, IF_MATCH_HEADER, MEDIA_ERROR_CACHE_CONTROL, NO_STORE_CACHE_CONTROL,
-    PRECONDITION_NOT_HELD, safe_backend_cause,
+    safe_backend_cause,
 };
 pub(crate) use fields::Fields;
 pub(crate) use format::{ResponseFormat, render_body, with_format};
