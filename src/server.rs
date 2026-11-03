@@ -696,6 +696,8 @@ mod deadline_claim_tests;
 #[cfg(test)]
 mod drain_tests;
 #[cfg(test)]
+mod protocol_tests;
+#[cfg(test)]
 mod upload_frame_tests;
 
 /// hyper's per-connection read buffer limit. It bounds how much hyper reserves before each
