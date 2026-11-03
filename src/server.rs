@@ -32,7 +32,7 @@ use std::{
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
-    sync::{mpsc, watch},
+    sync::{mpsc, Semaphore, watch},
     task::JoinSet,
 };
 
@@ -40,6 +40,7 @@ pub use crate::grpc::v2::ReadHandles;
 pub use crate::xml::CorsWarnings;
 
 pub struct State {
+    pub pools: WorkPools,
     pub xml_cors_warned_buckets: CorsWarnings,
     pub grpc_read_handles: ReadHandles,
     pub ready: AtomicBool,
@@ -54,6 +55,7 @@ impl State {
     #[cfg(test)]
     pub(crate) fn for_test(catalog: Catalog, auth: Auth) -> Self {
         Self {
+            pools: WorkPools::default(),
             xml_cors_warned_buckets: Default::default(),
             grpc_read_handles: Default::default(),
             ready: AtomicBool::new(true),
@@ -71,6 +73,30 @@ impl State {
         }
         // A background loop restarting after a panic is a transient gap, so it does not latch.
         self.ready.load(Ordering::Acquire) && self.catalog.background_tasks_running()
+    }
+}
+
+/// Per-server admission for CPU work and buffered batch envelopes.
+#[derive(Clone)]
+pub struct WorkPools {
+    pub(crate) gzip_decoders: Arc<Semaphore>,
+    pub(crate) batches: Arc<Semaphore>,
+}
+
+impl WorkPools {
+    pub fn new(config: &Config) -> Self {
+        Self {
+            gzip_decoders: Arc::new(Semaphore::new(
+                config.max_blocking_threads.div_ceil(4).max(1),
+            )),
+            batches: Arc::new(Semaphore::new(batch::BATCH_CONCURRENCY)),
+        }
+    }
+}
+
+impl Default for WorkPools {
+    fn default() -> Self {
+        Self::new(&Config::default())
     }
 }
 

@@ -9,6 +9,11 @@ the server. `accept_failed` logs the first resource failure and
 
 ## Contract and scope
 
+Gzip metadata and upload jobs share a per-server decoder pool sized to
+`ceil(max_blocking_threads / 4)`, at least one. The default eight blocking
+threads allow two decoder jobs while leaving capacity for file/catalog I/O.
+Separate State instances do not share permits. No performance gain is claimed.
+
 The JSON API accepts transport gzip on metadata requests under /storage/v1/.
 It also decodes JSON metadata for exact POST requests to
 /upload/storage/v1/b/{bucket}/o with uploadType=resumable and no upload_id.
