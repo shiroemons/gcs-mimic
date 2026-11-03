@@ -76,15 +76,15 @@ impl Server {
     }
 
     fn sign(&self, method: hyper::Method, path: &str, headers: hyper::HeaderMap) -> hyper::Uri {
-        gcs_mimic::auth::signature::sign_url(
-            &format!("http://localhost{path}"),
-            &method,
-            "admin@example.invalid",
-            PRIVATE,
-            60,
-            SystemTime::now(),
+        gcs_mimic::auth::signature::sign_url(gcs_mimic::auth::signature::SignUrlRequest {
+            url: &format!("http://localhost{path}"),
+            method: &method,
+            signer: "admin@example.invalid",
+            private_key: PRIVATE,
+            expires: 60,
+            now: SystemTime::now(),
             headers,
-        )
+        })
         .unwrap()
         .parse()
         .unwrap()

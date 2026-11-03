@@ -27,15 +27,15 @@ fn auth() -> Auth {
 }
 
 fn signed(url: &str, method: &Method, headers: HeaderMap) -> String {
-    sign_url(
+    sign_url(SignUrlRequest {
         url,
         method,
-        SIGNER,
-        PRIVATE,
-        60,
-        parse_timestamp(DATE).unwrap(),
+        signer: SIGNER,
+        private_key: PRIVATE,
+        expires: 60,
+        now: parse_timestamp(DATE).unwrap(),
         headers,
-    )
+    })
     .unwrap()
 }
 
@@ -448,42 +448,42 @@ fn delete_signatures_bind_method_host_raw_path_and_generation() {
         Err(Failure::Mismatch)
     );
     assert!(
-        sign_url(
-            "https://localhost/bucket/object",
-            &Method::POST,
-            SIGNER,
-            PRIVATE,
-            60,
+        sign_url(SignUrlRequest {
+            url: "https://localhost/bucket/object",
+            method: &Method::POST,
+            signer: SIGNER,
+            private_key: PRIVATE,
+            expires: 60,
             now,
-            HeaderMap::new()
-        )
+            headers: HeaderMap::new()
+        })
         .is_err()
     );
     // POST is signable only to start a resumable upload, with the header signed.
     let mut start = HeaderMap::new();
     start.insert("x-goog-resumable", "start".parse().unwrap());
-    let signed = sign_url(
-        "https://localhost/bucket/object",
-        &Method::POST,
-        SIGNER,
-        PRIVATE,
-        60,
+    let signed = sign_url(SignUrlRequest {
+        url: "https://localhost/bucket/object",
+        method: &Method::POST,
+        signer: SIGNER,
+        private_key: PRIVATE,
+        expires: 60,
         now,
-        start.clone(),
-    )
+        headers: start.clone(),
+    })
     .unwrap();
     assert!(signed.contains("X-Goog-SignedHeaders=host%3Bx-goog-resumable&"));
     start.insert("x-goog-resumable", "stop".parse().unwrap());
     assert!(
-        sign_url(
-            "https://localhost/bucket/object",
-            &Method::POST,
-            SIGNER,
-            PRIVATE,
-            60,
+        sign_url(SignUrlRequest {
+            url: "https://localhost/bucket/object",
+            method: &Method::POST,
+            signer: SIGNER,
+            private_key: PRIVATE,
+            expires: 60,
             now,
-            start
-        )
+            headers: start
+        })
         .is_err()
     );
 }
@@ -598,15 +598,15 @@ fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
             Err(Failure::Malformed)
         );
     }
-    let unknown = sign_url(
-        "http://localhost/bucket/object",
-        &Method::GET,
-        "unknown@example.invalid",
-        PRIVATE,
-        60,
+    let unknown = sign_url(SignUrlRequest {
+        url: "http://localhost/bucket/object",
+        method: &Method::GET,
+        signer: "unknown@example.invalid",
+        private_key: PRIVATE,
+        expires: 60,
         now,
-        HeaderMap::new(),
-    )
+        headers: HeaderMap::new(),
+    })
     .unwrap();
     assert_eq!(
         verify(&unknown, &Method::GET, HeaderMap::new(), now),
@@ -614,28 +614,28 @@ fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
     );
     for expires in [0, 604801, u64::MAX] {
         assert!(
-            sign_url(
-                "http://localhost/bucket/o",
-                &Method::GET,
-                SIGNER,
-                PRIVATE,
+            sign_url(SignUrlRequest {
+                url: "http://localhost/bucket/o",
+                method: &Method::GET,
+                signer: SIGNER,
+                private_key: PRIVATE,
                 expires,
                 now,
-                HeaderMap::new()
-            )
+                headers: HeaderMap::new()
+            })
             .is_err()
         );
     }
     assert!(
-        sign_url(
-            "http://localhost/bucket/o",
-            &Method::GET,
-            SIGNER,
-            PRIVATE,
-            604800,
+        sign_url(SignUrlRequest {
+            url: "http://localhost/bucket/o",
+            method: &Method::GET,
+            signer: SIGNER,
+            private_key: PRIVATE,
+            expires: 604800,
             now,
-            HeaderMap::new()
-        )
+            headers: HeaderMap::new()
+        })
         .is_ok()
     );
 }

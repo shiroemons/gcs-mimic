@@ -183,12 +183,9 @@ impl Reader<'_> {
         {
             return Err(malformed());
         }
-        let signature = (0..64)
-            .step_by(2)
-            .map(|index| {
-                u8::from_str_radix(&signature[index..index + 2], 16).map_err(|_| malformed())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let signature = crate::hex::decode_hex::<32>(signature)
+            .ok_or_else(malformed)?
+            .to_vec();
         Ok((
             u64::from_str_radix(length, 16).map_err(|_| malformed())?,
             signature,

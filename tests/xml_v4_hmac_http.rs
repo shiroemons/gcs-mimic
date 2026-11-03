@@ -728,15 +728,15 @@ fn rsa_authorization_headers_and_existing_query_helpers_transfer_the_same_object
         );
         if method == "PUT" {
             let headers = hyper::HeaderMap::new();
-            let query = sign_url(
-                &format!("http://localhost{path}"),
-                &hyper::Method::GET,
-                "signer@example.invalid",
-                PRIVATE,
-                60,
-                SystemTime::now(),
+            let query = sign_url(gcs_mimic::auth::signature::SignUrlRequest {
+                url: &format!("http://localhost{path}"),
+                method: &hyper::Method::GET,
+                signer: "signer@example.invalid",
+                private_key: PRIVATE,
+                expires: 60,
+                now: SystemTime::now(),
                 headers,
-            )
+            })
             .unwrap();
             let uri: hyper::Uri = query.parse().unwrap();
             assert_eq!(

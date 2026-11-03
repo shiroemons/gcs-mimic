@@ -258,15 +258,15 @@ fn fixture() -> (TestDir, TestDir, Server) {
 }
 
 fn signed(url: &str, method: &str, signer: &str, time: SystemTime, headers: HeaderMap) -> String {
-    sign_url(
+    sign_url(gcs_mimic::auth::signature::SignUrlRequest {
         url,
-        &method.parse::<Method>().unwrap(),
-        &format!("{signer}@example.invalid"),
-        PRIVATE,
-        300,
-        time,
+        method: &method.parse::<Method>().unwrap(),
+        signer: &format!("{signer}@example.invalid"),
+        private_key: PRIVATE,
+        expires: 300,
+        now: time,
         headers,
-    )
+    })
     .unwrap()
 }
 

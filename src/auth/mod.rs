@@ -777,18 +777,12 @@ fn has_credential_parameter(query: &str) -> bool {
 fn lenient_decode(raw: &str) -> Vec<u8> {
     let bytes = raw.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
-    let hex = |index: usize| {
-        bytes
-            .get(index)
-            .and_then(|byte| char::from(*byte).to_digit(16))
-            .map(|digit| digit as u8)
-    };
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'%'
-            && let (Some(high), Some(low)) = (hex(index + 1), hex(index + 2))
+            && let Some(byte) = bytes.get(index + 1..index + 3).and_then(crate::hex::byte)
         {
-            decoded.push(high << 4 | low);
+            decoded.push(byte);
             index += 3;
             continue;
         }
@@ -806,6 +800,7 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
+    use crate::test_support::TestDir;
 
     #[test]
     fn jwt_detection_requires_three_segments_and_a_json_header() {
@@ -851,15 +846,8 @@ mod tests {
             bucket::{BucketAccess, BucketMetadataUpdate, CatalogError},
             storage::Catalog,
         };
-        let dir = std::env::temp_dir().join(format!(
-            "gcs-mimic-pap-permissions-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let catalog = Catalog::open(&dir).await.unwrap();
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
         let record = crate::json::parse_insert(
             br#"{"name":"pap-permissions"}"#,
             "project",
@@ -958,7 +946,6 @@ mod tests {
             }
         }
         catalog.close().await.unwrap();
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
@@ -967,9 +954,8 @@ mod tests {
             bucket::{BucketAccess, BucketMetadataUpdate, CatalogError},
             storage::Catalog,
         };
-        let dir =
-            std::env::temp_dir().join(format!("gcs-mimic-acl-permissions-{}", std::process::id()));
-        let catalog = Catalog::open(&dir).await.unwrap();
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
         let record = crate::json::parse_insert(
             br#"{"name":"acl-permissions"}"#,
             "project",
@@ -1047,7 +1033,6 @@ mod tests {
             }
         }
         catalog.close().await.unwrap();
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
@@ -1595,10 +1580,8 @@ mod tests {
 
     #[test]
     fn registry_file_read_is_bounded() {
-        let path = std::env::temp_dir().join(format!(
-            "gcs-mimic-identity-bound-{}.json",
-            std::process::id()
-        ));
+        let dir = TestDir::new();
+        let path = dir.0.join("identity.json");
         let mut document = r#"{"identities":[{"id":"a","tokens":["t"]}]}"#.to_owned();
         document.push_str(&" ".repeat(64 * 1024 - document.len()));
         std::fs::write(&path, &document).unwrap();

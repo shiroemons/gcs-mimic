@@ -399,9 +399,11 @@ mod tests {
             prop_assert_eq!(normalize_public_base_url(normalized).unwrap(), normalized);
             let url = public_object_url(normalized, "my-bucket", "a b").unwrap();
             prop_assert_eq!(&url, &format!("{normalized}/my-bucket/a%20b"));
-            let signed = crate::auth::signature::sign_url(&url, &hyper::Method::GET,
-                "admin@example.invalid", include_bytes!("../fixtures/signing/test-only-private.pem"),
-                60, std::time::SystemTime::now(), hyper::HeaderMap::new()).unwrap();
+            let signed = crate::auth::signature::sign_url(crate::auth::signature::SignUrlRequest {
+                url: &url, method: &hyper::Method::GET, signer: "admin@example.invalid",
+                private_key: include_bytes!("../fixtures/signing/test-only-private.pem"),
+                expires: 60, now: std::time::SystemTime::now(), headers: hyper::HeaderMap::new()
+            }).unwrap();
             let prefix = format!("{url}?");
             prop_assert!(signed.starts_with(&prefix));
             let mut headers = hyper::HeaderMap::new();
