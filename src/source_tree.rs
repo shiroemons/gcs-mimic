@@ -53,6 +53,26 @@ pub enum WalkError {
     NotDirectory,
 }
 
+impl std::fmt::Display for WalkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => error.fmt(f),
+            Self::EntryLimit => f.write_str("source exceeds the configured entry limit"),
+            Self::DepthLimit => f.write_str("source exceeds the configured directory depth"),
+            Self::NotDirectory => f.write_str("source must be a directory, not a symlink"),
+        }
+    }
+}
+
+impl std::error::Error for WalkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
 impl From<io::Error> for WalkError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)

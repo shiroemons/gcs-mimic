@@ -16,12 +16,11 @@ use crate::{
 };
 use serde::{
     Deserialize, Serialize,
-    de::{self, DeserializeOwned, MapAccess, Visitor},
+    de::{self, DeserializeOwned, Visitor},
 };
 use serde_json::{Value, json, value::RawValue};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt,
     path::Path,
     time::SystemTime,
 };
@@ -218,10 +217,7 @@ impl Collected {
             usize::MAX
         };
         if bytes > RECORD_BYTES_LIMIT {
-            let mut end = diagnostic.key.len().min(SHORT_KEY_BYTES);
-            while !diagnostic.key.is_char_boundary(end) {
-                end -= 1;
-            }
+            let end = diagnostic.key.floor_char_boundary(SHORT_KEY_BYTES);
             diagnostic.key.truncate(end);
             diagnostic.key.push_str("...");
             diagnostic.fix = format!(
@@ -575,21 +571,7 @@ struct Members<'a>(Vec<(String, &'a RawValue)>);
 
 impl<'de> Deserialize<'de> for Members<'de> {
     fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Object;
-        impl<'de> Visitor<'de> for Object {
-            type Value = Members<'de>;
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("an object")
-            }
-            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-                let mut members = Vec::new();
-                while let Some(member) = map.next_entry()? {
-                    members.push(member);
-                }
-                Ok(Members(members))
-            }
-        }
-        deserializer.deserialize_map(Object)
+        crate::config_input::ordered_members(deserializer, "an object", |_, _| true).map(Members)
     }
 }
 

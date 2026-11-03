@@ -88,6 +88,26 @@ string_enum! {
     "scheme must be http, https or both"
 }
 
+impl Scheme {
+    pub fn primary(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https | Self::Both => "https",
+        }
+    }
+}
+
+pub fn loopback_if_unspecified(mut address: SocketAddr) -> SocketAddr {
+    if address.ip().is_unspecified() {
+        address.set_ip(if address.is_ipv4() {
+            std::net::Ipv4Addr::LOCALHOST.into()
+        } else {
+            std::net::Ipv6Addr::LOCALHOST.into()
+        });
+    }
+    address
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub log_level: LogLevel,
@@ -208,20 +228,13 @@ impl Default for Config {
 
 impl Config {
     pub fn healthcheck_url(&self) -> String {
-        let mut listen = self.effective_listen_http().unwrap_or(self.listen);
-        if listen.ip().is_unspecified() {
-            listen.set_ip(if listen.is_ipv4() {
-                std::net::Ipv4Addr::LOCALHOST.into()
-            } else {
-                std::net::Ipv6Addr::LOCALHOST.into()
-            });
-        }
-        let scheme = if self.scheme == Scheme::Https {
-            "https"
+        let listen = loopback_if_unspecified(self.effective_listen_http().unwrap_or(self.listen));
+        let scheme = if self.scheme == Scheme::Both {
+            Scheme::Http
         } else {
-            "http"
+            self.scheme
         };
-        format!("{scheme}://{listen}/_internal/ready")
+        format!("{}://{listen}/_internal/ready", scheme.as_str())
     }
 
     pub fn effective_listen_http(&self) -> Option<SocketAddr> {
@@ -233,23 +246,10 @@ impl Config {
 
     pub fn effective_api_base_url(&self, bound: SocketAddr) -> String {
         self.api_base_url.clone().unwrap_or_else(|| {
-            let ip = match bound.ip() {
-                std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
-                    std::net::Ipv4Addr::LOCALHOST.into()
-                }
-                std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
-                    std::net::Ipv6Addr::LOCALHOST.into()
-                }
-                ip => ip,
-            };
             format!(
                 "{}://{}",
-                if self.scheme == Scheme::Http {
-                    "http"
-                } else {
-                    "https"
-                },
-                SocketAddr::new(ip, bound.port())
+                self.scheme.primary(),
+                loopback_if_unspecified(bound)
             )
         })
     }
@@ -1014,38 +1014,6 @@ impl ConfigurationReport {
     }
 }
 
-struct ConfigEntries(Vec<(String, serde_json::Value)>);
-
-impl<'de> serde::Deserialize<'de> for ConfigEntries {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Entries;
-        impl<'de> serde::de::Visitor<'de> for Entries {
-            type Value = ConfigEntries;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a flat configuration object")
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                mut map: A,
-            ) -> Result<Self::Value, A::Error> {
-                let mut entries = Vec::new();
-                while let Some(key) = map.next_key::<String>()? {
-                    if entries.len() > crate::config_input::MAX_SETTINGS
-                        || key.len() > crate::config_input::MAX_KEY_BYTES
-                    {
-                        return Err(serde::de::Error::custom(
-                            "configuration input limit exceeded",
-                        ));
-                    }
-                    entries.push((key, map.next_value()?));
-                }
-                Ok(ConfigEntries(entries))
-            }
-        }
-        deserializer.deserialize_map(Entries)
-    }
-}
-
 /// Read only an explicitly selected helper config, without server-side validation or resources.
 pub fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
     let entries = read_config(path).map_err(|error| {
@@ -1110,18 +1078,25 @@ fn read_config(path: &str) -> Result<Vec<(String, serde_json::Value)>, ConfigRea
             crate::bounded_file::ReadError::Limit => ConfigReadError::TooLarge,
             crate::bounded_file::ReadError::Io(_) => ConfigReadError::Unreadable,
         })?;
-    serde_json::from_slice::<ConfigEntries>(&bytes)
-        .map(|entries| entries.0)
-        .map_err(|error| {
-            if error
-                .to_string()
-                .starts_with("configuration input limit exceeded")
-            {
-                ConfigReadError::InputLimit
-            } else {
-                ConfigReadError::Malformed
-            }
-        })
+    let mut limited = false;
+    let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
+    crate::config_input::ordered_members(
+        &mut deserializer,
+        "a flat configuration object",
+        |count, key| {
+            limited = count > crate::config_input::MAX_SETTINGS
+                || key.len() > crate::config_input::MAX_KEY_BYTES;
+            !limited
+        },
+    )
+    .and_then(|entries| deserializer.end().map(|()| entries))
+    .map_err(|_| {
+        if limited {
+            ConfigReadError::InputLimit
+        } else {
+            ConfigReadError::Malformed
+        }
+    })
 }
 
 /// A host or virtual-host domain that is not a plain DNS name.

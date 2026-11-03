@@ -12,6 +12,24 @@ pub enum ReadError {
     Limit,
 }
 
+impl std::fmt::Display for ReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => error.fmt(f),
+            Self::Limit => f.write_str("input exceeds the configured byte limit"),
+        }
+    }
+}
+
+impl std::error::Error for ReadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Limit => None,
+        }
+    }
+}
+
 pub fn read(path: &Path, limit: u64) -> Result<Vec<u8>, ReadError> {
     let file = File::open(path).map_err(ReadError::Io)?;
     read_from(file, limit)

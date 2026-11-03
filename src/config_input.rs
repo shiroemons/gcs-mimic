@@ -9,6 +9,50 @@ use std::collections::BTreeMap;
 pub(crate) const MAX_SETTINGS: usize = 1024;
 pub(crate) const MAX_KEY_BYTES: usize = 256;
 
+pub(crate) fn ordered_members<'de, D, V>(
+    deserializer: D,
+    expecting: &'static str,
+    check: impl FnMut(usize, &str) -> bool,
+) -> Result<Vec<(String, V)>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    V: serde::Deserialize<'de>,
+{
+    struct Members<F, V> {
+        expecting: &'static str,
+        check: F,
+        value: std::marker::PhantomData<V>,
+    }
+    impl<'de, F: FnMut(usize, &str) -> bool, V: serde::Deserialize<'de>> serde::de::Visitor<'de>
+        for Members<F, V>
+    {
+        type Value = Vec<(String, V)>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.expecting)
+        }
+        fn visit_map<A: serde::de::MapAccess<'de>>(
+            mut self,
+            mut map: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut entries = Vec::new();
+            while let Some(key) = map.next_key::<String>()? {
+                if !(self.check)(entries.len(), &key) {
+                    return Err(serde::de::Error::custom(
+                        "configuration input limit exceeded",
+                    ));
+                }
+                entries.push((key, map.next_value()?));
+            }
+            Ok(entries)
+        }
+    }
+    deserializer.deserialize_map(Members {
+        expecting,
+        check,
+        value: std::marker::PhantomData,
+    })
+}
+
 pub(crate) const NATIVE_KEYS: &[&str] = &[
     "config",
     "log_level",
@@ -232,38 +276,7 @@ impl Inputs {
     }
 
     pub(crate) fn environment(&mut self, env: &BTreeMap<String, String>) {
-        for (key, value) in env {
-            if let Some(suffix) = key.strip_prefix("FAKE_GCS_") {
-                let legacy = LEGACY.iter().any(|(name, _)| *name == suffix);
-                if !self.push(Input {
-                    source: DiagnosticSource::Environment,
-                    key: key.clone(),
-                    name: suffix.to_ascii_lowercase(),
-                    value: value.clone(),
-                    kind: if legacy {
-                        InputKind::Legacy
-                    } else {
-                        InputKind::Native
-                    },
-                    invalid: None,
-                }) {
-                    break;
-                }
-            } else if let Some(suffix) = key
-                .strip_prefix("GCS_MIMIC_")
-                .or_else(|| (key == "PUBSUB_EMULATOR_HOST").then_some("PUBSUB_EMULATOR_HOST"))
-                && !self.push(Input {
-                    source: DiagnosticSource::Environment,
-                    key: key.clone(),
-                    name: suffix.to_ascii_lowercase(),
-                    value: value.clone(),
-                    kind: InputKind::Native,
-                    invalid: None,
-                })
-            {
-                break;
-            }
-        }
+        self.environment_os(env.iter().map(|(key, value)| (key.into(), value.into())));
     }
 
     pub(crate) fn environment_os(
@@ -693,7 +706,7 @@ pub fn resolve_default_seed(config: &mut crate::config::Config) -> Vec<Diagnosti
             .chain(config.sync_dir.as_ref())
         {
             let other = migration_path(other)?;
-            if seed.starts_with(&other) || other.starts_with(&seed) {
+            if crate::source_tree::paths_overlap_canonical(&seed, &other) {
                 return Ok(false);
             }
         }
