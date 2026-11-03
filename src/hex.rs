@@ -1,8 +1,7 @@
 //! Hexadecimal codecs shared by protocol-specific validators.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-pub(crate) fn byte(pair: &[u8]) -> Option<u8> {
-    let [high, low] = pair else { return None };
+pub(crate) fn byte([high, low]: &[u8; 2]) -> Option<u8> {
     fn digit(byte: u8) -> Option<u8> {
         match byte {
             b'0'..=b'9' => Some(byte - b'0'),
@@ -14,7 +13,7 @@ pub(crate) fn byte(pair: &[u8]) -> Option<u8> {
     Some(digit(*high)? << 4 | digit(*low)?)
 }
 
-pub(crate) fn decode_hex<const N: usize>(raw: &str) -> Option<[u8; N]> {
+pub(crate) fn decode<const N: usize>(raw: &str) -> Option<[u8; N]> {
     let (pairs, remainder) = raw.as_bytes().as_chunks::<2>();
     if pairs.len() != N || !remainder.is_empty() {
         return None;
@@ -32,10 +31,10 @@ mod tests {
 
     #[test]
     fn exact_length_ascii_hex() {
-        assert_eq!(decode_hex("00aBfF"), Some([0, 171, 255]));
-        assert_eq!(decode_hex::<0>(""), Some([]));
+        assert_eq!(decode("00aBfF"), Some([0, 171, 255]));
+        assert_eq!(decode::<0>(""), Some([]));
         for raw in ["0", "000", "0g", "é", "０"] {
-            assert_eq!(decode_hex::<1>(raw), None);
+            assert_eq!(decode::<1>(raw), None);
         }
     }
 }

@@ -780,7 +780,9 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'%'
-            && let Some(byte) = bytes.get(index + 1..index + 3).and_then(crate::hex::byte)
+            && let Some(byte) = bytes[index + 1..]
+                .first_chunk::<2>()
+                .and_then(crate::hex::byte)
         {
             decoded.push(byte);
             index += 3;

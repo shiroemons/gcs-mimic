@@ -5,7 +5,7 @@ mod object_effects_support;
 
 use common::TestDir;
 use common::server::{Server, http_command, write_request};
-use gcs_mimic::auth::signature::sign_url;
+use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use gcs_mimic::config::Config;
 use hyper::{HeaderMap, Method, Uri};
 use object_effects_support::{Reply, common, request};
@@ -1077,7 +1077,7 @@ fn strict_config_authorization_and_raw_signed_host_survive_public_host_updates()
             server.request("GET", "/test-bucket/value", "", b"").status,
             401
         );
-        let url = sign_url(gcs_mimic::auth::signature::SignUrlRequest {
+        let url = sign_url(SignUrlRequest {
             url: "http://localhost/test-bucket/value",
             method: &Method::GET,
             signer: "admin@example.invalid",

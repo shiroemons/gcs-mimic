@@ -1,5 +1,8 @@
 use super::*;
-use gcs_mimic::{auth::signature::sign_url, url::encode_object_name};
+use gcs_mimic::{
+    auth::signature::{SignUrlRequest, sign_url},
+    url::encode_object_name,
+};
 use hyper::{HeaderMap, Method, Uri};
 use std::time::SystemTime;
 
@@ -248,7 +251,7 @@ fn host(server: &Server) -> String {
 }
 
 fn signed(method: &Method, authority: &str, path: &str, signer: &str) -> String {
-    sign_url(gcs_mimic::auth::signature::SignUrlRequest {
+    sign_url(SignUrlRequest {
         url: &format!("http://{authority}{path}"),
         method,
         signer,

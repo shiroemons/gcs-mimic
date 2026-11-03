@@ -3,6 +3,7 @@
 mod common;
 
 use common::{TestDir, closed_by_server};
+use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
@@ -172,7 +173,7 @@ fn signed_private_download_uses_the_https_listener_host_and_port() {
         ],
         "/upload/storage/v1/b/signed-bucket/o?uploadType=media&name=object",
     ));
-    let url = gcs_mimic::auth::signature::sign_url(gcs_mimic::auth::signature::SignUrlRequest {
+    let url = sign_url(SignUrlRequest {
         url: &format!("{}/signed-bucket/object", server.origin),
         method: &hyper::Method::GET,
         signer: "local-viewer@example.invalid",
@@ -265,17 +266,16 @@ fn virtual_host_https_requires_a_matching_supplied_certificate() {
         ),
         (hyper::Method::GET, vec![]),
     ] {
-        let signed =
-            gcs_mimic::auth::signature::sign_url(gcs_mimic::auth::signature::SignUrlRequest {
-                url: &url,
-                method: &method,
-                signer: "local-admin@example.invalid",
-                private_key: include_bytes!("../fixtures/signing/test-only-private.pem"),
-                expires: 60,
-                now: std::time::SystemTime::now(),
-                headers: hyper::HeaderMap::new(),
-            })
-            .unwrap();
+        let signed = sign_url(SignUrlRequest {
+            url: &url,
+            method: &method,
+            signer: "local-admin@example.invalid",
+            private_key: include_bytes!("../fixtures/signing/test-only-private.pem"),
+            expires: 60,
+            now: std::time::SystemTime::now(),
+            headers: hyper::HeaderMap::new(),
+        })
+        .unwrap();
         let output = Command::new("curl")
             .args([
                 "-q",

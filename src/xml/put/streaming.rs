@@ -156,7 +156,7 @@ impl Reader<'_> {
         Ok(())
     }
 
-    async fn header(&mut self) -> Result<(u64, Vec<u8>), Error> {
+    async fn header(&mut self) -> Result<(u64, [u8; 32]), Error> {
         let mut line = Vec::new();
         loop {
             let byte = self.byte().await?;
@@ -183,9 +183,7 @@ impl Reader<'_> {
         {
             return Err(malformed());
         }
-        let signature = crate::hex::decode_hex::<32>(signature)
-            .ok_or_else(malformed)?
-            .to_vec();
+        let signature = crate::hex::decode::<32>(signature).ok_or_else(malformed)?;
         Ok((
             u64::from_str_radix(length, 16).map_err(|_| malformed())?,
             signature,

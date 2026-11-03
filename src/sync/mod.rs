@@ -53,7 +53,7 @@ pub(crate) fn parse_catalog_id(value: &str) -> Result<CatalogId, InvalidCatalogI
     {
         return Err(InvalidCatalogId);
     }
-    let bytes = crate::hex::decode_hex(value).ok_or(InvalidCatalogId)?;
+    let bytes = crate::hex::decode(value).ok_or(InvalidCatalogId)?;
     Ok(CatalogId::from_bytes(bytes))
 }
 

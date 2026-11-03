@@ -2,6 +2,7 @@ mod common;
 
 use common::TestDir;
 use common::server::{Server, http_command, write_request};
+use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use serde_json::{Value, json};
 use std::{io::BufReader, net::TcpStream, time::Duration};
 
@@ -988,7 +989,7 @@ fn xml_copy_v4_signature_binds_source_and_destination_conditions() {
     let mut headers = hyper::HeaderMap::new();
     headers.insert("x-goog-copy-source", "/list-bucket/source".parse().unwrap());
     headers.insert("x-goog-if-generation-match", "0".parse().unwrap());
-    let url = gcs_mimic::auth::signature::sign_url(gcs_mimic::auth::signature::SignUrlRequest {
+    let url = sign_url(SignUrlRequest {
         url: "http://localhost/list-bucket/copied",
         method: &hyper::Method::PUT,
         signer: "admin@example.invalid",

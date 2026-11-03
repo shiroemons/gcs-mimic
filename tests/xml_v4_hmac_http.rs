@@ -688,7 +688,7 @@ fn curl_aws_sigv4_independently_verifies_header_get_and_hashed_put() {
 
 #[test]
 fn rsa_authorization_headers_and_existing_query_helpers_transfer_the_same_object() {
-    use gcs_mimic::auth::signature::{sign_policy, sign_url};
+    use gcs_mimic::auth::signature::{SignUrlRequest, sign_policy, sign_url};
     let dir = TestDir::new();
     let server = Server::start(&dir, "disk");
     server.bucket("test-bucket");
@@ -728,7 +728,7 @@ fn rsa_authorization_headers_and_existing_query_helpers_transfer_the_same_object
         );
         if method == "PUT" {
             let headers = hyper::HeaderMap::new();
-            let query = sign_url(gcs_mimic::auth::signature::SignUrlRequest {
+            let query = sign_url(SignUrlRequest {
                 url: &format!("http://localhost{path}"),
                 method: &hyper::Method::GET,
                 signer: "signer@example.invalid",

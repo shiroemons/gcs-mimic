@@ -530,7 +530,9 @@ fn unhex(raw: &str) -> Result<Vec<u8>, Failure> {
         return Err(Failure::Malformed);
     }
     raw.as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| crate::hex::byte(pair).ok_or(Failure::Malformed))
         .collect()
 }

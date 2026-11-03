@@ -2,7 +2,7 @@ mod common;
 
 use common::TestDir;
 use common::server::{Server, http_command, write_request};
-use gcs_mimic::auth::signature::sign_url;
+use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use hyper::{HeaderMap, Method, Uri};
 use serde_json::{Value, json};
 use std::{
@@ -258,7 +258,7 @@ fn fixture() -> (TestDir, TestDir, Server) {
 }
 
 fn signed(url: &str, method: &str, signer: &str, time: SystemTime, headers: HeaderMap) -> String {
-    sign_url(gcs_mimic::auth::signature::SignUrlRequest {
+    sign_url(SignUrlRequest {
         url,
         method: &method.parse::<Method>().unwrap(),
         signer: &format!("{signer}@example.invalid"),
