@@ -4,6 +4,8 @@ use crate::{bucket::BucketConditions, config::CompatProfile};
 use hyper::{Method, StatusCode, Uri};
 use std::collections::BTreeMap;
 
+pub(crate) const MAX_QUERY_BYTES: usize = 16 * 1024;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Projection {
     #[default]
@@ -523,7 +525,7 @@ fn parse_bucket_list(
 }
 
 pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonError> {
-    if raw.len() > 16 * 1024 {
+    if raw.len() > MAX_QUERY_BYTES {
         return Err(JsonError::invalid_parameter("Query exceeds 16 KiB"));
     }
     let mut query = BTreeMap::new();

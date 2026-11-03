@@ -59,6 +59,69 @@ fn names(response: &pb::ListBucketsResponse) -> Vec<&str> {
 }
 
 #[tokio::test]
+async fn object_listing_preserves_encoded_query_and_uri_limits() {
+    let dir = TestDir::new();
+    let storage = storage(&dir, Auth::permissive()).await;
+    let fixed_query = "prefix=&delimiter=&pageToken=&maxResults=1000&versions=false&includeTrailingDelimiter=false";
+    for (prefix, expected) in [
+        ("a".repeat(json::MAX_QUERY_BYTES - fixed_query.len()), None),
+        (
+            "a".repeat(json::MAX_QUERY_BYTES - fixed_query.len() + 1),
+            Some("Invalid object listing or page token; use the token with its original query"),
+        ),
+        (
+            "/".repeat(5500),
+            Some("Invalid object listing or page token; use the token with its original query"),
+        ),
+        ("/".repeat(22000), Some("Invalid list request")),
+    ] {
+        let uri = format!("/storage/v1/b/list-a/o?prefix={}&delimiter=&pageToken=&maxResults=1000&versions=false&includeTrailingDelimiter=false", crate::auth::signature::encode_query_component(&prefix)).parse::<hyper::Uri>();
+        match expected {
+            None => assert!(json::parse_query(uri.as_ref().unwrap().query().unwrap()).is_ok()),
+            Some("Invalid list request") => assert!(uri.is_err()),
+            Some(_) => assert!(json::parse_query(uri.as_ref().unwrap().query().unwrap()).is_err()),
+        }
+        let actual = storage
+            .list_objects(Request::new(pb::ListObjectsRequest {
+                bucket: "list-a".into(),
+                prefix,
+                ..Default::default()
+            }))
+            .await;
+        if let Some(expected) = expected {
+            assert_eq!(
+                assert_code(actual, tonic::Code::InvalidArgument).message(),
+                expected
+            );
+        } else {
+            assert!(actual.unwrap().into_inner().items.is_empty());
+        }
+    }
+    let fixed_uri_len = "/storage/v1/b/list-a/o?".len() + fixed_query.len();
+    for length in [usize::from(u16::MAX) - 1, usize::from(u16::MAX)] {
+        let request = pb::ListObjectsRequest {
+            bucket: "list-a".into(),
+            prefix: "a".repeat(length - fixed_uri_len),
+            ..Default::default()
+        };
+        let uri = format!("/storage/v1/b/list-a/o?prefix={}&delimiter=&pageToken=&maxResults=1000&versions=false&includeTrailingDelimiter=false", request.prefix).parse::<hyper::Uri>();
+        let error = assert_code(
+            storage.list_objects(Request::new(request)).await,
+            tonic::Code::InvalidArgument,
+        );
+        assert_eq!(
+            error.message(),
+            if uri.is_ok() {
+                "Invalid object listing or page token; use the token with its original query"
+            } else {
+                "Invalid list request"
+            }
+        );
+    }
+    storage.state.catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn object_listing_preserves_json_pagination_prefixes_versions_and_errors() {
     let dir = TestDir::new();
     let storage = storage(&dir, Auth::permissive()).await;

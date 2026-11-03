@@ -137,6 +137,34 @@ fn limit(value: i32) -> Result<usize, Status> {
     })
 }
 
+fn validate_list_query(request: &pb::ListObjectsRequest, max_results: usize) -> Result<(), Status> {
+    let encoded_len = |value: &str| {
+        value
+            .bytes()
+            .map(|byte| {
+                if crate::url::is_unreserved(byte) {
+                    1
+                } else {
+                    3
+                }
+            })
+            .sum::<usize>()
+    };
+    let query_len = format!("prefix=&delimiter=&pageToken=&maxResults={max_results}&versions={}&includeTrailingDelimiter={}", request.versions, request.include_trailing_delimiter).len()
+        + encoded_len(&request.prefix) + encoded_len(&request.delimiter) + encoded_len(&request.page_token);
+    let uri_len = "/storage/v1/b//o?".len() + encoded_len(&request.bucket) + query_len;
+    // The pinned http URI parser checks this limit before the JSON query parser runs.
+    if uri_len > usize::from(u16::MAX) - 1 {
+        return Err(Status::invalid_argument("Invalid list request"));
+    }
+    if query_len > json::MAX_QUERY_BYTES {
+        return Err(Status::invalid_argument(
+            "Invalid object listing or page token; use the token with its original query",
+        ));
+    }
+    Ok(())
+}
+
 /// One UpdateObject or PatchObject request after common parameter validation.
 struct ObjectUpdate<'a> {
     bucket: &'a str,
@@ -625,6 +653,7 @@ impl pb::storage_server::Storage for Storage {
             .access(caller, &r.bucket, crate::auth::OBJECTS_LIST)
             .await?;
         let max_results = limit(r.max_results)?;
+        validate_list_query(&r, max_results)?;
         let mut query = crate::storage::ObjectListQuery {
             bucket: r.bucket,
             prefix: r.prefix,
