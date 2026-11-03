@@ -304,7 +304,7 @@ async fn reset_waits_for_staged_files_session_and_appendable_writers_and_clears_
 
 #[tokio::test]
 async fn reset_crash_and_power_loss_snapshots_recover_on_each_commit_and_cleanup_boundary() {
-    use crate::storage::catalog::fault::{Fault, Step};
+    use crate::storage::catalog::fault::{Crash, Step};
     let steps: &[Step] = if cfg!(unix) {
         &[
             Step::BeforeCommit,
@@ -316,23 +316,11 @@ async fn reset_crash_and_power_loss_snapshots_recover_on_each_commit_and_cleanup
         &[Step::BeforeCommit, Step::AfterCommit, Step::ResetReclaim]
     };
     for &step in steps {
-        for power_loss in [false, true] {
+        for &crash in Crash::ALL {
             let (_dir, catalog, admin) = setup().await;
             publish(&admin).await;
             let snapshot = TestDir::new();
-            let fault = if power_loss {
-                #[cfg(unix)]
-                {
-                    Fault::PowerLoss(snapshot.0.clone())
-                }
-                #[cfg(not(unix))]
-                {
-                    continue;
-                }
-            } else {
-                Fault::Snapshot(snapshot.0.clone())
-            };
-            catalog.inject(step, 0, fault);
+            catalog.inject(step, 0, crash.fault(snapshot.0.clone()));
             admin.reset().await.unwrap();
             assert_eq!(catalog.pending_faults(), 0);
             let recovered = Catalog::open(&snapshot.0).await.unwrap();
@@ -343,7 +331,7 @@ async fn reset_crash_and_power_loss_snapshots_recover_on_each_commit_and_cleanup
                     .unwrap()
                     .is_some(),
                 step == Step::BeforeCommit,
-                "{step:?}, power_loss={power_loss}"
+                "{step:?} {crash:?}"
             );
             recovered.close().await.unwrap();
             catalog.close().await.unwrap();
