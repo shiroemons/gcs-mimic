@@ -507,6 +507,9 @@ fn root_error(error: &RootError) -> JsonError {
             crate::auth::AuthFailure::Forbidden.into()
         }
         RootError::Admin(crate::storage::admin::AdminError::Precondition) => stale(),
+        RootError::Admin(crate::storage::admin::AdminError::Corrupt(cause)) => {
+            crate::object::ObjectError::Corrupt(cause.clone()).into()
+        }
         RootError::Admin(_) | RootError::InUse => busy(),
         RootError::Unsupported => JsonError::new(
             StatusCode::NOT_IMPLEMENTED,
@@ -524,6 +527,11 @@ fn control_error(error: &io::Error) -> JsonError {
     for error in crate::error::causes(error) {
         if let Some(root) = error.downcast_ref::<RootError>() {
             return root_error(root);
+        }
+        if let Some(crate::storage::admin::AdminError::Corrupt(cause)) =
+            error.downcast_ref::<crate::storage::admin::AdminError>()
+        {
+            return crate::object::ObjectError::Corrupt(cause.clone()).into();
         }
         if let Some(crate::storage::admin::AdminError::Forbidden) =
             error.downcast_ref::<crate::storage::admin::AdminError>()

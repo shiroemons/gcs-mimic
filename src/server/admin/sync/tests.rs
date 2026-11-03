@@ -19,6 +19,7 @@ fn nested_io_control_errors_keep_status_and_text() {
     for error in [
         RootError::Admin(crate::storage::admin::AdminError::Forbidden),
         RootError::Admin(crate::storage::admin::AdminError::Precondition),
+        RootError::Admin(crate::storage::admin::AdminError::Corrupt("corrupt".into())),
         RootError::InUse,
     ] {
         let expected = root_error(&error);
@@ -26,6 +27,18 @@ fn nested_io_control_errors_keep_status_and_text() {
         assert_eq!(actual.status, expected.status);
         assert_eq!(actual.message, expected.message);
     }
+}
+
+#[test]
+fn corrupt_control_causes_require_restoring_the_data_directory() {
+    let actual = control_error(&io::Error::other(io::Error::other(
+        crate::storage::admin::AdminError::Corrupt("corrupt".into()),
+    )));
+    assert_eq!(actual.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        actual.message,
+        "Object storage is unavailable: stored data is corrupt; restore a valid data directory"
+    );
 }
 
 #[test]
@@ -839,7 +852,11 @@ async fn unknown_stored_pause_reasons_fail_status_and_findings_with_service_unav
             .unwrap_err()
             .into_response();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(body(response).await["error"]["message"], busy().message);
+        assert_eq!(
+            body(response).await["error"]["message"],
+            "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
+            "{path}"
+        );
     }
     drop(root);
     fixture.finish().await;
