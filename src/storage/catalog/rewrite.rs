@@ -46,6 +46,58 @@ macro_rules! session_columns {
     };
 }
 
+fn read_session(
+    connection: &Connection,
+    token: &str,
+    now: i64,
+) -> Result<RewriteSession, RewriteError> {
+    let session = sql::row(
+        connection,
+        concat!(
+            "SELECT ",
+            session_columns!(),
+            " FROM rewrite_sessions WHERE token=?1 OR previous_token=?1"
+        ),
+        [token],
+        read,
+    )
+    .optional()
+    .map_err(object_unavailable)?
+    .ok_or(RewriteError::Gone)?;
+    if session.deadline <= now {
+        return Err(RewriteError::Gone);
+    }
+    Ok(session)
+}
+
+fn check_continuation(
+    connection: &Connection,
+    session: &RewriteSession,
+    token: &str,
+    access: (&BucketAccess, &BucketAccess),
+    now: i64,
+) -> Result<Option<super::derived::DerivedTransfer>, ObjectError> {
+    if session.previous_token.as_deref() == Some(token) {
+        check_incarnations(connection, session)?;
+        super::objects::authorize_generation(
+            connection,
+            &session.binding.source_bucket,
+            &session.binding.source_object,
+            session.binding.source_generation,
+            access.0,
+        )?;
+        super::objects::authorized_bucket(
+            connection,
+            &session.binding.destination_bucket,
+            access.1,
+        )?;
+        Ok(None)
+    } else {
+        check_source(connection, session, access.0)?;
+        super::derived::transfer(connection, &session.id, now).map(|(transfer, _)| Some(transfer))
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum RewriteError {
     Invalid,
@@ -472,27 +524,8 @@ impl Catalog {
             .as_str()
             .to_owned();
         let now = unix_millis(self.0.clock.now())?;
-        let session = self
-            .run(move |connection| {
-                sql::row(
-                    connection,
-                    concat!(
-                        "SELECT ",
-                        session_columns!(),
-                        " FROM rewrite_sessions WHERE token = ?1 OR previous_token = ?1"
-                    ),
-                    [token],
-                    read,
-                )
-                .optional()
-                .map_err(object_unavailable)
-            })
-            .await?
-            .ok_or(RewriteError::Gone)?;
-        if session.deadline <= now {
-            return Err(RewriteError::Gone);
-        }
-        Ok(session)
+        self.run(move |connection| read_session(connection, &token, now))
+            .await
     }
 
     pub(crate) async fn continue_rewrite(
@@ -506,34 +539,25 @@ impl Catalog {
         let _guard = self
             .claim_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
             .map_err(CatalogError::from)?;
-        let mut session = self.rewrite_session(token).await?;
-        let replay = session.previous_token.as_deref() == Some(token);
-        let checked = session.clone();
+        let selected_token = token.to_owned();
+        let now = unix_millis(self.0.clock.now())?;
         let source_check = source_access.clone();
         let destination_check = destination_access.clone();
-        let source_result = self
+        let (mut session, source_result) = self
             .run(move |connection| {
-                let transaction = connection.transaction()?;
-                if replay {
-                    check_incarnations(&transaction, &checked)?;
-                    super::objects::authorize_generation(
-                        &transaction,
-                        &checked.binding.source_bucket,
-                        &checked.binding.source_object,
-                        checked.binding.source_generation,
-                        &source_check,
-                    )?;
-                    super::objects::authorized_bucket(
-                        &transaction,
-                        &checked.binding.destination_bucket,
-                        &destination_check,
-                    )?;
-                } else {
-                    check_source(&transaction, &checked, &source_check)?;
-                }
-                Ok(())
+                let transaction = connection.transaction().map_err(object_unavailable)?;
+                let checked = read_session(&transaction, &selected_token, now)?;
+                let result = check_continuation(
+                    &transaction,
+                    &checked,
+                    &selected_token,
+                    (&source_check, &destination_check),
+                    now,
+                );
+                Ok::<_, RewriteError>((checked, result))
             })
-            .await;
+            .await?;
+        let replay = session.previous_token.as_deref() == Some(token);
         if let Err(error) = source_result {
             if session
                 .response
@@ -565,7 +589,8 @@ impl Catalog {
             )
             .map_err(Into::into);
         }
-        let current = self.get_derived(&session.id).await?;
+        let current =
+            source_result?.ok_or_else(|| object_unavailable("missing rewrite transfer"))?;
         let target = session
             .offset
             .saturating_add(session.budget)
@@ -838,7 +863,7 @@ mod tests {
         struct ExpiringClock(AtomicUsize);
         impl crate::clock::Clock for ExpiringClock {
             fn now(&self) -> SystemTime {
-                let expired = self.0.fetch_add(1, Ordering::SeqCst) >= 4;
+                let expired = self.0.fetch_add(1, Ordering::SeqCst) >= 3;
                 UNIX_EPOCH + Duration::from_millis(if expired { 604801000 } else { 1000 })
             }
         }

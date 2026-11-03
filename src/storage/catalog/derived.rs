@@ -597,7 +597,7 @@ fn inputs(connection: &Connection, id: &BlobId) -> Result<Vec<Input>, ObjectErro
     connection.prepare_cached("SELECT blob_id, start, length, size FROM derived_inputs WHERE transfer_id = ?1 ORDER BY position LIMIT 33")?.query_map([id], |row| Ok(Input { id: row.get(0)?, start: row.get(1)?, length: row.get(2)?, size: row.get(3)? }))?.collect::<rusqlite::Result<_>>().map_err(object_unavailable)
 }
 
-fn transfer(
+pub(super) fn transfer(
     connection: &Connection,
     id: &BlobId,
     now: i64,
@@ -964,6 +964,7 @@ impl Catalog {
             })
     }
 
+    #[cfg(test)]
     pub(crate) async fn get_derived(&self, id: &BlobId) -> Result<DerivedTransfer, ObjectError> {
         let id = *id;
         let now = unix_millis(self.0.clock.now())?;
