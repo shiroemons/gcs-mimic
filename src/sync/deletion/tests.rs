@@ -95,7 +95,7 @@ async fn cumulative_deletions_require_approval_after_split_scans_rescan_and_rest
 }
 
 #[tokio::test]
-async fn empty_explicit_rescan_resets_automatic_deletion_history() {
+async fn zero_candidate_inventory_can_clear_automatic_deletion_history() {
     let (_data, tree, catalog, root, config) = fixture(1).await;
     let summary = Reconciliation {
         baseline_complete: true,

@@ -1,4 +1,5 @@
 use super::*;
+mod history;
 
 async fn tracked(root: &RootLease, expected: u64) -> Result<(), RootError> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
@@ -171,7 +172,15 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
         )
         .await
         .unwrap();
-        reset_history(&root, Quiet::Established, &summary)
+        let mut watcher = DirectoryWatch::new(&root).await.unwrap();
+        watcher.continue_quiet();
+        assert!(matches!(
+            watcher.next_observation().await.unwrap(),
+            Observed::Settled(_, Quiet::Established)
+        ));
+        watcher
+            .history_scan(Quiet::Established)
+            .reset(&root, &summary)
             .await
             .unwrap();
         assert_eq!(root.automatic_deletion_count().await.unwrap(), 20);
@@ -191,12 +200,19 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
             root.deletion_set().await.unwrap().unwrap().candidate_count,
             0
         );
-        reset_history(&root, Quiet::Capped, &summary).await.unwrap();
+        watcher
+            .history_scan(Quiet::Capped)
+            .reset(&root, &summary)
+            .await
+            .unwrap();
         assert_eq!(root.automatic_deletion_count().await.unwrap(), 20);
-        reset_history(&root, Quiet::Established, &summary)
+        watcher
+            .history_scan(Quiet::Established)
+            .reset(&root, &summary)
             .await
             .unwrap();
         assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
+        drop(watcher);
         for index in 0..20 {
             fs::write(tree.0.join(format!("test-bucket/{index:03}")), b"body").unwrap();
         }
@@ -416,6 +432,59 @@ async fn stopping_a_quiet_queue_answers_waiters_without_losing_their_replies() {
         io::ErrorKind::Interrupted
     );
     assert!(!controls.has_waiters());
+    drop(watcher);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn stopping_after_dequeue_retains_the_request_until_its_stopped_reply() {
+    let (_data, _tree, catalog, root, _config) = crate::sync::test_support::fixture(None).await;
+    let mut watcher = DirectoryWatch::new(&root).await.unwrap();
+    watcher.continue_quiet();
+    let mut controls = Controls::default();
+    let (reply, response) = tokio::sync::oneshot::channel();
+    assert!(
+        controls
+            .admit(
+                Command::Wait {
+                    deadline: tokio::time::Instant::now() + Duration::from_secs(10),
+                    settling: Default::default(),
+                    reply,
+                    identity: None
+                },
+                &watcher,
+                Quiet::Unverified
+            )
+            .is_none()
+    );
+    watcher.pending = None;
+    controls.settled();
+    let request = controls.ready(&watcher, Quiet::Established).unwrap();
+    let (_stop, stopping) = tokio::sync::watch::channel(true);
+    assert!(controls.running(request, &stopping).is_none());
+    controls.stop();
+    assert_eq!(
+        response.await.unwrap().unwrap().reason,
+        crate::sync::control::WaitReason::Stopped
+    );
+    let (reply, response) = tokio::sync::oneshot::channel();
+    assert!(
+        controls
+            .running(
+                Command::Rescan {
+                    reply,
+                    identity: None
+                },
+                &stopping
+            )
+            .is_none()
+    );
+    controls.stop();
+    assert_eq!(
+        response.await.unwrap().unwrap_err().kind(),
+        io::ErrorKind::Interrupted
+    );
     drop(watcher);
     drop(root);
     catalog.close().await.unwrap();

@@ -640,13 +640,18 @@ and explicit scans use that same condition. A scan triggered by the ten-second
 cap without quiet, an incomplete scan or one with remaining candidates never
 resets it. Restart and rescanning a guarded set never reset it. Approved-set
 execution does not count as a new automatic deletion.
+Reset also requires an unchanged native event generation and no pending event
+between the scan's start and completion. Notifications read at either boundary
+are retained for observation. A failed reset retains history, logs the original
+cause and preserves the completed control response.
 Public set counts still describe the current frozen members and baseline;
 the threshold also includes the retained automatic history.
 
 Native notifications wait for one second of quiet, restarting that interval
 after another notification, with a ten-second total cap. Controls remain
 available during this interval. Wait and rescan stay in a bounded actor queue;
-status, approval and resolution remain available. Wait retains its original
+status, approval and resolution remain available; approval and resolution return
+busy if the bounded control queue is full. Wait retains its original
 deadline and only reports SourceChanging if still settling at that deadline;
 otherwise it completes observation in the same request. Rescan waits for quiet
 or the cap before actually scanning; clients do not retry a false completion.

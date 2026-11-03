@@ -332,6 +332,10 @@ pub(super) fn build(root: &File, path: &Path) -> io::Result<Native> {
     })
 }
 impl Native {
+    #[cfg(test)]
+    pub(super) fn duplicate_queue(&self) -> io::Result<OwnedFd> {
+        self.queue.try_clone()
+    }
     #[expect(
         unsafe_code,
         reason = "draining the native notification pipe requires nonblocking read"

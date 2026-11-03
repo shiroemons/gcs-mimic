@@ -64,6 +64,10 @@ pub(super) fn build(root: &File) -> io::Result<Native> {
     Ok(native)
 }
 impl Native {
+    #[cfg(test)]
+    pub(super) fn duplicate_queue(&self) -> io::Result<OwnedFd> {
+        self.queue.try_clone()
+    }
     #[expect(
         unsafe_code,
         reason = "inotify has no standard-library queue constructor"

@@ -107,7 +107,7 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
         fs::write(tree.0.join(format!("test-bucket/{index:03}")), b"body").unwrap();
     }
     let (stop, mut stopping) = tokio::sync::watch::channel(false);
-    let (_commands, mut requests) = tokio::sync::mpsc::channel(2);
+    let (commands, mut requests) = tokio::sync::mpsc::channel(2);
     let worker_root = root.clone();
     let worker_catalog = catalog.clone();
     let hook = std::sync::Arc::new(Hook {
@@ -116,7 +116,8 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
         release: Default::default(),
     });
     let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
-        run_live_config(
+        let mut controls = observation::Controls::default();
+        let result = run_live_config(
             LiveRun {
                 catalog: &worker_catalog,
                 root: &worker_root,
@@ -126,9 +127,11 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
             },
             &mut stopping,
             &mut requests,
-            &mut observation::Controls::default(),
+            &mut controls,
         )
-        .await
+        .await;
+        controls.stop();
+        result
     }));
     tokio::time::timeout(Duration::from_secs(60), hook.entered.notified())
         .await
@@ -145,7 +148,39 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
         .unwrap()
         .unwrap();
     assert_eq!(observed.tracked_objects, 100);
+    let (reply, mut waiting) = tokio::sync::oneshot::channel();
+    commands
+        .send(Command::Wait {
+            deadline: tokio::time::Instant::now() + Duration::from_secs(30),
+            settling: Default::default(),
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    let (reply, approved) = tokio::sync::oneshot::channel();
+    commands
+        .send(Command::Approve {
+            revision: "00000000000000000000000000000000".into(),
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
     hook.release.notify_one();
+    let error = tokio::time::timeout(Duration::from_millis(500), approved)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert!(crate::error::causes(&error).any(|cause| matches!(
+        cause.downcast_ref::<AdminError>(),
+        Some(AdminError::Precondition)
+    )));
+    assert!(matches!(
+        waiting.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
     tokio::time::timeout(Duration::from_secs(5), hook.entered.notified())
         .await
         .unwrap();
@@ -164,6 +199,11 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
     stop.send(true).unwrap();
     hook.release.notify_one();
     worker.await.unwrap().unwrap();
+    assert!(matches!(
+        waiting.await.unwrap().unwrap().reason,
+        crate::sync::control::WaitReason::Stopped
+            | crate::sync::control::WaitReason::DeletionApproval
+    ));
     drop(root);
     catalog.close().await.unwrap();
 }
@@ -179,7 +219,7 @@ async fn delayed_native_event_retains_the_completed_deletion_observation_until_i
     let worker_root = root.clone();
     let worker_catalog = catalog.clone();
     let hook = std::sync::Arc::new(Hook {
-        phase: "idle,observation-invalidated",
+        phase: "observation-ready,observation-invalidated",
         entered: Default::default(),
         release: Default::default(),
     });

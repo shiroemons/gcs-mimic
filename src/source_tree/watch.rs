@@ -25,6 +25,29 @@ pub(crate) struct Watch {
     ready: AsyncFd<Native>,
 }
 impl Watch {
+    pub(crate) fn try_changed(&self) -> io::Result<Option<Change>> {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        match self.ready.get_ref().drain() {
+            Ok(change) => Ok(Some(change)),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
+            Err(error) => Err(error),
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+    }
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    #[expect(
+        unsafe_code,
+        reason = "the witness owns an immutable duplicate descriptor until its readiness registration is dropped"
+    )]
+    pub(crate) fn notification_witness(&self) -> io::Result<AsyncFd<std::os::fd::OwnedFd>> {
+        let queue = self.ready.get_ref().duplicate_queue()?;
+        // SAFETY: OwnedFd keeps the duplicate descriptor unchanged for the registration's lifetime.
+        unsafe { AsyncFd::register_with_interest(queue, tokio::io::Interest::READABLE) }
+            .map_err(io::Error::from)
+    }
     #[cfg_attr(
         not(any(target_os = "linux", target_os = "macos")),
         expect(
