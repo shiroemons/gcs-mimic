@@ -22,6 +22,9 @@ use std::{
 
 type Failure = Box<dyn std::error::Error>;
 
+#[cfg(test)]
+mod tests;
+
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }

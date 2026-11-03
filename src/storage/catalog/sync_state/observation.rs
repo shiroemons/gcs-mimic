@@ -82,11 +82,15 @@ struct RetainedProjection {
     hashes: Option<RetainedHashes>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum RecoveryPhase {
     Protected,
     DiscardAccepted,
 }
 sql::integer_enum!(RecoveryPhase, { Protected => 0, DiscardAccepted => 1 });
+
+#[cfg(test)]
+mod codec_tests;
 
 fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     let category: String = row.get(2)?;

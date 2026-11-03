@@ -121,18 +121,20 @@ mod tests {
                 variant
             );
         }
+        let error = scalar::<T>(&connection, "SELECT 'bogus'", []).unwrap_err();
         assert!(matches!(
-            scalar::<T>(&connection, "SELECT 'bogus'", []),
-            Err(rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                _
-            ))
+            error,
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, _)
+        ));
+        assert!(matches!(
+            super::super::unavailable(error),
+            crate::bucket::CatalogError::Corrupt(_)
         ));
     }
 
     fn integer_values<T: rusqlite::ToSql + FromSql + std::fmt::Debug + PartialEq>(
         values: &[(T, i64)],
+        upper: i64,
     ) {
         let connection = Connection::open_in_memory().unwrap();
         for (variant, integer) in values {
@@ -145,10 +147,16 @@ mod tests {
                 variant
             );
         }
-        assert!(matches!(
-            scalar::<T>(&connection, "SELECT -1", []),
-            Err(rusqlite::Error::IntegralValueOutOfRange(0, -1))
-        ));
+        for invalid in [-1, upper] {
+            let error = scalar::<T>(&connection, "SELECT ?1", [invalid]).unwrap_err();
+            assert!(
+                matches!(error, rusqlite::Error::IntegralValueOutOfRange(0, value) if value == invalid)
+            );
+            assert!(matches!(
+                super::super::unavailable(error),
+                crate::bucket::CatalogError::Corrupt(_)
+            ));
+        }
     }
 
     #[test]
@@ -197,14 +205,17 @@ mod tests {
             (PathStop::SourceChanging, "SourceChanging"),
             (PathStop::IoFailure, "IoFailure"),
         ]);
-        integer_values(&[(Kind::Publish, 0), (Kind::Remove, 1)]);
-        integer_values(&[
-            (Phase::Prepared, 0),
-            (Phase::Armed, 1),
-            (Phase::Protected, 2),
-            (Phase::Durable, 3),
-            (Phase::Complete, 4),
-        ]);
+        integer_values(&[(Kind::Publish, 0), (Kind::Remove, 1)], 2);
+        integer_values(
+            &[
+                (Phase::Prepared, 0),
+                (Phase::Armed, 1),
+                (Phase::Protected, 2),
+                (Phase::Durable, 3),
+                (Phase::Complete, 4),
+            ],
+            5,
+        );
     }
 
     #[test]
