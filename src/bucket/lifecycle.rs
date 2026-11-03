@@ -1,8 +1,122 @@
 //! Validated lifecycle metadata; execution belongs to the maintenance scheduler.
 
 use super::{CatalogError, validate_storage_class};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct LifecycleRule {
+    pub action: LifecycleAction,
+    pub condition: LifecycleCondition,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LifecycleAction {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_class: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LifecycleCondition {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_before: Option<LifecycleDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_time_before: Option<LifecycleDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub days_since_custom_time: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub days_since_noncurrent_time: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_live: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matches_prefix: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matches_storage_class: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matches_suffix: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub noncurrent_time_before: Option<LifecycleDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_newer_versions: Option<i64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LifecycleDate {
+    pub year: i32,
+    pub month: i32,
+    pub day: i32,
+}
+
+impl serde::Serialize for LifecycleDate {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!(
+            "{:04}-{:02}-{:02}",
+            self.year, self.month, self.day
+        ))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for LifecycleDate {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let mut parts = value.split('-');
+        let mut component = || -> Result<i32, D::Error> {
+            parts
+                .next()
+                .ok_or_else(|| serde::de::Error::custom("Invalid lifecycle date"))?
+                .parse()
+                .map_err(serde::de::Error::custom)
+        };
+        let date = Self {
+            year: component()?,
+            month: component()?,
+            day: component()?,
+        };
+        if parts.next().is_some() {
+            return Err(serde::de::Error::custom("Invalid lifecycle date"));
+        }
+        Ok(date)
+    }
+}
+
+impl LifecycleRule {
+    pub(crate) fn to_stored(rules: &[Self]) -> Result<Vec<Value>, CatalogError> {
+        let values = rules
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| {
+                CatalogError::InvalidMetadata(format!("Invalid lifecycle rule: {error}"))
+            })?;
+        validate(&values)?;
+        Ok(values)
+    }
+
+    pub(crate) fn from_stored(values: &[Value]) -> Result<Vec<Self>, CatalogError> {
+        // Stored values must satisfy the same contract before conversions narrow integers.
+        validate(values).map_err(|error| {
+            crate::storage::failure::unavailable(CatalogError::Corrupt(
+                crate::storage::failure::BackendCause::from_error(error),
+            ))
+        })?;
+        values
+            .iter()
+            .map(Self::deserialize)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| {
+                crate::storage::failure::unavailable(CatalogError::Corrupt(
+                    crate::storage::failure::BackendCause::from_error(error),
+                ))
+            })
+    }
+}
 
 fn invalid(field: &str, example: &str) -> CatalogError {
     CatalogError::InvalidMetadata(format!("Invalid lifecycle {field}; use {example}"))
@@ -293,6 +407,39 @@ pub(crate) fn validate_location(rules: &[Value], location_type: &str) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_lifecycle_preserves_every_condition_and_rejects_invalid_values() {
+        let values = vec![
+            json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":30,"createdBefore":"2026-01-01","customTimeBefore":"2026-02-01","daysSinceCustomTime":2,"daysSinceNoncurrentTime":3,"isLive":false,"matchesPrefix":["a/"],"matchesStorageClass":["STANDARD"],"matchesSuffix":[".txt"],"noncurrentTimeBefore":"2026-03-01","numNewerVersions":4}}),
+        ];
+        let typed = LifecycleRule::from_stored(&values).unwrap();
+        assert_eq!(LifecycleRule::to_stored(&typed).unwrap(), values);
+        let mut invalid_age = typed.clone();
+        invalid_age[0].condition.age = Some(-1);
+        assert!(
+            LifecycleRule::to_stored(&invalid_age)
+                .unwrap_err()
+                .to_string()
+                .contains("nonnegative int32")
+        );
+        let mut invalid_date = typed;
+        invalid_date[0].condition.created_before = Some(LifecycleDate {
+            year: 2025,
+            month: 2,
+            day: 29,
+        });
+        assert!(
+            LifecycleRule::to_stored(&invalid_date)
+                .unwrap_err()
+                .to_string()
+                .contains("valid YYYY-MM-DD")
+        );
+        assert!(matches!(
+            LifecycleRule::from_stored(&[json!({})]),
+            Err(CatalogError::Corrupt(_))
+        ));
+    }
 
     #[test]
     fn lifecycle_date_and_prefix_suffix_boundaries() {
