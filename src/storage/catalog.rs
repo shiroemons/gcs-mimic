@@ -93,7 +93,8 @@ mod object_owner;
 mod objects;
 mod soft_delete;
 pub(crate) use objects::{
-    ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader, ObjectUpload,
+    FoldersAsPrefixes, ListQueryError, ObjectListCursor, ObjectListPage, ObjectListQuery,
+    ObjectReader, ObjectUpload,
 };
 pub(crate) use soft_delete::RestoreAccess;
 

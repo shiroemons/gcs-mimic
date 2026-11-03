@@ -2,7 +2,7 @@ use super::{
     JsonError, Projection, object_resource,
     query::{boolean, finish, parse_query, projection},
 };
-use crate::storage::{ObjectListPage, ObjectListQuery};
+use crate::storage::{FoldersAsPrefixes, ListQueryError, ObjectListPage, ObjectListQuery};
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,19 +102,11 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         soft_deleted: boolean(&mut params, "softDeleted")?,
         cursor: None,
     };
-    if query.soft_deleted && query.versions {
-        return Err(JsonError::invalid_argument(
-            "softDeleted=true cannot be combined with versions=true; omit versions",
-        ));
-    }
-    if include_folders_as_prefixes {
-        check_folders_as_prefixes(&query.delimiter)?;
-    }
-    if query.match_glob.is_some() && !query.delimiter.is_empty() && query.delimiter != "/" {
-        return Err(JsonError::invalid_parameter(
-            "matchGlob requires delimiter=/ or no delimiter; use matchGlob=**/*.txt&delimiter=/",
-        ));
-    }
+    query.validate(if include_folders_as_prefixes {
+        FoldersAsPrefixes::Requested
+    } else {
+        FoldersAsPrefixes::Omitted
+    })?;
     if let Some(token) = params.remove("pageToken").filter(|token| !token.is_empty()) {
         query.cursor = Some(super::page_token::decode_object_page_token(
             &token, &query, projection,
@@ -142,6 +134,22 @@ pub(crate) fn check_folders_as_prefixes(delimiter: &str) -> Result<(), JsonError
         ));
     }
     Ok(())
+}
+
+impl From<ListQueryError> for JsonError {
+    fn from(error: ListQueryError) -> Self {
+        match error {
+            ListQueryError::SoftDeletedWithVersions => Self::invalid_argument(
+                "softDeleted=true cannot be combined with versions=true; omit versions",
+            ),
+            ListQueryError::FoldersAsPrefixesNeedSlash => Self::invalid_parameter(
+                "includeFoldersAsPrefixes requires delimiter=/; use includeFoldersAsPrefixes=true&delimiter=/",
+            ),
+            ListQueryError::GlobNeedsSlashDelimiter => Self::invalid_parameter(
+                "matchGlob requires delimiter=/ or no delimiter; use matchGlob=**/*.txt&delimiter=/",
+            ),
+        }
+    }
 }
 
 pub(crate) fn object_list(

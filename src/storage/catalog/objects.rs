@@ -28,7 +28,9 @@ use super::fault::{self, Step};
 
 #[cfg(test)]
 mod reclaim_tests;
+mod list_query;
 pub(super) mod retention;
+pub(crate) use list_query::{FoldersAsPrefixes, ListQueryError};
 
 use super::object_hold::columns as hold_columns;
 
