@@ -328,13 +328,64 @@ pub(super) fn bucket_granted(
 ) -> Result<bool, CatalogError> {
     let entries = stored_bucket_entries(connection, bucket, AclKind::Bucket)?
         .unwrap_or_else(|| project_private(project));
-    let public = super::policies::policy_public_access(connection, bucket)?;
     // Bucket ACL roles are the same authority as legacy bucket IAM, including under UBLA.
-    Ok(entries.iter().any(|entry| {
-        crate::auth::roles::permissions(crate::acl::bucket_iam_role(entry.role))
-            .is_some_and(|permissions| permissions.binary_search(&permission).is_ok())
-            && Entity::parse(&entry.entity).is_ok_and(|entity| entity.matches(identity, public))
-    }))
+    entries_grant(
+        &entries,
+        identity,
+        |role| {
+            crate::auth::roles::permissions(crate::acl::bucket_iam_role(role))
+                .is_some_and(|permissions| permissions.binary_search(&permission).is_ok())
+        },
+        || super::policies::policy_public_access(connection, bucket),
+    )
+}
+
+fn entries_grant(
+    entries: &[AclEntry],
+    identity: Option<&crate::auth::Identity>,
+    allows: impl Fn(AclRole) -> bool,
+    mut public: impl FnMut() -> Result<crate::auth::PublicAccess, CatalogError>,
+) -> Result<bool, CatalogError> {
+    let mut cached = None;
+    for entry in entries.iter().filter(|entry| allows(entry.role)) {
+        let Ok(entity) = Entity::parse(&entry.entity) else {
+            continue;
+        };
+        let access = if entity.is_public() {
+            match cached {
+                Some(access) => access,
+                None => {
+                    let access = public()?;
+                    cached = Some(access);
+                    access
+                }
+            }
+        } else {
+            crate::auth::PublicAccess::Allowed
+        };
+        if entity.matches(identity, access) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn object_entries_grant(
+    owner: Option<&crate::object::owner::ObjectOwner>,
+    entries: &[AclEntry],
+    identity: Option<&crate::auth::Identity>,
+    permission: crate::auth::Permission,
+    public: impl FnMut() -> Result<crate::auth::PublicAccess, CatalogError>,
+) -> Result<bool, CatalogError> {
+    if owner.is_some_and(|owner| owner.is_principal(identity)) {
+        return Ok(true);
+    }
+    entries_grant(
+        entries,
+        identity,
+        |role| crate::acl::object_role_allows(role, permission),
+        public,
+    )
 }
 
 pub(super) fn object_granted(
@@ -363,29 +414,32 @@ pub(super) fn object_granted(
     {
         return Ok(false);
     }
-    let exists: bool = sql::scalar(
+    let stored = sql::row(
         connection,
-        "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3)",
+        "SELECT o.owner, e.entries FROM objects o LEFT JOIN acl_object_entries e ON e.bucket=o.bucket AND e.name=o.name AND e.generation=o.generation WHERE o.bucket=?1 AND o.name=?2 AND o.generation=?3",
         params![bucket, name, generation],
-    )?;
-    if !exists {
+        |row| Ok((super::object_owner::read(row, 0)?, row.get::<_, Option<String>>(1)?)),
+    ).optional()?;
+    let Some((owner, stored)) = stored else {
         return Ok(false);
-    }
-    let owner = super::object_owner::selected(connection, bucket, name, generation)?;
+    };
     if owner
         .as_ref()
         .is_some_and(|owner| owner.is_principal(identity.as_ref()))
     {
         return Ok(true);
     }
-    let entries = stored_object_entries(connection, bucket, name, generation)?
+    let entries = stored
+        .map(|entries| decode(&entries, AclKind::Object))
+        .transpose()?
         .unwrap_or_else(|| project_private(&row.project));
-    let public = super::policies::policy_public_access(connection, bucket)?;
-    Ok(entries.iter().any(|entry| {
-        crate::acl::object_role_allows(entry.role, *permission)
-            && Entity::parse(&entry.entity)
-                .is_ok_and(|entity| entity.matches(identity.as_ref(), public))
-    }))
+    object_entries_grant(
+        owner.as_ref(),
+        &entries,
+        identity.as_ref(),
+        *permission,
+        || super::policies::policy_public_access(connection, bucket),
+    )
 }
 
 fn stored_object_entries(
@@ -878,22 +932,29 @@ impl Catalog {
                 return Ok(None);
             };
             let default = || project_private(&row.project);
+            let object_access = access.as_ref().map(|access| super::objects::object_acl_authority(&transaction, &bucket, access))
+                .transpose().map_err(unavailable)?.flatten();
+            let page = serde_json::to_string(&objects).map_err(unavailable)?;
+            let records = transaction.prepare_cached(
+                "SELECT o.generation IS NOT NULL, o.owner, e.entries FROM json_each(?2) j LEFT JOIN objects o ON o.bucket=?1 AND o.name=json_extract(j.value,'$[0]') AND o.generation=json_extract(j.value,'$[1]') LEFT JOIN acl_object_entries e ON e.bucket=o.bucket AND e.name=o.name AND e.generation=o.generation ORDER BY j.key"
+            )?.query_map(params![bucket, page], |row| Ok((row.get::<_, bool>(0)?, super::object_owner::read(row, 1)?, row.get::<_, Option<String>>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
             let mut entries = Vec::with_capacity(objects.len());
             let mut owners = Vec::with_capacity(objects.len());
             let mut visible = Vec::with_capacity(objects.len());
-            for (name, generation) in &objects {
-                let allowed = match &access {
-                    Some(access) => match super::objects::authorize_generation(
-                        &transaction,
-                        &bucket,
-                        name,
-                        *generation,
-                        access,
-                    ) {
-                        Ok(()) => true,
-                        Err(ObjectError::Forbidden) => false,
-                        Err(error) => return Err(unavailable(error)),
-                    },
+            let mut cached_public = None;
+            for (exists, owner, stored) in records {
+                let mut object_entries = stored.map(|entries| decode(&entries, AclKind::Object)).transpose()?.unwrap_or_else(default);
+                let allowed = exists && match object_access {
+                    Some(BucketAccess::Policy { identity, permission, project }) => {
+                        !row.uniform_access && project.as_ref().is_none_or(|project| project == &row.project)
+                            && object_entries_grant(owner.as_ref(), &object_entries, identity.as_ref(), *permission, || {
+                                if let Some(public) = cached_public { return Ok(public); }
+                                let public = super::policies::policy_public_access(&transaction, &bucket)?;
+                                cached_public = Some(public);
+                                Ok(public)
+                            })?
+                    }
+                    Some(_) => false,
                     None => true,
                 };
                 visible.push(allowed);
@@ -902,11 +963,6 @@ impl Catalog {
                     owners.push(None);
                     continue;
                 }
-                let owner =
-                    super::object_owner::selected(&transaction, &bucket, name, *generation)?;
-                let mut object_entries =
-                    stored_object_entries(&transaction, &bucket, name, *generation)?
-                        .unwrap_or_else(default);
                 if let Some(owner) = &owner {
                     owner.preserve_grant(&mut object_entries);
                 }
