@@ -281,6 +281,7 @@ impl fmt::Display for AdminError {
             Self::Closed => f.write_str("Closed"),
             Self::Precondition => f.write_str("Precondition"),
             Self::Hold => f.write_str("Hold"),
+            // Preserve the diagnostic that preceded the typed project mismatch.
             Self::SeedProjectMismatch => {
                 f.write_str("Invalid(\"existing seed bucket belongs to another project\")")
             }
