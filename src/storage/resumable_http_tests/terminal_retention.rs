@@ -7,7 +7,7 @@ async fn retained_completions_answer_status_and_final_retries_after_the_active_c
     let mut completed = Vec::new();
     for index in 0..130 {
         // Distinct initiation times give eviction a deterministic oldest-first order.
-        *h.clock.0.lock().unwrap() += Duration::from_millis(1);
+        h.clock.advance(Duration::from_millis(1));
         let init = h.initiate(&format!("name=object{index}"), "", b"").await;
         assert_eq!(init.status, 200, "initiation {index}");
         let path = h.path(&init);

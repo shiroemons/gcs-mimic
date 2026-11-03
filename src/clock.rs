@@ -12,6 +12,33 @@ impl Clock for SystemClock {
     }
 }
 
+#[cfg(test)]
+pub(crate) struct ManualClock(std::sync::Mutex<SystemTime>);
+
+#[cfg(test)]
+impl ManualClock {
+    pub(crate) fn new(now: SystemTime) -> Self {
+        Self(std::sync::Mutex::new(now))
+    }
+
+    #[track_caller]
+    pub(crate) fn set(&self, now: SystemTime) {
+        *self.0.lock().unwrap() = now;
+    }
+
+    #[track_caller]
+    pub(crate) fn advance(&self, duration: std::time::Duration) {
+        *self.0.lock().unwrap() += duration;
+    }
+}
+
+#[cfg(test)]
+impl Clock for ManualClock {
+    fn now(&self) -> SystemTime {
+        *self.0.lock().unwrap()
+    }
+}
+
 /// The shared wire range includes year 0000 for existing native catalog compatibility.
 pub(crate) fn rfc3339_micros(micros: i128) -> bool {
     (-62_167_219_200_000_000..=253_402_300_799_999_999).contains(&micros)

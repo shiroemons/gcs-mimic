@@ -269,7 +269,7 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
         .body,
         b"new"
     );
-    *h.clock.0.lock().unwrap() += Duration::from_secs(600);
+    h.clock.advance(Duration::from_secs(600));
     let replacement = h.request("POST", path, next, b"new").await;
     assert_eq!(replacement.status, 200);
     assert_ne!(
@@ -285,7 +285,7 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
         1
     );
     drop(connection);
-    *h.clock.0.lock().unwrap() += Duration::from_secs(600);
+    h.clock.advance(Duration::from_secs(600));
     let expired_retry = h.request("POST", path, next, b"new").await;
     assert_eq!(expired_retry.status, 200);
     assert_ne!(

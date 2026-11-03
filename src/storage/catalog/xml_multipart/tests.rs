@@ -2,14 +2,14 @@ use super::super::fault::{Fault, Step};
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
 use crate::{
-    clock::{Clock, SystemClock},
+    clock::{Clock, ManualClock, SystemClock},
     object::UploadChunk,
     storage::admin::{BucketDefinition, BucketName, LocalAdmin},
     test_support::TestDir,
 };
 use std::{
     io,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
 use tokio::sync::mpsc;
@@ -422,15 +422,9 @@ async fn multipart_part_and_completion_crash_and_power_loss_snapshots_recover() 
 
 #[tokio::test]
 async fn injected_clock_expiration_and_session_admission_are_bounded() {
-    struct Time(Mutex<SystemTime>);
-    impl Clock for Time {
-        fn now(&self) -> SystemTime {
-            *self.0.lock().unwrap()
-        }
-    }
-    let clock = Arc::new(Time(Mutex::new(
+    let clock = Arc::new(ManualClock::new(
         UNIX_EPOCH + Duration::from_secs(1_000_000),
-    )));
+    ));
     let (_dir, catalog) = setup(clock.clone()).await;
     let target = begin(&catalog).await;
     put(&catalog, &target, 1, b"expires").await.unwrap();
@@ -447,7 +441,7 @@ async fn injected_clock_expiration_and_session_admission_are_bounded() {
             .await
             .is_err()
     );
-    *clock.0.lock().unwrap() += Duration::from_secs(604800);
+    clock.advance(Duration::from_secs(604800));
     assert!(matches!(
         catalog
             .lease_xml_multipart(target, BucketAccess::Permissive)

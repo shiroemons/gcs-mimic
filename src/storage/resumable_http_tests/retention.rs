@@ -242,7 +242,7 @@ async fn retention_insert_patch_put_defaults_and_empty_policy_lock() {
 #[tokio::test]
 async fn retention_all_mutation_paths_expire_with_injected_clock() {
     let h = Harness::start(1024, false, None).await;
-    *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(1000);
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     for name in [
         "upload", "copy", "rewrite", "compose", "move", "delete", "xml", "source",
     ] {
@@ -315,7 +315,7 @@ async fn retention_all_mutation_paths_expire_with_injected_clock() {
         .await;
     assert_eq!(xml.status, 403, "{}", String::from_utf8_lossy(&xml.body));
     assert!(String::from_utf8_lossy(&xml.body).contains("RetentionPolicyNotMet"));
-    *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(1010);
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1010));
     for (method, path, body) in &operations {
         let bytes = if *method == "DELETE" || path.contains("/moveTo/") {
             Vec::new()
@@ -341,7 +341,7 @@ async fn retention_all_mutation_paths_expire_with_injected_clock() {
 #[tokio::test]
 async fn retention_and_both_holds_are_independent() {
     let h = Harness::start(1024, false, None).await;
-    *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(1000);
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     for field in ["temporaryHold", "eventBasedHold"] {
         let name = format!("held-{field}");
         h.request(
@@ -362,7 +362,7 @@ async fn retention_and_both_holds_are_independent() {
             .await
             .error(403, "retentionPolicyNotMet");
         call(&h, "PATCH", &path, json!({field:true})).await;
-        *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(1010);
+        h.clock.set(UNIX_EPOCH + Duration::from_secs(1010));
         h.request("DELETE", &path, ADMIN, b"")
             .await
             .error(403, "forbidden");
@@ -370,7 +370,7 @@ async fn retention_and_both_holds_are_independent() {
             call(&h, "PATCH", &path, json!({field:false})).await;
             assert_eq!(h.request("DELETE", &path, ADMIN, b"").await.status, 204);
         }
-        *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(1000);
+        h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     }
     h.stop().await;
 }

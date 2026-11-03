@@ -1,4 +1,5 @@
 use super::*;
+use crate::clock::ManualClock;
 use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use crate::{
     json::{self, Projection},
@@ -131,13 +132,6 @@ fn timestamp_migration_rejects_overflow_without_changing_version_or_values() {
     }
 }
 
-struct FixedClock(Mutex<SystemTime>);
-impl Clock for FixedClock {
-    fn now(&self) -> SystemTime {
-        *self.0.lock().unwrap()
-    }
-}
-
 #[test]
 fn timestamp_fixture_downgrade_floors_signed_values_and_deletion_times() {
     let connection = migration_fixture();
@@ -206,7 +200,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             "gcs-mimic-timestamp-writes-{}-{index}",
             std::process::id()
         ));
-        let catalog = Catalog::open_with_clock(&dir, Arc::new(FixedClock(Mutex::new(now))))
+        let catalog = Catalog::open_with_clock(&dir, Arc::new(ManualClock::new(now)))
             .await
             .unwrap();
         let mut bucket =
@@ -386,7 +380,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         "gcs-mimic-timestamp-pre-epoch-{}",
         std::process::id()
     ));
-    let clock = Arc::new(FixedClock(Mutex::new(UNIX_EPOCH)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = Catalog::open_with_clock(&dir, clock.clone()).await.unwrap();
     let mut bucket = json::parse_insert(
         br#"{"name":"timestamp-bucket"}"#,
@@ -424,7 +418,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
             .lock_resumable_session(&session.id, "timestamp-bucket")
             .await
             .unwrap();
-        *clock.0.lock().unwrap() = UNIX_EPOCH - Duration::from_nanos(nanos);
+        clock.set(UNIX_EPOCH - Duration::from_nanos(nanos));
         assert!(matches!(
             catalog
                 .put_object(permissive_upload("timestamp-bucket", "media", 1), body())
@@ -497,7 +491,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
             json::timestamp(updated.updated).unwrap(),
             json::timestamp(clock.now()).unwrap()
         );
-        *clock.0.lock().unwrap() = UNIX_EPOCH;
+        clock.set(UNIX_EPOCH);
         catalog.cancel_derived(&transfer.id).await.unwrap();
         catalog
             .cancel_resumable_session(&session.id, "timestamp-bucket")
@@ -526,9 +520,7 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
         "gcs-mimic-timestamp-upgrade-{}",
         std::process::id()
     ));
-    let clock = Arc::new(FixedClock(Mutex::new(
-        UNIX_EPOCH + Duration::from_millis(1234),
-    )));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_millis(1234)));
     let catalog = Catalog::open_with_clock(&dir, clock.clone()).await.unwrap();
     for millis in [
         -62_167_219_200_000i64,

@@ -14,7 +14,7 @@ const TWO_HOURS: &str = "2026-01-01T02:00:00Z";
 const HALF_HOUR: &str = "2026-01-01T00:30:00Z";
 
 fn set_clock(h: &Harness, seconds: u64) {
-    *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(seconds);
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(seconds));
 }
 
 fn retention(mode: &str, until: &str) -> Value {

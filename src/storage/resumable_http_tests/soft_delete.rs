@@ -50,7 +50,7 @@ async fn retained(h: &Harness) -> Vec<Value> {
 #[tokio::test]
 async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
     let h = Harness::start(1024, true, None).await;
-    *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(1000);
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     for seconds in [None, Some(0)] {
         if let Some(seconds) = seconds {
             policy(&h, seconds).await;
@@ -128,7 +128,7 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
             configured["softDeletePolicy"]
         );
     }
-    *h.clock.0.lock().unwrap() += Duration::from_secs(1);
+    h.clock.advance(Duration::from_secs(1));
     let increased = policy(&h, 7776000).await;
     assert_ne!(increased["softDeletePolicy"]["effectiveTime"], effective);
     let decreased = policy(&h, 604800).await;
@@ -230,7 +230,7 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
 #[tokio::test]
 async fn soft_delete_restore_conditions_collisions_and_restart() {
     let h = Harness::start(1024, false, None).await;
-    *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(1000);
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     policy(&h, 604800).await;
     let original = upload(&h, "history%2Fitem", b"original").await;
     let generation = original["generation"].as_str().unwrap();
@@ -357,7 +357,7 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
     );
     assert_eq!(retained(&h).await.len(), 1);
     drop(connection);
-    *h.clock.0.lock().unwrap() += Duration::from_secs(1);
+    h.clock.advance(Duration::from_secs(1));
     let restored = h
         .request(
             "POST",
@@ -578,7 +578,7 @@ async fn soft_delete_all_overwrite_paths_and_versioned_deletion() {
 #[tokio::test]
 async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
     let h = Harness::start(1024, false, None).await;
-    *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(1000);
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
     policy(&h, 604800).await;
     for name in ["a.txt", "a.txt", "dir%2Fb.txt", "z.log"] {
         upload(&h, name, b"bytes").await;
@@ -669,7 +669,7 @@ async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
     h.request("DELETE", "/storage/v1/b/bucket/o/held", ADMIN, b"")
         .await
         .error(403, "retentionPolicyNotMet");
-    *h.clock.0.lock().unwrap() += Duration::from_secs(604800);
+    h.clock.advance(Duration::from_secs(604800));
     let expired = first["items"][0]["generation"].as_str().unwrap();
     h.request(
         "GET",
