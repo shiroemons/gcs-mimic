@@ -67,7 +67,7 @@ impl std::fmt::Display for WalkError {
 impl std::error::Error for WalkError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io(error) => Some(error),
+            Self::Io(error) => std::error::Error::source(error),
             _ => None,
         }
     }

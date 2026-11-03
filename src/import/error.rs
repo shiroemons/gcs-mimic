@@ -71,13 +71,15 @@ impl fmt::Display for ImportError {
 impl Error for ImportError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Diagnostics(error) => Some(error),
-            Self::Io(error) | Self::ObservationCleanup(error) => Some(error),
-            Self::Admin(error) => Some(error),
-            Self::Catalog(error) => Some(error),
-            Self::Source(error) => Some(error),
-            Self::Json(error) => Some(error),
-            Self::Integer(error) => Some(error),
+            Self::Diagnostics(error) => error.source(),
+            Self::Io(error) => error.source(),
+            Self::ObservationCleanup(error) => Some(error),
+            Self::Admin(error) => error.source(),
+            Self::Catalog(error) => error.source(),
+            Self::Source(error) => error.source(),
+            Self::Json(error) => error.source(),
+            Self::Integer(error) => error.source(),
+            // Error chains are linear; the secondary cleanup cause remains in the variant.
             Self::Cleanup { original, .. } => Some(original.as_ref()),
         }
     }
@@ -136,6 +138,7 @@ mod tests {
             "source changed; remove temporary import observations also failed: cleanup denied"
         );
         assert!(error.source().unwrap().is::<ImportError>());
+        assert!(error.source().unwrap().source().is_none());
         let ImportError::Cleanup {
             original, cause, ..
         } = error

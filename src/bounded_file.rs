@@ -24,7 +24,7 @@ impl std::fmt::Display for ReadError {
 impl std::error::Error for ReadError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io(error) => Some(error),
+            Self::Io(error) => std::error::Error::source(error),
             Self::Limit => None,
         }
     }

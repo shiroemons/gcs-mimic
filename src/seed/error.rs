@@ -48,10 +48,10 @@ impl fmt::Display for SeedError {
 impl Error for SeedError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Io(error) => Some(error),
-            Self::Admin(error) | Self::BucketName(error) => Some(error),
-            Self::ObjectName(error) => Some(error),
-            Self::RelativePath(error) => Some(error),
+            Self::Io(error) => error.source(),
+            Self::Admin(error) | Self::BucketName(error) => error.source(),
+            Self::ObjectName(error) => error.source(),
+            Self::RelativePath(error) => error.source(),
             Self::Entry { source, .. } | Self::Import(source) => Some(source.as_ref()),
             _ => None,
         }

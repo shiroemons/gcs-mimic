@@ -682,7 +682,10 @@ mod tests {
         let error = SeedError::Io(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
         let error = SeedError::Import(Box::new(error));
         use std::error::Error;
-        assert!(error.source().unwrap().source().unwrap().is::<io::Error>());
+        assert!(
+            matches!(error.source().unwrap().downcast_ref::<SeedError>(), Some(SeedError::Io(cause)) if cause.kind() == io::ErrorKind::PermissionDenied)
+        );
+        assert!(error.source().unwrap().source().is_none());
     }
 
     #[tokio::test]

@@ -1,7 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{
-    CleanupOperation, ImportError as Failure, ImportFailure, Options, Page, Record, Summary, codec,
+    CleanupOperation, ImportError, ImportFailure, Options, Page, Record, Summary, codec,
     scan_with_baseline,
 };
 use crate::{
@@ -177,7 +177,7 @@ fn identity(
     created: i64,
     updated: i64,
     deleted: Option<i64>,
-) -> Result<ImportedIdentity, Failure> {
+) -> Result<ImportedIdentity, ImportError> {
     let identity = ImportedIdentity::new(
         Generation::new(attrs.generation)?,
         time(created)?,
@@ -189,7 +189,7 @@ fn identity(
     })
 }
 
-fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Failure> {
+fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, ImportError> {
     Ok(Publication {
         content_type: attrs.content_type.clone(),
         metadata: ObjectMetadataUpdate {
@@ -234,7 +234,7 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Fail
     })
 }
 
-fn findings(page: &Page, diagnostics: &mut impl Write) -> Result<(), Failure> {
+fn findings(page: &Page, diagnostics: &mut impl Write) -> Result<(), ImportError> {
     let mut batch = crate::diagnostics::Diagnostics::default();
     for finding in &page.findings {
         if finding.blocking {
@@ -252,7 +252,7 @@ async fn metadata_scan(
     baseline: &Path,
     mode: BaselineMode,
     diagnostics: &mut impl Write,
-) -> Result<Summary, Failure> {
+) -> Result<Summary, ImportError> {
     let (mut receive, worker) = scan_with_baseline(
         options.clone(),
         crate::fsutil::read_source_metadata,
@@ -276,7 +276,7 @@ async fn metadata_scan(
                 }
             }
         }
-        Ok::<_, Failure>(())
+        Ok::<_, ImportError>(())
     }
     .await;
     drop(receive);
@@ -289,7 +289,7 @@ async fn metadata_scan(
     Ok(summary)
 }
 
-fn require_eligible(summary: &Summary) -> Result<(), Failure> {
+fn require_eligible(summary: &Summary) -> Result<(), ImportError> {
     if !summary.eligible {
         if summary.io_findings != 0
             && summary.io_findings + summary.stat_identity_drift_findings
@@ -313,7 +313,7 @@ fn require_eligible(summary: &Summary) -> Result<(), Failure> {
     Ok(())
 }
 
-fn same_export(before: &Summary, after: &Summary) -> Result<(), Failure> {
+fn same_export(before: &Summary, after: &Summary) -> Result<(), ImportError> {
     require_eligible(after)?;
     if before.manifest_sha256 != after.manifest_sha256 {
         return Err(invalid("source_changed: keep the source immutable; abandon this incomplete destination if export metadata changed").into());
@@ -332,7 +332,7 @@ pub fn execute(
     mut options: Options,
     mut output: impl Write,
     mut diagnostics: impl Write,
-) -> Result<Summary, Failure> {
+) -> Result<Summary, ImportError> {
     options.validate_destination(super::Destination::MayResume)?;
     options.verify_bodies = false;
     let source = fs::canonicalize(&options.source)?;
@@ -405,7 +405,7 @@ pub fn execute(
         Err(error) if error.kind() == io::ErrorKind::NotFound => (),
         Err(error) => {
             return Err(match result {
-                Ok(_) => Failure::ObservationCleanup(error),
+                Ok(_) => ImportError::ObservationCleanup(error),
                 Err(original) => original.with_cleanup(CleanupOperation::Observations, error),
             });
         }
@@ -420,7 +420,7 @@ async fn run(
     baseline: &Path,
     output: &mut impl Write,
     diagnostics: &mut impl Write,
-) -> Result<Summary, Failure> {
+) -> Result<Summary, ImportError> {
     let preflight = if start == ImportStart::Resume {
         None
     } else {
@@ -471,15 +471,15 @@ async fn run(
     }
 }
 
-fn terminal(error: &Failure) -> bool {
+fn terminal(error: &ImportError) -> bool {
     match error {
-        Failure::Admin(AdminError::SourceChanged { fields }) => {
+        ImportError::Admin(AdminError::SourceChanged { fields }) => {
             fields.is_empty()
                 || fields
                     .iter()
                     .any(|field| !matches!(field.as_str(), "device" | "inode" | "ctime_ns"))
         }
-        Failure::Admin(error) => matches!(
+        ImportError::Admin(error) => matches!(
             error,
             AdminError::Checksum
                 | AdminError::Corrupt(_)
@@ -489,67 +489,12 @@ fn terminal(error: &Failure) -> bool {
                 | AdminError::TooLarge
                 | AdminError::NotFound
         ),
-        Failure::Source(error) => {
+        ImportError::Source(error) => {
             !error.retryable_stat_drift()
                 && !matches!(error, ImportFailure::Io(_) | ImportFailure::ReportClosed)
         }
-        Failure::Io(error) => error.kind() == io::ErrorKind::InvalidData,
+        ImportError::Io(error) => error.kind() == io::ErrorKind::InvalidData,
         _ => false,
-    }
-}
-
-#[cfg(test)]
-mod error_tests {
-    use super::*;
-
-    #[test]
-    fn terminal_classification_preserves_retryable_identity_drift_and_io_failures() {
-        for (error, expected) in [
-            (AdminError::Hold.into(), true),
-            (AdminError::Invalid("invalid metadata".into()).into(), true),
-            (
-                AdminError::Busy {
-                    retry_after: Duration::from_secs(1),
-                }
-                .into(),
-                false,
-            ),
-            (
-                AdminError::SourceChanged {
-                    fields: vec!["inode".into(), "ctime_ns".into()],
-                }
-                .into(),
-                false,
-            ),
-            (
-                AdminError::SourceChanged {
-                    fields: vec!["size".into()],
-                }
-                .into(),
-                true,
-            ),
-            (
-                ImportFailure::SourceChanged {
-                    fields: vec![super::super::ChangedField::Inode],
-                }
-                .into(),
-                false,
-            ),
-            (
-                ImportFailure::SourceChanged {
-                    fields: vec![super::super::ChangedField::Metadata],
-                }
-                .into(),
-                true,
-            ),
-            (io::Error::from(io::ErrorKind::InvalidData).into(), true),
-            (
-                io::Error::from(io::ErrorKind::PermissionDenied).into(),
-                false,
-            ),
-        ] {
-            assert_eq!(terminal(&error), expected, "{error}");
-        }
     }
 }
 
@@ -561,7 +506,7 @@ async fn import(
     baseline: &Path,
     output: &mut impl Write,
     diagnostics: &mut impl Write,
-) -> Result<Summary, Failure> {
+) -> Result<Summary, ImportError> {
     let journal = catalog.import_journal();
     let progress = journal.begin(binding.clone()).await?;
     let admin = catalog.admin(Origin::Import);
@@ -616,7 +561,7 @@ async fn import(
                 writeln!(output)?;
             }
         }
-        Ok::<_, Failure>(())
+        Ok::<_, ImportError>(())
     }.await;
     drop(receive);
     let joined = worker
@@ -652,7 +597,7 @@ async fn publish(
     element: ImportElement,
     record: Record,
     cap: u64,
-) -> Result<u64, Failure> {
+) -> Result<u64, ImportError> {
     match record {
         Record::Bucket {
             name,
@@ -752,7 +697,7 @@ async fn verify_committed(
     catalog: &Catalog,
     admin: &Admin,
     record: &Record,
-) -> Result<(), Failure> {
+) -> Result<(), ImportError> {
     match record {
         Record::Bucket {
             name,
@@ -867,4 +812,59 @@ async fn verify_committed(
         Record::Directory { .. } => (),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_classification_preserves_retryable_identity_drift_and_io_failures() {
+        for (error, expected) in [
+            (AdminError::Hold.into(), true),
+            (AdminError::Invalid("invalid metadata".into()).into(), true),
+            (
+                AdminError::Busy {
+                    retry_after: Duration::from_secs(1),
+                }
+                .into(),
+                false,
+            ),
+            (
+                AdminError::SourceChanged {
+                    fields: vec!["inode".into(), "ctime_ns".into()],
+                }
+                .into(),
+                false,
+            ),
+            (
+                AdminError::SourceChanged {
+                    fields: vec!["size".into()],
+                }
+                .into(),
+                true,
+            ),
+            (
+                ImportFailure::SourceChanged {
+                    fields: vec![super::super::ChangedField::Inode],
+                }
+                .into(),
+                false,
+            ),
+            (
+                ImportFailure::SourceChanged {
+                    fields: vec![super::super::ChangedField::Metadata],
+                }
+                .into(),
+                true,
+            ),
+            (io::Error::from(io::ErrorKind::InvalidData).into(), true),
+            (
+                io::Error::from(io::ErrorKind::PermissionDenied).into(),
+                false,
+            ),
+        ] {
+            assert_eq!(terminal(&error), expected, "{error}");
+        }
+    }
 }
