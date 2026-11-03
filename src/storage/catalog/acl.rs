@@ -284,8 +284,14 @@ fn bucket_row(connection: &Connection, bucket: &str) -> Result<Option<BucketRow>
     .map_err(unavailable)
 }
 
-fn decode(entries: &str) -> Result<Vec<AclEntry>, CatalogError> {
-    serde_json::from_str(entries).map_err(|_| CatalogError::Corrupt("invalid stored ACL".into()))
+pub(super) fn decode(entries: &str, kind: AclKind) -> Result<Vec<AclEntry>, CatalogError> {
+    let entries: Vec<AclEntry> = serde_json::from_str(entries)
+        .map_err(|_| CatalogError::Corrupt("invalid stored ACL".into()))?;
+    for entry in &entries {
+        crate::acl::validate_role(kind, &entry.role)
+            .map_err(|_| CatalogError::Corrupt("invalid stored ACL".into()))?;
+    }
+    Ok(entries)
 }
 
 fn stored_bucket_entries(
@@ -300,7 +306,16 @@ fn stored_bucket_entries(
         |row| row.get::<_, String>(0),
     )
     .optional()?
-    .map(|entries| decode(&entries))
+    .map(|entries| {
+        decode(
+            &entries,
+            if scope == "bucket" {
+                AclKind::Bucket
+            } else {
+                AclKind::DefaultObject
+            },
+        )
+    })
     .transpose()
 }
 
@@ -382,7 +397,7 @@ fn stored_object_entries(
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
     const SELECT: &str = "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3";
     sql::optional_scalar::<String>(connection, SELECT, params![bucket, name, generation])?
-        .map(|entries| decode(&entries))
+        .map(|entries| decode(&entries, AclKind::Object))
         .transpose()
 }
 

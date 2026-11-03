@@ -2103,7 +2103,7 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         project: row.get(1)?,
         location: row.get(2)?,
         location_type: row.get(3)?,
-        storage_class: row.get(4)?,
+        storage_class: sql::storage_class(row, 4)?,
         autoclass: bucket_autoclass::read(row)?,
         labels: serde_json::from_str(&labels)
             .map_err(|e| sql::conversion_error(5, Type::Text, e))?,
@@ -2134,6 +2134,85 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
 mod tests {
     use super::*;
     use crate::storage::test_fixtures::PERMISSIVE;
+
+    #[tokio::test]
+    async fn unknown_catalog_classes_fail_bucket_and_object_read_paths() {
+        use crate::object::{ObjectError, UploadChunk};
+        use crate::storage::test_fixtures::{bucket, live, permissive_upload};
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        let (sender, body) = tokio::sync::mpsc::channel(1);
+        sender.try_send(Ok(UploadChunk::End)).unwrap();
+        catalog
+            .put_object_prechecked(
+                permissive_upload("bucket", "object", 1),
+                body,
+                catalog.admit_object_upload().unwrap(),
+            )
+            .await
+            .unwrap();
+        catalog
+            .run(|connection| {
+                sql::exec(
+                    connection,
+                    "UPDATE buckets SET storage_class='bogus' WHERE name='bucket'",
+                    [],
+                )?;
+                Ok::<_, CatalogError>(())
+            })
+            .await
+            .unwrap();
+        let error = catalog
+            .get_bucket("bucket", PERMISSIVE)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, CatalogError::Corrupt(_)));
+        assert_eq!(
+            crate::json::JsonError::from(error).message,
+            "Bucket catalog is unavailable"
+        );
+        let error = catalog
+            .run(|connection| objects::authorized_bucket(connection, "bucket", PERMISSIVE))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ObjectError::Corrupt(_)));
+        catalog
+            .run(|connection| {
+                sql::exec(
+                    connection,
+                    "UPDATE buckets SET storage_class='STANDARD' WHERE name='bucket'",
+                    [],
+                )?;
+                sql::exec(
+                    connection,
+                    "UPDATE objects SET storage_class='bogus' WHERE bucket='bucket'",
+                    [],
+                )?;
+                Ok::<_, CatalogError>(())
+            })
+            .await
+            .unwrap();
+        let error = catalog
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ObjectError::Corrupt(_)));
+        assert_eq!(
+            crate::json::JsonError::from(error).message,
+            "Object storage is unavailable: stored data is corrupt; restore a valid data directory"
+        );
+        let error = catalog
+            .open_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(error, ObjectError::Corrupt(_)));
+        catalog.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn acl_and_storage_class_keep_catalog_text() {

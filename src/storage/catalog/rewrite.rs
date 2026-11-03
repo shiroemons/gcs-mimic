@@ -166,6 +166,10 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
     let options = resumable::decode_options(&request.options)
         .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
+    if let Some(class) = &request.class {
+        crate::bucket::validate_storage_class(class)
+            .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
+    }
     if request.budget == 0 {
         return Err(sql::conversion_error(
             3,

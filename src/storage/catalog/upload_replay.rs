@@ -18,6 +18,18 @@ struct Completion {
     source: Option<CopySource>,
 }
 
+fn decode_completion(stored: &str, index: usize) -> rusqlite::Result<Completion> {
+    let conversion = |error| sql::conversion_error(index, rusqlite::types::Type::Text, error);
+    let completion: Completion = serde_json::from_str(stored).map_err(conversion)?;
+    crate::bucket::validate_storage_class(&completion.record.storage_class)
+        .map_err(|error| sql::conversion_error(index, rusqlite::types::Type::Text, error))?;
+    for entry in completion.acl.iter().flatten() {
+        crate::acl::validate_role(crate::acl::AclKind::Object, &entry.role)
+            .map_err(|error| sql::conversion_error(index, rusqlite::types::Type::Text, error))?;
+    }
+    Ok(completion)
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct CopySource {
     bucket: String,
@@ -67,7 +79,7 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         let completion: String = row.get(0)?;
-        let _: Completion = serde_json::from_str(&completion).map_err(unavailable)?;
+        decode_completion(&completion, 0)?;
     }
     Ok(())
 }
@@ -187,10 +199,7 @@ impl UploadReplay {
             if request != self.request || incarnation != self.incarnation {
                 return Err(invalid());
             }
-            Ok((
-                fingerprint,
-                serde_json::from_str(&completion).map_err(objects::object_unavailable)?,
-            ))
+            Ok((fingerprint, decode_completion(&completion, 3)?))
         })
         .transpose()
     }
@@ -266,7 +275,10 @@ impl UploadReplay {
             )?;
             Some(
                 entries
-                    .map(|v| serde_json::from_str(&v).map_err(objects::object_unavailable))
+                    .map(|v| {
+                        super::acl::decode(&v, crate::acl::AclKind::Object)
+                            .map_err(ObjectError::from)
+                    })
                     .transpose()?
                     .unwrap_or_else(|| crate::acl::project_private(&project)),
             )
@@ -352,8 +364,7 @@ fn copy_source_generation(
     )?;
     let generation = match stored {
         Some(stored) => {
-            let completion: Completion =
-                serde_json::from_str(&stored).map_err(objects::object_unavailable)?;
+            let completion = decode_completion(&stored, 0)?;
             match completion.source {
                 Some(original)
                     if original.bucket == source.bucket && original.name == source.name =>
@@ -553,6 +564,60 @@ mod tests {
     use super::*;
     use crate::object::ObjectMetadataUpdate;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn completion_decoding_and_startup_reject_corrupt_enums_and_json() {
+        let record = objects::PublicationDefaults {
+            storage_class: "STANDARD".into(),
+            event_based_hold: false,
+            time: std::time::UNIX_EPOCH,
+            owner: None,
+        }
+        .record(
+            crate::object::ObjectTarget::new("bucket", "object", 1),
+            "text/plain".into(),
+            0,
+            crate::hashing::Hashes {
+                md5: [0; 16],
+                crc32c: 0,
+            },
+        );
+        let original =
+            serde_json::json!({"record":record,"acl":[{"entity":"allUsers","role":"READER"}]});
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch("CREATE TABLE upload_replays(token TEXT,completion TEXT);")
+            .unwrap();
+        for field in ["role", "storage_class", "json"] {
+            let mut value = original.clone();
+            let stored = match field {
+                "role" => {
+                    value["acl"][0]["role"] = serde_json::json!("UNKNOWN");
+                    value.to_string()
+                }
+                "storage_class" => {
+                    value["record"]["storage_class"] = serde_json::json!("UNKNOWN");
+                    value.to_string()
+                }
+                _ => "not-json".into(),
+            };
+            let error = decode_completion(&stored, 3).err().unwrap();
+            assert!(
+                matches!(unavailable(error), CatalogError::Corrupt(_)),
+                "{field}"
+            );
+            connection
+                .execute("DELETE FROM upload_replays", [])
+                .unwrap();
+            connection
+                .execute("INSERT INTO upload_replays VALUES ('token',?1)", [&stored])
+                .unwrap();
+            assert!(
+                matches!(validate(&connection), Err(CatalogError::Corrupt(_))),
+                "{field}"
+            );
+        }
+    }
 
     /// A replay token outlives a restart, and a restart can be an upgrade, so the fingerprint
     /// of a request must not change with the JSON library's map ordering. Its input is typed

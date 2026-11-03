@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn unknown_stored_storage_class_is_catalog_corruption() {
+    let connection = Connection::open_in_memory().unwrap();
+    for class in ["unknown", "REGIONAL", "RAPID"] {
+        let mut options = encode_options(&populated_options());
+        options["metadata"]["storageClass"] = json!(class);
+        let error = connection.query_row("SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,0,0,604800000,'ACTIVE',NULL", params!["0".repeat(64), "0".repeat(32), options.to_string()], read_session).unwrap_err();
+        assert!(
+            matches!(
+                crate::storage::failure::unavailable(error),
+                CatalogError::Corrupt(_)
+            ),
+            "{class}"
+        );
+    }
+}
+
+#[test]
 fn hold_update_states_keep_their_stored_json_presence() {
     for (hold, expected) in [
         (None, json!(null)),

@@ -48,6 +48,9 @@ impl<T, C> Metadata<T, C> {
         string: impl Fn(T) -> Option<String>,
         custom: impl Fn(C) -> Option<CustomMetadata>,
     ) -> Result<ObjectMetadataUpdate, InvalidOptions> {
+        if let Some(class) = &self.storage_class {
+            crate::bucket::validate_storage_class(class).map_err(InvalidOptions::from_error)?;
+        }
         Ok(ObjectMetadataUpdate {
             acl: None,
             replace: self.replace.unwrap_or(false),

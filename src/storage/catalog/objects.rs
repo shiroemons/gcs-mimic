@@ -2100,7 +2100,7 @@ pub(super) fn authorized_bucket(
         connection,
         "SELECT storage_class, project FROM buckets WHERE name = ?1",
         [bucket],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| Ok((sql::storage_class(r, 0)?, r.get(1)?)),
     )
     .optional()?
     .ok_or(ObjectError::BucketNotFound)?;
@@ -2650,7 +2650,7 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<StoredObject> {
             md5_availability: super::md5_availability::read(row, 28)?,
             crc32c: row.get(7)?,
             component_count: row.get(19)?,
-            storage_class: row.get(8)?,
+            storage_class: sql::storage_class(row, 8)?,
             time_created: system_time_micros(row.get(9)?)?,
             updated: system_time_micros(row.get(10)?)?,
             time_deleted: row

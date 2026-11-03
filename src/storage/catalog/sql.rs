@@ -54,6 +54,13 @@ pub(super) fn conversion_error(
     rusqlite::Error::FromSqlConversionFailure(index, kind, error.into())
 }
 
+pub(super) fn storage_class(row: &Row<'_>, index: usize) -> rusqlite::Result<String> {
+    let value: String = row.get(index)?;
+    crate::bucket::validate_storage_class(&value)
+        .map_err(|error| conversion_error(index, rusqlite::types::Type::Text, error))?;
+    Ok(value)
+}
+
 pub(super) fn row<T>(
     connection: &Connection,
     sql: &'static str,
@@ -106,6 +113,24 @@ pub(super) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_stored_storage_class_is_catalog_corruption() {
+        let connection = Connection::open_in_memory().unwrap();
+        for class in ["unknown", "standard", "REGIONAL", "RAPID", ""] {
+            let error = row(&connection, "SELECT ?1", [class], |row| {
+                storage_class(row, 0)
+            })
+            .unwrap_err();
+            assert!(
+                matches!(
+                    super::super::unavailable(error),
+                    crate::bucket::CatalogError::Corrupt(_)
+                ),
+                "{class}"
+            );
+        }
+    }
 
     fn text_values<T: rusqlite::ToSql + FromSql + std::fmt::Debug + PartialEq>(
         values: &[(T, &str)],
