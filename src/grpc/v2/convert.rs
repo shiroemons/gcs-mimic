@@ -256,7 +256,8 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
             mode: match retention.mode {
                 RetentionMode::Unlocked => pb::object::retention::Mode::Unlocked,
                 RetentionMode::Locked => pb::object::retention::Mode::Locked,
-            } as i32,
+            }
+            .into(),
             retain_until_time: Some(unix_nanos_timestamp(retention.retain_until)),
         }),
         custom_time,

@@ -300,12 +300,12 @@ async fn serve(
                 let data = {
                     // Reposition under the same lock because reconnects share the immutable open file.
                     let mut reader = selected.reader.lock().await;
-                    reader.set_range(offset as u64, range.read_length as u64).await
+                    reader.set_range(offset.cast_unsigned(), range.read_length.cast_unsigned()).await
                         .map_err(|_| Status::internal("Cannot seek object data; restore a valid data directory"))?;
                     reader.next_chunk().await.map_err(|_| Status::internal("Cannot read object data; restore a valid data directory"))?
                         .unwrap_or_default()
                 };
-                let length = data.len() as i64;
+                let length = i64::try_from(data.len()).map_err(|_| Status::internal("Object read chunk exceeds the supported size"))?;
                 range.read_offset += length;
                 range.read_length -= length;
                 let range_end = range.read_length == 0;

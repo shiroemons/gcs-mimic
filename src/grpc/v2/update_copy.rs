@@ -659,7 +659,7 @@ impl Storage {
             if max_bytes_rewritten_per_call == 0 {
                 8 * 1024 * 1024
             } else {
-                max_bytes_rewritten_per_call as u64
+                max_bytes_rewritten_per_call.cast_unsigned()
             }
         } else {
             u64::MAX

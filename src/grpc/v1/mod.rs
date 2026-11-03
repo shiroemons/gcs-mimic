@@ -125,16 +125,10 @@ fn generation(value: i64) -> Result<Option<i64>, Status> {
 }
 
 fn limit(value: i32) -> Result<usize, Status> {
-    if value < 0 {
-        return Err(Status::invalid_argument(
-            "max_results must be nonnegative, for example 100",
-        ));
-    }
-    Ok(if value == 0 {
-        1000
-    } else {
-        value.min(1000) as usize
-    })
+    let value = usize::try_from(value).map_err(|_| {
+        Status::invalid_argument("max_results must be nonnegative, for example 100")
+    })?;
+    Ok(if value == 0 { 1000 } else { value.min(1000) })
 }
 
 fn validate_list_query(request: &pb::ListObjectsRequest, max_results: usize) -> Result<(), Status> {

@@ -119,7 +119,7 @@ async fn receive_upload(
                 "insert_object_spec is only allowed in the first message",
             ));
         }
-        if message.write_offset < 0 || message.write_offset as u64 != offset {
+        if message.write_offset < 0 || message.write_offset.cast_unsigned() != offset {
             return Err(Status::invalid_argument(
                 "write_offset must equal bytes already sent",
             ));
@@ -149,8 +149,9 @@ async fn receive_upload(
                     "Chunk CRC32C mismatch; recompute checksummed_data.crc32c",
                 ));
             }
-            offset = offset
-                .checked_add(data.content.len() as u64)
+            offset = u64::try_from(data.content.len())
+                .ok()
+                .and_then(|length| offset.checked_add(length))
                 .filter(|v| *v <= max_object_bytes)
                 .ok_or_else(|| {
                     Status::resource_exhausted("Upload exceeds max_object_bytes; reduce the body")

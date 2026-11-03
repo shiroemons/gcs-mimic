@@ -493,10 +493,14 @@ impl Storage {
                 caller,
             ));
         }
-        if request.page_size < 0 || request.prefix.len() > 222 {
-            return Err(Status::invalid_argument(
+        let invalid_list = || {
+            Status::invalid_argument(
                 "Use a nonnegative page_size and a prefix of at most 222 bytes, for example page_size=100",
-            ));
+            )
+        };
+        let page_size = usize::try_from(request.page_size).map_err(|_| invalid_list())?;
+        if request.prefix.len() > 222 {
+            return Err(invalid_list());
         }
         bucket_mask(pb::Bucket::default(), request.read_mask.as_ref())?;
         let start = if request.page_token.is_empty() {
@@ -508,10 +512,10 @@ impl Storage {
                 &request.prefix,
             )?)
         };
-        let limit = if request.page_size == 0 {
+        let limit = if page_size == 0 {
             1000
         } else {
-            request.page_size.min(1000) as usize
+            page_size.min(1000)
         };
         let page = self
             .state
