@@ -37,6 +37,70 @@ enum Acknowledgement {
     PersistedSize,
 }
 
+#[derive(PartialEq, Eq)]
+enum Flush {
+    No,
+    Yes,
+}
+
+#[derive(PartialEq, Eq)]
+enum Report {
+    No,
+    Yes,
+}
+
+/// A message's validations finish before any of its bytes reach the writer.
+struct AppendStep {
+    data: Option<(u64, bytes::Bytes)>,
+    finish: Option<Option<u32>>,
+    flush: Flush,
+    report: Report,
+}
+
+fn append_step(message: &mut pb::BidiWriteObjectRequest) -> Result<AppendStep, Status> {
+    common(message.common_object_request_params.as_ref())?;
+    if message.first_message.is_some() {
+        return Err(Status::invalid_argument(
+            "Only the first message may contain write_object_spec or append_object_spec",
+        ));
+    }
+    let data = match message.data.take() {
+        Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
+        None => pb::ChecksummedData::default(),
+    };
+    verify_crc32c(&data)?;
+    if message.object_checksums.is_some() && !message.finish_write {
+        return Err(Status::invalid_argument(
+            "Appendable objects accept object_checksums only with finish_write=true",
+        ));
+    }
+    let expected = hashes(message.object_checksums.as_ref())?;
+    if expected.md5.is_some() {
+        return Err(Status::invalid_argument(
+            "Appendable objects have no MD5 hash; send only crc32c in object_checksums",
+        ));
+    }
+    // A takeover only asks for the persisted size; its offset has no meaning without data.
+    let data = if data.content.is_empty() {
+        None
+    } else {
+        let offset = u64::try_from(message.write_offset).map_err(|_| {
+            Status::out_of_range("write_offset must be nonnegative; resume at persisted_size")
+        })?;
+        Some((offset, data.content))
+    };
+    Ok(AppendStep {
+        data,
+        finish: message.finish_write.then_some(expected.crc32c),
+        flush: if message.flush { Flush::Yes } else { Flush::No },
+        report: if message.flush || message.state_lookup {
+            Report::Yes
+        } else {
+            Report::No
+        },
+    })
+}
+
 /// Unfinalized generations have no MD5 and no finalize time.
 pub(super) fn object(record: &ObjectRecord, finality: Finality) -> Result<pb::Object, Status> {
     let mut object = convert::object(record)?;
@@ -193,44 +257,16 @@ impl Storage {
             self.open_writer(&mut message, caller).await?;
         let mut first = true;
         loop {
-            common(message.common_object_request_params.as_ref())?;
-            if message.first_message.is_some() {
-                return Err(Status::invalid_argument(
-                    "Only the first message may contain write_object_spec or append_object_spec",
-                ));
-            }
-            let data = match message.data.take() {
-                Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
-                None => pb::ChecksummedData::default(),
-            };
-            verify_crc32c(&data)?;
-            if message.object_checksums.is_some() && !message.finish_write {
-                return Err(Status::invalid_argument(
-                    "Appendable objects accept object_checksums only with finish_write=true",
-                ));
-            }
-            let expected = hashes(message.object_checksums.as_ref())?;
-            if expected.md5.is_some() {
-                return Err(Status::invalid_argument(
-                    "Appendable objects have no MD5 hash; send only crc32c in object_checksums",
-                ));
-            }
-            // A takeover's opening message only asks for the persisted size, so its offset
-            // carries no meaning without data.
-            if !data.content.is_empty() {
-                let offset = u64::try_from(message.write_offset).map_err(|_| {
-                    Status::out_of_range(
-                        "write_offset must be nonnegative; resume at persisted_size",
-                    )
-                })?;
+            let step = append_step(&mut message)?;
+            if let Some((offset, content)) = step.data {
                 writer
-                    .append(offset, data.content, self.max_object_bytes)
+                    .append(offset, content, self.max_object_bytes)
                     .await
                     .map_err(|e| append_status(e, caller))?;
             }
-            if message.finish_write {
+            if let Some(expected_crc32c) = step.finish {
                 let record = writer
-                    .finalize(expected.crc32c, access.clone(), self.max_object_bytes)
+                    .finalize(expected_crc32c, access.clone(), self.max_object_bytes)
                     .await
                     .map_err(|e| append_status(e, caller))?;
                 return send(
@@ -244,11 +280,10 @@ impl Storage {
                 )
                 .await;
             }
-            if message.flush {
+            if step.flush == Flush::Yes {
                 writer.flush().await.map_err(|e| append_status(e, caller))?;
             }
-            if message.flush
-                || message.state_lookup
+            if step.report == Report::Yes
                 || (first && acknowledgement == Acknowledgement::PersistedSize)
             {
                 send(tx, status_response(&writer, acknowledgement)?).await?;
