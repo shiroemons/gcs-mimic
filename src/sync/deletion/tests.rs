@@ -90,7 +90,7 @@ async fn protected_external_deletion_restores_bytes_and_versioned_removal_keeps_
         root.observation_page(observation.revision, (0, 0), 256)
             .await
             .unwrap()[0]
-            .reason,
+            .reason.as_str(),
         "ProtectedDeletion"
     );
     catalog

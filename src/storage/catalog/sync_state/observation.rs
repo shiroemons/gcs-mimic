@@ -16,7 +16,7 @@ pub(in crate::storage) const SCHEMA: &str = include_str!("observation/schema.sql
 mod stops;
 pub(crate) use stops::PathStop;
 mod types;
-pub(crate) use types::{FindingCategory, PauseReason};
+pub(crate) use types::{FindingCategory, FindingReason, PauseReason};
 
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct Summary {
@@ -57,7 +57,7 @@ pub(crate) struct Item {
     pub object: Option<String>,
     pub bucket_incarnation: Option<String>,
     pub generation: Option<i64>,
-    pub reason: String,
+    pub reason: FindingReason,
     pub operation_id: Option<String>,
     pub owner_project: Option<String>,
     pub recovery: Option<RecoveryDetails>,
@@ -96,12 +96,14 @@ mod codec_tests;
 
 fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     let category = row.get(2)?;
-    let reason = if category == FindingCategory::RootStop {
-        row.get::<_, PauseReason>(7)?.as_str().to_owned()
-    } else {
-        row.get::<_, String>(7)?
+    let reason = match category {
+        FindingCategory::RootStop => FindingReason::RootStop(row.get(7)?),
+        FindingCategory::Mapping => FindingReason::Mapping(row.get(7)?),
+        FindingCategory::PathStop => FindingReason::PathStop(row.get(7)?),
+        FindingCategory::Writeback => FindingReason::Writeback(row.get(7)?),
+        FindingCategory::Conflict => FindingReason::Conflict(row.get(7)?),
     };
-    let recovery = if category == FindingCategory::Writeback && reason == "protected" {
+    let recovery = if matches!(&reason, FindingReason::Writeback(phase) if phase == "protected") {
         let bytes: Vec<u8> = row.get(12)?;
         let observed: RetainedProjection = serde_json::from_slice(&bytes)
             .map_err(|error| sql::conversion_error(12, rusqlite::types::Type::Blob, error))?;

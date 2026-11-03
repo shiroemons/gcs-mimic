@@ -1,5 +1,28 @@
 use super::*;
 
+#[test]
+fn finding_rows_reject_unknown_persisted_reasons_instead_of_using_a_remedy_fallback() {
+    let connection = Connection::open_in_memory().unwrap();
+    let query = "SELECT 0,1,?1,NULL,NULL,NULL,NULL,?2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL";
+    for (category, reason) in [
+        ("mapping", "collision"),
+        ("path-stop", "IoFailure"),
+        ("root-stop", "observer-failure"),
+    ] {
+        let item = sql::row(&connection, query, [category, reason], read_item).unwrap();
+        assert_eq!(item.category.as_str(), category);
+        assert_eq!(item.reason.as_str(), reason);
+        assert_eq!(
+            serde_json::to_vec(&item.reason).unwrap(),
+            format!("\"{reason}\"").as_bytes()
+        );
+        let error = sql::row(&connection, query, [category, "unknown"], read_item).unwrap_err();
+        assert!(matches!(unavailable(error), CatalogError::Corrupt(_)));
+    }
+    let error = sql::row(&connection, query, ["unknown", "IoFailure"], read_item).unwrap_err();
+    assert!(matches!(unavailable(error), CatalogError::Corrupt(_)));
+}
+
 fn text_values<
     T: rusqlite::ToSql + rusqlite::types::FromSql + serde::Serialize + std::fmt::Debug + PartialEq,
 >(

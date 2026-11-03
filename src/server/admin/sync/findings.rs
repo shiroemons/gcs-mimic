@@ -1,57 +1,62 @@
-use crate::storage::sync_state::observation::{FindingCategory, Item, WritebackSummary};
+use crate::{
+    storage::sync_state::observation::{
+        FindingCategory, FindingReason, Item, PathStop, PauseReason, WritebackSummary,
+    },
+    sync::mapping::Reason,
+};
 use serde_json::{Value, json};
 
 pub(super) fn value(item: &Item, prefix: &str, quota: Option<&WritebackSummary>) -> Value {
-    let (reason, remedy) = match (item.category, item.reason.as_str()) {
-        (FindingCategory::RootStop, "SourceUnrepresentable") => (
+    let (reason, remedy) = match &item.reason {
+        FindingReason::RootStop(PauseReason::SourceUnrepresentable) => (
             "SourceUnrepresentable",
             "Inspect source-tree diagnostics; preserve unsafe or unmappable entries, repair their representation and rescan",
         ),
-        (FindingCategory::RootStop, "SourceChanging") => (
+        FindingReason::RootStop(PauseReason::SourceChanging) => (
             "SourceChanging",
             "Finish or stop external writers, restore source access and rescan",
         ),
-        (FindingCategory::RootStop, "ConflictCapacity") => (
+        FindingReason::RootStop(PauseReason::ConflictCapacity) => (
             "ConflictCapacity",
             "Inspect retained conflicts and protected work, resolve exact revisions within quota, then rescan",
         ),
-        (FindingCategory::RootStop, "IoFailure") => (
+        FindingReason::RootStop(PauseReason::IoFailure) => (
             "IoFailure",
             "Free disk space or restore access without deleting pending data, inspect retained work and rescan",
         ),
-        (FindingCategory::RootStop, "RecoveryRequired") => (
+        FindingReason::RootStop(PauseReason::RecoveryRequired) => (
             "RecoveryRequired",
             "Inspect protected workspace entries; preserve them before an exact confirmed recovery discard or registered conflict transfer",
         ),
-        (FindingCategory::Mapping, "collision") => (
+        FindingReason::Mapping(Reason::Collision) => (
             "Conflict",
             "Preserve the edited file; inspect conflicts or restore the previously exported bytes, then rescan",
         ),
-        (FindingCategory::Mapping, _) => (
+        FindingReason::Mapping(_) => (
             "Unrepresentable",
             "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes",
         ),
-        (FindingCategory::PathStop, "ProtectedDeletion") => (
+        FindingReason::PathStop(PathStop::ProtectedDeletion) => (
             "ProtectedDeletion",
             "Release the API hold or retention through a supported operation, then delete the restored file again",
         ),
-        (FindingCategory::PathStop, "SourceChanging") => (
+        FindingReason::PathStop(PathStop::SourceChanging) => (
             "SourceChanging",
             "Finish or stop the external writer, then rescan or wait for a stable snapshot",
         ),
-        (FindingCategory::PathStop, _) => (
+        FindingReason::PathStop(PathStop::IoFailure) => (
             "IoFailure",
             "Restore file permissions or free disk space, preserve pending bytes and request a rescan",
         ),
-        (FindingCategory::Writeback, _) => (
+        FindingReason::Writeback(_) => (
             "RecoveryRequired",
             "Preserve the workspace and current target; inspect this exact pending operation before recovery or explicit disposal",
         ),
-        (FindingCategory::Conflict, _) => (
+        FindingReason::Conflict(_) => (
             "Conflict",
             "Inspect the retained conflict revision, then restore with the current expected generation or explicitly discard that revision",
         ),
-        _ => (
+        FindingReason::RootStop(PauseReason::ObserverFailure) => (
             "Paused",
             "Inspect server diagnostics, correct the reported condition without removing pending data and request an explicit rescan",
         ),

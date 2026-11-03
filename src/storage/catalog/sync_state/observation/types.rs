@@ -1,4 +1,5 @@
-use crate::storage::catalog::sql;
+use super::PathStop;
+use crate::{storage::catalog::sql, sync::mapping::Reason};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PauseReason {
@@ -44,6 +45,32 @@ sql::text_enum!(pub(crate) FindingCategory, "invalid synchronization finding cat
 });
 
 impl serde::Serialize for FindingCategory {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum FindingReason {
+    Mapping(Reason),
+    RootStop(PauseReason),
+    PathStop(PathStop),
+    Writeback(String),
+    Conflict(String),
+}
+
+impl FindingReason {
+    pub(crate) fn as_str(&self) -> &str {
+        match self {
+            Self::Mapping(reason) => reason.as_str(),
+            Self::RootStop(reason) => reason.as_str(),
+            Self::PathStop(reason) => reason.as_str(),
+            Self::Writeback(phase) | Self::Conflict(phase) => phase,
+        }
+    }
+}
+
+impl serde::Serialize for FindingReason {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(self.as_str())
     }
