@@ -206,14 +206,38 @@ impl ObjectRecord {
 /// A custom time as Cloud Storage prints it in the decrease refusal: UTC with a `+00:00` offset
 /// and microsecond fraction only when one is present.
 fn custom_time_display((seconds, nanos): (i64, u32)) -> String {
-    let time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(seconds.unsigned_abs());
-    let rendered = crate::json::timestamp(time).unwrap_or_default();
+    let rendered = crate::clock::system_time_from_unix_seconds(seconds)
+        .and_then(|time| crate::json::timestamp(time).ok())
+        .unwrap_or_default();
     let fraction = if nanos == 0 {
         String::new()
     } else {
         format!(".{:06}", nanos / 1000)
     };
     format!("{}{fraction}+00:00", rendered.get(..19).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod custom_time_tests {
+    use super::*;
+
+    #[test]
+    fn custom_time_errors_preserve_dates_before_the_epoch() {
+        for value in [
+            "1960-01-01T00:00:00Z",
+            "1969-12-31T23:59:59Z",
+            "1980-01-01T00:00:00Z",
+        ] {
+            assert_eq!(
+                custom_time_display(custom_time_key(value).unwrap()),
+                value.replace('Z', "+00:00")
+            );
+        }
+        assert_eq!(
+            custom_time_display((-1, 123_456_000)),
+            "1969-12-31T23:59:59.123456+00:00"
+        );
+    }
 }
 
 /// Reuse the strict civil-date parser while preserving nanosecond precision on the wire.
