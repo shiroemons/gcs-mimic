@@ -32,7 +32,6 @@ use crate::{
     server::State,
 };
 use prost::Message;
-use serde_json::json;
 use std::sync::Arc;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -81,14 +80,6 @@ pub(crate) fn known_method(path: &str) -> bool {
 /// anonymous callers then still get JSON's credentials-required mapping.
 fn object_access_error(error: ObjectError, caller: Option<Caller<'_>>) -> Status {
     crate::grpc::v2::status::anonymous(error.into(), caller)
-}
-/// `?` would bypass the legacy adapter's own NotEmpty wording.
-fn catalog_error(error: CatalogError) -> Status {
-    if matches!(error, CatalogError::NotEmpty) {
-        Status::failed_precondition("Bucket is not empty; delete objects and versions first")
-    } else {
-        error.into()
-    }
 }
 
 fn common(
@@ -180,34 +171,37 @@ fn metadata(
             "Object metadata exceeds 8 KiB; reduce metadata",
         ));
     }
-    let mut body = json!({});
-    for (key, value) in [
-        ("contentType", &object.content_type),
-        ("contentEncoding", &object.content_encoding),
-        ("contentDisposition", &object.content_disposition),
-        ("contentLanguage", &object.content_language),
-        ("cacheControl", &object.cache_control),
+    let mut update = ObjectMetadataUpdate {
+        replace,
+        ..Default::default()
+    };
+    for (field, value) in [
+        (&mut update.content_type, &object.content_type),
+        (&mut update.content_encoding, &object.content_encoding),
+        (&mut update.content_disposition, &object.content_disposition),
+        (&mut update.content_language, &object.content_language),
+        (&mut update.cache_control, &object.cache_control),
     ] {
         if replace || !value.is_empty() {
-            body[key] = if value.is_empty() {
-                serde_json::Value::Null
-            } else {
-                json!(value)
-            };
+            *field = Some((!value.is_empty()).then(|| value.clone()));
         }
     }
     if replace || !object.metadata.is_empty() {
-        body["metadata"] = json!(object.metadata);
+        update.metadata = Some(Some(
+            object
+                .metadata
+                .iter()
+                .map(|(key, value)| (key.clone(), Some(value.clone())))
+                .collect(),
+        ));
     }
-    if let Some(hold) = object.event_based_hold {
-        body["eventBasedHold"] = json!(hold);
-    }
+    update.event_based_hold = object.event_based_hold;
     // `temporary_hold` is a plain bool, so false cannot be told from omitted; a replace
     // already releases a hold it does not name, and only true is a statement worth keeping.
     // Treating a v1 replace that sends `temporary_hold=false` as never set (not as a released
     // `false`) is an inference: the recording has no gRPC session.
     if object.temporary_hold {
-        body["temporaryHold"] = json!(true);
+        update.temporary_hold = Some(true);
     }
     object.name.clear();
     object.bucket.clear();
@@ -224,11 +218,15 @@ fn metadata(
             "legacy object metadata outside content fields, custom metadata and holds",
         ));
     }
-    Ok(json::parse_object_metadata(
-        &serde_json::to_vec(&body).map_err(|_| Status::internal("Cannot encode metadata"))?,
-        write,
-    )?
-    .update)
+    if update
+        .metadata
+        .as_ref()
+        .and_then(Option::as_ref)
+        .is_some_and(|entries| entries.contains_key(""))
+    {
+        return Err(ObjectError::UnsupportedMetadata("empty custom metadata key".into()).into());
+    }
+    Ok(update)
 }
 
 impl Storage {
@@ -285,7 +283,8 @@ impl Storage {
             mut object,
             write,
         } = update;
-        json::validate_object_name(name)?;
+        crate::object::name::validate(name)
+            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let access = self
             .access(caller, bucket, crate::auth::OBJECTS_UPDATE)
             .await?;
@@ -341,7 +340,7 @@ impl pb::storage_server::Storage for Storage {
             .catalog
             .get_bucket(&r.bucket, &access)
             .await
-            .map_err(catalog_error)?
+            .map_err(Status::from)?
             .ok_or_else(|| {
                 Status::not_found("Bucket not found; create it with InsertBucket or JSON")
             })?;
@@ -372,7 +371,7 @@ impl pb::storage_server::Storage for Storage {
             .catalog
             .delete_bucket(&r.bucket, bucket_conditions!(r), &access)
             .await
-            .map_err(catalog_error)?;
+            .map_err(Status::from)?;
         Ok(Response::new(()))
     }
 
@@ -404,7 +403,7 @@ impl pb::storage_server::Storage for Storage {
             .catalog
             .insert_bucket(record)
             .await
-            .map_err(catalog_error)?;
+            .map_err(Status::from)?;
         Ok(Response::new(convert::bucket(&record)))
     }
 
@@ -439,13 +438,13 @@ impl pb::storage_server::Storage for Storage {
             .catalog
             .get_bucket(&r.bucket, &access)
             .await
-            .map_err(catalog_error)?
-            .ok_or_else(|| catalog_error(CatalogError::NotFound))?;
+            .map_err(Status::from)?
+            .ok_or_else(|| Status::from(CatalogError::NotFound))?;
         if !requested.hold(current.metageneration) {
-            return Err(catalog_error(CatalogError::PreconditionFailed));
+            return Err(Status::from(CatalogError::PreconditionFailed));
         }
-        let body = convert::bucket_metadata(&mut bucket, Some(&convert::bucket(&current)))?;
-        let update = json::parse_bucket_replacement(&body, self.compat_profile)?;
+        let update =
+            convert::bucket_update(&mut bucket, &convert::bucket(&current), self.compat_profile)?;
         let record = self
             .state
             .catalog
@@ -460,7 +459,7 @@ impl pb::storage_server::Storage for Storage {
                 &access,
             )
             .await
-            .map_err(catalog_error)?;
+            .map_err(Status::from)?;
         Ok(Response::new(convert::bucket(&record)))
     }
 
@@ -515,7 +514,7 @@ impl pb::storage_server::Storage for Storage {
                 limit(r.max_results)?,
             )
             .await
-            .map_err(catalog_error)?;
+            .map_err(Status::from)?;
         let next_page_token = if page.has_more {
             let last = &page
                 .items
@@ -547,7 +546,8 @@ impl pb::storage_server::Storage for Storage {
             r.common_object_request_params.as_ref(),
         )?;
         projection(r.projection)?;
-        json::validate_object_name(&r.object)?;
+        crate::object::name::validate(&r.object)
+            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let access = self
             .access(caller, &r.bucket, crate::auth::OBJECTS_GET)
             .await?;
@@ -571,7 +571,8 @@ impl pb::storage_server::Storage for Storage {
             r.common_request_params.as_ref(),
             r.common_object_request_params.as_ref(),
         )?;
-        json::validate_object_name(&r.object)?;
+        crate::object::name::validate(&r.object)
+            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let access = self
             .access(caller, &r.bucket, crate::auth::OBJECTS_DELETE)
             .await?;
@@ -698,7 +699,8 @@ impl pb::storage_server::Storage for Storage {
         if r.destination_predefined_acl != 0 || !r.kms_key_name.is_empty() {
             return Err(unsupported("legacy compose ACL or KMS; omit these fields"));
         }
-        json::validate_object_name(&r.destination_object)?;
+        crate::object::name::validate(&r.destination_object)
+            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let access = self
             .access(caller, &r.destination_bucket, crate::auth::OBJECTS_CREATE)
             .await?;
@@ -716,7 +718,8 @@ impl pb::storage_server::Storage for Storage {
             .source_objects
             .into_iter()
             .map(|s| {
-                json::validate_object_name(&s.name)?;
+                crate::object::name::validate(&s.name)
+                    .map_err(|_| Status::invalid_argument("Invalid object name"))?;
                 let condition = s.object_preconditions.and_then(|p| p.if_generation_match);
                 conditions(ObjectConditions {
                     if_generation_match: condition,

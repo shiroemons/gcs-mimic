@@ -1,5 +1,10 @@
 # Directory synchronization contract
 
+Sync HTTP controls share the management browser/Host guard: page-initiated
+requests return 403 and unapproved public DNS hosts return 421. Their existing
+all-owner project authorization remains independent of fixture administration.
+See [HTTP request boundaries](http-adapter-boundaries.md).
+
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Contract updated: **2026-10-31**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074

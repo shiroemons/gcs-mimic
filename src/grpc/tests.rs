@@ -372,6 +372,7 @@ fn grpc_response_drop_releases_stream_count() {
 
 #[test]
 fn upload_chunks_split_message_data_at_channel_chunk_size() {
+    use super::upload::{CHUNK_BYTES as UPLOAD_CHUNK_BYTES, chunks as upload_chunks};
     let data = Bytes::from(
         (0..(2 * UPLOAD_CHUNK_BYTES + 3))
             .map(|i| i as u8)

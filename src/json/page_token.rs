@@ -115,7 +115,7 @@ fn decode_cursor_fields(token: &str) -> Result<Vec<String>, JsonError> {
     }
     let mut bytes = Vec::with_capacity(encoded.len() / 2);
     for pair in encoded.as_bytes().as_chunks::<2>().0 {
-        bytes.push((hex(pair[0]).ok_or_else(invalid)? << 4) | hex(pair[1]).ok_or_else(invalid)?);
+        bytes.push(crate::hex::byte(pair).ok_or_else(invalid)?);
     }
     if u64::from_str_radix(digest, 16).map_err(|_| invalid())? != checksum(&bytes) {
         return Err(invalid());
@@ -185,7 +185,7 @@ pub(crate) fn decode_object_page_token(
     query: &ObjectListQuery,
     projection: super::Projection,
 ) -> Result<ObjectListCursor, JsonError> {
-    let invalid = || JsonError::invalid(format!("Next page token not valid: {token}"));
+    let invalid = || JsonError::invalid("Next page token not valid");
     if token.len() > 16 * 1024 {
         return Err(invalid());
     }
@@ -198,9 +198,7 @@ pub(crate) fn decode_object_page_token(
         .as_chunks::<2>()
         .0
         .iter()
-        .map(
-            |pair| Ok((hex(pair[0]).ok_or_else(invalid)? << 4) | hex(pair[1]).ok_or_else(invalid)?),
-        )
+        .map(|pair| crate::hex::byte(pair).ok_or_else(invalid))
         .collect::<Result<Vec<_>, JsonError>>()?;
     if u64::from_str_radix(digest, 16).map_err(|_| invalid())? != checksum(&bytes) {
         return Err(invalid());
@@ -247,18 +245,21 @@ fn checksum(bytes: &[u8]) -> u64 {
     })
 }
 
-pub(super) fn hex(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_object_tokens_do_not_echo_untrusted_input() {
+        let token = "sensitive-token".repeat(1200);
+        let error = decode_object_page_token(
+            &token,
+            &ObjectListQuery::default(),
+            super::super::Projection::NoAcl,
+        )
+        .unwrap_err();
+        assert_eq!(error.message, "Next page token not valid");
+    }
 
     fn forged_token(payload: &str) -> String {
         let encoded = crate::hashing::encode_lower(payload.as_bytes());

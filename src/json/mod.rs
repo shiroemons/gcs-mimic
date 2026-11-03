@@ -65,26 +65,30 @@ pub(crate) use error::{
 pub(crate) use fields::Fields;
 pub(crate) use format::{ResponseFormat, render_body, with_format};
 pub(crate) use iam::policy_etag;
-pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
+pub(crate) use iam::{
+    check_testable_permission, parse_policy, policy_resource, test_permissions_query,
+};
 pub(crate) use multipart::{
     Multipart, PartKind, batch_boundary, check_declared_content_type, form_data_boundary,
     is_multipart_content_type, multipart_boundary, multipart_metadata,
 };
 pub(crate) use object_copy::ObjectCopyParams;
-pub(crate) use object_list::{ObjectListParams, check_folders_as_prefixes, object_list};
+pub(crate) use object_list::{ObjectListParams, object_list};
 pub(crate) use object_metadata::parse_object_metadata_mutation;
 pub(crate) use object_metadata::{ObjectMetadataRequest, WriteMode, parse_object_metadata};
 pub(crate) use object_metadata::{declare_content_encoding, validate_fixed_metadata};
 pub(crate) use object_move::ObjectMoveParams;
 pub(crate) use objects::revision_etag;
+#[cfg(test)]
+pub(crate) use objects::route_object;
 pub(crate) use objects::{
     EtagConditions, base64, decode_hash, object_etag, object_media_negotiable,
     object_media_transcoding, validate_read_condition_headers,
 };
 pub(crate) use objects::{
-    ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, UploadRequest,
-    add_derived_owner, declared_hashes, object_media_headers, object_media_range, object_resource,
-    parse_object_upload_headers, route_object, route_object_with_profile, unsupported_upload_type,
+    ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, RangeRequest,
+    UploadRequest, add_derived_owner, declared_hashes, object_media_headers, object_resource,
+    parse_object_upload_headers, range_request, route_object_with_profile, unsupported_upload_type,
     validate_keyed_object_headers, validate_object_get_headers, validate_object_name,
 };
 pub(crate) use page_token::{

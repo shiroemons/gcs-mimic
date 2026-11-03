@@ -67,7 +67,7 @@ pub(crate) async fn armed_observation(
     inject_failure(writeback.identities().1, "install", 1);
     assert!(matches!(
         writeback.advance_live_export(operation.clone()).await,
-        Err(Error::Admin(AdminError::DiskFull))
+        Err(Error::Admin(AdminError::DiskFull(_)))
     ));
     let item = pending(&operation).await;
     assert_eq!(item.phase, Phase::Armed);

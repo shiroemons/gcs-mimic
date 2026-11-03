@@ -1,15 +1,17 @@
 //! XML multipart protocol adapter; storage owns session transitions and durable bytes.
 
 use super::{Error, ReadRequest, XmlCode, element, put, signing_parameter};
+use crate::server::upload_drive::{
+    CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
+};
 use crate::{
     auth, json,
-    object::{ObjectError, UploadChunk},
+    object::ObjectError,
     server::{ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, stream_upload},
     storage::xml_multipart as storage,
 };
 use hyper::{Method, Request, Response, StatusCode, Uri, header::HeaderValue};
-use std::{collections::BTreeMap, io};
-use tokio::sync::mpsc;
+use std::collections::BTreeMap;
 
 mod manifest;
 mod render;
@@ -296,7 +298,7 @@ async fn upload_part(
     headers: put::Headers,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
-    let (sender, body) = mpsc::channel(2);
+    let (sender, body) = upload_channel();
     let upload = ctx.state.catalog.put_xml_part(
         lease,
         storage::PartUpload {
@@ -306,18 +308,23 @@ async fn upload_part(
         },
         body,
     );
-    tokio::pin!(upload);
-    let part=tokio::select! {
-        result=&mut upload=>result,
-        result=stream_upload(request.into_body(),&sender,ctx.config.max_object_bytes.min(storage::MAX_PART_BYTES),ctx.activity,headers.sha256)=> {
-            if let Err(error)=result {
-                let _=sender.send(Err(io::Error::other(error.to_string()))).await;drop(sender);
-                let _=ctx.await_catalog(upload).await;
-                return Err(put::storage_error(error,ctx.caller));
-            }
-            ctx.await_catalog(async {let _=sender.send(Ok(UploadChunk::End)).await;drop(sender);upload.await}).await
-        }
-    }.map_err(|error|storage_error(error,ctx))?;
+    let producer = async {
+        stream_upload(
+            request.into_body(),
+            &sender,
+            ctx.config.max_object_bytes.min(storage::MAX_PART_BYTES),
+            ctx.activity,
+            headers.sha256,
+        )
+        .await
+        .map(|()| UploadEnd::Eof)
+    };
+    let part = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
+        .await
+        .map_err(|error| match error {
+            DriveError::Upload(error) => storage_error(error, ctx),
+            DriveError::Producer(error) => put::storage_error(error, ctx.caller),
+        })?;
     let mut response = response(String::new());
     response.headers_mut().insert(
         "etag",

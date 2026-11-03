@@ -2,6 +2,10 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+Historical comparison records retain the old unknown-route body; since November
+2026 these routes return the Google JSON 404 error envelope with
+`Content-Type: application/json; charset=UTF-8`.
+
 Executed on **2026-10-22**, macOS ARM64, against final Rust application sources
 committed at `e17469279df6241779a8050250f2eeb7220f53c8`, including profile-aware
 bucket paging/resource rendering and the generic profile and harness names.

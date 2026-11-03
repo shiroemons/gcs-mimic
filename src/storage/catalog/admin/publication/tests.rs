@@ -31,6 +31,68 @@ fn source(dir: &std::path::Path, bytes: &[u8]) -> File {
     File::open(path).unwrap()
 }
 
+#[test]
+fn staging_ownership_distinguishes_creation_collision_from_later_failure() {
+    let dir = crate::test_support::TestDir::new();
+    let input = source(&dir.0, b"source");
+    let stage = dir.0.join("stage");
+    fs::write(&stage, b"other owner").unwrap();
+    assert!(matches!(
+        stage_file(&input, &stage, ExpectedHashes::default(), 1024),
+        Err(StageFailure::NotCreated(AdminError::Io(_)))
+    ));
+    assert_eq!(fs::read(&stage).unwrap(), b"other owner");
+    fs::remove_file(&stage).unwrap();
+    FORCE_COPY.set(true);
+    let path = dir.0.join("source");
+    COPY_HOOK
+        .with_borrow_mut(|hook| *hook = Some(Box::new(move || fs::write(path, b"x").unwrap())));
+    assert!(matches!(
+        stage_file(&input, &stage, ExpectedHashes::default(), 1024),
+        Err(StageFailure::Created(AdminError::SourceChanged { .. }))
+    ));
+    FORCE_COPY.set(false);
+    assert_eq!(fs::read(stage).unwrap(), b"source");
+}
+
+#[test]
+fn already_exists_after_staging_creation_still_requires_cleanup() {
+    use crate::storage::catalog::fault::{self, Fault, Step};
+    let dir = crate::test_support::TestDir::new();
+    fs::create_dir(dir.0.join("staging")).unwrap();
+    let input = source(&dir.0, b"source");
+    let stage = dir.0.join("staging/value");
+    FORCE_COPY.set(true);
+    fault::arm(
+        &dir.0,
+        Step::BodyWrite,
+        0,
+        Fault::Io(io::ErrorKind::AlreadyExists),
+    );
+    assert!(
+        matches!(stage_file(&input, &stage, ExpectedHashes::default(), 1024), Err(StageFailure::Created(AdminError::Io(cause))) if cause.kind() == io::ErrorKind::AlreadyExists)
+    );
+    FORCE_COPY.set(false);
+    assert!(stage.exists());
+    assert_eq!(fs::read(dir.0.join("source")).unwrap(), b"source");
+}
+
+#[tokio::test]
+async fn staging_sync_already_exists_releases_the_owned_file() {
+    use crate::storage::catalog::fault::{Fault, Step};
+    let (dir, catalog, admin, _, _) = setup().await;
+    catalog.inject(Step::BodySync, 0, Fault::Io(io::ErrorKind::AlreadyExists));
+    let error = admin
+        .stage_from_file(source(&dir.0, b"source"), ExpectedHashes::default(), 1024)
+        .await
+        .err()
+        .unwrap();
+    assert!(matches!(error, AdminError::Io(cause) if cause.kind() == io::ErrorKind::AlreadyExists));
+    assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(fs::read(dir.0.join("source")).unwrap(), b"source");
+    catalog.close().await.unwrap();
+}
+
 async fn entry(admin: &Admin, dir: &std::path::Path, name: &str, bytes: &[u8]) -> BatchPublication {
     let staged = admin
         .stage_from_file(source(dir, bytes), ExpectedHashes::default(), 1024 * 1024)
@@ -302,7 +364,7 @@ async fn publication_disk_full_rolls_back_the_batch_and_journal() {
             .publish_objects_with_budget(vec![a, b], Duration::from_secs(1))
             .await
             .err(),
-        Some(AdminError::DiskFull)
+        Some(AdminError::DiskFull(io::ErrorKind::StorageFull.into()))
     );
     assert_eq!(
         admin
@@ -790,7 +852,7 @@ fn publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers() 
         200_000,
     );
     assert!(
-        matches!(result, Err(AdminError::SourceChanged { fields }) if fields.contains(&"size".into()))
+        matches!(result, Err(StageFailure::Created(AdminError::SourceChanged { fields })) if fields.contains(&"size".into()))
     );
     FORCE_COPY.set(false);
 }

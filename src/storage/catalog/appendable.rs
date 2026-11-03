@@ -3,19 +3,19 @@
 //! An unfinalized appendable generation is a mutable state machine, so it lives outside the
 //! immutable `objects` table: one row per object name plus one growing data file. The row is
 //! the durability boundary. Bytes past its `size` are unacknowledged and are truncated by the
-//! next writer; readers never look past it. Finalization marks the row `finalizing`, streams
+//! next writer; readers never look past it. Finalization streams
 //! the persisted bytes through ordinary publication with the generation reserved at creation,
 //! and that publication's transaction removes the row. Catalogs written before that change can
 //! still hold a row whose generation was published, so startup recovery resolves every
-//! `finalizing` row before any request can delete the published generation: a published
+//! legacy row before any request can delete the published generation: a published
 //! generation retires the row, otherwise the row becomes appendable again. At runtime a row
 //! whose generation is published is always treated as finalized.
 
 use super::{
     Catalog,
     objects::{
-        ObjectReader, ObjectUpload, PublicationDefaults, authorized_bucket, check_conditions,
-        lookup, object_unavailable, unlink,
+        ObjectUpload, PublicationDefaults, authorized_bucket, check_conditions, lookup,
+        object_unavailable, unlink,
     },
     resumable::{ResumableOptions, decode_options, encode_options},
     system_time_micros, unix_micros,
@@ -31,14 +31,19 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::{
     collections::HashMap,
     fmt, fs,
-    io::{self, Read, Seek, Write},
+    io::{self, Read},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock, PoisonError},
     time::SystemTime,
 };
 use tokio::sync::mpsc;
 
+#[cfg(test)]
+use super::objects::ObjectReader;
+
 mod data;
+mod readable;
+pub(crate) use readable::Finality;
 
 pub(super) const SCHEMA: &str = "CREATE TABLE appendable_objects (
     bucket TEXT NOT NULL COLLATE BINARY,
@@ -58,6 +63,36 @@ pub(super) const SCHEMA: &str = "CREATE TABLE appendable_objects (
 PRAGMA user_version = 34;";
 
 const COPY_CHUNK: usize = 64 * 1024;
+const COPY_READ_LIMIT: usize = 1024 * 1024;
+
+/// Only appendable state can construct an identity reserved before its bytes arrived.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ReservedGeneration {
+    generation: super::admin::Generation,
+    time_created: SystemTime,
+    updated: SystemTime,
+}
+
+impl ReservedGeneration {
+    fn from_record(record: &ObjectRecord) -> Result<Self, ObjectError> {
+        Ok(Self {
+            generation: super::admin::Generation::new(record.generation)
+                .map_err(object_unavailable)?,
+            time_created: record.time_created,
+            updated: record.updated,
+        })
+    }
+
+    pub(super) fn generation(self) -> super::admin::Generation {
+        self.generation
+    }
+    pub(super) fn time_created(self) -> SystemTime {
+        self.time_created
+    }
+    pub(super) fn updated(self) -> SystemTime {
+        self.updated
+    }
+}
 
 /// Runs at catalog open, before requests: resolves interrupted finalizations, rows of deleted
 /// buckets and data files that never received a row.
@@ -66,17 +101,26 @@ const COPY_CHUNK: usize = 64 * 1024;
     reason = "open-time recovery probes and resets each kind of interrupted state once"
 )]
 pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
+    let directory = data_dir.join("appendable");
+    if !directory.try_exists()? {
+        fs::create_dir(&directory)?;
+        #[cfg(all(test, unix))]
+        super::fault::dir_created(&directory);
+        #[cfg(unix)]
+        super::objects::sync_dir(data_dir)?;
+    }
     let retired = connection
         .prepare_cached(
             "SELECT a.blob_id FROM appendable_objects a WHERE EXISTS(SELECT 1 FROM objects o WHERE o.bucket = a.bucket AND o.name = a.name AND o.generation = a.generation) OR NOT EXISTS(SELECT 1 FROM bucket_incarnations i WHERE i.bucket = a.bucket AND i.incarnation = a.incarnation)",
         )?
         .query_map([], |row| row.get::<_, BlobId>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut removed = !retired.is_empty();
     for id in retired {
         connection.execute("DELETE FROM appendable_objects WHERE blob_id = ?1", [&id])?;
         unlink(&data_path(data_dir, &id))?;
     }
-    // Startup takes no write lock unless there is work: an UPDATE matching nothing still would.
+    // Legacy column: always zero after open. Avoid taking a write lock without work.
     let interrupted: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE finalizing = 1)",
         [],
@@ -87,10 +131,6 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
             "UPDATE appendable_objects SET finalizing = 0 WHERE finalizing = 1",
             [],
         )?;
-    }
-    let directory = data_dir.join("appendable");
-    if !directory.try_exists()? {
-        return Ok(());
     }
     for entry in fs::read_dir(&directory)? {
         let entry = entry?;
@@ -106,16 +146,16 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
         )?;
         if !referenced {
             unlink(&entry.path())?;
+            removed = true;
         }
     }
+    #[cfg(unix)]
+    if removed {
+        super::objects::sync_dir(&directory)?;
+    }
+    #[cfg(not(unix))]
+    let _ = removed;
     Ok(())
-}
-
-/// Whether finalization of an appendable generation started or was abandoned before publishing.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Finalizing {
-    Started,
-    Abandoned,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -608,40 +648,33 @@ impl AppendWriter {
             return Err(AppendError::Superseded);
         }
         let catalog = self.catalog.clone();
-        let identity = super::admin::ImportedIdentity::new(
-            super::admin::Generation::new(self.record.generation).map_err(object_unavailable)?,
-            self.record.time_created,
-            self.record.updated,
-        )
-        .map_err(object_unavailable)?;
+        let identity = ReservedGeneration::from_record(&self.record)?;
         let permit = catalog.admit_object_upload()?;
         let (tx, rx) = mpsc::channel(2);
         let data = self.file.clone();
         let size = self.record.size;
-        // Bounded copy: one 64 KiB chunk is read per send, never the whole object.
+        // Return blocking threads before waiting for the consumer, whose file writes need them too.
         let producer = async move {
-            let mut file = crate::task::run_blocking("append-reader", move || data.reader())
+            let mut file = crate::task::run_blocking("append-reader-open", move || data.reader())
                 .await
                 .map_err(io::Error::other)??;
             let mut remaining = size;
             while remaining > 0 {
-                let length = remaining.min(COPY_CHUNK as u64) as usize;
-                let (returned, chunk) = crate::task::run_blocking("append-read", move || {
-                    let mut buffer = vec![0; length];
-                    let result = file.read_exact(&mut buffer).map(|()| buffer);
-                    (file, result)
+                let length = remaining.min(COPY_READ_LIMIT as u64) as usize;
+                let (reader, mut bytes) = crate::task::run_blocking("append-reader", move || {
+                    let mut bytes = vec![0; length];
+                    file.read_exact(&mut bytes)?;
+                    Ok::<_, io::Error>((file, Bytes::from(bytes)))
                 })
                 .await
-                .map_err(io::Error::other)?;
-                file = returned;
-                let chunk = chunk?;
-                remaining -= chunk.len() as u64;
-                if tx
-                    .send(Ok(UploadChunk::Data(Bytes::from(chunk))))
-                    .await
-                    .is_err()
-                {
-                    return Ok(());
+                .map_err(io::Error::other)??;
+                file = reader;
+                remaining -= length as u64;
+                while !bytes.is_empty() {
+                    let chunk = bytes.split_to(bytes.len().min(COPY_CHUNK));
+                    if tx.send(Ok(UploadChunk::Data(chunk))).await.is_err() {
+                        return Ok(());
+                    }
                 }
             }
             let _ = tx.send(Ok(UploadChunk::End)).await;
@@ -665,47 +698,16 @@ impl AppendWriter {
             rx,
             permit,
             super::admin::PublishMode::Replace,
-            Some(identity),
+            super::objects::PublishIdentity::Reserved(identity),
             super::objects::OwnerAssignment::Preserve(self.record.owner.clone()),
         );
-        self.mark_finalizing(Finalizing::Started).await?;
         let (copied, published) = tokio::join!(producer, publish);
-        let published = match published {
-            Ok(published) => published,
-            Err(error) => {
-                // Nothing was published, so the generation stays appendable.
-                self.mark_finalizing(Finalizing::Abandoned).await?;
-                return Err(error.into());
-            }
-        };
+        let published = published?;
         copied.map_err(object_unavailable)?;
         guard.owner = None;
         self.retire().await;
         drop(guard);
         Ok(published)
-    }
-
-    async fn mark_finalizing(&self, state: Finalizing) -> Result<(), AppendError> {
-        let finalizing = state == Finalizing::Started;
-        let (bucket, name, generation, handle) = (
-            self.bucket.clone(),
-            self.name.clone(),
-            self.record.generation,
-            self.handle.clone(),
-        );
-        let changed = self
-            .catalog
-            .run_upload(move |connection| {
-                sql::exec(connection,
-                        "UPDATE appendable_objects SET finalizing = ?1 WHERE bucket = ?2 AND name = ?3 AND generation = ?4 AND write_handle = ?5 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?2)", params![finalizing, bucket, name, generation, handle])
-                    .map_err(object_unavailable)
-            })
-            .await?;
-        if changed == 1 {
-            Ok(())
-        } else {
-            Err(AppendError::Superseded)
-        }
     }
 
     async fn stored_metadata(&self) -> Result<crate::object::ObjectMetadataUpdate, ObjectError> {
@@ -725,15 +727,12 @@ impl AppendWriter {
     /// The publication commit already removed the row, so the data file is unreferenced and
     /// only its removal remains.
     async fn retire(&self) {
-        let catalog = self.catalog.clone();
-        let id = self.blob_id;
-        let removed = self
-            .catalog
-            .run_upload(move |_| data::remove(&catalog, &id))
-            .await;
-        if let Err(error) = removed {
-            deferred_cleanup(&error);
-        }
+        let data = if self.catalog.0.backend.is_memory() {
+            Unreferenced::Journaled
+        } else {
+            Unreferenced::DiskFile(self.blob_id)
+        };
+        self.catalog.release_appendable_data(data).await;
     }
 }
 
@@ -744,20 +743,24 @@ pub(super) fn retire_published(
     connection: &Connection,
     record: &ObjectRecord,
     backend: crate::config::Backend,
-) -> Result<(), ObjectError> {
-    if backend == crate::config::Backend::Memory {
-        sql::exec(
-            connection,
-            "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3",
-            params![record.bucket, record.name, record.generation],
-        )?;
+) -> Result<super::objects::Journaled, ObjectError> {
+    let mut journaled = super::objects::Journaled::NOTHING;
+    if let Some(id) = sql::optional_scalar::<BlobId>(
+        connection,
+        "SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3",
+        params![record.bucket, record.name, record.generation],
+    )? {
+        // AppendWriter::retire releases disk data after this publication commits.
+        if let Unreferenced::Journaled = unreference(connection, backend, &id)? {
+            journaled = super::objects::Journaled::SOME;
+        }
     }
     sql::exec(
         connection,
         "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
         params![record.bucket, record.name, record.generation],
     )?;
-    Ok(())
+    Ok(journaled)
 }
 
 /// A data file that no row references is never read, and startup recovery removes every such
@@ -767,12 +770,60 @@ fn deferred_cleanup(error: &dyn fmt::Display) {
         crate::diagnostics::LogLevel::Warn,
         "appendable_cleanup_deferred",
         serde_json::json!({
-            "message": format!("unreferenced appendable data is removed at the next startup: {error}"),
+            "message": format!("unreferenced appendable data is reclaimed later: {error}"),
         }),
     );
 }
 
+/// Data no committed row references; failed release only delays reclamation.
+#[must_use = "a committed removal must release its data"]
+enum Unreferenced {
+    Journaled,
+    DiskFile(BlobId),
+}
+
+fn unreference(
+    connection: &Connection,
+    backend: crate::config::Backend,
+    id: &BlobId,
+) -> Result<Unreferenced, ObjectError> {
+    match backend {
+        crate::config::Backend::Memory => {
+            sql::exec(
+                connection,
+                "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",
+                [id],
+            )?;
+            Ok(Unreferenced::Journaled)
+        }
+        crate::config::Backend::Disk => Ok(Unreferenced::DiskFile(*id)),
+    }
+}
+
 impl Catalog {
+    async fn release_appendable_data(&self, data: Unreferenced) {
+        #[cfg(test)]
+        if let Err(error) = super::fault::hit(&self.0.data_dir, super::fault::Step::AppendCleanup) {
+            deferred_cleanup(&object_unavailable(error));
+            return;
+        }
+        match data {
+            Unreferenced::Journaled => self.reclaim_after_commit().await,
+            Unreferenced::DiskFile(id) => {
+                let catalog = self.clone();
+                match crate::task::run_blocking("append-cleanup", move || {
+                    data::remove(&catalog, &id)
+                })
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => deferred_cleanup(&error),
+                    Err(error) => deferred_cleanup(&error),
+                }
+            }
+        }
+    }
+
     /// Starts a new appendable generation. The generation is reserved from the shared
     /// allocator so finalization can publish it without renumbering.
     pub(crate) async fn create_appendable(
@@ -811,24 +862,18 @@ impl Catalog {
             Ok(value) => value,
             Err(error) => {
                 // No row was committed, so the new file stays unreferenced.
-                if !self.0.backend.is_memory()
-                    && let Err(cleanup) = data::remove(self, &blob_id)
-                {
-                    deferred_cleanup(&cleanup);
+                if !self.0.backend.is_memory() {
+                    self.release_appendable_data(Unreferenced::DiskFile(blob_id))
+                        .await;
                 }
                 return Err(error);
             }
         };
-        if !self.0.backend.is_memory()
-            && let Some(stale) = stale
-        {
-            // The insert removed the stale row, so its file is unreferenced.
-            if let Err(cleanup) = data::remove(self, &stale) {
-                deferred_cleanup(&cleanup);
-            }
-        }
         guard.owner = Some(handle.clone());
         drop(guard);
+        if let Some(stale) = stale {
+            self.release_appendable_data(stale).await;
+        }
         Ok(AppendWriter {
             catalog: self.clone(),
             activity,
@@ -851,7 +896,7 @@ impl Catalog {
         blob_id: &BlobId,
         handle: &str,
         options: ResumableOptions,
-    ) -> Result<(Option<BlobId>, ObjectRecord), AppendError> {
+    ) -> Result<(Option<Unreferenced>, ObjectRecord), AppendError> {
         let (bucket, name, blob_id, handle) = (
             bucket.to_owned(),
             name.to_owned(),
@@ -872,6 +917,7 @@ impl Catalog {
             if let Some(id) = &stale {
                 sql::exec(&transaction, "DELETE FROM appendable_objects WHERE blob_id = ?1", [id])?;
             }
+            let stale = stale.map(|id| unreference(&transaction, backend.kind(), &id)).transpose()?;
             let current = match current {
                 Some(record) => Some(record),
                 None => lookup(&transaction, &bucket, &name)?.map(|stored| stored.record),
@@ -911,9 +957,6 @@ impl Catalog {
                 if committed.is_ok() || !matches!(referenced, Ok(false)) { checkpoint.commit(); }
             }
             committed?;
-            if backend.is_memory() && let Some(stale) = &stale {
-                backend.remove_appendable(stale)?;
-            }
             Ok(Ok((stale, created)))
         })
         .await?
@@ -1008,23 +1051,54 @@ impl Catalog {
     }
 
     /// Opens the persisted prefix of an unfinalized generation for reading.
+    #[cfg(test)]
     pub(crate) async fn open_appendable(
         &self,
         target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
+        let access = access.clone();
+        let catalog = self.clone();
+        self.run(move |connection| {
+            let transaction = connection.transaction()?;
+            readable::open_appendable_in(&transaction, &catalog, &target, conditions, &access)
+        })
+        .await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn delete_appendable(
+        &self,
+        target: ObjectTarget,
+        conditions: ObjectConditions,
+        access: &BucketAccess,
+    ) -> Result<(), ObjectError> {
+        let slot = SlotHandle::new(self, &target.bucket, &target.name);
+        let mut guard = slot.lock().await;
+        self.delete_appendable_locked(target, conditions, access, &mut guard)
+            .await
+    }
+
+    async fn delete_appendable_locked(
+        &self,
+        target: ObjectTarget,
+        conditions: ObjectConditions,
+        access: &BucketAccess,
+        guard: &mut Slot,
+    ) -> Result<(), ObjectError> {
         let ObjectTarget {
             bucket,
             name,
             generation,
         } = target;
         let access = access.clone();
-        let backend = self.0.backend.clone();
+        let backend = self.0.backend.kind();
+        let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
-        let (record, file) = self
-            .run(move |connection| {
-                let transaction = connection.transaction()?;
+        let id = self
+            .run_upload(move |connection| {
+                let transaction = sql::immediate(connection)?;
                 let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
                 let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {
                     return Err(ObjectError::ObjectNotFound);
@@ -1040,66 +1114,24 @@ impl Catalog {
                     &row,
                     principals.as_ref(),
                 )?;
-                check_conditions(Some(&record), conditions, super::objects::RequestKind::Read)?;
-                // Opened inside the transaction so finalization cannot unlink it first.
-                let file =
-                    ObjectReader::bounded_data(backend.open_appendable(&row.blob_id)?, record.size);
-                Ok((record, file))
+                check_conditions(
+                    Some(&record),
+                    conditions,
+                    super::objects::RequestKind::Write,
+                )?;
+                record.check_retention(clock.now())?;
+                sql::exec(
+                    &transaction,
+                    "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
+                    params![bucket, name],
+                )?;
+                let data = unreference(&transaction, backend, &row.blob_id)?;
+                transaction.commit()?;
+                Ok(data)
             })
             .await?;
-        Ok((record, file))
-    }
-
-    pub(crate) async fn delete_appendable(
-        &self,
-        target: ObjectTarget,
-        conditions: ObjectConditions,
-        access: &BucketAccess,
-    ) -> Result<(), ObjectError> {
-        let slot = SlotHandle::new(self, &target.bucket, &target.name);
-        let mut guard = slot.lock().await;
-        let ObjectTarget {
-            bucket,
-            name,
-            generation,
-        } = target;
-        let access = access.clone();
-        let catalog = self.clone();
-        let clock = self.0.clock.clone();
-        let principals = self.0.principals.get().cloned();
-        self.run_upload(move |connection| {
-            let transaction = sql::immediate(connection)?;
-            let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
-            let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {
-                return Err(ObjectError::ObjectNotFound);
-            };
-            if generation.is_some_and(|generation| generation != row.generation) {
-                return Err(ObjectError::ObjectNotFound);
-            }
-            let record = record(
-                &transaction,
-                &bucket,
-                &name,
-                storage_class,
-                &row,
-                principals.as_ref(),
-            )?;
-            check_conditions(
-                Some(&record),
-                conditions,
-                super::objects::RequestKind::Write,
-            )?;
-            record.check_retention(clock.now())?;
-            sql::exec(
-                &transaction,
-                "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
-                params![bucket, name],
-            )?;
-            transaction.commit()?;
-            data::remove(&catalog, &row.blob_id)
-        })
-        .await?;
         guard.owner = None;
+        self.release_appendable_data(id).await;
         Ok(())
     }
 }

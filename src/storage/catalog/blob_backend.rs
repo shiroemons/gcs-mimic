@@ -44,7 +44,12 @@ impl BlobBackend {
         for id in ids {
             let path = id.blob_path(root);
             let shard = objects::blob_shard(&path)?.to_owned();
-            match objects::unlink(&path) {
+            #[cfg(test)]
+            let result = hit_io(root, super::fault::Step::ReclaimUnlink)
+                .and_then(|()| objects::unlink(&path));
+            #[cfg(not(test))]
+            let result = objects::unlink(&path);
+            match result {
                 Ok(()) => shards.entry(shard).or_default().push(id),
                 Err(error) => {
                     crate::diagnostics::emit(
@@ -59,16 +64,21 @@ impl BlobBackend {
         let mut removed = Vec::new();
         for (shard, ids) in shards {
             #[cfg(unix)]
-            if shard.exists()
-                && let Err(error) = objects::sync_dir(&shard)
-            {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Warn,
-                    "blob_reclaim_deferred",
-                    serde_json::json!({"message":format!("deferred blob reclaim directory: {error}")}),
-                );
-                failure = Some(object_unavailable(error));
-                continue;
+            if shard.exists() {
+                #[cfg(test)]
+                let result = hit_io(root, super::fault::Step::ReclaimSync)
+                    .and_then(|()| objects::sync_dir(&shard));
+                #[cfg(not(test))]
+                let result = objects::sync_dir(&shard);
+                if let Err(error) = result {
+                    crate::diagnostics::emit(
+                        crate::diagnostics::LogLevel::Warn,
+                        "blob_reclaim_deferred",
+                        serde_json::json!({"message":format!("deferred blob reclaim directory: {error}")}),
+                    );
+                    failure = Some(object_unavailable(error));
+                    continue;
+                }
             }
             #[cfg(not(unix))]
             let _ = shard;
@@ -94,20 +104,6 @@ impl BlobBackend {
 
     pub(super) fn is_memory(&self) -> bool {
         matches!(self, Self::Memory(_))
-    }
-
-    pub(super) fn discard_unreferenced(
-        &self,
-        connection: &rusqlite::Connection,
-        id: &BlobId,
-    ) -> Result<(), crate::object::ObjectError> {
-        if !objects::blob_referenced(connection, id)? {
-            match self {
-                Self::Disk(root) => objects::reclaim(connection, root, id)?,
-                Self::Memory(_) => self.remove(id)?,
-            }
-        }
-        Ok(())
     }
 
     pub(super) fn is_healthy(&self) -> bool {
@@ -146,13 +142,17 @@ impl BlobBackend {
 
     pub(super) fn pin(&self, original: &BlobId, id: &BlobId) -> io::Result<()> {
         match self {
-            Self::Disk(root) => fs::hard_link(original.blob_path(root), id.staging_path(root)),
+            Self::Disk(root) => {
+                fs::hard_link(original.blob_path(root), id.staging_path(root))?;
+                #[cfg(all(test, unix))]
+                super::fault::file_created(&id.staging_path(root));
+                Ok(())
+            }
             Self::Memory(store) => store.pin(&original.to_hex(), id.to_hex()),
         }
     }
 
-    pub(super) fn publish_pin(&self, original: &BlobId, id: &BlobId) -> io::Result<()> {
-        self.pin(original, id)?;
+    pub(super) fn publish_pinned(&self, id: &BlobId) -> io::Result<()> {
         if let Self::Disk(_) = self {
             self.publish_draft(id)?;
         }
@@ -269,12 +269,10 @@ impl BlobBackend {
         id: &BlobId,
     ) -> Result<UploadSink, crate::object::ObjectError> {
         match self {
-            Self::Disk(root) => {
-                objects::create_upload_stage(id.staging_path(root), id.blob_path(root))
-                    .await
-                    .map(tokio::fs::File::from_std)
-                    .map(UploadSink::Disk)
-            }
+            Self::Disk(root) => objects::create_upload_stage(id.staging_path(root))
+                .await
+                .map(tokio::fs::File::from_std)
+                .map(UploadSink::Disk),
             Self::Memory(store) => Ok(UploadSink::Memory(store.stage()?)),
         }
     }
@@ -285,7 +283,7 @@ impl BlobBackend {
     ) -> Result<Output, crate::object::ObjectError> {
         match self {
             Self::Disk(root) => Ok(Output::Disk(tokio::fs::File::from_std(
-                objects::create_upload_stage(id.staging_path(root), id.blob_path(root)).await?,
+                objects::create_upload_stage(id.staging_path(root)).await?,
             ))),
             Self::Memory(_) => {
                 self.create_draft(id)?;
@@ -445,7 +443,7 @@ fn unlink_synced(path: &Path, #[cfg(all(test, unix))] data_dir: &Path) -> io::Re
     Ok(())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 fn hit_io(data_dir: &Path, step: super::fault::Step) -> io::Result<()> {
     super::fault::hit(data_dir, step).map_err(|error| match error {
         super::fault::Injected::Io(error) => error,

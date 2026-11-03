@@ -319,7 +319,7 @@ async fn import_publication_disk_full_rolls_back_records_observations_and_cursor
             .publish_import_objects(source.clone(), 1, vec![a, b])
             .await
             .err(),
-        Some(AdminError::DiskFull)
+        Some(AdminError::DiskFull(io::ErrorKind::StorageFull.into()))
     );
     assert_eq!(
         catalog

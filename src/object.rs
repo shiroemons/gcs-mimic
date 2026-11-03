@@ -7,6 +7,7 @@ use crate::{
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 use unix_nanos::UnixNanos;
 
+pub(crate) mod name;
 pub(crate) mod owner;
 pub(crate) mod retention;
 pub(crate) mod unix_nanos;
@@ -217,11 +218,7 @@ fn custom_time_display((seconds, nanos): (i64, u32)) -> String {
 
 /// Reuse the strict civil-date parser while preserving nanosecond precision on the wire.
 pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
-    let invalid = || {
-        ObjectError::InvalidFixedMetadata(
-            "Parse Error: Invalid value for type.googleapis.com/google.protobuf.Timestamp field: 'Field 'customTime', Illegal timestamp format; timestamps must end with 'Z' or have a valid timezone offset.'.".into(),
-        )
-    };
+    let invalid = || ObjectError::Metadata(crate::metadata_error::MetadataError::CustomTime);
     if !value.is_ascii() || value.len() < 20 || value.starts_with("0000") {
         return Err(invalid());
     }
@@ -248,6 +245,14 @@ pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
     Ok((micros / 1_000_000, nanos))
 }
 
+/// How a present custom-metadata or label map changes its stored entries.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum MapMode {
+    #[default]
+    Merge,
+    Replace,
+}
+
 /// Content fields reset on PUT; holds only change when explicitly supplied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
@@ -262,6 +267,7 @@ pub struct ObjectMetadataUpdate {
     pub content_language: Option<Option<String>>,
     pub cache_control: Option<Option<String>>,
     pub metadata: Option<Option<BTreeMap<String, Option<String>>>>,
+    pub(crate) metadata_mode: MapMode,
     pub event_based_hold: Option<bool>,
     pub temporary_hold: Option<bool>,
     pub custom_time: Option<Option<String>>,
@@ -277,17 +283,28 @@ pub struct ObjectMetadataUpdate {
 
 pub(crate) fn validate_object_storage_class(class: &str) -> Result<StorageClass, ObjectError> {
     crate::bucket::validate_storage_class(class).map_err(|error| match error {
-        crate::bucket::CatalogError::UnsupportedMetadata(reason) => {
-            ObjectError::UnsupportedMetadata(format!("storageClass={class}: {reason}"))
+        crate::bucket::CatalogError::Metadata(error) if error.unsupported() => {
+            ObjectError::Metadata(
+                crate::metadata_error::MetadataError::UnsupportedObjectStorageClass(class.into()),
+            )
         }
-        _ => ObjectError::InvalidFixedMetadata(
-            "Invalid object storageClass; use STANDARD, NEARLINE, COLDLINE or ARCHIVE".into(),
-        ),
+        _ => ObjectError::Metadata(crate::metadata_error::MetadataError::ObjectStorageClass),
     })
 }
 
 impl ObjectMetadataUpdate {
     pub(crate) fn validate(&self) -> Result<(), ObjectError> {
+        if self.metadata_mode == MapMode::Replace
+            && self
+                .metadata
+                .as_ref()
+                .and_then(Option::as_ref)
+                .is_some_and(|entries| entries.values().any(Option::is_none))
+        {
+            return Err(ObjectError::InvalidFixedMetadata(
+                "Custom metadata replacement cannot remove individual keys".into(),
+            ));
+        }
         if let Some(Some(value)) = &self.custom_time {
             custom_time_key(value)?;
         }
@@ -393,6 +410,9 @@ impl ObjectMetadataUpdate {
             if let Some(value) = value {
                 *field = value.filter(|value| !value.is_empty());
             }
+        }
+        if self.metadata_mode == MapMode::Replace && self.metadata.is_some() {
+            record.metadata.clear();
         }
         match self.metadata {
             Some(Some(entries)) => {
@@ -564,6 +584,7 @@ pub(crate) enum ObjectError {
     TooLarge,
     InvalidMetadata,
     InvalidFixedMetadata(String),
+    Metadata(crate::metadata_error::MetadataError),
     InvalidDerivedArgument(String),
     DerivedTransferNotFound,
     DerivedTransferExpired,
@@ -609,6 +630,7 @@ impl fmt::Display for ObjectError {
             Self::TooLarge => formatter.write_str("object too large"),
             Self::InvalidMetadata => formatter.write_str("custom metadata exceeds 8 KiB"),
             Self::InvalidFixedMetadata(reason) => formatter.write_str(reason),
+            Self::Metadata(error) => error.fmt(formatter),
             Self::InvalidDerivedArgument(reason) => formatter.write_str(reason),
             Self::DerivedTransferNotFound => formatter.write_str("derived transfer not found"),
             Self::DerivedTransferExpired => formatter.write_str("derived transfer expired"),
@@ -632,6 +654,7 @@ impl std::error::Error for ObjectError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(cause) => cause.source(),
+            Self::Metadata(error) => Some(error),
             Self::BodyAborted(cause) | Self::Corrupt(cause) | Self::Unavailable(cause) => {
                 cause.source()
             }
@@ -659,6 +682,8 @@ impl ObjectError {
 impl From<crate::bucket::CatalogError> for ObjectError {
     fn from(error: crate::bucket::CatalogError) -> Self {
         match error {
+            crate::bucket::CatalogError::Forbidden => Self::Forbidden,
+            crate::bucket::CatalogError::PublicAccessPrevention => Self::PublicAccessPrevention,
             crate::bucket::CatalogError::Io(kind) => Self::Io(kind),
             crate::bucket::CatalogError::Corrupt(reason) => Self::Corrupt(reason),
             error => Self::Unavailable(BackendCause::from_error(error)),
@@ -669,13 +694,13 @@ impl From<crate::bucket::CatalogError> for ObjectError {
 pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), ObjectError> {
     if key == "contentLanguage" {
         if value.is_empty() {
-            return Err(ObjectError::InvalidFixedMetadata(
-                "contentLanguage must not be empty; use null to clear it".into(),
+            return Err(ObjectError::Metadata(
+                crate::metadata_error::MetadataError::EmptyLanguage,
             ));
         }
         if value.chars().count() > 100 {
-            return Err(ObjectError::InvalidFixedMetadata(
-                "contentLanguage exceeds 100 characters".into(),
+            return Err(ObjectError::Metadata(
+                crate::metadata_error::MetadataError::LongLanguage,
             ));
         }
     }
@@ -686,9 +711,9 @@ pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), Obje
     }
     // Fixed metadata becomes response headers; reject controls in every storage caller.
     if value.bytes().any(|byte| byte < 32 || byte == 127) {
-        return Err(ObjectError::InvalidFixedMetadata(format!(
-            "Invalid {key} header value"
-        )));
+        return Err(ObjectError::Metadata(
+            crate::metadata_error::MetadataError::FixedHeader(key.into()),
+        ));
     }
     Ok(())
 }

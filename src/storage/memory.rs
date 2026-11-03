@@ -147,22 +147,17 @@ impl Store {
     }
 
     pub(super) fn stage(self: &Arc<Self>) -> io::Result<Stage> {
-        self.budget
-            .used
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
-                used.checked_add(CHUNK_OVERHEAD)
-                    .filter(|used| *used <= self.budget.limit)
-            })
-            .map_err(|_| exhausted())?;
+        let mut reservation = Reservation {
+            budget: self.budget.clone(),
+            charge: 0,
+        };
+        reservation.resize(CHUNK_OVERHEAD)?;
         Ok(Stage {
             store: Arc::downgrade(self),
             chunks: Vec::new(),
             size: 0,
             pending: None,
-            reservation: Reservation {
-                budget: self.budget.clone(),
-                charge: CHUNK_OVERHEAD,
-            },
+            reservation,
             hasher: None,
             fixed_charge: CHUNK_OVERHEAD,
         })
@@ -176,7 +171,7 @@ impl Store {
         let blob = blobs
             .get(id)
             .cloned()
-            .ok_or_else(|| io::Error::other("missing RAM blob"))?;
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing RAM blob"))?;
         Ok(Reader {
             blob,
             index: 0,
@@ -240,14 +235,15 @@ impl Stage {
 
     fn allocate(&self, required: u64) -> io::Result<Chunk> {
         let budget = &self.reservation.budget;
-        let used = budget
+        let mut capacity = 0;
+        budget
             .used
             .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
                 let available = budget
                     .limit
                     .checked_sub(used)?
                     .checked_sub(CHUNK_OVERHEAD)?;
-                let capacity = if available >= BLOCK_SIZE {
+                capacity = if available >= BLOCK_SIZE {
                     BLOCK_SIZE
                 } else {
                     required.min(available)
@@ -255,12 +251,6 @@ impl Stage {
                 (capacity > 0).then_some(used + CHUNK_OVERHEAD + capacity)
             })
             .map_err(|_| exhausted())?;
-        let available = budget.limit - used - CHUNK_OVERHEAD;
-        let capacity = if available >= BLOCK_SIZE {
-            BLOCK_SIZE
-        } else {
-            required.min(available)
-        };
         let mut chunk = Chunk {
             bytes: Vec::new(),
             reservation: Reservation {
@@ -428,6 +418,14 @@ impl Seek for Reader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_blob_has_not_found_io_kind() {
+        assert_eq!(
+            Store::new(128).open("missing").err().unwrap().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
 
     #[test]
     fn retained_namespace_preserves_new_blobs_and_charges_old_reader_references() {

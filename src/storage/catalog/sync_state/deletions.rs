@@ -284,7 +284,7 @@ pub(super) fn consume(
 ) -> Result<(), ObjectError> {
     matching(transaction, permit.root, &permit.revision).map_err(|error| match error {
         CatalogError::PreconditionFailed => ObjectError::PreconditionFailed,
-        error => super::super::objects::object_unavailable(error),
+        error => error.into(),
     })?;
     let count = sql::exec(
         transaction,

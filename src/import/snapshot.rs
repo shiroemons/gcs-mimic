@@ -153,7 +153,7 @@ impl Capture<'_> {
         membership: Membership,
         generation: i64,
     ) -> Result<(), ImportFailure> {
-        crate::json::validate_object_name(name).map_err(|error| corrupt(error.message))?;
+        crate::object::name::validate(name).map_err(|_| corrupt("Invalid object name"))?;
         if bucket != self.bucket || bucket.is_empty() {
             return Err(corrupt("object must follow its declared bucket"));
         }

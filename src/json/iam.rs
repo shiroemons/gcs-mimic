@@ -1,7 +1,8 @@
 use super::{BucketRequest, Fields, JsonError, objects::base64, query};
 use crate::auth::{
     Binding, Policy,
-    roles::{GrantLevel, PREDEFINED_ROLES},
+    policy_input::{self, PolicyInput, PolicyInputError},
+    roles::PREDEFINED_ROLES,
 };
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Value, json};
@@ -51,25 +52,7 @@ pub(crate) fn test_permissions_query(
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         if query::decode(key, query::Decoding::Form)? == "permissions" {
             let permission = query::decode(value, query::Decoding::Form)?;
-            if matches!(
-                permission.as_str(),
-                crate::auth::BUCKETS_CREATE | crate::auth::BUCKETS_LIST
-            ) {
-                return Err(invalid("Invalid argument."));
-            }
-            if crate::auth::Permission::try_from(permission.as_str()).is_err() {
-                if PREDEFINED_ROLES
-                    .iter()
-                    .any(|(_, _, names)| names.contains(&permission.as_str()))
-                {
-                    return Err(JsonError::unsupported(&format!(
-                        "permission {permission}; use a supported operation permission such as storage.objects.get"
-                    )));
-                }
-                return Err(invalid(format!(
-                    "{permission} is not a valid Google Cloud Storage permission."
-                )));
-            }
+            check_testable_permission(&permission)?;
             if !permissions.contains(&permission) {
                 permissions.push(permission);
             }
@@ -96,17 +79,53 @@ fn invalid(message: impl Into<String>) -> JsonError {
     JsonError::new(StatusCode::BAD_REQUEST, "invalid", message)
 }
 
+pub(crate) fn check_testable_permission(permission: &str) -> Result<(), JsonError> {
+    if matches!(
+        permission,
+        crate::auth::BUCKETS_CREATE | crate::auth::BUCKETS_LIST
+    ) {
+        return Err(invalid("Invalid argument."));
+    }
+    if crate::auth::Permission::try_from(permission).is_err() {
+        if PREDEFINED_ROLES
+            .iter()
+            .any(|(_, _, names)| names.contains(&permission))
+        {
+            return Err(JsonError::unsupported(&format!(
+                "permission {permission}; use a supported operation permission such as storage.objects.get"
+            )));
+        }
+        return Err(invalid(format!(
+            "{permission} is not a valid Google Cloud Storage permission."
+        )));
+    }
+    Ok(())
+}
+
+impl From<PolicyInputError> for JsonError {
+    fn from(error: PolicyInputError) -> Self {
+        match error {
+            PolicyInputError::InvalidInput(message) => invalid(message),
+            PolicyInputError::UnsupportedInput(message) => JsonError::unsupported(&message),
+        }
+    }
+}
+
 pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|error| JsonError::parse_error(bytes, &error))?;
     let body = value
         .as_object()
         .ok_or_else(|| invalid("Policy must be an object"))?;
-    if let Some(version) = body.get("version")
-        && !matches!(version.as_u64(), Some(0 | 1 | 3))
-    {
-        return Err(invalid("Policy version must be 0, 1 or 3"));
-    }
+    let version = match body.get("version") {
+        None => 0,
+        Some(value) => match value.as_i64() {
+            Some(0) => 0,
+            Some(1) => 1,
+            Some(3) => 3,
+            _ => return Err(invalid("Policy version must be 0, 1 or 3")),
+        },
+    };
     if body.contains_key("auditConfigs") {
         return Err(JsonError::unsupported("auditConfigs"));
     }
@@ -138,19 +157,7 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
                 .get("role")
                 .and_then(Value::as_str)
                 .ok_or_else(|| invalid("binding role must be a string"))?;
-            if matches!(role, "roles/owner" | "roles/editor" | "roles/viewer") || custom_role(role)
-            {
-                return Err(JsonError::unsupported("basic or custom role"));
-            }
-            let Some((_, level, _)) = PREDEFINED_ROLES.iter().find(|(name, _, _)| *name == role)
-            else {
-                return Err(invalid(format!(
-                    "Role {role} is not supported for this resource."
-                )));
-            };
-            if *level == GrantLevel::Project {
-                return Err(invalid("Role cannot be granted on a bucket"));
-            }
+            policy_input::validate_role(role)?;
             // A binding without members grants nothing, and Cloud Storage dropped it from the
             // stored policy without complaint (recorded 2026-10-31).
             let values = binding
@@ -161,16 +168,14 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
                 continue;
             }
             principals += values.len();
-            if principals > 1500 {
-                return Err(invalid("Policy exceeds 1500 principal occurrences"));
-            }
+            policy_input::validate_principal_count(principals)?;
             let members = values
                 .iter()
                 .map(|value| {
                     let member = value
                         .as_str()
                         .ok_or_else(|| invalid("member must be a string"))?;
-                    validate_member(member)?;
+                    policy_input::validate_member(member)?;
                     Ok(member.to_owned())
                 })
                 .collect::<Result<_, JsonError>>()?;
@@ -180,7 +185,14 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
             });
         }
     }
-    Ok(Policy { bindings, etag })
+    // Validate while parsing too, so mixed shape/semantic errors retain their JSON precedence.
+    PolicyInput {
+        version,
+        bindings,
+        etag,
+    }
+    .into_policy()
+    .map_err(Into::into)
 }
 
 fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {
@@ -204,42 +216,6 @@ fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {
     Ok(Some(base64(&decoded)))
 }
 
-fn custom_role(role: &str) -> bool {
-    let parts: Vec<_> = role.split('/').collect();
-    matches!(parts.as_slice(), ["projects" | "organizations", owner, "roles", name]
-        if !owner.is_empty() && !name.is_empty() && role.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-".contains(&b)))
-}
-
-fn validate_member(member: &str) -> Result<(), JsonError> {
-    if matches!(member, "allUsers" | "allAuthenticatedUsers") {
-        return Ok(());
-    }
-    let (kind, id) = member
-        .split_once(':')
-        .ok_or_else(|| unknown_member_type(member))?;
-    if matches!(kind, "projectOwner" | "projectEditor" | "projectViewer") {
-        return super::validate_project(id).map_err(|_| invalid("Invalid convenience project"));
-    }
-    if id.is_empty() || !id.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
-        return Err(invalid("Malformed policy member"));
-    }
-    match kind {
-        "user" | "serviceAccount" if id.len() <= 254 => Ok(()),
-        "group" | "domain" | "deleted" => Err(JsonError::unsupported("principal kind")),
-        "principal" | "principalSet" if id.starts_with("//") && id.len() > 2 => {
-            Err(JsonError::unsupported("federated principal"))
-        }
-        _ => Err(unknown_member_type(member)),
-    }
-}
-
-/// Cloud Storage's wording for a member with no known type prefix (recorded 2026-10-31).
-fn unknown_member_type(member: &str) -> JsonError {
-    invalid(format!(
-        "The member {member} is of an unknown type. Please set a valid type prefix for the member."
-    ))
-}
-
 pub(crate) fn policy_resource(policy: &Policy, bucket: &str) -> Value {
     json!({"kind": "storage#policy", "resourceId": format!("projects/_/buckets/{bucket}"),
         "version": 1, "etag": policy.etag, "bindings": policy.bindings_json()})
@@ -252,6 +228,38 @@ pub(crate) fn policy_etag(sequence: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn policy_validation_preserves_json_error_precedence_and_opaque_etags() {
+        for (body, status, message) in [
+            (
+                json!({"version":2,"auditConfigs":[]}),
+                400,
+                "Policy version must be 0, 1 or 3",
+            ),
+            (
+                json!({"bindings":[{"role":"unknown","members":false}]}),
+                400,
+                "Role unknown is not supported for this resource.",
+            ),
+            (
+                json!({"bindings":[{"role":"roles/storage.objectViewer","members":vec![Value::Null;1501]}]}),
+                400,
+                "Policy exceeds 1500 principal occurrences",
+            ),
+            (
+                json!({"bindings":[{"role":"roles/storage.objectViewer","members":[false]},{"role":"unknown","members":[]}]}),
+                400,
+                "member must be a string",
+            ),
+        ] {
+            let error = parse_policy(body.to_string().as_bytes()).unwrap_err();
+            assert_eq!(error.status.as_u16(), status);
+            assert_eq!(error.message, message);
+        }
+        let policy = parse_policy(br#"{"version":3,"bindings":[],"etag":"AA=="}"#).unwrap();
+        assert_eq!(policy.etag.as_deref(), Some("AA=="));
+    }
 
     #[test]
     fn etag_bytes_accept_protojson_encodings_and_normalize_for_comparison() {

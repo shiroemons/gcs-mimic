@@ -573,7 +573,7 @@ fn admin_error(error: &AdminError) -> Option<JsonError> {
         AdminError::Forbidden => crate::auth::AuthFailure::Forbidden.into(),
         AdminError::Precondition => stale(),
         AdminError::Corrupt(cause) => crate::object::ObjectError::Corrupt(cause.clone()).into(),
-        AdminError::DiskFull => JsonError::new(
+        AdminError::DiskFull(_) => JsonError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "disk_full",
             "Free disk space without deleting synchronization data, then retry",

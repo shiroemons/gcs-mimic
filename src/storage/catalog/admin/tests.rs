@@ -18,7 +18,10 @@ fn administrative_diagnostics_keep_their_existing_messages() {
             },
             "administrative operation: Busy { retry_after: 2s }",
         ),
-        (AdminError::DiskFull, "administrative operation: DiskFull"),
+        (
+            AdminError::DiskFull(io::ErrorKind::StorageFull.into()),
+            "administrative operation: DiskFull",
+        ),
         (AdminError::Closed, "administrative operation: Closed"),
         (
             AdminError::Precondition,
@@ -370,7 +373,10 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
             let transaction = connection.transaction().unwrap();
             for index in 0..140 {
                 let id = format!("{index:032x}");
-                let path = objects::blob_path(&data_dir, &id.parse().unwrap());
+                let path = id
+                    .parse::<crate::storage::BlobId>()
+                    .unwrap()
+                    .blob_path(&data_dir);
                 fs::create_dir_all(path.parent().unwrap()).unwrap();
                 fs::write(path, b"retired").unwrap();
                 transaction
@@ -1013,7 +1019,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
             )
             .await
             .unwrap_err(),
-        AdminError::DiskFull
+        AdminError::DiskFull(io::ErrorKind::StorageFull.into())
     );
     catalog
         .run(|connection| {
@@ -1035,7 +1041,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
         .collect();
     assert_eq!(
         admin.ensure_buckets(records).await.unwrap_err(),
-        AdminError::DiskFull
+        AdminError::DiskFull(io::ErrorKind::StorageFull.into())
     );
     assert!(
         admin
@@ -1231,7 +1237,9 @@ async fn admin_invalid_metadata_cannot_replace_a_readable_generation() {
                 body(b"bad")
             )
             .await,
-        Err(ObjectError::InvalidFixedMetadata(_))
+        Err(ObjectError::Metadata(
+            crate::metadata_error::MetadataError::FixedHeader(_)
+        ))
     ));
     catalog.close().await.unwrap();
 }
@@ -1473,4 +1481,16 @@ async fn disk_full_during_derived_retirement_preserves_the_same_transfer_and_byt
         b"new bytes"[..]
     );
     catalog.close().await.unwrap();
+}
+#[test]
+fn disk_full_preserves_the_original_io_error() {
+    let error = AdminError::from(io::Error::new(
+        io::ErrorKind::StorageFull,
+        "staging sync failed",
+    ));
+    let cause = crate::error::causes(&error)
+        .find_map(|cause| cause.downcast_ref::<io::Error>())
+        .unwrap();
+    assert_eq!(cause.kind(), io::ErrorKind::StorageFull);
+    assert_eq!(cause.to_string(), "staging sync failed");
 }

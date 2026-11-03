@@ -898,6 +898,17 @@ async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
                 vec![b'a'; 100 * 1024],
                 "{case}"
             );
+            // Detached request cleanup commits SQL before releasing files and draining its journal.
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                while count(&h.dir.0, "SELECT count(*) FROM derived_transfers") != 0
+                    || !staged(&h.dir.0).is_empty()
+                    || count(&h.dir.0, "SELECT count(*) FROM pending_blob_deletions") != 0
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap_or_else(|error| panic!("{case}: derived cleanup did not finish: {error}"));
             assert_eq!(
                 count(&h.dir.0, "SELECT count(*) FROM derived_transfers"),
                 0,

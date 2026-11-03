@@ -47,6 +47,7 @@ pub(super) fn storage_with(state: Arc<State>, max_object_bytes: u64) -> super::v
     super::v2::Storage {
         state,
         max_object_bytes,
+        compat_profile: crate::config::CompatProfile::Native,
     }
 }
 
@@ -97,6 +98,16 @@ pub(super) async fn rpc<M: prost::Message, R: prost::Message + Default>(
     messages: &[M],
     send: impl AsyncFnOnce(hyper::Request<tonic::body::Body>) -> hyper::Response<tonic::body::Body>,
 ) -> (Code, Vec<R>) {
+    let (status, messages) = rpc_status(path, token, messages, send).await;
+    (status.code(), messages)
+}
+
+pub(super) async fn rpc_status<M: prost::Message, R: prost::Message + Default>(
+    path: &str,
+    token: Option<&str>,
+    messages: &[M],
+    send: impl AsyncFnOnce(hyper::Request<tonic::body::Body>) -> hyper::Response<tonic::body::Body>,
+) -> (Status, Vec<R>) {
     use http_body_util::BodyExt;
     let mut body = Vec::new();
     for message in messages {
@@ -119,7 +130,7 @@ pub(super) async fn rpc<M: prost::Message, R: prost::Message + Default>(
         )))
         .unwrap();
     let response = send(request).await;
-    let mut code = Status::from_header_map(response.headers()).map(|status| status.code());
+    let mut status = Status::from_header_map(response.headers());
     let mut body = response.into_body();
     let mut encoded = Vec::new();
     while let Some(frame) = body.frame().await {
@@ -130,7 +141,7 @@ pub(super) async fn rpc<M: prost::Message, R: prost::Message + Default>(
             }
             Err(frame) => {
                 if let Ok(trailers) = frame.into_trailers() {
-                    code = Status::from_header_map(&trailers).map(|status| status.code());
+                    status = Status::from_header_map(&trailers);
                 }
             }
         }
@@ -146,5 +157,5 @@ pub(super) async fn rpc<M: prost::Message, R: prost::Message + Default>(
         messages.push(R::decode(&remaining[5..5 + size]).unwrap());
         remaining = &remaining[5 + size..];
     }
-    (code.expect("terminal grpc-status"), messages)
+    (status.expect("terminal grpc-status"), messages)
 }

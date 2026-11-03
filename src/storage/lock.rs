@@ -6,25 +6,34 @@ use std::{
     path::Path,
 };
 
-pub(super) struct DirectoryLock(Vec<File>);
+pub(super) struct DirectoryLock {
+    directory: Option<File>,
+    file: File,
+    released: bool,
+}
 
 impl DirectoryLock {
     pub(super) fn release(mut self) -> io::Result<()> {
-        while let Some(file) = self.0.pop() {
-            file.unlock()?;
+        self.file.unlock()?;
+        self.released = true;
+        if let Some(directory) = self.directory.take() {
+            directory.unlock()?;
         }
         Ok(())
     }
 
     pub(super) fn file(&self) -> &File {
-        &self.0[0]
+        &self.file
     }
 }
 
 impl Drop for DirectoryLock {
     fn drop(&mut self) {
+        if self.released {
+            return;
+        }
         // Closing alone leaves flock held by descriptors inherited between fork and exec.
-        for file in &self.0 {
+        for file in std::iter::once(&self.file).chain(self.directory.as_ref()) {
             if let Err(error) = file.unlock() {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Error,
@@ -37,12 +46,20 @@ impl Drop for DirectoryLock {
 }
 
 pub(super) fn acquire_directory(path: &Path) -> io::Result<DirectoryLock> {
+    Ok(DirectoryLock {
+        directory: None,
+        file: acquire_directory_file(path)?,
+        released: false,
+    })
+}
+
+fn acquire_directory_file(path: &Path) -> io::Result<File> {
     let file = crate::fsutil::open_directory_nofollow(path)?;
     file.try_lock().map_err(|error| match error {
         TryLockError::WouldBlock => io::Error::from(io::ErrorKind::WouldBlock),
         TryLockError::Error(error) => error,
     })?;
-    Ok(DirectoryLock(vec![file]))
+    Ok(file)
 }
 
 /// Keeps `error` as the source of a message that already describes it.
@@ -65,7 +82,7 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
     })?;
     // A directory inode lock also survives replacement of catalog.lock on Unix.
     #[cfg(unix)]
-    let mut directory = acquire_directory(
+    let directory = acquire_directory_file(
         &data_dir
             .canonicalize()
             .map_err(|error| lock_failure(format!("resolve data directory: {error}"), error))?,
@@ -81,7 +98,9 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
         }
     })?;
     #[cfg(not(unix))]
-    let mut directory = DirectoryLock(Vec::new());
+    let directory = None;
+    #[cfg(unix)]
+    let directory = Some(directory);
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -97,6 +116,9 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
         ),
     })?;
     // Keep the file in place: unlinking it would let another process lock a different inode.
-    directory.0.push(file);
-    Ok(directory)
+    Ok(DirectoryLock {
+        directory,
+        file,
+        released: false,
+    })
 }

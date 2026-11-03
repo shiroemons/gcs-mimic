@@ -125,21 +125,12 @@ impl Catalog {
         let catalog = self.clone();
         self.run(move |connection| {
             for id in due(connection, now)? {
-                let guard_id = format!("multipart:{id}");
-                let activity = catalog.activity()?;
-                if !catalog
-                    .0
-                    .session_writers
-                    .lock()
-                    .map_err(super::super::unavailable)?
-                    .insert(guard_id.clone())
+                let _guard = match catalog
+                    .claim_writer(WriterKey::Multipart(id.clone()), KeyOrigin::Catalog)
                 {
-                    continue;
-                }
-                let _guard = resumable::WriterGuard {
-                    catalog: catalog.clone(),
-                    id: guard_id,
-                    _activity: activity,
+                    Ok(guard) => guard,
+                    Err(ClaimError::Busy) => continue,
+                    Err(error) => return Err(CatalogError::from(error)),
                 };
                 let transaction = sql::immediate(connection)?;
                 retire(&transaction, &id).map_err(super::super::unavailable)?;

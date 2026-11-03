@@ -10,6 +10,56 @@ use tonic::{Code, Request};
 
 const BUCKET: &str = "projects/_/buckets/grpc-append";
 
+#[tokio::test]
+async fn readable_selection_survives_appendable_finalization() {
+    let (_dir, storage) = setup(false).await;
+    for index in 0..30 {
+        let name = format!("racing-{index}");
+        let mut writer = storage
+            .state
+            .catalog
+            .create_appendable(
+                "grpc-append",
+                &name,
+                crate::storage::ResumableOptions::new(BucketAccess::Permissive),
+            )
+            .await
+            .unwrap();
+        writer
+            .append(0, Bytes::from_static(b"persisted"), 1024)
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        let reads = async {
+            for _ in 0..20 {
+                let target = live("grpc-append", &name);
+                let (record, mut reader, _) = storage
+                    .open_readable(target.clone(), Default::default(), PERMISSIVE)
+                    .await
+                    .unwrap();
+                assert_eq!(record.size, 9);
+                assert_eq!(
+                    reader.next_chunk().await.unwrap().unwrap(),
+                    b"persisted".as_slice()
+                );
+                assert_eq!(
+                    storage
+                        .get_readable(target, Default::default(), PERMISSIVE)
+                        .await
+                        .unwrap()
+                        .0
+                        .size,
+                    9
+                );
+            }
+        };
+        let (finalized, ()) =
+            tokio::join!(writer.finalize(None, BucketAccess::Permissive, 1024), reads);
+        finalized.unwrap();
+    }
+    storage.state.catalog.close().await.unwrap();
+}
+
 async fn setup(strict: bool) -> (TestDir, Storage) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -29,6 +79,7 @@ async fn setup(strict: bool) -> (TestDir, Storage) {
         Auth::permissive()
     };
     let storage = Storage {
+        compat_profile: crate::config::CompatProfile::Native,
         state: Arc::new(crate::server::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
     };
@@ -483,10 +534,16 @@ async fn append_rejects_replacement_and_invalid_messages_without_false_success()
     if let Some(Data::ChecksummedData(data)) = bad_crc.data.as_mut() {
         data.crc32c = Some(1);
     }
+    let mut early_later_checksum = chunk(100, b"rejected", false);
+    early_later_checksum.object_checksums = Some(pb::ObjectChecksums::default());
     for (messages, code) in [
         (vec![Ok(sized)], Code::Unimplemented),
         (vec![Ok(early_checksum)], Code::InvalidArgument),
         (vec![Ok(encrypted)], Code::Unimplemented),
+        (
+            vec![Ok(create("early-later", b"x")), Ok(early_later_checksum)],
+            Code::InvalidArgument,
+        ),
         (
             vec![Ok(create("md5", b"x")), Ok(md5_finish)],
             Code::InvalidArgument,
@@ -574,4 +631,14 @@ async fn append_strict_requires_create_and_allows_viewer_reads() {
         .unwrap()
         .into_inner();
     assert_eq!(object.size, 6);
+    let mut finish = take_over("strict", generation, None);
+    finish.finish_write = true;
+    let (result, responses) = append(&storage, vec![Ok(finish)], admin).await;
+    result.unwrap();
+    let WriteStatus::Resource(object) = responses.last().unwrap().write_status.as_ref().unwrap()
+    else {
+        panic!("finalization must return metadata");
+    };
+    assert!(object.owner.is_some());
+    assert!(!object.acl.is_empty());
 }

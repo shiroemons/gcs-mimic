@@ -1215,12 +1215,15 @@ async fn failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fi
         .unwrap();
     drop(database);
     for _ in 0..2 {
-        let error = Catalog::open(&dir.0).await.err().unwrap().to_string();
+        let failure = Catalog::open(&dir.0).await.err().unwrap();
+        assert!(matches!(failure, CatalogError::Io(_)), "{failure:?}");
+        assert!(crate::error::causes(&failure).any(|cause| cause.is::<io::Error>()));
+        let error = failure.to_string();
         assert!(
             error.contains(&format!("deletion journal blob {id}:")),
             "{error}"
         );
-        assert_eq!(error.matches("catalog unavailable:").count(), 1, "{error}");
+        assert_eq!(error.matches("catalog I/O:").count(), 1, "{error}");
         assert!(!error.contains(&dir.0.display().to_string()), "{error}");
     }
     fs::remove_dir(path).unwrap();

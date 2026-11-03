@@ -1779,7 +1779,7 @@ fn only_contention_and_timeouts_are_transient() {
         wrapped(AdminError::Forbidden),
         wrapped(AdminError::Corrupt("catalog row".into())),
         wrapped(AdminError::Closed),
-        wrapped(AdminError::DiskFull),
+        wrapped(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
         io::Error::from(io::ErrorKind::PermissionDenied),
         io::Error::other("injected live sync failure"),
     ] {
@@ -1826,7 +1826,7 @@ fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
             PauseReason::RecoveryRequired,
         ),
         (
-            io::Error::other(AdminError::DiskFull),
+            io::Error::other(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
             PauseReason::IoFailure,
         ),
         (

@@ -29,7 +29,7 @@ async fn live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_
     }).await.unwrap();
     assert!(matches!(
         fixture.writeback.recover_pending().await,
-        Err(Error::Admin(AdminError::DiskFull))
+        Err(Error::Admin(AdminError::DiskFull(_)))
     ));
     assert_eq!(
         fixture.writeback.page(0, 1).await.unwrap()[0].phase,

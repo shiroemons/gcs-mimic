@@ -31,13 +31,14 @@
 //! - Unix only, because directory fsync is the unix publication protocol.
 
 use crate::storage::failure::{BackendCause, Classified, StorageCause};
-#[cfg(unix)]
-use std::{collections::HashMap, os::unix::fs::PermissionsExt};
 use std::{
+    cell::Cell,
     fs, io,
     path::{Path, PathBuf},
     sync::{Mutex, PoisonError},
 };
+#[cfg(unix)]
+use std::{collections::HashMap, os::unix::fs::PermissionsExt};
 
 #[cfg(unix)]
 mod tests;
@@ -53,6 +54,19 @@ pub(crate) enum Step {
     SyncMarkerRename,
     SyncMarkerParentSync,
     SyncMarkerPublished,
+    /// Before probing a failed or rolled-back publication's reference.
+    DiscardProbe,
+    /// Before unlinking a journaled blob.
+    ReclaimUnlink,
+    /// After unlinking a shard's blobs, before its directory sync.
+    #[cfg(unix)]
+    ReclaimSync,
+    /// After durable removal, before committing journal removal.
+    ReclaimForget,
+    /// After publishing a restore's pinned bytes, before its metadata transaction.
+    RestorePinned,
+    /// Before removing an unretained staging entry during startup recovery.
+    RecoveryStagingUnlink,
     TransferAccepted,
     TransferComplete,
     TransferCompleted,
@@ -132,8 +146,20 @@ pub(crate) enum Step {
     BeforeCommit,
     /// After the publication transaction committed.
     AfterCommit,
+    /// After a derived draft is created, before its staging directory is synced.
+    DerivedDraftSync,
+    /// Before committing the derived transfer's durable draft and input references.
+    DerivedBeginCommit,
+    /// Before committing removal of a derived transfer and its input references.
+    DerivedCleanupCommit,
+    /// After discarding the derived transfer's references, before releasing staged data.
+    DerivedCleanup,
+    /// After releasing the discarded transfer's staging entries.
+    DerivedCleaned,
     /// Before one write of appended bytes to an appendable data file.
     AppendWrite,
+    /// Before releasing data no committed appendable row references.
+    AppendCleanup,
     /// Before the appendable data file's `sync_data` on a flush.
     AppendSync,
     /// After the appended bytes are durable, before the transaction that publishes their size.
@@ -221,6 +247,45 @@ struct Armed {
 }
 
 static ARMED: Mutex<Vec<Armed>> = Mutex::new(Vec::new());
+
+thread_local! {
+    static ON_CATALOG_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+static CATALOG_IO: Mutex<Vec<(PathBuf, usize)>> = Mutex::new(Vec::new());
+
+pub(crate) fn enter_catalog_thread() {
+    ON_CATALOG_THREAD.set(true);
+}
+
+pub(crate) fn record_catalog_thread_io(path: &Path) {
+    if !ON_CATALOG_THREAD.get() {
+        return;
+    }
+    let Some(root) = path
+        .ancestors()
+        .find(|root| root.join("catalog.sqlite3").is_file())
+    else {
+        return;
+    };
+    let root = key(root);
+    let mut counts = CATALOG_IO.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, count)) = counts.iter_mut().find(|(entry, _)| entry == &root) {
+        *count += 1;
+    } else {
+        counts.push((root, 1));
+    }
+}
+
+pub(crate) fn catalog_thread_io(root: &Path) -> usize {
+    let root = key(root);
+    CATALOG_IO
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .find(|(entry, _)| entry == &root)
+        .map_or(0, |(_, count)| *count)
+}
 
 fn armed() -> std::sync::MutexGuard<'static, Vec<Armed>> {
     // A test that panicked while holding the lock leaves only plain data behind.

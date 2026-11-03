@@ -302,7 +302,9 @@ mod tests {
 
     async fn clean(catalog: &Catalog, path: &std::path::Path, id: &crate::storage::BlobId) {
         tokio::time::timeout(Duration::from_secs(5), async {
-            while catalog.get_derived(id).await != Err(ObjectError::DerivedTransferNotFound) {
+            while catalog.get_derived(id).await != Err(ObjectError::DerivedTransferNotFound)
+                || fs::read_dir(path.join("staging")).unwrap().count() != 0
+            {
                 tokio::task::yield_now().await;
             }
         })

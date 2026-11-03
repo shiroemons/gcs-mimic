@@ -3,6 +3,7 @@
 use super::*;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use tokio::sync::mpsc;
 
 /// Raising the read buffer raises the memory each upload's channel can retain; review that
 /// tradeoff (and `stream_upload`'s zero-copy forwarding) before changing this value.

@@ -193,12 +193,12 @@ impl SeedBatch {
 
     pub(crate) async fn commit(mut self, mode: SeedMode) -> Result<Counts, AdminError> {
         let catalog = self.admin.catalog.clone();
+        self.entries.reverse();
         while let Some(entry) = self.entries.pop() {
             self.prepared
                 .push(prepare_entry(catalog.clone(), entry).await?);
         }
         std::mem::swap(&mut self.entries, &mut self.prepared);
-        self.entries.reverse();
         let execution =
             tokio::time::timeout(WAIT_TIMEOUT, catalog.0.execution.clone().acquire_owned())
                 .await
@@ -288,7 +288,7 @@ async fn prepare_entry(
             .as_ref()
             .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?;
         let source = id.staging_path(&catalog.0.data_dir);
-        let destination = objects::blob_path(&catalog.0.data_dir, id);
+        let destination = id.blob_path(&catalog.0.data_dir);
         #[cfg(test)]
         super::super::super::fault::hit(
             &catalog.0.data_dir,
@@ -478,6 +478,7 @@ fn confirmed(
 }
 
 fn matches_seed(live: &ObjectRecord, entry: &BatchPublication) -> bool {
+    // Seed requests carry no metadata; adding sidecars must extend this comparison.
     live.size == entry.staged.size
         && live.md5 == entry.staged.hashes.md5
         && live.crc32c == entry.staged.hashes.crc32c

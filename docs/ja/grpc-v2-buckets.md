@@ -6,11 +6,14 @@
 
 `grpc_listen`を設定したサーバーへ`STORAGE_EMULATOR_HOST_GRPC`を向けると、通常のGo `storage.NewGRPCClient(ctx)`でバケットの作成・取得・一覧・削除を利用できます。JSONと同じカタログを使うため、相互に作成したバケットが見えます。新しい設定はありません。
 
-名前は`projects/_/buckets/NAME`です。作成時のparentは空または`projects/_`、所有projectは`bucket.project`に`projects/<id>`で指定します。Go SDKはこの形式を自動で組み立てます。routing metadataの`bucket`・`project`を復号して要求と照合します。Go SDKが付けるDirectPath診断は受け付けます。
+CreateBucketの保持・soft delete・PAP・CORS・Autoclassは共有の型付き検証を再利用します。
+作成全体の共有型は未整備のため、残りの作成項目にはJSON insertパーサーを使い、PARTIALを維持します。UpdateBucketは共有更新型を直接作ります。
+
+名前は`projects/_/buckets/NAME`です。作成時のparentは空または`projects/_`、所有projectは`bucket.project`に`projects/<id>`で指定します。全Storage v2 RPCの共通入口でrouting metadataを検査し、ストリーミングは最初のメッセージ、rewrite継続はtokenの名前と照合します。`bucket`・`project`・rewriteの`source_bucket`とRapidの`appendable`を検査し、GoのDirectPath診断を受け付けます。未対応の意味を持つキーはUNIMPLEMENTEDです。バケット名はbucket・object両方のRPCで設定済みの互換プロファイルに従います。Googleの不正名ステータスと全SDKのrouting組み合わせはSPEC-GRPC-ROUTING-NAMESで未確認です。
 
 作成時はlocation、storage class、labels、CORS、versioning、default event hold、retention、soft delete、IAM設定の共有JSON検証を使います。Autoclassは[共有の設定規則（英語）](../en/slices/bucket-autoclass-storage-class.md)に従い、出力専用の時刻は拒否します。object retentionは`enable_object_retention`で有効にします（[SDK互換（英語）](../en/slices/grpc-v2-sdk-parity.md)）。read maskでは`etag`・`autoclass`・`lifecycle`・`object_retention`も選べます。未対応の意味を持つ設定・read maskは`UNIMPLEMENTED`です。取得・削除のメタ世代条件、prefixとページング、非空バケットの削除拒否に対応します。strictでは共有認可を使い、保護されたバケットへの未認証アクセスは`UNAUTHENTICATED`、登録済みprincipalの権限不足は`PERMISSION_DENIED`になります。`allUsers`で許可されたGet/DeleteはJSONと同様に匿名でも成功し、公開アクセス防止も共有の判定に従います。
 
-課金先を指定する`x-goog-user-project`は、空値を明示した場合もErrorInfo付き`UNIMPLEMENTED`で拒否します。JSONの明示的な`userProject`も未対応です。Go SDKの既定呼び出しと`Bucket.UserProject("")`はこのmetadataを送らないため利用できます。
+課金先を指定する`x-goog-user-project`は、全Storage v2 RPCで空値を明示した場合もErrorInfo付き`UNIMPLEMENTED`で拒否します。ストリームの入力前に検査します。JSONの明示的な`userProject`も未対応です。Go SDKの既定呼び出しと`Bucket.UserProject("")`はこのmetadataを送らないため利用できます。
 
 Storage v1、オブジェクトの転送方式間検証、project IDから番号への解決、バケット自体のsoft delete・restore、未完了のXML multipart・Rapidとの組み合わせ、未対応フィールドの完全な互換性は残っています。AUDIT-008はPARTIALを維持します。性能測定・コンテナ・実クラウド検証は対象外です。
 

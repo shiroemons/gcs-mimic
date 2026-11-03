@@ -219,6 +219,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn imported_and_fixture_publications_reject_a_pre_epoch_host_clock() {
+        let dir = TestDir::new();
+        let clock = Arc::new(crate::clock::ManualClock::new(FixedClock.now()));
+        let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+            .await
+            .unwrap();
+        let admin = catalog.admin(Origin::Import);
+        let bucket = BucketName::new("import-bucket").unwrap();
+        admin
+            .ensure_bucket(BucketDefinition::default_for(&bucket, "project", &FixedClock).unwrap())
+            .await
+            .unwrap();
+        let name = ObjectName::new("source").unwrap();
+        let source = identity(7);
+        let fixture =
+            ImportedIdentity::fixture(None, source.time_created(), source.updated()).unwrap();
+        clock.set(UNIX_EPOCH - Duration::from_micros(1));
+        for identity in [source, fixture] {
+            let error = admin
+                .publish_with_identity(&bucket, &name, request(), Some(identity), body())
+                .await
+                .unwrap_err();
+            assert!(matches!(error, AdminError::Backend(_)), "{error:?}");
+            assert_eq!(
+                admin.get_object(&bucket, &name, None).await,
+                Err(AdminError::NotFound)
+            );
+        }
+        clock.set(FixedClock.now());
+        let published = admin
+            .publish_with_identity(&bucket, &name, request(), Some(source), body())
+            .await
+            .unwrap();
+        assert_eq!(published.generation, 7);
+        assert_eq!(published.time_created, source.time_created());
+        catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn imported_identity_preserves_times_hashes_history_and_allocator_after_restart() {
         let (dir, catalog, admin, bucket, name) = setup(true).await;
         let source = identity(9_000_000_000_000_000);

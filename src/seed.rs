@@ -3,8 +3,7 @@
 use crate::{
     clock::Clock,
     config::Config,
-    json::validate_object_name,
-    object::ExpectedHashes,
+    object::{ExpectedHashes, name::validate as validate_object_name},
     source_tree::{WalkError, Walker, is_os_metadata},
     storage::{
         Catalog,
@@ -243,7 +242,11 @@ impl Seed<'_> {
                 .map(|part| part.to_str().ok_or(SeedError::NonUtf8Name))
                 .collect::<Result<Vec<_>, _>>()?
                 .join("/");
-            validate_object_name(&name).map_err(SeedError::ObjectName)?;
+            validate_object_name(&name).map_err(|_| {
+                SeedError::ObjectName(crate::json::JsonError::invalid_parameter(
+                    "Invalid object name",
+                ))
+            })?;
             (bucket.to_owned(), name)
         } else {
             // fake-gcs-server ignores top-level files, and an implicit /data mount often holds

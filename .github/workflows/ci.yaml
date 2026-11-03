@@ -49,6 +49,9 @@ jobs:
           key: ${{ matrix.toolchain }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: bash scripts/test-check.sh
+      - name: Verify pinned gRPC protobuf sources
+        run: sha256sum --check src/grpc/proto/SHA256SUMS
+      - run: bash scripts/test-grpc-codegen.sh
       - run: bash sdk-scorecard/test-score.sh
       # The cross job type-checks the other targets in parallel; serially they
       # added about 3.5 minutes to this job.

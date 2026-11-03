@@ -63,6 +63,12 @@ with `permissive` fail startup before the catalog is created or the listener bin
 Permissive mode is the existing unauthenticated local profile. It is never counted
 as strict coverage.
 
+JSON CORS keeps Cloud Storage's fixed defaults. In permissive mode any page
+opened in a developer's browser can read local JSON API data, including through
+a loopback listener. Use strict authentication for sensitive fixtures; bucket
+CORS rules do not restrict JSON API origins. Management routes separately reject
+page-initiated requests before their instance authority checks.
+
 ### Identity registry
 
 The registry is a JSON file read once at startup, bounded to 64 KiB:

@@ -99,9 +99,10 @@ pub(super) fn request(
     let compressed_limit = expanded_limit
         .saturating_add(expanded_limit / 8)
         .saturating_add(64 * 1024);
+    let decoders = ctx.state.pools.gzip_decoders.clone();
     crate::task::spawn_supervised("gzip-upload-input", async move {
         let result = tokio::select! {
-            result = stream(body, &sender, &activity, compressed_limit, expanded_limit) => result,
+            result = stream(body, &sender, &activity, compressed_limit, expanded_limit, decoders) => result,
             _ = sender.closed() => return,
         };
         match result {
@@ -155,12 +156,17 @@ async fn stream(
     activity: &watch::Sender<ObjectActivity>,
     compressed_limit: u64,
     expanded_limit: u64,
+    decoders: Arc<tokio::sync::Semaphore>,
 ) -> io::Result<()> {
     let mut decoder = MultiGzDecoder::new(Input::default());
     let mut pending = Bytes::new();
     let (mut compressed, mut expanded) = (0_u64, 0_u64);
     loop {
-        let permit = super::DECODERS.acquire().await.map_err(io::Error::other)?;
+        let permit = decoders
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(io::Error::other)?;
         let (next, output) = crate::task::run_blocking("upload-gzip-decoder", move || {
             let _permit = permit;
             let mut output = vec![0; CHUNK_BYTES];
@@ -264,6 +270,7 @@ mod tests {
                 &activity,
                 input,
                 output,
+                Arc::new(tokio::sync::Semaphore::new(1)),
             )
             .await
             .unwrap_err();

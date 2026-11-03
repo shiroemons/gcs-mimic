@@ -1073,7 +1073,7 @@ pub async fn apply(
 
 fn initialization_failure(error: &AdminError) -> std::io::Error {
     let reason = match error {
-        AdminError::DiskFull => "disk full",
+        AdminError::DiskFull(_) => "disk full",
         AdminError::Busy { .. } => "administrative admission timed out",
         AdminError::Closed => "catalog closed",
         AdminError::Corrupt(_) => "catalog corrupt",

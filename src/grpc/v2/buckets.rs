@@ -1,20 +1,10 @@
-use super::{Storage, pb, status::unsupported_for};
+use super::{Storage, access_status, pb, status::unsupported_for};
 use super::{convert, names};
 use crate::auth::Caller;
 use crate::grpc::validate::bucket_conditions;
 use crate::{bucket::CatalogError, json};
 use serde_json::json;
 use tonic::{Request, Response, Status};
-
-/// `?` would bypass the v2 NotEmpty wording and anonymous authorization mapping.
-fn catalog_error(error: CatalogError, caller: Option<Caller<'_>>) -> Status {
-    if matches!(error, CatalogError::NotEmpty) {
-        return Status::failed_precondition(
-            "Bucket is not empty; delete its objects and versions before deleting the bucket",
-        );
-    }
-    super::access_status(error, caller)
-}
 
 fn require_caller(caller: Option<Caller<'_>>) -> Result<(), Status> {
     if matches!(caller, Some(Caller::Anonymous)) {
@@ -46,68 +36,9 @@ fn project_name(resource: &str) -> Result<&str, Status> {
     Ok(project)
 }
 
-fn routing<T>(request: &Request<T>, field: &str, resource: &str) -> Result<(), Status> {
-    if request.metadata().contains_key("x-goog-user-project") {
-        return Err(super::status::unsupported(
-            "x-goog-user-project billing metadata; omit UserProject on bucket calls",
-        ));
-    }
-    for metadata in request.metadata().get_all("x-goog-request-params").iter() {
-        let value = metadata.to_str().map_err(|_| {
-            Status::invalid_argument(
-                "Invalid routing metadata; use bucket=projects%2F_%2Fbuckets%2Fexample-bucket",
-            )
-        })?;
-        for parameter in value.split('&') {
-            let (key, value) = parameter.split_once('=').ok_or_else(|| {
-                Status::invalid_argument("Routing metadata must contain key=value pairs")
-            })?;
-            let key = json::decode(key, json::Decoding::Form)?;
-            let value = json::decode(value, json::Decoding::Form)?;
-            if key == "bucket" && names::bucket_name(&value).is_err() {
-                return Err(super::status::invalid_with_reason(
-                    format!(
-                        "Invalid bucket name found in x-goog-request-params metadata (bucket={value}). Must be of the form `projects/_/buckets/{{bucket_id}}`"
-                    ),
-                    "GRPC_INVALID_X_GOOG_REQUEST_PARAMS_INVALID_BUCKET_FORMAT",
-                ));
-            }
-            if key == field && value != resource {
-                return Err(Status::invalid_argument(
-                    "Routing metadata conflicts with the request; use the same resource in x-goog-request-params and the request",
-                ));
-            }
-            // The ordinary Go client appends this diagnostic even on emulator endpoints.
-            if key != field && key != "direct_connectivity_diagnostic" {
-                return Err(super::status::unsupported("bucket routing metadata field"));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn bucket_mask(
-    bucket: pb::Bucket,
-    mask: Option<&prost_types::FieldMask>,
-) -> Result<pb::Bucket, Status> {
-    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty()) else {
-        return Ok(bucket);
-    };
-    if mask.paths.iter().any(|path| path == "*") {
-        if mask.paths.len() == 1 {
-            return Ok(bucket);
-        }
-        return Err(super::status::unsupported(
-            "mixed wildcard bucket read_mask",
-        ));
-    }
-    let mut selected = pb::Bucket::default();
-    for path in &mask.paths {
-        macro_rules! select { ($($field:ident),* $(,)?) => { match path.as_str() {
-            $(stringify!($field) => selected.$field = bucket.$field.to_owned(),)*
-            _ => return Err(super::status::unsupported(&format!("bucket read_mask {path}"))),
-        } }; }
-        select!(
+macro_rules! bucket_fields {
+    ($handler:ident) => {
+        $handler!(
             name,
             bucket_id,
             etag,
@@ -131,7 +62,47 @@ fn bucket_mask(
             acl,
             default_object_acl,
             owner
-        );
+        )
+    };
+}
+
+fn validate_bucket_mask(mask: Option<&prost_types::FieldMask>) -> Result<(), Status> {
+    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty()) else {
+        return Ok(());
+    };
+    if mask.paths.iter().any(|path| path == "*") {
+        if mask.paths.len() == 1 {
+            return Ok(());
+        }
+        return Err(super::status::unsupported(
+            "mixed wildcard bucket read_mask",
+        ));
+    }
+    for path in &mask.paths {
+        macro_rules! validate { ($($field:ident),* $(,)?) => { match path.as_str() {
+            $(stringify!($field) => (),)*
+            _ => return Err(super::status::unsupported(&format!("bucket read_mask {path}"))),
+        } }; }
+        bucket_fields!(validate);
+    }
+    Ok(())
+}
+
+fn bucket_mask(
+    bucket: pb::Bucket,
+    mask: Option<&prost_types::FieldMask>,
+) -> Result<pb::Bucket, Status> {
+    validate_bucket_mask(mask)?;
+    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty() && mask.paths[0] != "*") else {
+        return Ok(bucket);
+    };
+    let mut selected = pb::Bucket::default();
+    for path in &mask.paths {
+        macro_rules! select { ($($field:ident),* $(,)?) => { match path.as_str() {
+            $(stringify!($field) => selected.$field = bucket.$field.to_owned(),)*
+            _ => return Err(super::status::unsupported(&format!("bucket read_mask {path}"))),
+        } }; }
+        bucket_fields!(select);
     }
     Ok(selected)
 }
@@ -195,12 +166,18 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
                         "fractional bucket retention duration",
                     ));
                 }
+                if field == "retentionPolicy" {
+                    crate::bucket::retention_period(duration.seconds)?;
+                } else {
+                    crate::bucket::soft_delete_retention(duration.seconds)?;
+                }
                 body[field] = json!({key: duration.seconds.to_string()});
             }
         }
     }
     if let Some(iam) = &bucket.iam_config {
         if !iam.public_access_prevention.is_empty() {
+            crate::bucket::public_access_prevention(&iam.public_access_prevention)?;
             body["iamConfiguration"]["publicAccessPrevention"] =
                 json!(iam.public_access_prevention);
         }
@@ -215,19 +192,6 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
     Ok(())
 }
 
-pub(super) fn cors_json(cors: &[pb::bucket::Cors]) -> serde_json::Value {
-    cors.iter()
-        .map(|cors| {
-            json!({
-                "origin": cors.origin,
-                "method": cors.method,
-                "responseHeader": cors.response_header,
-                "maxAgeSeconds": cors.max_age_seconds,
-            })
-        })
-        .collect()
-}
-
 /// Builds create-only JSON metadata without introducing update-mask reset defaults.
 pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_json::Value, Status> {
     let mut body = json!({"name": name, "defaultEventBasedHold": bucket.default_event_based_hold});
@@ -240,7 +204,7 @@ pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_jso
         }
     }
     body["labels"] = json!(bucket.labels);
-    body["cors"] = cors_json(&bucket.cors);
+    body["cors"] = crate::bucket::cors_value(&super::bucket_update::cors_rules(&bucket.cors)?);
     if let Some(versioning) = &bucket.versioning {
         body["versioning"] = json!({"enabled": versioning.enabled});
     }
@@ -254,6 +218,7 @@ pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_jso
         }
         body["autoclass"] = json!({"enabled": autoclass.enabled});
         if let Some(class) = &autoclass.terminal_storage_class {
+            crate::bucket::autoclass::validate_terminal_storage_class(class)?;
             body["autoclass"]["terminalStorageClass"] = class.clone().into();
         }
     }
@@ -265,6 +230,7 @@ fn create_metadata(
     name: &str,
     project: &str,
     state: &crate::server::State,
+    profile: crate::config::CompatProfile,
 ) -> Result<crate::bucket::BucketRecord, Status> {
     let mut remaining = bucket.clone();
     let body = create_fields(bucket, name)?;
@@ -300,7 +266,7 @@ fn create_metadata(
             .map_err(|_| Status::internal("Cannot encode bucket metadata"))?,
         project,
         state.clock.now(),
-        crate::config::CompatProfile::Native,
+        profile,
         &state.default_location,
     )
     .map_err(Status::from)
@@ -315,7 +281,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
         bucket: &mut pb::Bucket,
     ) -> Result<(), Status> {
-        use crate::{acl::AclKind, json::acl::AclOwner};
+        use crate::acl::AclKind;
         let name = bucket.bucket_id.clone();
         let readable =
             match crate::server::may_read_acl(&self.state, caller, AclKind::Bucket, &name).await {
@@ -329,6 +295,13 @@ impl Storage {
         let Some(acl) = self.state.catalog.acl_projection(&name, Vec::new()).await? else {
             return Ok(());
         };
+        self.apply_bucket_acl(bucket, &acl);
+        Ok(())
+    }
+
+    fn apply_bucket_acl(&self, bucket: &mut pb::Bucket, acl: &crate::storage::AclProjection) {
+        use crate::{acl::AclKind, json::acl::AclOwner};
+        let name = &bucket.bucket_id;
         bucket.owner = Some(pb::Owner {
             entity: format!(
                 "project-owners-{}",
@@ -337,12 +310,12 @@ impl Storage {
             entity_id: String::new(),
         });
         if acl.uniform_access {
-            return Ok(());
+            return;
         }
         let base = &self.state.api_base_url;
         let owner = |kind| AclOwner {
             kind,
-            bucket: &name,
+            bucket: name,
             object: None,
             metageneration: bucket.metageneration,
         };
@@ -357,7 +330,6 @@ impl Storage {
             .iter()
             .map(|entry| convert::object_access_control(&rendered(AclKind::DefaultObject, entry)))
             .collect();
-        Ok(())
     }
 
     pub(super) async fn delete_bucket(
@@ -365,10 +337,8 @@ impl Storage {
         request: Request<pb::DeleteBucketRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<()>, Status> {
-        routing(&request, "bucket", &request.get_ref().name)?;
         let request = request.into_inner();
-        let name = names::bucket_name(&request.name)?;
-        json::validate_bucket_name(name)?;
+        let name = self.bucket_id(&request.name)?;
         let access = self
             .access(caller, name, crate::auth::BUCKETS_DELETE)
             .await?;
@@ -376,7 +346,7 @@ impl Storage {
             .catalog
             .delete_bucket(name, bucket_conditions!(request), &access)
             .await
-            .map_err(|error| catalog_error(error, caller))?;
+            .map_err(|error| access_status(error, caller))?;
         Ok(Response::new(()))
     }
     pub(super) async fn get_bucket(
@@ -384,21 +354,19 @@ impl Storage {
         request: Request<pb::GetBucketRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
-        routing(&request, "bucket", &request.get_ref().name)?;
         let request = request.into_inner();
-        let name = names::bucket_name(&request.name)?;
-        json::validate_bucket_name(name)?;
-        bucket_mask(pb::Bucket::default(), request.read_mask.as_ref())?;
+        let name = self.bucket_id(&request.name)?;
+        validate_bucket_mask(request.read_mask.as_ref())?;
         let access = self.access(caller, name, crate::auth::BUCKETS_GET).await?;
         let record = self
             .state
             .catalog
             .get_bucket(name, &access)
             .await
-            .map_err(|error| catalog_error(error, caller))?
-            .ok_or_else(|| catalog_error(CatalogError::NotFound, caller))?;
+            .map_err(|error| access_status(error, caller))?
+            .ok_or_else(|| access_status(CatalogError::NotFound, caller))?;
         if !bucket_conditions!(request).hold(record.metageneration) {
-            return Err(catalog_error(CatalogError::PreconditionFailed, caller));
+            return Err(access_status(CatalogError::PreconditionFailed, caller));
         }
         let mut bucket = convert::bucket(&record)?;
         if wants_acl(request.read_mask.as_ref(), AclDefault::Include) {
@@ -415,16 +383,6 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
         require_caller(caller)?;
-        routing(
-            &request,
-            "project",
-            request
-                .get_ref()
-                .bucket
-                .as_ref()
-                .map(|bucket| bucket.project.as_str())
-                .unwrap_or(&request.get_ref().parent),
-        )?;
         let request = request.into_inner();
         if !request.parent.is_empty() && request.parent != "projects/_" {
             return Err(Status::invalid_argument(
@@ -464,14 +422,20 @@ impl Storage {
                 "bucket.object_retention is output-only; set enable_object_retention=true to enable object retention",
             ));
         }
-        let mut record = create_metadata(&bucket, &request.bucket_id, project, &self.state)?;
+        let mut record = create_metadata(
+            &bucket,
+            &request.bucket_id,
+            project,
+            &self.state,
+            self.compat_profile,
+        )?;
         record.object_retention_enabled = request.enable_object_retention;
         let record = self
             .state
             .catalog
             .insert_bucket(record)
             .await
-            .map_err(|error| catalog_error(error, caller))?;
+            .map_err(|error| access_status(error, caller))?;
         let mut bucket = convert::bucket(&record)?;
         self.add_bucket_acl(caller, &mut bucket).await?;
         Ok(Response::new(bucket))
@@ -482,7 +446,6 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::ListBucketsResponse>, Status> {
         require_caller(caller)?;
-        routing(&request, "project", &request.get_ref().parent)?;
         let request = request.into_inner();
         let project = project_name(&request.parent)?;
         if let Some(caller) = caller {
@@ -503,7 +466,7 @@ impl Storage {
         if request.prefix.len() > 222 {
             return Err(invalid_list());
         }
-        bucket_mask(pb::Bucket::default(), request.read_mask.as_ref())?;
+        validate_bucket_mask(request.read_mask.as_ref())?;
         let start = if request.page_token.is_empty() {
             None
         } else {
@@ -523,7 +486,7 @@ impl Storage {
             .catalog
             .list_buckets_page(project, Some(&request.prefix), start.as_deref(), limit)
             .await
-            .map_err(|error| catalog_error(error, caller))?;
+            .map_err(|error| access_status(error, caller))?;
         // A continuation page is never empty, so its last bucket always names the next start.
         let next_page_token = match page.items.last() {
             Some(last) if page.has_more => {
@@ -532,11 +495,36 @@ impl Storage {
             _ => String::new(),
         };
         let acl = wants_acl(request.read_mask.as_ref(), AclDefault::Exclude);
+        let mut projections = if acl {
+            let access = caller.map_or(crate::bucket::BucketAccess::Permissive, |caller| {
+                crate::bucket::BucketAccess::Policy {
+                    identity: match caller {
+                        Caller::Principal(identity) => Some(identity.clone()),
+                        Caller::Anonymous => None,
+                    },
+                    permission: crate::auth::Permission::BucketsGetIam,
+                    project: Some(project.to_owned()),
+                }
+            });
+            self.state
+                .catalog
+                .bucket_acl_projections(
+                    page.items
+                        .iter()
+                        .map(|record| record.name.clone())
+                        .collect(),
+                    &access,
+                )
+                .await?
+        } else {
+            Vec::new()
+        }
+        .into_iter();
         let mut buckets = Vec::with_capacity(page.items.len());
         for record in &page.items {
             let mut bucket = convert::bucket(record)?;
-            if acl {
-                self.add_bucket_acl(caller, &mut bucket).await?;
+            if let Some(Some(projection)) = projections.next() {
+                self.apply_bucket_acl(&mut bucket, &projection);
             }
             buckets.push(bucket_mask(bucket, request.read_mask.as_ref())?);
         }
@@ -559,7 +547,7 @@ mod tests {
 
     #[test]
     fn bucket_errors_request_credentials_from_anonymous_callers() {
-        let anonymous = catalog_error(CatalogError::Forbidden, Some(Caller::Anonymous));
+        let anonymous = access_status(CatalogError::Forbidden, Some(Caller::Anonymous));
         let generic = Status::from(CatalogError::Forbidden);
         assert_eq!(anonymous.code(), Code::Unauthenticated);
         assert_eq!(generic.code(), Code::PermissionDenied);
@@ -598,6 +586,7 @@ mod tests {
         (
             dir,
             Storage {
+                compat_profile: crate::config::CompatProfile::Native,
                 max_object_bytes: 1024 * 1024 * 1024,
                 state: Arc::new(crate::server::State::for_test(catalog, auth)),
             },
@@ -850,7 +839,9 @@ mod tests {
             "x-goog-request-params",
             "bucket=projects%2F_%2Fbuckets%2Fpage-a".parse().unwrap(),
         );
-        storage.get_bucket(request, None).await.unwrap();
+        pb::storage_server::Storage::get_bucket(&storage, request)
+            .await
+            .unwrap();
         for header in [
             "bucket=projects%2F_%2Fbuckets%2Fpage-b",
             "bucket=%GG",
@@ -861,7 +852,10 @@ mod tests {
             request
                 .metadata_mut()
                 .insert("x-goog-request-params", header.parse().unwrap());
-            let code = storage.get_bucket(request, None).await.unwrap_err().code();
+            let code = pb::storage_server::Storage::get_bucket(&storage, request)
+                .await
+                .unwrap_err()
+                .code();
             assert!(matches!(code, Code::InvalidArgument | Code::Unimplemented));
         }
         storage.state.catalog.close().await.unwrap();
@@ -1109,6 +1103,106 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn grpc_bucket_list_acl_views_keep_per_bucket_permissions_and_uniform_access() {
+        let dir = TestDir::new();
+        let storage = fixtures::storage_with(
+            Arc::new(crate::server::State::for_test(
+                Catalog::open(&dir.0).await.unwrap(),
+                Auth::strict(registry(&[
+                    ("admin", "p", "roles/storage.admin"),
+                    ("reader", "p", "roles/storage.bucketViewer"),
+                ])),
+            )),
+            1024,
+        );
+        let admin = caller(&storage, "admin");
+        let viewer = caller(&storage, "reader");
+        for name in ["batch-readable", "batch-denied", "batch-uniform"] {
+            storage
+                .create_bucket(Request::new(create(name)), admin)
+                .await
+                .unwrap();
+        }
+        // The collection permission does not grant access to every bucket's ACL.
+        for name in ["batch-readable", "batch-uniform"] {
+            storage
+                .state
+                .catalog
+                .set_policy(
+                    name,
+                    crate::auth::Policy {
+                        bindings: vec![crate::auth::Binding {
+                            role: "roles/storage.legacyBucketOwner".into(),
+                            members: vec!["allAuthenticatedUsers".into()],
+                        }],
+                        etag: None,
+                    },
+                    PERMISSIVE,
+                )
+                .await
+                .unwrap();
+        }
+        storage
+            .state
+            .catalog
+            .patch_bucket(
+                "batch-uniform",
+                crate::bucket::BucketMetadataUpdate {
+                    uniform_bucket_level_access_enabled: Some(true),
+                    ..Default::default()
+                },
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        let request = || {
+            Request::new(pb::ListBucketsRequest {
+                parent: "projects/p".into(),
+                read_mask: fixtures::mask(&["*"]),
+                ..Default::default()
+            })
+        };
+        let response = storage
+            .list_buckets(request(), viewer)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(response.buckets.len(), 3);
+        for bucket in response.buckets {
+            let expected = storage
+                .get_bucket(Request::new(get(&bucket.bucket_id)), viewer)
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(bucket.owner, expected.owner);
+            assert_eq!(bucket.acl, expected.acl);
+            assert_eq!(bucket.default_object_acl, expected.default_object_acl);
+            match bucket.bucket_id.as_str() {
+                "batch-readable" => {
+                    assert!(bucket.owner.is_some());
+                    assert!(
+                        bucket
+                            .acl
+                            .iter()
+                            .any(|entry| entry.entity == "allAuthenticatedUsers")
+                    );
+                }
+                "batch-denied" => {
+                    assert!(bucket.owner.is_none());
+                    assert!(bucket.acl.is_empty() && bucket.default_object_acl.is_empty());
+                }
+                "batch-uniform" => {
+                    assert!(bucket.owner.is_some());
+                    assert!(bucket.acl.is_empty() && bucket.default_object_acl.is_empty());
+                }
+                other => panic!("unexpected bucket: {other}"),
+            }
+        }
+        storage.state.catalog.close().await.unwrap();
+    }
+
     fn reader(entity: &str) -> (pb::BucketAccessControl, pb::ObjectAccessControl) {
         (
             pb::BucketAccessControl {
@@ -1304,6 +1398,7 @@ mod tests {
             ("viewer", "p", "roles/storage.bucketViewer"),
         ]));
         let storage = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
             max_object_bytes: 1024,
             state: Arc::new(crate::server::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),
@@ -1372,6 +1467,7 @@ mod tests {
             ("editor", "p", "roles/storage.editor"),
         ]));
         let storage = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
             max_object_bytes: 1024,
             state: Arc::new(crate::server::State::for_test(
                 Catalog::open(&dir.0).await.unwrap(),
@@ -1592,7 +1688,9 @@ mod tests {
             request
                 .metadata_mut()
                 .insert("x-goog-user-project", value.parse().unwrap());
-            let error = storage.get_bucket(request, caller).await.unwrap_err();
+            let error = pb::storage_server::Storage::get_bucket(&storage, request)
+                .await
+                .unwrap_err();
             assert_eq!(error.code(), Code::Unimplemented);
             assert!(!error.details().is_empty());
         }

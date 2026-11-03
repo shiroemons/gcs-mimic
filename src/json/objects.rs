@@ -98,6 +98,7 @@ impl ObjectRequest {
 }
 
 /// Match raw path segments before decoding object names exactly once.
+#[cfg(test)]
 pub(crate) fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, JsonError>> {
     route_object_with_profile(method, uri, CompatProfile::Native)
 }
@@ -211,15 +212,8 @@ pub(crate) fn route_object_with_profile(
 
 /// Validate the flat-namespace requirements, not optional CLI/filesystem recommendations.
 pub(crate) fn validate_object_name(name: &str) -> Result<(), JsonError> {
-    if name.is_empty()
-        || name.len() > 1024
-        || name.contains(['\r', '\n'])
-        || matches!(name, "." | "..")
-        || name.starts_with(".well-known/acme-challenge/")
-    {
-        return Err(JsonError::invalid_parameter("Invalid object name"));
-    }
-    Ok(())
+    crate::object::name::validate(name)
+        .map_err(|_| JsonError::invalid_parameter("Invalid object name"))
 }
 
 /// Parse an object request's query. `name` is `None` exactly for uploads: the router accepts
@@ -697,75 +691,92 @@ pub(crate) fn validate_read_condition_headers(
     Ok(())
 }
 
-/// Resolve one byte range against the selected representation; ignored ranges return None.
-pub(crate) fn object_media_range(
-    headers: &HeaderMap,
-    size: u64,
-) -> Result<Option<(u64, u64)>, JsonError> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RangeRequest<'a> {
+    Whole,
+    Multiple(&'a str),
+    Single(&'a str),
+}
+
+/// Classifies fields before size-dependent resolution, preserving adapter error ordering.
+pub(crate) fn range_request(headers: &HeaderMap) -> RangeRequest<'_> {
     let mut values = headers.get_all("range").iter();
     let Some(value) = values.next() else {
-        return Ok(None);
+        return RangeRequest::Whole;
     };
     if values.next().is_some() {
-        return Ok(None);
+        return RangeRequest::Whole;
     }
-    let Some((unit, range)) = value
-        .to_str()
-        .ok()
-        .and_then(|value| value.trim().split_once('='))
-    else {
-        return Ok(None);
+    let Ok(value) = value.to_str() else {
+        return RangeRequest::Whole;
     };
-    if !unit.eq_ignore_ascii_case("bytes") || range.contains(',') {
-        return Ok(None);
+    let Some((unit, range)) = value.trim().split_once('=') else {
+        return RangeRequest::Whole;
+    };
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return RangeRequest::Whole;
     }
-    let Some((first, last)) = range.trim().split_once('-') else {
-        return Ok(None);
-    };
-    // Saturation preserves comparisons with the bounded object size for arbitrarily large numerals.
-    let number = |value: &str| {
-        (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())).then(|| {
-            value.bytes().fold(0_u64, |n, byte| {
-                n.saturating_mul(10).saturating_add(u64::from(byte - b'0'))
-            })
-        })
-    };
-    let (offset, end) = if first.is_empty() {
-        let Some(suffix) = number(last) else {
-            return Ok(None);
-        };
-        // RFC 9110 permits ignoring an empty representation's satisfiable nonzero suffix.
-        if size == 0 && suffix != 0 {
-            return Ok(None);
-        }
-        (size.saturating_sub(suffix), size.saturating_sub(1))
+    if range.contains(',') {
+        RangeRequest::Multiple(value)
     } else {
-        let first_digits = first.trim_start_matches('0');
-        let last_digits = last.trim_start_matches('0');
-        if !last.is_empty() && (last_digits.len(), last_digits) < (first_digits.len(), first_digits)
-        {
-            return Ok(None);
-        }
-        let Some(first) = number(first) else {
-            return Ok(None);
-        };
-        let last = if last.is_empty() {
-            u64::MAX
-        } else if let Some(last) = number(last) {
-            last
-        } else {
-            return Ok(None);
-        };
-        (first, last.min(size.saturating_sub(1)))
-    };
-    if size == 0 || offset >= size {
-        return Err(JsonError::new(
-            StatusCode::RANGE_NOT_SATISFIABLE,
-            "requestedRangeNotSatisfiable",
-            "The requested Range cannot be satisfied",
-        ));
+        RangeRequest::Single(range)
     }
-    Ok(Some((offset, end - offset + 1)))
+}
+
+impl RangeRequest<'_> {
+    pub(crate) fn resolve(self, size: u64) -> Result<Option<(u64, u64)>, JsonError> {
+        let Self::Single(range) = self else {
+            return Ok(None);
+        };
+        let Some((first, last)) = range.trim().split_once('-') else {
+            return Ok(None);
+        };
+        // Saturation preserves comparisons with the bounded object size for arbitrarily large numerals.
+        let number = |value: &str| {
+            (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())).then(|| {
+                value.bytes().fold(0_u64, |n, byte| {
+                    n.saturating_mul(10).saturating_add(u64::from(byte - b'0'))
+                })
+            })
+        };
+        let (offset, end) = if first.is_empty() {
+            let Some(suffix) = number(last) else {
+                return Ok(None);
+            };
+            // RFC 9110 permits ignoring an empty representation's satisfiable nonzero suffix.
+            if size == 0 && suffix != 0 {
+                return Ok(None);
+            }
+            (size.saturating_sub(suffix), size.saturating_sub(1))
+        } else {
+            let first_digits = first.trim_start_matches('0');
+            let last_digits = last.trim_start_matches('0');
+            if !last.is_empty()
+                && (last_digits.len(), last_digits) < (first_digits.len(), first_digits)
+            {
+                return Ok(None);
+            }
+            let Some(first) = number(first) else {
+                return Ok(None);
+            };
+            let last = if last.is_empty() {
+                u64::MAX
+            } else if let Some(last) = number(last) {
+                last
+            } else {
+                return Ok(None);
+            };
+            (first, last.min(size.saturating_sub(1)))
+        };
+        if size == 0 || offset >= size {
+            return Err(JsonError::new(
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                "requestedRangeNotSatisfiable",
+                "The requested Range cannot be satisfied",
+            ));
+        }
+        Ok(Some((offset, end - offset + 1)))
+    }
 }
 
 /// Copy and rewrite responses name the calling creator as `owner` even without the full
