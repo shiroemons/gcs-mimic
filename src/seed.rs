@@ -41,16 +41,6 @@ pub enum SeedOutcome {
     },
 }
 
-#[derive(Default)]
-struct Counts {
-    buckets: usize,
-    objects: usize,
-    replaced: usize,
-    unchanged: usize,
-    blocked: usize,
-    skipped_os_metadata: usize,
-}
-
 /// Replays the seed tree on every startup, like fake-gcs-server's `-data`: fixture files win
 /// over API changes at the same name, while unrelated objects are never deleted.
 pub async fn import(
@@ -165,7 +155,7 @@ async fn import_directory(
         config,
         clock,
     };
-    let mut counts = Counts::default();
+    let mut skipped_os_metadata = 0;
     loop {
         let entry = match entries.recv().await {
             Some(Walked::Entry(entry)) => *entry,
@@ -186,7 +176,7 @@ async fn import_directory(
             metadata: &metadata,
             depth,
         };
-        seed.entry(&fixture, &mut counts)
+        seed.entry(&fixture, &mut skipped_os_metadata)
             .await
             .map_err(|error| SeedError::Entry {
                 label,
@@ -194,17 +184,14 @@ async fn import_directory(
             })?;
     }
     let committed = seed.batch.commit(mode).await?;
-    counts.buckets = committed.buckets;
-    counts.objects = committed.objects;
-    counts.replaced = committed.replaced;
-    counts.unchanged = committed.unchanged;
     Ok(SeedOutcome::Imported {
-        buckets: counts.buckets,
-        objects: counts.objects,
-        replaced: counts.replaced,
-        unchanged: counts.unchanged,
-        blocked: counts.blocked,
-        skipped_os_metadata: counts.skipped_os_metadata,
+        buckets: committed.buckets,
+        objects: committed.objects,
+        replaced: committed.replaced,
+        unchanged: committed.unchanged,
+        // Atomic replay never skips fixtures; retain the field for output compatibility.
+        blocked: 0,
+        skipped_os_metadata,
     })
 }
 
@@ -227,7 +214,11 @@ struct Fixture<'a> {
 }
 
 impl Seed<'_> {
-    async fn entry(&mut self, fixture: &Fixture<'_>, counts: &mut Counts) -> Result<(), SeedError> {
+    async fn entry(
+        &mut self,
+        fixture: &Fixture<'_>,
+        skipped_os_metadata: &mut usize,
+    ) -> Result<(), SeedError> {
         let leaf = fixture
             .path
             .file_name()
@@ -238,7 +229,7 @@ impl Seed<'_> {
             return Err(SeedError::UnsupportedFile);
         }
         if kind.is_file() && is_os_metadata(leaf) {
-            counts.skipped_os_metadata += 1;
+            *skipped_os_metadata += 1;
             return Ok(());
         }
         let mut components = fixture.relative.iter();

@@ -56,6 +56,10 @@ pub(crate) fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
     timestamp_support::downgrade_timestamp_precision(connection);
 }
 
+pub(crate) fn downgrade_deletion_history_schema(connection: &rusqlite::Connection) {
+    timestamp_support::downgrade_deletion_history_schema(connection);
+}
+
 pub(crate) fn downgrade_object_schema(connection: &rusqlite::Connection) {
     timestamp_support::downgrade_object_schema(connection);
 }

@@ -183,7 +183,7 @@ so committed frames remain visible. Immutable preflight does not consider a hot 
 The preflight closes before a single operational
 connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
 file-backed temporary storage and a 256-page auto-checkpoint. The current catalog
-schema is version 49; later migrations are described in their slice contracts.
+schema is version 50; later migrations are described in their slice contracts.
 Schema version 7 stored buckets, live objects, unique opaque blob references, pending blob deletions,
 seed initialization, bucket IAM policies and persistent object/policy revision
 high-water marks. It retains the bucket `(project, name)`
@@ -217,6 +217,8 @@ immutable inode while selecting its source, so a concurrent purge cannot remove 
 source before publication. Pin hard links and in-transaction descriptor opens stay
 on the catalog thread because catalog serialization orders them before reclamation.
 These short namespace operations perform no content copying or synchronization.
+File-worker jobs cannot nest another file-worker job; a typed error rejects the
+attempt before it acquires another permit.
 A queued job runs to completion even if its caller is cancelled, and a
 panicking job fails only its own call. Closing the catalog runs the last job, which
 closes the connection and releases the directory lock before close returns; the

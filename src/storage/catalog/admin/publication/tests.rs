@@ -4,6 +4,27 @@ use crate::storage::test_fixtures::{PERMISSIVE, live};
 use std::io::{Seek, SeekFrom};
 use std::{collections::BTreeMap, fs};
 
+#[tokio::test]
+async fn nested_file_jobs_fail_without_consuming_another_worker() {
+    let workers = Arc::new(FileWorkers::new().unwrap());
+    let runtime = tokio::runtime::Handle::current();
+    let nested = workers.clone();
+    let error: AdminError = workers
+        .run(move || runtime.block_on(nested.run(|| Ok::<_, AdminError>(()))))
+        .await
+        .unwrap_err();
+    assert!(crate::error::causes(&error).any(|cause| cause.is::<NestedFileJob>()));
+    let error = workers
+        .run::<(), AdminError>(|| panic!("injected file job panic"))
+        .await;
+    assert!(error.is_err());
+    let (first, second) = tokio::join!(
+        workers.run(|| Ok::<_, AdminError>(1)),
+        workers.run(|| Ok::<_, AdminError>(2))
+    );
+    assert_eq!((first.unwrap(), second.unwrap()), (1, 2));
+}
+
 fn source(dir: &std::path::Path, bytes: &[u8]) -> File {
     let path = dir.join("source");
     fs::write(&path, bytes).unwrap();

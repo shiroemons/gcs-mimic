@@ -26,6 +26,22 @@ thread_local! {
 }
 
 type FileJob = Box<dyn FnOnce() + Send>;
+thread_local! { static IN_FILE_JOB: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+#[derive(Debug)]
+struct NestedFileJob;
+impl std::fmt::Display for NestedFileJob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("file worker job started another file worker job")
+    }
+}
+impl std::error::Error for NestedFileJob {}
+struct InFileJob;
+impl Drop for InFileJob {
+    fn drop(&mut self) {
+        IN_FILE_JOB.set(false);
+    }
+}
 
 const FILE_WORKER: &str = "publication-file";
 
@@ -74,6 +90,9 @@ impl FileWorkers {
         &self,
         job: impl FnOnce() -> Result<T, E> + Send + 'static,
     ) -> Result<T, E> {
+        if IN_FILE_JOB.get() {
+            return Err(AdminError::backend(NestedFileJob).into());
+        }
         let permit = self
             .slots
             .clone()
@@ -84,6 +103,8 @@ impl FileWorkers {
         self.sender
             .try_send(Box::new(move || {
                 let _permit = permit;
+                IN_FILE_JOB.set(true);
+                let _mark = InFileJob;
                 // A panicking job must neither end its worker, which would shrink the pool for
                 // every later job, nor leave its caller without a reply.
                 let result = crate::task::catch_job(FILE_WORKER, job)
@@ -412,9 +433,9 @@ async fn cleanup(catalog: &Catalog, id: BlobId) -> Result<(), AdminError> {
 }
 
 impl Admin {
-    pub(crate) async fn stage_from_file(
+    pub(crate) async fn stage_from_file<S: std::borrow::Borrow<File> + Send + 'static>(
         &self,
-        source: File,
+        source: S,
         expected: ExpectedHashes,
         max_bytes: u64,
     ) -> Result<StagedObject, AdminError> {
@@ -454,7 +475,7 @@ impl Admin {
             let result = catalog
                 .0
                 .file_workers
-                .run(move || backend.stage_admin_file(&source, id, expected, max_bytes))
+                .run(move || backend.stage_admin_file(source.borrow(), id, expected, max_bytes))
                 .await?;
             handle.id = Some(id);
             match result {

@@ -205,6 +205,7 @@ const RETAINED: &[&str] = &[
 ];
 #[cfg(test)]
 const CASCADED: &[&str] = &[
+    "sync_deletion_history",
     "acl_bucket_entries",
     "acl_object_entries",
     "bucket_notifications",

@@ -51,6 +51,22 @@ fn workspace(connection: &Connection, root: [u8; 16], id: &str) -> Result<Worksp
 }
 
 impl RootLease {
+    pub(crate) async fn observe_recoveries(
+        &self,
+        authority: ControlAuthority,
+    ) -> Result<(), Error> {
+        let mut after = 0;
+        loop {
+            if self.stop_signal().is_some_and(|signal| *signal.borrow()) {
+                return Ok(());
+            }
+            let page = self.recovery_page(after, 128, authority.clone()).await?;
+            let Some(last) = page.last() else {
+                return Ok(());
+            };
+            after = last.ordinal;
+        }
+    }
     /// Refresh only a bounded inspected page; a sparse over-limit body is never read to completion.
     pub(crate) async fn recovery_page(
         &self,

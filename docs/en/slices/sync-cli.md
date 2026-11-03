@@ -58,6 +58,26 @@ public, metadata/link-local, unspecified and multicast addresses are rejected.
 At most eight resolved addresses are accepted, and the checked numeric address
 is the connection target. No ambient proxy, credential discovery, redirect or
 Google endpoint fallback is used.
+Private-network HTTP remains available for container networks; use HTTPS outside
+loopback to protect bearer tokens in transit.
+
+While deletion candidates are being recomputed, status retains their last complete
+membership while refreshing current safety findings and revisions. Every read
+rechecks authority and the journal fence; revision-bound
+pages and approval reject an invalidated revision with 409.
+During native quiet settling, wait and rescan remain queued inside the actor.
+Wait observes its original deadline; if quiet has not been established at that
+deadline it reports SourceChanging with HTTP 409. A single CLI invocation waits
+for quiet and observation without client retries. Rescan runs after quiet or the
+ten-second quiet cap instead of returning an unperformed scan as success.
+Reaching that cap alone never completes wait; another quiet interval runs while
+its original deadline remains fixed. Queued controls survive observer recovery.
+Automatic deletion history is durable across restart and guarded rescans;
+approval, a new complete baseline, or a complete zero-candidate observation after
+established quiet resets it. Automatic and explicit scans use the same reset
+condition; a scan at the quiet cap or with remaining candidates cannot reset it.
+The quiet interval has a ten-second cap, so a longer operation may have committed
+deletions below the cumulative threshold before approval becomes required.
 
 HTTPS verifies the embedded development CA by default. `--ca-cert PATH`
 replaces it with the supplied CA while retaining hostname verification. That
@@ -73,14 +93,22 @@ Requests have a default 10000 ms total network deadline, configurable from
 1 through 60000 with `--timeout-ms`, or `--timeout` with an integer `ms`/`s`
 suffix. For `wait` this value is sent as the server's
 observation budget; the client allows an additional one second to receive the
-result. Waiting captures the server's fixed scan/journal fence; unrelated later
-writes do not extend it indefinitely. A 408 deadline or 409 stopped result is
-printed as JSON and returns nonzero. A timeout/disconnect does not cancel an
+result. Authorization and request-body preparation use the catalog-wait budget without
+being mistaken for connection inactivity. After parsing authorized input, the
+requested observation budget takes over. Waiting captures a fixed scan/journal fence; unrelated later
+writes do not extend it indefinitely. Deadline checks run between owned
+scan/export/deletion steps; settling
+also observes the deadline. An interrupted scan cannot complete its baseline or
+authorize deletion. The status writeback summary omits the former always-null
+`journal_sequence` and `journal_epoch`; wait exposes its actual `journal_fence`.
+A 408 deadline or 409 stopped result is printed as JSON and returns nonzero.
+A timeout/disconnect does not cancel an
 already accepted scan or publication; inspect status before retrying.
 
 Headers are limited to 64 and 16 KiB, and both chunked and length-framed JSON
 responses have a 256 KiB body cap. Malformed, truncated and oversized responses
-fail. Non-success HTTP statuses print their bounded JSON and fail, including
+fail. A non-JSON body reports its HTTP status without echoing the body.
+Non-success HTTP statuses print their bounded JSON and fail, including
 explicitly unsupported operations. Conflict resolution remains subject to the
 server's exact revision, identity, authorization and confirmation checks.
 

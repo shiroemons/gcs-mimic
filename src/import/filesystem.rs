@@ -17,9 +17,9 @@ use crate::{
 };
 use ring::digest::{Context, SHA256, digest};
 use std::{
+    collections::VecDeque,
     fs::{self, File, OpenOptions},
-    io::{self, Read, Write},
-    path::Path,
+    io::{self, BufReader, BufWriter, Read, Seek, Write},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -104,25 +104,57 @@ enum ImportStart {
 
 /// This execution's disk-backed observations are never resume authority.
 pub(super) struct Baseline {
-    file: File,
-    mode: BaselineMode,
+    file: BaselineIo,
+}
+enum BaselineIo {
+    Record(BufWriter<File>),
+    Verify(BufReader<File>),
 }
 
 impl Baseline {
-    pub(super) fn open(path: &Path, mode: BaselineMode) -> io::Result<Self> {
-        let file = if mode == BaselineMode::Record {
-            let mut options = OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
+    pub(super) fn open(mut file: File, mode: BaselineMode) -> io::Result<Self> {
+        file.rewind()?;
+        let file = match mode {
+            BaselineMode::Record => {
+                file.set_len(0)?;
+                BaselineIo::Record(BufWriter::new(file))
             }
-            options.open(path)?
-        } else {
-            File::open(path)?
+            BaselineMode::Verify => BaselineIo::Verify(BufReader::new(file)),
         };
-        Ok(Self { file, mode })
+        Ok(Self { file })
+    }
+
+    pub(super) fn finish(&mut self) -> io::Result<()> {
+        if let BaselineIo::Record(file) = &mut self.file {
+            file.flush()?;
+        }
+        Ok(())
+    }
+
+    fn create() -> io::Result<File> {
+        let mut random = [0; 16];
+        getrandom::fill(&mut random).map_err(io::Error::other)?;
+        let path = std::env::temp_dir().join(format!(
+            "gcs-mimic-import-{}",
+            crate::hashing::encode_lower(&random)
+        ));
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options
+                .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_DELETE_ON_CLOSE);
+        }
+        let file = options.open(&path)?;
+        #[cfg(unix)]
+        fs::remove_file(path)?;
+        Ok(file)
     }
 
     pub(super) fn check(&mut self, record: &Record) -> Result<(), ImportFailure> {
@@ -138,27 +170,28 @@ impl Baseline {
         if let Record::Object { fingerprint, .. } = record {
             bytes[58..].copy_from_slice(&fingerprint.device.unwrap_or_default().to_be_bytes());
         }
-        if self.mode == BaselineMode::Record {
-            self.file.write_all(&bytes)?;
-        } else {
-            let mut expected = [0; 66];
-            if let Err(error) = self.file.read_exact(&mut expected) {
-                return Err(if error.kind() == io::ErrorKind::UnexpectedEof {
-                    ImportFailure::SourceChanged {
-                        fields: vec![super::ChangedField::Metadata],
-                    }
-                } else {
-                    error.into()
-                });
-            }
-            if expected != bytes {
-                return Err(ImportFailure::SourceChanged {
-                    fields: if expected[..32] != bytes[..32] {
-                        vec![super::ChangedField::Metadata]
+        match &mut self.file {
+            BaselineIo::Record(file) => file.write_all(&bytes)?,
+            BaselineIo::Verify(file) => {
+                let mut expected = [0; 66];
+                if let Err(error) = file.read_exact(&mut expected) {
+                    return Err(if error.kind() == io::ErrorKind::UnexpectedEof {
+                        ImportFailure::SourceChanged {
+                            fields: vec![super::ChangedField::Metadata],
+                        }
                     } else {
-                        vec![super::ChangedField::Inode, super::ChangedField::Ctime]
-                    },
-                });
+                        error.into()
+                    });
+                }
+                if expected != bytes {
+                    return Err(ImportFailure::SourceChanged {
+                        fields: if expected[..32] != bytes[..32] {
+                            vec![super::ChangedField::Metadata]
+                        } else {
+                            vec![super::ChangedField::Inode, super::ChangedField::Ctime]
+                        },
+                    });
+                }
             }
         }
         Ok(())
@@ -224,45 +257,41 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Impo
             event_based_hold: None,
             ..Default::default()
         },
-        expected: ExpectedHashes {
-            md5: Some(
-                crate::json::decode_hash::<16>(&attrs.md5_hash)
-                    .map_err(|_| invalid("invalid source MD5"))?,
-            ),
-            crc32c: Some(u32::from_be_bytes(
-                crate::json::decode_hash::<4>(&attrs.crc32c)
-                    .map_err(|_| invalid("invalid source CRC32C"))?,
-            )),
-        },
+        expected: expected_hashes(attrs)?,
         condition: Some(GenerationCondition::Absent),
         max_bytes: cap,
         mode: PublishMode::Replace,
     })
 }
 
+fn expected_hashes(attrs: &codec::ObjectAttrs) -> Result<ExpectedHashes, ImportError> {
+    Ok(ExpectedHashes {
+        md5: Some(
+            crate::json::decode_hash::<16>(&attrs.md5_hash)
+                .map_err(|_| invalid("invalid source MD5"))?,
+        ),
+        crc32c: Some(u32::from_be_bytes(
+            crate::json::decode_hash::<4>(&attrs.crc32c)
+                .map_err(|_| invalid("invalid source CRC32C"))?,
+        )),
+    })
+}
+
 fn findings(page: &Page, diagnostics: &mut impl Write) -> Result<(), ImportError> {
-    let mut batch = crate::diagnostics::Diagnostics::default();
-    for finding in &page.findings {
-        if finding.blocking {
-            batch.errors.push(finding.diagnostic.clone());
-        } else {
-            batch.warnings.push(finding.diagnostic.clone());
-        }
-    }
-    batch.write(diagnostics)?;
+    crate::diagnostics::Diagnostics::from(page).write(diagnostics)?;
     Ok(())
 }
 
 async fn metadata_scan(
     options: &Options,
-    baseline: &Path,
+    baseline: &File,
     mode: BaselineMode,
     diagnostics: &mut impl Write,
 ) -> Result<Summary, ImportError> {
     let (mut receive, worker) = scan_with_baseline(
         options.clone(),
         crate::fsutil::read_source_metadata,
-        Some((baseline.into(), mode)),
+        Some((baseline.try_clone()?, mode)),
         super::ScanPurpose::Inspect,
     )?;
     let result = async {
@@ -286,9 +315,7 @@ async fn metadata_scan(
     }
     .await;
     drop(receive);
-    let joined = worker
-        .join()
-        .map_err(|_| invalid("import scanner panicked"))?;
+    let joined = join_scan(worker).await?;
     result?;
     let summary = joined?;
     require_eligible(&summary)?;
@@ -350,24 +377,20 @@ pub fn execute(
     if options.source_format == super::SourceFormat::Snapshot {
         source_context.update(b"memory-snapshot\0\x01");
     }
+    let fields = super::option_fields(&options);
+    let fields = fields.each_ref().map(Vec::as_slice);
     super::digest_fields(
         &mut source_context,
         "source",
         source,
         &[
-            super::SOURCE_REVISION.as_bytes(),
+            fields[0],
             &[super::FINGERPRINT_FORMAT],
-            &[match options.metadata_mode {
-                super::MetadataMode::Xattr => 0,
-                super::MetadataMode::Sidecar => 1,
-            }],
-            &[match options.source_platform {
-                super::SourcePlatform::Unix => 0,
-                super::SourcePlatform::Windows => 1,
-            }],
-            &options.max_object_bytes.to_be_bytes(),
-            &(options.max_entries as u64).to_be_bytes(),
-            &(options.max_depth as u64).to_be_bytes(),
+            fields[1],
+            fields[2],
+            fields[3],
+            fields[4],
+            fields[5],
         ],
     );
     let mut source_id = [0; 32];
@@ -387,43 +410,27 @@ pub fn execute(
         )
         .into());
     }
-    let mut random = [0; 16];
-    getrandom::fill(&mut random).map_err(io::Error::other)?;
-    let baseline = std::env::temp_dir().join(format!(
-        "gcs-mimic-import-{}",
-        crate::hashing::encode_lower(&random)
-    ));
+    let baseline = Baseline::create()?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(2)
         .enable_all()
         .build()?;
-    let result = runtime.block_on(run(
+    runtime.block_on(run(
         &options,
         source_id,
         start,
         &baseline,
         &mut output,
         &mut diagnostics,
-    ));
-    match fs::remove_file(&baseline) {
-        Ok(()) => (),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
-        Err(error) => {
-            return Err(match result {
-                Ok(_) => ImportError::ObservationCleanup(error),
-                Err(original) => original.with_cleanup(CleanupOperation::Observations, error),
-            });
-        }
-    }
-    result
+    ))
 }
 
 async fn run(
     options: &Options,
     source: [u8; 32],
     start: ImportStart,
-    baseline: &Path,
+    baseline: &File,
     output: &mut impl Write,
     diagnostics: &mut impl Write,
 ) -> Result<Summary, ImportError> {
@@ -509,7 +516,7 @@ async fn import(
     catalog: &Catalog,
     binding: &ImportBinding,
     preflight: &Summary,
-    baseline: &Path,
+    baseline: &File,
     output: &mut impl Write,
     diagnostics: &mut impl Write,
 ) -> Result<Summary, ImportError> {
@@ -519,7 +526,7 @@ async fn import(
     let (mut receive, worker) = scan_with_baseline(
         options.clone(),
         crate::fsutil::read_source_metadata,
-        Some((baseline.into(), BaselineMode::Verify)),
+        Some((baseline.try_clone()?, BaselineMode::Verify)),
         super::ScanPurpose::Publish,
     )?;
     let mut bytes_hashed = 0;
@@ -527,19 +534,23 @@ async fn import(
     let result = async {
         let mut ordinal = 0;
         let mut cursor = progress.cursor;
+        let mut committed_page = VecDeque::new();
         while let Some(page) = receive.recv().await {
             findings(&page, diagnostics)?;
             for record in page.records {
                 let Some(observed) = element(&record, ordinal + 1) else { continue };
                 ordinal += 1;
                 if let Record::Object { path, attributes, .. } = &record {
-                    let expected = publication(attributes, options.max_object_bytes)?.expected;
+                    let expected = expected_hashes(attributes)?;
                     if let (Some(md5), Some(crc)) = (expected.md5, expected.crc32c) {
                         super::digest_fields(&mut body_digests, "body", path, &[&md5, &crc.to_be_bytes()]);
                     }
                 }
                 if ordinal <= progress.cursor {
-                    let committed = journal.page(binding.clone(), ordinal - 1, 1).await?.into_iter().next().ok_or_else(|| invalid("missing committed import observation"))?;
+                    if committed_page.is_empty() {
+                        committed_page = journal.page(binding.clone(), ordinal - 1, 256).await?.into();
+                    }
+                    let committed = committed_page.pop_front().filter(|element| element.ordinal == ordinal).ok_or_else(|| invalid("missing committed import observation"))?;
                     if committed.fingerprint != observed.fingerprint { return Err(invalid("source_changed: committed source identity differs").into()); }
                     verify_committed(catalog, &admin, &record).await?;
                     if committed.inode != observed.inode || committed.ctime_ns != observed.ctime_ns {
@@ -570,9 +581,7 @@ async fn import(
         Ok::<_, ImportError>(())
     }.await;
     drop(receive);
-    let joined = worker
-        .join()
-        .map_err(|_| invalid("import scanner panicked"))?;
+    let joined = join_scan(worker).await?;
     result?;
     let published = joined?;
     same_export(preflight, &published)?;
@@ -594,6 +603,18 @@ async fn import(
     )?;
     writeln!(output)?;
     Ok(summary)
+}
+
+async fn join_scan(
+    worker: super::ScanWorker,
+) -> Result<Result<Summary, ImportFailure>, ImportError> {
+    worker.await.map_err(|cause| {
+        io::Error::other(crate::storage::failure::BackendCause::with_source(
+            "import scanner stopped without a result",
+            cause,
+        ))
+        .into()
+    })
 }
 
 async fn publish(

@@ -1,5 +1,6 @@
 //! Missing tracked files become candidates only after an error-free complete scan.
 
+use super::interrupt::{Interrupt, Interrupted};
 use super::{Reconciliation, mapping};
 use crate::{
     config::Config,
@@ -50,26 +51,18 @@ pub(super) async fn absent(root: &RootLease, path: String) -> io::Result<bool> {
             return Err(AdminError::Precondition);
         }
         let parent_path = path.parent().ok_or(AdminError::Precondition)?;
-        let mut directory = root.try_clone().map_err(AdminError::backend)?;
-        // Export's parent helper classifies a missing directory as a mapping finding; deletion must distinguish absence.
-        for component in parent_path.iter() {
-            match fsutil::directory_at(&directory, component, fsutil::DirectoryOpen::Existing) {
-                Ok(next) => {
-                    if !super::mirror::exact_entry(&directory, component)
-                        .map_err(AdminError::backend)?
-                    {
-                        return Err(AdminError::Precondition);
-                    }
-                    directory = next;
-                }
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(true),
-                Err(error) => return Err(AdminError::backend(error)),
-            }
-        }
+        let directory =
+            match super::tree::parent(root, parent_path, super::tree::ParentOpen::Existing) {
+                Ok(directory) => directory,
+                Err(super::tree::ParentError::Missing) => return Ok(true),
+                Err(super::tree::ParentError::Finding(_)) => return Err(AdminError::Precondition),
+                Err(super::tree::ParentError::Io(error)) => return Err(error.into()),
+            };
         let name = path.file_name().ok_or(AdminError::Precondition)?;
-        match fsutil::open_regular_at(&directory, name) {
-            Ok(_) => Ok(false),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
+        match fsutil::child_regular(&directory, name) {
+            Ok(fsutil::RegularChild::File(_)) => Ok(false),
+            Ok(fsutil::RegularChild::Missing) => Ok(true),
+            Ok(fsutil::RegularChild::Alias) => Err(AdminError::Precondition),
             Err(error) => Err(AdminError::backend(error)),
         }
     })
@@ -77,12 +70,24 @@ pub(super) async fn absent(root: &RootLease, path: String) -> io::Result<bool> {
     .map_err(io::Error::other)
 }
 
+#[cfg(test)]
 pub(super) async fn inventory(
     root: &RootLease,
     config: &Config,
     summary: &Reconciliation,
     stopping: &tokio::sync::watch::Receiver<bool>,
 ) -> io::Result<Option<DeletionSet>> {
+    inventory_with(root, config, summary, Interrupt::new(stopping)).await
+}
+pub(super) async fn inventory_with(
+    root: &RootLease,
+    config: &Config,
+    summary: &Reconciliation,
+    interrupt: Interrupt<'_>,
+) -> io::Result<Option<DeletionSet>> {
+    if interrupt.check() != Interrupted::No {
+        return Ok(None);
+    }
     root.invalidate_deletions()
         .await
         .map_err(io::Error::other)?;
@@ -90,7 +95,7 @@ pub(super) async fn inventory(
         || summary.deferred != 0
         || summary.unrepresentable != 0
         || summary.conflicting != 0
-        || *stopping.borrow()
+        || interrupt.check() != Interrupted::No
     {
         return Ok(None);
     }
@@ -100,6 +105,9 @@ pub(super) async fn inventory(
         .map_err(io::Error::other)?;
     let mut after = String::new();
     loop {
+        if interrupt.check() != Interrupted::No {
+            return Ok(None);
+        }
         let page = root
             .deletion_inventory_page(inventory.clone(), after.clone())
             .await
@@ -110,7 +118,7 @@ pub(super) async fn inventory(
         let baseline = page.len() as u64;
         let mut candidates = Vec::new();
         for candidate in page {
-            if *stopping.borrow() {
+            if interrupt.check() != Interrupted::No {
                 return Ok(None);
             }
             after = candidate.path.clone();
@@ -128,6 +136,9 @@ pub(super) async fn inventory(
             .await
             .map_err(io::Error::other)?;
     }
+    if interrupt.check() != Interrupted::No {
+        return Ok(None);
+    }
     Ok(Some(
         root.finish_deletion_inventory(inventory)
             .await
@@ -141,12 +152,24 @@ pub(super) async fn execute(
     set: DeletionSet,
     stopping: &tokio::sync::watch::Receiver<bool>,
 ) -> io::Result<u64> {
+    execute_with(catalog, root, set, Interrupt::new(stopping)).await
+}
+pub(super) async fn execute_with(
+    catalog: &Catalog,
+    root: &RootLease,
+    set: DeletionSet,
+    interrupt: Interrupt<'_>,
+) -> io::Result<u64> {
     if set.authorization != 1 {
         return Ok(0);
     }
     let mut after = 0;
     let mut completed = 0;
+    let mut restored_buckets = std::collections::BTreeSet::new();
     loop {
+        if interrupt.check() != Interrupted::No {
+            return Ok(completed);
+        }
         let page = match root
             .deletion_page(set.revision.clone(), after, 256)
             .await
@@ -165,7 +188,7 @@ pub(super) async fn execute(
             break;
         }
         for candidate in page {
-            if *stopping.borrow() {
+            if interrupt.check() != Interrupted::No {
                 return Ok(completed);
             }
             after = candidate.ordinal;
@@ -175,21 +198,23 @@ pub(super) async fn execute(
                     .map_err(io::Error::other)?;
                 return Ok(completed);
             }
+            if interrupt.check() != Interrupted::No {
+                return Ok(completed);
+            }
             match delete(root, &set, &candidate).await? {
                 Deleted::Yes(binding) => {
-                    for reason in [
+                    let reasons = [
                         PathStop::ProtectedDeletion,
                         PathStop::SourceChanging,
                         PathStop::IoFailure,
-                    ] {
-                        root.clear_path_stop(
-                            binding.clone(),
-                            ObjectName::new(candidate.name.clone()).map_err(io::Error::other)?,
-                            reason,
-                        )
-                        .await
-                        .map_err(io::Error::other)?;
-                    }
+                    ];
+                    root.clear_path_stops(
+                        binding,
+                        ObjectName::new(candidate.name.clone()).map_err(io::Error::other)?,
+                        &reasons,
+                    )
+                    .await
+                    .map_err(io::Error::other)?;
                 }
                 Deleted::Stale => {
                     root.invalidate_deletions()
@@ -223,8 +248,10 @@ pub(super) async fn execute(
                     return Ok(completed);
                 }
             }
-            super::mirror::create_directory(root, std::path::PathBuf::from(&candidate.bucket))
-                .await?;
+            if restored_buckets.insert(candidate.bucket.clone()) {
+                super::mirror::create_directory(root, std::path::PathBuf::from(&candidate.bucket))
+                    .await?;
+            }
             completed += 1;
         }
     }

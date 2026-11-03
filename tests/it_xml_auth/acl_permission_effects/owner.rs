@@ -168,6 +168,7 @@ fn owner_upgrade_does_not_guess_legacy_uploaders_and_aliasless_uploads_keep_actu
     server.stop();
     {
         let db = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+        common::downgrade_deletion_history_schema(&db);
         db.execute_batch("ALTER TABLE buckets DROP COLUMN versioning_configured; DROP TABLE soft_deleted_buckets; DROP TABLE bucket_generation; ALTER TABLE buckets DROP COLUMN generation; ALTER TABLE objects DROP COLUMN temporary_hold_released; ALTER TABLE objects DROP COLUMN event_based_hold_released; ALTER TABLE objects DROP COLUMN retain_until_sub_micro_nanos; ALTER TABLE objects DROP COLUMN owner; PRAGMA user_version=43;")
             .unwrap();
     }

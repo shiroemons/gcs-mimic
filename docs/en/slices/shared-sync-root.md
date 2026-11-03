@@ -20,6 +20,7 @@ change HTTP/CLI behavior or perform the initial merge. UX-002 seed is unchanged.
 - Activate a never-used pair and reopen the same association without accepting
   external deletions until an explicit complete-baseline transition. A known
   association with a missing marker fails closed, including interrupted activation.
+  A complete synced staging marker for that same association can be resumed.
 - Explicit reinitialization requires the exact CatalogId, unchanged root identity,
   exclusive ownership and a missing marker. Never overwrite foreign/malformed
   markers, clear API/seed/conflict data or modify another root association.
@@ -29,15 +30,16 @@ change HTTP/CLI behavior or perform the initial merge. UX-002 seed is unchanged.
 
 ## Commit and recovery protocol
 
-Reserve the activating association in a short SQLite transaction, then exclusively
-create the marker without replacement, write/flush it and flush the root directory.
+Reserve the activating association in a short SQLite transaction, then write the
+complete marker to `.gcs-mimic-sync.json.staging`, sync that file and its parent,
+publish it without replacing an existing marker, and sync the root directory.
 No filesystem I/O runs inside SQLite transactions. SQLite and the filesystem are
-separate durability domains: a reservation followed by a failed marker publication
-requires explicit missing-marker reinitialization; a complete marker resumes the
-same activating association. A malformed or partial marker is never repaired
-automatically. A partial marker requires operator backup and removal before the
-missing-marker repair can be requested. This deliberate fail-closed protocol
-avoids an additional temporary workspace or an atomicity claim across domains.
+separate durability domains. Restart resumes a complete staged marker only when
+its catalog/root IDs and root association match. An incomplete staging file is
+discarded; a known association without a complete marker still requires explicit
+missing-marker reinitialization. Foreign or malformed published markers are
+never overwritten or repaired automatically. Publication cannot expose a partial
+marker, and does not claim an atomic filesystem/SQLite transaction.
 Only the mirror's explicit baseline completion permits deletions.
 
 Unix directory locks and no-follow descriptor operations are required. Other
@@ -71,7 +73,16 @@ upgrading; restore it with the matching executable to roll back. Do not edit
 The Google API gaps ledger was reviewed: this is an emulator-local identity and
 ownership protocol and changes no Google method, Discovery field or open gap.
 
-## Verification
+## Current marker validation
+
+`marker_write_sync_and_publish_failures_leave_a_recoverable_root` checks failed
+writes, file sync, no-replace publication and parent sync. Paired crash and
+`Fault::PowerLoss` snapshots restart through
+`marker_crash_and_power_loss_snapshots_resume_only_complete_owned_markers`.
+Activation boundaries verify that partial staging never becomes a published
+marker; malformed/foreign published-marker negatives remain unchanged.
+
+## Historical verification
 
 On 2026-10-25, macOS ARM64, Rust 1.99.1, including selected-path protection in
 `2ce4de17630de272e35fe1009d1dba3121b446a8`:
@@ -95,10 +106,9 @@ Result: 58 passed, 0 failed. The root-specific tests are:
 - `sync_root_interrupted_activation_requires_explicit_missing_marker_recovery`
 - `sync_root_cancelled_file_job_keeps_both_ownerships_until_drain`
 - `sync_root_schema_migration_rolls_back_retries_and_preserves_state`
-- `sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker`
 - `sync_root_sql_failures_never_publish_marker_or_complete_baseline`
 
-Failure injection covers reservation commit, exclusive marker creation, marker
+At that checkpoint, failure injection covered reservation commit, exclusive marker creation, marker
 file sync and root-directory sync boundaries; restart requires explicit repair
 for missing markers and rejects partial markers. SQL failures preserve absent
 markers/incomplete baselines. Migration covers conflicting DDL, actual SQLite

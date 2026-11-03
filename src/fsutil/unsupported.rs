@@ -1,4 +1,10 @@
 use super::{DirectoryOpen, validate_name};
+pub(crate) fn child_directory(_: &File, _: &OsStr, _: DirectoryOpen) -> io::Result<super::Child> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+pub(crate) fn child_regular(_: &File, _: &OsStr) -> io::Result<super::RegularChild> {
+    Err(io::ErrorKind::Unsupported.into())
+}
 use std::{
     ffi::{OsStr, OsString},
     fs::File,

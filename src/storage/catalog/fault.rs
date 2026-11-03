@@ -46,6 +46,14 @@ mod tests;
 /// A durable step boundary on a blob write path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
+    SyncDirectorySync,
+    SyncDirectoryDurable,
+    SyncMarkerWrite,
+    SyncMarkerSync,
+    SyncMarkerPrepared,
+    SyncMarkerRename,
+    SyncMarkerParentSync,
+    SyncMarkerPublished,
     /// Before probing a failed or rolled-back publication's reference.
     DiscardProbe,
     /// Before unlinking a journaled blob.
@@ -158,9 +166,39 @@ pub(crate) enum Step {
     AppendCommit,
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[expect(
+    unsafe_code,
+    reason = "test fault accounting resolves the pinned directory descriptor without changing production I/O"
+)]
+pub(crate) fn descriptor_path(file: &fs::File) -> io::Result<PathBuf> {
+    use std::os::fd::AsRawFd;
+    #[cfg(target_os = "linux")]
+    {
+        fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let mut bytes = [0u8; libc::PATH_MAX as usize];
+        // SAFETY: F_GETPATH writes at most PATH_MAX bytes into the live output allocation.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, bytes.as_mut_ptr()) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let path = std::ffi::CStr::from_bytes_until_nul(&bytes)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes())))
+    }
+}
+
 /// What an armed step does when it is reached.
 #[derive(Clone, Debug)]
 pub(crate) enum Fault {
+    /// Holds an owned job at a durable boundary while its caller is cancelled.
+    Block {
+        entered: std::sync::Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+        release: std::sync::Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
+    },
     /// Fails the step with an I/O error of this kind, as the filesystem would.
     Io(io::ErrorKind),
     /// Fails the step with the error SQLite reports for a corrupt database.
@@ -320,6 +358,20 @@ pub(crate) fn hit(data_dir: &Path, step: Step) -> Result<(), Injected> {
         armed.remove(index)
     };
     match fired.fault {
+        Fault::Block { entered, release } => {
+            if let Some(entered) = entered
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+            {
+                let _ = entered.send(());
+            }
+            release
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .map_err(|error| Injected::Io(io::Error::other(error)))
+        }
         Fault::Io(kind) => Err(Injected::Io(io::Error::new(
             kind,
             format!("injected {step:?} failure"),
@@ -652,6 +704,13 @@ impl Ledger {
 pub(crate) enum Injected {
     Io(io::Error),
     Sqlite(rusqlite::Error),
+}
+
+pub(crate) fn hit_io(path: &Path, step: Step) -> io::Result<()> {
+    hit(path, step).map_err(|error| match error {
+        Injected::Io(error) => error,
+        Injected::Sqlite(error) => io::Error::other(error),
+    })
 }
 
 impl StorageCause for Injected {

@@ -440,10 +440,15 @@ Do not change the API's wider accepted-name set to fit a filesystem.
 | --- | --- |
 | `InvalidName` | Invalid UTF-8 on disk, invalid API name, NUL, leading/trailing `/`, empty component, `.` or `..` component; report, do not clean into another name. |
 | `HostRestriction` | Backslash/colon on every OS, host-invalid characters, Windows device names/drive/UNC syntax, trailing spaces/dots where not reversible, component/path length limits; retain API state, report the exact restriction. |
-| `Reserved` | Root marker `.gcs-mimic-sync.json`, workspace `.gcs-mimic-sync-work` and either reserved component at any object depth; reserve root names against legacy bucket names too. |
+| `Reserved` | Root marker `.gcs-mimic-sync.json`, staging marker `.gcs-mimic-sync.json.staging`, workspace `.gcs-mimic-sync-work` and any reserved component at any object depth; reserve root names against legacy bucket names too. |
 | `Ignored` | Regular files named `.DS_Store` or `4913`, beginning `._`, ending `.swp` or `~`. Use one shared predicate for ingestion and API write-back. Traverse ordinary matching directories such as `._assets/`; they are not ignored files. |
 | `Collision` | `a` and `a/b`, aliases differing only by case or Unicode normalization on the actual filesystem, bucket aliases, or a conflicting directory/file type. Report all members, never choose one silently or delete either API object. |
 | `UnsafeEntry` | Symlink, junction/reparse redirect, special file, or changed ancestor/root identity. Never follow it or infer deletion from unreadable/unsafe traversal. |
+
+Atomic marker publication additionally reserves `.gcs-mimic-sync.json.staging`
+at every component depth, including below bucket prefixes. An object previously
+mapped through that component is now `Unrepresentable(Reserved)`; its API bytes
+remain stored and are not deleted by the mapper.
 
 Reserved workspace subtrees alone are excluded as directories. An API regular
 object whose final component matches an ignored-file rule is `Ignored`, even
@@ -476,7 +481,7 @@ them without SQL or independent catalog identity/progress files.
 | `Admin::list_all_buckets(after, limit)` | Initial export consumes all-owner keyset pages of at most 256, including empty buckets and stored owner/incarnation. `seed_project` does not filter the inventory. Shared tests: [shared-sync-observation](shared-sync-observation.md). |
 | `Catalog::wait_for_changes(after)` | Idle runtime ownership waits without catalog permits or polling, and releases the root when catalog shutdown wakes it. This wait does not export changes or advance synchronization progress; journal replay is PENDING. Shared finite-fence/race tests: [shared-sync-observation](shared-sync-observation.md). |
 | Durable catalog identity and root association | Startup invokes `SyncState::activate_root` after seed and before bind. Reconciliation uses owned file jobs and calls `complete_baseline` only for an unchanged, resolved scan. Shared recovery contract: [shared-sync-root](shared-sync-root.md). |
-| Write-back progress and pending-operation API | Initial export uses prepare_publish_copy/arm/durable/acknowledge/resume for each absent or identical target. Private provenance permits safe unpublished abandonment; obsolete installed copies complete without fingerprints/progress. It commits no journal progress and preserves protected operations. Replacement, conflict registration and recovery controls are PENDING. Shared receipt contract: [shared-sync-writeback](shared-sync-writeback.md). |
+| Write-back and pending-operation API | The runtime and its tests use begin_live_export/advance_live_export/recover_pending for absent, identical, replaced or removed targets. Verified unpublished copies can be cancelled; modified or retained bodies are protected. Completion updates tracking and deletes its intent, without a separate journal cursor. Shared contract: [shared-sync-writeback](shared-sync-writeback.md). |
 | `ObjectReader` descriptor transfer or duplication | Export transfers the opened immutable selected generation with `into_file` to the owned workspace copy job; no source path reopening or hard link. Shared descriptor tests: [shared-sync-writeback](shared-sync-writeback.md). |
 | Workspace-to-target publication | Export uses descriptor-relative no-replace publication and shared file/parent durability checks before receipt acknowledgement. Ancestors are reopened and compared after installation. Exchange/conflict transfer is PENDING. Shared interfaces: [shared-sync-export-interfaces](shared-sync-export-interfaces.md). |
 | Unrepresentable/ignored observations | Initial export registers generation/incarnation-bound findings and emits aggregate counts. Stale-finding reconciliation and status/control consumption remain PENDING. Shared finding APIs: [shared-sync-export-interfaces](shared-sync-export-interfaces.md). |
@@ -620,10 +625,47 @@ tracked names absent in that scan. Exclude ignored/unrepresentable/unobserved
 names and stale incarnations. A candidate's live generation must still equal
 its last successfully synchronized generation; a newer API generation is
 write-back work, never a newly inferred deletion. An incomplete scan never generates deletions.
-Guard when enabled and `D >= 100` and
-`100 * D > 50 * N`, using checked wide arithmetic; `N=0`
+Let `A` be automatic deletions committed since the last safe history reset.
+Guard when enabled and `A + D >= 100` and
+`100 * (A + D) > 50 * (A + N)`, using wide arithmetic; `N=0`
 has no deletions. Freeze this root-wide denominator and exact candidate set;
 do not recompute the fraction per page or convert a marker failure into a scan.
+
+Schema 50 persists `A` in the same transaction as each automatic deletion.
+Existing catalogs initialize this new history to zero; earlier deleted names
+cannot be reconstructed from the previous schema.
+Approval resets it; a newly completed baseline or a complete observation scan
+with zero candidates after established native quiet also resets it. Automatic
+and explicit scans use that same condition. A scan triggered by the ten-second
+cap without quiet, an incomplete scan or one with remaining candidates never
+resets it. Restart and rescanning a guarded set never reset it. Approved-set
+execution does not count as a new automatic deletion.
+Public set counts still describe the current frozen members and baseline;
+the threshold also includes the retained automatic history.
+
+Native notifications wait for one second of quiet, restarting that interval
+after another notification, with a ten-second total cap. Controls remain
+available during this interval. Wait and rescan stay in a bounded actor queue;
+status, approval and resolution remain available. Wait retains its original
+deadline and only reports SourceChanging if still settling at that deadline;
+otherwise it completes observation in the same request. Rescan waits for quiet
+or the cap before actually scanning; clients do not retry a false completion.
+The cumulative guard protects split scans even when the cap expires. It cannot
+undo automatic deletions below the threshold during a longer operation; the
+quiet interval is a coalescing heuristic, not an atomic snapshot of a writer.
+The former per-scan-only calculation could delete a 100-object batch as smaller
+unguarded batches; this was already present before the observation changes.
+Migration from 49 to 50 is forward-only: back up the stopped data directory
+and restore it with the matching executable instead of editing user_version.
+
+Native macOS validation on 2026-11-04 passed six focused cases covering split
+12/88 deletion scans, restart and approval history, zero-candidate reset, migration
+rollback/retry and older-reader rejection, split bulk deletion during quiet with
+zero automatic deletions, bounded control replies, quiet-cap cancellation and
+the deadline-bound HTTP SourceChanging response. The production HTTP control suite passed
+21 cases; the native sync integration suite passed all 23, including the fixed
+100-object three-page approval journey and an individual successful wait request
+that exceeds its connection inactivity budget. No negative assertion was removed.
 
 The pending deletion set has an opaque revision tied to catalog/root IDs,
 root identity, completed scan revision, journal fence, thresholds, candidate

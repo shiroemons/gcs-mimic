@@ -1,7 +1,6 @@
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
-    config::Config,
     object::{ObjectMetadataUpdate, ObjectRecord},
     storage::{Catalog, admin::Origin},
     test_support::TestDir,
@@ -9,6 +8,57 @@ use crate::{
 use std::{fs, io::Read, path::Path, time::SystemTime};
 
 const BODY: &[u8] = b"\0\xff immutable API bytes";
+
+#[tokio::test]
+async fn descriptor_exhaustion_does_not_persist_workspace_recovery() {
+    let fixture = Fixture::new().await;
+    let identity = fixture
+        .root
+        .file_job(|root| fsutil::stat_identity(root).map_err(AdminError::backend))
+        .await
+        .unwrap();
+    for reopen in [false, true] {
+        WORKSPACE_FAILURES
+            .lock()
+            .unwrap()
+            .push((identity.device, identity.inode, libc::EMFILE));
+        let error = if reopen {
+            fixture.root.writeback(limits()).await.err().unwrap()
+        } else {
+            fixture.writeback.status().await.unwrap_err()
+        };
+        assert!(crate::error::causes(&error).any(|cause| {
+            cause
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| error.raw_os_error() == Some(libc::EMFILE))
+        }));
+        let status = fixture.writeback.status().await.unwrap();
+        assert!(!status.recovery);
+        assert!(!status.io_failure);
+    }
+    fixture.shut_down().await;
+}
+
+#[tokio::test]
+async fn workspace_access_failures_keep_their_cause_without_persisting_recovery() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new().await;
+    let workspace = fixture.tree.0.join(mapping::WORKSPACE);
+    fs::set_permissions(&workspace, fs::Permissions::from_mode(0o000)).unwrap();
+    let status = fixture.writeback.status().await;
+    let reopen = fixture.root.writeback(limits()).await;
+    fs::set_permissions(&workspace, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        matches!(status, Err(Error::Admin(AdminError::Io(ref cause))) if cause.kind() == io::ErrorKind::PermissionDenied)
+    );
+    assert!(
+        matches!(reopen, Err(Error::Admin(AdminError::Io(ref cause))) if cause.kind() == io::ErrorKind::PermissionDenied)
+    );
+    let status = fixture.writeback.status().await.unwrap();
+    assert!(!status.io_failure);
+    assert!(!status.recovery);
+    fixture.shut_down().await;
+}
 
 struct Fixture {
     _data: TestDir,
@@ -66,13 +116,8 @@ impl Fixture {
             .activate_root(&tree.0, super::super::super::super::root::Activation::Open)
             .await
             .unwrap();
-        let config = Config {
-            data_dir: data.0.clone(),
-            sync_dir: Some(tree.0.clone()),
-            ..Default::default()
-        };
         assert!(
-            crate::sync::reconcile(&catalog, &root, &config)
+            crate::sync::reconcile(&catalog, &root)
                 .await
                 .unwrap()
                 .baseline_complete

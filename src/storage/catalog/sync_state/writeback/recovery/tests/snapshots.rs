@@ -237,11 +237,7 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
     };
     for &crash in Crash::ALL {
         let fixture = Fixture::new().await;
-        let item = fixture
-            .writeback
-            .arm(fixture.prepare().await.token)
-            .await
-            .unwrap();
+        let item = fixture.armed().await;
         fs::write(
             fixture
                 .tree

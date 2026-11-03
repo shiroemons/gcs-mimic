@@ -286,6 +286,31 @@ fn wire_client_decodes_chunked_json_and_preserves_failure_status() {
 }
 
 #[test]
+fn non_json_responses_keep_the_status_without_echoing_the_body() {
+    for (status, body) in [
+        (
+            StatusCode::BAD_GATEWAY,
+            b"private proxy diagnostic".as_slice(),
+        ),
+        (StatusCode::NO_CONTENT, b"".as_slice()),
+    ] {
+        let error = response_json(status, body).unwrap_err();
+        assert!(error.to_string().contains(&status.to_string()));
+        assert!(!error.to_string().contains("private proxy diagnostic"));
+        let response = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<NonJsonResponse>()
+            .unwrap();
+        assert!(
+            std::error::Error::source(response)
+                .unwrap()
+                .is::<serde_json::Error>()
+        );
+    }
+}
+
+#[test]
 fn wire_client_rejects_oversized_and_truncated_responses() {
     let mut response = format!(
         "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

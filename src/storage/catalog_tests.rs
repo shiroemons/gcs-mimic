@@ -40,6 +40,7 @@ async fn versioning_presence_migration_preserves_existing_bucket_states() {
     enabled.versioning_enabled = true;
     catalog.insert_bucket(enabled).await.unwrap();
     downgraded(&dir, &catalog, |connection| {
+        common::downgrade_deletion_history_schema(connection);
         connection
             .execute_batch(
                 "ALTER TABLE buckets DROP COLUMN versioning_configured;

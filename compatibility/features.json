@@ -49155,9 +49155,9 @@
       "acceptance_cases": [
         {
           "id": "shared-sync-writeback-handoff",
-          "description": "Typed durable pending/receipt/ack handoff retains baseline and API/seed state; shared APIs only, no mirror/runtime startup. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "description": "The production begin_live_export/advance_live_export/recover_pending handoff retains baseline and API/seed state, verifies durable output before atomic tracking/completion, and protects retained workspace bodies. No separate receipt state machine or writeback journal cursor is exposed. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
-          "test_ids": ["writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion","writeback_removal_requires_complete_baseline_and_absent_unchanged_api_winner","writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_removal_requires_a_complete_baseline_and_the_tracked_generation","live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
         },
         {
           "id": "shared-sync-owner-inventory",
@@ -49391,7 +49391,7 @@
         }
       ],
       "test_ids": [
-        "writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion",
+        "live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes",
         "ingest_strict_configuration_has_actionable_remedy",
         "ingest_defers_partial_and_replacement_saves_then_resumes_activation",
         "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations",
@@ -49403,8 +49403,8 @@
         "initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence",
         "initial_export_preserves_external_conflicts_and_records_mapping_findings",
         "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready",
-        "writeback_removal_requires_complete_baseline_and_absent_unchanged_api_winner",
-        "writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync",
+        "live_export_removal_requires_a_complete_baseline_and_the_tracked_generation",
+        "live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync",
         "sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors",
         "sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation",
         "sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead",
@@ -49496,11 +49496,11 @@
           "test_ids": ["ingest_strict_configuration_has_actionable_remedy", "ingest_defers_partial_and_replacement_saves_then_resumes_activation", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_shutdown_finishes_the_active_publication_before_restart"]
         },
         {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
           "result": "PASS",
-          "verified_at": "2026-10-25",
+          "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/shared-sync-writeback.md",
-          "test_ids": ["writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion","writeback_removal_requires_complete_baseline_and_absent_unchanged_api_winner","writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_removal_requires_a_complete_baseline_and_the_tracked_generation","live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
@@ -51104,7 +51104,7 @@
           "id": "shared-sync-pending-protection",
           "description": "Bounded root/catalog-bound pending pages retain original owner/incarnation and actual workspace charges/stops after bucket deletion; ObjectReader transfers its opened immutable descriptor without path reopen/hardlink. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
-          "test_ids": ["writeback_pending_pages_survive_bucket_deletion_recreation_and_restart","writeback_protected_sparse_body_exceeds_quota_without_cleanup_or_false_ack","writeback_progress_cannot_skip_pending_work_and_protection_stops_other_operations","writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain","writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart"]
+          "test_ids": ["recovery_keeps_the_original_owner_after_api_change_delete_and_bucket_recreation","restart_protects_actual_armed_and_durable_bodies_without_quota_eviction","native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_exports","live_export_installed_copy_is_never_cancelled_after_arming","live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery"]
         },
         {
           "id": "shared-sync-change-observation",
@@ -51199,9 +51199,45 @@
         },
         {
           "id": "sync-unpublished-cancellation",
-          "description": "Private API-copy provenance permits cancellation of unchanged unpublished copies and non-writing identical observations without touching external targets. Installed/modified/protected bodies reject abandonment; an obsolete installed API copy completes only after durability and changed-API checks, without fingerprint or journal progress. API overwrite/delete before open/arm and after publication, external same-name creation, identical-file edits and restart do not strand normal race operations. Interruption of unlink/SQLite completion, disk-full retry and protected recovery remain PENDING. Scope: docs/en/slices/directory-synchronization.md. External deletion/edit/touch between rename and acknowledgement can retain an Armed/Durable recovery stop when both completion paths refuse; sync-conflicts supplies the remedy (PENDING). Obsolete Complete counts as deferred in that pass with baseline incomplete, then Conflicting/external_only on the next reconciliation.",
+          "description": "Production live export cancels only an unchanged unpublished API copy. A modified workspace body becomes Protected and remains fully charged; installed copies cannot use cancellation. API overwrite/delete races defer or complete the installed observation, while divergent external bytes are retained in the conflict store before API-priority replacement. Restart recovery cancels only owned unarmed copies and preserves Armed/Durable bodies. Scope: docs/en/slices/shared-sync-writeback.md and docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["export_concurrent_api_and_external_changes_never_strand_unpublished_operations", "writeback_abandon_unpublished_copy_preserves_external_bytes_and_releases_reservations", "writeback_abandon_rejects_installed_and_modified_workspace_bodies"]
+          "test_ids": ["export_concurrent_api_and_external_changes_never_strand_unpublished_operations", "live_export_observed_external_change_cancels_the_unpublished_copy_and_releases_its_reservation", "live_export_obsolete_copy_never_cancels_a_modified_workspace_body"]
+        },
+        {
+          "id": "sync-owned-filesystem-observation",
+          "description": "Production sync uses 256-entry descriptor-relative scans with read-only inspection, stages sources outside their opening file job, hashes matching racy files in place, preserves workspace I/O causes, and observes more than 1000 files through macOS FSEvents without one descriptor per file. Cooperative wait deadlines interrupt settling and bound new work between owned steps; explicit failed rescans record an inspectable pause. Parent rows remain PARTIAL and Linux runtime/physical power-loss parity are not claimed. Scope: docs/en/slices/continuous-directory-observation.md and docs/en/slices/shared-sync-writeback.md.",
+          "result": "PASS",
+          "test_ids": ["scans_cross_pages_once_and_reject_replaced_directories", "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync", "staging_finishes_while_another_file_worker_is_occupied", "racy_exported_bytes_are_verified_without_staging_again", "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors", "descriptor_exhaustion_does_not_persist_workspace_recovery", "wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan", "expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate", "failed_explicit_rescan_records_the_pause_before_replying"]
+        },
+        {
+          "id": "sync-cumulative-deletion-guard",
+          "description": "Schema 50 accumulates automatic deletions in the object-delete transaction and combines them with each frozen scan for the 100-object/over-half guard. Approval, a newly completed baseline or a complete zero-candidate observation after established native quiet resets history; automatic and explicit scans share this condition. A capped or incomplete scan, remaining candidates and restart cannot reset it. Native observation waits for 1 second quiet, capped at 10 seconds; wait and rescan stay in a bounded actor queue instead of returning false completion. Wait reports SourceChanging only at its original deadline if still settling. The previous per-scan-only calculation could delete a bulk operation in smaller unguarded batches. Operations longer than the quiet cap can still commit earlier automatic deletions below the cumulative threshold; the guard does not undo them. Scope: docs/en/slices/directory-synchronization.md#external-deletion-and-approval.",
+          "result": "PASS",
+          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_waits_for_a_completed_scan", "quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restart", "native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart", "quiet_waits_hold_their_original_deadline_without_blocking_other_controls", "wait_during_native_quiet_reports_source_changing_only_at_its_deadline", "live_cli_wait_after_writing_observes_bytes_without_retrying"]
+        },
+        {
+          "id": "sync-installed-body-durability",
+          "description": "Durable always verifies installed body hashes, including same-inode/size edits with restored mtime; acknowledgement checks the complete recorded stat instead of hashing again. Reusing private copy hashes cannot establish the installed bytes after namespace exposure. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "result": "PASS",
+          "test_ids": ["durable_rehash_rejects_same_inode_edits_with_restored_mtime"]
+        },
+        {
+          "id": "sync-observation-io-diagnostics",
+          "description": "Unreadable child directories leave an incomplete external inventory while other entries progress; changed directory identity remains retryable. Descriptor exhaustion logs soft/hard limits and a ulimit remedy. Unavailable Linux casefold flags fall back to exact directory names. Staging recheck retains its original drift error when cleanup also fails. Matching racy exports directly assert zero staging calls and stable observations use exact zero-work assertions. Atomic marker publication reserves its staging component at every object depth. Scope: docs/en/slices/continuous-directory-observation.md and docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["external_inventory_defers_unreadable_children_without_stopping_other_files", "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion", "unavailable_casefold_flags_fall_back_to_exact_directory_names", "source_recheck_preserves_precondition_when_staging_cleanup_also_fails", "racy_exported_bytes_are_verified_without_staging_again", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations"]
+        },
+        {
+          "id": "sync-observer-queue-recovery",
+          "description": "The observation cap permits an actual rescan but never releases wait as quiet. Pending waits retain their original deadline across repeated capped scans. Worker-owned queued controls survive observer pause and recovery, reestablish quiet after retry and receive a stopped response during shutdown. Protected workspace recovery must retain the queued rescan reply. Scope: docs/en/slices/continuous-directory-observation.md.",
+          "result": "PASS",
+          "test_ids": ["observation_cap_allows_rescans_but_never_releases_a_wait_as_quiet", "queued_rescan_recovers_from_pause_without_closing_its_reply", "stopping_a_quiet_queue_answers_waiters_without_losing_their_replies", "live_rescan_registers_a_protected_workspace_before_resuming_intake"]
+        },
+        {
+          "id": "sync-wait-preparation-budget",
+          "description": "Wait claims bounded catalog activity before authorization, keeps permission-before-body ordering, bounds preparation by catalog_wait_timeout_ms and releases activity after errors, timeout or cancellation before applying the requested observation budget. Scope: docs/en/slices/continuous-directory-observation.md.",
+          "result": "PASS",
+          "test_ids": ["wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors", "wait_authorization_deadline_and_cancellation_release_activity"]
         },
         {
           "id": "sync-api-writeback",
@@ -51532,9 +51568,45 @@
         "live_export_skips_colon_and_backslash_names_and_keeps_exporting",
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
+        "scans_cross_pages_once_and_reject_replaced_directories",
+        "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync",
+        "staging_finishes_while_another_file_worker_is_occupied",
+        "racy_exported_bytes_are_verified_without_staging_again",
+        "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors",
+        "durable_rehash_rejects_same_inode_edits_with_restored_mtime",
+        "wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors",
+        "wait_authorization_deadline_and_cancellation_release_activity",
+        "cumulative_deletions_require_approval_after_split_scans_rescan_and_restart",
+        "empty_explicit_rescan_resets_automatic_deletion_history",
+        "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers",
+        "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls",
+        "native_quiet_deadline_is_capped_and_survives_cancelled_waits",
+        "rescan_during_native_quiet_waits_for_a_completed_scan",
+        "quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restart",
+        "native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",
+        "observation_cap_allows_rescans_but_never_releases_a_wait_as_quiet",
+        "queued_rescan_recovers_from_pause_without_closing_its_reply",
+        "stopping_a_quiet_queue_answers_waiters_without_losing_their_replies",
+        "live_rescan_registers_a_protected_workspace_before_resuming_intake",
+        "quiet_waits_hold_their_original_deadline_without_blocking_other_controls",
+        "wait_during_native_quiet_reports_source_changing_only_at_its_deadline",
+        "live_cli_wait_after_writing_observes_bytes_without_retrying",
+        "live_wait_observes_source_work_beyond_the_connection_inactivity_budget",
+        "external_inventory_defers_unreadable_children_without_stopping_other_files",
+        "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion",
+        "unavailable_casefold_flags_fall_back_to_exact_directory_names",
+        "source_recheck_preserves_precondition_when_staging_cleanup_also_fails",
+        "delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes",
+        "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval",
+        "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling",
+        "native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity",
+        "descriptor_exhaustion_does_not_persist_workspace_recovery",
+        "wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan",
+        "expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate",
+        "failed_explicit_rescan_records_the_pause_before_replying",
         "export_concurrent_api_and_external_changes_never_strand_unpublished_operations",
-        "writeback_abandon_unpublished_copy_preserves_external_bytes_and_releases_reservations",
-        "writeback_abandon_rejects_installed_and_modified_workspace_bodies",
+        "live_export_observed_external_change_cancels_the_unpublished_copy_and_releases_its_reservation",
+        "live_export_obsolete_copy_never_cancels_a_modified_workspace_body",
         "initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence",
         "initial_export_preserves_external_conflicts_and_records_mapping_findings",
         "runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them",
@@ -51542,11 +51614,9 @@
         "export_replace_between_directories_retains_displaced_entries",
         "sync_findings_idempotent_pages_conditional_removal_and_restart",
         "sync_findings_reject_foreign_bindings_and_stale_incarnations",
-        "writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart",
-        "writeback_pending_pages_survive_bucket_deletion_recreation_and_restart",
-        "writeback_protected_sparse_body_exceeds_quota_without_cleanup_or_false_ack",
-        "writeback_progress_cannot_skip_pending_work_and_protection_stops_other_operations",
-        "writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain",
+        "live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery",
+        "native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_exports",
+        "live_export_installed_copy_is_never_cancelled_after_arming",
         "sync_observation_commits_before_during_and_after_registration_are_not_lost",
         "sync_observation_every_committed_mutation_wakes_all_waiters",
         "sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan",
@@ -51741,11 +51811,11 @@
           "test_ids": ["live_export_creates_replaces_deletes_and_preserves_edited_files", "live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories", "live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_polling", "live_export_recovers_a_changed_journal_fence_with_paged_reconciliation", "live_export_bucket_incarnation_races_keep_other_buckets_progressing"]
         },
         {
-          "command": "cargo test --locked --offline --lib -- writeback_abandon export_concurrent_api listener_failure_drains",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
           "result": "PASS",
-          "verified_at": "2026-10-25",
+          "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["export_concurrent_api_and_external_changes_never_strand_unpublished_operations", "writeback_abandon_unpublished_copy_preserves_external_bytes_and_releases_reservations", "writeback_abandon_rejects_installed_and_modified_workspace_bodies"]
+          "test_ids": ["export_concurrent_api_and_external_changes_never_strand_unpublished_operations", "live_export_observed_external_change_cancels_the_unpublished_copy_and_releases_its_reservation", "live_export_obsolete_copy_never_cancels_a_modified_workspace_body"]
         },
         {
           "command": "cargo test --locked --offline --test sync_mirror --test sync_configuration",
@@ -51762,11 +51832,74 @@
           "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries","sync_findings_idempotent_pages_conditional_removal_and_restart","sync_findings_reject_foreign_bindings_and_stale_incarnations"]
         },
         {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
           "result": "PASS",
-          "verified_at": "2026-10-25",
+          "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/shared-sync-writeback.md",
-          "test_ids": ["writeback_pending_pages_survive_bucket_deletion_recreation_and_restart","writeback_protected_sparse_body_exceeds_quota_without_cleanup_or_false_ack","writeback_progress_cannot_skip_pending_work_and_protection_stops_other_operations","writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain","writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart"]
+          "test_ids": ["recovery_keeps_the_original_owner_after_api_change_delete_and_bucket_recreation","restart_protects_actual_armed_and_durable_bodies_without_quota_eviction","native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_exports","live_export_installed_copy_is_never_cancelled_after_arming","live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["scans_cross_pages_once_and_reject_replaced_directories", "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync", "staging_finishes_while_another_file_worker_is_occupied", "racy_exported_bytes_are_verified_without_staging_again", "descriptor_exhaustion_does_not_persist_workspace_recovery", "wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan", "expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate", "failed_explicit_rescan_records_the_pause_before_replying"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_watch -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors", "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling", "native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- durable_rehash wait_authorization --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/shared-sync-writeback.md",
+          "test_ids": ["durable_rehash_rejects_same_inode_edits_with_restored_mtime", "wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors", "wait_authorization_deadline_and_cancellation_release_activity"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- observation_cap queued_rescan stopping_a_quiet_queue live_rescan_registers wait_during_native_quiet --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["observation_cap_allows_rescans_but_never_releases_a_wait_as_quiet", "queued_rescan_recovers_from_pause_without_closing_its_reply", "stopping_a_quiet_queue_answers_waiters_without_losing_their_replies", "live_rescan_registers_a_protected_workspace_before_resuming_intake", "wait_during_native_quiet_reports_source_changing_only_at_its_deadline"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["live_cli_wait_after_writing_observes_bytes_without_retrying", "live_wait_observes_source_work_beyond_the_connection_inactivity_budget"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- quiet_ racy_exported ingest_initial_baseline_runtime ingest_unchanged_files external_inventory source_recheck descriptor_pressure unavailable_casefold_flags rescan_during_native_quiet --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restart", "quiet_waits_hold_their_original_deadline_without_blocking_other_controls", "external_inventory_defers_unreadable_children_without_stopping_other_files", "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion", "unavailable_casefold_flags_fall_back_to_exact_directory_names", "source_recheck_preserves_precondition_when_staging_cleanup_also_fails", "racy_exported_bytes_are_verified_without_staging_again", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- wait_during_native_quiet quiet_waits_hold rescan_during_native_quiet --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["wait_during_native_quiet_reports_source_changing_only_at_its_deadline", "quiet_waits_hold_their_original_deadline_without_blocking_other_controls", "rescan_during_native_quiet_waits_for_a_completed_scan"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- cumulative_deletions empty_explicit_rescan automatic_deletion_history quiet_native_observation native_quiet_deadline rescan_during_native_quiet --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_waits_for_a_completed_scan"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
@@ -52341,15 +52474,15 @@
         },
         {
           "id": "shared-sync-export-durability",
-          "description": "Sync both replacement parents before receipt/state commit, retain displaced entries, reject symlink traversal and preserve findings/API/root/writeback state across transactional schema migration and restart. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
+          "description": "Sync both replacement parents before live durable/state commit, retain captured external bytes, reject spelling aliases and symlink traversal, and preserve findings/API/root/writeback state across transactional schema migration, restart and paired crash/power-loss snapshots. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
           "result": "PASS",
-          "test_ids": ["writeback_export_cross_directory_publication_precedes_state_and_retains_displacement","writeback_export_parent_sync_failure_cannot_commit_state","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback"]
+          "test_ids": ["preserved_live_export_crash_and_power_loss_keep_the_external_copy_before_acknowledgement","native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_exports","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback"]
         },
         {
           "id": "shared-sync-writeback-durability",
-          "description": "Private durable receipts gate atomic sync-state/progress/completion; stale/hold/root/owner failures, protected entries, ENOSPC, restart and cancelled/drained work retain intent and ownership. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "description": "The production live export/recovery state machine gates atomic tracking and intent removal on durable identity checks; stale/hold/root/owner failures, protected entries, ENOSPC, restart and cancelled/drained work retain intent and ownership. Writeback does not publish a separate journal progress cursor. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
-          "test_ids": ["writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion","writeback_failed_ack_rolls_back_progress_and_fingerprint_then_retries","writeback_rejects_foreign_stale_hold_and_changed_api_winners","writeback_sqlite_enospc_keeps_displaced_bytes_and_retry_captures_actual_size","writeback_restart_recovers_each_file_and_catalog_boundary_without_false_progress","writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain","writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart","writeback_other_operation_success_cannot_clear_failed_entry_or_target_validation","writeback_cancelled_job_serializes_separate_handles_until_protected_body_is_recorded"]
+          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried","live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generation","live_export_rejects_held_and_stale_tracked_inputs","live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_retry","restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries","live_export_installed_copy_is_never_cancelled_after_arming","live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery","live_export_other_root_completion_cannot_clear_a_failed_operation","live_export_cancelled_install_serializes_other_handles_until_the_owned_job_drains"]
         },
         {
           "id": "shared-sync-observation-cancellation",
@@ -52361,7 +52494,7 @@
           "id": "shared-sync-root-recovery",
           "description": "Fail closed at marker validation and activation interruption boundaries; missing-marker-only explicit reinitialization preserves data. Adapter-only scope: docs/en/slices/shared-sync-root.md.",
           "result": "PASS",
-          "test_ids": ["sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved","sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker","sync_root_interrupted_activation_requires_explicit_missing_marker_recovery","sync_root_sql_failures_never_publish_marker_or_complete_baseline"]
+          "test_ids": ["sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved","sync_root_activation_failure_boundaries_never_publish_partial_markers","sync_root_interrupted_activation_requires_explicit_missing_marker_recovery","sync_root_sql_failures_never_publish_marker_or_complete_baseline"]
         },
         {
           "id": "shared-import-terminal-publication",
@@ -52420,6 +52553,12 @@
           "description": "PASS: startup activates roots after PAP/initializer/seed and before bind; missing/foreign/malformed markers fail closed with repair diagnostics, exact-ID missing-marker reinitialization preserves API/seed state, and ordinary process shutdown releases ownership. Exhaustive kill/host-power-loss and scan/publication/conflict lock-boundary coverage remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
           "test_ids": ["marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_reinitialize", "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready"]
+        },
+        {
+          "id": "sync-atomic-root-marker-publication",
+          "description": "Publish root markers only from a complete synced staging file through no-replace publication and parent sync. Restart recovers only a complete marker bound to this catalog/root; malformed or foreign published markers remain unchanged and fail closed. Failed write, sync and publish, process-crash snapshots and Fault::PowerLoss snapshots retain a recoverable root. Physical power-loss and Linux runtime parity remain unverified. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "result": "PASS",
+          "test_ids": ["marker_write_sync_and_publish_failures_leave_a_recoverable_root", "marker_crash_and_power_loss_snapshots_resume_only_complete_owned_markers", "sync_root_activation_failure_boundaries_never_publish_partial_markers"]
         },
         {
           "id": "sync-marker-recovery",
@@ -52614,7 +52753,7 @@
         "conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_intent",
         "recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_discard",
         "conflict_restore_ambiguous_commit_returns_recorded_generation_after_restart",
-        "writeback_export_cross_directory_publication_precedes_state_and_retains_displacement",
+        "preserved_live_export_crash_and_power_loss_keep_the_external_copy_before_acknowledgement",
         "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle",
         "ingest_shutdown_finishes_the_active_publication_before_restart",
         "ingest_defers_partial_and_replacement_saves_then_resumes_activation",
@@ -52628,20 +52767,23 @@
         "listener_failure_drains_background_work_before_catalog_close",
         "marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_reinitialize",
         "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready",
-        "writeback_export_parent_sync_failure_cannot_commit_state",
         "sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback",
-        "writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart",
-        "writeback_other_operation_success_cannot_clear_failed_entry_or_target_validation",
-        "writeback_cancelled_job_serializes_separate_handles_until_protected_body_is_recorded",
-        "writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion",
-        "writeback_failed_ack_rolls_back_progress_and_fingerprint_then_retries",
-        "writeback_rejects_foreign_stale_hold_and_changed_api_winners",
-        "writeback_sqlite_enospc_keeps_displaced_bytes_and_retry_captures_actual_size",
-        "writeback_restart_recovers_each_file_and_catalog_boundary_without_false_progress",
-        "writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain",
+        "live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery",
+        "live_export_other_root_completion_cannot_clear_a_failed_operation",
+        "live_export_cancelled_install_serializes_other_handles_until_the_owned_job_drains",
+        "export_concurrent_api_and_external_changes_never_strand_unpublished_operations",
+        "live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes",
+        "live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried",
+        "live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generation",
+        "live_export_rejects_held_and_stale_tracked_inputs",
+        "live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_retry",
+        "restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries",
+        "live_export_installed_copy_is_never_cancelled_after_arming",
         "sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits",
         "sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved",
-        "sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker",
+        "sync_root_activation_failure_boundaries_never_publish_partial_markers",
+        "marker_write_sync_and_publish_failures_leave_a_recoverable_root",
+        "marker_crash_and_power_loss_snapshots_resume_only_complete_owned_markers",
         "sync_root_interrupted_activation_requires_explicit_missing_marker_recovery",
         "sync_root_sql_failures_never_publish_marker_or_complete_baseline",
         "obj_http_restart_and_sigkill_mid_upload_clean_staging",
@@ -52770,9 +52912,16 @@
           "test_ids": ["live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack", "live_export_sigterm_during_api_writes_restarts_to_the_committed_live_body", "live_export_retries_identical_observation_at_prepare_arm_durable_and_ack", "live_export_identical_observation_preserves_edits_before_durable_and_ack", "live_export_retries_file_and_parent_permissions_without_advancing_the_cursor", "live_export_identical_parent_disappearance_cancels_and_keeps_other_buckets_progressing"]
         },
         {
-          "command": "cargo test --locked --offline --test sync_mirror --test sync_configuration; cargo test --locked --offline --lib -- writeback_abandon export_concurrent_api listener_failure_drains",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
           "result": "PASS",
-          "verified_at": "2026-10-25",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["live_export_cancelled_install_serializes_other_handles_until_the_owned_job_drains", "export_concurrent_api_and_external_changes_never_strand_unpublished_operations"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync sigterm_during_initial_export; CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib listener_failure_drains",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/directory-synchronization.md",
           "test_ids": ["sigterm_during_initial_export_restarts_without_recovery_stop", "listener_failure_drains_background_work_before_catalog_close"]
         },
@@ -52784,18 +52933,18 @@
           "test_ids": ["marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_reinitialize", "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready"]
         },
         {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- export sync_findings writeback sync_state sync_root sync_observation",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
           "result": "PASS",
-          "verified_at": "2026-10-25",
+          "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/shared-sync-export-interfaces.md",
-          "test_ids": ["writeback_export_cross_directory_publication_precedes_state_and_retains_displacement","writeback_export_parent_sync_failure_cannot_commit_state","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback"]
+          "test_ids": ["preserved_live_export_crash_and_power_loss_keep_the_external_copy_before_acknowledgement","native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_exports","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback"]
         },
         {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
           "result": "PASS",
-          "verified_at": "2026-10-25",
+          "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/shared-sync-writeback.md",
-          "test_ids": ["writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion","writeback_failed_ack_rolls_back_progress_and_fingerprint_then_retries","writeback_rejects_foreign_stale_hold_and_changed_api_winners","writeback_sqlite_enospc_keeps_displaced_bytes_and_retry_captures_actual_size","writeback_restart_recovers_each_file_and_catalog_boundary_without_false_progress","writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain","writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart","writeback_other_operation_success_cannot_clear_failed_entry_or_target_validation","writeback_cancelled_job_serializes_separate_handles_until_protected_body_is_recorded"]
+          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried","live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generation","live_export_rejects_held_and_stale_tracked_inputs","live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_retry","restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries","live_export_installed_copy_is_never_cancelled_after_arming","live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery","live_export_other_root_completion_cannot_clear_a_failed_operation","live_export_cancelled_install_serializes_other_handles_until_the_owned_job_drains"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
@@ -52805,11 +52954,11 @@
           "test_ids": ["sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits"]
         },
         {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
           "result": "PASS",
-          "verified_at": "2026-10-25",
+          "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/shared-sync-root.md",
-          "test_ids": ["sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved","sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker","sync_root_interrupted_activation_requires_explicit_missing_marker_recovery","sync_root_sql_failures_never_publish_marker_or_complete_baseline"]
+          "test_ids": ["sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved","sync_root_activation_failure_boundaries_never_publish_partial_markers","sync_root_interrupted_activation_requires_explicit_missing_marker_recovery","sync_root_sql_failures_never_publish_marker_or_complete_baseline","marker_write_sync_and_publish_failures_leave_a_recoverable_root","marker_crash_and_power_loss_snapshots_resume_only_complete_owned_markers"]
         },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
@@ -58698,7 +58847,7 @@
           "id": "catalog-writeback-migration",
           "description": "Atomically migrate schema 19 to 20; rollback partial DDL/version, retry and retain existing catalog/root/API/seed/sync/journal identity and data. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
-          "test_ids": ["writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+          "test_ids": ["live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
         },
         {
           "id": "catalog-sync-root-migration",
@@ -58792,7 +58941,7 @@
       "test_ids": [
         "supported_release_data_directories_upgrade_without_changing_resources",
         "every_supported_release_has_a_fixture",
-        "writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync",
+        "live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync",
         "sync_root_schema_migration_rolls_back_retries_and_preserves_state",
         "timestamp_migration_scales_extrema_and_rolls_back_after_partial_update",
         "timestamp_migration_rejects_overflow_without_changing_version_or_values",
@@ -58836,11 +58985,11 @@
           ]
         },
         {
-          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
           "result": "PASS",
-          "verified_at": "2026-10-25",
+          "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/shared-sync-writeback.md",
-          "test_ids": ["writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+          "test_ids": ["live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",

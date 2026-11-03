@@ -44,18 +44,33 @@ impl RootLease {
         }).await.map_err(RootError::from)
     }
 
+    #[cfg(test)]
     pub(crate) async fn clear_path_stop(
         &self,
         binding: SyncBinding,
         name: ObjectName,
         reason: PathStop,
     ) -> Result<(), RootError> {
+        self.clear_path_stops(binding, name, &[reason]).await
+    }
+
+    pub(crate) async fn clear_path_stops(
+        &self,
+        binding: SyncBinding,
+        name: ObjectName,
+        reasons: &[PathStop],
+    ) -> Result<(), RootError> {
+        if reasons.is_empty() || reasons.len() > 3 {
+            return Err(AdminError::Invalid("invalid path stop reasons".into()).into());
+        }
+        let reasons: [Option<PathStop>; 3] =
+            std::array::from_fn(|index| reasons.get(index).copied());
         let root = self.status().root_id.as_bytes();
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             scope.authorize(&tx)?;
-            sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root,binding.bucket,name.as_str(),binding.incarnation,reason])?;
+            sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason IN (?5,?6,?7)", params![root,binding.bucket,name.as_str(),binding.incarnation,reasons[0],reasons[1],reasons[2]])?;
             tx.commit().map_err(unavailable)
         }).await.map_err(RootError::from)
     }

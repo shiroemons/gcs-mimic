@@ -96,14 +96,14 @@ fn administrative_failures_retain_io_and_corruption_causes() {
 }
 
 #[test]
-fn synchronization_diagnostics_keep_their_existing_messages() {
+fn synchronization_diagnostics_summarize_wrapped_causes() {
     use crate::storage::sync_state::{
         conflicts::Error as ConflictError, root::RootError, writeback::Error as WritebackError,
     };
     for (error, expected) in [
         (
             RootError::Admin(AdminError::Hold),
-            "synchronization root: Admin(Hold)",
+            "synchronization root: admin operation failed",
         ),
         (RootError::InUse, "synchronization root: InUse"),
         (RootError::Unsupported, "synchronization root: Unsupported"),
@@ -156,11 +156,11 @@ fn synchronization_diagnostics_keep_their_existing_messages() {
     for (error, expected) in [
         (
             WritebackError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into())),
-            "write-back: Admin(Io(PermissionDenied))",
+            "write-back: admin operation failed",
         ),
         (
             WritebackError::Root(RootError::InUse),
-            "write-back: Root(InUse)",
+            "write-back: root validation failed",
         ),
         (WritebackError::Capacity, "write-back: Capacity"),
         (
@@ -175,6 +175,18 @@ fn synchronization_diagnostics_keep_their_existing_messages() {
     ] {
         assert_eq!(error.to_string(), expected);
     }
+    let error = WritebackError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into()));
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<AdminError>()
+    );
+    let error = RootError::Admin(AdminError::Hold);
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<AdminError>()
+    );
 }
 
 fn publication_blobs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {

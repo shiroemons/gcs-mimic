@@ -223,7 +223,12 @@ file names are skipped without stopping the mirror; they stay available through
 the API.
 
 The directory holds `.gcs-mimic-sync.json` and `.gcs-mimic-sync-work`, which tie
-it to one data directory; add both to `.gitignore`. After
+it to one data directory; add both and `.gcs-mimic-sync.json.staging` to
+`.gitignore`. Marker creation writes and syncs the staging file before atomic
+publication. The staging marker component is reserved at every object depth;
+existing API objects using it remain stored but cannot be mapped to the tree.
+Restart can recover a complete staged marker belonging to the same
+catalog/root; foreign or malformed published markers still fail closed. After
 `docker compose down --volumes` or another new data volume, startup rejects the
 old directory with a `ForeignMarker` diagnostic. Move it aside and create a fresh
 empty directory instead. The directory must not overlap the data or seed
