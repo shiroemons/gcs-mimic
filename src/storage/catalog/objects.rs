@@ -790,7 +790,7 @@ struct UploadCommit {
     access: BucketAccess,
     principals: Option<super::principals::Profile>,
     mode: super::admin::PublishMode,
-    identity: Option<super::admin::ImportedIdentity>,
+    identity: PublishIdentity,
     owner: OwnerAssignment,
     replay: Option<super::upload_replay::UploadReplay>,
     clock: Arc<dyn Clock>,
@@ -802,6 +802,41 @@ pub(super) enum OwnerAssignment {
     Request,
     Preserve(Option<crate::object::owner::ObjectOwner>),
     Unknown,
+}
+
+/// The authority that fixes a publication's generation and timestamps.
+#[derive(Clone, Copy)]
+pub(super) enum PublishIdentity {
+    Assigned,
+    /// Admin publication validates imported identities against their request before admission.
+    Imported(super::admin::ImportedIdentity),
+}
+
+impl PublishIdentity {
+    fn assignment(self) -> GenerationAssignment {
+        match self {
+            Self::Assigned => GenerationAssignment::Automatic,
+            Self::Imported(identity) => identity.generation().map_or(
+                GenerationAssignment::Automatic,
+                GenerationAssignment::Imported,
+            ),
+        }
+    }
+
+    fn timestamps(self) -> Option<(std::time::SystemTime, std::time::SystemTime)> {
+        match self {
+            Self::Assigned => None,
+            Self::Imported(identity) => Some((identity.time_created(), identity.updated())),
+        }
+    }
+
+    fn checks_past_retention(self) -> bool {
+        matches!(self, Self::Assigned)
+    }
+
+    fn retires_appendable(self) -> bool {
+        !matches!(self, Self::Assigned)
+    }
 }
 
 impl UploadCommit {
@@ -833,13 +868,13 @@ impl UploadCommit {
                 crc32c: self.body.crc32c,
             },
         );
-        if self.identity.is_none() {
+        if self.identity.checks_past_retention() {
             self.metadata.reject_past_retention(time)?;
         }
         self.metadata.clone().apply(&mut record)?;
-        if let Some(identity) = self.identity {
-            record.time_created = identity.time_created();
-            record.updated = identity.updated();
+        if let Some((created, updated)) = self.identity.timestamps() {
+            record.time_created = created;
+            record.updated = updated;
         }
         Ok(record)
     }
@@ -883,7 +918,7 @@ impl UploadCommit {
                 .map(|stored| stored.record)
                 .ok_or(ObjectError::ObjectNotFound);
         }
-        if self.identity.is_none() {
+        if self.identity.checks_past_retention() {
             now.duration_since(std::time::UNIX_EPOCH)
                 .map_err(object_unavailable)?;
         }
@@ -909,12 +944,7 @@ impl UploadCommit {
             versioning,
             NewVersion {
                 blob_id: self.blob_id,
-                assignment: self
-                    .identity
-                    .and_then(|value| value.generation())
-                    .map_or(GenerationAssignment::Automatic, |value| {
-                        GenerationAssignment::Imported(value)
-                    }),
+                assignment: self.identity.assignment(),
                 micros,
                 origin: super::change_journal::origin(&self.access),
                 notification_mode: NotificationMode::for_access(&self.access),
@@ -954,7 +984,7 @@ impl UploadCommit {
             record,
         )?;
         // Only a reserved generation can match an appendable row.
-        if self.identity.is_some() {
+        if self.identity.retires_appendable() {
             super::appendable::retire_published(transaction, record, self.backend)?;
         }
         Ok(())
@@ -1123,7 +1153,7 @@ impl Catalog {
             body,
             permit,
             super::admin::PublishMode::Replace,
-            None,
+            PublishIdentity::Assigned,
             OwnerAssignment::Request,
         )
         .await
@@ -1135,7 +1165,7 @@ impl Catalog {
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
         mut permit: UploadGuard,
         mode: super::admin::PublishMode,
-        identity: Option<super::admin::ImportedIdentity>,
+        identity: PublishIdentity,
         owner: OwnerAssignment,
     ) -> Result<ObjectRecord, ObjectError> {
         let ObjectUpload {
@@ -2704,7 +2734,7 @@ mod tests {
                 body(b"body"),
                 catalog.admit_object_upload().unwrap(),
                 super::super::admin::PublishMode::SkipIfSameHash,
-                None,
+                PublishIdentity::Assigned,
                 OwnerAssignment::Request,
             )
             .await

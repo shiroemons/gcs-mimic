@@ -665,7 +665,7 @@ impl AppendWriter {
             rx,
             permit,
             super::admin::PublishMode::Replace,
-            Some(identity),
+            super::objects::PublishIdentity::Imported(identity),
             super::objects::OwnerAssignment::Preserve(self.record.owner.clone()),
         );
         self.mark_finalizing(Finalizing::Started).await?;

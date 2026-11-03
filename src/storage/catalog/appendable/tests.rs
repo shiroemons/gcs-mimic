@@ -522,7 +522,7 @@ async fn publishing_a_reserved_generation_retires_its_row_atomically() {
             body(vec![Bytes::from_static(b"old")]),
             catalog.admit_object_upload().unwrap(),
             super::super::admin::PublishMode::Replace,
-            Some(identity),
+            super::super::objects::PublishIdentity::Imported(identity),
             super::super::objects::OwnerAssignment::Preserve(record.owner.clone()),
         )
         .await
