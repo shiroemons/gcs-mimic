@@ -98,6 +98,99 @@ struct AuthorizationHook {
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
 }
+#[derive(Default)]
+struct AuthorizationWaitHook {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+    observer: std::sync::Mutex<Option<tokio::sync::watch::Receiver<ObjectActivity>>>,
+}
+tokio::task_local! {static AUTHORIZATION_WAIT_HOOK:Arc<AuthorizationWaitHook>;}
+pub(super) async fn authorization_wait_checkpoint(
+    activity: &tokio::sync::watch::Sender<ObjectActivity>,
+) {
+    if let Ok(hook) = AUTHORIZATION_WAIT_HOOK.try_with(Arc::clone) {
+        *hook.observer.lock().unwrap() = Some(activity.subscribe());
+        hook.entered.notify_one();
+        hook.release.notified().await;
+    }
+}
+
+#[tokio::test]
+async fn wait_authorization_deadline_and_cancellation_release_activity() {
+    enum End {
+        Deadline,
+        Cancel,
+    }
+    for end in [End::Deadline, End::Cancel] {
+        let mut fixture = Fixture::new(Tree::Empty).await;
+        fixture.config.catalog_wait_timeout_ms = match end {
+            End::Deadline => 20,
+            End::Cancel => 30_000,
+        };
+        let hook = Arc::new(AuthorizationWaitHook::default());
+        let timeout = match end {
+            End::Deadline => Duration::from_millis(500),
+            End::Cancel => Duration::from_millis(20),
+        };
+        let result = tokio::time::timeout(
+            timeout,
+            AUTHORIZATION_WAIT_HOOK.scope(
+                hook.clone(),
+                fixture.request_once("POST", "/_internal/sync/wait", b"{}", None),
+            ),
+        )
+        .await;
+        match end {
+            End::Deadline => assert_eq!(
+                result.unwrap().unwrap_err().status,
+                StatusCode::SERVICE_UNAVAILABLE
+            ),
+            End::Cancel => assert!(result.is_err()),
+        }
+        let observer = hook.observer.lock().unwrap().take().unwrap();
+        assert!(!observer.borrow().awaiting_catalog);
+        assert!(observer.borrow().deadline.is_none());
+        fixture.finish().await;
+    }
+}
+
+#[tokio::test]
+async fn wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    let mut observations = Vec::new();
+    for payload in [&b"{}"[..], &b"{"[..]] {
+        let hook = Arc::new(AuthorizationWaitHook::default());
+        let (result, (claimed, bounded, observer)) = AUTHORIZATION_WAIT_HOOK
+            .scope(hook.clone(), async {
+                tokio::join!(
+                    fixture.request_once("POST", "/_internal/sync/wait", payload, None),
+                    async {
+                        hook.entered.notified().await;
+                        let observer = hook.observer.lock().unwrap().take().unwrap();
+                        let (claimed, bounded) = {
+                            let progress = observer.borrow();
+                            (progress.awaiting_catalog, progress.deadline.is_some())
+                        };
+                        hook.release.notify_one();
+                        (claimed, bounded, observer)
+                    }
+                )
+            })
+            .await;
+        if payload == b"{}" {
+            assert_eq!(result.unwrap().status(), StatusCode::OK)
+        } else {
+            assert_eq!(result.unwrap_err().status, StatusCode::BAD_REQUEST)
+        }
+        observations.push((claimed, bounded, observer.borrow().awaiting_catalog));
+    }
+    fixture.finish().await;
+    for (claimed, bounded, active) in observations {
+        assert!(claimed);
+        assert!(bounded);
+        assert!(!active);
+    }
+}
 tokio::task_local! {static AUTHORIZATION_HOOK:Arc<AuthorizationHook>;}
 pub(super) async fn authorization_checkpoint() {
     if let Ok(hook) = AUTHORIZATION_HOOK.try_with(Arc::clone) {

@@ -80,6 +80,11 @@ already have committed; approval cannot undo them. See the
 [deletion contract](directory-synchronization.md#external-deletion-and-approval).
 
 The live actor accepts bounded rescan, approval, wait and resolution commands.
+Wait claims catalog activity before authorization's database wait. Authorization
+and bounded request-body preparation share the configured catalog-wait budget;
+after authorized input is parsed, the requested timeout bounds observation.
+Permission checks still precede body validation. A request-scoped guard releases
+activity on success, invalid input, preparation timeout or cancellation.
 Wait captures a source scan and finite journal fence; later unrelated API writes
 do not extend it. Its explicit deadline is independent of connection inactivity
 timeouts. A deadline interrupts settling and stops between bounded scan or

@@ -87,7 +87,9 @@ Requests have a default 10000 ms total network deadline, configurable from
 1 through 60000 with `--timeout-ms`, or `--timeout` with an integer `ms`/`s`
 suffix. For `wait` this value is sent as the server's
 observation budget; the client allows an additional one second to receive the
-result. Waiting captures the server's fixed scan/journal fence; unrelated later
+result. Authorization and request-body preparation use the catalog-wait budget without
+being mistaken for connection inactivity. After parsing authorized input, the
+requested observation budget takes over. Waiting captures a fixed scan/journal fence; unrelated later
 writes do not extend it indefinitely. Deadline checks run between owned
 scan/export/deletion steps; settling
 also observes the deadline. An interrupted scan cannot complete its baseline or
