@@ -2545,6 +2545,7 @@ mod tests {
             std::env::temp_dir().join(format!("gcs-mimic-catalog-poison-{}", std::process::id()));
         let catalog = Catalog::open(&dir).await.unwrap();
         let state = State {
+            grpc_read_handles: Default::default(),
             ready: AtomicBool::new(true),
             clock: Arc::new(SystemClock),
             catalog: catalog.clone(),

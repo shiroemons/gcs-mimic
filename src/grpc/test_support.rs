@@ -17,6 +17,14 @@ pub(crate) fn state(catalog: Catalog, auth: Auth) -> State {
         api_base_url: "http://localhost:4443".into(),
         default_location: "US".into(),
         auth,
+        grpc_read_handles: Default::default(),
+    }
+}
+
+pub(super) fn storage_with(state: Arc<State>, max_object_bytes: u64) -> super::v2::Storage {
+    super::v2::Storage {
+        state,
+        max_object_bytes,
     }
 }
 

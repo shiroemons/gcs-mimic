@@ -6,6 +6,7 @@ async fn listener_failure_drains_background_work_before_catalog_close() {
     let data = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
     let state = Arc::new(State {
+        grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
         clock: Arc::new(SystemClock),
         catalog: catalog.clone(),
@@ -65,6 +66,7 @@ async fn handler_panic_closes_only_its_connection() {
     let data = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
     let state = Arc::new(State {
+        grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
         clock: Arc::new(SystemClock),
         catalog,

@@ -5,14 +5,10 @@ use crate::{
     grpc::validate::{self, request_conditions},
     json::JsonError,
     object::{ObjectRecord, ObjectTarget},
-    server::State,
     storage::ObjectReader,
 };
 use prost::Message;
-use std::{
-    collections::VecDeque,
-    sync::{Arc, OnceLock, Weak},
-};
+use std::{collections::VecDeque, sync::Arc};
 use tokio::sync::{Mutex, mpsc};
 use tonic::{Request, Response, Status, Streaming};
 
@@ -28,9 +24,22 @@ struct Selected {
 
 struct Handle {
     token: Vec<u8>,
-    state: Weak<State>,
     project: Option<String>,
     selected: Arc<Selected>,
+}
+
+/// Read snapshots belong to one server state and survive individual gRPC connections.
+#[derive(Default)]
+pub struct ReadHandles(Mutex<VecDeque<Handle>>);
+
+impl ReadHandles {
+    async fn insert(&self, handle: Handle) {
+        let mut entries = self.0.lock().await;
+        if entries.len() == MAX_HANDLES {
+            entries.pop_front();
+        }
+        entries.push_back(handle);
+    }
 }
 
 fn project(access: &BucketAccess) -> Option<&str> {
@@ -47,11 +56,6 @@ fn check_handle_project(expected: Option<&str>, access: &BucketAccess) -> Result
         ));
     }
     Ok(())
-}
-
-fn handles() -> &'static Mutex<VecDeque<Handle>> {
-    static HANDLES: OnceLock<Mutex<VecDeque<Handle>>> = OnceLock::new();
-    HANDLES.get_or_init(Mutex::default)
 }
 
 #[expect(
@@ -104,12 +108,10 @@ impl Storage {
             Status::invalid_argument("Missing read_handle; reopen without read_handle")
         })?;
         let (bucket, object) = names::object_name(&spec.bucket, &spec.object)?;
-        let entries = handles().lock().await;
+        let entries = self.state.grpc_read_handles.0.lock().await;
         let entry = entries
             .iter()
-            .find(|entry| {
-                entry.token == handle.handle && entry.state.ptr_eq(&Arc::downgrade(&self.state))
-            })
+            .find(|entry| entry.token == handle.handle)
             .ok_or_else(|| {
                 Status::failed_precondition(
                     "Read handle is unknown or expired; reopen without read_handle",
@@ -185,17 +187,14 @@ impl Storage {
             let mut token = vec![0; 32];
             getrandom::fill(&mut token)
                 .map_err(|_| Status::internal("Cannot create read handle; retry the read"))?;
-            let mut entries = handles().lock().await;
-            entries.retain(|entry| entry.state.strong_count() != 0);
-            if entries.len() == MAX_HANDLES {
-                entries.pop_front();
-            }
-            entries.push_back(Handle {
-                token: token.clone(),
-                state: Arc::downgrade(&self.state),
-                project: project(&access).map(str::to_owned),
-                selected: selected.clone(),
-            });
+            self.state
+                .grpc_read_handles
+                .insert(Handle {
+                    token: token.clone(),
+                    project: project(&access).map(str::to_owned),
+                    selected: selected.clone(),
+                })
+                .await;
             (selected, token)
         };
         let mut ranges = VecDeque::new();
@@ -330,7 +329,126 @@ mod tests {
     use super::*;
     use crate::grpc::test_support::assert_code;
     use crate::grpc::v2::access_status;
+    use crate::object::ObjectConditions;
     use crate::storage::test_fixtures::PERMISSIVE;
+
+    #[tokio::test]
+    async fn read_handles_are_isolated_by_state_and_survive_reconnection() {
+        use crate::{
+            auth::Auth,
+            clock::SystemClock,
+            grpc::test_support::{state, storage_with},
+            storage::{Catalog, admin::LocalAdmin},
+        };
+        let mut states = Vec::new();
+        for _ in 0..2 {
+            let catalog = Catalog::open_memory_for_server(
+                1024 * 1024,
+                1024 * 1024,
+                Arc::new(SystemClock),
+                LocalAdmin::Enabled,
+            )
+            .await
+            .unwrap();
+            catalog
+                .insert_bucket(crate::storage::test_fixtures::bucket("handle-bucket", "p"))
+                .await
+                .unwrap();
+            let (tx, rx) = mpsc::channel(2);
+            tx.send(Ok(crate::object::UploadChunk::Data(
+                bytes::Bytes::from_static(b"handle data"),
+            )))
+            .await
+            .unwrap();
+            tx.send(Ok(crate::object::UploadChunk::End)).await.unwrap();
+            drop(tx);
+            catalog
+                .put_object(
+                    crate::storage::test_fixtures::permissive_upload(
+                        "handle-bucket",
+                        "object",
+                        1024,
+                    ),
+                    rx,
+                )
+                .await
+                .unwrap();
+            states.push(Arc::new(state(catalog, Auth::permissive())));
+        }
+        let mut selected = Vec::new();
+        for state in &states {
+            let storage = storage_with(state.clone(), 1024);
+            let (record, reader, finality) = storage
+                .open_readable(
+                    ObjectTarget::new("handle-bucket", "object", None),
+                    ObjectConditions::default(),
+                    PERMISSIVE,
+                )
+                .await
+                .unwrap();
+            selected.push(Arc::new(Selected {
+                record,
+                reader: Mutex::new(reader),
+                finality,
+            }));
+        }
+        states[0]
+            .grpc_read_handles
+            .insert(Handle {
+                token: vec![42],
+                project: None,
+                selected: selected[0].clone(),
+            })
+            .await;
+        for token in 0..=MAX_HANDLES {
+            states[1]
+                .grpc_read_handles
+                .insert(Handle {
+                    token: token.to_le_bytes().to_vec(),
+                    project: None,
+                    selected: selected[1].clone(),
+                })
+                .await;
+        }
+        let spec = pb::BidiReadObjectSpec {
+            bucket: "projects/_/buckets/handle-bucket".into(),
+            object: "object".into(),
+            read_handle: Some(pb::BidiReadHandle { handle: vec![42] }),
+            ..Default::default()
+        };
+        let reconnected = storage_with(states[0].clone(), 1024);
+        let (resumed, token) = reconnected
+            .resume_read_handle(&spec, PERMISSIVE, None)
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(&resumed, &selected[0]));
+        assert_eq!(token, [42]);
+        assert_eq!(
+            resumed
+                .reader
+                .lock()
+                .await
+                .next_chunk()
+                .await
+                .unwrap()
+                .unwrap(),
+            b"handle data".as_slice()
+        );
+        assert_eq!(
+            states[1].grpc_read_handles.0.lock().await.len(),
+            MAX_HANDLES
+        );
+        let other = storage_with(states[1].clone(), 1024);
+        assert_code(
+            other.resume_read_handle(&spec, PERMISSIVE, None).await,
+            tonic::Code::FailedPrecondition,
+        );
+        drop(resumed);
+        drop(selected);
+        for state in states {
+            state.catalog.close().await.unwrap();
+        }
+    }
 
     #[test]
     fn bidi_shared_error_status() {

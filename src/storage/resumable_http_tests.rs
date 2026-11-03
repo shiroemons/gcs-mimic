@@ -258,6 +258,7 @@ impl Harness {
             Auth::permissive()
         };
         let state = Arc::new(State {
+            grpc_read_handles: Default::default(),
             ready: AtomicBool::new(true),
             clock: clock.clone(),
             catalog,
@@ -2217,6 +2218,7 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
     h.address = listener.local_addr().unwrap().to_string();
     h.base = format!("http://{}", h.address);
     h.state = Arc::new(State {
+        grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
         clock: h.clock.clone(),
         catalog: Catalog::open_with_clock(&h.dir.0, h.clock.clone())

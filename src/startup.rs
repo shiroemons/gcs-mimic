@@ -464,6 +464,7 @@ pub(crate) async fn serve(
     };
     catalog.start_resumable_maintenance();
     let state = Arc::new(State {
+        grpc_read_handles: Default::default(),
         ready: AtomicBool::new(true),
         clock,
         catalog,
