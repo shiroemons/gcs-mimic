@@ -1711,7 +1711,7 @@ pub(super) async fn make_durable(
 
 pub(super) use crate::storage::failure::object_unavailable;
 
-fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
+pub(super) fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
     let mut end = prefix.as_bytes().to_vec();
     let index = end.iter().rposition(|byte| *byte != u8::MAX)?;
     end[index] += 1;
@@ -1741,7 +1741,7 @@ impl ListSource {
 
 /// Whether a seek may return the lower bound itself.
 #[derive(Clone, Copy)]
-enum SeekStart {
+pub(super) enum SeekStart {
     Inclusive,
     Exclusive,
 }

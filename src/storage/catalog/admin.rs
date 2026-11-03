@@ -638,13 +638,7 @@ impl Admin {
         let after = after.map(|name| name.0.clone());
         self.catalog
             .run_admin(move |connection| {
-                super::bucket_list_page(
-                    connection,
-                    Some(vec![project]),
-                    String::new(),
-                    after,
-                    limit,
-                )
+                super::bucket_list_page(connection, Some(&[project]), "", after.as_deref(), limit)
             })
             .await
     }

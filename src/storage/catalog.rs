@@ -1542,7 +1542,13 @@ impl Catalog {
         let prefix = prefix.unwrap_or("").to_owned();
         let start_after = start_after.map(str::to_owned);
         self.run(move |connection| {
-            bucket_list_page(connection, projects, prefix, start_after, limit)
+            bucket_list_page(
+                connection,
+                projects.as_deref(),
+                &prefix,
+                start_after.as_deref(),
+                limit,
+            )
         })
         .await
     }
@@ -1825,25 +1831,18 @@ fn apply_labels(
 
 fn bucket_list_page(
     connection: &Connection,
-    projects: Option<Vec<String>>,
-    prefix: String,
-    start_after: Option<String>,
+    projects: Option<&[String]>,
+    prefix: &str,
+    start_after: Option<&str>,
     limit: usize,
 ) -> Result<BucketListPage, CatalogError> {
+    use objects::SeekStart;
     use rusqlite::types::Value;
-    let mut upper = prefix.as_bytes().to_vec();
-    let upper = upper
-        .iter()
-        .rposition(|byte| *byte != u8::MAX)
-        .map(|index| {
-            upper[index] += 1;
-            upper.truncate(index + 1);
-            upper
-        });
+    let upper = objects::prefix_end(prefix);
     // Both bounds remain indexable, including when a page starts beyond the prefix.
     let (lower, comparison) = match start_after {
-        Some(start) if start >= prefix => (start, ">"),
-        _ => (prefix, ">="),
+        Some(start) if start >= prefix => (start, SeekStart::Exclusive),
+        _ => (prefix, SeekStart::Inclusive),
     };
     // One static text per bound shape keeps both name bounds indexable; the project list is
     // bound as one JSON array so its length does not change the statement text.
@@ -1868,22 +1867,24 @@ fn bucket_list_page(
         };
     }
     let sql = match (projects.is_some(), comparison, upper.is_some()) {
-        (false, ">", false) => page!("", ">", ""),
-        (false, ">", true) => page!("", ">", "AND name < CAST(? AS TEXT)"),
-        (false, _, false) => page!("", ">=", ""),
-        (false, _, true) => page!("", ">=", "AND name < CAST(? AS TEXT)"),
-        (true, ">", false) => page!(projects!(), ">", ""),
-        (true, ">", true) => page!(projects!(), ">", "AND name < CAST(? AS TEXT)"),
-        (true, _, false) => page!(projects!(), ">=", ""),
-        (true, _, true) => page!(projects!(), ">=", "AND name < CAST(? AS TEXT)"),
+        (false, SeekStart::Exclusive, false) => page!("", ">", ""),
+        (false, SeekStart::Exclusive, true) => page!("", ">", "AND name < CAST(? AS TEXT)"),
+        (false, SeekStart::Inclusive, false) => page!("", ">=", ""),
+        (false, SeekStart::Inclusive, true) => page!("", ">=", "AND name < CAST(? AS TEXT)"),
+        (true, SeekStart::Exclusive, false) => page!(projects!(), ">", ""),
+        (true, SeekStart::Exclusive, true) => page!(projects!(), ">", "AND name < CAST(? AS TEXT)"),
+        (true, SeekStart::Inclusive, false) => page!(projects!(), ">=", ""),
+        (true, SeekStart::Inclusive, true) => {
+            page!(projects!(), ">=", "AND name < CAST(? AS TEXT)")
+        }
     };
     let mut values = Vec::new();
     if let Some(projects) = projects {
         values.push(Value::Text(
-            serde_json::to_string(&projects).map_err(unavailable)?,
+            serde_json::to_string(projects).map_err(unavailable)?,
         ));
     }
-    values.push(Value::Text(lower));
+    values.push(Value::Text(lower.to_owned()));
     if let Some(upper) = upper {
         values.push(Value::Blob(upper));
     }
