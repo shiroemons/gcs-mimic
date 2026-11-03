@@ -187,8 +187,7 @@ fn close_after_response(request: &[u8]) -> Vec<u8> {
 use common::http::Reply;
 
 fn identity_file(config: &TestDir) -> PathBuf {
-    let path = config.0.join("identities.json");
-    std::fs::write(&path, registry().to_string()).unwrap();
+    let path = common::process::write_identities(&config.0, &(registry()));
     path
 }
 
@@ -429,10 +428,10 @@ fn auth_http_strict_rejects_anonymous_and_unsupported_credentials() {
                 .request("POST", "/storage/v1/b/bucket-a/o", auth, b"{}")
                 .auth_error(400, "badRequest");
         }
-        assert_eq!(server.get(auth, "/storage/v1/unknown").status, 404);
-        assert_eq!(server.get(auth, "/INVALID").status, 404);
-        assert_eq!(server.get(auth, "/_internal/ready").status, 200);
-        assert_eq!(server.get(auth, "/_internal/health").status, 200);
+        server.get(auth, "/storage/v1/unknown").expect(404);
+        server.get(auth, "/INVALID").expect(404);
+        server.get(auth, "/_internal/ready").expect(200);
+        server.get(auth, "/_internal/health").expect(200);
     }
     assert_eq!(
         server

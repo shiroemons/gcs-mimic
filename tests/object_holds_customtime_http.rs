@@ -3,27 +3,13 @@ use common::effects as object_effects_support;
 
 use object_effects_support::{Server, common::TestDir};
 use serde_json::{Value, json};
-use std::{
-    io::{Read, Write},
-    net::TcpStream,
-};
 
 fn update(server: &Server, method: &str, value: Value) -> object_effects_support::Reply {
-    server.request(
-        method,
-        "/storage/v1/b/test-bucket/o/held",
-        "Authorization: Bearer admin\r\n",
-        value.to_string().as_bytes(),
-    )
+    server.update(method, "held", &value)
 }
 
 fn upload(server: &Server, name: &str, metadata: Value) -> Value {
-    let initiated = server.request(
-        "POST",
-        &format!("/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name={name}"),
-        "Authorization: Bearer admin\r\n",
-        metadata.to_string().as_bytes(),
-    );
+    let initiated = server.resumable(name, &metadata);
     let uri: hyper::Uri = initiated.headers["location"].parse().unwrap();
     server
         .request(
@@ -108,12 +94,9 @@ fn temporary_hold_set_release_and_restart() {
         .json_ok()["temporaryHold"],
         false
     );
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket/o/held", "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket/o/held", "", b"")
+        .expect(204);
     // A create-time false is kept as sent (the recording has no create-time false); null is not.
     assert_eq!(
         upload(&server, "defaults", json!({"temporaryHold":false}))["temporaryHold"],
@@ -174,12 +157,12 @@ fn temporary_hold_protects_delete_and_all_replacements() {
         }
         let reply = server.request("DELETE", "/storage/v1/b/test-bucket/o/held", "", b"");
         if release {
-            assert_eq!(reply.status, 204);
+            reply.expect(204);
         } else {
             reply.hold_error();
             assert_eq!(server.get("held?alt=media").body, b"abc");
             let xml = server.request("PUT", "/test-bucket/held", "", b"replacement");
-            assert_eq!(xml.status, 403);
+            xml.expect(403);
             assert!(
                 String::from_utf8(xml.body)
                     .unwrap()
@@ -294,14 +277,7 @@ fn multipart_and_pending_resumable_preserve_hold_custom_time() {
     let mut server = Server::start(&dir, false);
     server.bucket();
     let metadata = r#"{"name":"held","temporaryHold":true,"customTime":"2026-10-20T01:02:03Z"}"#;
-    let multipart = format!(
-        "--part\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--part\r\nContent-Type: text/plain\r\n\r\nabc\r\n--part--\r\n"
-    );
-    let mut stream = TcpStream::connect(&server.address).unwrap();
-    write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=part\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{multipart}", multipart.len()).unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    server.multipart("part", metadata, b"abc", "").expect(200);
     let created = server.get("held").json_ok();
     assert_eq!(created["temporaryHold"], true);
     assert_eq!(created["customTime"], "2026-10-20T01:02:03Z");
@@ -387,5 +363,5 @@ fn a_released_hold_reads_back_as_false_and_a_never_set_hold_is_omitted() {
         "Authorization: Bearer admin\r\n",
         b"",
     );
-    assert_eq!(deleted.status, 204);
+    deleted.expect(204);
 }

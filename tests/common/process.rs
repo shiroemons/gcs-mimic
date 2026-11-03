@@ -83,6 +83,10 @@ enum Shutdown {
 }
 
 pub(crate) fn http_command(data: &Path) -> Command {
+    serve("127.0.0.1:0", data)
+}
+
+pub(crate) fn serve(listen: &str, data: &Path) -> Command {
     let mut command = server_command();
     command
         .args([
@@ -90,14 +94,40 @@ pub(crate) fn http_command(data: &Path) -> Command {
             "--scheme",
             "http",
             "--listen",
-            "127.0.0.1:0",
+            listen,
             "--data-dir",
         ])
         .arg(data);
     command
 }
 
+pub(crate) fn write_identities(dir: &Path, identities: &Value) -> std::path::PathBuf {
+    let path = dir.join("identities.json");
+    std::fs::write(&path, identities.to_string()).unwrap();
+    path
+}
+
+pub(crate) fn strict_args(dir: &Path, identities: &Value) -> [std::ffi::OsString; 4] {
+    [
+        "--auth-mode".into(),
+        "strict".into(),
+        "--identity-file".into(),
+        write_identities(dir, identities).into_os_string(),
+    ]
+}
+
 impl Server {
+    pub(crate) fn pending(child: Child, stdout: BufReader<ChildStdout>, address: String) -> Self {
+        Self {
+            address,
+            child,
+            stdout,
+            ready: Value::Null,
+            client_timeout: Duration::from_secs(5),
+            shutdown: Shutdown::Kill,
+        }
+    }
+
     pub(crate) fn stop(&mut self) {
         stop_server(&mut self.child, &mut self.stdout);
     }
@@ -109,14 +139,9 @@ impl Server {
         stdout.read_line(&mut line).unwrap();
         let ready: Value = serde_json::from_str(&line).expect("ready event after recovery");
         assert_eq!(ready["event"], "ready", "{ready}");
-        Self {
-            address: ready["listen"].as_str().unwrap().into(),
-            child,
-            stdout,
-            ready,
-            client_timeout: Duration::from_secs(5),
-            shutdown: Shutdown::Kill,
-        }
+        let mut server = Self::pending(child, stdout, ready["listen"].as_str().unwrap().into());
+        server.ready = ready;
+        server
     }
 
     pub(crate) fn graceful(mut self) -> Self {

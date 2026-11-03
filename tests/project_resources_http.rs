@@ -117,12 +117,7 @@ fn hmac_key_lifecycle_state_rules_etags_and_restart() {
     .json_reason(412, "conditionNotMet");
 
     let reply = server.request("DELETE", &key_path(&access_id), ADMIN, b"");
-    assert_eq!(
-        reply.status,
-        204,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
+    reply.expect(204);
     let deleted = server
         .request("GET", &key_path(&access_id), ADMIN, b"")
         .json_ok();
@@ -270,12 +265,9 @@ fn hmac_key_listing_filters_pages_and_limits() {
         10
     );
     set_state(&server, &first[0], json!({"state": "INACTIVE"})).json_ok();
-    assert_eq!(
-        server
-            .request("DELETE", &key_path(&first[0]), ADMIN, b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", &key_path(&first[0]), ADMIN, b"")
+        .expect(204);
     create(&server, "a%40example.invalid");
 
     server
@@ -372,17 +364,14 @@ struct StrictServer {
 impl StrictServer {
     fn start(dir: &TestDir) -> Self {
         use std::io::BufRead;
-        let identities = dir.0.join("identities.json");
-        std::fs::write(
-            &identities,
-            json!({"identities":[
+        let identities = common::process::write_identities(
+            &dir.0,
+            &(json!({"identities":[
                 {"id":"keys@example.test","tokens":["keys"],"project_roles":{"local":["roles/storage.hmacKeyAdmin"]}},
                 {"id":"reader@example.test","tokens":["reader"],"project_roles":{"local":["roles/storage.viewer"]}},
                 {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}}
-            ]})
-            .to_string(),
-        )
-        .unwrap();
+            ]})),
+        );
         let mut child = object_effects_support::common::server_command()
             .args([
                 "serve",
@@ -540,12 +529,9 @@ fn strict_profile_authorizes_project_resources() {
             .json_ok()["state"],
         "INACTIVE"
     );
-    assert_eq!(
-        server
-            .request("DELETE", &key_path(&access_id), "keys", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", &key_path(&access_id), "keys", b"")
+        .expect(204);
 }
 
 fn listed_as(server: &StrictServer, token: &str) -> Vec<String> {

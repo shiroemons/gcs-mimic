@@ -91,17 +91,14 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
     );
     assert_eq!(server.cli("status", &[], true)["pending_deletion_count"], 0);
     for name in &names {
-        assert_eq!(
-            server
-                .request(
-                    "GET",
-                    &format!("/storage/v1/b/test-bucket/o/{name}"),
-                    None,
-                    b""
-                )
-                .status,
-            404
-        );
+        server
+            .request(
+                "GET",
+                &format!("/storage/v1/b/test-bucket/o/{name}"),
+                None,
+                b"",
+            )
+            .expect(404);
     }
     assert!(tree.0.join("test-bucket").is_dir());
     server.stop();

@@ -180,12 +180,7 @@ fn direct_fixtures_preserve_metadata_generation_and_times_across_restart() {
         "contentDisposition":"attachment", "cacheControl":"no-store", "metadata":{"fixture":"yes"},
         "storageClass":"NEARLINE", "customTime":"2000-01-02T03:04:05.123456Z"});
     let reply = server.fixture(metadata.clone(), b"fixture bytes", "");
-    assert_eq!(
-        reply.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
+    reply.expect(200);
     let resource = reply.json_ok();
     for key in [
         "generation",
@@ -206,7 +201,7 @@ fn direct_fixtures_preserve_metadata_generation_and_times_across_restart() {
     assert_eq!(resource["size"], "13");
     assert!(resource["md5Hash"].is_string());
     assert!(resource["crc32c"].is_string());
-    assert_eq!(server.fixture(metadata, b"replacement", "").status, 409);
+    server.fixture(metadata, b"replacement", "").expect(409);
     let path = "/storage/v1/b/test-bucket/o/fixture%2F%E7%8C%AB";
     assert_eq!(
         server
@@ -283,17 +278,13 @@ fn direct_fixture_rejections_preserve_existing_bytes() {
     ] {
         let mut metadata = base.clone();
         metadata[field] = value;
-        assert_eq!(
-            server.fixture(metadata, b"rejected", "").status,
-            400,
-            "{field}"
-        );
+        server.fixture(metadata, b"rejected", "").expect(400);
     }
-    assert_eq!(server.fixture(base.clone(), &[1; 17], "").status, 413);
+    server.fixture(base.clone(), &[1; 17], "").expect(413);
     let wire = format!(
         "--fixture\r\nContent-Type: application/json\r\n\r\n{base}\r\n--fixture\r\nContent-Type: application/octet-stream\r\n\r\ninvalid\r\n--fixture--broken"
     );
-    assert_eq!(server.fixture_wire(wire.as_bytes(), "").status, 400);
+    server.fixture_wire(wire.as_bytes(), "").expect(400);
     assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), original);
     assert_eq!(
         server
@@ -323,13 +314,7 @@ fn initial_fixture_notification_mode_is_request_local_and_preserves_runtime_even
         )
         .json_ok();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    let count = || {
-        connection
-            .query_row("SELECT count(*) FROM notification_outbox", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .unwrap()
-    };
+    let count = || common::catalog::count(&connection, "notification_outbox");
     assert_eq!(count(), 0);
     server
         .fixture(
@@ -347,16 +332,13 @@ fn initial_fixture_notification_mode_is_request_local_and_preserves_runtime_even
         )
         .json_ok();
     assert_eq!(count(), 2);
-    assert_eq!(
-        server
-            .fixture(
-                json!({"bucket":"test-bucket","name":"value","notificationMode":"invalid"}),
-                b"rejected",
-                ""
-            )
-            .status,
-        400
-    );
+    server
+        .fixture(
+            json!({"bucket":"test-bucket","name":"value","notificationMode":"invalid"}),
+            b"rejected",
+            "",
+        )
+        .expect(400);
     assert_eq!(count(), 2);
     assert_eq!(
         server
@@ -398,12 +380,7 @@ fn direct_fixture_retention_expiry_range_is_validated_in_the_publication_transac
         .request("GET", "/storage/v1/b/retained-fixtures/o", "", b"")
         .json_ok();
     let rejected = server.fixture(json!({"bucket":"retained-fixtures", "name":"value", "generation":"8000000000000000000", "created":"9999-12-31T23:59:59Z"}), b"rejected", "");
-    assert_eq!(
-        rejected.status,
-        400,
-        "{}",
-        String::from_utf8_lossy(&rejected.body)
-    );
+    rejected.expect(400);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/retained-fixtures/o/value", "", b"")
@@ -452,17 +429,14 @@ fn direct_fixture_retention_expiry_range_is_validated_in_the_publication_transac
             "",
         )
         .json_ok();
-    assert_eq!(
-        server
-            .request(
-                "PATCH",
-                "/storage/v1/b/future-fixtures",
-                "",
-                br#"{"retentionPolicy":{"retentionPeriod":"60"}}"#
-            )
-            .status,
-        400
-    );
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/future-fixtures",
+            "",
+            br#"{"retentionPolicy":{"retentionPeriod":"60"}}"#,
+        )
+        .expect(400);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/future-fixtures", "", b"")
@@ -486,13 +460,15 @@ fn direct_fixture_retention_expiry_range_is_validated_in_the_publication_transac
 fn direct_fixture_management_is_opt_in_and_independent_of_google_iam() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
-    assert_eq!(server.fixture(json!({}), b"bytes", "").status, 404);
+    server.fixture(json!({}), b"bytes", "").expect(404);
     drop(server);
-    let registry = dir.0.join("identities.json");
-    std::fs::write(&registry, json!({"identities":[
-        {"id":"manager@example.invalid", "tokens":["manager"], "project_roles":{}},
-        {"id":"cloud-admin@example.invalid", "tokens":["cloud-admin"], "project_roles":{"local":["roles/storage.admin"]}}
-    ]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
+            {"id":"manager@example.invalid", "tokens":["manager"], "project_roles":{}},
+            {"id":"cloud-admin@example.invalid", "tokens":["cloud-admin"], "project_roles":{"local":["roles/storage.admin"]}}
+        ]})),
+    );
     let server = Server::start(
         &dir,
         &[
@@ -506,17 +482,14 @@ fn direct_fixture_management_is_opt_in_and_independent_of_google_iam() {
             registry.to_str().unwrap(),
         ],
     );
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                "/storage/v1/b?project=local",
-                "Authorization: Bearer cloud-admin\r\n",
-                br#"{"name":"test-bucket"}"#
-            )
-            .status,
-        200
-    );
+    server
+        .request(
+            "POST",
+            "/storage/v1/b?project=local",
+            "Authorization: Bearer cloud-admin\r\n",
+            br#"{"name":"test-bucket"}"#,
+        )
+        .expect(200);
     let fixture = json!({"bucket":"test-bucket","name":"fixture"});
     for mode in ["emit", "suppress"] {
         let mut denied = fixture.clone();
@@ -532,23 +505,17 @@ fn direct_fixture_management_is_opt_in_and_independent_of_google_iam() {
             );
         }
     }
-    assert_eq!(
-        server
-            .fixture(fixture, b"fixture", "Authorization: Bearer manager\r\n")
-            .status,
-        200
-    );
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=forbidden",
-                "Authorization: Bearer manager\r\n",
-                b"denied"
-            )
-            .status,
-        403
-    );
+    server
+        .fixture(fixture, b"fixture", "Authorization: Bearer manager\r\n")
+        .expect(200);
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=forbidden",
+            "Authorization: Bearer manager\r\n",
+            b"denied",
+        )
+        .expect(403);
 }
 
 #[test]
@@ -674,12 +641,9 @@ fn endpoint_changes_preserve_media_multipart_and_copy_replay_identity() {
         serde_json::from_str::<Value>(response.split_once("\r\n\r\n").unwrap().1).unwrap()
     };
     let first_multipart = multipart();
-    assert_eq!(
-        server
-            .configure("http://changed.invalid", "public.invalid")
-            .status,
-        200
-    );
+    server
+        .configure("http://changed.invalid", "public.invalid")
+        .expect(200);
     let second_media = server
         .request("POST", media_path, media_headers, b"original")
         .json_ok();
@@ -757,22 +721,16 @@ fn legacy_healthcheck_and_startup_event_support_container_waits() {
                 .starts_with("server started at http://")
         );
         let health = server.request("GET", "/_internal/healthcheck", "", b"");
-        assert_eq!(health.status, 200);
+        health.expect(200);
         let head = server.request("HEAD", "/_internal/healthcheck", "", b"");
-        assert_eq!(head.status, 200);
+        head.expect(200);
         assert!(head.body.is_empty());
-        assert_eq!(
-            server
-                .request("POST", "/_internal/healthcheck", "", b"")
-                .status,
-            405
-        );
-        assert_eq!(
-            server
-                .request("GET", "/_internal/healthcheck", "", b"body")
-                .status,
-            413
-        );
+        server
+            .request("POST", "/_internal/healthcheck", "", b"")
+            .expect(405);
+        server
+            .request("GET", "/_internal/healthcheck", "", b"body")
+            .expect(413);
         assert!(
             common::server_command()
                 .args([
@@ -809,10 +767,9 @@ fn public_host_updates_replace_implicit_routing_and_preserve_explicit_domains() 
             server.status_with_host("/value", "test-bucket.old.invalid", ""),
             200
         );
-        assert_eq!(
-            server.configure("http://api.invalid", "new.invalid").status,
-            200
-        );
+        server
+            .configure("http://api.invalid", "new.invalid")
+            .expect(200);
         assert_eq!(
             server.status_with_host("/value", "test-bucket.new.invalid", ""),
             200
@@ -833,22 +790,16 @@ fn config_route_is_disabled_by_default_and_changes_only_future_http_links() {
     let dir = TestDir::new();
     {
         let server = Server::start(&dir, &[]);
-        assert_eq!(
-            server
-                .configure("http://mapped.invalid:9876", "public.invalid")
-                .status,
-            404
-        );
+        server
+            .configure("http://mapped.invalid:9876", "public.invalid")
+            .expect(404);
     }
     let server = Server::start(&dir, &["--admin-enabled", "true"]);
     server.populate();
     let original = server.request("GET", OBJECT, "", b"").json_ok();
-    assert_eq!(
-        server
-            .configure("http://mapped.invalid:9876/proxy/", "public.invalid:9876")
-            .status,
-        200
-    );
+    server
+        .configure("http://mapped.invalid:9876/proxy/", "public.invalid:9876")
+        .expect(200);
     let changed = server.request("GET", OBJECT, "", b"").json_ok();
     assert_eq!(original["generation"], changed["generation"]);
     assert_eq!(original["metageneration"], changed["metageneration"]);
@@ -881,41 +832,28 @@ fn config_route_is_disabled_by_default_and_changes_only_future_http_links() {
         br#"[]"#,
         br#"{} {}"#,
     ] {
-        assert_eq!(
-            server.request("PUT", "/_internal/config", "", body).status,
-            400
-        );
+        server
+            .request("PUT", "/_internal/config", "", body)
+            .expect(400);
         assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), changed);
     }
-    assert_eq!(
-        server
-            .request("PUT", "/_internal/config?externalUrl=ignored", "", b"{}")
-            .status,
-        400
-    );
-    assert_eq!(
-        server
-            .request("POST", "/_internal/config", "", b"{}")
-            .status,
-        405
-    );
-    assert_eq!(
-        server
-            .request("PUT", "/_internal/config", "", &vec![b' '; 65537])
-            .status,
-        413
-    );
-    assert_eq!(
-        server
-            .request(
-                "PUT",
-                "/_internal/config",
-                "",
-                br#"{"externalUrl":"","publicHost":"","ignored":true}"#
-            )
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/_internal/config?externalUrl=ignored", "", b"{}")
+        .expect(400);
+    server
+        .request("POST", "/_internal/config", "", b"{}")
+        .expect(405);
+    server
+        .request("PUT", "/_internal/config", "", &vec![b' '; 65537])
+        .expect(413);
+    server
+        .request(
+            "PUT",
+            "/_internal/config",
+            "",
+            br#"{"externalUrl":"","publicHost":"","ignored":true}"#,
+        )
+        .expect(200);
     assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), changed);
     drop(server);
     let restarted = Server::start(&dir, &["--admin-enabled", "true"]);
@@ -943,19 +881,16 @@ fn changed_mapped_endpoint_reaches_new_resumable_locations_and_keeps_old_session
         )
     };
     let old = initiate();
-    assert_eq!(old.status, 200);
-    assert_eq!(
-        server
-            .configure(
-                &format!(
-                    "http://localhost:{}",
-                    server.address.rsplit_once(':').unwrap().1
-                ),
-                "public.invalid"
-            )
-            .status,
-        200
-    );
+    old.expect(200);
+    server
+        .configure(
+            &format!(
+                "http://localhost:{}",
+                server.address.rsplit_once(':').unwrap().1
+            ),
+            "public.invalid",
+        )
+        .expect(200);
     let new = initiate();
     let location = &new.headers["location"];
     assert!(location.starts_with("http://localhost:"));
@@ -967,7 +902,7 @@ fn changed_mapped_endpoint_reaches_new_resumable_locations_and_keeps_old_session
             "Content-Range: bytes 0-5/6\r\n",
             b"resume",
         );
-        assert_eq!(complete.status, 200);
+        complete.expect(200);
         assert!(
             complete.json_ok()["selfLink"]
                 .as_str()
@@ -998,12 +933,9 @@ fn config_update_during_upload_retains_the_requests_original_endpoint_snapshot()
     interim.clear();
     upload.read_line(&mut interim).unwrap();
     assert_eq!(interim, "\r\n");
-    assert_eq!(
-        server
-            .configure("http://new.invalid:9876", "public.invalid")
-            .status,
-        200
-    );
+    server
+        .configure("http://new.invalid:9876", "public.invalid")
+        .expect(200);
     upload.get_mut().write_all(b"stream").unwrap();
     let response = common::read_http_response(&mut upload, false).unwrap();
     let response = String::from_utf8_lossy(&response);
@@ -1029,11 +961,13 @@ fn config_update_during_upload_retains_the_requests_original_endpoint_snapshot()
 fn strict_config_authorization_and_raw_signed_host_survive_public_host_updates() {
     for profile in ["native", "legacy-emulator"] {
         let dir = TestDir::new();
-        let identity_file = dir.0.join("identities.json");
-        std::fs::write(&identity_file, json!({"identities":[
-            {"id":"admin@example.invalid","tokens":["admin"],"public_keys":[include_str!("../fixtures/signing/test-only-public.pem")],"project_roles":{"local":["roles/storage.admin"]}},
-            {"id":"reader@example.invalid","tokens":["reader"],"project_roles":{"local":["roles/storage.objectViewer"]}}
-        ]}).to_string()).unwrap();
+        let identity_file = common::process::write_identities(
+            &dir.0,
+            &(json!({"identities":[
+                {"id":"admin@example.invalid","tokens":["admin"],"public_keys":[include_str!("../fixtures/signing/test-only-public.pem")],"project_roles":{"local":["roles/storage.admin"]}},
+                {"id":"reader@example.invalid","tokens":["reader"],"project_roles":{"local":["roles/storage.objectViewer"]}}
+            ]})),
+        );
         let server = Server::start(
             &dir,
             &[
@@ -1048,37 +982,26 @@ fn strict_config_authorization_and_raw_signed_host_survive_public_host_updates()
             ],
         );
         server.populate();
-        assert_eq!(
-            server.request("PUT", "/_internal/config", "", b"{}").status,
-            401
-        );
-        assert_eq!(
-            server
-                .request(
-                    "PUT",
-                    "/_internal/config",
-                    "Authorization: Bearer reader\r\n",
-                    b"{}"
-                )
-                .status,
-            403
-        );
-        assert_eq!(
-            server
-                .request("GET", "/_internal/healthcheck", "", b"")
-                .status,
-            200
-        );
-        assert_eq!(
-            server
-                .configure("http://api.invalid:9876", "localhost")
-                .status,
-            200
-        );
-        assert_eq!(
-            server.request("GET", "/test-bucket/value", "", b"").status,
-            401
-        );
+        server
+            .request("PUT", "/_internal/config", "", b"{}")
+            .expect(401);
+        server
+            .request(
+                "PUT",
+                "/_internal/config",
+                "Authorization: Bearer reader\r\n",
+                b"{}",
+            )
+            .expect(403);
+        server
+            .request("GET", "/_internal/healthcheck", "", b"")
+            .expect(200);
+        server
+            .configure("http://api.invalid:9876", "localhost")
+            .expect(200);
+        server
+            .request("GET", "/test-bucket/value", "", b"")
+            .expect(401);
         let url = sign_url(SignUrlRequest {
             url: "http://localhost/test-bucket/value",
             method: &Method::GET,
@@ -1105,7 +1028,7 @@ fn strict_config_authorization_and_raw_signed_host_survive_public_host_updates()
             .unwrap()
             .as_str()
             .replace("/test-bucket/value", "/test-bucket/other");
-        assert_eq!(server.request("GET", &altered, "", b"").status, 403);
+        server.request("GET", &altered, "", b"").expect(403);
     }
 }
 

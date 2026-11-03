@@ -120,7 +120,7 @@ fn unsupported_google_routes_and_inputs() {
         .request("GET", "/storage/v1/b/test-bucket/o/missing", "", b"")
         .json_reason(404, "notFound");
     for path in ["/_internal/unknown", "/storage/v1/b/test-bucket/unknown"] {
-        assert_eq!(server.request("GET", path, "", b"").status, 404);
+        server.request("GET", path, "", b"").expect(404);
     }
     let strict_dir = TestDir::new();
     let strict = Server::start(&strict_dir, true);

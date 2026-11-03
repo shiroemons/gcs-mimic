@@ -19,15 +19,14 @@ fn bucket(server: &Server, auth: &str) {
 }
 
 fn sessions(dir: &TestDir) -> i64 {
-    rusqlite::Connection::open_with_flags(
-        dir.0.join("catalog.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    common::catalog::count(
+        &rusqlite::Connection::open_with_flags(
+            dir.0.join("catalog.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap(),
+        "resumable_sessions",
     )
-    .unwrap()
-    .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
-        row.get(0)
-    })
-    .unwrap()
 }
 
 fn session_path(headers: &str) -> String {
@@ -59,21 +58,18 @@ fn gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate() {
         &format!("{GZIP}X-Upload-Content-Type: application/octet-stream\r\nX-Upload-Content-Length: 12\r\n"),
         &members,
     );
-    assert_eq!(initiated.status, 200, "{}", initiated.body);
+    initiated.expect(200);
     assert!(initiated.body.is_empty());
     assert_eq!(sessions(&dir), 1);
     let path = session_path(&initiated.headers);
     let rejected = server.request("POST", &path, GZIP, b"chunk bytes!");
     rejected.status(400);
     assert!(rejected.body.contains("content-encoding"));
-    assert_eq!(
-        server
-            .request("PUT", &path, "Content-Range: bytes */12\r\n", b"")
-            .status,
-        410
-    );
+    server
+        .request("PUT", &path, "Content-Range: bytes */12\r\n", b"")
+        .expect(410);
     let restarted = server.request("POST", PATH, GZIP, &gzip(metadata.as_bytes()));
-    assert_eq!(restarted.status, 200, "{}", restarted.body);
+    restarted.expect(200);
     assert_eq!(sessions(&dir), 2);
     let path = session_path(&restarted.headers);
     let uploaded = server.request(
@@ -148,7 +144,7 @@ fn gzip_initiation_bounds_compressed_and_expanded_metadata() {
     let mut metadata = br#"{"name":"object"}"#.to_vec();
     metadata.resize(64 * 1024, b' ');
     let initiated = server.request("POST", PATH, GZIP, &gzip(&metadata));
-    assert_eq!(initiated.status, 200, "{}", initiated.body);
+    initiated.expect(200);
     assert!(initiated.body.is_empty());
     assert!(session_path(&initiated.headers).contains("upload_id="));
     assert_eq!(sessions(&dir), 1);
@@ -165,11 +161,13 @@ fn gzip_initiation_bounds_compressed_and_expanded_metadata() {
 #[test]
 fn gzip_initiation_retains_strict_authentication_and_upload_permissions() {
     let dir = TestDir::new();
-    let registry = dir.0.join("identities.json");
-    std::fs::write(&registry, serde_json::json!({"identities":[
-        {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project-a":["roles/storage.admin"]}},
-        {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
-    ]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &dir.0,
+        &(serde_json::json!({"identities":[
+            {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project-a":["roles/storage.admin"]}},
+            {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
+        ]})),
+    );
     let server = Server::start(
         &dir,
         &[
@@ -200,7 +198,7 @@ fn gzip_initiation_retains_strict_authentication_and_upload_permissions() {
         &format!("{GZIP}Authorization: Bearer admin\r\n"),
         &gzip(br#"{"name":"object"}"#),
     );
-    assert_eq!(initiated.status, 200, "{}", initiated.body);
+    initiated.expect(200);
     assert!(initiated.body.is_empty());
     assert!(session_path(&initiated.headers).contains("upload_id="));
 }

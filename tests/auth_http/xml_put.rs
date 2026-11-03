@@ -9,23 +9,7 @@ const JSON_OBJECT: &str = "/storage/v1/b/iam-bucket/o/object";
 const MD5: &str = "XrY7u+Ae7tCTyyK7j1rNww==";
 const CRC: &str = "yZRlqg==";
 
-fn xml_error(reply: &Reply, status: u16, code: &str) {
-    assert_eq!(
-        reply.status,
-        status,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-    assert_eq!(
-        reply.headers["content-type"],
-        "application/xml; charset=UTF-8"
-    );
-    assert!(
-        String::from_utf8_lossy(&reply.body).contains(&format!("<Code>{code}</Code>")),
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-}
+use crate::common::errors::xml_error_with_content_type as xml_error;
 
 fn fixture() -> (TestDir, TestDir, Server) {
     fixture_with(&[])
@@ -54,9 +38,7 @@ fn snapshot(server: &Server, data: &TestDir) -> (Value, Vec<u8>, i64, i64) {
                 row.get(0)
             })
             .unwrap(),
-        connection
-            .query_row("SELECT count(*) FROM objects", [], |row| row.get(0))
-            .unwrap(),
+        common::catalog::count(&connection, "objects"),
     )
 }
 
@@ -76,9 +58,7 @@ fn files(data: &TestDir, directory: &str) -> usize {
 
 fn clean(data: &TestDir) {
     let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
-    let count: i64 = connection
-        .query_row("SELECT count(*) FROM objects", [], |row| row.get(0))
-        .unwrap();
+    let count: i64 = common::catalog::count(&connection, "objects");
     let deadline = Instant::now() + Duration::from_secs(5);
     while files(data, "staging") != 0 || files(data, "blobs") as i64 != count {
         assert!(
@@ -87,11 +67,7 @@ fn clean(data: &TestDir) {
         );
         thread::sleep(Duration::from_millis(10));
     }
-    let pending: i64 = connection
-        .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| {
-            row.get(0)
-        })
-        .unwrap();
+    let pending: i64 = common::catalog::count(&connection, "pending_blob_deletions");
     assert_eq!(pending, 0);
 }
 
@@ -111,7 +87,7 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
         "{ADMIN}Content-Type: text/plain; charset=UTF-8\r\nContent-MD5: {MD5}\r\nx-goog-hash: crc32c={CRC}\r\nx-goog-hash: md5={MD5}\r\nCache-Control: private, max-age=73\r\nContent-Disposition: attachment; filename=hello.txt\r\nContent-Encoding: gzip\r\nContent-Language: en\r\nX-Goog-Meta-Project: example\r\nx-goog-meta-empty:\r\n"
     );
     let put = server.request("PUT", OBJECT, &headers, b"hello world");
-    assert_eq!(put.status, 200);
+    put.expect(200);
     assert!(put.body.is_empty());
     assert_eq!(put.headers["etag"], "\"5eb63bbbe01eeed093cb22bb8f5acdc3\"");
     assert_eq!(put.headers["x-goog-metageneration"], "1");
@@ -172,7 +148,7 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
         b"hello world"
     );
     let empty = server.request("PUT", OBJECT, ADMIN, b"");
-    assert_eq!(empty.status, 200);
+    empty.expect(200);
     assert_eq!(
         empty.headers["etag"],
         "\"d41d8cd98f00b204e9800998ecf8427e\""
@@ -218,13 +194,13 @@ fn xml_put_chunked_multibuffer_and_configured_size_boundaries() {
     }
     stream.write_all(b"0\r\n\r\n").unwrap();
     let reply = Reply::read_joined(stream);
-    assert_eq!(reply.status, 200);
+    reply.expect(200);
     assert_eq!(
         reply.headers["x-goog-stored-content-length"],
         payload.len().to_string()
     );
     assert_eq!(server.get("", OBJECT).success().body, payload);
-    assert_eq!(server.request("PUT", OBJECT, "", &payload).status, 200);
+    server.request("PUT", OBJECT, "", &payload).expect(200);
     let before = snapshot(&server, &data);
     xml_error(&server.raw(b"PUT /iam-bucket/object HTTP/1.1\r\nHost: local\r\nContent-Length: 262282\r\nExpect: 100-continue\r\n\r\n"), 400, "EntityTooLarge");
     let mut request =
@@ -250,7 +226,7 @@ fn xml_put_individual_and_combined_hash_headers_accept_matching_bytes() {
         let mut stream = expect_continue(&server, OBJECT, &format!("{ADMIN}{hashes}"), 11);
         stream.write_all(b"hello world").unwrap();
         let reply = Reply::read_joined(stream);
-        assert_eq!(reply.status, 200);
+        reply.expect(200);
         assert_eq!(
             reply.headers["x-goog-hash"],
             format!("crc32c={CRC}, md5={MD5}")
@@ -861,7 +837,7 @@ fn xml_put_bucket_cors_covers_preflight_success_and_denials() {
     server.request("PATCH", "/storage/v1/b/iam-bucket", ADMIN, br#"{"cors":[{"origin":["https://browser.example"],"method":["PUT"],"responseHeader":["Content-Type","Content-MD5","ETag","x-goog-generation"],"maxAgeSeconds":73}]}"#).success();
     let origin = "Origin: https://browser.example\r\n";
     let preflight = server.request("OPTIONS", OBJECT, &format!("{origin}Access-Control-Request-Method: PUT\r\nAccess-Control-Request-Headers: content-type, content-md5\r\n"), b"");
-    assert_eq!(preflight.status, 200);
+    preflight.expect(200);
     assert_eq!(
         preflight.headers["access-control-allow-origin"],
         "https://browser.example"

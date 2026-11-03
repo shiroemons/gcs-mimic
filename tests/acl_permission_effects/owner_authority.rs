@@ -17,8 +17,8 @@ fn object_owner_grants_metadata_and_acl_authority_only_on_its_selected_generatio
         server.grant("user-reader@example.test", "READER", generation);
         let target = format!("{OBJECT}?generation={generation}");
         let acl = format!("{OBJECT}/acl?generation={generation}");
-        assert_eq!(server.request("GET", &acl, READER, b"").status, 403);
-        assert_eq!(server.request("PATCH", &target, READER, b"{}").status, 403);
+        server.request("GET", &acl, READER, b"").expect(403);
+        server.request("PATCH", &target, READER, b"{}").expect(403);
         server.grant("user-reader@example.test", "OWNER", generation);
         server.put(b"private replacement");
         let changed = server
@@ -57,18 +57,15 @@ fn object_owner_grants_metadata_and_acl_authority_only_on_its_selected_generatio
                 br#"{"metadata":{"by":"other-owner"}}"#,
             )
             .json_ok();
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}/acl/user-other%40example.test?generation={generation}"),
-                    READER,
-                    b""
-                )
-                .status,
-            204
-        );
-        assert_eq!(server.request("GET", &target, OTHER, b"").status, 403);
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}/acl/user-other%40example.test?generation={generation}"),
+                READER,
+                b"",
+            )
+            .expect(204);
+        server.request("GET", &target, OTHER, b"").expect(403);
         for path in [
             OBJECT.into(),
             format!("{OBJECT}?generation=1&ifMetagenerationMatch=1"),
@@ -76,42 +73,39 @@ fn object_owner_grants_metadata_and_acl_authority_only_on_its_selected_generatio
             format!("{BUCKET}/acl"),
             format!("{BUCKET}/defaultObjectAcl"),
         ] {
-            assert_eq!(
-                server.request("GET", &path, READER, b"").status,
-                403,
-                "{path}"
-            );
+            server.request("GET", &path, READER, b"").expect(403);
         }
-        assert_eq!(server.request("DELETE", &target, READER, b"").status, 403);
-        assert_eq!(server.request("PATCH", BUCKET, READER, b"{}").status, 403);
-        assert_eq!(
-            server
-                .request(
-                    "PATCH",
-                    &format!("{target}&ifMetagenerationMatch=1"),
-                    READER,
-                    b"{}"
-                )
-                .status,
-            412
-        );
-        assert_eq!(server.request("PATCH", &target, READER, br#"{"retention":{"mode":"Unlocked","retainUntilTime":"2030-01-01T00:00:00Z"}}"#).status, 403);
-        assert_eq!(server.request("POST", &format!("{BUCKET}/iam/testPermissions"), READER, br#"{"permissions":["storage.objects.getIamPolicy","storage.objects.update","storage.objects.create","storage.objects.delete"]}"#).status, 405);
+        server.request("DELETE", &target, READER, b"").expect(403);
+        server.request("PATCH", BUCKET, READER, b"{}").expect(403);
+        server
+            .request(
+                "PATCH",
+                &format!("{target}&ifMetagenerationMatch=1"),
+                READER,
+                b"{}",
+            )
+            .expect(412);
+        server
+            .request(
+                "PATCH",
+                &target,
+                READER,
+                br#"{"retention":{"mode":"Unlocked","retainUntilTime":"2030-01-01T00:00:00Z"}}"#,
+            )
+            .expect(403);
+        server.request("POST", &format!("{BUCKET}/iam/testPermissions"), READER, br#"{"permissions":["storage.objects.getIamPolicy","storage.objects.update","storage.objects.create","storage.objects.delete"]}"#).expect(405);
         let probe = server.request("GET", &format!("{BUCKET}/iam/testPermissions?permissions=storage.objects.getIamPolicy&permissions=storage.objects.update&permissions=storage.objects.create&permissions=storage.objects.delete"), READER, b"").json_ok();
         assert_eq!(probe["permissions"], json!([]));
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
-        assert_eq!(server.request("GET", &acl, READER, b"").status, 403);
-        assert_eq!(server.request("PATCH", &target, READER, b"{}").status, 403);
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
+        server.request("GET", &acl, READER, b"").expect(403);
+        server.request("PATCH", &target, READER, b"{}").expect(403);
         assert_eq!(
             server
                 .request("GET", &format!("{target}&alt=media"), ADMIN, b"")
@@ -154,17 +148,14 @@ fn object_acl_full_projection_rechecks_each_listed_generation_separately() {
                 assert!(item.get("owner").is_none());
             }
         }
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
         let revoked = server.request("GET", &path, READER, b"").json_ok();
         for item in revoked["items"].as_array().unwrap() {
             assert!(item.get("acl").is_none());
@@ -188,17 +179,14 @@ fn uploader_owner_authority_survives_bucket_revocation_and_obeys_uniform_access(
             b"owned bytes",
         )
         .json_ok();
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("{BUCKET}/acl/user-reader%40example.test"),
-                ADMIN,
-                b""
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            &format!("{BUCKET}/acl/user-reader%40example.test"),
+            ADMIN,
+            b"",
+        )
+        .expect(204);
     server
         .request(
             "PATCH",
@@ -243,19 +231,13 @@ fn uploader_owner_authority_survives_bucket_revocation_and_obeys_uniform_access(
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
         )
         .json_ok();
-    assert_eq!(
-        server
-            .request("GET", &format!("{OBJECT}/acl"), READER, b"")
-            .status,
-        403
-    );
-    assert_eq!(server.request("PATCH", OBJECT, READER, b"{}").status, 403);
-    assert_eq!(
-        server
-            .request("GET", &format!("{OBJECT}/acl"), ADMIN, b"")
-            .status,
-        400
-    );
+    server
+        .request("GET", &format!("{OBJECT}/acl"), READER, b"")
+        .expect(403);
+    server.request("PATCH", OBJECT, READER, b"{}").expect(403);
+    server
+        .request("GET", &format!("{OBJECT}/acl"), ADMIN, b"")
+        .expect(400);
     server
         .admin(
             "PATCH",
@@ -264,7 +246,7 @@ fn uploader_owner_authority_survives_bucket_revocation_and_obeys_uniform_access(
         )
         .json_ok();
     server.request("PATCH", OBJECT, READER, b"{}").json_ok();
-    assert_eq!(server.request("DELETE", OBJECT, READER, b"").status, 403);
+    server.request("DELETE", OBJECT, READER, b"").expect(403);
 }
 
 #[test]
@@ -310,17 +292,14 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
     server
         .admin("PATCH", BUCKET, json!({"defaultObjectAcl":entries}))
         .json_ok();
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=value",
-                ADMIN,
-                b"must not publish"
-            )
-            .status,
-        400
-    );
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=value",
+            ADMIN,
+            b"must not publish",
+        )
+        .expect(400);
     assert_eq!(
         db.query_row("SELECT last_generation FROM object_generation", [], |row| {
             row.get::<_, i64>(0)
@@ -335,21 +314,17 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
             .body,
         b"bounded ACL publication"
     );
-    assert_eq!(
-        server.admin("PATCH", OBJECT, json!({"acl":entries})).status,
-        400
-    );
+    server
+        .admin("PATCH", OBJECT, json!({"acl":entries}))
+        .expect(400);
     assert_eq!(server.request("GET", &path, ADMIN, b"").json_ok(), view);
-    assert_eq!(
-        server
-            .admin(
-                "POST",
-                &format!("{OBJECT}/acl"),
-                json!({"entity":"user-extra@example.test","role":"READER"})
-            )
-            .status,
-        400
-    );
+    server
+        .admin(
+            "POST",
+            &format!("{OBJECT}/acl"),
+            json!({"entity":"user-extra@example.test","role":"READER"}),
+        )
+        .expect(400);
     let owner_path = format!("{OBJECT}/acl/user-admin%40example.test?generation={generation}");
     assert_eq!(
         server
@@ -357,10 +332,9 @@ fn object_acl_limit_counts_implicit_owner_and_rolls_back_oversized_publications(
             .json_ok()["role"],
         "OWNER"
     );
-    assert_eq!(
-        server.request("DELETE", &owner_path, ADMIN, b"").status,
-        204
-    );
+    server
+        .request("DELETE", &owner_path, ADMIN, b"")
+        .expect(204);
     assert_eq!(
         server.request("GET", &path, ADMIN, b"").json_ok()["acl"]
             .as_array()
@@ -394,7 +368,7 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
     let generation = source["generation"].as_str().unwrap();
     let acl = format!("{OBJECT}/acl");
     server.grant("allAuthenticatedUsers", "OWNER", generation);
-    assert_eq!(server.request("GET", &acl, "", b"").status, 401);
+    server.request("GET", &acl, "", b"").expect(401);
     server.request("GET", &acl, OTHER, b"").json_ok();
     server
         .request(
@@ -404,23 +378,17 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
             br#"{"metadata":{"by":"registered"}}"#,
         )
         .json_ok();
-    assert_eq!(
-        server
-            .request("GET", &acl, "Authorization: Bearer unknown\r\n", b"")
-            .status,
-        401
-    );
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("{acl}/allAuthenticatedUsers"),
-                ADMIN,
-                b""
-            )
-            .status,
-        204
-    );
+    server
+        .request("GET", &acl, "Authorization: Bearer unknown\r\n", b"")
+        .expect(401);
+    server
+        .request(
+            "DELETE",
+            &format!("{acl}/allAuthenticatedUsers"),
+            ADMIN,
+            b"",
+        )
+        .expect(204);
     server.grant("allUsers", "OWNER", generation);
     let view = server
         .request("GET", &format!("{OBJECT}?projection=full"), "", b"")
@@ -430,7 +398,7 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
     server
         .request("PATCH", OBJECT, "", br#"{"metadata":{"by":"anonymous"}}"#)
         .json_ok();
-    assert_eq!(server.request("DELETE", OBJECT, "", b"").status, 401);
+    server.request("DELETE", OBJECT, "", b"").expect(401);
     server.grant("user-reader@example.test", "OWNER", generation);
     server
         .admin(
@@ -439,9 +407,9 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
             json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
         )
         .json_ok();
-    assert_eq!(server.request("GET", &acl, "", b"").status, 401);
-    assert_eq!(server.request("PATCH", OBJECT, "", b"{}").status, 401);
-    assert_eq!(server.request("PATCH", OBJECT, OTHER, b"{}").status, 403);
+    server.request("GET", &acl, "", b"").expect(401);
+    server.request("PATCH", OBJECT, "", b"{}").expect(401);
+    server.request("PATCH", OBJECT, OTHER, b"{}").expect(403);
     server
         .request(
             "PATCH",
@@ -457,14 +425,11 @@ fn public_owner_roles_grant_metadata_and_acl_access_without_transferring_actual_
             json!({"iamConfiguration":{"publicAccessPrevention":"inherited"}}),
         )
         .json_ok();
-    assert_eq!(
-        server
-            .request("DELETE", &format!("{acl}/allUsers"), "", b"")
-            .status,
-        204
-    );
-    assert_eq!(server.request("PATCH", OBJECT, "", b"{}").status, 401);
-    assert_eq!(server.request("GET", &acl, "", b"").status, 401);
+    server
+        .request("DELETE", &format!("{acl}/allUsers"), "", b"")
+        .expect(204);
+    server.request("PATCH", OBJECT, "", b"{}").expect(401);
+    server.request("GET", &acl, "", b"").expect(401);
     let owner = server
         .request("GET", &format!("{OBJECT}?projection=full"), ADMIN, b"")
         .json_ok();
@@ -500,17 +465,14 @@ fn metadata_mutation_rechecks_owner_revocation_after_request_body_admission() {
                 break;
             }
         }
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
         let revoked = server
             .request("GET", &format!("{OBJECT}?projection=full"), ADMIN, b"")
             .json_ok();

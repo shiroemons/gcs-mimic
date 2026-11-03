@@ -101,17 +101,14 @@ async fn bidi_read_handle_reauthorizes_fixed_generation_for_each_new_rpc() {
         let resumed = read(&server, "reader", Some(&handle)).await;
         assert_eq!(resumed.0, "0");
         assert_eq!(resumed.2, body);
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
         assert_eq!(read(&server, "reader", Some(&handle)).await.0, "7");
         server.grant("allAuthenticatedUsers", "READER", generation);
         assert_eq!(read(&server, "reader", Some(&handle)).await.0, "0");
@@ -147,20 +144,17 @@ async fn bidi_read_iam_handle_keeps_its_opened_snapshot_after_generation_deletio
     let (status, handle, body) = read(&server, "admin", None).await;
     assert_eq!(status, "0");
     assert_eq!(body, b"opened snapshot");
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!(
-                    "{OBJECT}?generation={}",
-                    object["generation"].as_str().unwrap()
-                ),
-                ADMIN,
-                b""
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            &format!(
+                "{OBJECT}?generation={}",
+                object["generation"].as_str().unwrap()
+            ),
+            ADMIN,
+            b"",
+        )
+        .expect(204);
     let denied = read(&server, "other", Some(&handle)).await;
     assert_eq!(denied.0, "7");
     assert!(denied.2.is_empty());

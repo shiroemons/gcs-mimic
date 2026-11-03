@@ -60,21 +60,57 @@ impl Server {
             .arg("--max-object-bytes")
             .arg(max_object_bytes.to_string());
         if strict {
-            let identities = dir.0.join("identities.json");
-            std::fs::write(&identities, serde_json::json!({"identities":[
+            command.args(common::process::strict_args(&dir.0, &serde_json::json!({"identities":[
                 {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
                 {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local":["roles/storage.objectViewer"]}},
                 {"id":"creator@example.test","tokens":["creator"],"project_roles":{"local":["roles/storage.objectCreator"]}},
                 {"id":"scoped@example.test","tokens":["scoped"]}
-            ]}).to_string()).unwrap();
-            command
-                .args(["--auth-mode", "strict", "--identity-file"])
-                .arg(identities);
+            ]})));
         }
         Self::launch(&mut command)
     }
     pub(crate) fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
         request(&self.address, method, path, headers, body)
+    }
+    pub(crate) fn update(&self, method: &str, name: &str, value: &Value) -> Reply {
+        self.request(
+            method,
+            &format!("/storage/v1/b/test-bucket/o/{name}"),
+            "Authorization: Bearer admin\r\n",
+            value.to_string().as_bytes(),
+        )
+    }
+    pub(crate) fn resumable(&self, name: &str, metadata: &Value) -> Reply {
+        self.request(
+            "POST",
+            &format!("/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name={name}"),
+            "Authorization: Bearer admin\r\n",
+            metadata.to_string().as_bytes(),
+        )
+    }
+    pub(crate) fn multipart(
+        &self,
+        boundary: &str,
+        metadata: &str,
+        media: &[u8],
+        headers: &str,
+    ) -> Reply {
+        let mut body = format!("--{boundary}\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--{boundary}\r\nContent-Type: text/plain\r\n\r\n").into_bytes();
+        body.extend_from_slice(media);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        Client {
+            address: &self.address,
+            host: "localhost",
+            headers: "",
+            timeout: Duration::from_secs(10),
+        }
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=multipart",
+            &format!("{headers}Content-Type: multipart/related; boundary={boundary}\r\n"),
+            &body,
+        )
+        .into_joined()
     }
     pub(crate) fn bucket(&self) {
         let reply = self.request(

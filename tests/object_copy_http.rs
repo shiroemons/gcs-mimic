@@ -32,19 +32,17 @@ fn media(server: &Server, bucket: &str, name: &str) -> Vec<u8> {
         ADMIN,
         b"",
     );
-    assert_eq!(reply.status, 200);
+    reply.expect(200);
     reply.body
 }
 
 fn assert_no_transfer_files(dir: &TestDir) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        let count = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
-            .unwrap()
-            .query_row("SELECT count(*) FROM derived_transfers", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .unwrap();
+        let count = common::catalog::count(
+            &rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap(),
+            "derived_transfers",
+        );
         let files = common::server::staging_count(dir);
         if count == 0 && files == 0 {
             return;
@@ -73,14 +71,11 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
     server
         .request("POST", &path, headers, body)
         .json_reason(412, "conditionNotMet");
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket/o/copy", ADMIN, b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket/o/copy", ADMIN, b"")
+        .expect(204);
     let original = server.request("POST", &path, headers, body);
-    assert_eq!(original.status, 200);
+    original.expect(200);
     assert!(original.json_ok()["acl"].is_array());
     server.put("source", b"changed source").json_ok();
     server.put("copy", b"changed destination").json_ok();
@@ -93,17 +88,14 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
         b"changed destination"
     );
     for name in ["source", "copy"] {
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("/storage/v1/b/test-bucket/o/{name}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
+        server
+            .request(
+                "DELETE",
+                &format!("/storage/v1/b/test-bucket/o/{name}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
     }
     server.stop();
     let server = Server::start(&dir, false);
@@ -208,7 +200,7 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
     );
     let headers = "Authorization: Bearer scoped\r\nX-Goog-Gcs-Idempotency-Token: scoped-copy\r\n";
     let original = server.request("POST", &path, headers, b"");
-    assert_eq!(original.status, 200);
+    original.expect(200);
     assert!(original.json_ok()["acl"].is_array());
     policy("test-bucket", None);
     server
@@ -221,7 +213,7 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
         .json_reason(403, "forbidden");
     policy("destination-bucket", Some("roles/storage.objectCreator"));
     let retry = server.request("POST", &path, headers, b"");
-    assert_eq!(retry.status, 200);
+    retry.expect(200);
     assert_eq!(retry.json_ok(), original.json_ok());
     policy("destination-bucket", Some("roles/storage.objectAdmin"));
     assert_eq!(
@@ -260,23 +252,17 @@ fn copy_token_rejects_recreated_source_or_destination_buckets() {
         } else {
             "copy"
         };
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("/storage/v1/b/{recreate}/o/{object}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
-        assert_eq!(
-            server
-                .request("DELETE", &format!("/storage/v1/b/{recreate}"), ADMIN, b"")
-                .status,
-            204
-        );
+        server
+            .request(
+                "DELETE",
+                &format!("/storage/v1/b/{recreate}/o/{object}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
+        server
+            .request("DELETE", &format!("/storage/v1/b/{recreate}"), ADMIN, b"")
+            .expect(204);
         server
             .request(
                 "POST",

@@ -15,7 +15,7 @@ use std::{
     process::{Child, ChildStdout, Command, Output, Stdio},
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -1070,12 +1070,8 @@ async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
 
 #[test]
 fn config_precedence_validation_and_size_limit() {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let file = std::env::temp_dir().join(format!(
-        "gcs-mimic-config-{}-{}.json",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
+    let dir = TestDir::new();
+    let file = dir.0.join("config.json");
     fs::write(&file, r#"{"max_connections":4,"listen":"127.0.0.1:1234"}"#).unwrap();
     let args = vec![
         "--config".into(),

@@ -170,11 +170,13 @@ fn metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validatio
 #[test]
 fn metadata_if_match_preserves_missing_resource_and_strict_permission_errors() {
     let dir = TestDir::new();
-    let registry = dir.0.join("identities.json");
-    std::fs::write(&registry, serde_json::json!({"identities":[
-        {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project-a":["roles/storage.admin"]}},
-        {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
-    ]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &dir.0,
+        &(serde_json::json!({"identities":[
+            {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project-a":["roles/storage.admin"]}},
+            {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
+        ]})),
+    );
     let server = Server::start(
         &dir,
         &[

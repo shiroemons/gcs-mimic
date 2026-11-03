@@ -44,7 +44,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
         &format!("{ADMIN}Accept-Encoding: gzip\r\n"),
         b"",
     );
-    assert_eq!(raw.status, 200);
+    raw.expect(200);
     assert_eq!(raw.body, compressed);
     assert_eq!(raw.headers["content-encoding"], "gzip");
     assert!(!raw.headers.contains_key("content-length"));
@@ -62,7 +62,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
         "Range: bytes=999999-\r\n",
     ] {
         let expanded = server.request("GET", path, &format!("{ADMIN}{extra}"), b"");
-        assert_eq!(expanded.status, 200, "{extra}");
+        expanded.expect(200);
         assert_eq!(expanded.body, b"firstsecond");
         assert_eq!(
             expanded.headers["x-guploader-response-body-transformations"],
@@ -98,7 +98,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
         &format!("{ADMIN}If-None-Match: {}\r\n", raw.headers["etag"]),
         b"",
     );
-    assert_eq!(not_modified.status, 304);
+    not_modified.expect(304);
     assert!(not_modified.body.is_empty());
     server
         .request("GET", path, "Authorization: Bearer creator\r\n", b"")
@@ -174,14 +174,14 @@ fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
         &format!("{ADMIN}Accept-Encoding: gzip\r\nRange: bytes=2-5\r\n"),
         b"",
     );
-    assert_eq!(raw.status, 206);
+    raw.expect(206);
     assert_eq!(raw.body, compressed[2..6]);
     assert_eq!(raw.headers["content-encoding"], "gzip");
     assert_eq!(raw.headers["vary"], "Accept-Encoding");
     for method in ["GET", "HEAD"] {
         for extra in ["", "Accept-Encoding: identity\r\n", "Range: bytes=0-4\r\n"] {
             let expanded = server.request(method, path, &format!("{ADMIN}{extra}"), b"");
-            assert_eq!(expanded.status, 200, "{method} {extra}");
+            expanded.expect(200);
             if method == "GET" {
                 assert_eq!(expanded.body, b"0123456789");
             }
@@ -206,7 +206,7 @@ fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
     }
     // Authorization precedes transcoding: a denied caller learns nothing about the encoding.
     let denied = server.request("GET", path, "Authorization: Bearer creator\r\n", b"");
-    assert_eq!(denied.status, 403);
+    denied.expect(403);
     assert!(
         !denied
             .headers
@@ -369,7 +369,7 @@ fn json_media_head_sends_get_headers_without_a_body() {
             let headers = format!("{ADMIN}{extra}");
             let get = server.request("GET", &path, &headers, b"");
             let head = server.request("HEAD", &path, &headers, b"");
-            assert_eq!(head.status, 200, "{path} {extra}");
+            head.expect(200);
             assert_eq!(
                 head.headers.get("content-length").map(String::as_str),
                 length,
@@ -430,7 +430,7 @@ fn json_media_upload_content_encoding_query_sets_stored_encoding() {
         ADMIN,
         &compressed,
     );
-    assert_eq!(created.status, 200);
+    created.expect(200);
     let created = created.json_ok();
     assert_eq!(created["contentEncoding"], "gzip");
     assert_eq!(created["size"], compressed.len().to_string());
@@ -452,13 +452,13 @@ fn json_media_upload_content_encoding_query_sets_stored_encoding() {
         ADMIN,
         b"replacement",
     );
-    assert_eq!(invalid.status, 400);
+    invalid.expect(400);
     assert_eq!(
         server.get("gz.txt").json_ok()["generation"],
         created["generation"]
     );
     let kms = server.request("POST", &format!("{upload}&kmsKeyName=key"), ADMIN, b"x");
-    assert_eq!(kms.status, 400);
+    kms.expect(400);
 }
 
 #[test]
@@ -524,7 +524,7 @@ fn json_object_head_preserves_selection_conditions_and_authorization() {
     );
     let metadata = server.request("GET", &path, "Authorization: Bearer admin\r\n", b"");
     let head = server.request("HEAD", &path, "Authorization: Bearer admin\r\n", b"");
-    assert_eq!(head.status, 200);
+    head.expect(200);
     assert!(head.body.is_empty());
     assert_eq!(head.headers["etag"], metadata.headers["etag"]);
     assert_eq!(
@@ -571,7 +571,7 @@ fn gunzipping_a_plain_body_fails_400_before_the_headers_are_sent() {
         ("/test-bucket/plain", "Accept-Encoding: identity\r\n"),
     ] {
         let reply = server.request("GET", path, &format!("{ADMIN}{extra}"), b"");
-        assert_eq!(reply.status, 400, "{path} {extra}");
+        reply.expect(400);
         assert_eq!(reply.body, b"Bad Request", "{path} {extra}");
         assert_eq!(reply.headers["content-type"], "text/plain; charset=utf-8");
         assert_eq!(reply.headers["content-length"], "11");
@@ -612,7 +612,7 @@ fn gunzipping_a_plain_body_fails_400_before_the_headers_are_sent() {
             &format!("{ADMIN}Accept-Encoding: identity\r\n"),
             b"",
         );
-        assert_eq!(reply.status, 200, "{path}");
+        reply.expect(200);
         assert!(reply.body.is_empty(), "{path}");
         assert_eq!(
             reply.headers["x-guploader-response-body-transformations"], "gunzipped",
@@ -631,7 +631,7 @@ fn gunzipping_a_plain_body_fails_400_before_the_headers_are_sent() {
             &format!("{ADMIN}Accept-Encoding: gzip\r\n"),
             b"",
         );
-        assert_eq!(reply.status, 200, "{path}");
+        reply.expect(200);
         assert_eq!(reply.body, b"hello gzip transcoding world\n");
         assert_eq!(reply.headers["content-encoding"], "gzip");
         assert_eq!(reply.headers["content-length"], "29");
@@ -683,7 +683,7 @@ fn head_with_range_answers_206_and_content_range_on_json_and_xml() {
     ] {
         let headers = format!("{ADMIN}{extra}");
         let head = server.request("HEAD", &path, &headers, b"");
-        assert_eq!(head.status, 206, "{path} {extra}");
+        head.expect(206);
         assert!(head.body.is_empty(), "{path}");
         assert_eq!(
             head.headers["content-range"], content_range,
@@ -696,7 +696,7 @@ fn head_with_range_answers_206_and_content_range_on_json_and_xml() {
         );
         // JSON stored-gzip GET streams chunked; other representations keep their length.
         let get = server.request("GET", &path, &headers, b"");
-        assert_eq!(get.status, 206, "{path} {extra}");
+        get.expect(206);
         assert_eq!(
             get.headers["content-range"], content_range,
             "{path} {extra}"
@@ -715,7 +715,7 @@ fn head_with_range_answers_206_and_content_range_on_json_and_xml() {
             &format!("{ADMIN}Accept-Encoding: gzip\r\nRange: bytes=100-200\r\n"),
             b"",
         );
-        assert_eq!(head.status, 416, "{path}");
+        head.expect(416);
         assert!(head.body.is_empty(), "{path}");
         if path.starts_with("/storage/") {
             assert!(
@@ -745,10 +745,10 @@ fn xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range() {
 <Message>The requested range cannot be satisfied.</Message>\
 <Details>bytes=100-200</Details></Error>";
     let get = server.request("GET", "/test-bucket/plain", &extra, b"");
-    assert_eq!(get.status, 416);
+    get.expect(416);
     assert_eq!(get.body, body.as_bytes());
     let head = server.request("HEAD", "/test-bucket/plain", &extra, b"");
-    assert_eq!(head.status, 416);
+    head.expect(416);
     assert!(head.body.is_empty());
     for reply in [&get, &head] {
         assert_eq!(

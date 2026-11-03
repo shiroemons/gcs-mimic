@@ -565,15 +565,14 @@ fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects(
         server
             .get(ADMIN, "/storage/v1/b/unauthorized")
             .auth_error(404, "notFound");
-        let sessions: i64 = rusqlite::Connection::open_with_flags(
-            data.0.join("catalog.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap()
-        .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
-            row.get(0)
-        })
-        .unwrap();
+        let sessions: i64 = common::catalog::count(
+            &rusqlite::Connection::open_with_flags(
+                data.0.join("catalog.sqlite3"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap(),
+            "resumable_sessions",
+        );
         assert_eq!(sessions, 0);
         assert_eq!(
             server

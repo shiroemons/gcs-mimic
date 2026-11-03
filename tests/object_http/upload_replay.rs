@@ -9,7 +9,7 @@ fn upload_replay_unconditional_response_survives_overwrite_and_restart() {
     let token = "X-Goog-Gcs-Idempotency-Token: first\r\nContent-Type: text/plain\r\n";
     let query = "name=replay&projection=full";
     let original = server.upload(query, token, b"original");
-    assert_eq!(original.status, 200);
+    original.expect(200);
     assert_eq!(server.upload(query, token, b"original").body, original.body);
     server
         .upload(query, token, b"different")
@@ -65,8 +65,8 @@ fn upload_replay_concurrent_requests_publish_one_generation() {
             .map(|h| h.join().unwrap())
             .collect::<Vec<_>>()
     });
-    assert_eq!(replies[0].status, 200);
-    assert_eq!(replies[1].status, 200);
+    replies[0].expect(200);
+    replies[1].expect(200);
     assert_eq!(replies[0].body, replies[1].body);
     assert_eq!(server.get("race").json(), replies[0].json());
     assert_eq!(common::server::staging_count(&dir), 0);
@@ -98,18 +98,12 @@ fn upload_replay_lost_response_and_recreated_bucket_do_not_duplicate_mutations()
         server.upload("name=lost", token, b"payload").json(),
         original
     );
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket/o/lost", "", b"")
-            .status,
-        204
-    );
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket", "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket/o/lost", "", b"")
+        .expect(204);
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket", "", b"")
+        .expect(204);
     server.bucket();
     server
         .upload("name=lost", token, b"payload")

@@ -50,7 +50,7 @@ impl Server {
             &format!("{ADMIN}Content-Type: application/json\r\n"),
             &json!({"name": name}).to_string(),
         );
-        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.expect(200);
     }
 
     fn sign(&self, method: hyper::Method, path: &str, headers: hyper::HeaderMap) -> hyper::Uri {
@@ -70,16 +70,18 @@ impl Server {
 }
 
 fn strict(data: &TestDir) -> Server {
-    let identities = data.0.join("identities.json");
-    std::fs::write(&identities, json!({"identities":[
-        {"id":"admin@example.invalid", "tokens":["admin-token"], "public_keys":[PUBLIC],
-         "project_roles":{"project-a":["roles/storage.admin"],"project-b":["roles/storage.admin"]}},
-        {"id":"viewer@example.invalid", "tokens":["viewer-token"],
-         "project_roles":{"project-a":["roles/storage.objectViewer"]}},
-        {"id":"no-roles@example.invalid", "tokens":["no-roles-token"]},
-        {"id":"editor@example.invalid", "tokens":["editor-token"],
-         "project_roles":{"project-a":["roles/storage.editor"]}}
-    ]}).to_string()).unwrap();
+    let identities = common::process::write_identities(
+        &data.0,
+        &(json!({"identities":[
+            {"id":"admin@example.invalid", "tokens":["admin-token"], "public_keys":[PUBLIC],
+             "project_roles":{"project-a":["roles/storage.admin"],"project-b":["roles/storage.admin"]}},
+            {"id":"viewer@example.invalid", "tokens":["viewer-token"],
+             "project_roles":{"project-a":["roles/storage.objectViewer"]}},
+            {"id":"no-roles@example.invalid", "tokens":["no-roles-token"]},
+            {"id":"editor@example.invalid", "tokens":["editor-token"],
+             "project_roles":{"project-a":["roles/storage.editor"]}}
+        ]})),
+    );
     Server::start(
         data,
         &[
@@ -118,7 +120,7 @@ fn xml_bucket_requests_reject_object_preconditions() {
         ),
     ] {
         let reply = server.request(method, "/condition-bucket", &format!("{ADMIN}{header}"), "");
-        assert_eq!(reply.status, 400, "{}", reply.body);
+        reply.expect(400);
         assert!(reply.body.contains(message), "{}", reply.body);
         for (auth, status) in [("", 401), (NONE, 403)] {
             let reply = server.request(method, "/condition-bucket", &format!("{auth}{header}"), "");
@@ -136,7 +138,7 @@ fn xml_service_lists_only_selected_project_in_order_with_persisted_creation_date
     server.create("project-b", "hidden-bucket");
     server.create("project-a", "alpha-bucket");
     let reply = server.request("GET", "/", PROJECT, "");
-    assert_eq!(reply.status, 200, "{}", reply.body);
+    reply.expect(200);
     assert!(reply.headers.contains("content-type: application/xml"));
     assert!(
         reply
@@ -151,7 +153,7 @@ fn xml_service_lists_only_selected_project_in_order_with_persisted_creation_date
         metadata["timeCreated"].as_str().unwrap()
     )));
     let empty = server.request("GET", "/", "x-goog-project-id: empty\r\n", "");
-    assert_eq!(empty.status, 200);
+    empty.expect(200);
     assert!(names(&empty.body).is_empty());
     drop(server);
     let server = Server::start(&data, &[]);
@@ -183,7 +185,7 @@ fn xml_service_bounds_and_validates_project_headers_query_and_body() {
         ),
     ] {
         let reply = server.request("GET", path, headers, body);
-        assert_eq!(reply.status, 400, "{path} {headers}: {}", reply.body);
+        reply.expect(400);
         assert!(reply.body.contains("<Error>"), "{}", reply.body);
     }
 }
@@ -205,9 +207,9 @@ fn xml_service_strict_authorization_and_signed_project_binding() {
     headers.insert("x-goog-project-id", "project-a".parse().unwrap());
     let url = server.sign(hyper::Method::GET, "/", headers);
     let path = url.path_and_query().unwrap().as_str();
-    assert_eq!(server.request("GET", path, PROJECT, "").status, 200);
+    server.request("GET", path, PROJECT, "").expect(200);
     let changed = server.request("GET", path, "x-goog-project-id: project-b\r\n", "");
-    assert_eq!(changed.status, 403);
+    changed.expect(403);
     assert!(changed.body.contains("SignatureDoesNotMatch"));
 }
 
@@ -234,37 +236,30 @@ fn xml_head_bucket_checks_access_and_sends_no_body_on_success_or_error() {
         assert!(reply.body.is_empty(), "{path}: {}", reply.body);
     }
     let reply = server.host("head-bucket.storage.local", "HEAD", "/", ADMIN, "");
-    assert_eq!(reply.status, 200);
+    reply.expect(200);
     assert!(reply.body.is_empty());
     let url = server.sign(
         hyper::Method::HEAD,
         "/head%2Dbucket",
         hyper::HeaderMap::new(),
     );
-    assert_eq!(
-        server
-            .request("HEAD", url.path_and_query().unwrap().as_str(), "", "")
-            .status,
-        200
-    );
-    assert_eq!(
-        server
-            .request(
-                "HEAD",
-                &url.path_and_query()
-                    .unwrap()
-                    .as_str()
-                    .replacen("%2D", "-", 1),
-                "",
-                ""
-            )
-            .status,
-        403
-    );
-    assert_eq!(
-        server.request("HEAD", "/_internal/ready", "", "").status,
-        200
-    );
+    server
+        .request("HEAD", url.path_and_query().unwrap().as_str(), "", "")
+        .expect(200);
+    server
+        .request(
+            "HEAD",
+            &url.path_and_query()
+                .unwrap()
+                .as_str()
+                .replacen("%2D", "-", 1),
+            "",
+            "",
+        )
+        .expect(403);
+    server
+        .request("HEAD", "/_internal/ready", "", "")
+        .expect(200);
 }
 
 #[test]
@@ -289,11 +284,11 @@ fn xml_service_returns_the_official_first_thousand_bucket_limit() {
         ],
     );
     let reply = server.request("GET", "/", PROJECT, "");
-    assert_eq!(reply.status, 200, "{}", reply.body);
+    reply.expect(200);
     assert_eq!(names(&reply.body).len(), 1000);
     server.create("project-a", "bucket-1000");
     let reply = server.request("GET", "/", PROJECT, "");
-    assert_eq!(reply.status, 200);
+    reply.expect(200);
     assert_eq!(names(&reply.body).len(), 1000);
     assert_eq!(names(&reply.body).last(), Some(&"bucket-0999"));
     assert!(!reply.body.contains("bucket-1000"));
@@ -304,56 +299,48 @@ fn xml_bucket_create_delete_defaults_fields_conflicts_nonempty_and_restart() {
     let data = TestDir::new();
     let server = Server::start(&data, &["--default-location", "EU"]);
     let created = server.request("PUT", "/xml%2Dbucket", PROJECT, "");
-    assert_eq!(created.status, 200, "{}", created.body);
+    created.expect(200);
     assert!(created.body.is_empty());
     let resource = server.request("GET", "/storage/v1/b/xml-bucket", "", "");
     let resource: Value = serde_json::from_str(&resource.body).unwrap();
     assert_eq!(resource["location"], "US");
     assert_eq!(resource["storageClass"], "STANDARD");
     let duplicate = server.request("PUT", "/xml-bucket", PROJECT, "");
-    assert_eq!(duplicate.status, 409);
+    duplicate.expect(409);
     assert!(
         duplicate
             .body
             .contains("<Code>BucketNameUnavailable</Code>")
     );
     let body = "<?xml version=\"1.0\"?><CreateBucketConfiguration xmlns=\"http://doc.s3.amazonaws.com/2006-03-01\"><StorageClass>NEARLINE</StorageClass><LocationConstraint>asia-northeast1</LocationConstraint></CreateBucketConfiguration>";
-    assert_eq!(
-        server
-            .request("PUT", "/regional-bucket/", PROJECT, body)
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/regional-bucket/", PROJECT, body)
+        .expect(200);
     let resource = server.request("GET", "/storage/v1/b/regional-bucket", "", "");
     let resource: Value = serde_json::from_str(&resource.body).unwrap();
     assert_eq!(resource["location"], "ASIA-NORTHEAST1");
     assert_eq!(resource["storageClass"], "NEARLINE");
-    assert_eq!(
-        server
-            .request("PUT", "/xml-bucket/value", "", "body")
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/xml-bucket/value", "", "body")
+        .expect(200);
     let nonempty = server.request("DELETE", "/xml-bucket", "", "");
-    assert_eq!(nonempty.status, 409);
+    nonempty.expect(409);
     assert!(nonempty.body.contains("<Code>BucketNotEmpty</Code>"));
-    assert_eq!(
-        server.request("DELETE", "/xml-bucket/value", "", "").status,
-        204
-    );
+    server
+        .request("DELETE", "/xml-bucket/value", "", "")
+        .expect(204);
     let deleted = server.request("DELETE", "/xml-bucket/", "", "");
-    assert_eq!(deleted.status, 204);
+    deleted.expect(204);
     assert!(deleted.body.is_empty());
     let missing = server.request("DELETE", "/xml-bucket", "", "");
-    assert_eq!(missing.status, 404);
+    missing.expect(404);
     assert!(missing.body.contains("<Code>NoSuchBucket</Code>"));
     drop(server);
     let server = Server::start(&data, &[]);
-    assert_eq!(server.request("HEAD", "/xml-bucket", "", "").status, 404);
-    assert_eq!(
-        server.request("HEAD", "/regional-bucket", "", "").status,
-        200
-    );
+    server.request("HEAD", "/xml-bucket", "", "").expect(404);
+    server
+        .request("HEAD", "/regional-bucket", "", "")
+        .expect(200);
 }
 
 #[test]
@@ -377,12 +364,11 @@ fn xml_bucket_create_rejects_invalid_bounded_metadata_without_creating() {
         "<CreateBucketConfiguration>text</CreateBucketConfiguration>",
     ] {
         let reply = server.request("PUT", "/invalid-bucket", PROJECT, body);
-        assert_eq!(reply.status, 400, "{body}: {}", reply.body);
+        reply.expect(400);
         assert!(reply.body.contains("<Error>"));
-        assert_eq!(
-            server.request("HEAD", "/invalid-bucket", "", "").status,
-            404
-        );
+        server
+            .request("HEAD", "/invalid-bucket", "", "")
+            .expect(404);
     }
     for headers in [
         "",
@@ -392,30 +378,24 @@ fn xml_bucket_create_rejects_invalid_bounded_metadata_without_creating() {
         "x-goog-project-id: project-a\r\nx-goog-bucket-retention-period: -1\r\n",
         "x-goog-project-id: project-a\r\nx-goog-bucket-retention-period: 315576000001\r\n",
     ] {
-        assert_eq!(
-            server.request("PUT", "/invalid-bucket", headers, "").status,
-            400
-        );
+        server
+            .request("PUT", "/invalid-bucket", headers, "")
+            .expect(400);
     }
     let reply = server.request("PUT", "/invalid-bucket", PROJECT, &"x".repeat(65537));
-    assert_eq!(reply.status, 413);
-    assert_eq!(
-        server.request("HEAD", "/invalid-bucket", "", "").status,
-        404
-    );
+    reply.expect(413);
+    server
+        .request("HEAD", "/invalid-bucket", "", "")
+        .expect(404);
     for path in ["/Invalid_Name", "/ab", "/192.168.1.1", "/google-bucket"] {
-        assert_eq!(
-            server.request("PUT", path, PROJECT, "").status,
-            400,
-            "{path}"
-        );
+        server.request("PUT", path, PROJECT, "").expect(400);
     }
     for (method, path, headers, body) in [
         ("PUT", "/invalid-bucket?acl", PROJECT, ""),
         ("DELETE", "/invalid-bucket?generation=1", "", ""),
         ("DELETE", "/invalid-bucket", "", "body"),
     ] {
-        assert_eq!(server.request(method, path, headers, body).status, 400);
+        server.request(method, path, headers, body).expect(400);
     }
 }
 
@@ -434,35 +414,25 @@ fn xml_bucket_strict_creation_retention_signed_body_and_deletion_permissions() {
     let headers = format!(
         "{ADMIN}{PROJECT}x-goog-bucket-object-lock-enabled: true\r\nx-goog-bucket-retention-period: 60\r\n"
     );
-    assert_eq!(
-        server
-            .host("strict-bucket.storage.local", "PUT", "/", &headers, "")
-            .status,
-        200
-    );
+    server
+        .host("strict-bucket.storage.local", "PUT", "/", &headers, "")
+        .expect(200);
     let resource = server.request("GET", "/storage/v1/b/strict-bucket", ADMIN, "");
     let resource: Value = serde_json::from_str(&resource.body).unwrap();
     assert_eq!(resource["objectRetention"]["mode"], "Enabled");
     assert_eq!(resource["retentionPolicy"]["retentionPeriod"], "60");
-    assert_eq!(
-        server
-            .request("PUT", "/strict-bucket/protected", ADMIN, "retained")
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/strict-bucket/protected", ADMIN, "retained")
+        .expect(200);
     let denied = server.request("DELETE", "/strict-bucket/protected", ADMIN, "");
-    assert_eq!(denied.status, 403);
+    denied.expect(403);
     assert!(denied.body.contains("RetentionPolicyNotMet"));
-    assert_eq!(
-        server
-            .request("DELETE", "/strict-bucket", VIEWER, "")
-            .status,
-        403
-    );
-    assert_eq!(
-        server.request("DELETE", "/strict-bucket", "", "").status,
-        401
-    );
+    server
+        .request("DELETE", "/strict-bucket", VIEWER, "")
+        .expect(403);
+    server
+        .request("DELETE", "/strict-bucket", "", "")
+        .expect(401);
     let body = "<CreateBucketConfiguration><StorageClass>ARCHIVE</StorageClass></CreateBucketConfiguration>";
     let sha = ring::digest::digest(&ring::digest::SHA256, body.as_bytes())
         .as_ref()
@@ -480,30 +450,26 @@ fn xml_bucket_strict_creation_retention_signed_body_and_deletion_permissions() {
         &headers,
         "<CreateBucketConfiguration/>",
     );
-    assert_eq!(mismatch.status, 400);
+    mismatch.expect(400);
     assert!(mismatch.body.contains("BadDigest"));
-    assert_eq!(
-        server.request("HEAD", "/signed-bucket", ADMIN, "").status,
-        404
-    );
-    assert_eq!(
-        server
-            .request(
-                "PUT",
-                url.path_and_query().unwrap().as_str(),
-                &headers,
-                body
-            )
-            .status,
-        200
-    );
+    server
+        .request("HEAD", "/signed-bucket", ADMIN, "")
+        .expect(404);
+    server
+        .request(
+            "PUT",
+            url.path_and_query().unwrap().as_str(),
+            &headers,
+            body,
+        )
+        .expect(200);
     let url = server.sign(
         hyper::Method::DELETE,
         "/signed-bucket",
         hyper::HeaderMap::new(),
     );
     let deleted = server.request("DELETE", url.path_and_query().unwrap().as_str(), "", "");
-    assert_eq!(deleted.status, 204, "{}", deleted.body);
+    deleted.expect(204);
 }
 
 #[test]
@@ -517,22 +483,16 @@ fn xml_delete_object_enforces_generation_metageneration_versioning_and_signed_bi
         ADMIN,
         "{\"versioning\":{\"enabled\":true}}",
     );
-    assert_eq!(patch.status, 200);
-    assert_eq!(
-        server
-            .request("PUT", "/delete-bucket/a%2Fb", ADMIN, "first")
-            .status,
-        200
-    );
+    patch.expect(200);
+    server
+        .request("PUT", "/delete-bucket/a%2Fb", ADMIN, "first")
+        .expect(200);
     let first = server.request("GET", "/storage/v1/b/delete-bucket/o/a%2Fb", ADMIN, "");
     let first: Value = serde_json::from_str(&first.body).unwrap();
     let generation = first["generation"].as_str().unwrap();
-    assert_eq!(
-        server
-            .request("PUT", "/delete-bucket/a%2Fb", ADMIN, "second")
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/delete-bucket/a%2Fb", ADMIN, "second")
+        .expect(200);
     for auth in [VIEWER, NONE, ""] {
         assert!(matches!(
             server
@@ -546,7 +506,7 @@ fn xml_delete_object_enforces_generation_metageneration_versioning_and_signed_bi
         format!("{ADMIN}x-goog-if-metageneration-match: 2\r\n"),
     ] {
         let reply = server.request("DELETE", "/delete-bucket/a%2Fb", &headers, "");
-        assert_eq!(reply.status, 412);
+        reply.expect(412);
         assert!(reply.body.contains("PreconditionFailed"));
     }
     let url = server.sign(
@@ -559,66 +519,53 @@ fn xml_delete_object_enforces_generation_metageneration_versioning_and_signed_bi
         path.replace("a%2Fb", "a/b"),
         path.replace(&format!("generation={generation}"), "generation=1"),
     ] {
-        assert_eq!(server.request("DELETE", &changed, "", "").status, 403);
+        server.request("DELETE", &changed, "", "").expect(403);
     }
-    assert_eq!(
-        server
-            .host("changed.invalid", "DELETE", path, "", "")
-            .status,
-        403
-    );
-    assert_eq!(server.request("GET", path, "", "").status, 403);
-    assert_eq!(server.request("DELETE", path, "", "").status, 204);
-    assert_eq!(
-        server
-            .request(
-                "GET",
-                &format!("/delete-bucket/a%2Fb?generation={generation}"),
-                ADMIN,
-                ""
-            )
-            .status,
-        404
-    );
+    server
+        .host("changed.invalid", "DELETE", path, "", "")
+        .expect(403);
+    server.request("GET", path, "", "").expect(403);
+    server.request("DELETE", path, "", "").expect(204);
+    server
+        .request(
+            "GET",
+            &format!("/delete-bucket/a%2Fb?generation={generation}"),
+            ADMIN,
+            "",
+        )
+        .expect(404);
     assert_eq!(
         server
             .request("GET", "/delete-bucket/a%2Fb", ADMIN, "")
             .body,
         "second"
     );
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                "/delete-bucket/a%2Fb",
-                &format!("{ADMIN}x-goog-if-metageneration-match: 1\r\n"),
-                ""
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            "/delete-bucket/a%2Fb",
+            &format!("{ADMIN}x-goog-if-metageneration-match: 1\r\n"),
+            "",
+        )
+        .expect(204);
     let missing = server.request("DELETE", "/delete-bucket/a%2Fb", ADMIN, "");
-    assert_eq!(missing.status, 404);
+    missing.expect(404);
     assert!(missing.body.contains("NoSuchKey"));
-    assert_eq!(
-        server.request("DELETE", "/delete-bucket", ADMIN, "").status,
-        409
-    );
+    server
+        .request("DELETE", "/delete-bucket", ADMIN, "")
+        .expect(409);
     drop(server);
     let server = strict(&data);
-    assert_eq!(
-        server
-            .request("GET", "/delete-bucket/a%2Fb", ADMIN, "")
-            .status,
-        404
-    );
+    server
+        .request("GET", "/delete-bucket/a%2Fb", ADMIN, "")
+        .expect(404);
     let old = server.request(
         "GET",
         &format!("/delete-bucket/a%2Fb?generation={generation}"),
         ADMIN,
         "",
     );
-    assert_eq!(old.status, 404);
+    old.expect(404);
 }
 
 #[test]
@@ -632,7 +579,7 @@ fn xml_bucket_create_accepts_standard_xml_declarations_namespaces_entities_and_c
         "<CreateBucketConfiguration xmlns='http://s3.amazonaws.com/doc/2006-03-01/' />",
     ].iter().enumerate() {
         let reply = server.request("PUT", &format!("/syntax-bucket-{index}"), PROJECT, body);
-        assert_eq!(reply.status, 200, "{body}: {}", reply.body);
+        reply.expect(200);
         let resource = server.request("GET", &format!("/storage/v1/b/syntax-bucket-{index}"), "", "");
         assert_eq!(serde_json::from_str::<Value>(&resource.body).unwrap()["location"], "US");
     }
@@ -649,12 +596,11 @@ fn xml_bucket_create_accepts_standard_xml_declarations_namespaces_entities_and_c
         "<!DOCTYPE x [<!ENTITY e 'US'>]><CreateBucketConfiguration><LocationConstraint>&e;</LocationConstraint></CreateBucketConfiguration>",
     ] {
         let reply = server.request("PUT", "/syntax-invalid", PROJECT, body);
-        assert_eq!(reply.status, 400, "{body}: {}", reply.body);
+        reply.expect(400);
         assert!(reply.body.contains("MalformedXML"));
-        assert_eq!(
-            server.request("HEAD", "/syntax-invalid", "", "").status,
-            404
-        );
+        server
+            .request("HEAD", "/syntax-invalid", "", "")
+            .expect(404);
     }
 }
 
@@ -678,27 +624,18 @@ fn xml_bucket_create_verifies_md5_and_separates_retention_enable_permission() {
     let editor = "Authorization: Bearer editor-token\r\n";
     let headers = format!("{editor}{PROJECT}x-goog-bucket-object-lock-enabled: true\r\n");
     let reply = server.request("PUT", "/retention-denied", &headers, "");
-    assert_eq!(reply.status, 403, "{}", reply.body);
+    reply.expect(403);
     assert!(reply.body.contains("AccessDenied"));
-    assert_eq!(
-        server
-            .request("HEAD", "/retention-denied", ADMIN, "")
-            .status,
-        404
-    );
+    server
+        .request("HEAD", "/retention-denied", ADMIN, "")
+        .expect(404);
     let headers = format!("{editor}{PROJECT}x-goog-bucket-object-lock-enabled: false\r\n");
-    assert_eq!(
-        server
-            .request("PUT", "/retention-denied", &headers, "")
-            .status,
-        200
-    );
-    assert_eq!(
-        server
-            .request("HEAD", "/retention-denied", ADMIN, "")
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/retention-denied", &headers, "")
+        .expect(200);
+    server
+        .request("HEAD", "/retention-denied", ADMIN, "")
+        .expect(200);
 }
 
 #[test]
@@ -707,47 +644,33 @@ fn xml_head_bucket_uses_iam_ubla_and_public_access_prevention() {
     let server = strict(&data);
     server.create("project-a", "policy-bucket");
     let policy = json!({"bindings":[{"role":"roles/storage.legacyBucketReader","members":["allUsers","user:no-roles@example.invalid"]}]}).to_string();
-    assert_eq!(
-        server
-            .request("PUT", "/storage/v1/b/policy-bucket/iam", ADMIN, &policy)
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/storage/v1/b/policy-bucket/iam", ADMIN, &policy)
+        .expect(200);
     for auth in ["", NONE] {
-        assert_eq!(
-            server.request("HEAD", "/policy-bucket", auth, "").status,
-            200
-        );
+        server
+            .request("HEAD", "/policy-bucket", auth, "")
+            .expect(200);
     }
     let patch = json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true},"publicAccessPrevention":"enforced"}}).to_string();
-    assert_eq!(
-        server
-            .request("PATCH", "/storage/v1/b/policy-bucket", ADMIN, &patch)
-            .status,
-        200
-    );
-    assert_eq!(server.request("HEAD", "/policy-bucket", "", "").status, 401);
-    assert_eq!(
-        server.request("HEAD", "/policy-bucket", NONE, "").status,
-        200
-    );
+    server
+        .request("PATCH", "/storage/v1/b/policy-bucket", ADMIN, &patch)
+        .expect(200);
+    server.request("HEAD", "/policy-bucket", "", "").expect(401);
+    server
+        .request("HEAD", "/policy-bucket", NONE, "")
+        .expect(200);
     let url = server.sign(
         hyper::Method::HEAD,
         "/policy-bucket",
         hyper::HeaderMap::new(),
     );
-    assert_eq!(
-        server
-            .request("HEAD", url.path_and_query().unwrap().as_str(), "", "")
-            .status,
-        200
-    );
-    assert_eq!(
-        server
-            .request("GET", "/", &format!("{NONE}{PROJECT}"), "")
-            .status,
-        403
-    );
+    server
+        .request("HEAD", url.path_and_query().unwrap().as_str(), "", "")
+        .expect(200);
+    server
+        .request("GET", "/", &format!("{NONE}{PROJECT}"), "")
+        .expect(403);
 }
 
 #[test]
@@ -756,75 +679,54 @@ fn xml_delete_object_preserves_soft_deleted_bytes_and_enforces_holds_and_pap() {
     let server = strict(&data);
     server.create("project-a", "soft-bucket");
     let policy = json!({"softDeletePolicy":{"retentionDurationSeconds":"604800"}}).to_string();
-    assert_eq!(
-        server
-            .request("PATCH", "/storage/v1/b/soft-bucket", ADMIN, &policy)
-            .status,
-        200
-    );
-    assert_eq!(
-        server
-            .request("PUT", "/soft-bucket/protected", ADMIN, "restore me")
-            .status,
-        200
-    );
+    server
+        .request("PATCH", "/storage/v1/b/soft-bucket", ADMIN, &policy)
+        .expect(200);
+    server
+        .request("PUT", "/soft-bucket/protected", ADMIN, "restore me")
+        .expect(200);
     let object = "/storage/v1/b/soft-bucket/o/protected";
     let resource = server.request("PATCH", object, ADMIN, "{\"temporaryHold\":true}");
-    assert_eq!(resource.status, 200);
+    resource.expect(200);
     let resource: Value = serde_json::from_str(&resource.body).unwrap();
     let generation = resource["generation"].as_str().unwrap();
     let denied = server.request("DELETE", "/soft-bucket/protected", ADMIN, "");
-    assert_eq!(denied.status, 403);
+    denied.expect(403);
     assert!(
         denied.body.contains("ObjectUnderActiveHold"),
         "{}",
         denied.body
     );
-    assert_eq!(
-        server
-            .request("PATCH", object, ADMIN, "{\"temporaryHold\":false}")
-            .status,
-        200
-    );
+    server
+        .request("PATCH", object, ADMIN, "{\"temporaryHold\":false}")
+        .expect(200);
     let policy = json!({"bindings":[{"role":"roles/storage.objectAdmin","members":["allUsers"]}]})
         .to_string();
-    assert_eq!(
-        server
-            .request("PUT", "/storage/v1/b/soft-bucket/iam", ADMIN, &policy)
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/storage/v1/b/soft-bucket/iam", ADMIN, &policy)
+        .expect(200);
     let policy = json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true},"publicAccessPrevention":"enforced"}}).to_string();
-    assert_eq!(
-        server
-            .request("PATCH", "/storage/v1/b/soft-bucket", ADMIN, &policy)
-            .status,
-        200
-    );
-    assert_eq!(
-        server
-            .request("DELETE", "/soft-bucket/protected", "", "")
-            .status,
-        401
-    );
+    server
+        .request("PATCH", "/storage/v1/b/soft-bucket", ADMIN, &policy)
+        .expect(200);
+    server
+        .request("DELETE", "/soft-bucket/protected", "", "")
+        .expect(401);
     let url = server.sign(
         hyper::Method::DELETE,
         &format!("/soft-bucket/protected?generation={generation}"),
         hyper::HeaderMap::new(),
     );
-    assert_eq!(
-        server
-            .request("DELETE", url.path_and_query().unwrap().as_str(), "", "")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", url.path_and_query().unwrap().as_str(), "", "")
+        .expect(204);
     let soft = server.request(
         "GET",
         &format!("{object}?generation={generation}&softDeleted=true"),
         ADMIN,
         "",
     );
-    assert_eq!(soft.status, 200, "{}", soft.body);
+    soft.expect(200);
     assert!(serde_json::from_str::<Value>(&soft.body).unwrap()["softDeleteTime"].is_string());
     drop(server);
     let server = strict(&data);
@@ -834,7 +736,7 @@ fn xml_delete_object_preserves_soft_deleted_bytes_and_enforces_holds_and_pap() {
         ADMIN,
         "",
     );
-    assert_eq!(restored.status, 200, "{}", restored.body);
+    restored.expect(200);
     assert_eq!(
         server
             .request("GET", "/soft-bucket/protected", ADMIN, "")

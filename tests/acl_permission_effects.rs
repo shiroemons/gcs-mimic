@@ -52,8 +52,7 @@ impl Server {
         backend: &str,
         registry: &Value,
     ) -> Self {
-        let identities = inputs.0.join("identities.json");
-        std::fs::write(&identities, registry.to_string()).unwrap();
+        let identities = common::process::write_identities(&inputs.0, &(registry));
         let mut child = common::server_command()
             .args([
                 "serve",

@@ -77,12 +77,9 @@ fn multipart_manifest_rejects_malformed_xml_without_publication_and_accepts_chun
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
-    assert_eq!(
-        server
-            .request("PUT", "/multipart-bucket/value", "", b"previous")
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/multipart-bucket/value", "", b"previous")
+        .expect(200);
     let id = begin(&server, "value", "");
     let etag = part(&server, "value", &id, 1, "", b"completed bytes");
     let path = format!("/multipart-bucket/value?uploadId={id}");
@@ -202,17 +199,14 @@ fn multipart_wire_round_trip_sparse_parts_paging_restart_and_checksum_metadata()
         .lines()
         .find_map(|line| line.strip_prefix("etag: "))
         .unwrap();
-    assert_eq!(
-        server
-            .request(
-                "GET",
-                "/storage/v1/b/multipart-bucket/o/dir%2Fvalue",
-                &format!("If-None-Match: {etag}\r\n"),
-                b"",
-            )
-            .status,
-        304
-    );
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/multipart-bucket/o/dir%2Fvalue",
+            &format!("If-None-Match: {etag}\r\n"),
+            b"",
+        )
+        .expect(304);
 }
 
 #[test]
@@ -220,12 +214,9 @@ fn multipart_rejects_bad_completion_hashes_order_small_parts_and_unsupported_con
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
-    assert_eq!(
-        server
-            .request("PUT", "/multipart-bucket/value", "", b"previous")
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/multipart-bucket/value", "", b"previous")
+        .expect(200);
     let id = begin(&server, "value", "");
     let a = part(&server, "value", &id, 1, "", b"small");
     let b = part(&server, "value", &id, 2, "", b"last");
@@ -288,7 +279,7 @@ fn multipart_rejects_bad_completion_hashes_order_small_parts_and_unsupported_con
         "",
         b"",
     );
-    assert_eq!(aborted.status, 204);
+    aborted.expect(204);
     let reply = server.request(
         "GET",
         &format!("/multipart-bucket/value?uploadId={id}"),
@@ -325,12 +316,9 @@ fn multipart_reset_and_bucket_recreation_invalidate_sessions_and_remove_parts() 
     bucket(&server, "");
     let id = begin(&server, "value", "");
     part(&server, "value", &id, 1, "", b"unfinished");
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/multipart-bucket", "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/multipart-bucket", "", b"")
+        .expect(204);
     bucket(&server, "");
     after_sweep(|| {
         server.request(
@@ -378,8 +366,10 @@ fn multipart_reset_and_bucket_recreation_invalidate_sessions_and_remove_parts() 
 #[test]
 fn multipart_strict_reauthorizes_each_request_and_preserves_creator_overwrite_boundary() {
     let dir = TestDir::new();
-    let registry = dir.0.join("identities.json");
-    std::fs::write(&registry,json!({"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"creator@example.invalid","tokens":["creator"],"project_roles":{"project":["roles/storage.objectCreator"]}},{"id":"reader@example.invalid","tokens":["reader"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"creator@example.invalid","tokens":["creator"],"project_roles":{"project":["roles/storage.objectCreator"]}},{"id":"reader@example.invalid","tokens":["reader"],"project_roles":{"project":["roles/storage.objectViewer"]}}]})),
+    );
     let server = Server::start(
         &dir,
         &[
@@ -424,17 +414,14 @@ fn multipart_strict_reauthorizes_each_request_and_preserves_creator_overwrite_bo
             .body,
         "allowed"
     );
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("/multipart-bucket/value?uploadId={id}"),
-                creator,
-                b"",
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            &format!("/multipart-bucket/value?uploadId={id}"),
+            creator,
+            b"",
+        )
+        .expect(204);
     server
         .request("POST", "/multipart-bucket/anonymous?uploads", "", b"")
         .status(401);
@@ -528,12 +515,9 @@ fn multipart_completion_rechecks_destination_hold_without_discarding_parts() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
-    assert_eq!(
-        server
-            .request("PUT", "/multipart-bucket/held", "", b"previous")
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/multipart-bucket/held", "", b"previous")
+        .expect(200);
     server
         .request(
             "PATCH",

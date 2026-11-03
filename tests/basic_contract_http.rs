@@ -2,9 +2,9 @@ use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Reply, http_command, write_request};
+use common::server::{Reply, http_command};
 use serde_json::{Value, json};
-use std::{net::TcpStream, time::Duration};
+use std::time::Duration;
 
 const OBJECT_METHODS: [&str; 5] = ["media", "multipart", "PATCH", "PUT", "DELETE"];
 const OLD_BYTES: &[u8] = b"original\0payload\xff";
@@ -20,22 +20,14 @@ impl Server {
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        let mut stream = TcpStream::connect(&self.address).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        write_request(
-            &mut stream,
-            method,
-            path,
-            "localhost",
-            &format!("{headers}Connection: close\r\n"),
-            body,
-        );
-        Reply::framed(stream)
+        common::http::Client {
+            address: &self.address,
+            host: "localhost",
+            headers: "",
+            timeout: Duration::from_secs(5),
+        }
+        .request(method, path, headers, body)
+        .into_last()
     }
 
     fn bucket(&self, name: &str) -> Value {
@@ -79,7 +71,7 @@ impl Server {
         let path = format!("/storage/v1/b/test-bucket/o/{name}");
         let metadata = self.get(&path).json_ok();
         let media = self.get(&format!("{path}?alt=media"));
-        assert_eq!(media.status, 200);
+        media.expect(200);
         (metadata, media.body)
     }
 
@@ -125,7 +117,7 @@ impl Server {
 impl Reply {
     /// A missing media object is an HTML document naming the object, not a JSON error.
     fn missing_media(&self, name: &str) {
-        assert_eq!(self.status, 404, "{}", String::from_utf8_lossy(&self.body));
+        self.expect(404);
         assert_eq!(self.headers["content-type"], "text/html; charset=UTF-8");
         assert_eq!(
             self.body,
@@ -133,7 +125,7 @@ impl Reply {
         );
     }
 
-    fn error(&self, status: u16) -> Value {
+    fn json_fields_error(&self, status: u16) -> Value {
         assert_eq!(
             self.status,
             status,
@@ -162,7 +154,7 @@ impl Reply {
     }
 
     fn condition_failed(&self) {
-        let error = self.error(412);
+        let error = self.json_fields_error(412);
         assert_eq!(error["error"]["errors"][0]["reason"], "conditionNotMet");
     }
 }
@@ -186,11 +178,11 @@ fn object_condition_matrix(condition: &str, field: &str, not_match: bool) {
                 reply.condition_failed();
                 assert_eq!(server.snapshot(&name), before, "{method} {condition}");
             } else if method == "DELETE" {
-                assert_eq!(reply.status, 204, "{method} {condition}");
+                reply.expect(204);
                 assert!(reply.body.is_empty());
                 server
                     .get(&format!("/storage/v1/b/test-bucket/o/{name}"))
-                    .error(404);
+                    .json_fields_error(404);
                 server
                     .get(&format!("/storage/v1/b/test-bucket/o/{name}?alt=media"))
                     .missing_media(&name);
@@ -311,16 +303,16 @@ fn bucket_condition_matrix(not_match: bool) {
             if !passes {
                 if not_match && method == "PATCH" {
                     // Observed on Cloud Storage: an empty 304 even with writable settings.
-                    assert_eq!(reply.status, 304);
+                    reply.expect(304);
                     assert!(reply.body.is_empty());
                 } else {
                     reply.condition_failed();
                 }
                 assert_eq!(server.get(&path).json_ok(), before, "{method} {condition}");
             } else if method == "DELETE" {
-                assert_eq!(reply.status, 204);
+                reply.expect(204);
                 assert!(reply.body.is_empty());
-                server.get(&path).error(404);
+                server.get(&path).json_fields_error(404);
             } else {
                 let after = common::without_acl(reply.json_ok());
                 assert_eq!(server.get(&path).json_ok(), after);
@@ -424,7 +416,7 @@ fn basic_contract_single_request_resumable_checksums_validate_stored_bytes() {
             "Content-Type: application/json\r\nX-Upload-Content-Type: application/octet-stream\r\n",
             b"{}",
         );
-        assert_eq!(initiation.status, 200);
+        initiation.expect(200);
         let path = initiation.headers["location"]
             .strip_prefix(&format!("http://{}", server.address))
             .unwrap();
@@ -566,7 +558,9 @@ fn basic_contract_json_errors_keep_complete_envelopes_with_fields_selection() {
             400,
         ),
     ] {
-        let expected = server.request(method, &path, headers, body).error(status);
+        let expected = server
+            .request(method, &path, headers, body)
+            .json_fields_error(status);
         for selector in ["name", "*"] {
             let separator = if path.contains('?') { '&' } else { '?' };
             let selected = server
@@ -576,7 +570,7 @@ fn basic_contract_json_errors_keep_complete_envelopes_with_fields_selection() {
                     headers,
                     body,
                 )
-                .error(status);
+                .json_fields_error(status);
             assert_eq!(selected, expected, "{method} {path} fields={selector}");
         }
     }
@@ -588,11 +582,13 @@ fn basic_contract_json_errors_keep_complete_envelopes_with_fields_selection() {
 #[test]
 fn basic_contract_strict_denials_keep_complete_json_envelopes_with_fields_selection() {
     let dir = TestDir::new();
-    let identities = dir.0.join("identities.json");
-    std::fs::write(&identities, json!({"identities":[
-        {"id":"admin@example.invalid","tokens":["admin-token"],"project_roles":{"local":["roles/storage.admin"]}},
-        {"id":"denied@example.invalid","tokens":["denied-token"]}
-    ]}).to_string()).unwrap();
+    let identities = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
+            {"id":"admin@example.invalid","tokens":["admin-token"],"project_roles":{"local":["roles/storage.admin"]}},
+            {"id":"denied@example.invalid","tokens":["denied-token"]}
+        ]})),
+    );
     let mut server = Server::start(
         &dir,
         &[
@@ -621,11 +617,13 @@ fn basic_contract_strict_denials_keep_complete_json_envelopes_with_fields_select
             ("Authorization: Bearer invalid-token\r\n", 401),
             ("Authorization: Bearer denied-token\r\n", 403),
         ] {
-            let expected = server.request("GET", path, headers, b"").error(status);
+            let expected = server
+                .request("GET", path, headers, b"")
+                .json_fields_error(status);
             for selector in ["name", "*"] {
                 let selected = server
                     .request("GET", &format!("{path}?fields={selector}"), headers, b"")
-                    .error(status);
+                    .json_fields_error(status);
                 assert_eq!(selected, expected);
             }
         }

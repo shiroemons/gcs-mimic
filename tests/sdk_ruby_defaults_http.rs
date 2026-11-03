@@ -52,12 +52,9 @@ fn ruby_default_create_bucket() {
                     .as_bytes(),
             )
             .json_reason(400, "invalid");
-        assert_eq!(
-            server
-                .request("GET", "/storage/v1/b/unsupported-autoclass", "", b"")
-                .status,
-            404
-        );
+        server
+            .request("GET", "/storage/v1/b/unsupported-autoclass", "", b"")
+            .expect(404);
     }
 }
 
@@ -73,7 +70,7 @@ fn ruby_default_create_file_content_type() {
             header,
             b"{}",
         );
-        assert_eq!(initiated.status, 200, "{:?}", initiated.body);
+        initiated.expect(200);
         let uri: hyper::Uri = initiated.headers["location"].parse().unwrap();
         let object = server
             .request(
@@ -106,8 +103,8 @@ fn ruby_default_create_file_content_type() {
         "X-Upload-Content-Type: invalid\r\n",
         b"{}",
     );
-    assert_eq!(invalid.status, 400);
-    assert_eq!(server.get("invalid").status, 404);
+    invalid.expect(400);
+    server.get("invalid").expect(404);
 }
 
 #[test]
@@ -138,7 +135,7 @@ fn ruby_default_compose() {
             br#"{"sourceObjects":[{"name":"source"}],"deleteSourceObjects":true}"#,
         )
         .json_ok();
-    assert_eq!(server.get("source").status, 404);
+    server.get("source").expect(404);
     server.request("POST", path, "Authorization: Bearer admin\r\n",
         br#"{"sourceObjects":[{"name":"composed"}],"destination":{"acl":[]},"deleteSourceObjects":null}"#).json_reason(400, "badRequest");
     assert_eq!(server.get("composed").json_ok()["size"], "3");

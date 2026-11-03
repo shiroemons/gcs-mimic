@@ -19,13 +19,6 @@ impl TestDir {
     }
 }
 
-/// Length of a file that another handle may still be writing. Windows directory
-/// listings report a stale size for open files, so stat the path itself; a file
-/// removed since the listing counts as empty.
-pub(crate) fn live_len(path: &Path) -> u64 {
-    std::fs::metadata(path).map_or(0, |metadata| metadata.len())
-}
-
 /// Blocking catalog threads can close their files just after a test returns, and
 /// Windows refuses to delete open files (os error 32) until then. A handle that
 /// stays open past the retries still fails cleanup.

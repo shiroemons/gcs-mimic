@@ -146,22 +146,10 @@ fn abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart() {
         assert_eq!(server.get("composed?alt=media").body, payload.repeat(2));
         let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
         for table in ["derived_transfers", "rewrite_sessions"] {
-            assert_eq!(
-                connection
-                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
-                        .get::<_, i64>(0))
-                    .unwrap(),
-                128
-            );
+            assert_eq!(common::catalog::count(&connection, table), 128);
         }
         assert_eq!(
-            connection
-                .query_row(
-                    "SELECT count(*) FROM derived_transfers WHERE ephemeral = 1",
-                    [],
-                    |row| row.get::<_, i64>(0)
-                )
-                .unwrap(),
+            common::catalog::count(&connection, "derived_transfers WHERE ephemeral = 1"),
             0
         );
         assert_eq!(common::server::staging_count(&dir), 256);
@@ -281,12 +269,9 @@ fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
                 server.put("source", b"replacement").json_ok();
             }
             "delete" => {
-                assert_eq!(
-                    server
-                        .request("DELETE", "/storage/v1/b/test-bucket/o/source", ADMIN, b"")
-                        .status,
-                    204
-                );
+                server
+                    .request("DELETE", "/storage/v1/b/test-bucket/o/source", ADMIN, b"")
+                    .expect(204);
             }
             _ => {
                 server
@@ -318,13 +303,7 @@ fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
             .json_reason(410, "gone");
         let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
         for table in ["rewrite_sessions", "derived_transfers", "derived_inputs"] {
-            assert_eq!(
-                connection
-                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
-                        .get::<_, i64>(0))
-                    .unwrap(),
-                0
-            );
+            assert_eq!(common::catalog::count(&connection, table), 0);
         }
         assert_eq!(common::server::staging_count(&dir), 0);
     }
@@ -477,13 +456,7 @@ fn rewrite_expired_token_and_restart_cleanup_preserve_live_destination() {
     assert_eq!(server.get("destination").json_ok(), previous);
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     for table in ["rewrite_sessions", "derived_transfers", "derived_inputs"] {
-        assert_eq!(
-            connection
-                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            0
-        );
+        assert_eq!(common::catalog::count(&connection, table), 0);
     }
     assert_eq!(common::server::staging_count(&dir), 0);
 }
@@ -507,12 +480,7 @@ fn rewrite_continuation_rechecks_strict_grants_and_destination_conditions() {
     assert_eq!(server.get("destination?alt=media").body, b"concurrent");
     let db = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     assert_eq!(
-        db.query_row(
-            "SELECT count(*) FROM objects WHERE name='destination'",
-            [],
-            |row| row.get::<_, i64>(0)
-        )
-        .unwrap(),
+        common::catalog::count(&db, "objects WHERE name='destination'"),
         1
     );
 }
@@ -768,11 +736,10 @@ fn rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart() {
         assert_eq!(server.get("destination").json_ok(), previous);
         assert_eq!(server.get("destination?alt=media").body, b"previous");
         assert_eq!(
-            rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
-                .unwrap()
-                .query_row("SELECT count(*) FROM rewrite_sessions", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
+            common::catalog::count(
+                &rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap(),
+                "rewrite_sessions"
+            ),
             0
         );
     }
@@ -788,24 +755,18 @@ fn rewrite_completion_replay_rejects_recreated_buckets() {
         true
     );
     for name in ["source", "destination"] {
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("/storage/v1/b/test-bucket/o/{name}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
-    }
-    assert_eq!(
         server
-            .request("DELETE", "/storage/v1/b/test-bucket", ADMIN, b"")
-            .status,
-        204
-    );
+            .request(
+                "DELETE",
+                &format!("/storage/v1/b/test-bucket/o/{name}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
+    }
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket", ADMIN, b"")
+        .expect(204);
     server.bucket();
     server.put("source", b"new bucket incarnation").json_ok();
     server
@@ -821,18 +782,12 @@ fn rewrite_progress_replay_reclaims_state_after_bucket_recreation() {
     let replay_path = continue_path(first["rewriteToken"].as_str().unwrap());
     let second = server.request("POST", &replay_path, ADMIN, b"").json_ok();
     assert_eq!(second["done"], false);
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket/o/source", ADMIN, b"")
-            .status,
-        204
-    );
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket", ADMIN, b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket/o/source", ADMIN, b"")
+        .expect(204);
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket", ADMIN, b"")
+        .expect(204);
     server.bucket();
     server
         .request("POST", &replay_path, ADMIN, b"")
@@ -847,13 +802,7 @@ fn rewrite_progress_replay_reclaims_state_after_bucket_recreation() {
     }
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     for table in ["rewrite_sessions", "derived_transfers", "derived_inputs"] {
-        assert_eq!(
-            connection
-                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            0
-        );
+        assert_eq!(common::catalog::count(&connection, table), 0);
     }
     assert_eq!(common::server::staging_count(&dir), 0);
     server.get("destination").json_reason(404, "notFound");
@@ -960,13 +909,7 @@ fn rewrite_expired_completed_session_never_journals_the_live_blob_on_restart() {
     assert_eq!(server.get("destination?alt=media").body, payload);
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     for table in ["rewrite_sessions", "pending_blob_deletions"] {
-        assert_eq!(
-            connection
-                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            0
-        );
+        assert_eq!(common::catalog::count(&connection, table), 0);
     }
 }
 
@@ -985,23 +928,14 @@ fn rewrite_completed_cache_evicts_without_rejecting_new_rewrites() {
         );
     }
     assert_eq!(
-        connection
-            .query_row(
-                "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL",
-                [],
-                |row| row.get::<_, i64>(0)
-            )
-            .unwrap(),
+        common::catalog::count(&connection, "rewrite_sessions WHERE transfer_id IS NULL"),
         128
     );
     assert_eq!(
-        connection
-            .query_row(
-                "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
-                [],
-                |row| row.get::<_, i64>(0)
-            )
-            .unwrap(),
+        common::catalog::count(
+            &connection,
+            "rewrite_sessions WHERE transfer_id IS NOT NULL"
+        ),
         0
     );
     server
@@ -1040,23 +974,14 @@ fn rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success() 
     let complete = worker.join().unwrap().json_ok();
     assert_eq!(complete["done"], true);
     assert_eq!(
-        connection
-            .query_row(
-                "SELECT count(*) FROM objects WHERE name='destination'",
-                [],
-                |row| row.get::<_, i64>(0)
-            )
-            .unwrap(),
+        common::catalog::count(&connection, "objects WHERE name='destination'"),
         1
     );
     assert_eq!(
-        connection
-            .query_row(
-                "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
-                [],
-                |row| row.get::<_, i64>(0)
-            )
-            .unwrap(),
+        common::catalog::count(
+            &connection,
+            "rewrite_sessions WHERE transfer_id IS NOT NULL"
+        ),
         0
     );
     server.stop();
@@ -1125,11 +1050,10 @@ fn rewrite_revoked_overwrite_delete_permission_preserves_destination_and_release
         .request("POST", &path, viewer, b"")
         .json_reason(410, "gone");
     assert_eq!(
-        rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
-            .unwrap()
-            .query_row("SELECT count(*) FROM rewrite_sessions", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
+        common::catalog::count(
+            &rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap(),
+            "rewrite_sessions"
+        ),
         0
     );
 }

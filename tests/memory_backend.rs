@@ -181,11 +181,13 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
     let dir = common::TestDir::new();
     let data = dir.0.join("persistent-data");
     fs::write(&data, b"untouched existing data").unwrap();
-    let identities = dir.0.join("identities.json");
-    fs::write(&identities, json!({"identities":[
-        {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
-        {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local":["roles/storage.objectViewer"]}}
-    ]}).to_string()).unwrap();
+    let identities = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
+            {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
+            {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local":["roles/storage.objectViewer"]}}
+        ]})),
+    );
     let mut server = Server::start(
         &data,
         &[
@@ -247,7 +249,7 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
         &format!("{AUTH}Range: bytes=1-3\r\n"),
         b"",
     );
-    assert_eq!(range.status, 206);
+    range.expect(206);
     assert_eq!(range.body, b"ew ");
     let listed = server
         .request(
@@ -265,12 +267,9 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
         server.request("GET", OBJECT, AUTH, b"").json_ok()["metadata"]["ram"],
         "yes"
     );
-    assert_eq!(
-        server
-            .request("PUT", "/test-bucket/xml-object", AUTH, b"XML bytes")
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/test-bucket/xml-object", AUTH, b"XML bytes")
+        .expect(200);
     assert_eq!(
         server
             .request("GET", "/test-bucket/xml-object", AUTH, b"")
@@ -314,11 +313,13 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
 fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tokens() {
     let dir = common::TestDir::new();
     let data = dir.0.join("not-created");
-    let identities = dir.0.join("identities.json");
-    fs::write(&identities, json!({"identities":[
-        {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
-        {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local":["roles/storage.objectViewer"]}}
-    ]}).to_string()).unwrap();
+    let identities = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
+            {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
+            {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local":["roles/storage.objectViewer"]}}
+        ]})),
+    );
     let mut server = Server::start(
         &data,
         &[
@@ -417,17 +418,14 @@ fn memory_derived_wire_shares_strict_permissions_history_compose_and_rewrite_tok
             .body,
         body
     );
-    assert_eq!(
-        server
-            .request(
-                "PUT",
-                "/test-bucket/xml-copy",
-                &format!("{AUTH}x-goog-copy-source: /test-bucket/copy\r\n"),
-                b""
-            )
-            .status,
-        200
-    );
+    server
+        .request(
+            "PUT",
+            "/test-bucket/xml-copy",
+            &format!("{AUTH}x-goog-copy-source: /test-bucket/copy\r\n"),
+            b"",
+        )
+        .expect(200);
     assert_eq!(
         server
             .request("GET", "/test-bucket/xml-copy", AUTH, b"")
@@ -543,12 +541,7 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
         );
     }
     let parts = server.request("POST", "/test-bucket/value?uploads", "", b"");
-    assert_eq!(
-        parts.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&parts.body)
-    );
+    parts.expect(200);
     let parts_xml = String::from_utf8(parts.body).unwrap();
     let upload_id = parts_xml
         .split_once("<UploadId>")
@@ -557,33 +550,27 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
         .split_once("</UploadId>")
         .unwrap()
         .0;
-    assert_eq!(
-        server
-            .request(
-                "PUT",
-                &format!("/test-bucket/value?uploadId={upload_id}&partNumber=1"),
-                "",
-                b"full"
-            )
-            .status,
-        503
-    );
+    server
+        .request(
+            "PUT",
+            &format!("/test-bucket/value?uploadId={upload_id}&partNumber=1"),
+            "",
+            b"full",
+        )
+        .expect(503);
     assert_eq!(
         server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         first["generation"]
     );
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("/test-bucket/value?uploadId={upload_id}"),
-                "",
-                b""
-            )
-            .status,
-        204
-    );
-    assert_eq!(server.request("DELETE", OBJECT, AUTH, b"").status, 204);
+    server
+        .request(
+            "DELETE",
+            &format!("/test-bucket/value?uploadId={upload_id}"),
+            "",
+            b"",
+        )
+        .expect(204);
+    server.request("DELETE", OBJECT, AUTH, b"").expect(204);
     let mut stream = TcpStream::connect(&server.address).unwrap();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=value HTTP/1.1\r\nHost: localhost\r\nContent-Length: 8\r\n\r\ntail").unwrap();
     drop(stream);
@@ -599,7 +586,7 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
         if response.status == 200 {
             break;
         }
-        assert_eq!(response.status, 503);
+        response.expect(503);
         assert!(std::time::Instant::now() < deadline);
         std::thread::yield_now();
     }
@@ -613,11 +600,13 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
 fn memory_soft_delete_restore_uses_shared_wire_conditions_and_permissions() {
     let dir = common::TestDir::new();
     let data = dir.0.join("never-created");
-    let identities = dir.0.join("identities.json");
-    fs::write(&identities, json!({"identities":[
-        {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
-        {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local":["roles/storage.objectViewer"]}}
-    ]}).to_string()).unwrap();
+    let identities = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
+            {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
+            {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local":["roles/storage.objectViewer"]}}
+        ]})),
+    );
     let mut server = Server::start(
         &data,
         &[
@@ -631,7 +620,7 @@ fn memory_soft_delete_restore_uses_shared_wire_conditions_and_permissions() {
     let first = server.put(b"retained body").json_ok();
     let original_generation = first["generation"].as_str().unwrap();
     let selected = format!("{OBJECT}?generation={original_generation}");
-    assert_eq!(server.request("DELETE", &selected, AUTH, b"").status, 204);
+    server.request("DELETE", &selected, AUTH, b"").expect(204);
     let deleted = server
         .request("GET", &format!("{selected}&softDeleted=true"), AUTH, b"")
         .json_ok();
@@ -721,10 +710,12 @@ fn memory_soft_delete_restore_uses_shared_wire_conditions_and_permissions() {
 fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isolation() {
     let dir = common::TestDir::new();
     let data = dir.0.join("resumable-not-created");
-    let identities = dir.0.join("identities.json");
-    fs::write(&identities, json!({"identities":[
-        {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}}
-    ]}).to_string()).unwrap();
+    let identities = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
+            {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}}
+        ]})),
+    );
     let options = [
         "--auth-mode",
         "strict",
@@ -735,12 +726,7 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
     server.bucket(true);
     let original = server.put(b"old bytes").json_ok();
     let path = |reply: &Reply| {
-        assert_eq!(
-            reply.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&reply.body)
-        );
+        reply.expect(200);
         let uri: hyper::Uri = reply.headers["location"].parse().unwrap();
         uri.path_and_query().unwrap().as_str().to_owned()
     };
@@ -753,7 +739,7 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
         "Content-Range: bytes 0-262143/*\r\nX-GUploader-No-308: yes\r\n",
         &prefix,
     );
-    assert_eq!(first.status, 200);
+    first.expect(200);
     assert_eq!(first.headers["x-http-status-code-override"], "308");
     assert_eq!(first.headers["range"], "bytes=0-262143");
     assert_eq!(
@@ -761,7 +747,7 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
         original["generation"]
     );
     let status = server.request("PUT", &session, "Content-Range: bytes */*\r\n", b"");
-    assert_eq!(status.status, 308);
+    status.expect(308);
     assert_eq!(status.headers["range"], first.headers["range"]);
     let replay = server.request(
         "PUT",
@@ -769,19 +755,16 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
         "Content-Range: bytes 0-262143/*\r\n",
         &vec![b'x'; prefix.len()],
     );
-    assert_eq!(replay.status, 308);
+    replay.expect(308);
     assert_eq!(replay.headers["range"], first.headers["range"]);
-    assert_eq!(
-        server
-            .request(
-                "PUT",
-                &session,
-                "Content-Range: bytes 262145-262148/*\r\n",
-                b"gap!"
-            )
-            .status,
-        400
-    );
+    server
+        .request(
+            "PUT",
+            &session,
+            "Content-Range: bytes 262145-262148/*\r\n",
+            b"gap!",
+        )
+        .expect(400);
     let mut expected = prefix;
     expected.extend_from_slice(b"tailRAM!");
     let reference = server
@@ -841,44 +824,32 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
         AUTH,
         b"",
     ));
-    assert_eq!(
-        server
-            .request("PUT", &invalid, "X-Goog-Hash: crc32c=AAAAAA==\r\n", b"bad")
-            .status,
-        400
-    );
+    server
+        .request("PUT", &invalid, "X-Goog-Hash: crc32c=AAAAAA==\r\n", b"bad")
+        .expect(400);
     assert_eq!(
         server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         completed["generation"]
     );
-    assert_eq!(
-        server
-            .request("PUT", &invalid, "Content-Range: bytes */*\r\n", b"")
-            .status,
-        410
-    );
+    server
+        .request("PUT", &invalid, "Content-Range: bytes */*\r\n", b"")
+        .expect(410);
     let cancelled = path(&server.request(
         "POST",
         "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=cancelled",
         AUTH,
         b"",
     ));
-    assert_eq!(server.request("DELETE", &cancelled, "", b"").status, 499);
-    assert_eq!(
-        server
-            .request("PUT", &cancelled, "Content-Range: bytes */*\r\n", b"")
-            .status,
-        499
-    );
+    server.request("DELETE", &cancelled, "", b"").expect(499);
+    server
+        .request("PUT", &cancelled, "Content-Range: bytes */*\r\n", b"")
+        .expect(499);
     assert!(!data.exists());
     server.stop();
     let mut restarted = Server::start(&data, &options);
-    assert_eq!(
-        restarted
-            .request("PUT", &session, "Content-Range: bytes */*\r\n", b"")
-            .status,
-        404
-    );
+    restarted
+        .request("PUT", &session, "Content-Range: bytes */*\r\n", b"")
+        .expect(404);
     restarted.stop();
     assert!(!data.exists());
 }
@@ -887,10 +858,12 @@ fn memory_resumable_wire_keeps_capability_ranges_hashes_replay_and_restart_isola
 fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_paths() {
     let dir = common::TestDir::new();
     let data = dir.0.join("multipart-not-created");
-    let identities = dir.0.join("identities.json");
-    fs::write(&identities, json!({"identities":[
-        {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}}
-    ]}).to_string()).unwrap();
+    let identities = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
+            {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}}
+        ]})),
+    );
     let mut server = Server::start(
         &data,
         &[
@@ -909,12 +882,7 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
             &format!("{AUTH}x-goog-meta-kind: ram-multipart\r\n"),
             b"",
         );
-        assert_eq!(
-            reply.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&reply.body)
-        );
+        reply.expect(200);
         let body = String::from_utf8(reply.body).unwrap();
         body.split_once("<UploadId>")
             .unwrap()
@@ -926,60 +894,49 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
     };
     let id = begin();
     let target = format!("/test-bucket/value?uploadId={id}");
-    assert_eq!(server.request("GET", &target, "", b"").status, 401);
+    server.request("GET", &target, "", b"").expect(401);
     let large = vec![b'a'; 5 * 1024 * 1024];
     let first = server.request("PUT", &format!("{target}&partNumber=1"), AUTH, &large);
-    assert_eq!(first.status, 200);
+    first.expect(200);
     let old_etag = first.headers["etag"].clone();
-    assert_eq!(
-        server
-            .request(
-                "PUT",
-                &format!("{target}&partNumber=1"),
-                &format!("{AUTH}Content-MD5: 1B2M2Y8AsgTpgAmY7PhCfg==\r\n"),
-                b"wrong"
-            )
-            .status,
-        400
-    );
+    server
+        .request(
+            "PUT",
+            &format!("{target}&partNumber=1"),
+            &format!("{AUTH}Content-MD5: 1B2M2Y8AsgTpgAmY7PhCfg==\r\n"),
+            b"wrong",
+        )
+        .expect(400);
     let mut expected = vec![b'b'; large.len()];
     let replaced = server.request("PUT", &format!("{target}&partNumber=1"), AUTH, &expected);
-    assert_eq!(replaced.status, 200);
+    replaced.expect(200);
     let etag = replaced.headers["etag"].clone();
     assert_ne!(etag, old_etag);
     let tail = server.request("PUT", &format!("{target}&partNumber=7"), AUTH, b"tail");
-    assert_eq!(tail.status, 200);
+    tail.expect(200);
     let tail_etag = &tail.headers["etag"];
     let parts = server.request("GET", &format!("{target}&max-parts=1"), AUTH, b"");
-    assert_eq!(parts.status, 200);
+    parts.expect(200);
     let parts = String::from_utf8(parts.body).unwrap();
     assert!(parts.contains("<IsTruncated>true</IsTruncated>"));
     assert!(parts.contains("<NextPartNumberMarker>1</NextPartNumberMarker>"));
     let uploads = server.request("GET", "/test-bucket?uploads", AUTH, b"");
-    assert_eq!(uploads.status, 200);
+    uploads.expect(200);
     assert!(String::from_utf8(uploads.body).unwrap().contains(&id));
     let manifest = |first: &str| {
         format!(
             "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>{first}</ETag></Part><Part><PartNumber>7</PartNumber><ETag>{tail_etag}</ETag></Part></CompleteMultipartUpload>"
         )
     };
-    assert_eq!(
-        server
-            .request("POST", &target, AUTH, manifest(&old_etag).as_bytes())
-            .status,
-        400
-    );
+    server
+        .request("POST", &target, AUTH, manifest(&old_etag).as_bytes())
+        .expect(400);
     assert_eq!(
         server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         original["generation"]
     );
     let completed = server.request("POST", &target, AUTH, manifest(&etag).as_bytes());
-    assert_eq!(
-        completed.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&completed.body)
-    );
+    completed.expect(200);
     let metadata = server.request("GET", OBJECT, AUTH, b"").json_ok();
     assert!(metadata.get("md5Hash").is_none());
     assert!(metadata.get("componentCount").is_none());
@@ -1005,12 +962,9 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
             .body,
         b"old bytes"
     );
-    assert_eq!(
-        server
-            .request("POST", &target, AUTH, manifest(&etag).as_bytes())
-            .status,
-        404
-    );
+    server
+        .request("POST", &target, AUTH, manifest(&etag).as_bytes())
+        .expect(404);
     assert_eq!(
         server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         metadata["generation"]
@@ -1027,14 +981,11 @@ fn memory_xml_multipart_wire_replaces_parts_completes_and_cleans_without_disk_pa
     assert_eq!(copied["crc32c"], metadata["crc32c"]);
     let cancelled = begin();
     let cancelled = format!("/test-bucket/value?uploadId={cancelled}");
-    assert_eq!(
-        server
-            .request("PUT", &format!("{cancelled}&partNumber=1"), AUTH, b"unused")
-            .status,
-        200
-    );
-    assert_eq!(server.request("DELETE", &cancelled, AUTH, b"").status, 204);
-    assert_eq!(server.request("GET", &cancelled, AUTH, b"").status, 404);
+    server
+        .request("PUT", &format!("{cancelled}&partNumber=1"), AUTH, b"unused")
+        .expect(200);
+    server.request("DELETE", &cancelled, AUTH, b"").expect(204);
+    server.request("GET", &cancelled, AUTH, b"").expect(404);
     assert_eq!(
         server.request("GET", OBJECT, AUTH, b"").json_ok()["generation"],
         metadata["generation"]
@@ -1079,19 +1030,10 @@ fn memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exh
     let data = dir.0.join("never-created");
     let mut server = Server::start_with(&data, &SMALL_BUDGET, SoftDeleteEnv::Unset);
     server.bucket(false);
-    for round in 0..8 {
+    for _ in 0..8 {
         let put = server.put(b"body");
-        assert_eq!(
-            put.status,
-            200,
-            "round {round}: {}",
-            String::from_utf8_lossy(&put.body)
-        );
-        assert_eq!(
-            server.request("DELETE", OBJECT, AUTH, b"").status,
-            204,
-            "round {round}"
-        );
+        put.expect(200);
+        server.request("DELETE", OBJECT, AUTH, b"").expect(204);
     }
     let bucket = server
         .request("GET", "/storage/v1/b/test-bucket", AUTH, b"")
@@ -1125,8 +1067,8 @@ fn memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_nam
             exhausted = Some(put);
             break;
         }
-        assert_eq!(put.status, 200, "{}", String::from_utf8_lossy(&put.body));
-        assert_eq!(server.request("DELETE", OBJECT, AUTH, b"").status, 204);
+        put.expect(200);
+        server.request("DELETE", OBJECT, AUTH, b"").expect(204);
     }
     let exhausted = exhausted.expect("retained soft-deleted data must exhaust the small budget");
     exhausted.json_reason(503, "backendError");

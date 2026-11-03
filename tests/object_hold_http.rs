@@ -16,21 +16,11 @@ fn update(
     name: &str,
     value: Value,
 ) -> object_effects_support::Reply {
-    server.request(
-        method,
-        &format!("/storage/v1/b/test-bucket/o/{name}"),
-        "Authorization: Bearer admin\r\n",
-        value.to_string().as_bytes(),
-    )
+    server.update(method, name, &value)
 }
 fn resumable(server: &Server, name: &str, metadata: Value) -> String {
-    let reply = server.request(
-        "POST",
-        &format!("/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name={name}"),
-        "Authorization: Bearer admin\r\n",
-        metadata.to_string().as_bytes(),
-    );
-    assert_eq!(reply.status, 200);
+    let reply = server.resumable(name, &metadata);
+    reply.expect(200);
     let location = &reply.headers["location"];
     let index = location.find("/upload/").unwrap();
     location[index..].to_owned()
@@ -40,21 +30,14 @@ fn multipart(server: &Server, name: &str, hold: Option<bool>) -> Value {
     if let Some(hold) = hold {
         metadata["eventBasedHold"] = json!(hold);
     }
-    let body = format!(
-        "--boundary\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--boundary\r\nContent-Type: text/plain\r\n\r\nbytes\r\n--boundary--\r\n"
-    );
-    // The normal helper sends JSON Content-Type, so supply the MIME request directly.
-    use std::{
-        io::{Read, Write},
-        net::TcpStream,
-    };
-    let mut stream = TcpStream::connect(&server.address).unwrap();
-    write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer admin\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
-    let mut reply = String::new();
-    stream.read_to_string(&mut reply).unwrap();
-    let (head, body) = reply.split_once("\r\n\r\n").unwrap();
-    assert!(head.starts_with("HTTP/1.1 200"), "{reply}");
-    serde_json::from_str(body).unwrap()
+    server
+        .multipart(
+            "boundary",
+            &metadata.to_string(),
+            b"bytes",
+            "Authorization: Bearer admin\r\n",
+        )
+        .json_ok()
 }
 
 #[test]
@@ -244,17 +227,14 @@ fn event_hold_metadata_release_and_restart() {
     assert_eq!(archived["eventBasedHold"], false);
     assert!(archived.get("timeDeleted").is_some());
     assert_eq!(server.get("held").json_ok()["eventBasedHold"], true);
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("/storage/v1/b/test-bucket/o/held?generation={generation}"),
-                "",
-                b""
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            &format!("/storage/v1/b/test-bucket/o/held?generation={generation}"),
+            "",
+            b"",
+        )
+        .expect(204);
 }
 
 #[test]
@@ -291,15 +271,12 @@ fn event_hold_permissions_and_invalid_input() {
         .json_reason(403, "forbidden");
     assert_eq!(server.get("held").json_ok(), original);
     update(&server, "PUT", "held", json!({"eventBasedHold":false})).json_ok();
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                "/storage/v1/b/test-bucket/o/held",
-                "Authorization: Bearer admin\r\n",
-                b""
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            "/storage/v1/b/test-bucket/o/held",
+            "Authorization: Bearer admin\r\n",
+            b"",
+        )
+        .expect(204);
 }

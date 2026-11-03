@@ -76,10 +76,10 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
                 // Cloud Storage answers a PATCH whose ifMetagenerationNotMatch names the
                 // current value with 304 and no body (observed 2026-10-31); PUT stays 412.
                 if method == "PATCH" && condition == not_match {
-                    assert_eq!(reply.status, 304);
+                    reply.expect(304);
                     assert!(reply.body.is_empty());
                 } else {
-                    assert_eq!(reply.status, 412);
+                    reply.expect(412);
                     assert_eq!(
                         reply.json()["error"]["errors"][0]["reason"],
                         "conditionNotMet"
@@ -533,7 +533,7 @@ fn pap_signed_requests_suppress_all_authenticated_users_grants() {
                 b""
             },
         );
-        assert_eq!(reply.status, 403);
+        reply.expect(403);
         if method != Method::HEAD {
             error(&reply, 403, "AccessDenied");
         }
@@ -595,10 +595,7 @@ fn pap_signed_get_head_put_use_signer_grants_and_reject_tampering() {
                 b"hello world".as_slice()
             }
         );
-        assert_eq!(
-            send(&server, method.as_str(), &(url + "00"), "").status,
-            403
-        );
+        send(&server, method.as_str(), &(url + "00"), "").expect(403);
     }
     for (signer, path, status) in [
         ("creator@example.invalid", "/iam-bucket/signed-new", 200),
@@ -680,11 +677,11 @@ fn pap_parent_fixture_inheritance_restart_and_release() {
         "inherited"
     );
     assert_eq!(server.get(ADMIN, iam::IAM).success().json(), policy);
-    assert_eq!(server.get("", "/iam-bucket/object").status, 401);
+    server.get("", "/iam-bucket/object").expect(401);
     iam::set(&server, ADMIN, &policy).auth_error(412, "conditionNotMet");
     setting(&server, "enforced");
     setting(&server, "inherited");
-    assert_eq!(server.get("", "/iam-bucket/object").status, 401);
+    server.get("", "/iam-bucket/object").expect(401);
     let url = sign(
         &server,
         &Method::GET,

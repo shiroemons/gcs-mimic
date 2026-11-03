@@ -7,8 +7,6 @@ use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use hyper::{HeaderMap, Method, Uri};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader, Read},
     net::TcpStream,
     time::{Duration, SystemTime},
 };
@@ -23,17 +21,14 @@ const EXPOSED: &str = "Content-Type, ETag, X-Goog-Generation, X-Goog-If-Generati
 
 impl Server {
     fn start(data: &TestDir, config: &TestDir) -> Self {
-        let identities = config.0.join("identities.json");
-        std::fs::write(
-            &identities,
-            json!({"identities":[
+        let identities = common::process::write_identities(
+            &config.0,
+            &(json!({"identities":[
                 {"id":"admin@example.invalid","tokens":["admin"],"public_keys":[PUBLIC],
                  "project_roles":{"local":["roles/storage.admin"]}},
                 {"id":"denied@example.invalid","tokens":[],"public_keys":[PUBLIC]}
-            ]})
-            .to_string(),
-        )
-        .unwrap();
+            ]})),
+        );
         Self::launch(
             http_command(&data.0)
                 .args(["--api-base-url", "http://127.0.0.1:4443"])
@@ -79,7 +74,7 @@ impl Server {
             &format!("Connection: close\r\n{headers}"),
             body,
         );
-        Reply::read(stream, method == "HEAD")
+        common::http::receive(stream, method == "HEAD").into_unique_joined(&["x-goog-hash", "vary"])
     }
 
     fn json(&self, method: &str, path: &str, value: Value) -> Value {
@@ -94,7 +89,7 @@ impl Server {
             &format!("{ADMIN}Content-Type: application/json\r\n"),
             body.as_bytes(),
         );
-        reply.status(200);
+        reply.expect(200);
         serde_json::from_slice(&reply.body).unwrap()
     }
 
@@ -111,87 +106,16 @@ impl Server {
     }
 }
 
-struct Reply {
-    status: u16,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
+use common::http::Reply;
+
+trait BrowserReply {
+    fn error(&self, status: u16, code: &str, head: bool);
+    fn cors(&self, allowed: bool, preflight: bool);
 }
 
-impl Reply {
-    fn read(stream: TcpStream, head: bool) -> Self {
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        let status = line.split_whitespace().nth(1).unwrap().parse().unwrap();
-        let mut headers = BTreeMap::new();
-        loop {
-            line.clear();
-            assert_ne!(reader.read_line(&mut line).unwrap(), 0);
-            if line == "\r\n" {
-                break;
-            }
-            let (key, value) = line.trim_end().split_once(':').unwrap();
-            // XML media reads send one x-goog-hash field per algorithm and JSON responses send
-            // vary: Origin and vary: X-Origin as two fields, as Cloud Storage does.
-            if ["x-goog-hash", "vary"]
-                .iter()
-                .any(|name| key.eq_ignore_ascii_case(name))
-                && let Some(joined) = headers.get_mut(&key.to_ascii_lowercase())
-            {
-                let joined: &mut String = joined;
-                joined.push_str(", ");
-                joined.push_str(value.trim());
-                continue;
-            }
-            assert!(
-                headers
-                    .insert(key.to_ascii_lowercase(), value.trim().to_owned())
-                    .is_none()
-            );
-        }
-        let mut body = Vec::new();
-        if head {
-            reader.read_to_end(&mut body).unwrap();
-            assert!(body.is_empty());
-        } else if headers
-            .get("transfer-encoding")
-            .is_some_and(|value| value == "chunked")
-        {
-            loop {
-                line.clear();
-                reader.read_line(&mut line).unwrap();
-                let size = usize::from_str_radix(line.trim(), 16).unwrap();
-                if size == 0 {
-                    break;
-                }
-                let start = body.len();
-                body.resize(start + size, 0);
-                reader.read_exact(&mut body[start..]).unwrap();
-                let mut crlf = [0; 2];
-                reader.read_exact(&mut crlf).unwrap();
-                assert_eq!(&crlf, b"\r\n");
-            }
-        } else {
-            reader.read_to_end(&mut body).unwrap();
-        }
-        Self {
-            status,
-            headers,
-            body,
-        }
-    }
-
-    fn status(&self, expected: u16) {
-        assert_eq!(
-            self.status,
-            expected,
-            "{}",
-            String::from_utf8_lossy(&self.body)
-        );
-    }
-
+impl BrowserReply for Reply {
     fn error(&self, status: u16, code: &str, head: bool) {
-        self.status(status);
+        self.expect(status);
         if !head {
             assert!(String::from_utf8_lossy(&self.body).contains(&format!("<Code>{code}</Code>")));
         }
@@ -254,7 +178,7 @@ fn fixture() -> (TestDir, TestDir, Server) {
     let url = server.sign(false, "PUT", "object");
     server
         .request("PUT", &url, "Content-Type: text/plain\r\n", b"original")
-        .status(200);
+        .expect(200);
     (config, data, server)
 }
 
@@ -312,7 +236,7 @@ fn signed_put_preflight_ignores_signature_and_never_publishes() {
             ),
         ] {
             let reply = preflight(&server, &candidate, ORIGIN, "PUT", headers);
-            reply.status(200);
+            reply.expect(200);
             reply.cors(true, true);
             assert_eq!(
                 reply.headers["access-control-allow-headers"],
@@ -337,24 +261,24 @@ fn signed_put_preflight_ignores_signature_and_never_publishes() {
             ),
         ] {
             let reply = preflight(&server, &url, source, method, headers);
-            reply.status(200);
+            reply.expect(200);
             reply.cors(false, true);
         }
         let absent = server.request("OPTIONS", &url, &origin(ORIGIN), b"");
-        absent.status(200);
+        absent.expect(200);
         absent.cors(false, true);
         server
             .request("GET", &server.url(virtual_host, "new"), ADMIN, b"")
-            .status(404);
+            .expect(404);
         assert_eq!(server.metadata(), before);
         for _ in 0..2 {
             server
                 .request("PUT", &url, &origin(ORIGIN), b"uploaded")
-                .status(200);
+                .expect(200);
         }
         server
             .request("GET", &server.url(virtual_host, "new"), ADMIN, b"")
-            .status(200);
+            .expect(200);
         server
             .request(
                 "DELETE",
@@ -362,7 +286,7 @@ fn signed_put_preflight_ignores_signature_and_never_publishes() {
                 ADMIN,
                 b"",
             )
-            .status(204);
+            .expect(204);
     }
 }
 
@@ -385,7 +309,7 @@ fn signed_cors_selects_the_host_bucket_before_the_path_bucket() {
         let put = signed(base, "PUT", "admin", SystemTime::now(), HeaderMap::new());
         for candidate in [ORIGIN, DENIED] {
             let reply = preflight(&server, &put, candidate, "PUT", "");
-            reply.status(200);
+            reply.expect(200);
             if candidate == source {
                 assert_eq!(reply.headers["access-control-allow-origin"], source);
             } else {
@@ -393,11 +317,11 @@ fn signed_cors_selects_the_host_bucket_before_the_path_bucket() {
             }
         }
         let reply = server.request("PUT", &put, &origin(source), bytes);
-        reply.status(200);
+        reply.expect(200);
         assert_eq!(reply.headers["access-control-allow-origin"], source);
         let get = signed(base, "GET", "admin", SystemTime::now(), HeaderMap::new());
         let reply = server.request("GET", &get, &origin(source), b"");
-        reply.status(200);
+        reply.expect(200);
         assert_eq!(reply.headers["access-control-allow-origin"], source);
         assert_eq!(reply.body, bytes);
     }
@@ -409,14 +333,14 @@ fn signed_encoded_paths_keep_preflight_transfer_and_error_cors() {
     for virtual_host in [false, true] {
         let put = server.sign(virtual_host, "PUT", "folder%2Fa%20b");
         let reply = preflight(&server, &put, ORIGIN, "PUT", "");
-        reply.status(200);
+        reply.expect(200);
         reply.cors(true, true);
         let reply = server.request("PUT", &put, &origin(ORIGIN), b"encoded bytes");
-        reply.status(200);
+        reply.expect(200);
         reply.cors(true, false);
         let get = server.sign(virtual_host, "GET", "folder%2Fa%20b");
         let reply = server.request("GET", &get, &origin(ORIGIN), b"");
-        reply.status(200);
+        reply.expect(200);
         reply.cors(true, false);
         assert_eq!(reply.body, b"encoded bytes");
         assert_eq!(
@@ -439,7 +363,7 @@ fn signed_invalid_object_names_keep_error_cors_without_bypassing_validation() {
             for source in [ORIGIN, DENIED] {
                 for candidate in [&url, &server.url(virtual_host, "%ZZ")] {
                     let reply = preflight(&server, candidate, source, method, "");
-                    reply.status(200);
+                    reply.expect(200);
                     reply.cors(source == ORIGIN, true);
                 }
                 let reply = server.request(method, &url, &origin(source), b"");
@@ -505,7 +429,7 @@ fn signed_transfers_expose_bucket_headers_without_granting_credentials() {
                         b""
                     },
                 );
-                reply.status(200);
+                reply.expect(200);
                 reply.cors(source == ORIGIN, false);
                 assert!(!reply.headers["etag"].is_empty());
                 assert!(!reply.headers["x-goog-generation"].is_empty());
@@ -526,7 +450,7 @@ fn signed_transfers_expose_bucket_headers_without_granting_credentials() {
                     b""
                 },
             );
-            plain.status(200);
+            plain.expect(200);
             assert!(!plain.headers.contains_key("access-control-allow-origin"));
         }
     }
@@ -648,12 +572,12 @@ fn signed_rules_change_between_preflight_and_actual_and_survive_restart() {
         preflight(&server, &url, ORIGIN, "PUT", "").cors(true, true);
         server.rules(json!([rule(DENIED)]));
         let reply = server.request("PUT", &url, &origin(ORIGIN), b"changed after preflight");
-        reply.status(200);
+        reply.expect(200);
         reply.cors(false, false);
         server.rules(json!([]));
         let get = server.sign(virtual_host, "GET", "object");
         let reply = server.request("GET", &get, &origin(ORIGIN), b"");
-        reply.status(200);
+        reply.expect(200);
         // Without CORS configuration Cloud Storage sends no CORS fields and no Vary: Origin.
         assert!(
             reply
@@ -667,7 +591,7 @@ fn signed_rules_change_between_preflight_and_actual_and_survive_restart() {
             &format!("{ADMIN}{}", origin(ORIGIN)),
             b"",
         );
-        json.status(200);
+        json.expect(200);
         assert_eq!(json.headers["access-control-allow-origin"], ORIGIN);
         assert_eq!(json.headers["access-control-allow-credentials"], "true");
         server.rules(json!([rule(ORIGIN)]));
@@ -680,7 +604,7 @@ fn signed_rules_change_between_preflight_and_actual_and_survive_restart() {
     for virtual_host in [false, true] {
         let get = server.sign(virtual_host, "GET", "object");
         let reply = server.request("GET", &get, &origin(ORIGIN), b"");
-        reply.status(200);
+        reply.expect(200);
         reply.cors(true, false);
         assert_eq!(reply.body, b"changed after preflight");
         let put = server.sign(virtual_host, "PUT", "object");
@@ -725,7 +649,7 @@ fn signed_preflight_never_grants_permission_and_pap_preserves_signer_access() {
                 &origin(ORIGIN),
                 if method == "PUT" { b"original" } else { b"" },
             );
-            reply.status(200);
+            reply.expect(200);
             reply.cors(true, false);
         }
     }

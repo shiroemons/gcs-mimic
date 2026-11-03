@@ -45,12 +45,9 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     server.populate();
-    assert_eq!(
-        server
-            .request("POST", "/_internal/reset", "", CONFIRM)
-            .status,
-        404
-    );
+    server
+        .request("POST", "/_internal/reset", "", CONFIRM)
+        .expect(404);
     drop(server);
     let server = Server::start(&dir, &["--admin-enabled", "true"]);
     server
@@ -79,7 +76,7 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
         "",
         b"{}",
     );
-    assert_eq!(session.status, 200);
+    session.expect(200);
     let location = session.headers["location"].parse::<Uri>().unwrap();
     let prefix = server.request(
         "PUT",
@@ -87,12 +84,7 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
         "Content-Range: bytes 0-262143/524288\r\n",
         &vec![b'a'; 256 * 1024],
     );
-    assert_eq!(
-        prefix.status,
-        308,
-        "{}",
-        String::from_utf8_lossy(&prefix.body)
-    );
+    prefix.expect(308);
     for (method, path, body, status) in [
         ("GET", "/_internal/reset", b"".as_slice(), 405),
         ("POST", "/_internal/reset?confirm=gcs-mimic", CONFIRM, 400),
@@ -121,24 +113,21 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
         json!({"buckets":1, "objects":2, "cleanupPending":false})
     );
     assert_eq!(common::server::staging_count(&dir), 0);
-    assert_eq!(server.request("GET", OBJECT, "", b"").status, 404);
+    server.request("GET", OBJECT, "", b"").expect(404);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b?project=local", "", b"")
             .json_ok(),
         json!({"kind":"storage#buckets"})
     );
-    assert_eq!(
-        server
-            .request(
-                "PUT",
-                location.path_and_query().unwrap().as_str(),
-                "Content-Range: bytes */*\r\n",
-                b""
-            )
-            .status,
-        404
-    );
+    server
+        .request(
+            "PUT",
+            location.path_and_query().unwrap().as_str(),
+            "Content-Range: bytes */*\r\n",
+            b"",
+        )
+        .expect(404);
     server.populate();
     let fresh = server.request("GET", OBJECT, "", b"").json_ok();
     assert!(
@@ -155,26 +144,23 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
             .json_ok()["etag"],
         policy["etag"]
     );
-    assert_eq!(
-        server
-            .request(
-                "GET",
-                &format!(
-                    "{OBJECT}?generation={}",
-                    old["generation"].as_str().unwrap()
-                ),
-                "",
-                b""
-            )
-            .status,
-        404
-    );
+    server
+        .request(
+            "GET",
+            &format!(
+                "{OBJECT}?generation={}",
+                old["generation"].as_str().unwrap()
+            ),
+            "",
+            b"",
+        )
+        .expect(404);
     server
         .request("POST", "/_internal/reset", "", CONFIRM)
         .json_ok();
     drop(server);
     let server = Server::start(&dir, &["--admin-enabled", "true"]);
-    assert_eq!(server.request("GET", OBJECT, "", b"").status, 404);
+    server.request("GET", OBJECT, "", b"").expect(404);
 }
 
 #[test]
@@ -195,7 +181,7 @@ fn reset_rejects_active_upload_without_changing_existing_bytes() {
     reader.read_line(&mut line).unwrap();
     assert_eq!(line, "\r\n");
     let busy = server.request("POST", "/_internal/reset", "", CONFIRM);
-    assert_eq!(busy.status, 503);
+    busy.expect(503);
     assert_eq!(busy.headers["retry-after"], "1");
     assert_eq!(
         server
@@ -210,17 +196,19 @@ fn reset_rejects_active_upload_without_changing_existing_bytes() {
     server
         .request("POST", "/_internal/reset", "", CONFIRM)
         .json_ok();
-    assert_eq!(server.request("GET", OBJECT, "", b"").status, 404);
+    server.request("GET", OBJECT, "", b"").expect(404);
 }
 
 #[test]
 fn reset_uses_the_local_manager_and_refuses_active_directory_sync() {
     let dir = TestDir::new();
-    let registry = dir.0.join("identities.json");
-    std::fs::write(&registry, json!({"identities":[
-        {"id":"manager@example.invalid", "tokens":["manager"], "project_roles":{}},
-        {"id":"cloud-admin@example.invalid", "tokens":["cloud-admin"], "project_roles":{"local":["roles/storage.admin"]}}
-    ]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
+            {"id":"manager@example.invalid", "tokens":["manager"], "project_roles":{}},
+            {"id":"cloud-admin@example.invalid", "tokens":["cloud-admin"], "project_roles":{"local":["roles/storage.admin"]}}
+        ]})),
+    );
     let server = Server::start(
         &dir,
         &[
@@ -254,17 +242,14 @@ fn reset_uses_the_local_manager_and_refuses_active_directory_sync() {
             status
         );
     }
-    assert_eq!(
-        server
-            .request(
-                "GET",
-                "/storage/v1/b/test-bucket",
-                "Authorization: Bearer cloud-admin\r\n",
-                b""
-            )
-            .status,
-        200
-    );
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/test-bucket",
+            "Authorization: Bearer cloud-admin\r\n",
+            b"",
+        )
+        .expect(200);
     server
         .request(
             "POST",
@@ -289,12 +274,9 @@ fn reset_uses_the_local_manager_and_refuses_active_directory_sync() {
             ],
         );
         server.populate();
-        assert_eq!(
-            server
-                .request("POST", "/_internal/reset", "", CONFIRM)
-                .status,
-            409
-        );
+        server
+            .request("POST", "/_internal/reset", "", CONFIRM)
+            .expect(409);
         assert_eq!(
             std::fs::read(sync.0.join("external-source.txt")).unwrap(),
             b"preserve"

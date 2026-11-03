@@ -178,7 +178,7 @@ fn signed_put_rejects_credentials_permissions_and_resource_tampering_before_body
     );
     for method in ["GET", "HEAD", "DELETE"] {
         let reply = request(&server, method, &url, "", b"");
-        assert_eq!(reply.status, 403);
+        reply.expect(403);
         if method == "HEAD" {
             assert!(reply.body.is_empty());
         } else {

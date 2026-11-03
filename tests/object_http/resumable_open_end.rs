@@ -22,8 +22,7 @@ fn session(server: &Server, name: &str, headers: &str) -> String {
 
 /// Asserts a 200 response and returns its body as JSON (empty for initiation).
 fn completed(reply: &Reply) -> Value {
-    let body = String::from_utf8_lossy(&reply.body);
-    assert_eq!(reply.status, 200, "{body}");
+    reply.expect(200);
     if reply.body.is_empty() {
         Value::Null
     } else {
@@ -64,19 +63,19 @@ fn put_prefix(server: &Server, path: &str, object: &[u8]) {
         &format!("bytes 0-{}/*", CHUNK - 1),
         &object[..CHUNK],
     );
-    assert_eq!(reply.status, 308);
+    reply.expect(308);
     assert_eq!(reply.headers["range"], format!("bytes=0-{}", CHUNK - 1));
 }
 
 fn status(server: &Server, path: &str) -> Reply {
     let reply = put(server, path, "bytes */*", b"");
-    assert_eq!(reply.status, 308);
+    reply.expect(308);
     reply
 }
 
 fn media(server: &Server, name: &str) -> Vec<u8> {
     let reply = server.get(&format!("{name}?alt=media"));
-    assert_eq!(reply.status, 200);
+    reply.expect(200);
     reply.body
 }
 
@@ -194,7 +193,7 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
             "text/plain; charset=utf-8",
             "Failed to parse Content-Range header.",
         );
-        assert_eq!(server.get("malformed").status, 404);
+        server.get("malformed").expect(404);
     }
     let path = session(&server, "rejected", "");
     put_chunked(&server, &path, "bytes 6-*/5", b"abc").plain_error(
@@ -214,7 +213,7 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
     put_chunked(&server, &path, "bytes 0-*/5", b"abcdefg").json_error(400, "badRequest");
     let probe = status(&server, &path);
     assert!(!probe.headers.contains_key("range"), "{:?}", probe.headers);
-    assert_eq!(server.get("rejected").status, 404);
+    server.get("rejected").expect(404);
     // The session stays usable after rejected requests.
     completed(&put_chunked(&server, &path, "bytes 0-*/5", b"abcde"));
     assert_eq!(media(&server, "rejected"), b"abcde");

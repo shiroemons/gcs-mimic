@@ -15,8 +15,7 @@ fn fixture() -> (TestDir, TestDir, Server) {
     for index in 0..6 {
         value["identities"][index]["public_keys"] = json!([PUBLIC]);
     }
-    let path = config.0.join("identities.json");
-    std::fs::write(&path, value.to_string()).unwrap();
+    let path = common::process::write_identities(&config.0, &(value));
     let server = Server::strict(&data, &path);
     server
         .create_bucket(ADMIN, "project-a", "iam-bucket")
@@ -79,19 +78,7 @@ fn send(server: &Server, method: &str, url: &str, headers: &str) -> Reply {
     Reply::read_joined_head(stream, method == "HEAD")
 }
 
-fn error(reply: &Reply, status: u16, code: &str) {
-    assert_eq!(
-        reply.status,
-        status,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-    assert!(
-        String::from_utf8_lossy(&reply.body).contains(&format!("<Code>{code}</Code>")),
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-}
+use crate::common::errors::xml_error as error;
 
 #[test]
 fn signed_private_get_head_range_and_bucket_grants_use_signer_permissions() {
@@ -114,7 +101,7 @@ fn signed_private_get_head_range_and_bucket_grants_use_signer_permissions() {
     whole.success();
     assert_eq!(whole.body, b"hello world");
     let range = send(&server, "GET", &url, "Range: bytes=1-4\r\n");
-    assert_eq!(range.status, 206);
+    range.expect(206);
     assert_eq!(range.body, b"ello");
     let selected = sign(
         &server,
@@ -211,7 +198,7 @@ fn signed_tampering_never_falls_back_to_public_access_and_has_xml_errors() {
     }
     for method in ["HEAD", "PUT", "DELETE"] {
         let reply = send(&server, method, &url, "x-required: one\r\n");
-        assert_eq!(reply.status, 403);
+        reply.expect(403);
         if method != "HEAD" {
             error(&reply, 403, "SignatureDoesNotMatch");
         }
@@ -394,8 +381,7 @@ fn invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit() 
     for key in ["bad PEM", std::str::from_utf8(PRIVATE).unwrap()] {
         let mut value = registry();
         value["identities"][1]["public_keys"] = json!([key]);
-        let path = config.0.join("identities.json");
-        std::fs::write(&path, value.to_string()).unwrap();
+        let path = common::process::write_identities(&config.0, &(value));
         let output = common::server_command()
             .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
             .arg(&data.0)

@@ -35,29 +35,23 @@ fn full_upload_replay_keeps_original_owner_proof_after_generation_deletion() {
             first
         );
         server.put(b"new private bytes");
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}?generation={generation}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}?generation={generation}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
         assert_eq!(
             server
                 .request("POST", path, &headers, b"original bytes")
                 .json_ok(),
             first
         );
-        assert_eq!(
-            server
-                .request("POST", path, &headers, b"changed bytes")
-                .status,
-            400
-        );
+        server
+            .request("POST", path, &headers, b"changed bytes")
+            .expect(400);
         server
             .admin(
                 "PATCH",
@@ -79,12 +73,9 @@ fn full_upload_replay_keeps_original_owner_proof_after_generation_deletion() {
         );
         let wrong = headers.replace("Bearer reader", "Bearer other");
         super::bucket::grant(&server, "user-other@example.test", "WRITER");
-        assert_eq!(
-            server
-                .request("POST", path, &wrong, b"original bytes")
-                .status,
-            400
-        );
+        server
+            .request("POST", path, &wrong, b"original bytes")
+            .expect(400);
         assert_eq!(
             server
                 .request("GET", &format!("{OBJECT}?alt=media"), ADMIN, b"")
@@ -132,7 +123,7 @@ fn upload_replay_resolves_saved_owner_id_against_current_aliases_without_rebindi
             .iter()
             .any(|entry| entry["entity"] == "user-old@example.test")
     );
-    assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
+    server.request("GET", OBJECT, OTHER, b"").expect(403);
     let saved: String = rusqlite::Connection::open(data.0.join("catalog.sqlite3"))
         .unwrap()
         .query_row("SELECT completion FROM upload_replays", [], |row| {
@@ -149,7 +140,7 @@ fn upload_replay_resolves_saved_owner_id_against_current_aliases_without_rebindi
             .iter()
             .any(|entry| entry["entity"] == "user-old@example.test")
     );
-    assert_eq!(server.request("DELETE", OBJECT, ADMIN, b"").status, 204);
+    server.request("DELETE", OBJECT, ADMIN, b"").expect(204);
     let replay = server
         .request("POST", path, &headers, b"saved owner bytes")
         .json_ok();
@@ -174,39 +165,30 @@ fn full_copy_replay_binds_destination_owner_and_current_source_authority() {
     let first = server.request("POST", &path, &headers, b"{}").json_ok();
     assert_eq!(first["owner"], json!({"entity":"user-reader@example.test"}));
     assert_eq!(first["name"], "copied");
-    assert_eq!(
-        server
-            .request("DELETE", &format!("{BUCKET}/o/copied"), ADMIN, b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", &format!("{BUCKET}/o/copied"), ADMIN, b"")
+        .expect(204);
     assert_eq!(
         server.request("POST", &path, &headers, b"{}").json_ok(),
         first
     );
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                &path.replace("/o/copied", "/o/other"),
-                &headers,
-                b"{}"
-            )
-            .status,
-        400
-    );
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
-                ADMIN,
-                b""
-            )
-            .status,
-        204
-    );
-    assert_eq!(server.request("POST", &path, &headers, b"{}").status, 403);
+    server
+        .request(
+            "POST",
+            &path.replace("/o/copied", "/o/other"),
+            &headers,
+            b"{}",
+        )
+        .expect(400);
+    server
+        .request(
+            "DELETE",
+            &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
+            ADMIN,
+            b"",
+        )
+        .expect(204);
+    server.request("POST", &path, &headers, b"{}").expect(403);
     server.grant("user-reader@example.test", "READER", generation);
     assert_eq!(
         server.request("POST", &path, &headers, b"{}").json_ok(),

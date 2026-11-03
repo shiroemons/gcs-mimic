@@ -76,20 +76,14 @@ fn live_wait_observes_source_work_beyond_the_connection_inactivity_budget() {
     let tree = TestDir::new();
     let mut server =
         SyncServer::start_with_args(&data.0, &tree.0, &["--connection-timeout-ms", "100"]);
-    assert_eq!(
-        server.request("POST", "/_internal/sync/wait", b"{}").status,
-        200
-    );
+    server
+        .request("POST", "/_internal/sync/wait", b"{}")
+        .expect(200);
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     fs::write(tree.0.join("test-bucket/body"), b"waited body").unwrap();
     let started = std::time::Instant::now();
     let waited = server.request("POST", "/_internal/sync/wait", br#"{"timeout_ms":5000}"#);
-    assert_eq!(
-        waited.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&waited.body)
-    );
+    waited.expect(200);
     assert!(waited.json_ok()["completed"].as_bool().unwrap());
     assert!(started.elapsed() >= Duration::from_millis(100));
     assert_eq!(
@@ -117,12 +111,7 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
     fs::write(tree.0.join("test-bucket/body"), b"initial").unwrap();
     let mut server = SyncServer::start(&data.0, &tree.0);
     let scanned = server.request("POST", "/_internal/sync/rescan", b"{}");
-    assert_eq!(
-        scanned.status,
-        202,
-        "{}",
-        String::from_utf8_lossy(&scanned.body)
-    );
+    scanned.expect(202);
     let status = server.request("GET", "/_internal/sync", b"").json_ok();
     assert_eq!(status["auth_mode"], "permissive");
     assert_eq!(status["state"], "Ready");
@@ -133,20 +122,12 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
         .request("GET", "/_internal/sync?limit=1", b"")
         .json_reason(400, "invalidArgument");
     let waited = server.request("POST", "/_internal/sync/wait", b"{}");
-    assert_eq!(
-        waited.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&waited.body)
-    );
+    waited.expect(200);
     assert_eq!(waited.json_ok()["completed"], true);
     fs::remove_file(tree.0.join("test-bucket/body")).unwrap();
-    assert_eq!(
-        server
-            .request("POST", "/_internal/sync/rescan", b"{}")
-            .status,
-        202
-    );
+    server
+        .request("POST", "/_internal/sync/rescan", b"{}")
+        .expect(202);
     server
         .request("GET", "/storage/v1/b/test-bucket/o/body", b"")
         .json_reason(404, "notFound");
@@ -158,12 +139,9 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
         )
         .json_reason(409, "conflict");
     fs::write(tree.0.join("test-bucket/body"), b"recreated externally").unwrap();
-    assert_eq!(
-        server
-            .request("POST", "/_internal/sync/rescan", b"{}")
-            .status,
-        202
-    );
+    server
+        .request("POST", "/_internal/sync/rescan", b"{}")
+        .expect(202);
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/test-bucket/o/body?alt=media", b"")
@@ -452,12 +430,9 @@ async fn live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_d
     })
     .await
     .unwrap();
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/empty-bucket", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/empty-bucket", b"")
+        .expect(204);
     server.stop();
     assert!(tree.0.join("empty-bucket").is_dir());
 }

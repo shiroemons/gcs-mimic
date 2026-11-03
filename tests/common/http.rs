@@ -19,6 +19,24 @@ pub(crate) struct Reply<B = Vec<u8>, H = BTreeMap<String, String>> {
 pub(crate) type TextReply = Reply<String, String>;
 
 impl Reply {
+    pub(crate) fn headers(reader: &mut impl BufRead) -> Self {
+        read_head(reader).unwrap().into_last()
+    }
+    pub(crate) fn read_body(&mut self, reader: &mut impl BufRead) {
+        let mut response = Response {
+            status: self.status,
+            headers: self
+                .headers
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            head: String::new(),
+            body: Vec::new(),
+            raw: Vec::new(),
+        };
+        read_body(reader, &mut response).unwrap();
+        self.body = response.body;
+    }
     pub(crate) fn read_joined(stream: TcpStream) -> Self {
         receive(stream, false).into_joined()
     }
@@ -93,6 +111,17 @@ impl Response {
         }
     }
 
+    pub(crate) fn into_unique_joined(self, repeatable: &[&str]) -> Reply {
+        let mut seen = std::collections::BTreeSet::new();
+        for (key, _) in &self.headers {
+            assert!(
+                seen.insert(key) || repeatable.contains(&key.as_str()),
+                "duplicate header: {key}"
+            );
+        }
+        self.into_joined()
+    }
+
     pub(crate) fn into_joined(self) -> Reply {
         let mut headers = BTreeMap::<String, String>::new();
         for (key, value) in self.headers {
@@ -132,7 +161,7 @@ fn line(reader: &mut impl BufRead, raw: &mut Vec<u8>) -> io::Result<usize> {
     Ok(start)
 }
 
-pub(crate) fn read(reader: &mut impl BufRead, head: bool) -> io::Result<Response> {
+pub(crate) fn read_head(reader: &mut impl BufRead) -> io::Result<Response> {
     let mut raw = Vec::new();
     let (status, text) = loop {
         let start = raw.len();
@@ -160,15 +189,18 @@ pub(crate) fn read(reader: &mut impl BufRead, head: bool) -> io::Result<Response
             Ok((key.to_ascii_lowercase(), value.trim().to_owned()))
         })
         .collect::<io::Result<Vec<_>>>()?;
-    let mut response = Response {
+    Ok(Response {
         status,
         headers,
         head: text,
         body: Vec::new(),
         raw,
-    };
-    if head || matches!(status, 204 | 304) {
-        return Ok(response);
+    })
+}
+
+pub(crate) fn read_body(reader: &mut impl BufRead, response: &mut Response) -> io::Result<()> {
+    if matches!(response.status, 204 | 304) {
+        return Ok(());
     }
     if response
         .header_last("transfer-encoding")
@@ -216,6 +248,14 @@ pub(crate) fn read(reader: &mut impl BufRead, head: bool) -> io::Result<Response
             }
         }
         response.raw.extend_from_slice(&response.body);
+    }
+    Ok(())
+}
+
+pub(crate) fn read(reader: &mut impl BufRead, head: bool) -> io::Result<Response> {
+    let mut response = read_head(reader)?;
+    if !head {
+        read_body(reader, &mut response)?;
     }
     Ok(response)
 }

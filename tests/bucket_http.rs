@@ -105,7 +105,7 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             "/storage/v1/b?project=project",
             &json!({"name":"lifecycle-bucket","lifecycle":rules}).to_string(),
         );
-        assert_eq!(created.status, 200, "{}", created.body);
+        created.expect(200);
         assert_eq!(created.json()["lifecycle"], rules);
         assert_eq!(server.request("GET", path, "").json()["lifecycle"], rules);
         assert_eq!(
@@ -123,7 +123,7 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             &format!("{path}?ifMetagenerationMatch=1"),
             &json!({"lifecycle":replacement}).to_string(),
         );
-        assert_eq!(patched.status, 200, "{}", patched.body);
+        patched.expect(200);
         assert_eq!(patched.json()["lifecycle"], replacement);
         assert_eq!(patched.json()["metageneration"], "2");
         server
@@ -144,7 +144,7 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             json!({"rule":[]}),
         ] {
             let cleared = server.request("PATCH", path, &json!({"lifecycle":empty}).to_string());
-            assert_eq!(cleared.status, 200, "{}", cleared.body);
+            cleared.expect(200);
             assert!(cleared.json().get("lifecycle").is_none());
             assert!(
                 server
@@ -153,18 +153,15 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
                     .get("lifecycle")
                     .is_none()
             );
-            assert_eq!(
-                server
-                    .request("PATCH", path, &json!({"lifecycle":rules}).to_string())
-                    .status,
-                200
-            );
+            server
+                .request("PATCH", path, &json!({"lifecycle":rules}).to_string())
+                .expect(200);
         }
         let put = server.request("PUT", path, &json!({"lifecycle":replacement}).to_string());
-        assert_eq!(put.status, 200, "{}", put.body);
+        put.expect(200);
         assert_eq!(put.json()["lifecycle"], replacement);
         let preserved = server.request("PUT", path, "{}");
-        assert_eq!(preserved.status, 200, "{}", preserved.body);
+        preserved.expect(200);
         // A native PUT replaces the resource, so an omitted lifecycle is cleared (recorded
         // 2026-10-31); the legacy profile keeps merging.
         assert_eq!(
@@ -172,7 +169,7 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             (profile != "native").then_some(&replacement)
         );
         let cleared = server.request("PUT", path, r#"{"lifecycle":null}"#);
-        assert_eq!(cleared.status, 200, "{}", cleared.body);
+        cleared.expect(200);
         assert!(cleared.json().get("lifecycle").is_none());
         let before = without_acl(cleared.json());
         for condition in [
@@ -259,16 +256,13 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             server.request("PATCH", path, &json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":condition}]}}).to_string()).json_envelope(400, "badRequest");
         }
         let single = json!({"action":{"type":"Delete"},"condition":{"age":1}});
-        assert_eq!(
-            server
-                .request(
-                    "PATCH",
-                    path,
-                    &json!({"lifecycle":{"rule":vec![single.clone();100]}}).to_string()
-                )
-                .status,
-            200
-        );
+        server
+            .request(
+                "PATCH",
+                path,
+                &json!({"lifecycle":{"rule":vec![single.clone();100]}}).to_string(),
+            )
+            .expect(200);
         let before = server.request("GET", path, "").json();
         server
             .request(
@@ -299,13 +293,13 @@ fn sdk_append_query_and_array_lifecycle_follow_the_profile() {
             "/storage/v1/b?project=project",
             &json!({"name":"sdk-lifecycle","lifecycle":rules}).to_string(),
         );
-        assert_eq!(created.status, 200, "{}", created.body);
+        created.expect(200);
         let before = server.request("GET", path, "").json();
 
         // PHP Lifecycle::clearRules() serializes the cleared configuration as an empty array.
         let reply = server.request("PATCH", path, r#"{"lifecycle":[]}"#);
         if native {
-            assert_eq!(reply.status, 200, "{}", reply.body);
+            reply.expect(200);
             assert_eq!(reply.json()["lifecycle"], before["lifecycle"]);
         } else {
             reply.json_envelope(400, "invalid");
@@ -320,7 +314,7 @@ fn sdk_append_query_and_array_lifecycle_follow_the_profile() {
         let replacement = json!({"lifecycle":{"rule":[]}}).to_string();
         let reply = server.request("PATCH", &format!("{path}?append=false"), &replacement);
         if native {
-            assert_eq!(reply.status, 200, "{}", reply.body);
+            reply.expect(200);
             assert!(reply.json().get("lifecycle").is_none(), "{}", reply.body);
         } else {
             reply.json_envelope(400, "invalidParameter");
@@ -333,7 +327,7 @@ fn sdk_append_query_and_array_lifecycle_follow_the_profile() {
 
         // The documented {"rule": []} form without the extra query clears the rules.
         let cleared = server.request("PATCH", path, &replacement);
-        assert_eq!(cleared.status, 200, "{}", cleared.body);
+        cleared.expect(200);
         assert!(
             cleared.json().get("lifecycle").is_none(),
             "{}",
@@ -363,7 +357,7 @@ fn unsupported_legacy_profile() {
         server
             .request("GET", "/storage/v1/b/unsupported-bucket", "")
             .json_envelope(404, "notFound");
-        assert_eq!(server.request("GET", "/_internal/unknown", "").status, 404);
+        server.request("GET", "/_internal/unknown", "").expect(404);
     }
 }
 
@@ -380,16 +374,13 @@ fn bucket_list_omitted_project_obeys_profile_and_seed_project() {
                 "migration-project",
             ],
         );
-        assert_eq!(
-            server
-                .insert("migration-bucket", "migration-project")
-                .status,
-            200
-        );
-        assert_eq!(server.insert("other-bucket", "other-project").status, 200);
+        server
+            .insert("migration-bucket", "migration-project")
+            .expect(200);
+        server.insert("other-bucket", "other-project").expect(200);
         let listed = server.request("GET", "/storage/v1/b", "");
         if profile == "legacy-emulator" {
-            assert_eq!(listed.status, 200, "{}", listed.body);
+            listed.expect(200);
             assert_eq!(listed.json()["items"].as_array().unwrap().len(), 1);
             assert_eq!(listed.json()["items"][0]["name"], "migration-bucket");
         } else {
@@ -403,7 +394,7 @@ fn bucket_list_omitted_project_obeys_profile_and_seed_project() {
             .request("GET", "/storage/v1/b?project=", "")
             .json_envelope(400, "invalidParameter");
         let listed = server.request("GET", "/storage/v1/b?project=other-project", "");
-        assert_eq!(listed.status, 200);
+        listed.expect(200);
         assert_eq!(listed.json()["items"][0]["name"], "other-bucket");
         server.stop();
     }
@@ -430,7 +421,7 @@ fn bucket_put_replaces_omitted_fields_and_preserves_resources() {
         assert_eq!(original["metageneration"], "1");
         assert_eq!(after_policy["metageneration"], "2");
         let populated = server.request("PUT", path, r#"{"labels":{"keep":"yes","replace":"old"},"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#);
-        assert_eq!(populated.status, 200, "{}", populated.body);
+        populated.expect(200);
         assert_eq!(populated.json()["metageneration"], "3");
         let merged = server
             .request("PATCH", path, r#"{"labels":{"replace":"new"}}"#)
@@ -440,7 +431,7 @@ fn bucket_put_replaces_omitted_fields_and_preserves_resources() {
         assert_settings(&merged, profile, true, true);
         assert_eq!(merged["metageneration"], "4");
         let replaced = server.request("PUT", path, r#"{"labels":{"replace":"only"}}"#);
-        assert_eq!(replaced.status, 200, "{}", replaced.body);
+        replaced.expect(200);
         // A native PUT answers without the ACL fields unless it asks for them, and it replaces the
         // whole resource, so versioning and the hold it omits are cleared (recorded 2026-10-31).
         let replaces = profile == "native";
@@ -522,7 +513,7 @@ fn bucket_put_empty_null_and_invalid_inputs() {
         ] {
             let before = server.request("PUT", path, r#"{"labels":{"keep":"yes"},"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).json();
             let reply = server.request("PUT", path, body);
-            assert_eq!(reply.status, 200, "{}", reply.body);
+            reply.expect(200);
             let value = reply.json();
             // A native PUT replaces the resource, so it clears whatever it omits except the
             // storage class and access settings (recorded 2026-10-31).
@@ -579,7 +570,7 @@ fn bucket_put_empty_null_and_invalid_inputs() {
             r#"{"defaultEventBasedHold":"true"}"#,
         ] {
             let reply = server.request("PUT", path, body);
-            assert_eq!(reply.status, 400, "{profile}: {body}: {}", reply.body);
+            reply.expect(400);
             assert_eq!(server.request("GET", path, "").json(), before);
         }
         let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(65536));
@@ -621,7 +612,7 @@ fn bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits() {
             "retentionPolicy":{"retentionPeriod":"3600"},
             "softDeletePolicy":{"retentionDurationSeconds":"604800"}
         }).to_string());
-        assert_eq!(configured.status, 200, "{}", configured.body);
+        configured.expect(200);
         let before = configured.json();
         let replaces = profile == "native";
         for body in [
@@ -629,7 +620,7 @@ fn bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits() {
             r#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#,
         ] {
             let reply = server.request("PUT", path, body);
-            assert_eq!(reply.status, 200, "{}", reply.body);
+            reply.expect(200);
             let after = reply.json();
             for field in [
                 "labels",
@@ -686,13 +677,13 @@ fn bucket_put_null_settings_follow_profile_defaults() {
             let reply = server.request("PUT", path, body);
             if profile == "native" && body == r#"{"versioning":null}"# {
                 // Cloud Storage took a null versioning as no versioning (recorded 2026-10-31).
-                assert_eq!(reply.status, 200, "{}", reply.body);
+                reply.expect(200);
                 assert_settings(&reply.json(), profile, false, false);
             } else if profile == "native" {
                 reply.json_envelope(400, "invalid");
                 assert_eq!(server.request("GET", path, "").json(), before);
             } else {
-                assert_eq!(reply.status, 200, "{}", reply.body);
+                reply.expect(200);
                 let hold_null = body == r#"{"defaultEventBasedHold":null}"#;
                 assert_settings(&reply.json(), profile, hold_null, !hold_null);
                 assert_eq!(reply.json()["labels"], before["labels"]);
@@ -704,37 +695,65 @@ fn bucket_put_null_settings_follow_profile_defaults() {
 
 #[test]
 fn bucket_put_label_boundaries_and_classes() {
+    label_class_boundaries("PUT", "bad");
+}
+
+fn label_class_boundaries(method: &str, invalid_null_key: &str) {
     for profile in PROFILES {
         let invalid = "invalid";
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
-        server.insert("put-limits", "project");
-        let path = "/storage/v1/b/put-limits";
+        let name = format!("{}-limits", method.to_ascii_lowercase());
+        server.insert(&name, "project");
+        let path = &format!("/storage/v1/b/{name}");
         let labels: serde_json::Map<_, _> =
             (0..64).map(|i| (format!("key{i}"), json!(""))).collect();
-        assert_eq!(
-            server
-                .request("PUT", path, &json!({"labels":labels}).to_string())
-                .status,
-            200
-        );
-        let before = server.request("GET", path, "").json();
-        let too_many: serde_json::Map<_, _> =
-            (0..65).map(|i| (format!("key{i}"), json!("v"))).collect();
         server
-            .request(
-                "PUT",
-                path,
-                &json!({"labels":too_many,"storageClass":"ARCHIVE"}).to_string(),
-            )
-            .json_envelope(400, invalid);
-        assert_eq!(server.request("GET", path, "").json(), before);
-        assert_eq!(
+            .request(method, path, &json!({"labels":labels}).to_string())
+            .expect(200);
+        let before = server.request("GET", path, "").json();
+        if method == "PUT" {
+            let too_many: serde_json::Map<_, _> =
+                (0..65).map(|i| (format!("key{i}"), json!("v"))).collect();
             server
-                .request("PUT", path, r#"{"labels":{"extra":"v"}}"#)
-                .json()["labels"],
-            json!({"extra":"v"})
-        );
+                .request(
+                    "PUT",
+                    path,
+                    &json!({"labels":too_many,"storageClass":"ARCHIVE"}).to_string(),
+                )
+                .json_envelope(400, invalid);
+            assert_eq!(server.request("GET", path, "").json(), before);
+            assert_eq!(
+                server
+                    .request("PUT", path, r#"{"labels":{"extra":"v"}}"#)
+                    .json()["labels"],
+                json!({"extra":"v"})
+            );
+        } else {
+            server
+                .request(
+                    "PATCH",
+                    path,
+                    r#"{"labels":{"extra":"v"},"storageClass":"ARCHIVE"}"#,
+                )
+                .json_envelope(400, invalid);
+            assert_eq!(server.request("GET", path, "").json(), before);
+            server
+                .request("PATCH", path, r#"{"labels":{"extra":"v","key0":null}}"#)
+                .expect(200);
+            assert_eq!(
+                server.request("GET", path, "").json()["labels"]
+                    .as_object()
+                    .unwrap()
+                    .len(),
+                64
+            );
+            let too_many: serde_json::Map<_, _> =
+                (0..65).map(|i| (format!("key{i}"), json!("v"))).collect();
+            server
+                .request("PATCH", path, &json!({"labels":too_many}).to_string())
+                .json_envelope(400, invalid);
+        }
         for (key, value) in [
             ("".into(), json!("v")),
             ("Bad".into(), json!("v")),
@@ -743,24 +762,24 @@ fn bucket_put_label_boundaries_and_classes() {
             ("a".repeat(64), json!("v")),
             ("bad".into(), json!("Upper")),
             ("bad".into(), json!("v".repeat(64))),
-            ("bad".into(), Value::Null),
+            (invalid_null_key.into(), Value::Null),
         ] {
             let before = server.request("GET", path, "").json();
             server
-                .request("PUT", path, &json!({"labels":{key:value}}).to_string())
+                .request(method, path, &json!({"labels":{key:value}}).to_string())
                 .json_envelope(400, invalid);
             assert_eq!(server.request("GET", path, "").json(), before);
         }
-        assert_eq!(
-            server
-                .request(
-                    "PUT",
-                    path,
-                    &json!({"labels":{"é".repeat(63):"あ".repeat(63)}}).to_string()
-                )
-                .status,
-            200
-        );
+        if method == "PATCH" {
+            server.request(method, path, r#"{"labels":null}"#);
+        }
+        server
+            .request(
+                method,
+                path,
+                &json!({"labels":{"é".repeat(63):"あ".repeat(63)}}).to_string(),
+            )
+            .expect(200);
         for class in [
             "STANDARD",
             "NEARLINE",
@@ -769,22 +788,22 @@ fn bucket_put_label_boundaries_and_classes() {
             "MULTI_REGIONAL",
             "DURABLE_REDUCED_AVAILABILITY",
         ] {
-            let reply = server.request("PUT", path, &json!({"storageClass":class}).to_string());
-            assert_eq!(reply.status, 200, "{}", reply.body);
+            let reply = server.request(method, path, &json!({"storageClass":class}).to_string());
+            reply.expect(200);
             assert_eq!(reply.json()["storageClass"], class);
         }
         let before = server.request("GET", path, "").json();
         for class in ["REGIONAL", "RAPID"] {
             server
                 .request(
-                    "PUT",
+                    method,
                     path,
                     &json!({"storageClass":class,"labels":null}).to_string(),
                 )
                 .json_envelope(400, "badRequest");
         }
         server
-            .request("PUT", path, r#"{"storageClass":"TYPO"}"#)
+            .request(method, path, r#"{"storageClass":"TYPO"}"#)
             .json_envelope(400, invalid);
         assert_eq!(server.request("GET", path, "").json(), before);
     }
@@ -804,9 +823,9 @@ fn bucket_metadata_round_trip(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
-        assert_eq!(server.insert("patch-round-trip", "project").status, 200);
+        server.insert("patch-round-trip", "project").expect(200);
         let path = "/storage/v1/b/patch-round-trip";
-        assert_eq!(server.request(method, path, r#"{"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).status, 200);
+        server.request(method, path, r#"{"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).expect(200);
         // A full-projection read sent back unchanged echoes the current ACLs, which is accepted.
         let full = format!("{path}?projection=full");
         for label in ["first", "second"] {
@@ -815,7 +834,7 @@ fn bucket_metadata_round_trip(method: &str) {
             let mut body = before.clone();
             body["labels"] = json!({"roundtrip":label});
             let reply = server.request(method, &full, &body.to_string());
-            assert_eq!(reply.status, 200, "{profile}: {}", reply.body);
+            reply.expect(200);
             let after = reply.json();
             assert_eq!(after["labels"], body["labels"]);
             for field in ["acl", "defaultObjectAcl"] {
@@ -887,7 +906,7 @@ fn bucket_regional_locations_round_trip_and_rejections_preserve_state() {
             "/storage/v1/b?project=locations",
             &json!({"name":name,"location":location}).to_string(),
         );
-        assert_eq!(created.status, 200, "{}", created.body);
+        created.expect(200);
         for value in [
             created.json(),
             server
@@ -930,12 +949,9 @@ fn bucket_regional_locations_round_trip_and_rejections_preserve_state() {
         gcs_mimic::json::JsonError::unsupported("customPlacementConfig").reason
     );
     for name in ["invalid-location", "invalid-placement"] {
-        assert_eq!(
-            server
-                .request("GET", &format!("/storage/v1/b/{name}"), "")
-                .status,
-            404
-        );
+        server
+            .request("GET", &format!("/storage/v1/b/{name}"), "")
+            .expect(404);
     }
     server.stop();
     let server = Server::start(&dir);
@@ -964,7 +980,7 @@ fn bucket_metadata_location(method: &str) {
         } {
             let before = server.request("GET", path, "").json();
             let reply = server.request(method, path, &json!({"location":location}).to_string());
-            assert_eq!(reply.status, 200, "{profile}: {}", reply.body);
+            reply.expect(200);
             assert_eq!(reply.json()["location"], before["location"]);
         }
         let before = server.request("GET", path, "").json();
@@ -976,7 +992,7 @@ fn bucket_metadata_location(method: &str) {
         if profile == "native" {
             // The location cannot change; a native update ignores a different one like any other
             // output-only member and applies the rest (recorded 2026-10-31).
-            assert_eq!(relocated.status, 200, "{}", relocated.body);
+            relocated.expect(200);
             assert_eq!(relocated.json()["location"], before["location"]);
             assert_eq!(relocated.json()["labels"], json!({"applied":"yes"}));
         } else {
@@ -1005,9 +1021,9 @@ fn bucket_get_ignores_or_rejects_patch_only_acl_query_parameters() {
             let path = format!("/storage/v1/b/patch-query?{query}");
             if profile == "native" {
                 // A GET ignores the parameter, and a PATCH applies the canned ACL.
-                assert_eq!(server.request("GET", &path, "").status, 200);
+                server.request("GET", &path, "").expect(200);
                 let patched = server.request("PATCH", &path, "{}");
-                assert_eq!(patched.status, 200, "{}", patched.body);
+                patched.expect(200);
                 continue;
             }
             server
@@ -1053,14 +1069,14 @@ fn bucket_metadata_generation_query(method: &str) {
             // Cloud Storage ignores a query parameter a write method does not define
             // (recorded 2026-10-31), so the write applies.
             let reply = server.request(method, &query_path, r#"{"labels":{"kept":"yes"}}"#);
-            assert_eq!(reply.status, 200, "{}", reply.body);
+            reply.expect(200);
             assert_eq!(reply.json()["labels"], json!({"kept":"yes"}));
             let query_path = format!("{path}?softDeleted=false");
             assert_eq!(
                 server.request("GET", &query_path, "").json()["name"],
                 before["name"]
             );
-            assert_eq!(server.request(method, &query_path, "{}").status, 200);
+            server.request(method, &query_path, "{}").expect(200);
         } else {
             server
                 .request(method, &query_path, r#"{"labels":{"lost":"no"}}"#)
@@ -1093,13 +1109,13 @@ fn bucket_patch_null_settings_follow_profile_defaults() {
             let reply = server.request("PATCH", path, body);
             if profile == "native" && body == r#"{"versioning":null}"# {
                 // Cloud Storage cleared versioning for a null member (recorded 2026-10-31).
-                assert_eq!(reply.status, 200, "{}", reply.body);
+                reply.expect(200);
                 assert_settings(&reply.json(), profile, false, true);
             } else if profile == "native" {
                 reply.json_envelope(400, "invalid");
                 assert_eq!(server.request("GET", path, "").json(), without_acl(before));
             } else {
-                assert_eq!(reply.status, 200, "{}", reply.body);
+                reply.expect(200);
                 let after = reply.json();
                 let clears_hold = body.contains("defaultEventBasedHold");
                 assert_settings(&after, profile, clears_hold, !clears_hold);
@@ -1121,7 +1137,7 @@ fn bucket_patch_lifecycle_invalid_input_preserves_state() {
         let path = "/storage/v1/b/patch-lifecycle";
         let before = server.request("PATCH", path, r#"{"versioning":{"enabled":true},"defaultEventBasedHold":true,"labels":{"keep":"yes"},"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}}"#).json();
         let reply = server.request("PATCH", path, r#"{"lifecycle":{"rule":null}}"#);
-        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.expect(200);
         let after = without_acl(reply.json());
         assert_eq!(after["metageneration"], "3");
         assert!(after.get("lifecycle").is_none());
@@ -1166,11 +1182,7 @@ fn bucket_metadata_missing_bucket(method: &str) {
         let server = profile_server(&dir, profile);
         let path = "/storage/v1/b/missing-bucket";
         for body in ["", "{", "[]"] {
-            assert_eq!(
-                server.request(method, path, body).status,
-                400,
-                "{profile}: {body}"
-            );
+            server.request(method, path, body).expect(400);
         }
         // A null storageClass is a recognised member the native profile accepts, so only the
         // missing bucket fails.
@@ -1224,7 +1236,7 @@ fn bucket_patch_merges_labels_class_and_preserves_resources() {
     let policy = server.request("GET", &format!("{path}/iam"), "").json();
     std::thread::sleep(Duration::from_millis(3));
     let reply = server.request("PATCH", path, r#"{"labels":{"replace":"new","remove":null,"missing":null,"empty":""},"storageClass":"NEARLINE"}"#);
-    assert_eq!(reply.status, 200, "{}", reply.body);
+    reply.expect(200);
     // PATCH answers with the ACL fields by default; the stored resource reads without them.
     let updated = without_acl(reply.json());
     assert_eq!(
@@ -1303,7 +1315,7 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
             (r#"{"labels":{"missing":null}}"#, true),
         ] {
             let reply = server.request("PATCH", path, body);
-            assert_eq!(reply.status, 200, "{}", reply.body);
+            reply.expect(200);
             revision += i32::from(advances);
             let value = reply.json();
             for field in [
@@ -1331,7 +1343,7 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
                     .request("PATCH", path, r#"{"labels":{"again":"yes"}}"#)
                     .json();
                 let reply = server.request("PATCH", path, body);
-                assert_eq!(reply.status, 200, "{body}: {}", reply.body);
+                reply.expect(200);
                 let reply = reply.json();
                 assert_eq!(reply["storageClass"], first["storageClass"]);
                 if body.contains("labels") {
@@ -1348,7 +1360,7 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
                     assert_eq!(reply["labels"], json!({"again":"yes"}), "{body}");
                 }
             } else {
-                assert_eq!(server.request("PATCH", path, body).status, 400, "{body}");
+                server.request("PATCH", path, body).expect(400);
             }
         }
         let value = without_acl(server.request("PATCH", path, r#"{"labels":null}"#).json());
@@ -1364,7 +1376,7 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
             r#"{"defaultEventBasedHold":"true"}"#,
         ] {
             let reply = server.request("PATCH", path, body);
-            assert_eq!(reply.status, 400, "{profile}: {body}: {}", reply.body);
+            reply.expect(400);
             assert_eq!(server.request("GET", path, "").json(), value);
         }
         let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(65536));
@@ -1377,101 +1389,7 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
 
 #[test]
 fn bucket_patch_label_boundaries_and_classes() {
-    for profile in PROFILES {
-        let invalid = "invalid";
-        let dir = TestDir::new();
-        let server = profile_server(&dir, profile);
-        server.insert("patch-limits", "project");
-        let path = "/storage/v1/b/patch-limits";
-        let labels: serde_json::Map<_, _> =
-            (0..64).map(|i| (format!("key{i}"), json!(""))).collect();
-        assert_eq!(
-            server
-                .request("PATCH", path, &json!({"labels":labels}).to_string())
-                .status,
-            200
-        );
-        let before = server.request("GET", path, "").json();
-        server
-            .request(
-                "PATCH",
-                path,
-                r#"{"labels":{"extra":"v"},"storageClass":"ARCHIVE"}"#,
-            )
-            .json_envelope(400, invalid);
-        assert_eq!(server.request("GET", path, "").json(), before);
-        assert_eq!(
-            server
-                .request("PATCH", path, r#"{"labels":{"extra":"v","key0":null}}"#)
-                .status,
-            200
-        );
-        assert_eq!(
-            server.request("GET", path, "").json()["labels"]
-                .as_object()
-                .unwrap()
-                .len(),
-            64
-        );
-        let too_many: serde_json::Map<_, _> =
-            (0..65).map(|i| (format!("key{i}"), json!("v"))).collect();
-        server
-            .request("PATCH", path, &json!({"labels":too_many}).to_string())
-            .json_envelope(400, invalid);
-        for (key, value) in [
-            ("".into(), json!("v")),
-            ("Bad".into(), json!("v")),
-            ("1bad".into(), json!("v")),
-            ("a b".into(), json!("v")),
-            ("a".repeat(64), json!("v")),
-            ("bad".into(), json!("Upper")),
-            ("bad".into(), json!("v".repeat(64))),
-            ("Bad".into(), Value::Null),
-        ] {
-            let before = server.request("GET", path, "").json();
-            server
-                .request("PATCH", path, &json!({"labels":{key:value}}).to_string())
-                .json_envelope(400, invalid);
-            assert_eq!(server.request("GET", path, "").json(), before);
-        }
-        server.request("PATCH", path, r#"{"labels":null}"#);
-        assert_eq!(
-            server
-                .request(
-                    "PATCH",
-                    path,
-                    &json!({"labels":{"é".repeat(63):"あ".repeat(63)}}).to_string()
-                )
-                .status,
-            200
-        );
-        for class in [
-            "STANDARD",
-            "NEARLINE",
-            "COLDLINE",
-            "ARCHIVE",
-            "MULTI_REGIONAL",
-            "DURABLE_REDUCED_AVAILABILITY",
-        ] {
-            let reply = server.request("PATCH", path, &json!({"storageClass":class}).to_string());
-            assert_eq!(reply.status, 200, "{}", reply.body);
-            assert_eq!(reply.json()["storageClass"], class);
-        }
-        let before = server.request("GET", path, "").json();
-        for class in ["REGIONAL", "RAPID"] {
-            server
-                .request(
-                    "PATCH",
-                    path,
-                    &json!({"storageClass":class,"labels":null}).to_string(),
-                )
-                .json_envelope(400, "badRequest");
-        }
-        server
-            .request("PATCH", path, r#"{"storageClass":"TYPO"}"#)
-            .json_envelope(400, invalid);
-        assert_eq!(server.request("GET", path, "").json(), before);
-    }
+    label_class_boundaries("PATCH", "Bad");
 }
 /// Cloud Storage ignored `satisfiesPZI` and `satisfiesPZS`, true and false, on insert, PATCH and
 /// PUT (observed 2026-10-31): it kept reporting `satisfiesPZI: true` and never emitted
@@ -1493,7 +1411,7 @@ fn satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_valu
                 // satisfiesPZI belongs to regional buckets, so the bucket is regional.
                 let body = json!({"name":"pzi","location":"us-central1",field:value}).to_string();
                 let reply = server.request("POST", "/storage/v1/b?project=project", &body);
-                assert_eq!(reply.status, 200, "{context} insert");
+                reply.expect(200);
                 check(&reply.json(), &context);
                 let path = "/storage/v1/b/pzi";
                 let before = server.request("GET", path, "").json();
@@ -1501,7 +1419,7 @@ fn satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_valu
                 let body = json!({field:value}).to_string();
 
                 let reply = server.request("PATCH", path, &body);
-                assert_eq!(reply.status, 200, "{context} PATCH");
+                reply.expect(200);
                 check(&reply.json(), &context);
                 assert_eq!(
                     reply.json()["metageneration"],
@@ -1511,7 +1429,7 @@ fn satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_valu
                 assert_eq!(without_acl(reply.json()), before, "{context} PATCH");
 
                 let reply = server.request("PUT", path, &body);
-                assert_eq!(reply.status, 200, "{context} PUT");
+                reply.expect(200);
                 check(&reply.json(), &context);
                 check(&server.request("GET", path, "").json(), &context);
             }
@@ -1539,7 +1457,7 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
             path,
             r#"{"acl":[],"lifecycle":{"rule":[]},"labels":{"after":"yes"}}"#,
         );
-        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.expect(200);
         let after = reply.json();
         assert_eq!(after["labels"], json!({"after":"yes"}));
         // A native PUT replaces the resource, so it also clears the versioning and hold it omits.
@@ -1552,7 +1470,7 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
         assert_eq!(populated["metageneration"], "2");
         assert_eq!(after["metageneration"], "3");
         let reply = server.request("PUT", path, r#"{"versioning":{"enabled":true,"future":1}}"#);
-        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.expect(200);
         let after = without_acl(reply.json());
         assert_settings(&after, profile, true, !replaces);
         assert_eq!(server.request("GET", path, "").json(), after);
@@ -1582,7 +1500,7 @@ fn bucket_soft_delete_defaults_and_invalid_shapes_preserve_policy() {
                 "/storage/v1/b?project=project",
                 &json!({"name":name,"softDeletePolicy":value}).to_string(),
             );
-            assert_eq!(created.status, 200, "{}", created.body);
+            created.expect(200);
             assert!(created.json().get("softDeletePolicy").is_none());
         }
         let path = "/storage/v1/b/soft-defaults";
@@ -1591,13 +1509,13 @@ fn bucket_soft_delete_defaults_and_invalid_shapes_preserve_policy() {
             "/storage/v1/b?project=project",
             r#"{"name":"soft-defaults","softDeletePolicy":{"retentionDurationSeconds":"604800"}}"#,
         );
-        assert_eq!(created.status, 200, "{}", created.body);
+        created.expect(200);
         let policy = created.json()["softDeletePolicy"].clone();
         for method in ["PATCH", "PUT"] {
             for value in [Value::Null, json!({})] {
                 let updated =
                     server.request(method, path, &json!({"softDeletePolicy":value}).to_string());
-                assert_eq!(updated.status, 200, "{}", updated.body);
+                updated.expect(200);
                 assert_eq!(updated.json()["softDeletePolicy"], policy);
                 assert_eq!(
                     server.request("GET", path, "").json(),
@@ -1686,7 +1604,7 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
         // other output-only member (recorded 2026-10-31).
         let relocated = server.request(method, path, r#"{"location":"EU"}"#);
         if profile == "native" {
-            assert_eq!(relocated.status, 200, "{}", relocated.body);
+            relocated.expect(200);
             assert_eq!(relocated.json()["location"], before["location"]);
         } else {
             relocated.json_envelope(400, "badRequest");
@@ -1721,7 +1639,7 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             .collect();
         body.insert("labels".into(), json!({"works":"yes"}));
         let reply = server.request(method, path, &Value::Object(body).to_string());
-        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.expect(200);
         assert_eq!(reply.json()["name"], before["name"]);
         assert_eq!(reply.json()["projectNumber"], before["projectNumber"]);
         assert_eq!(reply.json()["timeCreated"], before["timeCreated"]);
@@ -1754,15 +1672,12 @@ fn bucket_put_conditions_and_query_contract() {
             .request("PUT", &conditioned, r#"{"website":{}}"#)
             .json_envelope(400, "badRequest");
         assert_eq!(server.request("GET", path, "").json(), before);
-        let registry = dir.0.join("identities.json");
-        std::fs::write(
-            &registry,
-            json!({"identities":[
+        let registry = common::process::write_identities(
+            &dir.0,
+            &(json!({"identities":[
                 {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{}}
-            ]})
-            .to_string(),
-        )
-        .unwrap();
+            ]})),
+        );
         drop(server);
         let server = Server::start_options(
             &dir,
@@ -1871,7 +1786,7 @@ fn bucket_metadata_conditions(method: &str) {
             &format!("{path}?ifMetagenerationMatch=1&ifMetagenerationNotMatch=0&projection=full"),
             r#"{"labels":{}}"#,
         );
-        assert_eq!(first.status, 200);
+        first.expect(200);
         assert_eq!(first.json()["metageneration"], "2");
         assert_eq!(first.json()["acl"].as_array().unwrap().len(), 3);
         assert_eq!(
@@ -1943,13 +1858,15 @@ fn bucket_put_strict_permissions_and_policy_preservation() {
 fn bucket_metadata_permissions(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
-        let registry = dir.0.join("identities.json");
-        std::fs::write(&registry, json!({"identities":[
-            {"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},
-            {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.bucketViewer"]}},
-            {"id":"other@example.test","tokens":["other"],"project_roles":{"elsewhere":["roles/storage.admin"]}},
-            {"id":"granted@example.test","tokens":["granted"],"project_roles":{}}
-        ]}).to_string()).unwrap();
+        let registry = common::process::write_identities(
+            &dir.0,
+            &(json!({"identities":[
+                {"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},
+                {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.bucketViewer"]}},
+                {"id":"other@example.test","tokens":["other"],"project_roles":{"elsewhere":["roles/storage.admin"]}},
+                {"id":"granted@example.test","tokens":["granted"],"project_roles":{}}
+            ]})),
+        );
         let server = Server::start_options(
             &dir,
             &[
@@ -2021,7 +1938,7 @@ fn bucket_metadata_permissions(method: &str) {
             &format!("{path}?projection=full"),
             r#"{"labels":{"access":"granted"}}"#,
         );
-        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.expect(200);
         // storage.admin permits ACL inspection but does not create a legacy bucket ACL grant.
         assert_eq!(reply.json()["acl"], json!([]));
         assert_eq!(
@@ -2061,16 +1978,13 @@ fn bucket_metadata_settings(method: &str) {
         let upload = "/upload/storage/v1/b/patch-settings/o?uploadType=media&name=item";
         let object = "/storage/v1/b/patch-settings/o/item";
         let first = server.request("POST", upload, "first").json();
-        assert_eq!(
-            server
-                .request(
-                    method,
-                    path,
-                    r#"{"versioning":{"enabled":true},"defaultEventBasedHold":true}"#
-                )
-                .status,
-            200
-        );
+        server
+            .request(
+                method,
+                path,
+                r#"{"versioning":{"enabled":true},"defaultEventBasedHold":true}"#,
+            )
+            .expect(200);
         assert_eq!(server.request("GET", object, "").json(), first);
         let second = server.request("POST", upload, "second").json();
         assert_eq!(second["eventBasedHold"], true);
@@ -2087,33 +2001,24 @@ fn bucket_metadata_settings(method: &str) {
                 .body,
             "first"
         );
-        assert_eq!(
-            server
-                // A native PUT replaces the resource, so versioning is restated.
-                .request(
-                    method,
-                    path,
-                    r#"{"versioning":{"enabled":true},"defaultEventBasedHold":false}"#
-                )
-                .status,
-            200
-        );
+        server
+            // A native PUT replaces the resource, so versioning is restated.
+            .request(
+                method,
+                path,
+                r#"{"versioning":{"enabled":true},"defaultEventBasedHold":false}"#,
+            )
+            .expect(200);
         server.request("POST", upload, "blocked").hold_error();
         server.request("DELETE", object, "").hold_error();
-        assert_eq!(
-            server
-                .request("PATCH", object, r#"{"eventBasedHold":false}"#)
-                .status,
-            200
-        );
+        server
+            .request("PATCH", object, r#"{"eventBasedHold":false}"#)
+            .expect(200);
         let third = server.request("POST", upload, "third").json();
         assert!(third.get("eventBasedHold").is_none());
-        assert_eq!(
-            server
-                .request(method, path, r#"{"versioning":{"enabled":false}}"#)
-                .status,
-            200
-        );
+        server
+            .request(method, path, r#"{"versioning":{"enabled":false}}"#)
+            .expect(200);
         assert_eq!(
             server
                 .request(
@@ -2127,7 +2032,7 @@ fn bucket_metadata_settings(method: &str) {
                 .body,
             "second"
         );
-        assert_eq!(server.request("POST", upload, "fourth").status, 200);
+        server.request("POST", upload, "fourth").expect(200);
         server
             .request(
                 "GET",
@@ -2167,7 +2072,7 @@ fn bucket_metadata_legacy_restart(method: &str) {
     let original = server.insert("ab", "project").json();
     let path = "/storage/v1/b/ab";
     let reply = server.request(method, path, r#"{"labels":{"team":"storage"},"storageClass":"COLDLINE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#);
-    assert_eq!(reply.status, 200, "{}", reply.body);
+    reply.expect(200);
     assert!(reply.headers.contains("content-type: application/json\r\n"));
     assert!(reply.body.ends_with('\n'));
     let value = without_acl(reply.json());
@@ -2205,7 +2110,7 @@ fn bucket_profile_paging_preserves_names_and_resource_defaults() {
     let mut server = profile_server(&dir, "legacy-emulator");
     let names = ["127.0.0.1", "a..b", "ab", "cd", "goog-bucket"];
     for name in names {
-        assert_eq!(server.insert(name, "project").status, 200);
+        server.insert(name, "project").expect(200);
     }
     for profile in ["legacy-emulator", "native"] {
         if profile == "native" {
@@ -2215,7 +2120,7 @@ fn bucket_profile_paging_preserves_names_and_resource_defaults() {
         let mut path = "/storage/v1/b?project=project&maxResults=1".to_owned();
         for (index, name) in names.iter().enumerate() {
             let page = server.request("GET", &path, "");
-            assert_eq!(page.status, 200, "{}", page.body);
+            page.expect(200);
             let value = page.json();
             assert_eq!(value["items"].as_array().unwrap().len(), 1);
             assert_eq!(value["items"][0]["name"], *name);
@@ -2242,22 +2147,16 @@ fn bucket_profile_name_bound_keeps_created_buckets_reachable() {
     let dir = TestDir::new();
     let server = profile_server(&dir, "legacy-emulator");
     let name = "a".repeat(666);
-    assert_eq!(server.insert(&name, "project").status, 200);
-    assert_eq!(
-        server
-            .request("GET", &format!("/storage/v1/b/{name}"), "")
-            .status,
-        200
-    );
+    server.insert(&name, "project").expect(200);
+    server
+        .request("GET", &format!("/storage/v1/b/{name}"), "")
+        .expect(200);
     let listed = server.request("GET", "/storage/v1/b?project=project&maxResults=1", "");
-    assert_eq!(listed.status, 200);
+    listed.expect(200);
     assert_eq!(listed.json()["items"][0]["name"], name);
-    assert_eq!(
-        server
-            .request("DELETE", &format!("/storage/v1/b/{name}"), "")
-            .status,
-        200
-    );
+    server
+        .request("DELETE", &format!("/storage/v1/b/{name}"), "")
+        .expect(200);
     for length in [667, 700] {
         let rejected = "b".repeat(length);
         server
@@ -2288,9 +2187,9 @@ fn bucket_profile_names_support_object_and_xml_routes() {
     ];
     let mut server = profile_server(&dir, "legacy-emulator");
     for name in &names {
-        assert_eq!(server.insert(name, "project").status, 200);
+        server.insert(name, "project").expect(200);
         let upload = format!("/upload/storage/v1/b/{name}/o?uploadType=media&name=item");
-        assert_eq!(server.request("POST", &upload, "original").status, 200);
+        server.request("POST", &upload, "original").expect(200);
         let object = format!("/storage/v1/b/{name}/o/item");
         assert_eq!(server.request("GET", &object, "").json()["name"], "item");
         assert_eq!(
@@ -2309,18 +2208,17 @@ fn bucket_profile_names_support_object_and_xml_routes() {
             server.request("GET", &format!("/{name}/item"), "").body,
             "original"
         );
-        assert_eq!(
-            server.request("HEAD", &format!("/{name}/item"), "").status,
-            200
-        );
-        assert_eq!(server.request("DELETE", &object, "").status, 204);
+        server
+            .request("HEAD", &format!("/{name}/item"), "")
+            .expect(200);
+        server.request("DELETE", &object, "").expect(204);
 
         let initiated = server.request(
             "POST",
             &format!("/upload/storage/v1/b/{name}/o?uploadType=resumable&name=item"),
             "{}",
         );
-        assert_eq!(initiated.status, 200, "{}", initiated.body);
+        initiated.expect(200);
         let location = initiated
             .headers
             .lines()
@@ -2330,7 +2228,7 @@ fn bucket_profile_names_support_object_and_xml_routes() {
             .strip_prefix("https://advertised.invalid/api")
             .unwrap();
         let completed = server.raw(&format!("PUT {session} HTTP/1.1\r\nHost: local.invalid\r\nContent-Length: 7\r\nContent-Range: bytes 0-6/7\r\n\r\nresumed"));
-        assert_eq!(completed.status, 200, "{}", completed.body);
+        completed.expect(200);
         assert_eq!(
             server.request("GET", &format!("/{name}/item"), "").body,
             "resumed"
@@ -2357,10 +2255,9 @@ fn bucket_profile_names_support_object_and_xml_routes() {
                 .request(method, &path, "")
                 .json_envelope(400, "invalidParameter");
         }
-        assert_eq!(
-            native.request("GET", &format!("/{name}/item"), "").status,
-            404
-        );
+        native
+            .request("GET", &format!("/{name}/item"), "")
+            .expect(404);
     }
     native.stop();
     let server = profile_server(&dir, "legacy-emulator");
@@ -2372,13 +2269,10 @@ fn bucket_profile_names_support_object_and_xml_routes() {
                 .body,
             "resumed"
         );
-        assert_eq!(server.request("DELETE", &object, "").status, 204);
-        assert_eq!(
-            server
-                .request("DELETE", &format!("/storage/v1/b/{name}"), "")
-                .status,
-            200
-        );
+        server.request("DELETE", &object, "").expect(204);
+        server
+            .request("DELETE", &format!("/storage/v1/b/{name}"), "")
+            .expect(200);
     }
 }
 
@@ -2387,7 +2281,7 @@ fn bucket_api_settings_drive_versioning_and_hold_effects() {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
-        assert_eq!(server.request("POST", "/storage/v1/b?project=project", r#"{"name":"settings-effects","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).status, 200);
+        server.request("POST", "/storage/v1/b?project=project", r#"{"name":"settings-effects","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).expect(200);
         let upload = "/upload/storage/v1/b/settings-effects/o?uploadType=media&name=item";
         let object = "/storage/v1/b/settings-effects/o/item";
         let first = server.request("POST", upload, "first").json();
@@ -2401,12 +2295,9 @@ fn bucket_api_settings_drive_versioning_and_hold_effects() {
                 .body,
             "first"
         );
-        assert_eq!(
-            server
-                .request("PATCH", object, r#"{"eventBasedHold":false}"#)
-                .status,
-            200
-        );
+        server
+            .request("PATCH", object, r#"{"eventBasedHold":false}"#)
+            .expect(200);
         let second = server.request("POST", upload, "second").json();
         assert_eq!(second["eventBasedHold"], true);
         let second_generation = second["generation"].as_str().unwrap();
@@ -2426,13 +2317,10 @@ fn bucket_api_settings_drive_versioning_and_hold_effects() {
             .json();
         assert_eq!(listed["items"].as_array().unwrap().len(), 2);
         assert!(listed["items"][0]["timeDeleted"].is_string());
-        assert_eq!(
-            server
-                .request("PATCH", object, r#"{"eventBasedHold":false}"#)
-                .status,
-            200
-        );
-        assert_eq!(server.request("DELETE", object, "").status, 204);
+        server
+            .request("PATCH", object, r#"{"eventBasedHold":false}"#)
+            .expect(200);
+        server.request("DELETE", object, "").expect(204);
         server
             .request("GET", object, "")
             .json_envelope(404, "notFound");
@@ -2443,12 +2331,9 @@ fn bucket_api_settings_drive_versioning_and_hold_effects() {
             if profile == "native" { 409 } else { 412 }
         );
         for selected in [generation, second_generation] {
-            assert_eq!(
-                server
-                    .request("DELETE", &format!("{object}?generation={selected}"), "")
-                    .status,
-                204
-            );
+            server
+                .request("DELETE", &format!("{object}?generation={selected}"), "")
+                .expect(204);
         }
         assert_eq!(
             server
@@ -2486,7 +2371,7 @@ fn bucket_core_profile_lookup_names_and_json_framing() {
             "/storage/v1/b?project=project",
             &json!({"name":"framing-bucket","location": if profile == "native" { "EU" } else { "US-CENTRAL1" }}).to_string(),
         );
-        assert_eq!(created.status, 200);
+        created.expect(200);
         assert_eq!(
             created.json()["location"],
             if profile == "native" {
@@ -2558,7 +2443,7 @@ fn bucket_core_native_restart_preserves_source_only_names_without_exposing_them(
     let names = ["ab", "goog-carryover", "127.0.0.1", "a..b"];
     let mut server = profile_server(&dir, "legacy-emulator");
     for name in names {
-        assert_eq!(server.insert(name, "project").status, 200);
+        server.insert(name, "project").expect(200);
     }
     server.stop();
     let mut server = profile_server(&dir, "native");
@@ -2582,12 +2467,9 @@ fn bucket_core_native_restart_preserves_source_only_names_without_exposing_them(
     server.stop();
     let server = profile_server(&dir, "legacy-emulator");
     for name in names {
-        assert_eq!(
-            server
-                .request("GET", &format!("/storage/v1/b/{name}"), "")
-                .status,
-            200
-        );
+        server
+            .request("GET", &format!("/storage/v1/b/{name}"), "")
+            .expect(200);
         assert_eq!(
             server
                 .request("DELETE", &format!("/storage/v1/b/{name}"), "")
@@ -2611,7 +2493,7 @@ fn legacy_create_location_accepts_only_fixed_region_and_stores_native_us() {
     {
         let body = json!({"name":format!("region-bucket-{index}"),"location":location}).to_string();
         let reply = server.request("POST", "/storage/v1/b?project=project", &body);
-        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.expect(200);
         assert_eq!(reply.json()["location"], "US-CENTRAL1");
     }
     for (index, location) in [
@@ -2630,12 +2512,9 @@ fn legacy_create_location_accepts_only_fixed_region_and_stores_native_us() {
         server
             .request("POST", "/storage/v1/b?project=project", &body)
             .json_envelope(400, "badRequest");
-        assert_eq!(
-            server
-                .request("GET", &format!("/storage/v1/b/{name}"), "")
-                .status,
-            404
-        );
+        server
+            .request("GET", &format!("/storage/v1/b/{name}"), "")
+            .expect(404);
     }
     server.stop();
     let server = Server::start_options(&dir, &["--default-location", "ASIA"]);
@@ -2655,7 +2534,7 @@ fn bucket_core_create_get_defaults() {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
         let create = server.insert("core-bucket", "00042");
-        assert_eq!(create.status, 200, "{}", create.body);
+        create.expect(200);
         let resource = create.json();
         assert_eq!(resource["kind"], "storage#bucket");
         assert_eq!(resource["name"], "core-bucket");
@@ -2695,7 +2574,7 @@ fn bucket_core_create_get_defaults() {
         assert_settings(&resource, profile, false, false);
         for query in ["", "?projection=full", "?projection=noAcl"] {
             let get = server.request("GET", &format!("/storage/v1/b/core-bucket{query}"), "");
-            assert_eq!(get.status, 200);
+            get.expect(200);
             let value = get.json();
             assert_eq!(value.get("acl").is_some(), query == "?projection=full");
             assert_eq!(without_acl(value), resource);
@@ -2720,7 +2599,7 @@ fn bucket_core_project_and_names() {
         if profile == "native" {
             no_project.json_envelope(400, "required");
         } else {
-            assert_eq!(no_project.status, 200);
+            no_project.expect(200);
             assert_eq!(
                 server
                     .request("GET", "/storage/v1/b?project=fallback-project", "")
@@ -2741,7 +2620,7 @@ fn bucket_core_project_and_names() {
             if profile == "native" {
                 created.json_envelope(400, "invalid");
             } else {
-                assert_eq!(created.status, 200, "{name}: {}", created.body);
+                created.expect(200);
                 assert_eq!(
                     server
                         .request("GET", &format!("/storage/v1/b/{name}"), "")
@@ -2753,7 +2632,7 @@ fn bucket_core_project_and_names() {
             }
         }
         for name in ["a", "UPPER", "-bad", "bad-", "bad space", "a/b", "éé"] {
-            assert_eq!(server.insert(name, "project").status, 400, "{name}");
+            server.insert(name, "project").expect(400);
         }
         for query in [
             "project=",
@@ -2761,23 +2640,17 @@ fn bucket_core_project_and_names() {
             "project=%ff",
             "project=has+space",
         ] {
-            assert_eq!(
-                server
-                    .request(
-                        "POST",
-                        &format!("/storage/v1/b?{query}"),
-                        r#"{"name":"invalid-query"}"#
-                    )
-                    .status,
-                400
-            );
-        }
-        assert_eq!(
             server
-                .request("GET", "/storage/v1/b/invalid-query", "")
-                .status,
-            404
-        );
+                .request(
+                    "POST",
+                    &format!("/storage/v1/b?{query}"),
+                    r#"{"name":"invalid-query"}"#,
+                )
+                .expect(400);
+        }
+        server
+            .request("GET", "/storage/v1/b/invalid-query", "")
+            .expect(404);
     }
 }
 
@@ -2815,16 +2688,13 @@ fn bucket_core_invalid_requests_preserve_state() {
             r#"{"name":"failed-bucket","defaultEventBasedHold":{}}"#,
         ] {
             let reply = server.request("POST", "/storage/v1/b?project=project", body);
-            assert_eq!(reply.status, 400, "{profile} {body}: {}", reply.body);
+            reply.expect(400);
             if profile == "legacy-emulator" {
                 assert_eq!(reply.json()["error"]["errors"][0]["reason"], "invalid");
             }
-            assert_eq!(
-                server
-                    .request("GET", "/storage/v1/b/failed-bucket", "")
-                    .status,
-                404
-            );
+            server
+                .request("GET", "/storage/v1/b/failed-bucket", "")
+                .expect(404);
             assert_eq!(
                 server
                     .request("GET", "/storage/v1/b/unchanged-bucket", "")
@@ -2851,7 +2721,7 @@ fn bucket_core_settings_round_trip() {
         {
             let name = format!("settings-{index}");
             let create = server.request("POST", "/storage/v1/b?project=project", &json!({"name":name,"versioning":{"enabled":versioning},"defaultEventBasedHold":hold}).to_string());
-            assert_eq!(create.status, 200, "{}", create.body);
+            create.expect(200);
             assert_eq!(create.json()["versioning"], json!({"enabled":versioning}));
             if profile == "native" && !hold {
                 assert!(create.json().get("defaultEventBasedHold").is_none());
@@ -2870,10 +2740,10 @@ fn bucket_core_settings_round_trip() {
             "/storage/v1/b?project=project",
             r#"{"name":"empty-versioning","versioning":{"future":123}}"#,
         );
-        assert_eq!(empty.status, 200);
+        empty.expect(200);
         assert_settings(&empty.json(), profile, false, false);
         let sdk = server.request("POST", "/storage/v1/b?project=project", r#"{"name":"sdk-settings","lifecycle":{"rule":[]},"versioning":{"enabled":true},"defaultEventBasedHold":true}"#);
-        assert_eq!(sdk.status, 200, "{}", sdk.body);
+        sdk.expect(200);
         assert_settings(&sdk.json(), profile, true, true);
         for lifecycle in [
             json!({"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}),
@@ -2935,12 +2805,9 @@ fn bucket_core_unsupported_settings_preserve_state() {
                         .unwrap()
                         .contains(field)
                 );
-                assert_eq!(
-                    server
-                        .request("GET", "/storage/v1/b/unsupported-bucket", "")
-                        .status,
-                    404
-                );
+                server
+                    .request("GET", "/storage/v1/b/unsupported-bucket", "")
+                    .expect(404);
             }
         }
     }
@@ -3042,7 +2909,7 @@ fn bucket_core_source_input_shape() {
             if profile == "native" || index == 3 {
                 assert!(matches!(reply.status, 400), "{}", reply.body);
             } else {
-                assert_eq!(reply.status, 200, "{}", reply.body);
+                reply.expect(200);
                 assert_settings(&reply.json(), profile, false, false);
                 assert_eq!(reply.json()["location"], "US-CENTRAL1");
                 assert!(reply.json().get("labels").is_none());
@@ -3054,18 +2921,15 @@ fn bucket_core_source_input_shape() {
             r#"{"name":"trailing-json"} {"name":"ignored-bucket"}"#,
         );
         assert_eq!(trailing.status, if profile == "native" { 400 } else { 200 });
-        assert_eq!(
-            server
-                .request("GET", "/storage/v1/b/ignored-bucket", "")
-                .status,
-            404
-        );
+        server
+            .request("GET", "/storage/v1/b/ignored-bucket", "")
+            .expect(404);
         let unknown = server.request(
             "POST",
             "/storage/v1/b?project=project",
             r#"{"name":"unknown-field","future":{"enabled":true}}"#,
         );
-        assert_eq!(unknown.status, 200);
+        unknown.expect(200);
     }
 }
 
@@ -3087,10 +2951,10 @@ fn bucket_core_missing_and_delete_recreate() {
                 }
             );
         }
-        assert_eq!(server.request("POST", "/storage/v1/b?project=project", r#"{"name":"recreate-bucket","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).status, 200);
+        server.request("POST", "/storage/v1/b?project=project", r#"{"name":"recreate-bucket","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).expect(200);
         let rejected = server.request("DELETE", &format!("{path}?ifMetagenerationMatch=2"), "");
         rejected.json_envelope(412, "conditionNotMet");
-        assert_eq!(server.request("GET", path, "").status, 200);
+        server.request("GET", path, "").expect(200);
         let deleted = server.request("DELETE", path, "");
         assert_eq!(deleted.status, if profile == "native" { 204 } else { 200 });
         assert_eq!(
@@ -3111,7 +2975,7 @@ fn bucket_core_missing_and_delete_recreate() {
             .request("DELETE", path, "")
             .json_envelope(404, "notFound");
         let recreated = server.insert("recreate-bucket", "other-project");
-        assert_eq!(recreated.status, 200);
+        recreated.expect(200);
         assert_settings(&recreated.json(), profile, false, false);
         assert_eq!(server.request("GET", path, "").json(), recreated.json());
     }
@@ -3130,7 +2994,7 @@ fn bucket_core_nonempty_delete_preserves_objects() {
                 &format!("/upload/storage/v1/b/nonempty-bucket/o?uploadType=media&name={name}"),
                 data,
             );
-            assert_eq!(upload.status, 200);
+            upload.expect(200);
             objects.push((name, data, upload.json()));
         }
         let rejected = server.request("DELETE", "/storage/v1/b/nonempty-bucket", "");
@@ -3192,7 +3056,7 @@ fn bucket_core_restart_settings() {
         {
             let name = format!("persist-{index}");
             let created = server.request("POST", "/storage/v1/b?project=project", &json!({"name":name,"versioning":{"enabled":versioning},"defaultEventBasedHold":hold}).to_string());
-            assert_eq!(created.status, 200);
+            created.expect(200);
             expected.push((name, created.json()));
         }
         server.insert("deleted-bucket", "project");
@@ -3207,12 +3071,9 @@ fn bucket_core_restart_settings() {
                 resource
             );
         }
-        assert_eq!(
-            server
-                .request("GET", "/storage/v1/b/deleted-bucket", "")
-                .status,
-            404
-        );
+        server
+            .request("GET", "/storage/v1/b/deleted-bucket", "")
+            .expect(404);
         let reset = server.insert("deleted-bucket", "other").json();
         server.stop();
         let server = profile_server(&dir, profile);
@@ -3231,7 +3092,7 @@ fn bucket_core_migrates_v7_settings() {
     for profile in PROFILES {
         let dir = TestDir::new();
         let mut server = profile_server(&dir, profile);
-        assert_eq!(server.insert("migrated-bucket", "project").status, 200);
+        server.insert("migrated-bucket", "project").expect(200);
         server.stop();
         let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
         let current_version: i64 = connection
@@ -3260,7 +3121,7 @@ fn bucket_core_migrates_v7_settings() {
         drop(connection);
         let mut server = profile_server(&dir, profile);
         let migrated = server.request("GET", "/storage/v1/b/migrated-bucket", "");
-        assert_eq!(migrated.status, 200);
+        migrated.expect(200);
         assert_eq!(migrated.json(), created);
         assert_settings(&migrated.json(), profile, false, false);
         server.stop();
@@ -3291,7 +3152,7 @@ fn bucket_cors_metadata_round_trip_conditions_replacement_and_restart() {
             "/storage/v1/b?project=project",
             &json!({"name":"cors-bucket","cors":rules}).to_string(),
         );
-        assert_eq!(created.status, 200, "{}", created.body);
+        created.expect(200);
         assert_eq!(created.json()["cors"], normalized);
         assert_eq!(server.request("GET", path, "").json(), created.json());
         let labels_only = server
@@ -3304,7 +3165,7 @@ fn bucket_cors_metadata_round_trip_conditions_replacement_and_restart() {
             &format!("{path}?ifMetagenerationMatch=2"),
             &json!({"cors":updated_rules}).to_string(),
         );
-        assert_eq!(updated.status, 200, "{}", updated.body);
+        updated.expect(200);
         assert_eq!(updated.json()["cors"], updated_rules);
         server
             .request(
@@ -3325,12 +3186,9 @@ fn bucket_cors_metadata_round_trip_conditions_replacement_and_restart() {
         );
         let cleared = server.request("PATCH", path, r#"{"cors":null}"#).json();
         assert!(cleared.get("cors").is_none());
-        assert_eq!(
-            server
-                .request("PATCH", path, &json!({"cors":rules}).to_string())
-                .status,
-            200
-        );
+        server
+            .request("PATCH", path, &json!({"cors":rules}).to_string())
+            .expect(200);
         let replaced = server
             .request("PUT", path, &json!({"cors":updated_rules}).to_string())
             .json();
@@ -3341,12 +3199,9 @@ fn bucket_cors_metadata_round_trip_conditions_replacement_and_restart() {
             server.request("PUT", path, "{}").json().get("cors"),
             (profile != "native").then_some(&updated_rules)
         );
-        assert_eq!(
-            server
-                .request("PUT", path, &json!({"cors":updated_rules}).to_string())
-                .status,
-            200
-        );
+        server
+            .request("PUT", path, &json!({"cors":updated_rules}).to_string())
+            .expect(200);
         assert!(
             server
                 .request("PUT", path, r#"{"cors":[]}"#)
@@ -3354,12 +3209,9 @@ fn bucket_cors_metadata_round_trip_conditions_replacement_and_restart() {
                 .get("cors")
                 .is_none()
         );
-        assert_eq!(
-            server
-                .request("PATCH", path, &json!({"cors":rules}).to_string())
-                .status,
-            200
-        );
+        server
+            .request("PATCH", path, &json!({"cors":rules}).to_string())
+            .expect(200);
         assert!(
             server
                 .request("PATCH", path, r#"{"cors":[]}"#)
@@ -3393,11 +3245,7 @@ fn bucket_cors_malformed_input_preserves_entire_resource() {
             let body = json!({"cors":invalid,"labels":{"unchanged":"yes"}}).to_string();
             for method in ["PATCH", "PUT"] {
                 let reply = server.request(method, "/storage/v1/b/cors-invalid", &body);
-                assert_eq!(
-                    reply.status, 400,
-                    "{profile} {method} {body}: {}",
-                    reply.body
-                );
+                reply.expect(400);
                 assert_eq!(
                     server
                         .request("GET", "/storage/v1/b/cors-invalid", "")
@@ -3410,13 +3258,10 @@ fn bucket_cors_malformed_input_preserves_entire_resource() {
                 "/storage/v1/b?project=project",
                 &json!({"name":"invalid-create","cors":invalid}).to_string(),
             );
-            assert_eq!(reply.status, 400, "{profile} {invalid}: {}", reply.body);
-            assert_eq!(
-                server
-                    .request("GET", "/storage/v1/b/invalid-create", "")
-                    .status,
-                404
-            );
+            reply.expect(400);
+            server
+                .request("GET", "/storage/v1/b/invalid-create", "")
+                .expect(404);
         }
     }
 }
@@ -3448,11 +3293,13 @@ fn bucket_cors_concurrent_conditioned_updates_have_one_winner() {
 #[test]
 fn default_location_preserves_strict_create_authorization() {
     let dir = TestDir::new();
-    let registry = dir.0.join("identities.json");
-    std::fs::write(&registry, json!({"identities":[
-        {"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},
-        {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.bucketViewer"]}}
-    ]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
+            {"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},
+            {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.bucketViewer"]}}
+        ]})),
+    );
     let server = Server::start_options(
         &dir,
         &[
@@ -3473,7 +3320,7 @@ fn default_location_preserves_strict_create_authorization() {
         .authorized("viewer", "POST", path, body)
         .json_envelope(403, "forbidden");
     let reply = server.authorized("admin", "POST", path, body);
-    assert_eq!(reply.status, 200, "{}", reply.body);
+    reply.expect(200);
     assert_eq!(reply.json()["location"], "EU");
 }
 
@@ -3481,12 +3328,14 @@ fn default_location_preserves_strict_create_authorization() {
 fn bucket_core_strict_permissions() {
     for profile in PROFILES {
         let dir = TestDir::new();
-        let registry = dir.0.join("identities.json");
-        std::fs::write(&registry, json!({"identities":[
-            {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local-project":["roles/storage.admin"]}},
-            {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local-project":["roles/storage.bucketViewer"]}},
-            {"id":"other@example.test","tokens":["other"],"project_roles":{"other-project":["roles/storage.admin"]}}
-        ]}).to_string()).unwrap();
+        let registry = common::process::write_identities(
+            &dir.0,
+            &(json!({"identities":[
+                {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local-project":["roles/storage.admin"]}},
+                {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local-project":["roles/storage.bucketViewer"]}},
+                {"id":"other@example.test","tokens":["other"],"project_roles":{"other-project":["roles/storage.admin"]}}
+            ]})),
+        );
         let server = Server::start_options(
             &dir,
             &[
@@ -3517,31 +3366,25 @@ fn bucket_core_strict_permissions() {
                 r#"{"name":"strict-settings","defaultEventBasedHold":"bad"}"#,
             )
             .json_envelope(403, "forbidden");
-        assert_eq!(
-            server
-                .authorized(
-                    "admin",
-                    "POST",
-                    insert_path,
-                    r#"{"name":"strict-settings","versioning":{"enabled":"bad"}}"#
-                )
-                .status,
-            400
-        );
+        server
+            .authorized(
+                "admin",
+                "POST",
+                insert_path,
+                r#"{"name":"strict-settings","versioning":{"enabled":"bad"}}"#,
+            )
+            .expect(400);
         server
             .request("POST", insert_path, body)
             .json_envelope(401, "required");
         server
             .authorized("invalid", "POST", insert_path, body)
             .json_envelope(401, "authError");
-        assert_eq!(
-            server
-                .authorized("admin", "GET", "/storage/v1/b/strict-settings", "")
-                .status,
-            404
-        );
+        server
+            .authorized("admin", "GET", "/storage/v1/b/strict-settings", "")
+            .expect(404);
         let created = server.authorized("admin", "POST", insert_path, body);
-        assert_eq!(created.status, 200, "{}", created.body);
+        created.expect(200);
         assert_settings(&created.json(), profile, true, true);
         let path = "/storage/v1/b/strict-settings";
         assert_eq!(
@@ -3578,7 +3421,7 @@ fn bkt_http_crud_metadata_conditions_and_errors() {
     let dir = TestDir::new();
     let server = Server::start(&dir);
     let create = server.request("POST", "/storage/v1/b?project=00042", r#"{"name":"test-bucket","location":"EU","storageClass":"NEARLINE","labels":{"team":"dev"}}"#);
-    assert_eq!(create.status, 200, "{}", create.body);
+    create.expect(200);
     let bucket = create.json();
     assert_eq!(bucket["name"], "test-bucket");
     assert_eq!(bucket["projectNumber"], "42");
@@ -3597,7 +3440,7 @@ fn bkt_http_crud_metadata_conditions_and_errors() {
         .json_envelope(409, "conflict");
     let path = "/storage/v1/b/test-bucket";
     let get = server.request("GET", path, "");
-    assert_eq!(get.status, 200);
+    get.expect(200);
     assert_eq!(get.json(), bucket);
     for query in [
         "ifMetagenerationMatch=1",
@@ -3606,10 +3449,9 @@ fn bkt_http_crud_metadata_conditions_and_errors() {
         "projection=noAcl&softDeleted=false&prettyPrint=false",
         "projection=full",
     ] {
-        assert_eq!(
-            server.request("GET", &format!("{path}?{query}"), "").status,
-            200
-        );
+        server
+            .request("GET", &format!("{path}?{query}"), "")
+            .expect(200);
     }
     let full = server
         .request("GET", &format!("{path}?projection=full"), "")
@@ -3638,7 +3480,7 @@ fn bkt_http_crud_metadata_conditions_and_errors() {
         "ifMetagenerationMatch=1&ifMetagenerationNotMatch=1",
     ] {
         let reply = server.request("GET", &format!("{path}?{query}"), "");
-        assert_eq!(reply.status, 304);
+        reply.expect(304);
         assert!(reply.body.is_empty());
     }
     for query in [
@@ -3656,7 +3498,7 @@ fn bkt_http_crud_metadata_conditions_and_errors() {
         &format!("{path}?ifMetagenerationMatch=1&ifMetagenerationNotMatch=2"),
         "",
     );
-    assert_eq!(reply.status, 204);
+    reply.expect(204);
     assert!(reply.body.is_empty());
     for method in ["GET", "DELETE"] {
         server
@@ -3717,13 +3559,10 @@ fn bkt_http_malformed_conditions_preserve_all_bucket_methods() {
             &format!("/storage/v1/b?project=project&{key}=1"),
             &format!(r#"{{"name":"{created}"}}"#),
         );
-        assert_eq!(reply.status, 200, "{}", reply.body);
-        assert_eq!(
-            server
-                .request("DELETE", &format!("/storage/v1/b/{created}"), "")
-                .status,
-            204
-        );
+        reply.expect(200);
+        server
+            .request("DELETE", &format!("/storage/v1/b/{created}"), "")
+            .expect(204);
     }
 }
 
@@ -3770,12 +3609,9 @@ fn bkt_http_conditional_delete_and_metadata_mutation_have_one_winner() {
                                 .json(),
                             without_acl(update.json())
                         );
-                        assert_eq!(
-                            server
-                                .request("DELETE", "/storage/v1/b/conditional", "")
-                                .status,
-                            204
-                        );
+                        server
+                            .request("DELETE", "/storage/v1/b/conditional", "")
+                            .expect(204);
                     }
                     statuses => panic!("exactly one mutation must succeed: {statuses:?}"),
                 }
@@ -3806,7 +3642,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
         "project=x&pageToken=bad",
     ] {
         let reply = server.request("GET", &format!("/storage/v1/b?{query}"), "");
-        assert_eq!(reply.status, 400, "{query}: {}", reply.body);
+        reply.expect(400);
     }
     for query in [
         "fields=",
@@ -3827,7 +3663,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     // prettyPrint is a standard Google API parameter that only selects the body layout; a value
     // that is not a boolean is still rejected.
     let pretty = server.request("GET", "/storage/v1/b?project=x&prettyPrint=true", "");
-    assert_eq!(pretty.status, 200, "{}", pretty.body);
+    pretty.expect(200);
     server
         .request("GET", "/storage/v1/b?project=x&prettyPrint=maybe", "")
         .json_envelope(400, "invalidParameter");
@@ -3905,7 +3741,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     assert_eq!(max_name.len(), 222);
     for name in ["abc".into(), "a".repeat(63), max_name] {
         let created = server.insert(&name, "x");
-        assert_eq!(created.status, 200, "{}", created.body);
+        created.expect(200);
         assert!(created.json().get("labels").is_none());
     }
     for (path, reason) in [
@@ -3942,31 +3778,25 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     server.raw("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 65537\r\n\r\n").json_envelope(413,"uploadTooLarge");
     let exact = format!("{}{}", r#"{"name":"exact-cap"}"#, " ".repeat(65536 - 20));
     assert_eq!(exact.len(), 65536);
-    assert_eq!(
-        server
-            .request("POST", "/storage/v1/b?project=x", &exact)
-            .status,
-        200
-    );
+    server
+        .request("POST", "/storage/v1/b?project=x", &exact)
+        .expect(200);
     let chunk = " ".repeat(32768);
     server.raw(&format!("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n8000\r\n{chunk}\r\n8000\r\n{chunk}\r\n1\r\nx\r\n0\r\n\r\n")).json_envelope(413,"uploadTooLarge");
     server.raw("POST /storage/v1/b/abc/o HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\n").json_envelope(400, "badRequest");
     for path in ["/INVALID", "/storage/v1/b/"] {
-        assert_eq!(
-            server
-                .raw(&format!(
-                    "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\n"
-                ))
-                .status,
-            404
-        );
+        server
+            .raw(&format!(
+                "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\n"
+            ))
+            .expect(404);
     }
     // The legacy profile still rejects a parameter the method does not define, which the native
     // profile ignores.
     let legacy_dir = TestDir::new();
     let legacy = profile_server(&legacy_dir, "legacy-emulator");
     let reply = legacy.request("GET", "/storage/v1/b?project=x&unknown=1", "");
-    assert_eq!(reply.status, 400, "{}", reply.body);
+    reply.expect(400);
 }
 
 #[test]
@@ -3980,7 +3810,7 @@ fn bkt_http_sorted_scoped_pagination_and_limits() {
         ("other-bucket", "p"),
         ("page-elsewhere", "q"),
     ] {
-        assert_eq!(server.insert(name, project).status, 200);
+        server.insert(name, project).expect(200);
     }
     let first = server
         .request(
@@ -3992,7 +3822,7 @@ fn bkt_http_sorted_scoped_pagination_and_limits() {
     assert_eq!(first["items"].as_array().unwrap().len(), 1);
     assert_eq!(first["items"][0]["name"], "page-alpha");
     let token = first["nextPageToken"].as_str().unwrap();
-    assert_eq!(server.insert("page-aardvark", "p").status, 200);
+    server.insert("page-aardvark", "p").expect(200);
     let next = server
         .request(
             "GET",
@@ -4024,7 +3854,7 @@ fn bkt_http_sorted_scoped_pagination_and_limits() {
             &format!("/storage/v1/b?project=p&maxResults={n}"),
             "",
         );
-        assert_eq!(reply.status, 200);
+        reply.expect(200);
         assert_eq!(reply.json()["items"].as_array().unwrap().len(), 5);
     }
     assert_eq!(
@@ -4077,12 +3907,9 @@ fn bkt_http_concurrent_duplicates_restart_and_exclusive_directory() {
             .json(),
         expected
     );
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/race-bucket", "")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/race-bucket", "")
+        .expect(204);
     server.stop();
     let server = Server::start(&dir);
     server
@@ -4153,7 +3980,7 @@ fn bkt_http_deadline_before_response_returns_backend_error() {
         server.insert("blocked-bucket", "deadline").status,
         200 | 409
     ));
-    assert_eq!(server.insert("after-deadline", "deadline").status, 200);
+    server.insert("after-deadline", "deadline").expect(200);
 }
 
 #[test]
@@ -4161,10 +3988,9 @@ fn bkt_http_list_clamps_to_1000_with_lookahead() {
     let dir = TestDir::new();
     let server = Server::start(&dir);
     for n in 0..1001 {
-        assert_eq!(
-            server.insert(&format!("limit-{n:04}"), "limits").status,
-            200
-        );
+        server
+            .insert(&format!("limit-{n:04}"), "limits")
+            .expect(200);
     }
     for query in [
         "",
@@ -4234,7 +4060,7 @@ fn bucket_cors_large_metadata_lists_page_without_loss() {
         let body = json!({"name": name, "cors": rules}).to_string();
         assert!(body.len() < 64 * 1024);
         let reply = server.request("POST", "/storage/v1/b?project=large", &body);
-        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.expect(200);
     }
     for profile in PROFILES {
         if profile == "legacy-emulator" {
@@ -4243,14 +4069,14 @@ fn bucket_cors_large_metadata_lists_page_without_loss() {
         }
         let names_only =
             server.request("GET", "/storage/v1/b?project=large&fields=items(name)", "");
-        assert_eq!(names_only.status, 200);
+        names_only.expect(200);
         assert_eq!(names_only.json(), json!({"items":[{"name":expected[0]}]}));
         for fields in ["&fields=items(name),nextPageToken", ""] {
             let mut names = Vec::new();
             let mut path = format!("/storage/v1/b?project=large&maxResults=1000{fields}");
             loop {
                 let reply = server.request("GET", &path, "");
-                assert_eq!(reply.status, 200, "{}", reply.body);
+                reply.expect(200);
                 let page = reply.json();
                 let items = page["items"].as_array().unwrap();
                 assert_eq!(
@@ -4311,12 +4137,12 @@ fn empty_patch_evaluates_metageneration_preconditions_and_keeps_the_metagenerati
             ("", r#"{"autoclass":{}}"#),
         ] {
             let reply = server.request("PATCH", &format!("{path}?{query}"), body);
-            assert_eq!(reply.status, 200, "{profile} {query} {body}");
+            reply.expect(200);
             assert_eq!(reply.json()["metageneration"], "1", "{profile} {body}");
         }
         let before = server.request("GET", path, "").json();
         let reply = server.request("PATCH", path, r#"{"autoclass":{"enabled":false}}"#);
-        assert_eq!(reply.status, 200, "{profile}");
+        reply.expect(200);
         assert_eq!(reply.json()["metageneration"], "2", "{profile}");
         assert_ne!(reply.json()["etag"], before["etag"], "{profile}");
     }
@@ -4374,7 +4200,7 @@ fn satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others() {
     {
         let body = json!({"name":format!("pzi-{index}"),"location":location}).to_string();
         let reply = server.request("POST", "/storage/v1/b?project=project", &body);
-        assert_eq!(reply.status, 200, "{location} {}", reply.body);
+        reply.expect(200);
         let regional = location.contains('-');
         assert_eq!(
             reply.json().get("satisfiesPZI"),

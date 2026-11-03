@@ -9,11 +9,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub(crate) mod catalog;
 pub(crate) mod effects;
 pub(crate) mod errors;
 pub(crate) mod http;
 pub(crate) mod ingress;
-pub(crate) mod server;
+pub(crate) mod interrupt;
+pub(crate) mod process;
+pub(crate) use process as server;
 
 #[expect(
     dead_code,
@@ -52,8 +55,6 @@ pub(crate) fn load_http_config(
 }
 
 #[allow(dead_code)]
-// Schema downgrade fixtures track private catalog internals; keep one source until it is public.
-#[path = "../../src/storage/catalog/test_support.rs"]
 pub(crate) mod timestamp_support;
 
 #[allow(dead_code)]

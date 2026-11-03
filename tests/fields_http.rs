@@ -25,7 +25,7 @@ fn fields_read_etag_validators_use_the_complete_resource() {
             assert_eq!(reply.headers["etag"], etag);
         }
         let cached = server.request("GET", &selected, &format!("If-None-Match: {etag}\r\n"), b"");
-        assert_eq!(cached.status, 304);
+        cached.expect(304);
         assert_eq!(cached.headers["etag"], etag);
         assert!(cached.body.is_empty());
         let failed = server.request("GET", &selected, "If-Match: \"stale\"\r\n", b"");
@@ -441,7 +441,7 @@ fn fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged() 
     let media = server.request("GET", "/storage/v1/b/test-bucket/o/file?alt=media", "", b"");
     assert_eq!(media.body, b"data");
     let xml = server.request("GET", "/test-bucket/file", "", b"");
-    assert_eq!(xml.status, 200);
+    xml.expect(200);
     assert_eq!(xml.body, b"data");
     let deleted = server.request(
         "DELETE",
@@ -449,10 +449,10 @@ fn fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged() 
         "",
         b"",
     );
-    assert_eq!(deleted.status, 204);
+    deleted.expect(204);
     assert!(deleted.body.is_empty());
     let deleted = server.request("DELETE", "/storage/v1/b/test-bucket?fields=", "", b"");
-    assert_eq!(deleted.status, 204);
+    deleted.expect(204);
     assert!(deleted.body.is_empty());
     server.stop();
 }
@@ -468,7 +468,7 @@ fn fields_resumable_final_response_survives_restart_and_replay() {
         "",
         b"",
     );
-    assert_eq!(initiation.status, 200);
+    initiation.expect(200);
     assert!(initiation.body.is_empty());
     let location = initiation.headers["location"].clone();
     let path = &location[location.find("/upload/").unwrap()..];

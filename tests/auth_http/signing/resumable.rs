@@ -35,12 +35,7 @@ fn sign_start(server: &Server, path: &str, signer: &str, values: &[(&str, &str)]
 
 /// The session URI points at the advertised API origin; the test listener serves it.
 fn session_path(reply: &Reply, object_path: &str) -> String {
-    assert_eq!(
-        reply.status,
-        201,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
+    reply.expect(201);
     assert!(reply.body.is_empty());
     let location: Uri = reply.headers["location"].parse().unwrap();
     assert_eq!(location.scheme_str(), Some("http"));
@@ -86,15 +81,15 @@ fn signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes() {
     // Later requests carry no credentials: the session URI is the capability.
     let first = vec![b'a'; CHUNK];
     let partial = chunk(&server, &path, "bytes 0-262143/*", &first);
-    assert_eq!(partial.status, 308);
+    partial.expect(308);
     assert_eq!(partial.headers["range"], "bytes=0-262143");
     let status = chunk(&server, &path, "bytes */*", b"");
-    assert_eq!(status.status, 308);
+    status.expect(308);
     assert_eq!(status.headers["range"], "bytes=0-262143");
     absent(&server, "/iam-bucket/resumed");
 
     let done = chunk(&server, &path, "bytes 262144-262148/262149", b"tail!");
-    assert_eq!(done.status, 200, "{}", String::from_utf8_lossy(&done.body));
+    done.expect(200);
     assert!(done.body.is_empty());
     assert!(done.headers["x-goog-hash"].contains("crc32c="));
     assert!(done.headers["x-goog-hash"].contains("md5="));
@@ -113,7 +108,7 @@ fn signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes() {
 
     // A retried final request replays the completion without a second generation.
     let replay = chunk(&server, &path, "bytes */262149", b"");
-    assert_eq!(replay.status, 200);
+    replay.expect(200);
     assert_eq!(replay.headers["x-goog-generation"], generation);
 
     // The capability names one object and accepts no other query parameters.
@@ -273,18 +268,18 @@ fn signed_resumable_sessions_cancel_with_no_content() {
     let reply = put::request(&server, "POST", &url, &wire(&[START]), b"");
     let path = session_path(&reply, "/iam-bucket/cancelled");
     let small = chunk(&server, &path, "bytes 0-2/*", b"abc");
-    assert_eq!(small.status, 400);
+    small.expect(400);
     assert!(
         String::from_utf8_lossy(&small.body)
             .contains("Nonfinal chunk must be a multiple of 256 KiB")
     );
-    assert_eq!(chunk(&server, &path, "invalid", b"").status, 400);
-    assert_eq!(chunk(&server, &path, "bytes */*", b"").status, 308);
+    chunk(&server, &path, "invalid", b"").expect(400);
+    chunk(&server, &path, "bytes */*", b"").expect(308);
     let cancelled = server.request("DELETE", &path, "", b"");
-    assert_eq!(cancelled.status, 204);
+    cancelled.expect(204);
     // Google answers later requests to a cancelled XML session with 204 as well.
-    assert_eq!(chunk(&server, &path, "bytes */*", b"").status, 204);
-    assert_eq!(server.request("DELETE", &path, "", b"").status, 204);
+    chunk(&server, &path, "bytes */*", b"").expect(204);
+    server.request("DELETE", &path, "", b"").expect(204);
     absent(&server, "/iam-bucket/cancelled");
 }
 
@@ -304,7 +299,7 @@ fn permissive_xml_resumable_initiation_needs_no_credentials() {
     );
     let path = session_path(&reply, "/open-bucket/dir%2Fobject");
     let done = server.request("PUT", &path, "", b"whole body");
-    assert_eq!(done.status, 200, "{}", String::from_utf8_lossy(&done.body));
+    done.expect(200);
     let get = server.get("", "/open-bucket/dir%2Fobject");
     assert_eq!(get.success().body, b"whole body");
     assert_eq!(get.headers["content-type"], "text/plain");

@@ -46,12 +46,7 @@ async fn live_cli_lost_resolution_response_does_not_retry_a_committed_restore() 
         stream.read_exact(&mut body).unwrap();
         let reply =
             object_effects_support::request(&address, "POST", "/_internal/sync/resolve", "", &body);
-        assert_eq!(
-            reply.status,
-            202,
-            "{}",
-            String::from_utf8_lossy(&reply.body)
-        );
+        reply.expect(202);
         let accepted: Value = serde_json::from_slice(&reply.body).unwrap();
         assert_eq!(accepted["completed"], true);
         drop(stream);

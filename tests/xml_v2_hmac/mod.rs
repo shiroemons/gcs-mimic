@@ -165,12 +165,7 @@ fn legacy_headers_sign_response_overrides_while_google_query_retains_documented_
             &[],
         );
         let reply = send(&server, "GET", &request, b"", "localhost");
-        assert_eq!(
-            reply.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&reply.body)
-        );
+        reply.expect(200);
         assert_eq!(reply.headers["content-type"], "text/plain");
         let changed = Signed {
             path: request.path.replace("text%2Fplain", "text%2Fhtml"),
@@ -195,12 +190,7 @@ fn legacy_headers_sign_response_overrides_while_google_query_retains_documented_
                 &[],
             );
             let reply = send(&server, "GET", &request, b"", "localhost");
-            assert_eq!(
-                reply.status,
-                200,
-                "{}",
-                String::from_utf8_lossy(&reply.body)
-            );
+            reply.expect(200);
             assert_eq!(reply.headers["content-type"], value);
             assert_eq!(reply.body, b"bytes");
             let changed = Signed {
@@ -228,7 +218,7 @@ fn legacy_headers_sign_response_overrides_while_google_query_retains_documented_
         &[],
     );
     let reply = send(&server, "GET", &request, b"", "localhost");
-    assert_eq!(reply.status, 200);
+    reply.expect(200);
     assert_eq!(reply.headers["content-type"], "text/html");
 }
 
@@ -292,7 +282,7 @@ fn legacy_headers_cannot_retarget_the_unsigned_generation_to_read_or_delete_priv
             request.path.push_str(&format!("?generation={generation}"));
             let reply = send(&server, method, &request, b"", "localhost");
             if method == "HEAD" {
-                assert_eq!(reply.status, 400);
+                reply.expect(400);
                 assert!(reply.body.is_empty());
             } else {
                 error(&reply, 400, "InvalidAuthentication");
@@ -439,17 +429,14 @@ fn legacy_queries_and_headers_recheck_key_state_restart_and_never_borrow_key_pro
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         let creator = server.key("creator@example.invalid");
         let put = signed(lane, &creator, "PUT", "/test-bucket/creator", &[]);
-        assert_eq!(send(&server, "PUT", &put, b"new", "localhost").status, 200);
+        send(&server, "PUT", &put, b"new", "localhost").expect(200);
         error(
             &send(&server, "PUT", &put, b"no overwrite", "localhost"),
             403,
             "AccessDenied",
         );
         let delete = signed(lane, &key, "DELETE", "/test-bucket/creator", &[]);
-        assert_eq!(
-            send(&server, "DELETE", &delete, b"", "localhost").status,
-            204
-        );
+        send(&server, "DELETE", &delete, b"", "localhost").expect(204);
         for email in [
             "reader@example.invalid",
             "keys@example.invalid",
@@ -470,10 +457,7 @@ fn legacy_queries_and_headers_recheck_key_state_restart_and_never_borrow_key_pro
         }
     }
     let put = signed(Lane::Query, &key, "PUT", "/test-bucket/state", &[]);
-    assert_eq!(
-        send(&server, "PUT", &put, b"durable", "localhost").status,
-        200
-    );
+    send(&server, "PUT", &put, b"durable", "localhost").expect(200);
     let path = format!("{KEYS}/{}", key.id);
     let keys = "Authorization: Bearer keys\r\n";
     server
@@ -514,7 +498,7 @@ fn legacy_queries_and_headers_recheck_key_state_restart_and_never_borrow_key_pro
     server
         .request("PUT", &path, keys, br#"{"state":"INACTIVE"}"#)
         .json_ok();
-    assert_eq!(server.request("DELETE", &path, keys, b"").status, 204);
+    server.request("DELETE", &path, keys, b"").expect(204);
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
         error(
             &send(
@@ -541,12 +525,9 @@ fn legacy_signatures_keep_public_failures_closed_and_preserve_complete_old_resou
     let mut server = Server::start(&dir, "disk");
     server.bucket("test-bucket");
     let key = server.key("signer@example.invalid");
-    assert_eq!(
-        server
-            .request("PUT", "/test-bucket/object", ADMIN, b"old")
-            .status,
-        200
-    );
+    server
+        .request("PUT", "/test-bucket/object", ADMIN, b"old")
+        .expect(200);
     server
         .request(
             "PUT",
@@ -771,17 +752,14 @@ fn legacy_registered_signers_use_current_acl_iam_pap_and_ubla_without_implicit_g
     }
     server.request("PUT","/storage/v1/b/test-bucket/iam",ADMIN,br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json_ok();
     for lane in [Lane::Query, Lane::Goog1, Lane::Aws] {
-        assert_eq!(
-            send(
-                &server,
-                "PUT",
-                &signed(lane, &key, "PUT", "/test-bucket/object", &[]),
-                b"explicit grant",
-                "localhost"
-            )
-            .status,
-            200
-        );
+        send(
+            &server,
+            "PUT",
+            &signed(lane, &key, "PUT", "/test-bucket/object", &[]),
+            b"explicit grant",
+            "localhost",
+        )
+        .expect(200);
     }
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
@@ -844,23 +822,15 @@ fn legacy_bucket_service_operations_and_aws_allowlist_reuse_shared_permissions()
             b"",
             "localhost",
         );
-        assert_eq!(
-            created.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&created.body)
-        );
-        assert_eq!(
-            send(
-                &server,
-                "HEAD",
-                &signed(lane, &key, "HEAD", &path, &[]),
-                b"",
-                "localhost"
-            )
-            .status,
-            200
-        );
+        created.expect(200);
+        send(
+            &server,
+            "HEAD",
+            &signed(lane, &key, "HEAD", &path, &[]),
+            b"",
+            "localhost",
+        )
+        .expect(200);
         let project = if matches!(lane, Lane::Aws) {
             "x-amz-project-id"
         } else {
@@ -873,19 +843,16 @@ fn legacy_bucket_service_operations_and_aws_allowlist_reuse_shared_permissions()
             b"",
             "localhost",
         );
-        assert_eq!(list.status, 200, "{}", String::from_utf8_lossy(&list.body));
+        list.expect(200);
         assert!(String::from_utf8(list.body).unwrap().contains(name));
-        assert_eq!(
-            send(
-                &server,
-                "DELETE",
-                &signed(lane, &key, "DELETE", &path, &[]),
-                b"",
-                "localhost"
-            )
-            .status,
-            204
-        );
+        send(
+            &server,
+            "DELETE",
+            &signed(lane, &key, "DELETE", &path, &[]),
+            b"",
+            "localhost",
+        )
+        .expect(204);
     }
     server.bucket("test-bucket");
     for field in [
@@ -919,12 +886,9 @@ fn legacy_bucket_service_operations_and_aws_allowlist_reuse_shared_permissions()
         400,
         "InvalidAuthentication",
     );
-    assert_eq!(
-        server
-            .request("GET", "/test-bucket/no-silent-alias", ADMIN, b"")
-            .status,
-        404
-    );
+    server
+        .request("GET", "/test-bucket/no-silent-alias", ADMIN, b"")
+        .expect(404);
 }
 
 fn header(
@@ -1019,21 +983,11 @@ fn goog1_and_aws_legacy_headers_transfer_metadata_and_use_virtual_bucket_resourc
                     ],
                 );
                 let reply = send(&server, "PUT", &put, b"\0header signed\xff", host);
-                assert_eq!(
-                    reply.status,
-                    200,
-                    "{}",
-                    String::from_utf8_lossy(&reply.body)
-                );
+                reply.expect(200);
                 for method in ["GET", "HEAD"] {
                     let signed = header(&key, kind, method, path, resource, &[]);
                     let reply = send(&server, method, &signed, b"", host);
-                    assert_eq!(
-                        reply.status,
-                        200,
-                        "{}",
-                        String::from_utf8_lossy(&reply.body)
-                    );
+                    reply.expect(200);
                     if method == "GET" {
                         assert_eq!(reply.body, b"\0header signed\xff");
                     } else {
@@ -1042,7 +996,7 @@ fn goog1_and_aws_legacy_headers_transfer_metadata_and_use_virtual_bucket_resourc
                     assert_eq!(reply.headers["x-goog-meta-kind"], "legacy");
                 }
                 let delete = header(&key, kind, "DELETE", path, resource, &[]);
-                assert_eq!(send(&server, "DELETE", &delete, b"", host).status, 204);
+                send(&server, "DELETE", &delete, b"", host).expect(204);
             }
         }
     }
@@ -1066,16 +1020,11 @@ fn v2_hmac_query_transfers_get_head_put_delete_on_disk_and_ram_without_v4_deriva
             ],
         );
         let reply = send(&server, "PUT", &put, bytes, "localhost");
-        assert_eq!(
-            reply.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&reply.body)
-        );
+        reply.expect(200);
         for method in ["GET", "HEAD"] {
             let signed = query(&key, method, "/test-bucket/raw%252Fobject", &[]);
             let reply = send(&server, method, &signed, b"", "localhost");
-            assert_eq!(reply.status, 200);
+            reply.expect(200);
             if method == "HEAD" {
                 assert!(reply.body.is_empty());
             } else {
@@ -1084,15 +1033,9 @@ fn v2_hmac_query_transfers_get_head_put_delete_on_disk_and_ram_without_v4_deriva
             assert_eq!(reply.headers["x-goog-meta-mode"], "legacy");
         }
         let delete = query(&key, "DELETE", "/test-bucket/raw%252Fobject", &[]);
-        assert_eq!(
-            send(&server, "DELETE", &delete, b"", "localhost").status,
-            204
-        );
-        assert_eq!(
-            server
-                .request("GET", "/test-bucket/raw%252Fobject", ADMIN, b"")
-                .status,
-            404
-        );
+        send(&server, "DELETE", &delete, b"", "localhost").expect(204);
+        server
+            .request("GET", "/test-bucket/raw%252Fobject", ADMIN, b"")
+            .expect(404);
     }
 }

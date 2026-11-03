@@ -109,17 +109,14 @@ async fn grpc_object_acl_read_checks_selected_generation_and_revocation() {
             get(&server, generation.parse().unwrap(), "reader").await.0,
             "0"
         );
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
         assert_eq!(
             get(&server, generation.parse().unwrap(), "reader").await.0,
             "7"

@@ -75,7 +75,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                         "{auth}Range: bytes=1-4\r\nOrigin: https://browser.example.invalid\r\n"
                     ),
                 );
-                assert_eq!(response.status, 206);
+                response.expect(206);
                 assert_eq!(
                     response.body,
                     if method == "HEAD" {
@@ -121,7 +121,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                     ] {
                         assert_ne!(changed, url);
                         let response = send(&server, method, &changed, "");
-                        assert_eq!(response.status, 403);
+                        response.expect(403);
                         if method == "GET" {
                             error(&response, 403, "SignatureDoesNotMatch");
                         }
@@ -140,7 +140,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                         &format!("{plain}&response-content-type=text%2Fhtml"),
                         "",
                     );
-                    assert_eq!(response.status, 403);
+                    response.expect(403);
                     if method == "GET" {
                         error(&response, 403, "SignatureDoesNotMatch");
                     }
@@ -207,7 +207,7 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
                 );
                 for (url, auth) in [(&unsigned, ADMIN), (&signed, "")] {
                     let response = send(&server, method, url, auth);
-                    assert_eq!(response.status, 400, "{path}");
+                    response.expect(400);
                     assert!(!response.headers.contains_key("x-injected"));
                     if method == "HEAD" {
                         assert!(response.body.is_empty());
@@ -230,7 +230,7 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
             );
             for (url, auth) in [(&unsigned, ADMIN), (&signed, "")] {
                 let response = send(&server, method, url, auth);
-                assert_eq!(response.status, 400);
+                response.expect(400);
                 if method == "HEAD" {
                     assert!(response.body.is_empty());
                 } else {
@@ -283,10 +283,9 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
     }
     // A parameter that names no response override or sub-resource is ignored, as Cloud Storage
     // answered a GET with an unknown query parameter (recorded).
-    assert_eq!(
-        server.get(ADMIN, &format!("{OBJECT}?unknown=value")).status,
-        200
-    );
+    server
+        .get(ADMIN, &format!("{OBJECT}?unknown=value"))
+        .expect(200);
     assert_eq!(server.get(ADMIN, METADATA).success().json(), before);
 }
 

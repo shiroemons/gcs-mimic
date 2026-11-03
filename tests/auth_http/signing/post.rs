@@ -124,12 +124,7 @@ fn v4_policy_upload_streams_through_the_shared_write_path_with_signer_permission
         &[],
     );
     let reply = post(&server, "/iam-bucket", &fields, b"posted bytes");
-    assert_eq!(
-        reply.status,
-        204,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
+    reply.expect(204);
     assert!(reply.headers["x-goog-generation"].parse::<i64>().unwrap() > 0);
     let stored = server.get(ADMIN, "/iam-bucket/uploads/post.txt");
     assert_eq!(stored.success().body, b"posted bytes");
@@ -189,7 +184,7 @@ fn v4_policy_success_status_201_xml_200_and_redirect() {
         ),
         b"one",
     );
-    assert_eq!(created.status, 201);
+    created.expect(201);
     assert_eq!(
         created.headers["content-type"],
         "application/xml; charset=UTF-8"
@@ -241,7 +236,7 @@ fn v4_policy_success_status_201_xml_200_and_redirect() {
         ),
         b"three",
     );
-    assert_eq!(redirect.status, 303);
+    redirect.expect(303);
     assert_eq!(
         redirect.headers["location"],
         "https://app.example.invalid/done?x=1"
@@ -454,7 +449,7 @@ fn v4_policy_signer_uploads_under_public_access_prevention() {
         )
         .success();
     let fields = policy_form("creator@example.invalid", "pap.txt", &FUTURE, &[], &[]);
-    assert_eq!(post(&server, "/iam-bucket", &fields, b"pap").status, 204);
+    post(&server, "/iam-bucket", &fields, b"pap").expect(204);
     assert_eq!(
         server.get(ADMIN, "/iam-bucket/pap.txt").success().body,
         b"pap"
@@ -469,8 +464,7 @@ fn v4_policy_upload_targets_a_virtual_host_bucket_root() {
     for identity in identities["identities"].as_array_mut().unwrap() {
         identity["public_keys"] = json!([PUBLIC]);
     }
-    let file = config.0.join("identities.json");
-    std::fs::write(&file, identities.to_string()).unwrap();
+    let file = common::process::write_identities(&config.0, &(identities));
     let (server, _) = Server::start(
         &data,
         &[
@@ -493,7 +487,7 @@ fn v4_policy_upload_targets_a_virtual_host_bucket_root() {
     )
     .into_bytes();
     request.extend_from_slice(&form);
-    assert_eq!(server.raw(&request).status, 204);
+    server.raw(&request).expect(204);
     assert_eq!(
         server.get(ADMIN, "/iam-bucket/virtual.txt").success().body,
         b"virtual"
@@ -509,7 +503,7 @@ fn permissive_profile_ignores_policy_credentials_but_enforces_conditions() {
         .success();
     let mut fields = policy_form("anyone@example.invalid", "open.txt", &FUTURE, &[], &[]);
     fields.last_mut().unwrap().1 = "00".into();
-    assert_eq!(post(&server, "/iam-bucket", &fields, b"open").status, 204);
+    post(&server, "/iam-bucket", &fields, b"open").expect(204);
     assert_eq!(
         server.get("", "/iam-bucket/open.txt").success().body,
         b"open"

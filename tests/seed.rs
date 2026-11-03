@@ -10,7 +10,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
     path::Path,
-    process::{Child, ChildStdout, Command, Stdio},
+    process::{Child, Command, Stdio},
     time::Duration,
 };
 
@@ -42,69 +42,43 @@ fn startup_events(child: &mut Child) -> std::sync::mpsc::Receiver<Value> {
 }
 
 struct Server {
-    child: Child,
-    stdout: BufReader<ChildStdout>,
-    address: String,
-    ready: Value,
+    process: common::process::Server,
     strict: bool,
+}
+impl std::ops::Deref for Server {
+    type Target = common::process::Server;
+    fn deref(&self) -> &Self::Target {
+        &self.process
+    }
+}
+impl std::ops::DerefMut for Server {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.process
+    }
 }
 
 impl Server {
     fn start(command: &mut Command, strict: bool) -> Self {
-        let mut child = command.stdout(Stdio::piped()).spawn().unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready after seeding");
-        assert_eq!(ready["event"], "ready");
         Self {
-            child,
-            stdout,
-            address: ready["listen"].as_str().unwrap().into(),
-            ready,
+            process: common::process::Server::launch(command),
             strict,
         }
     }
 
     fn request(&self, method: &str, path: &str, body: &[u8]) -> (u16, Vec<u8>) {
-        let mut stream = TcpStream::connect(&self.address).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
         let auth = if self.strict {
             "Authorization: Bearer local-admin-token\r\n"
         } else {
             ""
         };
-        write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n{auth}\r\n", body.len()).unwrap();
-        stream.write_all(body).unwrap();
-        let mut reader = BufReader::new(stream);
-        let mut headers = String::new();
-        loop {
-            let mut line = String::new();
-            assert_ne!(reader.read_line(&mut line).unwrap(), 0);
-            if line == "\r\n" {
-                break;
-            }
-            headers.push_str(&line);
+        let reply = common::http::Client {
+            address: &self.address,
+            host: "localhost",
+            headers: "Content-Type: application/octet-stream\r\n",
+            timeout: Duration::from_secs(5),
         }
-        let status: u16 = headers.split_whitespace().nth(1).unwrap().parse().unwrap();
-        let length = if status == 204 {
-            0
-        } else {
-            headers
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length: "))
-                .unwrap()
-                .parse()
-                .unwrap()
-        };
-        let mut bytes = vec![0; length];
-        reader.read_exact(&mut bytes).unwrap();
-        (status, bytes)
+        .request(method, path, auth, body);
+        (reply.status, reply.body)
     }
 
     fn json(&self, path: &str) -> Value {
@@ -114,16 +88,7 @@ impl Server {
     }
 
     fn stop(mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
+        self.process.stop();
     }
 }
 
@@ -1224,10 +1189,7 @@ async fn probes_cannot_succeed_while_seed_publication_is_blocked() {
     let mut stderr = BufReader::new(child.stderr.take().unwrap());
     let stdout = BufReader::new(child.stdout.take().unwrap());
     let mut server = Server {
-        child,
-        stdout,
-        address: address.to_string(),
-        ready: Value::Null,
+        process: common::process::Server::pending(child, stdout, address.to_string()),
         strict: false,
     };
     // The startup event confirms ownership/recovery without a timing assumption.
@@ -1276,10 +1238,7 @@ async fn sigterm_during_seed_drains_writes_releases_lock_and_retries() {
     let events = startup_events(&mut child);
     let stdout = BufReader::new(child.stdout.take().unwrap());
     let mut server = Server {
-        child,
-        stdout,
-        address: String::new(),
-        ready: Value::Null,
+        process: common::process::Server::pending(child, stdout, String::new()),
         strict: false,
     };
     let event = events
@@ -1354,10 +1313,7 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
         let events = startup_events(&mut child);
         let stdout = BufReader::new(child.stdout.take().unwrap());
         let mut server = Server {
-            child,
-            stdout,
-            address: String::new(),
-            ready: Value::Null,
+            process: common::process::Server::pending(child, stdout, String::new()),
             strict: false,
         };
         assert_eq!(
@@ -1411,13 +1367,7 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
                 );
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
-            assert_eq!(
-                connection
-                    .query_row("SELECT count(*) FROM objects", [], |row| row
-                        .get::<_, i64>(0))
-                    .unwrap(),
-                0
-            );
+            assert_eq!(common::catalog::count(&connection, "objects"), 0);
             assert_eq!(
                 events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
                 "seed_commit_started"
@@ -1484,13 +1434,7 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
                 referenced.is_empty(),
                 "partial body must not commit after cancellation"
             );
-            assert_eq!(
-                connection
-                    .query_row("SELECT count(*) FROM objects", [], |row| row
-                        .get::<_, i64>(0))
-                    .unwrap(),
-                0
-            );
+            assert_eq!(common::catalog::count(&connection, "objects"), 0);
         }
         drop(connection);
         let reopened = Catalog::open(&data).await.unwrap();

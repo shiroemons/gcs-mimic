@@ -33,7 +33,7 @@ fn json_cors_preflight_defaults_never_authenticate_or_grant_access() {
     ] {
         for method in ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "TRACE"] {
             let reply = server.request("OPTIONS", path, &format!("Origin: {ORIGIN}\r\nAccess-Control-Request-Method: {method}\r\nAccess-Control-Request-Headers: Authorization, Content-Type, X-Custom\r\nAuthorization: Bearer invalid\r\n"), b"");
-            assert_eq!(reply.status, 200);
+            reply.expect(200);
             assert!(reply.body.is_empty());
             assert_eq!(reply.headers["access-control-allow-origin"], ORIGIN);
             assert_eq!(
@@ -59,7 +59,7 @@ fn json_cors_preflight_defaults_never_authenticate_or_grant_access() {
             &format!("Origin: {ORIGIN}\r\n{method}"),
             b"",
         );
-        assert_eq!(reply.status, 404);
+        reply.expect(404);
         assert_eq!(reply.headers["access-control-allow-credentials"], "true");
     }
     let invalid = server.request("OPTIONS", "/storage/v1/b/iam-bucket", &format!("Origin: {ORIGIN}\r\nAccess-Control-Request-Method: GET\r\nAccess-Control-Request-Headers: valid, invalid header\r\n"), b"");
@@ -91,7 +91,7 @@ fn json_cors_wraps_bucket_object_streaming_errors_and_validators() {
         ADMIN,
         br#"{"name":"browser-bucket"}"#,
     );
-    assert_eq!(created.status, 200);
+    created.expect(200);
     assert_cors(&created);
     for (method, path, body) in [
         ("GET", "/storage/v1/b?project=project-a", &b""[..]),
@@ -114,7 +114,7 @@ fn json_cors_wraps_bucket_object_streaming_errors_and_validators() {
         ("PUT", object, &br#"{}"#[..]),
     ] {
         let reply = cors_request(&server, method, path, ADMIN, body);
-        assert_eq!(reply.status, 200, "{method} {path}: {:?}", reply.body);
+        reply.expect(200);
         assert_cors(&reply);
     }
     let metadata = cors_request(&server, "GET", object, ADMIN, b"");
@@ -125,7 +125,7 @@ fn json_cors_wraps_bucket_object_streaming_errors_and_validators() {
         &format!("{ADMIN}If-None-Match: {}\r\n", metadata.headers["etag"]),
         b"",
     );
-    assert_eq!(cached.status, 304);
+    cached.expect(304);
     assert!(cached.body.is_empty());
     assert_cors(&cached);
     for (auth, status) in [
@@ -208,7 +208,7 @@ fn xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions() {
     let allowed = preflight(
         "Access-Control-Request-Method: GET\r\nAccess-Control-Request-Headers: authorization, x-probe\r\n",
     );
-    assert_eq!(allowed.status, 200);
+    allowed.expect(200);
     assert_eq!(allowed.headers["access-control-allow-origin"], ORIGIN);
     assert_eq!(allowed.headers["access-control-allow-methods"], "GET, HEAD");
     assert_eq!(
@@ -229,7 +229,7 @@ fn xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions() {
         "Access-Control-Request-Method: GET\r\nAccess-Control-Request-Method: HEAD\r\n",
     ] {
         let reply = preflight(headers);
-        assert_eq!(reply.status, 200);
+        reply.expect(200);
         assert!(!reply.headers.contains_key("access-control-allow-origin"));
     }
     for (auth, status) in [(ADMIN, 200), (NO_ROLES, 403), ("", 401)] {
@@ -257,7 +257,7 @@ fn xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions() {
         &format!("{ADMIN}Origin: https://denied.example.invalid\r\n"),
         b"",
     );
-    assert_eq!(denied.status, 200);
+    denied.expect(200);
     assert!(!denied.headers.contains_key("access-control-allow-origin"));
     assert_eq!(denied.headers["vary"], "Origin");
     let json = server.request(
@@ -266,7 +266,7 @@ fn xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions() {
         &format!("{ADMIN}Origin: https://denied.example.invalid\r\n"),
         b"",
     );
-    assert_eq!(json.status, 200);
+    json.expect(200);
     assert_eq!(
         json.headers["access-control-allow-origin"],
         "https://denied.example.invalid"
@@ -288,7 +288,7 @@ fn xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions() {
         .request("PATCH", bucket, ADMIN, br#"{"cors":[]}"#)
         .success();
     let cleared = cors_request(&server, "GET", object, ADMIN, b"");
-    assert_eq!(cleared.status, 200);
+    cleared.expect(200);
     assert!(!cleared.headers.contains_key("access-control-allow-origin"));
     let unsupported = server.request(
         "OPTIONS",
@@ -337,11 +337,11 @@ fn mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently(
         "null",
     ] {
         let preflight = server.request("OPTIONS", path, &format!("Origin: {origin}\r\nAccess-Control-Request-Method: GET\r\nAccess-Control-Request-Headers: authorization\r\n"), b"");
-        assert_eq!(preflight.status, 200);
+        preflight.expect(200);
         assert_eq!(preflight.headers["access-control-allow-origin"], origin);
         assert_eq!(preflight.headers["access-control-max-age"], "3600");
         let actual = server.request("GET", path, &format!("{ADMIN}Origin: {origin}\r\n"), b"");
-        assert_eq!(actual.status, 200);
+        actual.expect(200);
         assert_eq!(actual.body, b"mobile bytes");
         assert_eq!(actual.headers["access-control-allow-origin"], origin);
         assert!(
@@ -368,7 +368,7 @@ fn mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently(
         "https://mobile.example:invalid",
     ] {
         let reply = server.request("GET", path, &format!("{ADMIN}Origin: {origin}\r\n"), b"");
-        assert_eq!(reply.status, 200);
+        reply.expect(200);
         assert!(
             !reply.headers.contains_key("access-control-allow-origin"),
             "{origin}"
@@ -420,7 +420,7 @@ fn allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_o
         &format!("{other}Access-Control-Request-Method: PUT\r\nAccess-Control-Request-Headers: authorization, x-goog-meta-owner\r\n"),
         b"",
     );
-    assert_eq!(preflight.status, 200);
+    preflight.expect(200);
     assert_eq!(preflight.headers["access-control-allow-origin"], "*");
     assert_eq!(
         preflight.headers["access-control-allow-headers"],
@@ -437,7 +437,7 @@ fn allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_o
     );
     for method in ["GET", "HEAD"] {
         let reply = server.request(method, "/open-bucket/item", other, b"");
-        assert_eq!(reply.status, 200);
+        reply.expect(200);
         assert_eq!(reply.headers["access-control-allow-origin"], "*");
         assert_eq!(reply.headers["access-control-expose-headers"], "Location");
         if method == "GET" {
@@ -445,11 +445,11 @@ fn allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_o
         }
     }
     let missing = server.request("GET", "/missing-bucket/item", other, b"");
-    assert_eq!(missing.status, 404);
+    missing.expect(404);
     assert_eq!(missing.headers["access-control-allow-origin"], "*");
     // Stored rules keep their exact XML behavior: the fallback never widens them.
     let denied = server.request("GET", "/ruled-bucket/item", other, b"");
-    assert_eq!(denied.status, 200);
+    denied.expect(200);
     assert!(!denied.headers.contains_key("access-control-allow-origin"));
     let allowed = cors_request(&server, "GET", "/ruled-bucket/item", "", b"");
     assert_eq!(allowed.headers["access-control-allow-origin"], ORIGIN);
@@ -483,7 +483,7 @@ fn unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback() {
     server.get("", "/plain-bucket/item");
     for _ in 0..2 {
         let reply = cors_request(&server, "GET", "/plain-bucket/item", "", b"");
-        assert_eq!(reply.status, 200);
+        reply.expect(200);
         assert!(!reply.headers.contains_key("access-control-allow-origin"));
     }
     let warnings: Vec<_> = stderr_events(&mut server)

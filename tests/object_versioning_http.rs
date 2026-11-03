@@ -46,12 +46,9 @@ fn versioned_overwrite_and_generation_reads() {
             .body,
         b"first"
     );
-    assert_eq!(
-        server
-            .get(&format!("a%2F%E9%9B%AA?generation={generation}&alt=media"))
-            .status,
-        200
-    );
+    server
+        .get(&format!("a%2F%E9%9B%AA?generation={generation}&alt=media"))
+        .expect(200);
     assert_eq!(
         server
             .request(
@@ -104,12 +101,9 @@ fn versioned_delete_and_permanent_generation_delete() {
         b"first"
     );
     assert_eq!(blobs(&dir), 2);
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
+        .expect(204);
     server.get("file").json_reason(404, "notFound");
     server
         .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
@@ -121,36 +115,29 @@ fn versioned_delete_and_permanent_generation_delete() {
             .body,
         b"second"
     );
-    assert_eq!(
-        server
+    server
             .request(
                 "DELETE",
                 &format!("/storage/v1/b/test-bucket/o/file?generation={old}&ifGenerationMatch={old}&ifGenerationNotMatch=0&ifMetagenerationMatch=2&ifMetagenerationNotMatch=1"),
                 "",
                 b""
-            )
-            .status,
-        204
-    );
+            ).expect(204);
     server
         .get(&format!("file?generation={old}"))
         .json_reason(404, "notFound");
     assert_eq!(blobs(&dir), 1);
     let third = server.put("file", b"third").json_ok();
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!(
-                    "/storage/v1/b/test-bucket/o/file?generation={}",
-                    third["generation"].as_str().unwrap()
-                ),
-                "",
-                b""
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            &format!(
+                "/storage/v1/b/test-bucket/o/file?generation={}",
+                third["generation"].as_str().unwrap()
+            ),
+            "",
+            b"",
+        )
+        .expect(204);
     server.get("file").json_reason(404, "notFound");
     assert_eq!(
         server
@@ -266,12 +253,9 @@ fn disabled_versioning_preserves_history_and_bucket_nonempty() {
     settings(&dir, false, false);
     server.put("file", b"replacement").json_ok();
     assert_eq!(blobs(&dir), 2);
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
+        .expect(204);
     assert_eq!(blobs(&dir), 1);
     assert_eq!(
         server.list("versions=true")["items"]
@@ -340,17 +324,14 @@ fn versioned_strict_permissions() {
             .body,
         b"history"
     );
-    assert_eq!(
-        server
-            .request(
-                "GET",
-                "/storage/v1/b/test-bucket/o?versions=true",
-                "Authorization: Bearer viewer\r\n",
-                b""
-            )
-            .status,
-        200
-    );
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/test-bucket/o?versions=true",
+            "Authorization: Bearer viewer\r\n",
+            b"",
+        )
+        .expect(200);
     for method in ["DELETE", "PATCH"] {
         server
             .request(
@@ -403,12 +384,9 @@ fn versioned_crash_recovery_preserves_referenced_generations() {
             .body,
         b"history"
     );
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
+        .expect(204);
     server.child.kill().unwrap();
     server.child.wait().unwrap();
     drop(server);
@@ -429,17 +407,14 @@ fn versioned_crash_recovery_preserves_referenced_generations() {
     let saved = dir.0.join("interrupted-reclaim");
     std::fs::rename(&blob, &saved).unwrap();
     std::fs::create_dir(&blob).unwrap();
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("/storage/v1/b/test-bucket/o/file?generation={generation}"),
-                "",
-                b""
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            &format!("/storage/v1/b/test-bucket/o/file?generation={generation}"),
+            "",
+            b"",
+        )
+        .expect(204);
     assert!(
         !db.query_row(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE generation=?1)",
@@ -465,12 +440,7 @@ fn versioned_crash_recovery_preserves_referenced_generations() {
     let server = Server::start(&dir, false);
     assert_eq!(blobs(&dir), 1);
     let db = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    assert_eq!(
-        db.query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
-            .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
+    assert_eq!(common::catalog::count(&db, "pending_blob_deletions"), 0);
     server
         .get(&format!("file?generation={generation}"))
         .json_reason(404, "notFound");
@@ -629,12 +599,9 @@ fn timestamp_migration_preserves_versioned_json_get_and_xml_head() {
     let (dir, mut server) = setup(false);
     let first = server.put("file", b"first").json_ok();
     let second = server.put("file", b"second").json_ok();
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
+        .expect(204);
     let third = server.put("file", b"live").json_ok();
     server.stop();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -674,8 +641,8 @@ fn timestamp_migration_preserves_versioned_json_get_and_xml_head() {
                     "",
                     b"",
                 );
-                assert_eq!(json.status, 200);
-                assert_eq!(head.status, 200);
+                json.expect(200);
+                head.expect(200);
                 (
                     json.body,
                     json.headers["etag"].clone(),

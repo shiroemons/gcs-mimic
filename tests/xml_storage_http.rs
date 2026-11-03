@@ -2,10 +2,10 @@ use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{http_command, write_request};
+use common::server::http_command;
 use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use serde_json::{Value, json};
-use std::{io::BufReader, net::TcpStream, time::Duration};
+use std::time::Duration;
 
 impl Server {
     fn start(data: &TestDir, options: &[&str]) -> Self {
@@ -34,29 +34,15 @@ impl Server {
         headers: &str,
         body: &str,
     ) -> (u16, String) {
-        let mut stream = TcpStream::connect(&self.address).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(30)))
-            .unwrap();
-        stream
-            .set_write_timeout(Some(Duration::from_secs(30)))
-            .unwrap();
-        write_request(
-            &mut stream,
-            method,
-            path,
+        let reply = common::http::Client {
+            address: &self.address,
             host,
-            &format!("Connection: close\r\n{headers}"),
-            body.as_bytes(),
-        );
-        let raw =
-            common::read_http_response(&mut BufReader::new(stream), method == "HEAD").unwrap();
-        let raw = String::from_utf8(raw).unwrap();
-        let (headers, body) = raw.split_once("\r\n\r\n").unwrap();
-        (
-            headers.split_whitespace().nth(1).unwrap().parse().unwrap(),
-            body.into(),
-        )
+            headers: "",
+            timeout: Duration::from_secs(30),
+        }
+        .request(method, path, headers, body.as_bytes())
+        .into_text();
+        (reply.status, reply.body)
     }
 
     fn bucket(&self, auth: &str, name: &str) {
@@ -383,12 +369,14 @@ fn xml_bucket_list_rejects_invalid_scopes_options_and_preserves_objects() {
 fn xml_bucket_list_enforces_strict_list_permission_and_revocation() {
     let data = TestDir::new();
     let config = TestDir::new();
-    let registry = config.0.join("identities.json");
-    std::fs::write(&registry, json!({"identities":[
-        {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
-        {"id":"creator@example.invalid","tokens":["creator"],"project_roles":{"local":["roles/storage.objectCreator"]}},
-        {"id":"reader@example.invalid","tokens":["reader"]}
-    ]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &config.0,
+        &(json!({"identities":[
+            {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
+            {"id":"creator@example.invalid","tokens":["creator"],"project_roles":{"local":["roles/storage.objectCreator"]}},
+            {"id":"reader@example.invalid","tokens":["reader"]}
+        ]})),
+    );
     let server = Server::start(
         &data,
         &[
@@ -447,17 +435,14 @@ fn xml_bucket_list_enforces_strict_list_permission_and_revocation() {
 fn xml_bucket_list_v2_signatures_reject_host_transfer_and_bind_versions() {
     let data = TestDir::new();
     let config = TestDir::new();
-    let registry = config.0.join("identities.json");
-    std::fs::write(
-        &registry,
-        json!({"identities":[{
+    let registry = common::process::write_identities(
+        &config.0,
+        &(json!({"identities":[{
             "id":"admin@example.invalid", "tokens":["admin"],
             "public_keys":[include_str!("../fixtures/signing/test-only-public.pem")],
             "project_roles":{"local":["roles/storage.admin"]}
-        }]})
-        .to_string(),
-    )
-    .unwrap();
+        }]})),
+    );
     let server = Server::start(
         &data,
         &[
@@ -783,12 +768,14 @@ fn xml_copy_create_only_condition_has_one_concurrent_winner() {
 fn xml_copy_requires_source_get_destination_create_and_overwrite_delete() {
     let data = TestDir::new();
     let config = TestDir::new();
-    let registry = config.0.join("identities.json");
-    std::fs::write(&registry, json!({"identities":[
-        {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
-        {"id":"creator@example.invalid","tokens":["creator"],"project_roles":{"local":["roles/storage.objectCreator"]}},
-        {"id":"reader@example.invalid","tokens":["reader"],"project_roles":{"local":["roles/storage.objectViewer"]}}
-    ]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &config.0,
+        &(json!({"identities":[
+            {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
+            {"id":"creator@example.invalid","tokens":["creator"],"project_roles":{"local":["roles/storage.objectCreator"]}},
+            {"id":"reader@example.invalid","tokens":["reader"],"project_roles":{"local":["roles/storage.objectViewer"]}}
+        ]})),
+    );
     let server = Server::start(
         &data,
         &[
@@ -963,17 +950,14 @@ fn xml_copy_obeys_object_size_limit_and_preserves_existing_destination() {
 fn xml_copy_v4_signature_binds_source_and_destination_conditions() {
     let data = TestDir::new();
     let config = TestDir::new();
-    let registry = config.0.join("identities.json");
-    std::fs::write(
-        &registry,
-        json!({"identities":[{
+    let registry = common::process::write_identities(
+        &config.0,
+        &(json!({"identities":[{
             "id":"admin@example.invalid", "tokens":["admin"],
             "public_keys":[include_str!("../fixtures/signing/test-only-public.pem")],
             "project_roles":{"local":["roles/storage.admin"]}
-        }]})
-        .to_string(),
-    )
-    .unwrap();
+        }]})),
+    );
     let server = Server::start(
         &data,
         &[

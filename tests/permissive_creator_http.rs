@@ -104,12 +104,7 @@ fn default_creator_owns_every_creation_path_in_json_and_xml() {
         "",
         b"",
     );
-    assert_eq!(
-        moved.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&moved.body)
-    );
+    moved.expect(200);
     assert_creator(&full(&server, "moved"), DEFAULT);
     let started = server.request(
         "POST",
@@ -117,7 +112,7 @@ fn default_creator_owns_every_creation_path_in_json_and_xml() {
         "",
         b"{}",
     );
-    assert_eq!(started.status, 200);
+    started.expect(200);
     let location = started.headers["location"].clone();
     let path = location
         .split_once("//")
@@ -125,16 +120,11 @@ fn default_creator_owns_every_creation_path_in_json_and_xml() {
         .map(|(_, path)| format!("/{path}"))
         .unwrap();
     let finished = server.request("PUT", &path, "", b"resumed bytes");
-    assert_eq!(
-        finished.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&finished.body)
-    );
+    finished.expect(200);
     assert_creator(&full(&server, "resumed"), DEFAULT);
     // XML PUT is a creation path too.
     let xml = server.request("PUT", "/test-bucket/xml-object", "", b"x");
-    assert_eq!(xml.status, 200);
+    xml.expect(200);
     assert_creator(&full(&server, "xml-object"), DEFAULT);
 }
 
@@ -161,12 +151,9 @@ fn changing_or_disabling_the_creator_follows_restarts_without_authorizing_anythi
     assert_eq!(object["owner"]["entity"], "project-owners-0");
     assert_eq!(object["acl"].as_array().unwrap().len(), 3);
     // Anonymous requests were always allowed in permissive mode; the creator is only a label.
-    assert_eq!(
-        server
-            .request("DELETE", &format!("{BUCKET}/o/kept"), "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", &format!("{BUCKET}/o/kept"), "", b"")
+        .expect(204);
 }
 
 #[test]

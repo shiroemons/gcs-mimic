@@ -97,16 +97,13 @@ impl Server {
     }
 
     fn bucket(&self) {
-        assert_eq!(
-            self.request(
-                "POST",
-                "/storage/v1/b?project=local",
-                "Content-Type: application/json\r\n",
-                br#"{"name":"test-bucket","storageClass":"NEARLINE"}"#
-            )
-            .status,
-            200
-        );
+        self.request(
+            "POST",
+            "/storage/v1/b?project=local",
+            "Content-Type: application/json\r\n",
+            br#"{"name":"test-bucket","storageClass":"NEARLINE"}"#,
+        )
+        .expect(200);
     }
 
     fn upload(&self, query: &str, headers: &str, body: &[u8]) -> Reply {
@@ -168,12 +165,7 @@ fn obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket() {
         "Content-Type: text/plain\r\nX-Goog-Hash: crc32c=4waSgw==,md5=JfnnlDI7RTiF9RgfG2JNCw==\r\n",
         b"123456789",
     );
-    assert_eq!(
-        reply.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
+    reply.expect(200);
     assert_eq!(
         reply.headers["content-type"],
         "application/json; charset=UTF-8"
@@ -204,7 +196,7 @@ fn obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket() {
     assert_eq!(server.get("notes%2Fhello%20%E6%97%A5.txt").json(), value);
     for prefix in ["storage", "download/storage"] {
         let media = server.request("GET", &format!("/{prefix}/v1/b/test-bucket/o/notes%2Fhello%20%E6%97%A5.txt?alt=media&generation={generation}"), "", b"");
-        assert_eq!(media.status, 200);
+        media.expect(200);
         assert_eq!(media.body, b"123456789");
         for (name, expected) in [
             ("content-type", "text/plain"),
@@ -231,17 +223,14 @@ fn obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket() {
         "",
         b"",
     );
-    assert_eq!(deleted.status, 204);
+    deleted.expect(204);
     assert!(deleted.body.is_empty());
     server
         .get("notes%2Fhello%20%E6%97%A5.txt")
         .json_error(404, "notFound");
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket", "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket", "", b"")
+        .expect(204);
 }
 
 #[test]
@@ -250,7 +239,7 @@ fn obj_http_zero_multichunk_binary_and_size_limits() {
     let server = Server::start(&dir, 200_000, 5000);
     server.bucket();
     let empty = server.upload("name=empty", "", b"");
-    assert_eq!(empty.status, 200);
+    empty.expect(200);
     // An upload without a Content-Type stores none (recorded).
     assert!(empty.json().get("contentType").is_none());
     assert_eq!(empty.json()["size"], "0");
@@ -272,7 +261,7 @@ fn obj_http_zero_multichunk_binary_and_size_limits() {
     limited.bucket();
     limited.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=over HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n3\r\ndef\r\n0\r\n\r\n").json_error(413, "uploadTooLarge");
     limited.get("over").json_error(404, "notFound");
-    assert_eq!(limited.upload("name=exact", "", b"12345").status, 200);
+    limited.upload("name=exact", "", b"12345").expect(200);
 }
 
 #[test]
@@ -290,7 +279,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             &format!("X-Goog-Hash: {hash}\r\n"),
             b"payload",
         );
-        assert_eq!(reply.status, 200);
+        reply.expect(200);
         assert_ne!(reply.json()["crc32c"], "AAAAAA==");
     }
     server.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related\r\nContent-Length: 999\r\n\r\n").plain_error(
@@ -300,7 +289,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     );
     server.get("unsupported").json_error(404, "notFound");
     let existing = server.upload("name=existing", "", b"old");
-    assert_eq!(existing.status, 200);
+    existing.expect(200);
     let generation = existing.json()["generation"].as_str().unwrap().to_owned();
     for (header, read_status, read_reason) in [
         ("If-Match: opaque tag\r\n", 400, "invalidParameter"),
@@ -328,7 +317,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
                 b"",
             );
             if read_status == 304 {
-                assert_eq!(reply.status, 304);
+                reply.expect(304);
                 assert!(reply.body.is_empty());
             } else {
                 reply.json_error(read_status, read_reason);
@@ -371,7 +360,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
         "Range: bytes=0-1\r\n",
         b"",
     );
-    assert_eq!(partial.status, 206);
+    partial.expect(206);
     assert_eq!(partial.body, b"ol");
     // If-Range is not evaluated (recorded): without a Range the whole object is sent.
     let if_range = server.request(
@@ -424,15 +413,12 @@ fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
         ("ifMetagenerationNotMatch", 2, 1, 304),
     ] {
         for alt in ["json", "media"] {
-            assert_eq!(
-                server
-                    .get(&format!("conditions?alt={alt}&{key}={passing}"))
-                    .status,
-                200
-            );
+            server
+                .get(&format!("conditions?alt={alt}&{key}={passing}"))
+                .expect(200);
             let failed = server.get(&format!("conditions?alt={alt}&{key}={failing}"));
             if status == 304 {
-                assert_eq!(failed.status, 304);
+                failed.expect(304);
                 assert!(failed.body.is_empty());
             } else {
                 failed.json_error(412, "conditionNotMet");
@@ -480,10 +466,10 @@ fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
             .json_error(412, "conditionNotMet");
     }
     let replaced = server.upload(&format!("name=conditions&ifGenerationMatch={generation}&ifGenerationNotMatch={}&ifMetagenerationMatch=1&ifMetagenerationNotMatch=2", generation + 1), "", b"replacement");
-    assert_eq!(replaced.status, 200);
+    replaced.expect(200);
     let next_generation = replaced.json()["generation"].as_str().unwrap().to_owned();
     assert_ne!(next_generation, generation.to_string());
-    assert_eq!(server.request("DELETE", &format!("/storage/v1/b/test-bucket/o/conditions?generation={next_generation}&ifGenerationMatch={next_generation}&ifMetagenerationMatch=1&ifMetagenerationNotMatch=2"), "", b"").status, 204);
+    server.request("DELETE", &format!("/storage/v1/b/test-bucket/o/conditions?generation={next_generation}&ifGenerationMatch={next_generation}&ifMetagenerationMatch=1&ifMetagenerationNotMatch=2"), "", b"").expect(204);
 }
 
 #[test]
@@ -504,10 +490,10 @@ fn obj_http_idempotency_token_local_read_delete_rule_and_upload_replay() {
     let original = server.upload("name=token", "", b"payload").json();
     let path = "/storage/v1/b/test-bucket/o/token";
     let metadata = server.request("GET", path, token, b"");
-    assert_eq!(metadata.status, 200);
+    metadata.expect(200);
     assert_eq!(metadata.json(), original);
     let media = server.request("GET", &format!("{path}?alt=media"), token, b"");
-    assert_eq!(media.status, 200);
+    media.expect(200);
     assert_eq!(media.body, b"payload");
     for headers in [
         "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
@@ -521,7 +507,7 @@ fn obj_http_idempotency_token_local_read_delete_rule_and_upload_replay() {
     }
     assert_eq!(server.get("token").json(), original);
     let deleted = server.request("DELETE", path, token, b"");
-    assert_eq!(deleted.status, 204);
+    deleted.expect(204);
     assert!(deleted.body.is_empty());
     // Tokens are accepted locally without deduplication: a retry executes the delete again.
     server
@@ -662,7 +648,7 @@ fn obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out() {
         thread::sleep(Duration::from_millis(80));
     }
     stream.write_all(b"0\r\n\r\n").unwrap();
-    assert_eq!(Reply::framed(stream).status, 200);
+    Reply::framed(stream).expect(200);
     assert_eq!(server.get("slow?alt=media").body, b"aaaaaaaaaa");
     let mut stream = server.stream();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=idle HTTP/1.1\r\nHost: local\r\nContent-Length: 100\r\n\r\nx").unwrap();
@@ -672,7 +658,7 @@ fn obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out() {
     assert!(start.elapsed() < Duration::from_secs(2));
     timed_out.json_error(408, "uploadBrokenConnection");
     server.get("idle").json_error(404, "notFound");
-    assert_eq!(server.upload("name=after-timeout", "", b"ok").status, 200);
+    server.upload("name=after-timeout", "", b"ok").expect(200);
 }
 
 #[test]
@@ -742,10 +728,9 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
     // Setup only: a slow runner can need more than 5 s to upload 32 MiB.
     let mut server = Server::start(&dir, size as u64, 30_000);
     server.bucket();
-    assert_eq!(
-        server.upload("name=large", "", &vec![b'x'; size]).status,
-        200
-    );
+    server
+        .upload("name=large", "", &vec![b'x'; size])
+        .expect(200);
     server.stop();
     let server = Server::with_timeouts(&dir, size as u64, 3000, 1200, 5000);
     let mut stream = server.stream();
@@ -801,10 +786,9 @@ fn obj_http_media_read_failure_after_headers_names_its_cause() {
     let mut stderr = server.child.stderr.take().unwrap();
     server.bucket();
     let size = 8 * 1024 * 1024;
-    assert_eq!(
-        server.upload("name=large", "", &vec![b'r'; size]).status,
-        200
-    );
+    server
+        .upload("name=large", "", &vec![b'r'; size])
+        .expect(200);
     let blob = std::fs::read_dir(dir.0.join("blobs"))
         .unwrap()
         .flat_map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap())
@@ -913,12 +897,9 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
     }
     assert_eq!(server.get("committing?alt=media").body, b"one");
     server.get("queued").json_error(404, "notFound");
-    assert_eq!(
-        server
-            .upload("name=after-catalog-timeout", "", b"ok")
-            .status,
-        200
-    );
+    server
+        .upload("name=after-catalog-timeout", "", b"ok")
+        .expect(200);
 }
 
 #[test]
@@ -934,7 +915,7 @@ fn obj_http_completed_body_waits_for_commit_past_inactivity_deadline() {
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=committed&ifGenerationMatch=0 HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\nnew").unwrap();
     thread::sleep(Duration::from_secs(2));
     database.execute_batch("ROLLBACK").unwrap();
-    assert_eq!(Reply::framed(stream).status, 200);
+    Reply::framed(stream).expect(200);
     assert_eq!(server.get("committed?alt=media").body, b"new");
 }
 
@@ -963,9 +944,9 @@ fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
     let waiting = Instant::now();
     thread::sleep(Duration::from_secs(2));
     database.execute_batch("ROLLBACK").unwrap();
-    assert_eq!(Reply::framed(second).status, 200);
+    Reply::framed(second).expect(200);
     assert!(waiting.elapsed() >= Duration::from_secs(2));
-    assert_eq!(Reply::framed(first).status, 200);
+    Reply::framed(first).expect(200);
     assert_eq!(server.get("first?alt=media").body, b"one");
     assert_eq!(server.get("second?alt=media").body, b"two");
 }
@@ -1003,7 +984,7 @@ fn obj_http_additional_upload_waits_for_advisory_check() {
         reply.join().unwrap()
     });
     reply.json_error(404, "notFound");
-    assert_eq!(Reply::framed(uploads.remove(0)).status, 200);
+    Reply::framed(uploads.remove(0)).expect(200);
 }
 
 #[test]
@@ -1011,7 +992,7 @@ fn obj_http_precheck_and_method_alt_reject_before_consuming_body() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1_000_000, 2000);
     server.bucket();
-    assert_eq!(server.upload("name=exists", "", b"old").status, 200);
+    server.upload("name=exists", "", b"old").expect(200);
     for (path, status, reason) in [
         (
             "/upload/storage/v1/b/missing-bucket/o?uploadType=media&name=exists",
@@ -1058,7 +1039,7 @@ fn obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing()
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 2000);
     server.bucket();
-    assert_eq!(server.upload("name=exists", "", b"old").status, 200);
+    server.upload("name=exists", "", b"old").expect(200);
     let bad_hash = "X-Goog-Hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n";
     server
         .upload("name=exists&ifGenerationMatch=0", bad_hash, b"bad")
@@ -1188,7 +1169,7 @@ fn resumable_path(server: &Server) -> String {
         "Content-Type: application/json\r\n",
         br#"{"contentType":"application/test","metadata":{"source":"initiation"}}"#,
     );
-    assert_eq!(reply.status, 200);
+    reply.expect(200);
     reply.headers["location"]
         .strip_prefix("https://advertised.invalid/api")
         .unwrap()
@@ -1290,10 +1271,7 @@ fn resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail() {
     server.bucket();
     let path = resumable_path(&server);
     let prefix = 256 * 1024;
-    assert_eq!(
-        Reply::framed(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).status,
-        308
-    );
+    Reply::framed(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).expect(308);
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     let (stage, _) = resumable_files(&dir, &database);
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
@@ -1312,7 +1290,7 @@ fn resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail() {
     let server = Server::start(&dir, 1024 * 1024, 5000);
     assert_eq!(std::fs::metadata(&stage).unwrap().len(), prefix);
     let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
-    assert_eq!(status.status, 308);
+    status.expect(308);
     assert_eq!(status.headers["range"], format!("bytes=0-{}", prefix - 1));
     let final_reply = Reply::framed(send_resumable_chunk(
         &server,
@@ -1322,7 +1300,7 @@ fn resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail() {
         &(prefix * 2).to_string(),
         b'b',
     ));
-    assert_eq!(final_reply.status, 200);
+    final_reply.expect(200);
     let mut expected = vec![b'a'; prefix as usize];
     expected.extend(vec![b'b'; prefix as usize]);
     assert_eq!(server.get("durable?alt=media").body, expected);
@@ -1358,7 +1336,7 @@ fn resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes() {
 
         let server = Server::start(&dir, 1024 * 1024, 5000);
         let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
-        assert_eq!(status.status, 308);
+        status.expect(308);
         assert_eq!(status.headers["range"], acknowledged.headers["range"]);
         let total = prefix.len() + 4;
         let final_reply = server.request(
@@ -1371,7 +1349,7 @@ fn resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes() {
             ),
             b"tail",
         );
-        assert_eq!(final_reply.status, 200);
+        final_reply.expect(200);
         let mut expected = prefix;
         expected.extend_from_slice(b"tail");
         assert_eq!(server.get("durable?alt=media").body, expected);
@@ -1397,10 +1375,7 @@ fn assert_resumable_precommit_recovery(after_rename: bool) {
     server.bucket();
     let original = server.upload("name=durable", "", b"old").json();
     let path = resumable_path(&server);
-    assert_eq!(
-        Reply::framed(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).status,
-        308
-    );
+    Reply::framed(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).expect(308);
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     let (stage, blob) = resumable_files(&dir, &database);
     let sending = send_resumable_chunk(&server, &path, prefix, 4, &total.to_string(), b'b');
@@ -1455,7 +1430,7 @@ fn assert_resumable_precommit_recovery(after_rename: bool) {
     assert_eq!(server.get("durable").json(), original);
     assert_eq!(server.get("durable?alt=media").body, b"old");
     let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
-    assert_eq!(status.status, 308);
+    status.expect(308);
     assert_eq!(status.headers["range"], format!("bytes=0-{}", total - 1));
     let completed = Reply::framed(send_resumable_chunk(
         &server,
@@ -1465,7 +1440,7 @@ fn assert_resumable_precommit_recovery(after_rename: bool) {
         &total.to_string(),
         b'b',
     ));
-    assert_eq!(completed.status, 200);
+    completed.expect(200);
     let resource = completed.json();
     assert_ne!(resource["generation"], original["generation"]);
     let bytes = server.get("durable?alt=media").body;
@@ -1473,7 +1448,7 @@ fn assert_resumable_precommit_recovery(after_rename: bool) {
     assert!(bytes[..prefix as usize].iter().all(|byte| *byte == b'a'));
     assert_eq!(&bytes[prefix as usize..], b"bbbb");
     let repeated = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
-    assert_eq!(repeated.status, 200);
+    repeated.expect(200);
     assert_eq!(repeated.json(), resource);
     assert_resumable_complete(&server, &dir, &resource);
 }
@@ -1486,7 +1461,7 @@ fn resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot
     let path = resumable_path(&server);
     let headers = "Content-Range: bytes 0-4/5\r\nX-Goog-Meta-final: committed\r\n";
     let completed = server.request("PUT", &path, headers, b"exact");
-    assert_eq!(completed.status, 200);
+    completed.expect(200);
     let resource = completed.json();
     assert_eq!(
         resource["metadata"],
@@ -1499,11 +1474,11 @@ fn resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot
     let server = Server::start(&dir, 1000, 5000);
     assert_eq!(server.get("durable?alt=media").body, b"exact");
     let status = server.request("PUT", &path, "Content-Range: bytes */5\r\n", b"");
-    assert_eq!(status.status, 200);
+    status.expect(200);
     assert!(!status.headers.contains_key("x-http-status-code-override"));
     assert_eq!(status.json(), resource);
     let repeated = server.request("PUT", &path, headers, b"exact");
-    assert_eq!(repeated.status, 200);
+    repeated.expect(200);
     assert_eq!(repeated.json(), resource);
     assert_resumable_complete(&server, &dir, &resource);
 }

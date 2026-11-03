@@ -26,12 +26,9 @@ fn object_acl_reads_are_generation_scoped_on_disk_and_memory() {
                 .body,
             b"first\0\xff"
         );
-        assert_eq!(
-            server
-                .request("HEAD", "/test-bucket/value", READER, b"")
-                .status,
-            200
-        );
+        server
+            .request("HEAD", "/test-bucket/value", READER, b"")
+            .expect(200);
         assert_eq!(
             server
                 .request("GET", "/test-bucket/value", READER, b"")
@@ -45,53 +42,37 @@ fn object_acl_reads_are_generation_scoped_on_disk_and_memory() {
             &format!("{BUCKET}/o/other"),
             &format!("{OBJECT}?generation=1"),
         ] {
-            assert_eq!(
-                server.request("GET", target, READER, b"").status,
-                403,
-                "{target}"
-            );
+            server.request("GET", target, READER, b"").expect(403);
         }
         for method in ["PATCH", "DELETE"] {
-            assert_eq!(server.request(method, OBJECT, READER, b"{}").status, 403);
+            server.request(method, OBJECT, READER, b"{}").expect(403);
         }
-        assert_eq!(
-            server
-                .request("GET", &format!("{path}&ifGenerationMatch=1"), READER, b"")
-                .status,
-            412
-        );
-        assert_eq!(
-            server
-                .request("GET", &format!("{path}&ifGenerationMatch=1"), OTHER, b"")
-                .status,
-            403
-        );
-        assert_eq!(
-            server
-                .request("GET", &path, "Authorization: Bearer invalid\r\n", b"")
-                .status,
-            401
-        );
+        server
+            .request("GET", &format!("{path}&ifGenerationMatch=1"), READER, b"")
+            .expect(412);
+        server
+            .request("GET", &format!("{path}&ifGenerationMatch=1"), OTHER, b"")
+            .expect(403);
+        server
+            .request("GET", &path, "Authorization: Bearer invalid\r\n", b"")
+            .expect(401);
         server.put(b"second");
-        assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
+        server.request("GET", OBJECT, READER, b"").expect(403);
         assert_eq!(
             server
                 .request("GET", &format!("{path}&alt=media"), READER, b"")
                 .body,
             b"first\0\xff"
         );
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
-        assert_eq!(server.request("GET", &path, READER, b"").status, 403);
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}/acl/user-reader%40example.test?generation={generation}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
+        server.request("GET", &path, READER, b"").expect(403);
     }
 }
 
@@ -104,7 +85,7 @@ fn public_acl_pap_uniform_access_and_restart_recheck_the_selected_generation() {
     let object = server.put(b"public body");
     let generation = object["generation"].as_str().unwrap();
     server.grant("allAuthenticatedUsers", "READER", generation);
-    assert_eq!(server.request("GET", OBJECT, "", b"").status, 401);
+    server.request("GET", OBJECT, "", b"").expect(401);
     server.request("GET", OBJECT, OTHER, b"").json_ok();
     server.grant("allUsers", "READER", generation);
     let public = server.request("GET", &format!("{OBJECT}?alt=media"), "", b"");
@@ -121,8 +102,8 @@ fn public_acl_pap_uniform_access_and_restart_recheck_the_selected_generation() {
             json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
         )
         .json_ok();
-    assert_eq!(server.request("GET", OBJECT, "", b"").status, 401);
-    assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
+    server.request("GET", OBJECT, "", b"").expect(401);
+    server.request("GET", OBJECT, OTHER, b"").expect(403);
     server.request("GET", OBJECT, READER, b"").json_ok();
     server
         .admin(
@@ -131,7 +112,7 @@ fn public_acl_pap_uniform_access_and_restart_recheck_the_selected_generation() {
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
         )
         .json_ok();
-    assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
+    server.request("GET", OBJECT, READER, b"").expect(403);
     server.request("GET", OBJECT, ADMIN, b"").json_ok();
     server
         .admin(
@@ -144,8 +125,8 @@ fn public_acl_pap_uniform_access_and_restart_recheck_the_selected_generation() {
     server.stop();
     let server = Server::start(&data, &inputs, "disk");
     server.request("GET", OBJECT, READER, b"").json_ok();
-    assert_eq!(server.request("GET", OBJECT, "", b"").status, 401);
-    assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
+    server.request("GET", OBJECT, "", b"").expect(401);
+    server.request("GET", OBJECT, OTHER, b"").expect(403);
 }
 
 #[test]
@@ -169,14 +150,14 @@ fn object_acl_read_does_not_bypass_customer_key_validation() {
         object["generation"].as_str().unwrap(),
     );
     let media = format!("{OBJECT}?alt=media");
-    assert_eq!(server.request("GET", &media, READER, b"").status, 400);
+    server.request("GET", &media, READER, b"").expect(400);
     assert_eq!(
         server
             .request("GET", &media, &format!("{READER}{key}"), b"")
             .body,
         b"keyed body"
     );
-    assert_eq!(server.request("GET", &media, OTHER, b"").status, 403);
+    server.request("GET", &media, OTHER, b"").expect(403);
 }
 
 /// Cloud Storage's JSON media read of a publicly readable object revalidates, varies by the
@@ -195,7 +176,7 @@ fn anonymous_json_media_read_of_a_public_object_carries_the_public_header_set() 
     let private = server.request("GET", &path, OTHER, b"");
     server.grant("allUsers", "READER", generation);
     let public = server.request("GET", &path, "", b"");
-    assert_eq!(public.status, 200);
+    public.expect(200);
     assert_eq!(
         public.headers["cache-control"],
         "public, max-age=3600, must-revalidate"

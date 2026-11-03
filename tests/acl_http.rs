@@ -141,7 +141,7 @@ fn bucket_acl_crud_round_trips_and_advances_metageneration() {
     );
 
     let deleted = call(&server, "DELETE", &format!("{acl}/allAuthenticatedUsers"));
-    assert_eq!(deleted.status, 204);
+    deleted.expect(204);
     assert!(deleted.body.is_empty());
     for method in ["GET", "DELETE"] {
         call(&server, method, &format!("{acl}/allAuthenticatedUsers")).json_reason(404, "notFound");
@@ -286,15 +286,12 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
         &format!("{default}?ifMetagenerationMatch={}", current - 1),
     )
     .json_reason(412, "conditionNotMet");
-    assert_eq!(
-        call(
-            &server,
-            "GET",
-            &format!("{default}?ifMetagenerationNotMatch={current}")
-        )
-        .status,
-        304
-    );
+    call(
+        &server,
+        "GET",
+        &format!("{default}?ifMetagenerationNotMatch={current}"),
+    )
+    .expect(304);
     assert_eq!(
         entries(
             &call(
@@ -321,10 +318,7 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
         object_private()
     );
     // Changing the default later never rewrites existing objects.
-    assert_eq!(
-        call(&server, "DELETE", &format!("{default}/allUsers")).status,
-        204
-    );
+    call(&server, "DELETE", &format!("{default}/allUsers")).expect(204);
     assert_eq!(
         entries(&call(&server, "GET", &format!("{BUCKET}/o/after/acl")).json_ok()),
         inherited
@@ -424,10 +418,7 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
     let server = Server::start(&dir, false);
     let stored = call(&server, "GET", &acl).json_ok();
     assert_eq!(entries(&stored).len(), 5);
-    assert_eq!(
-        call(&server, "DELETE", &format!("{BUCKET}/o/dir%2Fname")).status,
-        204
-    );
+    call(&server, "DELETE", &format!("{BUCKET}/o/dir%2Fname")).expect(204);
     call(&server, "GET", &acl).json_reason(404, "notFound");
 }
 
@@ -715,7 +706,7 @@ fn resource_acl_validation_and_preconditions_preserve_all_metadata() {
             // Observed on Cloud Storage: a bucket PATCH whose ifMetagenerationNotMatch names
             // the current value is an empty 304.
             if condition.starts_with("ifMetagenerationNotMatch") && !path.ends_with("/object") {
-                assert_eq!(reply.status, 304);
+                reply.expect(304);
                 assert!(reply.body.is_empty());
             } else {
                 reply.json_reason(412, "conditionNotMet");

@@ -11,12 +11,7 @@ const PROTOCOL_PATH: &str = "/resumable/upload/storage/v1/b/test-bucket/o";
 
 /// The session path of a successful initiation, relative to the advertised API base URL.
 fn session_path(reply: &Reply) -> String {
-    assert_eq!(
-        reply.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
+    reply.expect(200);
     let location = &reply.headers["location"];
     let path = location.strip_prefix("http://127.0.0.1:4443").unwrap();
     assert!(
@@ -101,7 +96,7 @@ fn resumable_protocol_path_rejects_other_upload_types_like_the_upload_path() {
         "",
         b"x",
     );
-    assert_eq!(bogus.status, 400);
+    bogus.expect(400);
     for query in [
         "uploadType=media&name=x",
         "uploadType=multipart",
@@ -150,7 +145,7 @@ fn resumable_protocol_path_rejects_other_upload_types_like_the_upload_path() {
             );
         }
     }
-    assert_eq!(server.get("x").status, 404);
+    server.get("x").expect(404);
 }
 
 #[test]
@@ -218,23 +213,15 @@ fn resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api() {
         )
         .json_ok();
     // Path-style XML reads and writes of that object name still reach the XML API.
-    assert_eq!(
-        server
-            .request("PUT", PROTOCOL_PATH, "", b"xml object")
-            .status,
-        200
-    );
+    server
+        .request("PUT", PROTOCOL_PATH, "", b"xml object")
+        .expect(200);
     let read = server.request("GET", PROTOCOL_PATH, "", b"");
-    assert_eq!(read.status, 200);
+    read.expect(200);
     assert_eq!(read.body, b"xml object");
     // An XML multipart initiation carries no uploadType, so it stays an XML request.
     let initiated = server.request("POST", &format!("{PROTOCOL_PATH}?uploads"), "", b"");
-    assert_eq!(
-        initiated.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&initiated.body)
-    );
+    initiated.expect(200);
     assert!(String::from_utf8_lossy(&initiated.body).contains("<UploadId>"));
-    assert_eq!(server.request("DELETE", PROTOCOL_PATH, "", b"").status, 204);
+    server.request("DELETE", PROTOCOL_PATH, "", b"").expect(204);
 }

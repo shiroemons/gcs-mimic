@@ -53,26 +53,7 @@ fn execute(options: Options) -> Result<import::Summary, import::ImportError> {
     import::execute(options, Vec::new(), Vec::new())
 }
 
-struct Interrupt {
-    remaining: usize,
-}
-impl Write for Interrupt {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.contains(&b'\n') {
-            self.remaining -= 1;
-            if self.remaining == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "interrupted report",
-                ));
-            }
-        }
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
+use common::interrupt::Interrupt;
 
 fn interrupted(options: &Options) {
     let result = import::execute(options.clone(), Interrupt { remaining: 2 }, Vec::new());

@@ -87,7 +87,7 @@ fn compose_order_checksums_metadata_fields_and_restart() {
     assert_eq!(bytes.body, b"123456789");
     assert_eq!(bytes.headers["x-goog-hash"], "crc32c=4waSgw==");
     let xml = server.request("GET", "/test-bucket/dir%2F%E9%9B%AA%25", "", b"");
-    assert_eq!(xml.status, 200);
+    xml.expect(200);
     assert_eq!(xml.body, b"123456789");
     assert!(!xml.headers["x-goog-hash"].contains("md5="));
     // XML entity tags are quoted; a composite object has no MD5 to report.
@@ -97,7 +97,7 @@ fn compose_order_checksums_metadata_fields_and_restart() {
     );
     assert_eq!(xml.headers["x-goog-component-count"], "2");
     let head = server.request("HEAD", "/test-bucket/dir%2F%E9%9B%AA%25", "", b"");
-    assert_eq!(head.status, 200);
+    head.expect(200);
     assert_eq!(head.headers["x-goog-component-count"], "2");
     assert_eq!(head.headers["etag"], xml.headers["etag"]);
     assert!(head.body.is_empty());
@@ -284,10 +284,7 @@ fn compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination() 
     assert_eq!(object_effects_support::blobs(&dir), 3);
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
+        common::catalog::count(&connection, "pending_blob_deletions"),
         0
     );
     assert_eq!(
@@ -326,7 +323,7 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
         json!({"sourceObjects":vec![json!({"name":"a"});33]}),
         json!({"sourceObjects":[{"name":"a","generation":-1}]}),
     ] {
-        assert_eq!(compose(&server, "destination", body).status, 400);
+        compose(&server, "destination", body).expect(400);
     }
     for query in [
         "destinationPredefinedAcl=publicRead",
@@ -472,7 +469,7 @@ fn compose_storage_class_defaults_and_event_holds() {
     let same_class = compose(&server, "same-class", sources(&["standard"])).json_ok();
     assert_eq!(same_class["storageClass"], "STANDARD");
     let mixed = compose(&server, "mixed", sources(&["standard", "nearline"]));
-    assert_eq!(mixed.status, 400);
+    mixed.expect(400);
     server.get("mixed").json_reason(404, "notFound");
     settings(&dir, false, true);
     server
@@ -516,17 +513,14 @@ fn compose_method_body_and_selector_boundaries() {
         )
         .json_reason(400, "invalid");
     let oversized = vec![b' '; 65537];
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                "/storage/v1/b/test-bucket/o/destination/compose",
-                AUTH,
-                &oversized
-            )
-            .status,
-        413
-    );
+    server
+        .request(
+            "POST",
+            "/storage/v1/b/test-bucket/o/destination/compose",
+            AUTH,
+            &oversized,
+        )
+        .expect(413);
     for query in ["projection=full", "projection=noAcl"] {
         server
             .request(
@@ -604,10 +598,7 @@ fn compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletio
     assert_eq!(media(&server, "destination").body, b"preserved");
     assert_eq!(common::server::staging_count(&dir), 0);
     assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
+        common::catalog::count(&connection, "pending_blob_deletions"),
         0
     );
 }
@@ -653,13 +644,7 @@ fn compose_hold_added_after_streaming_preserves_destination_and_sources() {
     assert_eq!(server.get("a").json_ok()["eventBasedHold"], true);
     assert_eq!(media(&server, "a").body, b"source");
     assert_eq!(server.get("destination").json_ok(), destination);
-    assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
+    assert_eq!(common::catalog::count(&connection, "derived_transfers"), 0);
     assert_eq!(common::server::staging_count(&dir), 0);
 }
 
@@ -710,13 +695,7 @@ fn compose_source_generation_change_never_deletes_the_replacement() {
     );
     assert_eq!(media(&server, "a").body, b"source");
     assert_eq!(server.get("destination").json_ok(), destination);
-    assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
+    assert_eq!(common::catalog::count(&connection, "derived_transfers"), 0);
     assert_eq!(common::server::staging_count(&dir), 0);
 }
 
@@ -742,13 +721,7 @@ fn compose_destination_condition_is_rechecked_after_streaming() {
     assert_eq!(after["generation"], destination["generation"]);
     assert_eq!(after["metageneration"], "2");
     assert_eq!(media(&server, "destination").body, b"preserved");
-    assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
+    assert_eq!(common::catalog::count(&connection, "derived_transfers"), 0);
     assert_eq!(common::server::staging_count(&dir), 0);
 }
 
@@ -763,13 +736,7 @@ fn compose_incarnation_change_preserves_original_error_and_recovers_after_restar
     compose(&server, "destination", sources(&["a"])).json_reason(412, "conditionNotMet");
     assert_eq!(server.get("destination").json_ok(), destination);
     assert_eq!(server.get("a").json_ok(), source);
-    assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        1
-    );
+    assert_eq!(common::catalog::count(&connection, "derived_transfers"), 1);
     connection
         .execute_batch("DROP TRIGGER replace_compose_bucket; DROP TRIGGER fail_compose_cleanup;")
         .unwrap();
@@ -777,13 +744,7 @@ fn compose_incarnation_change_preserves_original_error_and_recovers_after_restar
     let server = Server::start(&dir, false);
     assert_eq!(server.get("destination").json_ok(), destination);
     assert_eq!(server.get("a").json_ok(), source);
-    assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
+    assert_eq!(common::catalog::count(&connection, "derived_transfers"), 0);
     assert_eq!(common::server::staging_count(&dir), 0);
 }
 
@@ -808,13 +769,7 @@ fn compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed() {
         .unwrap();
     server.get("destination").json_reason(404, "notFound");
     assert_eq!(server.get("a").json_ok(), source);
-    assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
+    assert_eq!(common::catalog::count(&connection, "derived_transfers"), 0);
     assert_eq!(common::server::staging_count(&dir), 0);
 }
 
@@ -840,12 +795,6 @@ fn compose_same_name_noncurrent_source_hold_is_rechecked_before_publication() {
             .json_ok()["eventBasedHold"],
         true
     );
-    assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
+    assert_eq!(common::catalog::count(&connection, "derived_transfers"), 0);
     assert_eq!(common::server::staging_count(&dir), 0);
 }

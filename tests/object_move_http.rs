@@ -209,7 +209,7 @@ fn move_rolls_back_source_deletion_when_destination_insert_fails() {
     let target = server.put("target", b"target").json_ok();
     let db = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     db.execute_batch("CREATE TRIGGER fail_move BEFORE INSERT ON objects WHEN NEW.name = 'target' BEGIN SELECT RAISE(ABORT, 'injected publication failure'); END;").unwrap();
-    assert_eq!(mv(&server, "source", "target", "").status, 503);
+    mv(&server, "source", "target", "").expect(503);
     assert_eq!(server.get("source").json_ok(), source);
     assert_eq!(server.get("target").json_ok(), target);
 }
@@ -282,5 +282,5 @@ fn concurrent_moves_create_if_absent_have_one_winner() {
             .count(),
         1
     );
-    assert_eq!(server.get("target").status, 200);
+    server.get("target").expect(200);
 }

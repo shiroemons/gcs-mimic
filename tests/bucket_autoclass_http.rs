@@ -185,7 +185,7 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
         json!({"name":"rejected","autoclass":{"enabled":true,"unknown":1}}),
     ] {
         create(&server, body.clone()).json_reason(400, "invalid");
-        assert_eq!(bucket(&server, "rejected").status, 404, "{body}");
+        bucket(&server, "rejected").expect(404);
     }
     // Delete-only lifecycle rules may coexist with Autoclass.
     create(
@@ -384,7 +384,7 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
         "x-goog-storage-class: COLDLINE\r\nContent-Type: text/plain\r\n",
         b"x",
     );
-    assert_eq!(put.status, 200, "{}", String::from_utf8_lossy(&put.body));
+    put.expect(200);
     assert_eq!(
         object(&server, "plain", "xml-cold")["storageClass"],
         "COLDLINE"
@@ -398,12 +398,7 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
         "x-goog-storage-class: ARCHIVE\r\n",
         b"x",
     );
-    assert_eq!(
-        auto_put.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&auto_put.body)
-    );
+    auto_put.expect(200);
     let bad_put = send(
         &server,
         "PUT",
@@ -411,14 +406,11 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
         "x-goog-storage-class: GLACIER\r\n",
         b"x",
     );
-    assert_eq!(bad_put.status, 400);
+    bad_put.expect(400);
     assert!(String::from_utf8_lossy(&bad_put.body).contains("InvalidArgument"));
-    assert_eq!(
-        server
-            .request("GET", "/storage/v1/b/plain/o/xml-bad", "", b"")
-            .status,
-        404
-    );
+    server
+        .request("GET", "/storage/v1/b/plain/o/xml-bad", "", b"")
+        .expect(404);
     assert_eq!(
         object(&server, "auto", "xml-cold")["storageClass"],
         "STANDARD"

@@ -19,7 +19,7 @@ fn acl_lists_and_deletes_send_bare_etags_and_reinsertions_follow_existing_entrie
         assert!(!before.headers["etag"].starts_with('"'));
         let entry = format!("{path}/project-viewers-0");
         let deleted = server.request("DELETE", &entry, "", b"");
-        assert_eq!(deleted.status, 204);
+        deleted.expect(204);
         assert!(!deleted.headers["etag"].starts_with('"'));
         server
             .request(
@@ -263,7 +263,7 @@ fn upload_front_end_errors_preserve_content_type_without_nosniff() {
             headers,
             body.as_bytes(),
         );
-        assert_eq!(failed.status, 400, "{query}");
+        failed.expect(400);
         assert_eq!(failed.headers["content-type"], "text/html; charset=UTF-8");
         assert!(!failed.headers.contains_key("x-content-type-options"));
     }

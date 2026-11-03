@@ -19,7 +19,7 @@ fn not_modified(server: &Server, path: &str, headers: &str, etag: &str, cache: &
     // Closing after the 304 lets the EOF check prove that no content followed it.
     let mut stream = server.open("GET", path, &format!("{headers}Connection: close\r\n"), b"");
     let reply = Reply::headers(&mut stream);
-    assert_eq!(reply.status, 304, "{path}: {headers}");
+    reply.expect(304);
     assert_eq!(reply.headers["etag"], etag);
     assert_eq!(reply.headers["cache-control"], cache);
     assert!(reply.headers.contains_key("date"));
@@ -58,7 +58,7 @@ fn json_etag_read_object_metadata_media_and_range() {
             "If-None-Match: \"other\"\r\n".to_owned(),
         ] {
             let reply = server.request("GET", &path, &header, b"");
-            assert_eq!(reply.status, 200, "{path}: {header}");
+            reply.expect(200);
             assert_eq!(reply.headers["etag"], etag);
             assert_eq!(reply.body, plain.body);
         }
@@ -78,7 +78,7 @@ fn json_etag_read_object_metadata_media_and_range() {
         ] {
             server
                 .request("GET", &path, &header, b"")
-                .error(412, "conditionNotMet");
+                .range_error(412, "conditionNotMet");
         }
         let both = format!("If-Match: \"other\"\r\nIf-None-Match: {etag}\r\n");
         if path.contains("alt=media") {
@@ -87,7 +87,7 @@ fn json_etag_read_object_metadata_media_and_range() {
         } else {
             server
                 .request("GET", &path, &both, b"")
-                .error(412, "conditionNotMet");
+                .range_error(412, "conditionNotMet");
         }
     }
     for range in ["bytes=2-5", "bytes=100-", "nonsense"] {
@@ -107,11 +107,11 @@ fn json_etag_read_object_metadata_media_and_range() {
                     &format!("Range: {range}\r\nIf-Match: \"other\"\r\n"),
                     b"",
                 )
-                .error(412, "conditionNotMet");
+                .range_error(412, "conditionNotMet");
         }
     }
     let partial = server.get("", &format!("Range: bytes=2-5\r\nIf-Match: {etag}\r\n"));
-    assert_eq!(partial.status, 206);
+    partial.expect(206);
     assert_eq!(partial.headers["etag"], etag);
     assert_eq!(partial.body, b"2345");
     server.stop();
@@ -143,7 +143,7 @@ fn json_etag_read_syntax_and_missing_resources() {
             ] {
                 server
                     .request("GET", &path, &format!("{header}: {value}\r\n"), b"")
-                    .error(400, "invalidParameter");
+                    .range_error(400, "invalidParameter");
             }
             server
                 .request(
@@ -152,18 +152,15 @@ fn json_etag_read_syntax_and_missing_resources() {
                     &format!("{header}: *\r\n{header}: *\r\n"),
                     b"",
                 )
-                .error(400, "invalidParameter");
+                .range_error(400, "invalidParameter");
         }
         // Empty #entity-tag lists are valid: no member matches the representation.
         server
             .request("GET", &path, "If-Match: , ,\r\n", b"")
-            .error(412, "conditionNotMet");
-        assert_eq!(
-            server
-                .request("GET", &path, "If-None-Match: \r\n", b"")
-                .status,
-            200
-        );
+            .range_error(412, "conditionNotMet");
+        server
+            .request("GET", &path, "If-None-Match: \r\n", b"")
+            .expect(200);
     }
     for path in [
         "/storage/v1/b/range-bucket/o/missing",
@@ -178,7 +175,7 @@ fn json_etag_read_syntax_and_missing_resources() {
         ] {
             server
                 .request("GET", path, header, b"")
-                .error(404, "notFound");
+                .range_error(404, "notFound");
         }
     }
     server.stop();
@@ -207,39 +204,33 @@ fn json_etag_read_buckets_and_metadata_changes_in_both_profiles() {
             etag,
             CACHE_BY_PATH,
         );
-        assert_eq!(
-            server
-                .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
-                .status,
-            200
-        );
+        server
+            .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
+            .expect(200);
         server
             .request("GET", BUCKET, "If-Match: \"stale\"\r\n", b"")
-            .error(412, "conditionNotMet");
+            .range_error(412, "conditionNotMet");
         let changed = server.request("PATCH", BUCKET, "", br#"{"labels":{"state":"new"}}"#);
-        assert_eq!(changed.status, 200);
+        changed.expect(200);
         let updated = server.request("GET", BUCKET, &format!("If-None-Match: {etag}\r\n"), b"");
-        assert_eq!(updated.status, 200);
+        updated.expect(200);
         assert_ne!(updated.headers["etag"], *etag);
         server
             .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
-            .error(412, "conditionNotMet");
-        assert_eq!(server.request("DELETE", OBJECT, "", b"").status, 204);
+            .range_error(412, "conditionNotMet");
+        server.request("DELETE", OBJECT, "", b"").expect(204);
         assert!(matches!(
             server.request("DELETE", BUCKET, "", b"").status,
             200 | 204
         ));
-        assert_eq!(
-            server
-                .request(
-                    "POST",
-                    "/storage/v1/b?project=local-project",
-                    "",
-                    br#"{"name":"range-bucket"}"#,
-                )
-                .status,
-            200
-        );
+        server
+            .request(
+                "POST",
+                "/storage/v1/b?project=local-project",
+                "",
+                br#"{"name":"range-bucket"}"#,
+            )
+            .expect(200);
         // The bucket etag encodes only the metageneration, so by inference from the encoding a
         // recreated bucket at metageneration 1 repeats the first incarnation's validator.
         not_modified(
@@ -249,12 +240,9 @@ fn json_etag_read_buckets_and_metadata_changes_in_both_profiles() {
             etag,
             CACHE_BY_PATH,
         );
-        assert_eq!(
-            server
-                .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
-                .status,
-            200
-        );
+        server
+            .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
+            .expect(200);
         server.stop();
     }
 }
@@ -266,19 +254,16 @@ fn json_etag_read_selected_generation_zero_byte_and_public_cache() {
     let original = server.setup("", b"original");
     let etag = original["etag"].as_str().unwrap();
     let generation = original["generation"].as_str().unwrap();
-    assert_eq!(
-        server
-            .request("PATCH", BUCKET, "", br#"{"versioning":{"enabled":true}}"#)
-            .status,
-        200
-    );
+    server
+        .request("PATCH", BUCKET, "", br#"{"versioning":{"enabled":true}}"#)
+        .expect(200);
     let replacement = server.upload("", b"");
     let empty_etag = replacement["etag"].as_str().unwrap();
     assert_ne!(etag, empty_etag);
     for alt in ["json", "media"] {
         let selected = format!("{OBJECT}?alt={alt}&generation={generation}");
         let reply = server.request("GET", &selected, &format!("If-Match: {etag}\r\n"), b"");
-        assert_eq!(reply.status, 200);
+        reply.expect(200);
         assert_eq!(reply.headers["etag"], etag);
         if alt == "media" {
             assert_eq!(reply.body, b"original");
@@ -297,7 +282,7 @@ fn json_etag_read_selected_generation_zero_byte_and_public_cache() {
                 &format!("If-Match: {empty_etag}\r\n"),
                 b"",
             )
-            .error(412, "conditionNotMet");
+            .range_error(412, "conditionNotMet");
     }
     assert_eq!(
         server.get("", &format!("If-Match: {empty_etag}\r\n")).body,
@@ -310,18 +295,15 @@ fn json_etag_read_selected_generation_zero_byte_and_public_cache() {
         empty_etag,
         CACHE_BY_PATH,
     );
-    assert_eq!(
-        server
-            .request(
-                "PATCH",
-                OBJECT,
-                "",
-                br#"{"cacheControl":"public, max-age=60"}"#
-            )
-            .status,
-        200
-    );
-    assert_eq!(server.request("PUT", &format!("{BUCKET}/iam"), "", br#"{"version":1,"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#).status, 200);
+    server
+        .request(
+            "PATCH",
+            OBJECT,
+            "",
+            br#"{"cacheControl":"public, max-age=60"}"#,
+        )
+        .expect(200);
+    server.request("PUT", &format!("{BUCKET}/iam"), "", br#"{"version":1,"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#).expect(200);
     let public = server.get("", "");
     not_modified(
         &server,
@@ -350,7 +332,7 @@ fn json_etag_read_authorization_precedes_validators() {
         ] {
             server
                 .request("GET", &path, header, b"")
-                .error(401, "required");
+                .range_error(401, "required");
             server
                 .request(
                     "GET",
@@ -358,7 +340,7 @@ fn json_etag_read_authorization_precedes_validators() {
                     &format!("Authorization: Bearer local-creator-token\r\n{header}"),
                     b"",
                 )
-                .error(403, "forbidden");
+                .range_error(403, "forbidden");
         }
     }
     server.stop();
@@ -383,9 +365,9 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
             );
             // A JSON media read ignores these validators (recorded); other reads refuse them.
             if path.contains("alt=media") {
-                assert_eq!(reply.status, 200, "{name}");
+                reply.expect(200);
             } else {
-                reply.error(400, "badRequest");
+                reply.range_error(400, "badRequest");
             }
         }
     }
@@ -396,7 +378,7 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
         for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
             server
                 .request("GET", &path, header, b"")
-                .error(400, "badRequest");
+                .range_error(400, "badRequest");
         }
     }
     for (method, path, body) in [
@@ -420,7 +402,7 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
         for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
             let reply = server.request(method, path, header, body);
             if path == OBJECT && matches!(method, "PUT" | "PATCH") && header == "If-Match: *\r\n" {
-                assert_eq!(reply.status, 200);
+                reply.expect(200);
                 let updated: Value = serde_json::from_slice(&reply.body).unwrap();
                 assert_ne!(updated["etag"], object["etag"]);
                 assert_eq!(
@@ -439,14 +421,9 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
                 object = updated;
             } else if path == BUCKET && matches!(method, "PUT" | "PATCH") {
                 // Cloud Storage was observed to ignore both headers on bucket updates.
-                assert_eq!(
-                    reply.status,
-                    200,
-                    "{}",
-                    String::from_utf8_lossy(&reply.body)
-                );
+                reply.expect(200);
             } else {
-                reply.error(400, "badRequest");
+                reply.range_error(400, "badRequest");
             }
         }
     }
@@ -524,7 +501,7 @@ fn json_etag_read_combined_query_conditions_use_one_selected_record() {
                 } else {
                     server
                         .request("GET", &failing_path, &headers, b"")
-                        .error(412, "conditionNotMet");
+                        .range_error(412, "conditionNotMet");
                 }
             }
         }
@@ -538,7 +515,7 @@ fn json_etag_read_combined_query_conditions_use_one_selected_record() {
             &format!("If-Match: {etag}\r\n"),
             b"",
         );
-        assert_eq!(reply.status, 200);
+        reply.expect(200);
     }
     server.stop();
 }
@@ -551,7 +528,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
     server.setup(admin, b"data");
     let path = format!("{BUCKET}/iam");
     let initial = server.request("GET", &path, admin, b"");
-    assert_eq!(initial.status, 200);
+    initial.expect(200);
     let policy: Value = serde_json::from_slice(&initial.body).unwrap();
     let etag = &initial.headers["etag"];
     assert_eq!(etag, policy["etag"].as_str().unwrap());
@@ -562,7 +539,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
         &format!("{admin}If-Match: {etag}\r\n"),
         b"",
     );
-    assert_eq!(reply.status, 200);
+    reply.expect(200);
     assert_eq!(
         serde_json::from_slice::<Value>(&reply.body).unwrap(),
         serde_json::json!({"version":1})
@@ -581,7 +558,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
             &format!("{admin}If-Match: \"stale\"\r\n"),
             b"",
         )
-        .error(412, "conditionNotMet");
+        .range_error(412, "conditionNotMet");
     server
         .request(
             "GET",
@@ -589,7 +566,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
             &format!("{admin}If-Match: \"unterminated\r\n"),
             b"",
         )
-        .error(400, "invalidParameter");
+        .range_error(400, "invalidParameter");
     // A bare value that names no current tag is a failed precondition, not a malformed one.
     server
         .request(
@@ -598,7 +575,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
             &format!("{admin}If-Match: malformed\r\n"),
             b"",
         )
-        .error(412, "conditionNotMet");
+        .range_error(412, "conditionNotMet");
     for name in ["If-Modified-Since", "If-Unmodified-Since", "If-Range"] {
         server
             .request(
@@ -607,7 +584,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
                 &format!("{admin}{name}: Wed, 21 Oct 2015 07:28:00 GMT\r\n"),
                 b"",
             )
-            .error(400, "badRequest");
+            .range_error(400, "badRequest");
     }
     not_modified(
         &server,
@@ -616,20 +593,17 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
         etag,
         "private, max-age=0, must-revalidate, no-transform",
     );
-    assert_eq!(
-        server
-            .request(
-                "GET",
-                &path,
-                &format!("{admin}If-Match: {etag}\r\nIf-Unmodified-Since: ignored\r\n"),
-                b""
-            )
-            .status,
-        200
-    );
+    server
+        .request(
+            "GET",
+            &path,
+            &format!("{admin}If-Match: {etag}\r\nIf-Unmodified-Since: ignored\r\n"),
+            b"",
+        )
+        .expect(200);
     server
         .request("GET", &path, "If-None-Match: *\r\n", b"")
-        .error(401, "required");
+        .range_error(401, "required");
     server
         .request(
             "GET",
@@ -637,7 +611,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
             "Authorization: Bearer local-creator-token\r\nIf-None-Match: *\r\n",
             b"",
         )
-        .error(403, "forbidden");
+        .range_error(403, "forbidden");
     server
         .request(
             "GET",
@@ -645,23 +619,20 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
             &format!("{admin}If-Match: malformed\r\n"),
             b"",
         )
-        .error(404, "notFound");
+        .range_error(404, "notFound");
     let updated = server.request("PUT", &path, admin, br#"{"bindings":[]}"#);
-    assert_eq!(updated.status, 200);
-    assert_eq!(
-        server
-            .request(
-                "GET",
-                &path,
-                &format!("{admin}If-None-Match: {etag}\r\n"),
-                b""
-            )
-            .status,
-        200
-    );
+    updated.expect(200);
+    server
+        .request(
+            "GET",
+            &path,
+            &format!("{admin}If-None-Match: {etag}\r\n"),
+            b"",
+        )
+        .expect(200);
     server
         .request("GET", &path, &format!("{admin}If-Match: {etag}\r\n"), b"")
-        .error(412, "conditionNotMet");
+        .range_error(412, "conditionNotMet");
     server.stop();
 }
 
@@ -692,7 +663,7 @@ fn json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior() {
             &format!("If-None-Match: \"other\"\r\n{modified}"),
             b"",
         );
-        assert_eq!(unmatched.status, 200);
+        unmatched.expect(200);
         assert_eq!(unmatched.body, initial.body);
     }
     for header in [
@@ -706,12 +677,12 @@ fn json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior() {
             header,
             b"other",
         );
-        assert_eq!(uploaded.status, 200);
+        uploaded.expect(200);
         for path in [
             format!("{BUCKET}/o"),
             "/storage/v1/b?project=local-project".to_owned(),
         ] {
-            assert_eq!(server.request("GET", &path, header, b"").status, 200);
+            server.request("GET", &path, header, b"").expect(200);
         }
     }
     assert_eq!(
@@ -740,7 +711,7 @@ fn json_etag_read_if_match_overrides_if_unmodified_since() {
             &format!("If-Match: {selected}\r\n{unmodified}"),
             b"",
         );
-        assert_eq!(matched.status, 200);
+        matched.expect(200);
         assert_eq!(matched.body, initial.body);
         server
             .request(
@@ -749,13 +720,13 @@ fn json_etag_read_if_match_overrides_if_unmodified_since() {
                 &format!("If-Match: \"other\"\r\n{unmodified}"),
                 b"",
             )
-            .error(412, "conditionNotMet");
+            .range_error(412, "conditionNotMet");
         let alone = server.request("GET", &path, unmodified, b"");
         if path.contains("alt=media") {
             // A JSON media read ignores the date validator (recorded).
-            assert_eq!(alone.status, 200);
+            alone.expect(200);
         } else {
-            alone.error(400, "badRequest");
+            alone.range_error(400, "badRequest");
         }
     }
     server.stop();
@@ -774,14 +745,14 @@ fn json_etag_read_metadata_update_and_overwrite_pin_open_reader() {
         b"",
     );
     let mut reply = Reply::headers(&mut stream);
-    assert_eq!(reply.status, 206);
+    reply.expect(206);
     let metadata = server.request("PATCH", OBJECT, "", br#"{"metadata":{"state":"changed"}}"#);
-    assert_eq!(metadata.status, 200);
+    metadata.expect(200);
     let changed: Value = serde_json::from_slice(&metadata.body).unwrap();
     assert_ne!(changed["etag"], original["etag"]);
     server
         .get("", &format!("If-Match: {etag}\r\n"))
-        .error(412, "conditionNotMet");
+        .range_error(412, "conditionNotMet");
     server.upload("", b"replacement");
     reply.read_body(&mut stream);
     assert_eq!(reply.headers["etag"], etag);

@@ -63,16 +63,18 @@ impl Server {
         Self::start_with_limit(dir, backend, 64 * 1024 * 1024)
     }
     fn start_with_limit(dir: &TestDir, backend: &str, max_bytes: u64) -> Self {
-        let identities = dir.0.join("identities.json");
-        std::fs::write(&identities, json!({"identities":[
-            {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
-            {"id":"signer@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"local":["roles/storage.admin"]}},
-            {"id":"reader@example.invalid","tokens":[],"project_roles":{"local":["roles/storage.objectViewer"]}},
-            {"id":"creator@example.invalid","tokens":[],"project_roles":{"local":["roles/storage.objectCreator"]}},
-            {"id":"keys@example.invalid","tokens":["keys"],"project_roles":{"local":["roles/storage.hmacKeyAdmin"]}},
-            {"id":"scoped@example.invalid","tokens":[]},
-            {"id":"stranger@example.invalid","tokens":[],"project_roles":{"other":["roles/storage.admin"]}}
-        ]}).to_string()).unwrap();
+        let identities = common::process::write_identities(
+            &dir.0,
+            &(json!({"identities":[
+                {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
+                {"id":"signer@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"local":["roles/storage.admin"]}},
+                {"id":"reader@example.invalid","tokens":[],"project_roles":{"local":["roles/storage.objectViewer"]}},
+                {"id":"creator@example.invalid","tokens":[],"project_roles":{"local":["roles/storage.objectCreator"]}},
+                {"id":"keys@example.invalid","tokens":["keys"],"project_roles":{"local":["roles/storage.hmacKeyAdmin"]}},
+                {"id":"scoped@example.invalid","tokens":[]},
+                {"id":"stranger@example.invalid","tokens":[],"project_roles":{"other":["roles/storage.admin"]}}
+            ]})),
+        );
         Self::launch(
             http_command(&dir.0.join("data"))
                 .args(["--backend", backend])
@@ -277,19 +279,7 @@ fn sign(
     }
 }
 
-fn error(reply: &Reply, status: u16, code: &str) {
-    assert_eq!(
-        reply.status,
-        status,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-    assert!(
-        String::from_utf8_lossy(&reply.body).contains(&format!("<Code>{code}</Code>")),
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-}
+use crate::common::errors::xml_error as error;
 
 #[test]
 fn hmac_query_and_header_transfer_on_disk_and_memory() {
@@ -302,16 +292,11 @@ fn hmac_query_and_header_transfer_on_disk_and_memory() {
             for header in [false, true] {
                 let path = format!("/test-bucket/bytes-{aws}-{header}%252Fraw");
                 let put = sign(&key, "PUT", &path, aws, header, &[], SystemTime::now());
-                assert_eq!(server.signed("PUT", &put, b"payload").status, 200);
+                server.signed("PUT", &put, b"payload").expect(200);
                 for method in ["GET", "HEAD"] {
                     let signed = sign(&key, method, &path, aws, header, &[], SystemTime::now());
                     let reply = server.signed(method, &signed, b"");
-                    assert_eq!(
-                        reply.status,
-                        200,
-                        "{}",
-                        String::from_utf8_lossy(&reply.body)
-                    );
+                    reply.expect(200);
                     assert_eq!(
                         reply.body,
                         if method == "HEAD" {
@@ -322,7 +307,7 @@ fn hmac_query_and_header_transfer_on_disk_and_memory() {
                     );
                 }
                 let signed = sign(&key, "DELETE", &path, aws, header, &[], SystemTime::now());
-                assert_eq!(server.signed("DELETE", &signed, b"").status, 204);
+                server.signed("DELETE", &signed, b"").expect(204);
             }
         }
         let reader = server.key("reader@example.invalid");
@@ -346,16 +331,13 @@ fn hmac_revocation_restart_and_identity_permissions_do_not_follow_key_project() 
     server.bucket("test-bucket");
     let key = server.key("signer@example.invalid");
     let path = "/test-bucket/object";
-    assert_eq!(
-        server
-            .signed(
-                "PUT",
-                &sign(&key, "PUT", path, false, true, &[], SystemTime::now()),
-                b"durable"
-            )
-            .status,
-        200
-    );
+    server
+        .signed(
+            "PUT",
+            &sign(&key, "PUT", path, false, true, &[], SystemTime::now()),
+            b"durable",
+        )
+        .expect(200);
     server.stop();
     server = Server::start(&dir, "disk");
     let get = sign(&key, "GET", path, true, false, &[], SystemTime::now());
@@ -401,7 +383,7 @@ fn hmac_revocation_restart_and_identity_permissions_do_not_follow_key_project() 
     server
         .request("PUT", &key_path, admin, br#"{"state":"INACTIVE"}"#)
         .json_ok();
-    assert_eq!(server.request("DELETE", &key_path, admin, b"").status, 204);
+    server.request("DELETE", &key_path, admin, b"").expect(204);
     error(&server.signed("GET", &get, b""), 403, "InvalidAccessKeyId");
     server.stop();
     server = Server::start(&dir, "disk");
@@ -417,24 +399,21 @@ fn signed_payload_hash_mismatch_preserves_bytes_metadata_generation_and_count() 
         server.bucket("test-bucket");
         let key = server.key("signer@example.invalid");
         let path = "/test-bucket/object";
-        assert_eq!(
-            server
-                .signed(
+        server
+            .signed(
+                "PUT",
+                &sign(
+                    &key,
                     "PUT",
-                    &sign(
-                        &key,
-                        "PUT",
-                        path,
-                        false,
-                        true,
-                        &[("x-goog-meta-version", "old")],
-                        SystemTime::now()
-                    ),
-                    b"old"
-                )
-                .status,
-            200
-        );
+                    path,
+                    false,
+                    true,
+                    &[("x-goog-meta-version", "old")],
+                    SystemTime::now(),
+                ),
+                b"old",
+            )
+            .expect(200);
         let before = server
             .request("GET", "/storage/v1/b/test-bucket/o/object", ADMIN, b"")
             .json_ok();
@@ -483,7 +462,7 @@ fn signed_payload_hash_mismatch_preserves_bytes_metadata_generation_and_count() 
             &[("x-amz-content-sha256", &digest)],
             SystemTime::now(),
         );
-        assert_eq!(server.signed("PUT", &signed, b"correct").status, 200);
+        server.signed("PUT", &signed, b"correct").expect(200);
     }
 }
 
@@ -503,7 +482,7 @@ fn hmac_bucket_and_multipart_operations_reuse_shared_catalog() {
             &[("x-goog-project-id", "local")],
             now,
         );
-        assert_eq!(server.signed("PUT", &create, b"").status, 200);
+        server.signed("PUT", &create, b"").expect(200);
         let list = sign(
             &key,
             "GET",
@@ -518,16 +497,13 @@ fn hmac_bucket_and_multipart_operations_reuse_shared_catalog() {
                 .contains("<Name>test-bucket</Name>")
         );
         for (aws, header) in [(false, false), (true, true)] {
-            assert_eq!(
-                server
-                    .signed(
-                        "HEAD",
-                        &sign(&key, "HEAD", "/test-bucket", aws, header, &[], now),
-                        b""
-                    )
-                    .status,
-                200
-            );
+            server
+                .signed(
+                    "HEAD",
+                    &sign(&key, "HEAD", "/test-bucket", aws, header, &[], now),
+                    b"",
+                )
+                .expect(200);
         }
         let path = "/test-bucket/multipart";
         let begin = server.signed(
@@ -543,12 +519,7 @@ fn hmac_bucket_and_multipart_operations_reuse_shared_catalog() {
             ),
             b"",
         );
-        assert_eq!(
-            begin.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&begin.body)
-        );
+        begin.expect(200);
         let body = String::from_utf8(begin.body).unwrap();
         let id = body
             .split_once("<UploadId>")
@@ -563,22 +534,19 @@ fn hmac_bucket_and_multipart_operations_reuse_shared_catalog() {
             &sign(&key, "PUT", &part_path, false, false, &[], now),
             b"one part",
         );
-        assert_eq!(part.status, 200);
+        part.expect(200);
         let manifest = format!(
             "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>{}</ETag></Part></CompleteMultipartUpload>",
             part.headers["etag"]
         );
         let finish = format!("{path}?uploadId={id}");
-        assert_eq!(
-            server
-                .signed(
-                    "POST",
-                    &sign(&key, "POST", &finish, false, true, &[], now),
-                    manifest.as_bytes()
-                )
-                .status,
-            200
-        );
+        server
+            .signed(
+                "POST",
+                &sign(&key, "POST", &finish, false, true, &[], now),
+                manifest.as_bytes(),
+            )
+            .expect(200);
         assert_eq!(server.request("GET", path, ADMIN, b"").body, b"one part");
         error(
             &server.signed(
@@ -589,26 +557,20 @@ fn hmac_bucket_and_multipart_operations_reuse_shared_catalog() {
             409,
             "BucketNotEmpty",
         );
-        assert_eq!(
-            server
-                .signed(
-                    "DELETE",
-                    &sign(&key, "DELETE", path, false, true, &[], now),
-                    b""
-                )
-                .status,
-            204
-        );
-        assert_eq!(
-            server
-                .signed(
-                    "DELETE",
-                    &sign(&key, "DELETE", "/test-bucket", true, false, &[], now),
-                    b""
-                )
-                .status,
-            204
-        );
+        server
+            .signed(
+                "DELETE",
+                &sign(&key, "DELETE", path, false, true, &[], now),
+                b"",
+            )
+            .expect(204);
+        server
+            .signed(
+                "DELETE",
+                &sign(&key, "DELETE", "/test-bucket", true, false, &[], now),
+                b"",
+            )
+            .expect(204);
     }
 }
 
@@ -756,20 +718,17 @@ fn malformed_mixed_tampered_and_expired_signatures_never_fall_back_or_reach_json
     let key = server.key("signer@example.invalid");
     let path = "/test-bucket/object";
     let now = SystemTime::now();
-    assert_eq!(
-        server
-            .signed(
-                "PUT",
-                &sign(&key, "PUT", path, false, true, &[], now),
-                b"original"
-            )
-            .status,
-        200
-    );
+    server
+        .signed(
+            "PUT",
+            &sign(&key, "PUT", path, false, true, &[], now),
+            b"original",
+        )
+        .expect(200);
     for aws in [false, true] {
         for header in [false, true] {
             let good = sign(&key, "GET", path, aws, header, &[], now);
-            assert_eq!(server.signed("GET", &good, b"").status, 200);
+            server.signed("GET", &good, b"").expect(200);
             error(
                 &server.signed("DELETE", &good, b""),
                 403,
@@ -877,16 +836,13 @@ fn signed_empty_body_operations_reject_nonempty_hashes_and_actual_payloads() {
     server.bucket("test-bucket");
     let key = server.key("signer@example.invalid");
     let path = "/test-bucket/object";
-    assert_eq!(
-        server
-            .signed(
-                "PUT",
-                &sign(&key, "PUT", path, false, true, &[], SystemTime::now()),
-                b"preserved"
-            )
-            .status,
-        200
-    );
+    server
+        .signed(
+            "PUT",
+            &sign(&key, "PUT", path, false, true, &[], SystemTime::now()),
+            b"preserved",
+        )
+        .expect(200);
     let hash = hex(digest::digest(&digest::SHA256, b"unexpected").as_ref());
     for (method, target) in [
         ("GET", path),
@@ -911,19 +867,14 @@ fn signed_empty_body_operations_reject_nonempty_hashes_and_actual_payloads() {
             SystemTime::now(),
         );
         let reply = server.signed(method, &signed, b"");
-        assert_eq!(reply.status, 400);
+        reply.expect(400);
         if method != "HEAD" {
             error(&reply, 400, "BadDigest");
         }
         extras.retain(|(name, _)| *name != "x-goog-content-sha256");
         let signed = sign(&key, method, target, true, true, &extras, SystemTime::now());
         let reply = server.signed(method, &signed, b"unexpected");
-        assert_eq!(
-            reply.status,
-            400,
-            "{method} {target}: {}",
-            String::from_utf8_lossy(&reply.body)
-        );
+        reply.expect(400);
     }
     assert_eq!(server.request("GET", path, ADMIN, b"").body, b"preserved");
 }
@@ -935,16 +886,13 @@ fn hmac_acl_reader_ubla_pap_and_public_invalid_signature_preserve_authorization(
     server.bucket("test-bucket");
     let admin = server.key("signer@example.invalid");
     let path = "/test-bucket/object";
-    assert_eq!(
-        server
-            .signed(
-                "PUT",
-                &sign(&admin, "PUT", path, false, true, &[], SystemTime::now()),
-                b"protected"
-            )
-            .status,
-        200
-    );
+    server
+        .signed(
+            "PUT",
+            &sign(&admin, "PUT", path, false, true, &[], SystemTime::now()),
+            b"protected",
+        )
+        .expect(200);
     let scoped = server.key("scoped@example.invalid");
     server
         .request(
@@ -964,7 +912,7 @@ fn hmac_acl_reader_ubla_pap_and_public_invalid_signature_preserve_authorization(
             br#"{"entity":"allUsers","role":"READER"}"#,
         )
         .json_ok();
-    assert_eq!(server.request("GET", path, "", b"").status, 200);
+    server.request("GET", path, "", b"").expect(200);
     let bad = Signed {
         path: read.path.replace("X-Amz-Signature=", "X-Amz-Signature=00"),
         headers: read.headers.clone(),
@@ -1042,16 +990,13 @@ fn empty_chunked_frames_and_zero_lengths_match_payload_while_host_and_body_tampe
     server.bucket("test-bucket");
     let key = server.key("signer@example.invalid");
     let path = "/test-bucket/object";
-    assert_eq!(
-        server
-            .signed(
-                "PUT",
-                &sign(&key, "PUT", path, false, true, &[], SystemTime::now()),
-                b"kept"
-            )
-            .status,
-        200
-    );
+    server
+        .signed(
+            "PUT",
+            &sign(&key, "PUT", path, false, true, &[], SystemTime::now()),
+            b"kept",
+        )
+        .expect(200);
     let hash = hex(digest::digest(&digest::SHA256, b"").as_ref());
     for method in ["GET", "HEAD", "DELETE"] {
         let signed = sign(
@@ -1070,7 +1015,7 @@ fn empty_chunked_frames_and_zero_lengths_match_payload_while_host_and_body_tampe
             )
         };
         let bad = server.raw(&raw("changed", "Content-Length: 0\r\n", ""), method);
-        assert_eq!(bad.status, 403);
+        bad.expect(403);
         let bad = server.raw(
             &raw(
                 "localhost",
@@ -1079,20 +1024,12 @@ fn empty_chunked_frames_and_zero_lengths_match_payload_while_host_and_body_tampe
             ),
             method,
         );
-        assert_eq!(
-            bad.status,
-            400,
-            "{method}: {}",
-            String::from_utf8_lossy(&bad.body)
-        );
+        bad.expect(400);
         assert_eq!(server.request("GET", path, ADMIN, b"").body, b"kept");
         if method != "DELETE" {
-            assert_eq!(
-                server
-                    .raw(&raw("localhost", "Content-Length: 00\r\n", ""), method)
-                    .status,
-                200
-            );
+            server
+                .raw(&raw("localhost", "Content-Length: 00\r\n", ""), method)
+                .expect(200);
         }
         assert_eq!(
             server
@@ -1143,16 +1080,13 @@ fn hmac_virtual_hosts_raw_paths_and_repeated_signed_header_wire_order_are_bound(
         }
     }
     let path = "/test-bucket/order";
-    assert_eq!(
-        server
-            .signed(
-                "PUT",
-                &sign(&key, "PUT", path, false, false, &[], SystemTime::now()),
-                b"headers"
-            )
-            .status,
-        200
-    );
+    server
+        .signed(
+            "PUT",
+            &sign(&key, "PUT", path, false, false, &[], SystemTime::now()),
+            b"headers",
+        )
+        .expect(200);
     let mut signed = sign(
         &key,
         "GET",

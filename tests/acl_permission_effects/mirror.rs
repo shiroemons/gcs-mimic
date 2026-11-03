@@ -45,32 +45,26 @@ fn bucket_acl_and_legacy_iam_share_revocation_without_changing_other_bindings() 
             role(&changed, "roles/storage.bucketViewer"),
             ["user:other@example.test"]
         );
-        assert_eq!(
-            server
-                .admin("PUT", &iam, json!({"etag":initial["etag"],"bindings":[]}))
-                .status,
-            412
-        );
+        server
+            .admin("PUT", &iam, json!({"etag":initial["etag"],"bindings":[]}))
+            .expect(412);
         assert_eq!(server.request("GET", &iam, ADMIN, b"").json_ok(), changed);
-        assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{BUCKET}/acl/user-reader%40example.test"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
+        server.request("GET", OBJECT, READER, b"").expect(403);
+        server
+            .request(
+                "DELETE",
+                &format!("{BUCKET}/acl/user-reader%40example.test"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
         let revoked = server.request("GET", &iam, ADMIN, b"").json_ok();
         assert!(role(&revoked, "roles/storage.legacyBucketWriter").is_empty());
         assert_eq!(
             role(&revoked, "roles/storage.bucketViewer"),
             ["user:other@example.test"]
         );
-        assert_eq!(server.request("GET", BUCKET, READER, b"").status, 403);
+        server.request("GET", BUCKET, READER, b"").expect(403);
         server.request("GET", BUCKET, OTHER, b"").json_ok();
         let before = server.request("GET", BUCKET, ADMIN, b"").json_ok();
         server
@@ -126,7 +120,7 @@ fn trusted_user_alias_matches_iam_and_acl_without_changing_the_local_principal_i
         object["generation"].as_str().unwrap(),
     );
     server.request("GET", OBJECT, READER, b"").json_ok();
-    assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
+    server.request("GET", OBJECT, OTHER, b"").expect(403);
     let iam = format!("{BUCKET}/iam");
     server.admin("PUT", &iam, json!({"bindings":[{"role":"roles/storage.legacyBucketReader","members":["user:local:reader-user"]}]})).json_ok();
     assert_eq!(
@@ -141,35 +135,29 @@ fn trusted_user_alias_matches_iam_and_acl_without_changing_the_local_principal_i
         "READER"
     );
     server.request("GET", BUCKET, READER, b"").json_ok();
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("{BUCKET}/acl/user-reader%40example.test"),
-                ADMIN,
-                b""
-            )
-            .status,
-        204
-    );
-    assert_eq!(server.request("GET", BUCKET, READER, b"").status, 403);
+    server
+        .request(
+            "DELETE",
+            &format!("{BUCKET}/acl/user-reader%40example.test"),
+            ADMIN,
+            b"",
+        )
+        .expect(204);
+    server.request("GET", BUCKET, READER, b"").expect(403);
     server.stop();
     let mut changed = registry;
     changed["identities"][1]["acl_entity"] = json!("user-new@example.test");
     let server = Server::start_with_registry(&data, &inputs, "disk", &changed);
-    assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
-    assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
-    assert_eq!(
-        server
-            .request(
-                "GET",
-                OBJECT,
-                "Authorization: Bearer local:reader-user\r\n",
-                b""
-            )
-            .status,
-        401
-    );
+    server.request("GET", OBJECT, READER, b"").expect(403);
+    server.request("GET", OBJECT, OTHER, b"").expect(403);
+    server
+        .request(
+            "GET",
+            OBJECT,
+            "Authorization: Bearer local:reader-user\r\n",
+            b"",
+        )
+        .expect(401);
     server.request("GET", OBJECT, ADMIN, b"").json_ok();
 }
 
@@ -218,8 +206,8 @@ fn unrelated_acl_edits_preserve_stable_iam_ids_across_alias_changes() {
     server
         .request("GET", &format!("{BUCKET}/o"), READER, b"")
         .json_ok();
-    assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
-    assert_eq!(server.request("GET", BUCKET, OTHER, b"").status, 403);
+    server.request("GET", OBJECT, READER, b"").expect(403);
+    server.request("GET", BUCKET, OTHER, b"").expect(403);
     assert!(
         role(
             &server.request("GET", &iam, ADMIN, b"").json_ok(),
@@ -230,5 +218,5 @@ fn unrelated_acl_edits_preserve_stable_iam_ids_across_alias_changes() {
     server.stop();
     let server = Server::start_with_registry(&data, &inputs, "disk", &changed);
     server.request("GET", BUCKET, READER, b"").json_ok();
-    assert_eq!(server.request("GET", BUCKET, OTHER, b"").status, 403);
+    server.request("GET", BUCKET, OTHER, b"").expect(403);
 }

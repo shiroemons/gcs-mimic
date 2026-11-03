@@ -1,3 +1,5 @@
+mod common;
+
 use std::process::{Command, Output};
 
 fn run(args: &[&str]) -> Output {
@@ -236,8 +238,8 @@ fn rejects_reserved_api_collisions_without_stdout() {
 
 #[test]
 fn ignores_config_file_environment_and_data_directory() {
-    let missing =
-        std::env::temp_dir().join(format!("gcs-mimic-url-missing-{}", std::process::id()));
+    let dir = common::TestDir::new();
+    let missing = dir.0.join("missing");
     assert!(!missing.exists());
     let output = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
         .args([

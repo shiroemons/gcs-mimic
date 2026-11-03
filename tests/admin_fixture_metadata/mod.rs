@@ -20,13 +20,7 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
         )
         .json_ok();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    let notifications = || {
-        connection
-            .query_row("SELECT count(*) FROM notification_outbox", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .unwrap()
-    };
+    let notifications = || common::catalog::count(&connection, "notification_outbox");
     let acl = json!([{"entity":"allUsers","role":"READER"}]);
     let resource = server
         .fixture(
@@ -42,16 +36,13 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
         .request("GET", &format!("{OBJECT}?projection=full"), "", b"")
         .json_ok();
     assert_eq!(full["acl"][0]["entity"], "allUsers");
-    assert_eq!(
-        server
-            .fixture(
-                json!({"bucket":"test-bucket","name":"value"}),
-                b"blocked",
-                ""
-            )
-            .status,
-        403
-    );
+    server
+        .fixture(
+            json!({"bucket":"test-bucket","name":"value"}),
+            b"blocked",
+            "",
+        )
+        .expect(403);
     assert_eq!(
         server
             .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
@@ -76,16 +67,13 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
         .json_ok();
     let before = server.request("GET", OBJECT, "", b"").json_ok();
     let queued = notifications();
-    assert_eq!(
-        server
-            .fixture(
-                json!({"bucket":"test-bucket","name":"value","acl":acl}),
-                b"denied",
-                ""
-            )
-            .status,
-        403
-    );
+    server
+        .fixture(
+            json!({"bucket":"test-bucket","name":"value","acl":acl}),
+            b"denied",
+            "",
+        )
+        .expect(403);
     assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), before);
     assert_eq!(notifications(), queued);
     server
@@ -96,16 +84,13 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
             br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
         )
         .json_ok();
-    assert_eq!(
-        server
-            .fixture(
-                json!({"bucket":"test-bucket","name":"value","acl":[]}),
-                b"denied",
-                ""
-            )
-            .status,
-        400
-    );
+    server
+        .fixture(
+            json!({"bucket":"test-bucket","name":"value","acl":[]}),
+            b"denied",
+            "",
+        )
+        .expect(400);
     assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), before);
     server
         .request(
@@ -124,16 +109,13 @@ fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
         )
         .json_ok();
     assert_eq!(retained["retention"]["mode"], "Locked");
-    assert_eq!(
-        server
-            .fixture(
-                json!({"bucket":"retained-bucket","name":"value"}),
-                b"denied",
-                ""
-            )
-            .status,
-        403
-    );
+    server
+        .fixture(
+            json!({"bucket":"retained-bucket","name":"value"}),
+            b"denied",
+            "",
+        )
+        .expect(403);
     drop(server);
     let server = Server::start(&dir, &options);
     assert_eq!(

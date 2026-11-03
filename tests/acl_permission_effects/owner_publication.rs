@@ -93,28 +93,22 @@ fn move_preserves_source_owner_and_acl_without_observing_current_default() {
         let db = (backend == "disk")
             .then(|| rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap());
         let prior = db.as_ref().map(counters);
-        assert_eq!(
-            server
-                .request(
-                    "POST",
-                    &format!("{path}&ifSourceGenerationMatch=0"),
-                    OTHER,
-                    b""
-                )
-                .status,
-            412
-        );
-        assert_eq!(
-            server
-                .request("POST", &format!("{path}&ifGenerationMatch=0"), OTHER, b"")
-                .status,
-            412
-        );
+        server
+            .request(
+                "POST",
+                &format!("{path}&ifSourceGenerationMatch=0"),
+                OTHER,
+                b"",
+            )
+            .expect(412);
+        server
+            .request("POST", &format!("{path}&ifGenerationMatch=0"), OTHER, b"")
+            .expect(412);
         assert_move_inputs(&server, &source, &before);
         assert_eq!(db.as_ref().map(counters), prior);
         if let Some(db) = &db {
             db.execute_batch("CREATE TRIGGER reject_moved_acl BEFORE INSERT ON acl_object_entries WHEN NEW.name='moved' BEGIN SELECT RAISE(ABORT,'injected moved ACL failure'); END;").unwrap();
-            assert_eq!(server.request("POST", &path, OTHER, b"").status, 503);
+            server.request("POST", &path, OTHER, b"").expect(503);
             db.execute_batch("DROP TRIGGER reject_moved_acl;").unwrap();
             assert_eq!(Some(counters(db)), prior);
             assert_move_inputs(&server, &source, &before);
@@ -137,27 +131,24 @@ fn move_preserves_source_owner_and_acl_without_observing_current_default() {
         assert_eq!(moved["contentType"], source["contentType"]);
         assert_ne!(moved["generation"], source["generation"]);
         assert_eq!(moved["metageneration"], "1");
-        assert_eq!(server.request("GET", OBJECT, ADMIN, b"").status, 404);
+        server.request("GET", OBJECT, ADMIN, b"").expect(404);
         assert_eq!(
             server
                 .request("GET", &format!("{BUCKET}/o/moved?alt=media"), READER, b"")
                 .body,
             b"original owner's bytes"
         );
-        assert_eq!(
-            server
-                .request(
-                    "GET",
-                    &format!(
-                        "{BUCKET}/o/moved?generation={}",
-                        target["generation"].as_str().unwrap()
-                    ),
-                    OTHER,
-                    b""
-                )
-                .status,
-            403
-        );
+        server
+            .request(
+                "GET",
+                &format!(
+                    "{BUCKET}/o/moved?generation={}",
+                    target["generation"].as_str().unwrap()
+                ),
+                OTHER,
+                b"",
+            )
+            .expect(403);
         if let Some(db) = db {
             let events: Vec<String> = db.prepare("SELECT json_extract(message,'$.messages[0].attributes.eventType') FROM notification_outbox ORDER BY id").unwrap().query_map([], |row| row.get(0)).unwrap().collect::<Result<_,_>>().unwrap();
             assert_eq!(events, ["OBJECT_DELETE", "OBJECT_FINALIZE"]);
@@ -291,30 +282,24 @@ fn derived_publications_assign_the_caller_and_restore_keeps_original_owner_with_
             )
             .json_ok();
         server.admin("PATCH", BUCKET, json!({"softDeletePolicy":{"retentionDurationSeconds":"604800"},"defaultObjectAcl":[{"entity":"user-other@example.test","role":"READER"}]})).json_ok();
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{BUCKET}/o/restored?generation={generation}"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{BUCKET}/acl/user-reader%40example.test"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
+        server
+            .request(
+                "DELETE",
+                &format!("{BUCKET}/o/restored?generation={generation}"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
+        server
+            .request(
+                "DELETE",
+                &format!("{BUCKET}/acl/user-reader%40example.test"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
         let path = format!("{BUCKET}/o/restored/restore?generation={generation}");
-        assert_eq!(server.request("POST", &path, READER, b"").status, 403);
+        server.request("POST", &path, READER, b"").expect(403);
         let restored = server.request("POST", &path, ADMIN, b"").json_ok();
         assert_ne!(restored["generation"], original["generation"]);
         let record = full(&server, "restored");
@@ -366,7 +351,7 @@ fn restore_accepts_projection_full_and_omits_acl_and_owner_from_the_response() {
             ADMIN,
             b"",
         );
-        assert_eq!(deleted.status, 204);
+        deleted.expect(204);
         let restore = format!("{OBJECT}/restore?generation={generation}");
         let restore_without_acl = |query: &str| {
             let restored = server

@@ -61,14 +61,11 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
     server
         .request("GET", &format!("{BUCKET}/o"), READER, b"")
         .json_ok();
-    assert_eq!(server.request("GET", BUCKET, "", b"").status, 401);
-    assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
-    assert_eq!(
-        server
-            .request("GET", &format!("{BUCKET}/acl"), ADMIN, b"")
-            .status,
-        400
-    );
+    server.request("GET", BUCKET, "", b"").expect(401);
+    server.request("GET", OBJECT, READER, b"").expect(403);
+    server
+        .request("GET", &format!("{BUCKET}/acl"), ADMIN, b"")
+        .expect(400);
     server.stop();
     let server = Server::start(&data, &inputs, "disk");
     assert_eq!(server.request("GET", &iam, ADMIN, b"").json_ok(), policy);
@@ -86,19 +83,16 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
             .json_ok()["role"],
         "READER"
     );
-    assert_eq!(server.request("GET", BUCKET, "", b"").status, 401);
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("{BUCKET}/acl/user-reader%40example.test"),
-                ADMIN,
-                b""
-            )
-            .status,
-        204
-    );
-    assert_eq!(server.request("GET", BUCKET, READER, b"").status, 403);
+    server.request("GET", BUCKET, "", b"").expect(401);
+    server
+        .request(
+            "DELETE",
+            &format!("{BUCKET}/acl/user-reader%40example.test"),
+            ADMIN,
+            b"",
+        )
+        .expect(204);
+    server.request("GET", BUCKET, READER, b"").expect(403);
     server.request("GET", BUCKET, OTHER, b"").json_ok();
     assert_eq!(
         server

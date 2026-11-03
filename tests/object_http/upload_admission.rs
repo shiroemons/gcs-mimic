@@ -7,7 +7,7 @@ fn simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working() {
         let dir = TestDir::new();
         let server = Server::with_connections(&dir, 1_000_000, 10_000, 30_000, 10_000, connections);
         server.bucket();
-        assert_eq!(server.upload("name=existing", "", b"existing").status, 200);
+        server.upload("name=existing", "", b"existing").expect(200);
         let start = Arc::new(Barrier::new(count + 1));
         thread::scope(|scope| {
             let mut uploads = Vec::new();
@@ -23,18 +23,15 @@ fn simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working() {
                         thread::yield_now();
                     }
                     let reply = Reply::framed(stream);
-                    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+                    reply.expect(200);
                 }));
             }
             start.wait();
             if count == 40 {
                 assert_eq!(server.get("existing?alt=media").body, b"existing");
-                assert_eq!(
-                    server
-                        .request("GET", "/storage/v1/b/test-bucket/o", "", b"")
-                        .status,
-                    200
-                );
+                server
+                    .request("GET", "/storage/v1/b/test-bucket/o", "", b"")
+                    .expect(200);
             }
             for upload in uploads {
                 upload.join().unwrap();
@@ -70,7 +67,7 @@ fn simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission
                         "",
                         b"",
                     );
-                    assert_eq!(init.status, 200, "{}", String::from_utf8_lossy(&init.body));
+                    init.expect(200);
                     let location = &init.headers["location"];
                     let path = location
                         .strip_prefix("https://advertised.invalid/api")
@@ -81,12 +78,7 @@ fn simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission
                         "Content-Range: bytes 0-131071/131072\r\n",
                         &[b'x'; 131072],
                     );
-                    assert_eq!(
-                        reply.status,
-                        200,
-                        "{}",
-                        String::from_utf8_lossy(&reply.body)
-                    );
+                    reply.expect(200);
                 }));
             }
             for upload in uploads {
@@ -124,7 +116,7 @@ fn disconnect_cleans_staging_and_shutdown_waits_for_upload_completion() {
     wait_for_stages(&dir, 1);
     drop(disconnected);
     wait_for_stages(&dir, 0);
-    assert_eq!(server.get("aborted").status, 404);
+    server.get("aborted").expect(404);
     let mut upload = server.stream();
     upload.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=completed HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\na").unwrap();
     wait_for_stages(&dir, 1);
@@ -132,7 +124,7 @@ fn disconnect_cleans_staging_and_shutdown_waits_for_upload_completion() {
         let stop = scope.spawn(|| server.stop());
         thread::sleep(Duration::from_millis(100));
         upload.write_all(b"bc").unwrap();
-        assert_eq!(Reply::framed(upload).status, 200);
+        Reply::framed(upload).expect(200);
         stop.join().unwrap();
     });
     wait_for_stages(&dir, 0);

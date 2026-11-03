@@ -175,17 +175,14 @@ fn signed_chunks_transfer_binary_and_empty_objects_over_content_length_and_trans
                 Some("aws-chunked"),
             );
             let body = chain(&key, &signed, &[&object[..split], &object[split..]]);
-            assert_eq!(send(&server, &signed, &body, pieces, false).status, 200);
+            send(&server, &signed, &body, pieces, false).expect(200);
             let reply = server.request("GET", "/test-bucket/stream%252Fraw", ADMIN, b"");
             assert_eq!(reply.body, object);
             assert!(!reply.headers.contains_key("content-encoding"));
         }
         for pieces in [None, Some(1)] {
             let signed = headers(&key, "/test-bucket/empty", 0, Some("aws-chunked"));
-            assert_eq!(
-                send(&server, &signed, &chain(&key, &signed, &[]), pieces, false).status,
-                200
-            );
+            send(&server, &signed, &chain(&key, &signed, &[]), pieces, false).expect(200);
             assert!(
                 server
                     .request("GET", "/test-bucket/empty", ADMIN, b"")
@@ -194,17 +191,14 @@ fn signed_chunks_transfer_binary_and_empty_objects_over_content_length_and_trans
             );
         }
         let signed = headers(&key, "/test-bucket/no-ce", 3, None);
-        assert_eq!(
-            send(
-                &server,
-                &signed,
-                &chain(&key, &signed, &[b"abc"]),
-                Some(1),
-                false
-            )
-            .status,
-            200
-        );
+        send(
+            &server,
+            &signed,
+            &chain(&key, &signed, &[b"abc"]),
+            Some(1),
+            false,
+        )
+        .expect(200);
         assert_eq!(
             server.request("GET", "/test-bucket/no-ce", ADMIN, b"").body,
             b"abc"
@@ -233,7 +227,7 @@ fn google_transfer_encoding_without_aws_content_encoding_uses_full_hash_or_unsig
             ],
             SystemTime::now(),
         );
-        assert_eq!(send(&server, &signed, bytes, Some(3), false).status, 200);
+        send(&server, &signed, bytes, Some(3), false).expect(200);
         assert_eq!(
             server.request("GET", "/test-bucket/plain", ADMIN, b"").body,
             bytes
@@ -311,17 +305,14 @@ fn signed_chunk_tampering_lengths_terminal_eof_and_trailers_preserve_the_complet
     }
     for length in [8999, 9001] {
         let signed = headers(&key, "/test-bucket/object", length, Some("aws-chunked"));
-        assert_eq!(
-            send(
-                &server,
-                &signed,
-                &chain(&key, &signed, &[&bytes]),
-                None,
-                false
-            )
-            .status,
-            400
-        );
+        send(
+            &server,
+            &signed,
+            &chain(&key, &signed, &[&bytes]),
+            None,
+            false,
+        )
+        .expect(400);
     }
     let mut truncated = TcpStream::connect(&server.address).unwrap();
     truncated
@@ -387,17 +378,14 @@ fn signed_chunks_validate_decoded_md5_and_remove_only_the_aws_encoding_token() {
         ],
         SystemTime::now(),
     );
-    assert_eq!(
-        send(
-            &server,
-            &signed,
-            &chain(&key, &signed, &[&bytes]),
-            None,
-            false
-        )
-        .status,
-        200
-    );
+    send(
+        &server,
+        &signed,
+        &chain(&key, &signed, &[&bytes]),
+        None,
+        false,
+    )
+    .expect(200);
     let reply = server.request(
         "GET",
         "/test-bucket/encoding",
@@ -450,10 +438,7 @@ fn signed_chunks_enforce_decoded_object_limit_and_reject_malformed_header_and_ch
     let key = server.key("signer@example.invalid");
     let bytes = vec![b'x'; 8192];
     let good = headers(&key, "/test-bucket/limit", 8192, Some("aws-chunked"));
-    assert_eq!(
-        send(&server, &good, &chain(&key, &good, &[&bytes]), None, false).status,
-        200
-    );
+    send(&server, &good, &chain(&key, &good, &[&bytes]), None, false).expect(200);
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/limit", ADMIN, b"")
         .json_ok();
@@ -533,7 +518,7 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
     let creator = server.key("creator@example.invalid");
     let signed = headers(&creator, "/test-bucket/creator", 3, Some("aws-chunked"));
     let body = chain(&creator, &signed, &[b"new"]);
-    assert_eq!(send(&server, &signed, &body, None, false).status, 200);
+    send(&server, &signed, &body, None, false).expect(200);
     error(
         &send(&server, &signed, &body, None, false),
         403,
@@ -573,7 +558,7 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
         "AccessDenied",
     );
     server.request("PUT", "/storage/v1/b/test-bucket/iam", ADMIN, br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:scoped@example.invalid"]}]}"#).json_ok();
-    assert_eq!(send(&server, &signed, &body, None, false).status, 200);
+    send(&server, &signed, &body, None, false).expect(200);
     let before = server
         .request("GET", "/storage/v1/b/test-bucket/o/scoped", ADMIN, b"")
         .json_ok();
@@ -613,11 +598,11 @@ fn signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwri
     server.stop();
     drop(server);
     let server = Server::start(&dir, "disk");
-    assert_eq!(send(&server, &signed, &body, None, false).status, 200);
+    send(&server, &signed, &body, None, false).expect(200);
     server
         .request("PUT", &path, admin, br#"{"state":"INACTIVE"}"#)
         .json_ok();
-    assert_eq!(server.request("DELETE", &path, admin, b"").status, 204);
+    server.request("DELETE", &path, admin, b"").expect(204);
     error(
         &send(&server, &signed, &body, None, false),
         403,
@@ -683,10 +668,7 @@ fn invalid_streaming_seed_and_non_object_routes_fail_before_continue_without_pub
     server
         .request("GET", "/storage/v1/b/test-bucket/o", ADMIN, b"")
         .json_ok();
-    assert_eq!(
-        server
-            .request("GET", "/test-bucket/object", ADMIN, b"")
-            .status,
-        404
-    );
+    server
+        .request("GET", "/test-bucket/object", ADMIN, b"")
+        .expect(404);
 }

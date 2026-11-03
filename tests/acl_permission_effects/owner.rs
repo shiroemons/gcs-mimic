@@ -39,16 +39,13 @@ fn immutable_upload_owner_survives_acl_edits_overwrite_and_restart() {
             json!(null),
             json!("user-reader@example.test"),
         ] {
-            assert_eq!(
-                server
-                    .admin(
-                        "PATCH",
-                        &format!("{OBJECT}?generation={generation}"),
-                        json!({"owner":owner})
-                    )
-                    .status,
-                400
-            );
+            server
+                .admin(
+                    "PATCH",
+                    &format!("{OBJECT}?generation={generation}"),
+                    json!({"owner":owner}),
+                )
+                .expect(400);
             assert_eq!(
                 full(&server, generation)["owner"],
                 json!({"entity":"user-reader@example.test"})
@@ -63,7 +60,7 @@ fn immutable_upload_owner_survives_acl_edits_overwrite_and_restart() {
             )
             .json_ok();
         assert_eq!(changed["role"], "OWNER");
-        assert_eq!(server.request("DELETE", &entity, ADMIN, b"").status, 204);
+        server.request("DELETE", &entity, ADMIN, b"").expect(204);
         assert_eq!(
             server.request("GET", &entity, ADMIN, b"").json_ok()["role"],
             "OWNER"
@@ -89,40 +86,31 @@ fn immutable_upload_owner_survives_acl_edits_overwrite_and_restart() {
             full(&server, replacement["generation"].as_str().unwrap())["owner"],
             json!({"entity":"user-admin@example.test"})
         );
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{BUCKET}/acl/user-reader%40example.test"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
+        server
+            .request(
+                "DELETE",
+                &format!("{BUCKET}/acl/user-reader%40example.test"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
         let path = format!("{OBJECT}?generation={generation}&alt=media");
         assert_eq!(
             server.request("GET", &path, READER, b"").body,
             b"reader owns this generation"
         );
-        assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
-        assert_eq!(
-            server
-                .request("GET", &format!("{BUCKET}/o"), READER, b"")
-                .status,
-            403
-        );
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}?generation={generation}"),
-                    READER,
-                    b""
-                )
-                .status,
-            403
-        );
+        server.request("GET", OBJECT, READER, b"").expect(403);
+        server
+            .request("GET", &format!("{BUCKET}/o"), READER, b"")
+            .expect(403);
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}?generation={generation}"),
+                READER,
+                b"",
+            )
+            .expect(403);
         server
             .admin(
                 "PATCH",
@@ -141,7 +129,7 @@ fn immutable_upload_owner_survives_acl_edits_overwrite_and_restart() {
                 json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
             )
             .json_ok();
-        assert_eq!(server.request("GET", &path, READER, b"").status, 403);
+        server.request("GET", &path, READER, b"").expect(403);
         assert!(full(&server, generation).get("owner").is_none());
         server
             .admin(
@@ -186,7 +174,7 @@ fn owner_upgrade_does_not_guess_legacy_uploaders_and_aliasless_uploads_keep_actu
     server = Server::start_with_registry(&data, &inputs, "disk", &registry);
     let old = full(&server, legacy["generation"].as_str().unwrap());
     assert!(old.get("owner").is_none());
-    assert_eq!(server.request("GET", OBJECT, READER, b"").status, 403);
+    server.request("GET", OBJECT, READER, b"").expect(403);
     server.admin("PUT", &format!("{BUCKET}/iam"), json!({"bindings":[{"role":"roles/storage.legacyBucketWriter","members":["user:local:aliasless-uploader"]}]})).json_ok();
     let mut defaults: Vec<Value> = (0..100)
         .map(|index| json!({"entity":format!("user-member{index}@example.test"),"role":"READER"}))
@@ -194,17 +182,14 @@ fn owner_upgrade_does_not_guess_legacy_uploaders_and_aliasless_uploads_keep_actu
     server
         .admin("PATCH", BUCKET, json!({"defaultObjectAcl":defaults}))
         .json_ok();
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=value",
-                READER,
-                b"exceeds logical grant limit"
-            )
-            .status,
-        400
-    );
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=value",
+            READER,
+            b"exceeds logical grant limit",
+        )
+        .expect(400);
     assert_eq!(full(&server, legacy["generation"].as_str().unwrap()), old);
     defaults.pop();
     server
@@ -220,17 +205,14 @@ fn owner_upgrade_does_not_guess_legacy_uploaders_and_aliasless_uploads_keep_actu
         .json_ok();
     let view = full(&server, uploaded["generation"].as_str().unwrap());
     assert_eq!(view["acl"].as_array().unwrap().len(), 99);
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                &format!("{OBJECT}/acl"),
-                READER,
-                br#"{"entity":"user-extra@example.test","role":"READER"}"#
-            )
-            .status,
-        400
-    );
+    server
+        .request(
+            "POST",
+            &format!("{OBJECT}/acl"),
+            READER,
+            br#"{"entity":"user-extra@example.test","role":"READER"}"#,
+        )
+        .expect(400);
     assert!(
         full(&server, uploaded["generation"].as_str().unwrap())
             .get("owner")
@@ -245,7 +227,7 @@ fn owner_upgrade_does_not_guess_legacy_uploaders_and_aliasless_uploads_keep_actu
             .body,
         b"known local identity"
     );
-    assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
+    server.request("GET", OBJECT, OTHER, b"").expect(403);
     let owner: String = rusqlite::Connection::open(data.0.join("catalog.sqlite3"))
         .unwrap()
         .query_row(
@@ -299,17 +281,14 @@ fn actual_owner_id_cannot_be_replaced_by_reusing_its_canonical_alias() {
             json!({"entity":"user-old@example.test","role":"READER"}),
         )
         .json_ok();
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                &format!("{OBJECT}/acl/user-old%40example.test"),
-                ADMIN,
-                b""
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            &format!("{OBJECT}/acl/user-old%40example.test"),
+            ADMIN,
+            b"",
+        )
+        .expect(204);
     server.grant(
         "user-explicit@example.test",
         "OWNER",
@@ -333,36 +312,30 @@ fn actual_owner_id_cannot_be_replaced_by_reusing_its_canonical_alias() {
             .body,
         b"original identity owns bytes"
     );
-    assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
-    assert_eq!(server.request("GET", BUCKET, OTHER, b"").status, 403);
-    assert_eq!(
-        server
-            .request(
-                "PATCH",
-                OBJECT,
-                OTHER,
-                br#"{"metadata":{"stolen":"owner"}}"#
-            )
-            .status,
-        403
-    );
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                &format!("{OBJECT}/acl"),
-                OTHER,
-                br#"{"entity":"user-old@example.test","role":"OWNER"}"#
-            )
-            .status,
-        403
-    );
+    server.request("GET", OBJECT, OTHER, b"").expect(403);
+    server.request("GET", BUCKET, OTHER, b"").expect(403);
+    server
+        .request(
+            "PATCH",
+            OBJECT,
+            OTHER,
+            br#"{"metadata":{"stolen":"owner"}}"#,
+        )
+        .expect(403);
+    server
+        .request(
+            "POST",
+            &format!("{OBJECT}/acl"),
+            OTHER,
+            br#"{"entity":"user-old@example.test","role":"OWNER"}"#,
+        )
+        .expect(403);
     let view = server
         .request("GET", &format!("{OBJECT}?projection=full"), ADMIN, b"")
         .json_ok();
     assert_eq!(view["owner"], json!({"entity":"user-new@example.test"}));
     server.admin("PUT", OBJECT, view).json_ok();
-    assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
+    server.request("GET", OBJECT, OTHER, b"").expect(403);
     for role in ["READER", "OWNER"] {
         let granted = server
             .admin(
@@ -373,18 +346,15 @@ fn actual_owner_id_cannot_be_replaced_by_reusing_its_canonical_alias() {
             .json_ok();
         assert_eq!(granted["role"], role);
         server.request("GET", OBJECT, OTHER, b"").json_ok();
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("{OBJECT}/acl/user-old%40example.test"),
-                    ADMIN,
-                    b""
-                )
-                .status,
-            204
-        );
-        assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
+        server
+            .request(
+                "DELETE",
+                &format!("{OBJECT}/acl/user-old%40example.test"),
+                ADMIN,
+                b"",
+            )
+            .expect(204);
+        server.request("GET", OBJECT, OTHER, b"").expect(403);
         assert_eq!(
             server
                 .request("GET", &format!("{OBJECT}?alt=media"), READER, b"")

@@ -118,7 +118,7 @@ fn notification_configs_round_trip_persist_and_follow_bucket_lifecycle() {
     );
 
     let deleted = server.request("DELETE", &format!("{CONFIGS}/1"), "", b"");
-    assert_eq!(deleted.status, 204);
+    deleted.expect(204);
     assert!(deleted.body.is_empty());
     for (method, path) in [
         ("GET", format!("{CONFIGS}/1")),
@@ -143,12 +143,9 @@ fn notification_configs_round_trip_persist_and_follow_bucket_lifecycle() {
     );
 
     // Deleting the bucket removes its configurations; a recreated bucket starts empty.
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket", "", b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket", "", b"")
+        .expect(204);
     server
         .request("GET", CONFIGS, "", b"")
         .json_reason(404, "notFound");
@@ -339,7 +336,7 @@ fn notification_strict_permissions_follow_bucket_get_and_update() {
     server
         .request("DELETE", &item, VIEWER, b"")
         .json_reason(403, "forbidden");
-    assert_eq!(server.request("DELETE", &item, ADMIN, b"").status, 204);
+    server.request("DELETE", &item, ADMIN, b"").expect(204);
     assert!(ids(&server, ADMIN).is_empty());
 }
 
@@ -414,7 +411,7 @@ fn notification_effects_follow_http_mutations_and_persist_without_a_publisher() 
         .request("DELETE", &format!("{object}?ifGenerationMatch=0"), "", b"")
         .json_reason(412, "conditionNotMet");
     let second = server.put("incoming%2Fitem", b"second").json_ok();
-    assert_eq!(server.request("DELETE", object, "", b"").status, 204);
+    server.request("DELETE", object, "", b"").expect(204);
     server.stop();
     let messages = queued_messages(&dir);
     let events: Vec<_> = messages
@@ -694,22 +691,10 @@ fn opted_in_pubsub_emulator_receives_the_notification() {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     server.stop();
-    assert_eq!(
-        object_effects_support::request(
-            &address,
-            "DELETE",
-            &format!("/v1/{subscription}"),
-            "",
-            b""
-        )
-        .status,
-        200
-    );
-    assert_eq!(
-        object_effects_support::request(&address, "DELETE", &format!("/v1/{topic}"), "", b"")
-            .status,
-        200
-    );
+    object_effects_support::request(&address, "DELETE", &format!("/v1/{subscription}"), "", b"")
+        .expect(200);
+    object_effects_support::request(&address, "DELETE", &format!("/v1/{topic}"), "", b"")
+        .expect(200);
 }
 
 /// A stand-in Pub/Sub emulator that answers `count` topic lookups: `present` exists, `broken`
@@ -797,7 +782,7 @@ fn creating_a_config_checks_the_topic_against_the_configured_emulator() {
 
     let message = "Cloud Pub/Sub topic '//pubsub.googleapis.com/projects/local/topics/absent' not found, or user 'service-0@gs-project-accounts.iam.gserviceaccount.com' does not have permission to it.";
     let missing = create(r#"{"topic":"projects/local/topics/absent"}"#);
-    assert_eq!(missing.status, 400);
+    missing.expect(400);
     let error = &error_json(&missing)["error"];
     assert_eq!(error["message"], message);
     assert_eq!(error["errors"][0]["reason"], "invalid");
@@ -805,19 +790,19 @@ fn creating_a_config_checks_the_topic_against_the_configured_emulator() {
     // Field checks that precede the topic lookup never reach the emulator; the event type check
     // that follows it only runs for a topic that exists.
     let format = create(r#"{"topic":"projects/local/topics/absent","payload_format":"XML"}"#);
-    assert_eq!(format.status, 400);
+    format.expect(400);
     assert_eq!(
         error_json(&format)["error"]["message"],
         "You must specify a payload format in the 'payload_format' field."
     );
     let no_topic = create(r#"{"payload_format":"NONE"}"#);
-    assert_eq!(no_topic.status, 400);
+    no_topic.expect(400);
     let absent_event =
         create(r#"{"topic":"projects/local/topics/absent","event_types":["OBJECT_CHANGE"]}"#);
     assert_eq!(error_json(&absent_event)["error"]["message"], message);
     let present_event =
         create(r#"{"topic":"projects/local/topics/present","event_types":["OBJECT_CHANGE"]}"#);
-    assert_eq!(present_event.status, 400);
+    present_event.expect(400);
     assert!(
         error_json(&present_event)["error"]["message"]
             .as_str()
@@ -827,7 +812,7 @@ fn creating_a_config_checks_the_topic_against_the_configured_emulator() {
 
     // A failing emulator leaves the topic unconfirmed: retryable error, nothing created.
     let broken = create(r#"{"topic":"projects/local/topics/broken"}"#);
-    assert_eq!(broken.status, 503);
+    broken.expect(503);
     assert_eq!(
         error_json(&broken)["error"]["errors"][0]["reason"],
         "backendError"
@@ -846,7 +831,7 @@ fn creating_a_config_checks_the_topic_against_the_configured_emulator() {
         ]
     );
     let refused = create(r#"{"topic":"projects/local/topics/present"}"#);
-    assert_eq!(refused.status, 503);
+    refused.expect(503);
     assert_eq!(event_server_ids(&server), ["1"]);
     server.stop();
 }
@@ -867,12 +852,7 @@ fn a_missing_bucket_is_not_found_without_asking_the_emulator() {
         "/storage/v1/b/no-such-bucket/notificationConfigs",
         br#"{"topic":"projects/local/topics/present"}"#,
     );
-    assert_eq!(
-        reply.status,
-        404,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
+    reply.expect(404);
     // No lookup reached the emulator.
     assert_eq!(
         listener.accept().unwrap_err().kind(),

@@ -180,8 +180,7 @@ fn jwt_key_rotation_takes_effect_at_restart_and_keeps_native_and_legacy_profiles
         let data = TestDir::new();
         let mut value = registry();
         value["identities"][0]["public_keys"] = json!([PUBLIC]);
-        let path = config.0.join("identities.json");
-        std::fs::write(&path, value.to_string()).unwrap();
+        let path = common::process::write_identities(&config.0, &(value));
         let options = ["--compat-profile", profile];
         let mut server = Server::strict_with(&data, &path, &options);
         server

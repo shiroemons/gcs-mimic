@@ -88,12 +88,7 @@ fn initiate(server: &Server, query: &str) -> String {
         ADMIN,
         b"",
     );
-    assert_eq!(
-        initiated.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&initiated.body)
-    );
+    initiated.expect(200);
     let uri: hyper::Uri = initiated.headers["location"].parse().unwrap();
     uri.path_and_query().unwrap().as_str().to_owned()
 }
@@ -353,11 +348,6 @@ fn predefined_acl_uploads_need_only_create_and_respect_access_settings() {
         ADMIN,
         b"bytes",
     );
-    assert_eq!(
-        failed.status,
-        503,
-        "{}",
-        String::from_utf8_lossy(&failed.body)
-    );
+    failed.expect(503);
     absent(&server, "atomic");
 }

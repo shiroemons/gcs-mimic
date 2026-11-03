@@ -25,16 +25,18 @@ struct Key {
 
 impl Server {
     fn start(dir: &TestDir, backend: &str) -> Self {
-        let path = dir.0.join("identities.json");
-        std::fs::write(&path,json!({"identities":[
-            {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
-            {"id":"signer@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"local":["roles/storage.admin"]}},
-            {"id":"creator@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"local":["roles/storage.objectCreator"]}},
-            {"id":"reader@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"local":["roles/storage.objectViewer"]}},
-            {"id":"keys@example.invalid","tokens":["keys"],"project_roles":{"local":["roles/storage.hmacKeyAdmin"]}},
-            {"id":"scoped@example.invalid","tokens":[],"public_keys":[PUBLIC]},
-            {"id":"stranger@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"other":["roles/storage.admin"]}}
-        ]}).to_string()).unwrap();
+        let path = common::process::write_identities(
+            &dir.0,
+            &(json!({"identities":[
+                {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
+                {"id":"signer@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"local":["roles/storage.admin"]}},
+                {"id":"creator@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"local":["roles/storage.objectCreator"]}},
+                {"id":"reader@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"local":["roles/storage.objectViewer"]}},
+                {"id":"keys@example.invalid","tokens":["keys"],"project_roles":{"local":["roles/storage.hmacKeyAdmin"]}},
+                {"id":"scoped@example.invalid","tokens":[],"public_keys":[PUBLIC]},
+                {"id":"stranger@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"other":["roles/storage.admin"]}}
+            ]})),
+        );
         Self::launch(
             http_command(&dir.0.join("data"))
                 .args(["--backend", backend])
@@ -293,19 +295,7 @@ fn variant_fields(
         ),
     }
 }
-fn error(reply: &Reply, status: u16, code: &str) {
-    assert_eq!(
-        reply.status,
-        status,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-    assert!(
-        String::from_utf8_lossy(&reply.body).contains(&format!("<Code>{code}</Code>")),
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-}
+use crate::common::errors::xml_error as error;
 
 #[test]
 fn v4_rsa_and_hmac_policy_upload_exact_binary_on_disk_and_ram() {
@@ -326,12 +316,7 @@ fn v4_rsa_and_hmac_policy_upload_exact_binary_on_disk_and_ram() {
                 &[],
             );
             let reply = server.post("policy-bucket", &form, b"\0\xff\x80policy\r\nbytes");
-            assert_eq!(
-                reply.status,
-                204,
-                "{}",
-                String::from_utf8_lossy(&reply.body)
-            );
+            reply.expect(204);
             assert_eq!(
                 server
                     .request("GET", "/policy-bucket/object", ADMIN, b"")
@@ -353,7 +338,7 @@ fn v4_hmac_policy_keys_revoke_restart_and_never_borrow_key_admin_or_project_perm
     server.bucket("policy-bucket");
     let key = server.key("signer@example.invalid");
     let form = fields(Signer::Hmac(&key), "policy-bucket", "object", &[], &[]);
-    assert_eq!(server.post("policy-bucket", &form, b"original").status, 204);
+    server.post("policy-bucket", &form, b"original").expect(204);
     let before = server
         .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
         .json_ok();
@@ -399,7 +384,7 @@ fn v4_hmac_policy_keys_revoke_restart_and_never_borrow_key_admin_or_project_perm
     server
         .request("PUT", &path, keys, br#"{"state":"ACTIVE"}"#)
         .json_ok();
-    assert_eq!(server.post("policy-bucket", &form, b"original").status, 204);
+    server.post("policy-bucket", &form, b"original").expect(204);
     let current = server
         .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
         .json_ok();
@@ -407,7 +392,7 @@ fn v4_hmac_policy_keys_revoke_restart_and_never_borrow_key_admin_or_project_perm
     server
         .request("PUT", &path, keys, br#"{"state":"INACTIVE"}"#)
         .json_ok();
-    assert_eq!(server.request("DELETE", &path, keys, b"").status, 204);
+    server.request("DELETE", &path, keys, b"").expect(204);
     error(
         &server.post("policy-bucket", &form, b"denied"),
         403,
@@ -447,10 +432,9 @@ fn v4_hmac_policy_rejections_preserve_the_complete_old_resource_even_when_public
         &[("x-goog-meta-version", "old")],
         &[],
     );
-    assert_eq!(
-        server.post("policy-bucket", &valid, b"original").status,
-        204
-    );
+    server
+        .post("policy-bucket", &valid, b"original")
+        .expect(204);
     server
         .request(
             "PUT",
@@ -560,10 +544,9 @@ fn v2_rsa_policy_uses_base64_signature_and_its_own_bucket_coverage_and_expiratio
             expires,
         );
         for bucket in ["policy-bucket", "second-bucket"] {
-            assert_eq!(
-                server.post(bucket, &unbound, b"\0\xffv2\r\nbytes").status,
-                204
-            );
+            server
+                .post(bucket, &unbound, b"\0\xffv2\r\nbytes")
+                .expect(204);
             assert_eq!(
                 server
                     .request("GET", &format!("/{bucket}/object"), ADMIN, b"")
@@ -653,12 +636,9 @@ fn v2_hmac_policy_uses_active_literal_secret_sha1_and_preserves_rejected_overwri
         let key = server.key("signer@example.invalid");
         let expires = SystemTime::now() + Duration::from_secs(8 * 86400);
         let valid = v2_fields(Signer::Hmac(&key), None, "object", expires);
-        assert_eq!(
-            server
-                .post("policy-bucket", &valid, b"\0\xffv2 hmac bytes")
-                .status,
-            204
-        );
+        server
+            .post("policy-bucket", &valid, b"\0\xffv2 hmac bytes")
+            .expect(204);
         let before = server
             .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
             .json_ok();
@@ -725,7 +705,7 @@ fn v2_hmac_policy_uses_active_literal_secret_sha1_and_preserves_rejected_overwri
         server
             .request("PUT", &path, admin, br#"{"state":"INACTIVE"}"#)
             .json_ok();
-        assert_eq!(server.request("DELETE", &path, admin, b"").status, 204);
+        server.request("DELETE", &path, admin, b"").expect(204);
         error(
             &server.post("policy-bucket", &valid, b"changed"),
             403,
@@ -792,7 +772,7 @@ fn every_policy_variant_checks_inclusive_ranges_and_creator_only_overwrites() {
             &[("x-goog-meta-version", "old")],
             &[],
         );
-        assert_eq!(server.post("policy-bucket", &form, b"original").status, 204);
+        server.post("policy-bucket", &form, b"original").expect(204);
         let before = server
             .request(
                 "GET",
@@ -841,7 +821,7 @@ fn every_policy_variant_checks_inclusive_ranges_and_creator_only_overwrites() {
             &[json!(["content-length-range", 3, 5])],
         );
         for bytes in [b"abc".as_slice(), b"abcde"] {
-            assert_eq!(server.post("policy-bucket", &form, bytes).status, 204);
+            server.post("policy-bucket", &form, bytes).expect(204);
             assert_eq!(
                 server
                     .request("GET", &format!("/policy-bucket/{name}"), ADMIN, b"")
@@ -912,7 +892,7 @@ fn every_policy_variant_preserves_created_xml_and_redirect_responses() {
             &[],
         );
         let reply = server.post("policy-bucket", &form, b"created");
-        assert_eq!(reply.status, 201);
+        reply.expect(201);
         let xml = String::from_utf8(reply.body).unwrap();
         assert!(xml.contains("<Bucket>policy-bucket</Bucket><Key>response</Key>"));
         assert!(xml.contains("<ETag>"));
@@ -927,7 +907,7 @@ fn every_policy_variant_preserves_created_xml_and_redirect_responses() {
             &[],
         );
         let reply = server.post("policy-bucket", &form, b"redirect");
-        assert_eq!(reply.status, 303);
+        reply.expect(303);
         assert!(reply.body.is_empty());
         assert_eq!(
             reply.headers["location"],
@@ -958,7 +938,7 @@ fn every_policy_variant_rechecks_scoped_iam_under_pap_and_ubla() {
     ];
     for (index, (version, signer)) in variants.into_iter().enumerate() {
         let form = variant_fields(version, signer, &format!("scoped-{index}"), &[], &[]);
-        assert_eq!(server.post("policy-bucket", &form, b"scoped").status, 204);
+        server.post("policy-bucket", &form, b"scoped").expect(204);
     }
     let before = server
         .request("GET", "/storage/v1/b/policy-bucket/o", ADMIN, b"")
@@ -1019,12 +999,9 @@ fn policy_credentials_never_mix_with_headers_or_partial_versions_and_anonymous_e
         401,
         "AuthenticationRequired",
     );
-    assert_eq!(
-        server
-            .post_with_headers("policy-bucket", &plain, b"local bearer extension", ADMIN)
-            .status,
-        204
-    );
+    server
+        .post_with_headers("policy-bucket", &plain, b"local bearer extension", ADMIN)
+        .expect(204);
     assert_eq!(
         server
             .request("GET", "/policy-bucket/anonymous", ADMIN, b"")
@@ -1039,12 +1016,9 @@ fn policy_credentials_never_mix_with_headers_or_partial_versions_and_anonymous_e
             br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["allUsers"]}]}"#,
         )
         .json_ok();
-    assert_eq!(
-        server
-            .post("policy-bucket", &plain, b"public anonymous")
-            .status,
-        204
-    );
+    server
+        .post("policy-bucket", &plain, b"public anonymous")
+        .expect(204);
     let invalid = vec![
         ("key".into(), "anonymous".into()),
         ("GoogleAccessId".into(), key.id),

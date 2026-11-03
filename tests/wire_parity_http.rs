@@ -118,7 +118,7 @@ fn json_etags_encode_generation_and_metageneration_like_cloud_storage() {
     // form names the same tag.
     for value in [etag.clone(), format!("\"{etag}\"")] {
         let cached = server.request("GET", OBJECT, &format!("If-None-Match: {value}\r\n"), b"");
-        assert_eq!(cached.status, 304, "{value}");
+        cached.expect(304);
     }
     let patched = server.request(
         "PATCH",
@@ -160,7 +160,7 @@ fn json_etags_encode_generation_and_metageneration_like_cloud_storage() {
     ] {
         for field in ["If-None-Match", "If-Match"] {
             let invalid = server.request("GET", OBJECT, &format!("{field}: {value}\r\n"), b"");
-            assert_eq!(invalid.status, 400, "{field}: {value}");
+            invalid.expect(400);
         }
     }
 
@@ -174,7 +174,7 @@ fn json_etags_encode_generation_and_metageneration_like_cloud_storage() {
         "If-None-Match: CAE=\r\n",
         b"",
     );
-    assert_eq!(cached.status, 304);
+    cached.expect(304);
     let relabeled = server.request(
         "PATCH",
         "/storage/v1/b/parity",
@@ -226,12 +226,12 @@ fn cache_headers_follow_each_recorded_response_kind() {
         "Range: bytes=100-200\r\n",
         b"",
     );
-    assert_eq!(unsatisfiable.status, 416);
+    unsatisfiable.expect(416);
     assert_eq!(header(&unsatisfiable, "cache-control"), Some(PRIVATE));
     assert_eq!(header(&unsatisfiable, "pragma"), None);
     // Other media errors keep the JSON error headers.
     let invalid = server.request("GET", &format!("{OBJECT}?alt=media&generation=x"), "", b"");
-    assert_eq!(invalid.status, 400);
+    invalid.expect(400);
     assert_eq!(header(&invalid, "cache-control"), Some(NO_STORE));
     assert_eq!(header(&invalid, "pragma"), Some("no-cache"));
 }
@@ -354,7 +354,7 @@ fn unsatisfiable_media_ranges_answer_with_html_text() {
         "Range: bytes=100-200\r\n",
         b"",
     );
-    assert_eq!(reply.status, 416);
+    reply.expect(416);
     assert_eq!(
         header(&reply, "content-type"),
         Some("text/html; charset=UTF-8")
@@ -464,7 +464,7 @@ fn json_bodies_are_pretty_printed_in_recorded_field_order() {
     assert_eq!(keys(&compact.json()), keys(&object));
     // A value that is not a boolean is still rejected.
     let invalid = server.request("GET", &format!("{OBJECT}?prettyPrint=maybe"), "", b"");
-    assert_eq!(invalid.status, 400);
+    invalid.expect(400);
 }
 
 #[test]
@@ -793,7 +793,7 @@ fn object_inserts_and_json_write_errors_forbid_every_cache() {
         JSON,
         br#"{"name":"parity"}"#,
     );
-    assert_eq!(rejected.status, 409);
+    rejected.expect(409);
     assert_eq!(header(&rejected, "cache-control"), Some(NO_STORE));
     assert_eq!(header(&rejected, "pragma"), Some("no-cache"));
 }

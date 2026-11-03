@@ -110,11 +110,13 @@ fn batch_dispatches_metadata_conditions_and_individual_errors_without_self_conne
 #[test]
 fn batch_inherits_query_and_headers_but_checks_each_inner_credential() {
     let dir = TestDir::new();
-    let registry = dir.0.join("identities.json");
-    std::fs::write(&registry, serde_json::json!({"identities":[
-        {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project-a":["roles/storage.admin"]}},
-        {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
-    ]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &dir.0,
+        &(serde_json::json!({"identities":[
+            {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project-a":["roles/storage.admin"]}},
+            {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
+        ]})),
+    );
     let server = Server::start(
         &dir,
         &[

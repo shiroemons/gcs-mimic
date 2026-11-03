@@ -22,23 +22,7 @@ fn grant(server: &Server, member: &str, role: &str) -> Value {
     .json()
 }
 
-fn xml_error(reply: &Reply, status: u16, code: &str) {
-    assert_eq!(
-        reply.status,
-        status,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-    assert_eq!(
-        reply.headers["content-type"],
-        "application/xml; charset=UTF-8"
-    );
-    assert!(
-        String::from_utf8_lossy(&reply.body).contains(&format!("<Code>{code}</Code>")),
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-}
+use crate::common::errors::xml_error_with_content_type as xml_error;
 
 #[test]
 fn public_members_authorize_anonymous_and_registered_callers_without_token_fallback() {
@@ -351,7 +335,7 @@ fn xml_head_matches_get_headers_and_selected_metadata() {
     server.request("PATCH", JSON_OBJECT, ADMIN, br#"{"contentType":"text/plain","contentDisposition":"attachment; filename=hello.txt","contentLanguage":"en","metadata":{"color":"blue"}}"#).success();
     let get = server.get("", OBJECT);
     let head = server.request("HEAD", OBJECT, "", b"");
-    assert_eq!(head.status, 200);
+    head.expect(200);
     assert!(head.body.is_empty());
     let mut get_headers = get.headers.clone();
     let mut head_headers = head.headers;
@@ -387,7 +371,7 @@ fn xml_head_matches_get_headers_and_selected_metadata() {
     );
     assert_eq!(partial.body, get.body);
     let failed = server.request("HEAD", "/iam-bucket/missing", "", b"");
-    assert_eq!(failed.status, 404);
+    failed.expect(404);
     assert!(failed.body.is_empty());
 }
 
@@ -406,7 +390,7 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
             &format!("Range: {range}\r\n"),
             &format!("{OBJECT}?generation={generation}"),
         );
-        assert_eq!(reply.status, 206);
+        reply.expect(206);
         assert_eq!(reply.body, expected);
         assert_eq!(reply.headers["content-range"], content_range);
         assert_eq!(reply.headers["x-goog-generation"], generation);
@@ -417,7 +401,7 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
             "crc32c=yZRlqg==, md5=XrY7u+Ae7tCTyyK7j1rNww=="
         );
         let head = server.request("HEAD", OBJECT, &format!("Range: {range}\r\n"), b"");
-        assert_eq!(head.status, 206);
+        head.expect(206);
         assert_eq!(head.headers["content-range"], content_range);
         assert_eq!(head.headers["content-length"], expected.len().to_string());
     }
@@ -426,7 +410,7 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
     // The XML 416 carries the object headers but no content-range (observed 2026-10-31).
     assert!(!reply.headers.contains_key("content-range"));
     let head = server.request("HEAD", OBJECT, "Range: bytes=11-\r\n", b"");
-    assert_eq!(head.status, 416);
+    head.expect(416);
     assert!(head.body.is_empty());
     assert!(!head.headers.contains_key("content-range"));
     assert_eq!(
@@ -572,7 +556,7 @@ fn xml_public_urls_round_trip_raw_encoded_names_without_normalization() {
             .body,
         b"hello world"
     );
-    assert_eq!(server.get("", "/storage/v1/invalid").status, 404);
+    server.get("", "/storage/v1/invalid").expect(404);
 }
 
 #[test]
@@ -585,7 +569,7 @@ fn xml_invalid_bucket_paths_keep_json_unknown_route_errors() {
         "/1.2.3.4/object",
     ] {
         let reply = server.get("", path);
-        assert_eq!(reply.status, 404, "{path}");
+        reply.expect(404);
         assert_eq!(reply.headers["content-type"], "application/json");
         assert_eq!(reply.json(), json!({"error":"route not implemented"}));
     }
@@ -641,7 +625,7 @@ fn xml_bucket_paths_reserve_only_api_namespaces() {
         "/_internal/x",
     ] {
         let reply = server.get(ADMIN, path);
-        assert_eq!(reply.status, 404, "{path}");
+        reply.expect(404);
         assert_eq!(reply.headers["content-type"], "application/json");
         assert_eq!(reply.json(), json!({"error":"route not implemented"}));
     }
@@ -677,7 +661,7 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
         xml_error(&server.raw(request.as_bytes()), status, code);
     }
     let uploads = server.get(ADMIN, "/iam-bucket/?uploads");
-    assert_eq!(uploads.status, 200);
+    uploads.expect(200);
     assert!(String::from_utf8_lossy(&uploads.body).contains("<ListMultipartUploadsResult"));
     assert_eq!(server.get(ADMIN, JSON_OBJECT).success().json(), before);
     assert_eq!(server.get("", OBJECT).success().body, b"hello world");
@@ -707,7 +691,7 @@ fn xml_delete_checks_permissions_conditions_and_empty_body() {
         format!("DELETE {OBJECT} HTTP/1.1\r\nHost: local\r\n{ADMIN}Content-Length: 999999\r\n\r\n");
     xml_error(&server.raw(request.as_bytes()), 400, "UnexpectedContent");
     assert_eq!(server.get(ADMIN, OBJECT).success().body, b"hello world");
-    assert_eq!(server.request("DELETE", OBJECT, ADMIN, b"").status, 204);
+    server.request("DELETE", OBJECT, ADMIN, b"").expect(204);
     xml_error(&server.get(ADMIN, OBJECT), 404, "NoSuchKey");
 }
 
@@ -728,14 +712,14 @@ fn xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads() {
     let reply = server.get(headers, path);
     assert_eq!(reply.success().body, b"hello world");
     let head = server.request("HEAD", path, headers, b"");
-    assert_eq!(head.status, 200);
+    head.expect(200);
     assert_eq!(head.headers["content-length"], "11");
     let conditions = format!(
         "{headers}Range: bytes=6-10\r\nx-goog-if-generation-match: {}\r\nx-goog-if-metageneration-match: 1\r\n",
         reply.headers["x-goog-generation"]
     );
     let range = server.get(&conditions, path);
-    assert_eq!(range.status, 206);
+    range.expect(206);
     assert_eq!(range.body, b"world");
     server
         .upload(ADMIN, "iam-bucket", "dir%2Ffixture.bin", b"replacement")
@@ -763,7 +747,7 @@ fn xml_read_idempotency_tokens_require_one_nonempty_value() {
     ] {
         xml_error(&server.get(headers, OBJECT), 400, code);
         let head = server.request("HEAD", OBJECT, headers, b"");
-        assert_eq!(head.status, 400);
+        head.expect(400);
         assert_eq!(
             head.headers["content-type"],
             "application/xml; charset=UTF-8"
@@ -880,7 +864,7 @@ fn xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly() {
             metadata
         );
         let head = server.request("HEAD", OBJECT, "", b"");
-        assert_eq!(head.status, 400);
+        head.expect(400);
         assert!(head.body.is_empty());
     }
 }

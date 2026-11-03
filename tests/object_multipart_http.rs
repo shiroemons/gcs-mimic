@@ -2,7 +2,7 @@ use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{Reply, http_command, no_leaks, write_request};
+use common::server::{Reply, http_command, no_leaks};
 use serde_json::{Value, json};
 use std::{
     io::{Read, Write},
@@ -27,16 +27,13 @@ impl Server {
     }
 
     fn bucket(&self) {
-        assert_eq!(
-            self.request(
-                "POST",
-                "/storage/v1/b?project=local",
-                "",
-                br#"{"name":"test-bucket"}"#
-            )
-            .status,
-            200
-        );
+        self.request(
+            "POST",
+            "/storage/v1/b?project=local",
+            "",
+            br#"{"name":"test-bucket"}"#,
+        )
+        .expect(200);
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
@@ -94,16 +91,14 @@ fn request(
     body: &[u8],
     timeout: Duration,
 ) -> Reply {
-    let mut stream = socket_with_timeout(address, timeout);
-    write_request(
-        &mut stream,
-        method,
-        path,
+    common::http::Client {
+        address,
         host,
-        &format!("{headers}Connection: close\r\n"),
-        body,
-    );
-    Reply::framed(stream)
+        headers: "",
+        timeout,
+    }
+    .request(method, path, headers, body)
+    .into_last()
 }
 
 fn wire(
@@ -140,7 +135,7 @@ fn fields_multipart_response_preserves_uploaded_metadata_and_bytes() {
         None,
     );
     let reply = server.upload("fields=name,metadata/team,size", &body);
-    assert_eq!(reply.status, 200);
+    reply.expect(200);
     assert_eq!(
         reply.json_ok(),
         json!({"name":"fields","metadata":{"team":"selected"},"size":"4"})
@@ -155,7 +150,7 @@ fn fields_multipart_response_preserves_uploaded_metadata_and_bytes() {
         "",
         b"",
     );
-    assert_eq!(media.status, 200);
+    media.expect(200);
     assert_eq!(media.body, b"data");
     server.stop();
 }
@@ -821,8 +816,15 @@ fn obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_public
     no_leaks(&dir, 1);
 }
 
-#[test]
-fn obj_multipart_http_malformed_checksum_json_preserves_existing_generation() {
+fn assert_preserved(server: &Server, dir: &TestDir, original: &Value) {
+    assert_eq!(server.get("existing").json_ok(), *original);
+    assert_eq!(server.get("existing?alt=media").body, b"old");
+    no_leaks(dir, 1);
+}
+
+fn checksum_failures_preserve_existing_generation(
+    cases: impl IntoIterator<Item = (Vec<u8>, &'static str)>,
+) {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 30_000);
     server.bucket();
@@ -832,48 +834,43 @@ fn obj_multipart_http_malformed_checksum_json_preserves_existing_generation() {
             &wire(br#"{"metadata":{"key":"old"}}"#, None, b"old", None),
         )
         .json_ok();
-    for checksums in [b"{".as_slice(), br#"{"crc32c":"unterminated}"#] {
+    for (body, reason) in cases {
         server
-            .upload(
-                "name=existing",
-                &wire(
+            .upload("name=existing", &body)
+            .json_reason(400, reason);
+        assert_preserved(&server, &dir, &original);
+    }
+}
+
+#[test]
+fn obj_multipart_http_malformed_checksum_json_preserves_existing_generation() {
+    checksum_failures_preserve_existing_generation(
+        [b"{".as_slice(), br#"{"crc32c":"unterminated}"#].map(|checksums| {
+            (
+                wire(
                     br#"{"metadata":{"key":"new"}}"#,
                     None,
                     b"new",
                     Some(checksums),
                 ),
+                "parseError",
             )
-            .json_reason(400, "parseError");
-        assert_eq!(server.get("existing").json_ok(), original);
-        assert_eq!(server.get("existing?alt=media").body, b"old");
-        no_leaks(&dir, 1);
-    }
+        }),
+    );
 }
 
 #[test]
 fn obj_multipart_http_truncated_checksum_part_preserves_existing_generation() {
-    let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 30_000);
-    server.bucket();
-    let original = server
-        .upload(
-            "name=existing",
-            &wire(br#"{"metadata":{"key":"old"}}"#, None, b"old", None),
-        )
-        .json_ok();
     let body = wire(br#"{"metadata":{"key":"new"}}"#, None, b"new", Some(b"{}"));
     let close = b"\r\n--boundary--\r\n";
     assert!(body.ends_with(close));
-    for ending in [b"".as_slice(), b"\r\n--boundary\r\n"] {
-        let mut truncated = body[..body.len() - close.len()].to_vec();
-        truncated.extend_from_slice(ending);
-        server
-            .upload("name=existing", &truncated)
-            .json_reason(400, "invalidParameter");
-        assert_eq!(server.get("existing").json_ok(), original);
-        assert_eq!(server.get("existing?alt=media").body, b"old");
-        no_leaks(&dir, 1);
-    }
+    checksum_failures_preserve_existing_generation([b"".as_slice(), b"\r\n--boundary\r\n"].map(
+        |ending| {
+            let mut truncated = body[..body.len() - close.len()].to_vec();
+            truncated.extend_from_slice(ending);
+            (truncated, "invalidParameter")
+        },
+    ));
 }
 
 #[test]
@@ -1024,9 +1021,9 @@ fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
             .collect::<Vec<_>>()
     });
     let original = &replies[0];
-    assert_eq!(replies[1].status, 200);
+    replies[1].expect(200);
     assert_eq!(replies[1].body, original.body);
-    assert_eq!(original.status, 200);
+    original.expect(200);
     assert_eq!(original.json_ok()["contentType"], "text/metadata");
     assert_eq!(
         server.request("POST", path, headers, &body).body,
@@ -1207,17 +1204,14 @@ fn token_server(dir: &TestDir, upload: &str) -> Server {
     assert_eq!(server.ready["max_object_bytes"], 1000);
     assert_eq!(server.ready["object_request_timeout_ms"], 900_000);
     assert_eq!(server.ready["catalog_wait_timeout_ms"], 30_000);
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                "/storage/v1/b?project=local",
-                "Content-Type: application/json\r\n",
-                br#"{"name":"test-bucket","storageClass":"NEARLINE"}"#
-            )
-            .status,
-        200
-    );
+    server
+        .request(
+            "POST",
+            "/storage/v1/b?project=local",
+            "Content-Type: application/json\r\n",
+            br#"{"name":"test-bucket","storageClass":"NEARLINE"}"#,
+        )
+        .expect(200);
     server
 }
 
@@ -1258,7 +1252,7 @@ fn obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_gen
         "",
         b"",
     );
-    assert_eq!(session.status, 200);
+    session.expect(200);
     assert!(session.body.is_empty());
     server.get("new").json_reason(404, "notFound");
     assert_eq!(common::server::staging_count(&dir), 1);
@@ -1389,9 +1383,9 @@ fn obj_multipart_http_accepts_the_gcloud_request_shape() {
             &format!("Content-Type: {content_type}\r\n"),
             body.as_bytes(),
         );
-        assert_eq!(reply.status, 400, "{content_type}");
+        reply.expect(400);
     }
-    assert_eq!(server.get("rejected").status, 404);
+    server.get("rejected").expect(404);
     no_leaks(&dir, 1);
 }
 

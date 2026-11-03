@@ -278,11 +278,13 @@ fn multipart_gzip_limits_and_declared_checksums_preserve_previous_objects() {
 #[test]
 fn multipart_gzip_strict_permissions_precede_publication() {
     let dir = TestDir::new();
-    let registry = dir.0.join("identities.json");
-    std::fs::write(&registry, serde_json::json!({"identities":[
-        {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project-a":["roles/storage.admin"]}},
-        {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
-    ]}).to_string()).unwrap();
+    let registry = common::process::write_identities(
+        &dir.0,
+        &(serde_json::json!({"identities":[
+            {"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project-a":["roles/storage.admin"]}},
+            {"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"project-a":["roles/storage.objectViewer"]}}
+        ]})),
+    );
     let server = Server::start(
         &dir,
         &[

@@ -2,9 +2,9 @@ use crate::common::server::declare_server;
 mod common;
 
 use common::TestDir;
-use common::server::{http_command, write_request};
+use common::server::http_command;
 use serde_json::{Value, json};
-use std::{io::BufReader, net::TcpStream, time::Duration};
+use std::time::Duration;
 
 impl Server {
     fn start(dir: &TestDir) -> Self {
@@ -14,32 +14,19 @@ impl Server {
     }
 
     fn request(&self, method: &str, path: &str, body: &str) -> (u16, Value) {
-        let mut stream = TcpStream::connect(&self.address).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(10)))
-            .unwrap();
-        stream
-            .set_write_timeout(Some(Duration::from_secs(10)))
-            .unwrap();
-        write_request(
-            &mut stream,
-            method,
-            path,
-            "untrusted.invalid",
-            "Content-Type: application/json\r\n",
-            body.as_bytes(),
-        );
-        let response =
-            common::read_http_response(&mut BufReader::new(stream), method == "HEAD").unwrap();
-        let response = String::from_utf8(response).unwrap();
-        let (head, body) = response.split_once("\r\n\r\n").unwrap();
-        let status = head.split_whitespace().nth(1).unwrap().parse().unwrap();
+        let reply = common::http::Client {
+            address: &self.address,
+            host: "untrusted.invalid",
+            headers: "Content-Type: application/json\r\n",
+            timeout: Duration::from_secs(10),
+        }
+        .request(method, path, "", body.as_bytes());
         (
-            status,
-            if body.is_empty() {
+            reply.status,
+            if reply.body.is_empty() {
                 Value::Null
             } else {
-                serde_json::from_str(body).unwrap()
+                serde_json::from_slice(&reply.body).unwrap()
             },
         )
     }

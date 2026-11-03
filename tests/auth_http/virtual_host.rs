@@ -207,8 +207,7 @@ fn configured_fixture(options: &[&str]) -> (TestDir, TestDir, Server) {
         identity["public_keys"] =
             json!([include_str!("../../fixtures/signing/test-only-public.pem")]);
     }
-    let file = config.0.join("identities.json");
-    std::fs::write(&file, identities.to_string()).unwrap();
+    let file = common::process::write_identities(&config.0, &(identities));
     let mut args = vec![
         "--auth-mode",
         "strict",
@@ -281,23 +280,7 @@ fn send(server: &Server, method: &str, url: &str, headers: &str, body: &[u8]) ->
     )
 }
 
-fn error(reply: &Reply, status: u16, code: &str) {
-    assert_eq!(
-        reply.status,
-        status,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-    assert_eq!(
-        reply.headers["content-type"],
-        "application/xml; charset=UTF-8"
-    );
-    assert!(
-        String::from_utf8_lossy(&reply.body).contains(&format!("<Code>{code}</Code>")),
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-}
+use crate::common::errors::xml_error_with_content_type as error;
 
 #[test]
 fn public_origin_native_and_unset_legacy_keep_path_style_host_acceptance() {
@@ -456,7 +439,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
                 b"bucket=probe-bucket.storage.example.invalid;object=object"
             );
         }
-        assert_eq!(server.get(VIEWER, &format!("/{BUCKET}/object")).status, 404);
+        server.get(VIEWER, &format!("/{BUCKET}/object")).expect(404);
         assert_eq!(
             request(
                 &server,
@@ -523,10 +506,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
             403,
             "AccessDenied",
         );
-        assert_eq!(
-            request(&server, "DELETE", &authority, "/new", ADMIN, b"").status,
-            204
-        );
+        request(&server, "DELETE", &authority, "/new", ADMIN, b"").expect(204);
         error(
             &request(&server, "GET", &authority, "/new", VIEWER, b""),
             404,
@@ -998,7 +978,7 @@ fn public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authorit
             ADMIN,
             b"",
         );
-        assert_eq!(reply.status, 400);
+        reply.expect(400);
         if method == "HEAD" {
             assert!(reply.body.is_empty());
         }
@@ -1015,15 +995,12 @@ fn public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authorit
         "Host: storage.example.invalid\r\nHost: duplicate.invalid\r\n",
         "Host: storage.example.invalid:invalid\r\n",
     ] {
-        assert_eq!(
-            server
-                .raw(
-                    format!("GET /{BUCKET}/object HTTP/1.1\r\n{headers}Connection: close\r\n\r\n")
-                        .as_bytes()
-                )
-                .status,
-            400
-        );
+        server
+            .raw(
+                format!("GET /{BUCKET}/object HTTP/1.1\r\n{headers}Connection: close\r\n\r\n")
+                    .as_bytes(),
+            )
+            .expect(400);
     }
 }
 
@@ -1095,7 +1072,7 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
         &format!("{VIEWER}Range: bytes=1-2\r\n"),
         b"",
     );
-    assert_eq!(range.status, 206);
+    range.expect(206);
     assert_eq!(range.body, b"ew");
     let current = request(&server, "GET", &host, "/new", VIEWER, b"");
     let generation: i64 = current.headers["x-goog-generation"].parse().unwrap();
@@ -1308,7 +1285,7 @@ fn virtual_host_absolute_target_authority_must_match_host_before_dispatch() {
             "InvalidArgument",
         );
         let head = request(&server, "HEAD", authority, &target, VIEWER, b"");
-        assert_eq!(head.status, 400);
+        head.expect(400);
         assert!(head.body.is_empty());
         error(
             &request(
@@ -1438,7 +1415,7 @@ fn virtual_host_public_access_and_xml_cors_use_bucket_rules() {
         ),
         b"",
     );
-    assert_eq!(preflight.status, 200);
+    preflight.expect(200);
     assert_eq!(
         preflight.headers["access-control-allow-origin"],
         "https://app.invalid"
@@ -1453,7 +1430,7 @@ fn virtual_host_public_access_and_xml_cors_use_bucket_rules() {
         ),
         b"",
     );
-    assert_eq!(json_path.status, 200);
+    json_path.expect(200);
     assert_eq!(
         json_path.headers["access-control-allow-origin"],
         "https://app.invalid"
@@ -1545,7 +1522,7 @@ fn virtual_host_signed_response_overrides_bind_query_and_preserve_metadata() {
             "",
             b"",
         );
-        assert_eq!(tampered.status, 403);
+        tampered.expect(403);
         assert_eq!(
             tampered.headers["content-type"],
             "application/xml; charset=UTF-8"
@@ -1654,27 +1631,18 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
             )
             .success();
         for method in ["GET", "HEAD"] {
-            assert_eq!(
-                request(&server, method, &host, "/object", "", b"").status,
-                401
-            );
-            assert_eq!(
-                server
-                    .request(method, &format!("/{BUCKET}/object"), "", b"")
-                    .status,
-                401
-            );
-            assert_eq!(
-                request(&server, method, &host, "/object", NO_ROLES, b"").status,
-                403
-            );
+            request(&server, method, &host, "/object", "", b"").expect(401);
+            server
+                .request(method, &format!("/{BUCKET}/object"), "", b"")
+                .expect(401);
+            request(&server, method, &host, "/object", NO_ROLES, b"").expect(403);
             let public_only = signed(
                 &method.parse().unwrap(),
                 &host,
                 "/object",
                 "no-roles@example.invalid",
             );
-            assert_eq!(send(&server, method, &public_only, "", b"").status, 403);
+            send(&server, method, &public_only, "", b"").expect(403);
         }
         let before = server
             .get(ADMIN, &format!("{bucket}/o/object"))
@@ -1761,14 +1729,14 @@ fn virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths
     );
     assert!(put.status < 300, "{}", put.status);
     let get = request(&server, "GET", &vhost, "/storage/v1/x.json", VIEWER, b"");
-    assert_eq!(get.status, 200);
+    get.expect(200);
     assert_eq!(get.headers["cache-control"], "public, max-age=3600");
     assert!(!get.headers.contains_key("vary"));
     // The XML API sends the response time as `Expires` on a private read, never the JSON
     // API's fixed past date.
     assert_ne!(get.headers["expires"], "Mon, 01 Jan 1990 00:00:00 GMT");
     let delete = request(&server, "DELETE", &vhost, "/storage/v1/x.json", ADMIN, b"");
-    assert_eq!(delete.status, 204);
+    delete.expect(204);
     for name in ["content-type", "pragma"] {
         assert!(!delete.headers.contains_key(name), "{name}");
     }

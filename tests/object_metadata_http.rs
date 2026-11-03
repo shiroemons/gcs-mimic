@@ -21,15 +21,12 @@ impl Server {
         request(&self.address, method, path, body)
     }
     fn setup(&self) -> Value {
-        assert_eq!(
-            self.request(
-                "POST",
-                "/storage/v1/b?project=local",
-                br#"{"name":"test-bucket"}"#
-            )
-            .status,
-            200
-        );
+        self.request(
+            "POST",
+            "/storage/v1/b?project=local",
+            br#"{"name":"test-bucket"}"#,
+        )
+        .expect(200);
         self.request(
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%2Ffile",
@@ -139,7 +136,7 @@ fn null_generation_metadata_updates_preserve_identity_and_enforce_conditions() {
             );
         }
         let media = server.request("GET", &format!("{path}?alt=media"), b"");
-        assert_eq!(media.status, 200);
+        media.expect(200);
         assert_eq!(media.body, b"payload");
     }
     server.stop();
@@ -196,11 +193,9 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
         let value = server
             .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
             .json_ok();
-        assert_eq!(
-            server.update("PATCH", "", json!({key:value[key]})).status,
-            200,
-            "{key}"
-        );
+        server
+            .update("PATCH", "", json!({key:value[key]}))
+            .expect(200);
         server
             .update("PATCH", "", json!({key:"changed"}))
             .metadata_error(400, "badRequest");
@@ -215,7 +210,7 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
         "/storage/v1/b/test-bucket/o/dir%2Ffile?alt=media",
         b"",
     );
-    assert_eq!(media.status, 200);
+    media.expect(200);
     assert_eq!(media.body, b"payload");
     for (key, value) in [
         ("content-type", "text/plain"),
@@ -298,16 +293,13 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
         .unwrap()
         .parse::<i64>()
         .unwrap();
-    assert_eq!(
-        server
-            .update(
-                "PATCH",
-                "",
-                json!({"generation":generation,"metageneration":1,"size":7})
-            )
-            .status,
-        200
-    );
+    server
+        .update(
+            "PATCH",
+            "",
+            json!({"generation":generation,"metageneration":1,"size":7}),
+        )
+        .expect(200);
     for method in ["PATCH", "PUT"] {
         server
             .update(method, "", json!({"contentLanguage":""}))
@@ -356,21 +348,15 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
         server
             .update(method, "?generation=0", json!({}))
             .metadata_error(404, "notFound");
-        assert_eq!(
-            server
-                .update(method, &format!("?generation={generation}"), json!({}))
-                .status,
-            200
-        );
+        server
+            .update(method, &format!("?generation={generation}"), json!({}))
+            .expect(200);
         server
             .update(method, "?ifGenerationMatch=0", json!({}))
             .metadata_error(412, "conditionNotMet");
-        assert_eq!(
-            server
-                .update(method, "?ifGenerationNotMatch=0", json!({}))
-                .status,
-            200
-        );
+        server
+            .update(method, "?ifGenerationNotMatch=0", json!({}))
+            .expect(200);
     }
     for method in ["PATCH", "PUT"] {
         let before = server
@@ -639,25 +625,19 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             .json_ok(),
         original
     );
-    assert_eq!(
-        server
-            .update("PATCH", "", json!({"metadata":{"a":"x".repeat(8191)}}))
-            .status,
-        200
-    );
+    server
+        .update("PATCH", "", json!({"metadata":{"a":"x".repeat(8191)}}))
+        .expect(200);
     server
         .update("PATCH", "", json!({"metadata":{"b":""}}))
         .metadata_error(400, "invalidArgument");
-    assert_eq!(
-        server
-            .update(
-                "PATCH",
-                "",
-                json!({"metadata":{"a":null,"b":"x".repeat(8191)}})
-            )
-            .status,
-        200
-    );
+    server
+        .update(
+            "PATCH",
+            "",
+            json!({"metadata":{"a":null,"b":"x".repeat(8191)}}),
+        )
+        .expect(200);
     server
         .update("PUT", "", json!({"metadata":{"雪":"x".repeat(8190)}}))
         .metadata_error(400, "invalidArgument");
@@ -697,12 +677,9 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir);
     server.setup();
-    assert_eq!(
-        server
-            .update("PATCH", "", json!({"contentLanguage":"a".repeat(100)}))
-            .status,
-        200
-    );
+    server
+        .update("PATCH", "", json!({"contentLanguage":"a".repeat(100)}))
+        .expect(200);
     server
         .update("PATCH", "", json!({"contentLanguage":"a".repeat(101)}))
         .metadata_error(400, "invalid");

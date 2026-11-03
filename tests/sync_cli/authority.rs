@@ -20,27 +20,21 @@ async fn live_cli_requires_retained_original_owner_after_bucket_recreation_and_r
         server.cli_with_token("conflicts", &[], Some("current"), false)["error"]["code"],
         403
     );
-    assert_eq!(
-        server
-            .request(
-                "DELETE",
-                "/storage/v1/b/test-bucket/o/retained",
-                Some("all"),
-                b""
-            )
-            .status,
-        204
-    );
+    server
+        .request(
+            "DELETE",
+            "/storage/v1/b/test-bucket/o/retained",
+            Some("all"),
+            b"",
+        )
+        .expect(204);
     // Deletion export is asynchronous, and an explicit same-name recreation ingests whatever
     // the directory still holds; let the mirrored file go before deleting its bucket.
     scan_with_conflicts(&server, Some("all"));
     assert!(!tree.0.join("test-bucket/retained").exists());
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/test-bucket", Some("all"), b"")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket", Some("all"), b"")
+        .expect(204);
     server
         .request(
             "POST",
@@ -94,15 +88,12 @@ async fn live_cli_requires_retained_original_owner_after_bucket_recreation_and_r
         server.cli_with_token("resolve", &discard, Some("all"), true)["completed"],
         true
     );
-    assert_eq!(
-        server
-            .request(
-                "GET",
-                "/storage/v1/b/test-bucket/o/retained",
-                Some("all"),
-                b""
-            )
-            .status,
-        404
-    );
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/test-bucket/o/retained",
+            Some("all"),
+            b"",
+        )
+        .expect(404);
 }

@@ -48,7 +48,7 @@ impl Server {
             &format!("/upload/storage/v1/b/{bucket}/o?uploadType=media&name={name}"),
             data,
         );
-        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.expect(200);
         reply.json()
     }
 
@@ -91,18 +91,12 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
     );
     let object = server.upload("soft-bucket", "kept.txt", "kept");
     let object_generation = object["generation"].as_str().unwrap().to_owned();
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/soft-bucket/o/kept.txt", "")
-            .status,
-        204
-    );
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/soft-bucket", "")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/soft-bucket/o/kept.txt", "")
+        .expect(204);
+    server
+        .request("DELETE", "/storage/v1/b/soft-bucket", "")
+        .expect(204);
     server
         .request("GET", "/storage/v1/b/soft-bucket", "")
         .json_reason_value(404, "notFound");
@@ -164,12 +158,9 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
             "",
         )
         .json_reason_value(409, "conflict");
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/soft-bucket", "")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/soft-bucket", "")
+        .expect(204);
 
     server
         .request("POST", "/storage/v1/b/soft-bucket/restore", "")
@@ -227,12 +218,9 @@ fn bucket_without_soft_delete_policy_is_deleted_permanently() {
     let server = Server::start(&dir, &[]);
     let bucket = create(&server, "hard-bucket", None);
     let generation = generation(&bucket);
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/hard-bucket", "")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/hard-bucket", "")
+        .expect(204);
     server
         .request(
             "GET",
@@ -256,12 +244,9 @@ fn soft_deleted_bucket_listing_pages_by_name_and_generation() {
     let mut expected = Vec::new();
     for name in ["page-b", "page-a", "page-a", "other-c"] {
         let generation = generation(&create(&server, name, Some(POLICY)));
-        assert_eq!(
-            server
-                .request("DELETE", &format!("/storage/v1/b/{name}"), "")
-                .status,
-            204
-        );
+        server
+            .request("DELETE", &format!("/storage/v1/b/{name}"), "")
+            .expect(204);
         if name.starts_with("page") {
             expected.push((name.to_owned(), generation));
         }
@@ -317,17 +302,14 @@ fn soft_deleted_bucket_listing_pages_by_name_and_generation() {
 #[test]
 fn strict_soft_deleted_bucket_access_uses_project_permissions() {
     let dir = TestDir::new();
-    let registry = dir.0.join("identities.json");
-    std::fs::write(
-        &registry,
-        json!({"identities":[
+    let registry = common::process::write_identities(
+        &dir.0,
+        &(json!({"identities":[
             {"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},
             {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.bucketViewer"]}},
             {"id":"other@example.test","tokens":["other"],"project_roles":{"elsewhere":["roles/storage.admin"]}}
-        ]})
-        .to_string(),
-    )
-    .unwrap();
+        ]})),
+    );
     let server = Server::start(
         &dir,
         &[
@@ -347,12 +329,9 @@ fn strict_soft_deleted_bucket_access_uses_project_permissions() {
         )
         .json_ok();
     let generation = generation(&bucket);
-    assert_eq!(
-        server
-            .send(admin, "DELETE", "/storage/v1/b/strict-soft", "")
-            .status,
-        204
-    );
+    server
+        .send(admin, "DELETE", "/storage/v1/b/strict-soft", "")
+        .expect(204);
     let get = format!("/storage/v1/b/strict-soft?softDeleted=true&generation={generation}");
     let restore = format!("/storage/v1/b/strict-soft/restore?generation={generation}");
     server
@@ -415,12 +394,9 @@ fn new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted() 
         json!({"retentionDurationSeconds": "604800", "effectiveTime": bucket["timeCreated"]})
     );
     let generation = generation(&bucket);
-    assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/defaulted", "")
-            .status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/defaulted", "")
+        .expect(204);
     // The deletion is soft: the version is listed and restorable.
     let soft = server
         .request(
@@ -469,10 +445,9 @@ fn explicit_zero_policy_overrides_the_default_and_deletes_permanently() {
     );
     assert_eq!(bucket["softDeletePolicy"]["retentionDurationSeconds"], "0");
     let generation = generation(&bucket);
-    assert_eq!(
-        server.request("DELETE", "/storage/v1/b/opt-out", "").status,
-        204
-    );
+    server
+        .request("DELETE", "/storage/v1/b/opt-out", "")
+        .expect(204);
     server
         .request(
             "GET",
