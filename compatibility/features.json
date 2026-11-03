@@ -55228,7 +55228,7 @@
           "command": "Linux ARM64 in rust:1.99.1-slim-trixie with procps: cargo test --locked --test seed -- --test-threads=4 (22 passed, including non_utf8_fixture_names_fail_closed)",
           "result": "PASS",
           "verified_at": "2026-10-29",
-          "artifact": "tests/seed.rs",
+          "artifact": "tests/it_import_seed/seed.rs",
           "test_ids": [
             "non_utf8_fixture_names_fail_closed",
             "restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects",

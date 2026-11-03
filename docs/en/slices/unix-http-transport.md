@@ -30,7 +30,7 @@ Run `cargo check --locked --offline --tests` before the targeted tests:
 cargo test --locked --offline --lib server::unix::tests
 cargo test --locked --offline --lib config::unix_tests
 cargo test --locked --offline --bin gcs-mimic unix_startup
-cargo test --locked --offline --test unix_transport
+cargo test --locked --offline --test it_process unix_transport::
 cargo xtask lint
 ```
 

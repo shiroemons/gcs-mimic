@@ -107,7 +107,7 @@ its named volume; never reset another project's data.
 For official clients, run the [Go HTTPS suite](../../sdk-tests/go/README.md#https-with-an-explicit-development-ca)
 and [Ruby HTTPS journey](../../sdk-tests/ruby/README.md) using the same CA and
 advertised origin. Their endpoint guards prevent fallback to Google or metadata
-servers. The Rust [wire tests](../../tests/tls.rs) cover untrusted CA, wrong
+servers. The Rust [wire tests](../../tests/it_process/tls.rs) cover untrusted CA, wrong
 hostname, expiry, invalid files, stalled admission, strict grants and restart.
 After all clients and containers stop, delete only `$tls_work`; it contains
 this journey's disposable certificates and native data.

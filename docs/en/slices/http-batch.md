@@ -79,7 +79,7 @@ Checked on 2026-10-30:
 
 ## Acceptance and verification
 
-tests/http_batch.rs covers metadata PATCH and atomic stale conditions, mixed
+tests/it_protocol/http_batch.rs covers metadata PATCH and atomic stale conditions, mixed
 200/204/404/412 parts, optional and matching Content-IDs, encoded object names,
 strict outer credentials with denied/invalid inner overrides, inner query
 overrides, rejected inherited/inner query credentials, one connection slot,

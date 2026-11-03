@@ -64,7 +64,7 @@ All of these must pass:
    Before the first release candidate, review that surface for names, aliases and defaults that should not be kept, and ship every remaining breaking change in a `0.x` minor release.
 2. **Upgrade data directories from every supported release.**
    A data directory written by each supported release opens with the new build and serves the same buckets, objects, generations, metadata and bytes.
-   The fixtures come from the published images through `scripts/released-data-fixtures.sh` and are checked by `tests/released_data_upgrade.rs`; each release adds its own fixture.
+   The fixtures come from the published images through `scripts/released-data-fixtures.sh` and are checked by `tests/it_import_seed/released_data_upgrade.rs`; each release adds its own fixture.
    Supported releases are `0.8.0` and later; see [withdrawn releases](#withdrawn-releases).
 3. **Soak a release candidate.**
    Publish `1.0.0-rc.N` and keep it for at least 14 days without a breaking change.

@@ -63,7 +63,7 @@ Checked on 2026-10-31:
 
 ## Acceptance
 
-tests/bucket_if_match_http.rs covers the gzip full-resource PUT with the returned
+tests/it_json/bucket_if_match_http.rs covers the gzip full-resource PUT with the returned
 etag, stale, weak, malformed and If-None-Match headers on PATCH and PUT applying
 the change, atomic `ifMetagenerationMatch` failure, retained DELETE rejection and
 a missing bucket. For setIamPolicy it covers bare, quoted and wildcard success,
@@ -73,4 +73,4 @@ unsupported headers, and a two-writer race with exactly one winner. The unit tes
 `json::iam::tests::etag_accepts_one_pair_of_http_quotes_as_the_same_tag` covers
 the quoted body etag forms. The updated
 `etag::json_etag_read_unsupported_lists_dates_and_writes` in
-tests/object_range_http/etag.rs records the bucket write headers as accepted.
+tests/it_protocol/object_range_http/etag.rs records the bucket write headers as accepted.

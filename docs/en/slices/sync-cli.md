@@ -121,12 +121,12 @@ Run the scoped checks with:
 
 ```sh
 cargo check --tests --locked --offline
-cargo test --locked --offline --test sync_cli -- --nocapture
+cargo test --locked --offline --test it_sync sync_cli:: -- --nocapture
 cargo test --locked --offline --bin gcs-mimic sync_cli
 cargo test --locked --offline --lib storage::catalog::sync_state::conflicts -- --nocapture
 cargo test --locked --offline --lib storage::catalog::sync_state::writeback::recovery -- --nocapture
 cargo xtask lint
-cargo clippy --test sync_cli --bin gcs-mimic --locked --offline -- -D warnings
+cargo clippy --test it_sync --bin gcs-mimic --locked --offline -- -D warnings
 ```
 
 On 2026-10-31, macOS ARM64 with Rust 1.99.1, `cargo check --tests --locked

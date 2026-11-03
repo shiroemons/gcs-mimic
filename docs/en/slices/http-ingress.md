@@ -87,20 +87,20 @@ Checked on 2026-10-30:
 
 ## Acceptance
 
-The tests in tests/http_ingress.rs cover compressed bucket creation, compressed
+The tests in tests/it_protocol/http_ingress.rs cover compressed bucket creation, compressed
 object PATCH, POST override, preserved object bytes, stale atomic conditions,
 strict denial, malformed/truncated/CRC/ISIZE/trailing input, concatenated members,
 HTTP trailers and compressed/expanded boundaries. Uncompressed media and
 metadata are exercised in the same workflow.
 
-tests/http_multipart_gzip.rs additionally covers a media stream over 2 MiB, one-byte
+tests/it_protocol/http_multipart_gzip.rs additionally covers a media stream over 2 MiB, one-byte
 HTTP chunks and concatenated gzip members, stored gzip within transport gzip,
 invalid CRC/ISIZE/truncation/garbage after the complete MIME boundary, HTTP
 trailers, object limits, checksum mismatch, strict denials, disconnect,
 absolute 408 deadlines and staging cleanup. Raw media with Content-Encoding
 retains its explicit unsupported error instead of being silently decoded.
 
-tests/http_resumable_gzip.rs covers compressed and concatenated initiation
+tests/it_protocol/http_resumable_gzip.rs covers compressed and concatenated initiation
 metadata, ordinary chunk bytes, separate stored encoding, existing chunk-error
 invalidation, CRC/ISIZE/truncation/garbage, duplicate and non-gzip codings,
 HTTP trailers, compressed/expanded 64 KiB boundaries and strict permissions.

@@ -43,7 +43,7 @@ SDK policy arguments match `sdk-tests/go/objects_soft_delete_test.go` and
   PASS, one test. It checks absent/present policy, ordinary listing, prefixes,
   continuation pages, repair text and unchanged empty JSON rendering.
 - `cargo test --locked --offline --test log_level`: PASS, two tests.
-  Existing `tests/log_level.rs` stderr capture checks exactly one diagnostic
+  Existing `tests/it_process/log_level.rs` stderr capture checks exactly one diagnostic
   at debug, none at other levels, and no diagnostic for ordinary listings or
   empty listings after setting the policy; every listing stays empty 200.
   No new capture framework was added.

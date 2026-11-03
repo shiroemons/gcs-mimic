@@ -1,21 +1,28 @@
+#![expect(
+    dead_code,
+    reason = "Integration binaries use different subsets of the harness."
+)]
+
 use std::{
     io::BufRead,
     process::{Child, Command},
     time::{Duration, Instant},
 };
 
-pub(crate) mod server;
+pub(crate) mod catalog;
+pub(crate) mod effects;
+pub(crate) mod errors;
+pub(crate) mod http;
+pub(crate) mod ingress;
+pub(crate) mod interrupt;
+pub(crate) mod process;
 
+// Unit and integration tests share one fixture source so cleanup behavior cannot drift.
 #[path = "../../src/test_support.rs"]
-#[expect(
-    dead_code,
-    reason = "Each integration suite uses a subset of the shared fixtures"
-)]
 pub(super) mod input_fixtures;
 pub(crate) type TestDir = input_fixtures::TestDir;
 
 /// PUT defaults to `projection=full`; remove ACL fields before comparing with noAcl reads.
-#[allow(dead_code)]
 pub(crate) fn without_acl(mut value: serde_json::Value) -> serde_json::Value {
     let resource = value.as_object_mut().unwrap();
     for field in ["acl", "defaultObjectAcl", "owner"] {
@@ -24,7 +31,6 @@ pub(crate) fn without_acl(mut value: serde_json::Value) -> serde_json::Value {
     value
 }
 
-#[allow(dead_code)]
 pub(crate) fn http_config() -> gcs_mimic::config::Config {
     gcs_mimic::config::Config {
         scheme: gcs_mimic::config::Scheme::Http,
@@ -33,7 +39,6 @@ pub(crate) fn http_config() -> gcs_mimic::config::Config {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn load_http_config(
     args: &[String],
     env: &std::collections::BTreeMap<String, String>,
@@ -43,97 +48,31 @@ pub(crate) fn load_http_config(
     gcs_mimic::config::Config::load(&args, env)
 }
 
-#[allow(dead_code)]
+// Schema downgrade fixtures must track the private catalog schema in one source.
 #[path = "../../src/storage/catalog/test_support.rs"]
 pub(crate) mod timestamp_support;
 
-#[allow(dead_code)]
 pub(crate) fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
     timestamp_support::downgrade_timestamp_precision(connection);
 }
 
-#[allow(dead_code)]
 pub(crate) fn downgrade_object_schema(connection: &rusqlite::Connection) {
     timestamp_support::downgrade_object_schema(connection);
 }
 
 /// Reads one HTTP/1.1 response as raw bytes, including any 1xx interim responses
 /// before it. The status, Content-Length or chunked encoding frames it, because a
-/// client on a persistent connection cannot wait for the server to close; `head`
-/// marks a response to HEAD, which carries no body.
-#[allow(dead_code)]
+/// client on a persistent connection cannot wait for the server to close. Responses
+/// without framing are read until EOF; `Body::Head` suppresses the response body.
 pub(crate) fn read_http_response(
     reader: &mut impl BufRead,
-    head: bool,
+    body: http::Body,
 ) -> std::io::Result<Vec<u8>> {
-    use std::io::{Error, ErrorKind, Read};
-    fn line(reader: &mut impl BufRead, raw: &mut Vec<u8>) -> std::io::Result<usize> {
-        let start = raw.len();
-        if reader.read_until(b'\n', raw)? == 0 {
-            return Err(Error::from(ErrorKind::UnexpectedEof));
-        }
-        Ok(start)
-    }
-    let mut raw = Vec::new();
-    let response_head = loop {
-        let start = raw.len();
-        while !raw[start..].ends_with(b"\r\n\r\n") {
-            line(reader, &mut raw)?;
-        }
-        let response_head = String::from_utf8_lossy(&raw[start..]).to_ascii_lowercase();
-        let status = response_head
-            .split_whitespace()
-            .nth(1)
-            .and_then(|status| status.parse::<u16>().ok())
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "missing HTTP status"))?;
-        if (100..200).contains(&status) {
-            continue;
-        }
-        if head || status == 204 || status == 304 {
-            return Ok(raw);
-        }
-        break response_head;
-    };
-    let header = |name: &str| {
-        response_head
-            .lines()
-            .find_map(|line| line.strip_prefix(name)?.strip_prefix(':'))
-            .map(str::trim)
-    };
-    if header("transfer-encoding").is_some_and(|value| value.contains("chunked")) {
-        loop {
-            let start = line(reader, &mut raw)?;
-            let size = String::from_utf8_lossy(&raw[start..]);
-            let size = usize::from_str_radix(size.trim().split(';').next().unwrap_or(""), 16)
-                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
-            if size == 0 {
-                while line(reader, &mut raw).map(|start| raw[start..] != *b"\r\n")? {}
-                return Ok(raw);
-            }
-            let start = raw.len();
-            raw.resize(start + size + 2, 0);
-            reader.read_exact(&mut raw[start..])?;
-        }
-    }
-    match header("content-length") {
-        Some(length) => {
-            let length = length
-                .parse::<u64>()
-                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
-            if reader.by_ref().take(length).read_to_end(&mut raw)? as u64 != length {
-                return Err(Error::from(ErrorKind::UnexpectedEof));
-            }
-        }
-        None => {
-            reader.read_to_end(&mut raw)?;
-        }
-    }
-    Ok(raw)
+    http::read_eof(reader, body).map(|response| response.raw)
 }
 
 /// macOS reports a peer close during transfer as a reset or broken pipe where
 /// Linux often still accepts the write or returns EOF.
-#[allow(dead_code)]
 pub(crate) fn closed_by_server(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
@@ -150,7 +89,6 @@ pub(crate) fn closed_by_server(error: &std::io::Error) -> bool {
 /// request used up the range under concurrent suites, failing connects with
 /// `AddrNotAvailable` and servers binding port 0. The response is already read,
 /// so an error here only means the server reset input it did not read.
-#[allow(dead_code)]
 pub(crate) fn await_server_close(reader: &mut impl std::io::Read) {
     let _ = std::io::copy(reader, &mut std::io::sink());
 }
@@ -158,7 +96,6 @@ pub(crate) fn await_server_close(reader: &mut impl std::io::Read) {
 /// Starts a child from an empty environment, keeping only what the platform
 /// needs to create a process: Windows cannot initialize Winsock without
 /// `SystemRoot`, so servers exited before readiness there.
-#[allow(dead_code)]
 pub(crate) trait CleanEnv {
     fn clean_env(&mut self) -> &mut Self;
 }

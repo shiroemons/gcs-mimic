@@ -65,7 +65,7 @@ Checked on 2026-10-30:
 
 ## Acceptance
 
-The four tests in tests/http_metadata_etag.rs cover a gzip JSON full-resource
+The four tests in tests/it_protocol/http_metadata_etag.rs cover a gzip JSON full-resource
 PUT, fresh/stale tags, combined query conditions, POST override, retained media
 bytes, wildcard/list/repeated-field comparison, weak and malformed tags,
 unsupported conditional headers, strict denials and missing resources.

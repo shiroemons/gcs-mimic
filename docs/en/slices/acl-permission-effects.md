@@ -59,7 +59,7 @@ snapshot; cancellation does not retract bytes already read.
 
 ### Cases and verification
 
-The real local server cases in `tests/acl_permission_effects/` are:
+The real local server cases in `tests/it_xml_auth/acl_permission_effects/` are:
 
 - `object_acl_reads_are_generation_scoped_on_disk_and_memory`: metadata/media,
   XML GET/HEAD, conditions, invalid credentials, private replacement, old
@@ -113,10 +113,10 @@ Commands for the focused gates:
 
 ```sh
 cargo check --locked --offline
-cargo test --locked --offline --test acl_permission_effects -- --nocapture
-cargo test --locked --offline --test acl_permission_effects ::read:: -- --nocapture
-cargo test --locked --offline --test acl_permission_effects ::bidi:: -- --nocapture
-cargo test --locked --offline --test acl_permission_effects ::derived:: -- --nocapture
+cargo test --locked --offline --test it_xml_auth acl_permission_effects:: -- --nocapture
+cargo test --locked --offline --test it_xml_auth acl_permission_effects::read:: -- --nocapture
+cargo test --locked --offline --test it_xml_auth acl_permission_effects::bidi:: -- --nocapture
+cargo test --locked --offline --test it_xml_auth acl_permission_effects::derived:: -- --nocapture
 cargo test --locked --offline --lib object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot
 cargo test --locked --offline --lib copy_rechecks_source_object_acl_after_streaming_before_publication
 cargo test --locked --offline --lib auth::tests:: -- --nocapture
@@ -124,10 +124,14 @@ cargo test --locked --offline --lib auth::acl_identity::tests:: -- --nocapture
 cargo test --locked --offline --lib storage::catalog::principals::tests:: -- --nocapture
 cargo test --locked --offline --lib storage::catalog::acl::bucket_policy::tests:: -- --nocapture
 cargo test --locked --offline --bin gcs-mimic authentication_setup_failure -- --nocapture
-cargo test --locked --offline --test acl_http --test auth_http -- --nocapture
-cargo test --locked --offline --test auth_http --test object_copy_http --test object_compose_http --test object_move_http --test rewrite_http
+cargo test --locked --offline --test it_json acl_http:: -- --nocapture
+cargo test --locked --offline --test it_xml_auth auth_http:: -- --nocapture
+cargo test --locked --offline --test it_objects object_copy_http::
+cargo test --locked --offline --test it_objects object_compose_http::
+cargo test --locked --offline --test it_objects object_move_http::
+cargo test --locked --offline --test it_objects rewrite_http::
 cargo xtask lint
-cargo clippy --locked --offline --lib --bin gcs-mimic --test acl_permission_effects -- -D warnings
+cargo clippy --locked --offline --lib --bin gcs-mimic --test it_xml_auth -- -D warnings
 ```
 
 The final focused runs used `CARGO_INCREMENTAL=0` after cleanup of the shared

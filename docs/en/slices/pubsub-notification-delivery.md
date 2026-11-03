@@ -186,7 +186,7 @@ Run offline local contracts with:
 ```sh
 cargo check --locked --offline --tests
 cargo test --locked --offline --lib notification
-cargo test --locked --offline --test notifications_http
+cargo test --locked --offline --test it_admin notifications_http::
 cargo xtask lint
 ```
 
@@ -195,8 +195,8 @@ Start the separately supplied emulator and set a numeric loopback endpoint:
 
 ```sh
 GCS_MIMIC_TEST_PUBSUB_EMULATOR_HOST=127.0.0.1:8085 \
-  cargo test --locked --offline --test notifications_http \
-  opted_in_pubsub_emulator_receives_the_notification -- --ignored --exact
+  cargo test --locked --offline --test it_admin \
+  it_admin::notifications_http::opted_in_pubsub_emulator_receives_the_notification -- --ignored --exact
 ```
 
 That test creates unique local topic/subscription names, starts gcs-mimic with
