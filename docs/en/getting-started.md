@@ -21,6 +21,11 @@ The other guides are standalone.
 
 ## Scope
 
+The default permissive mode has no authentication, and JSON CORS allows any
+browser origin. A malicious page opened in your browser can read local fixtures
+even when the listener binds only to loopback. Use strict authentication for
+sensitive data; bucket CORS does not restrict JSON API origins.
+
 The current slice supports JSON bucket create/get/list/delete and metadata PATCH/PUT, bucket IAM policy
 get/set and object media/multipart upload,
 metadata get/patch/update, generation-pinned copy, continuation rewrite, ordered compose,

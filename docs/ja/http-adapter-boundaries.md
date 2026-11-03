@@ -8,6 +8,11 @@ IPリテラル、1ラベルのサービス名、予約されたローカルDNS�
 通常のcurl、Go facade、sync CLIは変更せずに使えます。
 `admin_allowed_hosts`はポートを含まないDNS名をカンマで区切って最大32件指定します。
 
+permissiveでは認証がなく、JSON APIのCORSは任意のOriginを許可します。
+ループバックだけで待ち受けても、ブラウザーで開いた悪意あるページから
+ローカルのデータを読み取れます。秘密を含むfixtureにはstrictを使ってください。
+バケットのCORS設定ではJSON APIのOriginを制限できません。
+
 未知の共有リスナールートは、`error.code`、`error.message`、
 `error.errors`を含むJSONの`404 notFound`を返します。
 無効なXMLバケットパスも、このJSONエラー境界を維持します。
