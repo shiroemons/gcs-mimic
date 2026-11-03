@@ -25,6 +25,10 @@ const GRPC_RUST_REVISION: &str = "4c0f455c264fe2ec9f9ab5d0cc7fd2824d5daf70";
 const GRPC_RUST_LICENSE: &str = "distribution/notices/grpc-rust-4c0f455c/LICENSE";
 const GRPC_RUST_SUPPLIED: [&str; 2] = ["tonic-prost", "tonic-prost-build"];
 const GRPC_RUST_VERSION: &str = "0.14.9";
+// crc32c adapts zlib's CRC combine code, so its notices need a per-version review on top of the
+// crate's own license files; ZLIB.txt keeps the original zlib terms that combine.rs points to.
+const CRC32C_REVIEWED_VERSION: &str = "0.6.9";
+const CRC32C_ZLIB_NOTICE: &str = "distribution/notices/crc32c-0.6.9/ZLIB.txt";
 
 fn grpc_rust_supplied(package: &Value) -> Result<bool> {
     if !GRPC_RUST_SUPPLIED.contains(&text(package, "name")?) {
@@ -138,12 +142,12 @@ fn package_notices(package: &Value) -> Result<(PathBuf, BTreeSet<PathBuf>)> {
         notice_files(&base, relative, &mut files)?;
     }
     if package["name"] == "crc32c" {
-        if package["version"] != "0.6.8" {
+        if package["version"] != CRC32C_REVIEWED_VERSION {
             return Err("crc32c notice exception requires review for this version".into());
         }
-        for name in ["README.md", "src/combine.rs"] {
-            notice_files(&base, Path::new(name), &mut files)?;
-        }
+        // The crate's own license texts cover its MIT OR Apache-2.0 terms; combine.rs carries the
+        // zlib attribution for the adapted CRC combine code, which no license file repeats.
+        notice_files(&base, Path::new("src/combine.rs"), &mut files)?;
     }
     if files.is_empty() && !grpc_rust_supplied(package)? {
         return Err(format!("no license notices for {}", text(package, "name")?));
@@ -376,22 +380,17 @@ fn write_notices(root: &Path, target: &str, metadata: &Value, output: &Path) -> 
         let mut license_selection = None;
         if package["name"] == "crc32c" {
             copy(
-                &root.join("LICENSE-APACHE"),
-                &destination.join("LICENSE-APACHE"),
-            )?;
-            copy(
-                &root.join("distribution/notices/crc32c-0.6.8/ZLIB.txt"),
+                &root.join(CRC32C_ZLIB_NOTICE),
                 &destination.join("ZLIB.txt"),
             )?;
-            files.extend([PathBuf::from("LICENSE-APACHE"), PathBuf::from("ZLIB.txt")]);
+            files.insert(PathBuf::from("ZLIB.txt"));
             license_selection = Some(json!({
-                "chosen_license": "Apache-2.0",
-                "basis": "README.md offers Apache-2.0 OR MIT; the published crate omits standalone license texts, so the unmodified standard Apache-2.0 text is supplied.",
-                "upstream_revision": "254a861f7cc71bfe455e86f0e1d86e3c83c33390",
+                "basis": "Cargo.toml declares MIT OR Apache-2.0 and the published crate ships both LICENSE-MIT and LICENSE-APACHE, which are retained unchanged.",
+                "upstream_revision": "3098a6edd7b1cb28198e3048889907b7160043e4",
                 "adapted_source": "src/combine.rs preserves the crc32c author's Rust translation notice and Mark Adler's zlib copyright attribution; the original zlib terms are additionally preserved in ZLIB.txt.",
                 "additional_license": "Zlib",
                 "additional_license_source": "https://raw.githubusercontent.com/madler/zlib/v1.2.11/zlib.h",
-                "review_scope": "crc32c 0.6.8 only; other versions require a fresh notice review.",
+                "review_scope": format!("crc32c {CRC32C_REVIEWED_VERSION} only; other versions require a fresh notice review."),
             }));
         }
         if grpc_rust_supplied(package)? {
@@ -630,24 +629,57 @@ mod tests {
     #[test]
     fn reviewed_crc32c_sources_are_retained_and_new_versions_require_review() {
         let directory = Directory::new();
-        fs::create_dir(directory.0.join("src")).unwrap();
+        let package_dir = directory.0.join("crc32c");
+        fs::create_dir_all(package_dir.join("src")).unwrap();
+        for name in ["LICENSE-MIT", "LICENSE-APACHE"] {
+            fs::write(package_dir.join(name), format!("crc32c {name}")).unwrap();
+        }
+        fs::write(package_dir.join("README.md"), "usage notes").unwrap();
         fs::write(
-            directory.0.join("README.md"),
-            "Apache-2.0 OR MIT declaration",
-        )
-        .unwrap();
-        fs::write(
-            directory.0.join("src/combine.rs"),
+            package_dir.join("src/combine.rs"),
             "zlib attribution and adapted source",
         )
         .unwrap();
-        let mut package = json!({"name":"crc32c", "version":"0.6.8", "manifest_path":directory.0.join("Cargo.toml")});
+        let zlib = directory.0.join(CRC32C_ZLIB_NOTICE);
+        fs::create_dir_all(zlib.parent().unwrap()).unwrap();
+        fs::write(&zlib, "zlib terms").unwrap();
+        // The project's own texts must not replace the crate's license files.
+        for name in ["LICENSE-MIT", "LICENSE-APACHE"] {
+            fs::write(directory.0.join(name), "project terms").unwrap();
+        }
+        let mut package = json!({
+            "name": "crc32c", "version": CRC32C_REVIEWED_VERSION, "license": "MIT OR Apache-2.0",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "manifest_path": package_dir.join("Cargo.toml"),
+        });
         let (_, files) = package_notices(&package).unwrap();
         assert_eq!(
             files,
-            BTreeSet::from([PathBuf::from("README.md"), PathBuf::from("src/combine.rs")])
+            BTreeSet::from([
+                PathBuf::from("LICENSE-APACHE"),
+                PathBuf::from("LICENSE-MIT"),
+                PathBuf::from("src/combine.rs"),
+            ])
         );
-        package["version"] = json!("0.6.9");
+        let output = directory.0.join("notices");
+        let metadata = json!({"packages": [package.clone()], "workspace_members": []});
+        write_notices(&directory.0, TARGETS[0], &metadata, &output).unwrap();
+        let crate_notices = output.join(format!(
+            "third-party-licenses/crates/crc32c-{CRC32C_REVIEWED_VERSION}"
+        ));
+        assert_eq!(
+            fs::read_to_string(crate_notices.join("LICENSE-APACHE")).unwrap(),
+            "crc32c LICENSE-APACHE"
+        );
+        assert_eq!(
+            fs::read_to_string(crate_notices.join("ZLIB.txt")).unwrap(),
+            "zlib terms"
+        );
+        assert_eq!(
+            fs::read_to_string(crate_notices.join("src/combine.rs")).unwrap(),
+            "zlib attribution and adapted source"
+        );
+        package["version"] = json!("0.6.8");
         assert!(package_notices(&package).is_err());
     }
 

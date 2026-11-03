@@ -488,7 +488,7 @@ The xtask alias uses locked offline resolution. Fetch all locked packages first.
 
 Latest verified direct releases: Tokio 1.54.1, Hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5, serde_json 1.0.154 and rusqlite 0.41.1. Versions, licenses, sizes and sources are in the [dependency snapshot](../../compatibility/dependency-status.json). Cargo.lock records the full graph. Docker inputs, including the test-only peer curl image, use actual multiarch digests. The snapshot checks both Dockerfile and smoke-script pins.
 
-The object media slice additionally uses bytes 1.12.1, md-5 0.11.0, crc32c 0.6.8 and
+The object media slice additionally uses bytes 1.12.1, md-5 0.11.0, crc32c 0.6.9 and
 getrandom 0.4.3, with the selection reasons and package sizes in the
 [dependency policy](dependency-policy.md#dependency-status-evidence).
 

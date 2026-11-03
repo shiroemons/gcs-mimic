@@ -68,7 +68,7 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "signal", "t
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 bytes = "1.12.1"
 md-5 = { version = "0.11.0", default-features = false }
-crc32c = "0.6.8"
+crc32c = "0.6.9"
 quick-xml = { version = "0.42.0", default-features = false }
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 getrandom = "0.4.3"

@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # Keep this pin identical to sdk-scorecard/run.sh; daily detection checks it there.
-image=composer:2.11.1@sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35
+image=composer:2.11.1@sha256:5190d9b445add2fa26090108273cb1ef1e1af98175201c737b85b3c4f90fbf7c
 root=$(cd "$(dirname "$0")/../.." && pwd)
 endpoint=${GCS_MIMIC_ENDPOINT:?GCS_MIMIC_ENDPOINT must name the permissive emulator origin}
 strict_endpoint=${GCS_MIMIC_STRICT_ENDPOINT:?GCS_MIMIC_STRICT_ENDPOINT must name the strict emulator origin}

@@ -256,3 +256,47 @@ The `Dockerfile` runtime stage and the
 - `just check-container linux/arm64` and `just check-container linux/amd64`
   exited 0: both images built from the adopted runtime and passed every smoke
   case.
+
+## Refresh: 2026-11-03
+
+The scheduled check at `2026-11-03T10:57Z` reported four `UPDATE_AVAILABLE`
+inputs; a local rerun at `2026-11-03T13:02Z` also found the new BuildKit
+release.
+
+| Input | Previous | Adopted | Change |
+| --- | --- | --- | --- |
+| crc32c | 0.6.8 | 0.6.9 | SPDX license metadata, bundled license files, inlined x86_64 SSE 4.2 loops |
+| actions/setup-dotnet | v6.0.0 `a98b56852c35b8e3190ac28c8c2271da59106c68` | v6.1.0 `0f4a354dd5547a28c70b7853dbd95d5b67886e73` | New optional inputs and dependency updates |
+| moby/buildkit | v0.34.1 `sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c` | v0.34.2 `sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe` | Fixes GHSA-2fqp-xg6f-v7gj and GHSA-w26x-xg27-7qjc |
+| composer:2.11.1 | `sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35` | `sha256:5190d9b445add2fa26090108273cb1ef1e1af98175201c737b85b3c4f90fbf7c` | linux/riscv64 manifest added; amd64 and arm64 unchanged |
+| rust:1.99.1-slim-trixie | `sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247` | `sha256:9daf2b244ccc30523e55cafe32edf8465671ba567d0101620e5612ccb76ea1a7` | Only linux/riscv64 rebuilt; amd64 and arm64 unchanged |
+
+BuildKit v0.34.2 platform digests are `sha256:97719ccb2ac86fb44fd36f330a6d302f63dddd5326f3ada24f9c05ccac0d9098`
+(linux/amd64) and `sha256:92f93f25966c544549b88144406ce8cd9dcdf5df128250711031a4acd9149a8e`
+(linux/arm64). Composer `latest` now resolves to the same index as `2.11.1`, so
+the riscv64-only `INFO` line no longer appears. Because the Rust image's amd64
+and arm64 manifests are unchanged, the socat Debian snapshot timestamp stays
+`20261027T000000Z`.
+
+crc32c 0.6.9 was published from upstream revision
+`3098a6edd7b1cb28198e3048889907b7160043e4` (tag `v0.6.9`). It now ships
+`LICENSE-MIT` and `LICENSE-APACHE`, and `src/combine.rs` is byte-identical to
+0.6.8, including the zlib attribution. The release notice exception was
+re-reviewed for 0.6.9: the crate's own license texts are retained instead of
+supplying the project's Apache-2.0 text, `src/combine.rs` and `ZLIB.txt`
+(now under `distribution/notices/crc32c-0.6.9/`) keep the zlib terms, and
+0.6.8 or any other version fails closed. The SDK lockfiles that resolve
+crc32c 0.6.8 transitively through google-cloud-storage are unchanged.
+
+### Validation performed on 2026-11-03
+
+- `cargo xtask dependencies check` at `2026-11-03T13:08:40Z` exited 0: 118
+  inputs were `CURRENT` and fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+- `just check` exited 0, including the production lint gate and every test
+  binary (`xtask` 176 passed).
+- `just check-container linux/arm64` exited 0: the image built from the adopted
+  Rust index, generated release notices from crc32c 0.6.9 and passed every
+  smoke case. linux/amd64 was not run locally; CI builds and smoke-tests it.
+- The PHP suites were not rerun because the Composer amd64 and arm64 manifests
+  are unchanged. The BuildKit pin is exercised only by the GHCR publication
+  workflow.

@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-11-01T13:33:30Z",
-  "scope": "The 2026-11-01 refresh adopts the rebuilt distroless/cc-debian13:nonroot index, whose linux/amd64 and linux/arm64 runtime manifests both changed; no other input changes. The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All eighteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
+  "checked_at_utc": "2026-11-03T13:08:40Z",
+  "scope": "The 2026-11-03 refresh adopts crc32c 0.6.9 (with a fresh notice review), actions/setup-dotnet v6.1.0, moby/buildkit v0.34.2 and the rebuilt Composer 2.11.1 and Rust 1.99.1-slim-trixie indexes, whose linux/amd64 and linux/arm64 manifests are unchanged. The 2026-11-01 refresh adopts the rebuilt distroless/cc-debian13:nonroot index, whose linux/amd64 and linux/arm64 runtime manifests both changed; no other input changes. The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All eighteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
     "exit_code": 0,
     "result": "CURRENT",
     "artifact": "docs/en/evidence/dependency-refresh.md",
-    "follow_up": "After the distroless adoption the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE and Composer latest reports the riscv64-only INFO line. Both container platforms were rebuilt and smoke-tested. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01-distroless. Earlier: the 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. The latest index differs only by a linux/riscv64 entry, so the pin is CURRENT on the declared amd64 and arm64 platforms and the riscv64 difference is reported as INFO. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01."
+    "follow_up": "After the 2026-11-03 adoptions the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-03. Earlier: after the distroless adoption the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE and Composer latest reports the riscv64-only INFO line. Both container platforms were rebuilt and smoke-tested. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01-distroless. Earlier: the 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. The latest index differs only by a linux/riscv64 entry, so the pin is CURRENT on the declared amd64 and arm64 platforms and the riscv64 difference is reported as INFO. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01."
   },
   "toolchain": {
     "channel": "stable",
@@ -157,12 +157,12 @@
       "resolution_constraints": "Default features disabled; the digest graph is pinned in Cargo.lock."
     },
     {
-      "name": "crc32c", "current": "0.6.8", "latest_non_yanked_stable": "0.6.8",
-      "license": "Apache-2.0/MIT", "compressed_crate_bytes": 9647, "minimum_rust": null,
+      "name": "crc32c", "current": "0.6.9", "latest_non_yanked_stable": "0.6.9",
+      "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 19751, "minimum_rust": null,
       "purpose": "Incremental Castagnoli CRC32C validation with bounded object chunks.",
       "features": [],
-      "maintenance": "Official publisher; latest non-yanked stable and active upstream development verified on 2026-10-21.",
-      "source_urls": ["https://index.crates.io/cr/c3/crc32c", "https://crates.io/api/v1/crates/crc32c/0.6.8", "https://github.com/zowens/crc32c"],
+      "maintenance": "Official publisher; 0.6.9 (published 2026-11-02, not yanked) makes the license metadata SPDX compliant, ships the license files and inlines the x86_64 SSE 4.2 loops; latest non-yanked stable verified on 2026-11-03.",
+      "source_urls": ["https://index.crates.io/cr/c3/crc32c", "https://crates.io/api/v1/crates/crc32c/0.6.9", "https://github.com/zowens/crc32c"],
       "resolution_constraints": "One small checksum crate instead of a general hashing/codec framework; no rust-version declared."
     },
     {
@@ -201,10 +201,10 @@
       {
         "repository": "library/composer", "reference": "composer:2.11.1", "release_input": false,
         "tag": "2.11.1", "latest_tag": "latest",
-        "digest": "sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35",
-        "latest_verified_digest": "sha256:4ed71c38c6d788eb4e4e3747b5332f5b40d5b5a6fcadd5062a1a70986a118e0a",
+        "digest": "sha256:5190d9b445add2fa26090108273cb1ef1e1af98175201c737b85b3c4f90fbf7c",
+        "latest_verified_digest": "sha256:5190d9b445add2fa26090108273cb1ef1e1af98175201c737b85b3c4f90fbf7c",
         "verification_status": "ADOPTED",
-        "update_scope": "Composer 2.11.1 (released 2026-10-30; official download and changelog verified 2026-10-31) with PHP 8.5.12. The official composer/docker revision is 2af913cf6c428737e8eec2a3e9297d12d96eeac6. The exact 2.11.1 index lacks linux/riscv64. The latest index has the same new amd64 and arm64 manifests but retains riscv64 Composer 2.10.3. Both supported manifests changed from the old 2.11.0 pin; their checks must be rerun. The pin is CURRENT on the declared linux/amd64 and linux/arm64 platforms; the riscv64-only difference in latest is reported as INFO. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-01.",
+        "update_scope": "Composer 2.11.1 (released 2026-10-30; official download and changelog verified 2026-10-31) with PHP 8.5.12. The official composer/docker revision is 2af913cf6c428737e8eec2a3e9297d12d96eeac6. On 2026-11-03 the 2.11.1 index was rebuilt to add a linux/riscv64 manifest; the linux/amd64 and linux/arm64 manifests are unchanged, and 2.11.1 and latest now resolve to the same index. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-03.",
         "platforms": {
           "linux/amd64": "sha256:22844d23aacc7140fccf24992829ae98bc2c92e0240ccca3b35716bf5d82ed70",
           "linux/arm64": "sha256:9c383fb6f07d2b2cbbf0f21133789b335a55996c4c857c0f2775d16f31922872"
@@ -215,10 +215,10 @@
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie", "release_input": true,
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
-        "digest": "sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247",
-        "latest_verified_digest": "sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247",
+        "digest": "sha256:9daf2b244ccc30523e55cafe32edf8465671ba567d0101620e5612ccb76ea1a7",
+        "latest_verified_digest": "sha256:9daf2b244ccc30523e55cafe32edf8465671ba567d0101620e5612ccb76ea1a7",
         "verification_status": "ADOPTED",
-        "update_scope": "Registry inspection before 0.2.1 on 2026-10-28 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie. The linux/amd64 and linux/arm64 platform digests are unchanged, so the build stage inputs are identical; Rust stays 1.99.1. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
+        "update_scope": "Registry inspection on 2026-11-03 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie in which only the linux/riscv64 manifest changed. The linux/amd64 and linux/arm64 platform digests are unchanged, so the build stage inputs and the socat snapshot timestamp are identical; Rust stays 1.99.1. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
         "platforms": {
           "linux/amd64": "sha256:11b01282eaac5ba4ab9fc503d3a4a4d5db601597ce85479ab8c29495be660670",
           "linux/arm64": "sha256:752ae176b955dd798d28b8f91a9f8cc3aed3d050fa3eb36fa877d61608d6867f"
@@ -259,14 +259,14 @@
         "source_url": "https://docs.docker.com/build/buildkit/frontend/"
       },
       {
-        "repository": "moby/buildkit", "reference": "moby/buildkit:v0.34.1", "release_input": true,
-        "tag": "v0.34.1", "latest_tag": "latest",
-        "digest": "sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c",
+        "repository": "moby/buildkit", "reference": "moby/buildkit:v0.34.2", "release_input": true,
+        "tag": "v0.34.2", "latest_tag": "latest",
+        "digest": "sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe",
         "platforms": {
-          "linux/amd64": "sha256:b651bf250c2805569f1db385ad1ea8fb73737dfc851de305f274ca02690fa93f",
-          "linux/arm64": "sha256:8cf85547bfebae847f60f2365efe5d801768d6ca51bf055b2b0860df89cbbf09"
+          "linux/amd64": "sha256:97719ccb2ac86fb44fd36f330a6d302f63dddd5326f3ada24f9c05ccac0d9098",
+          "linux/arm64": "sha256:92f93f25966c544549b88144406ce8cd9dcdf5df128250711031a4acd9149a8e"
         },
-        "source_url": "https://github.com/moby/buildkit/releases/tag/v0.34.1",
+        "source_url": "https://github.com/moby/buildkit/releases/tag/v0.34.2",
         "purpose": "Pinned native container builder for GHCR publication, SBOM and provenance. The floating latest selector detects new stable image inputs."
       },
       {
@@ -543,9 +543,9 @@
   ],
   "github_actions": [
     {
-      "repository": "actions/setup-dotnet", "tag": "v6.0.0",
-      "sha": "a98b56852c35b8e3190ac28c8c2271da59106c68", "license": "MIT",
-      "source_url": "https://api.github.com/repos/actions/setup-dotnet/git/ref/tags/v6.0.0"
+      "repository": "actions/setup-dotnet", "tag": "v6.1.0",
+      "sha": "0f4a354dd5547a28c70b7853dbd95d5b67886e73", "license": "MIT",
+      "source_url": "https://api.github.com/repos/actions/setup-dotnet/git/ref/tags/v6.1.0"
     },
     {
       "repository": "actions/checkout",
