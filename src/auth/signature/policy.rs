@@ -21,6 +21,7 @@ impl Auth {
             catalog,
             v4::Prepared {
                 signer: signer.into(),
+                date: String::new(),
                 algorithm: if registry.signing_keys.contains_key(signer) {
                     v4::Algorithm::Rsa
                 } else {
@@ -55,22 +56,14 @@ impl Auth {
             "GOOG4-HMAC-SHA256" => v4::Algorithm::GoogleHmac,
             _ => return Err(Failure::Malformed.into()),
         };
-        let parts: Vec<_> = credential.split('/').collect();
-        if parts.len() != 5
-            || parts[0].is_empty()
-            || parts[2].is_empty()
-            || parts[3..] != ["storage", "goog4_request"]
-        {
-            return Err(Failure::Malformed.into());
-        }
         parse_timestamp(date).map_err(|_| Failure::Malformed)?;
-        if parts[1] != &date[..8] {
-            return Err(Failure::Malformed.into());
-        }
+        let credential =
+            v4::CredentialScope::parse(credential, date, ["storage", "goog4_request"])?;
         let prepared = v4::Prepared {
-            signer: parts[0].into(),
+            signer: credential.signer.into(),
+            date: String::new(),
             algorithm,
-            scope: parts[1..].join("/"),
+            scope: credential.scope.into(),
             message: policy.into(),
             signature: unhex(signature)?,
         };

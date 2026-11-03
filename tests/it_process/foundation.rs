@@ -269,7 +269,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["event"], "ready");
         assert_eq!(ready["executable"], "gcs-mimic");
         assert_eq!(ready["version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(ready["healthcheck_path"], "/_internal/healthcheck");
+        assert_eq!(ready["healthcheck_path"], Config::HEALTHCHECK_PATH);
         assert_eq!(ready["admin_enabled"], false);
         assert_eq!(
             ready["message"],
@@ -1286,6 +1286,67 @@ fn invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures() {
         );
     }
     assert!(!text.contains("secret-invalid-material"));
+}
+
+#[test]
+fn startup_preserves_safe_identity_and_tls_error_details() {
+    let root = TestDir::new();
+    let identities = root.0.join("identities.json");
+    let cert = root.0.join("cert.pem");
+    let key = root.0.join("key.pem");
+    fs::write(
+        &identities,
+        r#"{"identities":[{"id":"admin","tokens":["secret-token","secret-token"]}]}"#,
+    )
+    .unwrap();
+    fs::write(&cert, "").unwrap();
+    fs::write(&key, "").unwrap();
+    let output = common::server_command()
+        .clean_env()
+        .args(["serve", "--auth-mode", "strict", "--identity-file"])
+        .arg(identities)
+        .arg("--tls-cert")
+        .arg(cert)
+        .arg("--tls-key")
+        .arg(key)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(text.contains("identities[0]: duplicate token"), "{text}");
+    assert!(text.contains("exactly one private key"), "{text}");
+    assert!(!text.contains("secret-token"), "{text}");
+}
+
+#[test]
+fn startup_rejects_an_administrative_principal_missing_from_the_registry() {
+    let root = TestDir::new();
+    let data = root.0.join("not-created");
+    let output = common::server_command()
+        .clean_env()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            "config/identities.json",
+            "--admin-enabled",
+            "true",
+            "--admin-principal",
+            "missing-principal",
+            "--data-dir",
+        ])
+        .arg(&data)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!data.exists());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(text.contains("is not an id in identity_file"), "{text}");
 }
 
 #[cfg(unix)]

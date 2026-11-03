@@ -50,6 +50,29 @@ pub(super) fn bounded(uri: &Uri, headers: &HeaderMap) -> Result<(), Failure> {
     Ok(())
 }
 
+pub(super) struct CredentialScope<'a> {
+    pub signer: &'a str,
+    pub scope: &'a str,
+}
+
+impl<'a> CredentialScope<'a> {
+    pub(super) fn parse(raw: &'a str, date: &str, service: [&str; 2]) -> Result<Self, Failure> {
+        let (signer, scope) = raw.split_once('/').ok_or(Failure::Malformed)?;
+        let day = date.get(..8).ok_or(Failure::Malformed)?;
+        let mut parts = scope.split('/');
+        let [service, request] = service;
+        let valid = !signer.is_empty()
+            && parts.next() == Some(day)
+            && parts.next().is_some_and(|region| !region.is_empty())
+            && parts.next() == Some(service)
+            && parts.next() == Some(request)
+            && parts.next().is_none();
+        valid
+            .then_some(Self { signer, scope })
+            .ok_or(Failure::Malformed)
+    }
+}
+
 pub(super) fn prepare(
     method: &Method,
     uri: &Uri,
@@ -62,7 +85,7 @@ pub(super) fn prepare(
     let header = has_header(headers);
     if query
         .keys()
-        .any(|name| V2_PARAMETERS.iter().any(|p| name.eq_ignore_ascii_case(p)))
+        .any(|name| signing_param(name.as_bytes()) == Some(SigningParams::V2))
         || (header && is_signed(uri.query()))
     {
         return Err(Failure::Malformed);
@@ -76,20 +99,12 @@ pub(super) fn prepare(
         query_fields(&query)?
     };
     let active = parse_timestamp(date).map_err(|_| Failure::Malformed)?;
-    let parts: Vec<_> = credential.split('/').collect();
     let expected = if algorithm == Algorithm::AwsHmac {
         ["s3", "aws4_request"]
     } else {
         ["storage", "goog4_request"]
     };
-    if parts.len() != 5
-        || parts[0].is_empty()
-        || parts[2].is_empty()
-        || parts[1] != &date[..8]
-        || parts[3..] != expected
-    {
-        return Err(Failure::Malformed);
-    }
+    let credential = CredentialScope::parse(credential, date, expected)?;
     if now
         .checked_add(Duration::from_secs(900))
         .is_none_or(|now| now < active)
@@ -123,13 +138,11 @@ pub(super) fn prepare(
         },
     )?;
     let opposite = if algorithm == Algorithm::AwsHmac {
-        "x-goog-"
+        ["x-goog-date", "x-goog-content-sha256"]
     } else {
-        "x-amz-"
+        ["x-amz-date", "x-amz-content-sha256"]
     };
-    if headers.contains_key(format!("{opposite}date"))
-        || headers.contains_key(format!("{opposite}content-sha256"))
-    {
+    if opposite.iter().any(|name| headers.contains_key(*name)) {
         return Err(Failure::Malformed);
     }
     let hash = if streaming {
@@ -155,7 +168,7 @@ pub(super) fn prepare(
         "UNSIGNED-PAYLOAD".into()
     };
     let canonical = canonical_with_payload(method, uri, headers, &query, signed, &payload)?;
-    let scope = parts[1..].join("/");
+    let scope = credential.scope.to_owned();
     let algorithm_name = match algorithm {
         Algorithm::Rsa => ALGORITHM,
         Algorithm::GoogleHmac => "GOOG4-HMAC-SHA256",
@@ -167,7 +180,8 @@ pub(super) fn prepare(
         encode_lower(digest::digest(&digest::SHA256, canonical.as_bytes()).as_ref())
     );
     Ok(Prepared {
-        signer: parts[0].into(),
+        signer: credential.signer.into(),
+        date: date.into(),
         algorithm,
         scope,
         message,
@@ -213,10 +227,7 @@ fn query_fields(query: &BTreeMap<String, String>) -> Result<Fields<'_>, Failure>
     let algorithm = Algorithm::parse(google.or(aws).ok_or(Failure::Malformed)?)?;
     let prefix = algorithm.parameter_prefix();
     if query.keys().any(|name| {
-        PARAMETERS
-            .iter()
-            .chain(AWS_PARAMETERS)
-            .any(|parameter| name.eq_ignore_ascii_case(parameter))
+        signing_param(name.as_bytes()).is_some()
             && (!name.starts_with(prefix)
                 || !(PARAMETERS.contains(&name.as_str())
                     || AWS_PARAMETERS.contains(&name.as_str())))

@@ -315,8 +315,11 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     if report.valid(&["scheme", "tls_cert", "tls_key"]) {
         match tls::load_server(&report.config) {
             Ok(value) => acceptor = value,
-            Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Tls, "tls_cert",
-                "Cannot load TLS identity; provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with one private key and a certificate chain.")),
+            Err(error) => report.diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Tls,
+                "tls_cert",
+                format!("Cannot load TLS identity: {error}"),
+            )),
         }
     }
     // Load the registry before binding so a bad identity file never reaches readiness.
@@ -326,13 +329,24 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     {
         match Registry::load(path) {
             Ok(registry) => auth = Auth::strict(registry),
-            Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "identity_file",
-                "Cannot load identity_file; provide a readable valid registry at most 64 KiB with unique ids/tokens, supported project_roles and valid RSA public_keys; remove unknown fields and private keys.")),
+            Err(error) => report.diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Identity,
+                "identity_file",
+                error.to_string(),
+            )),
         }
     }
     if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
         report.diagnostics.warnings.extend(warnings);
+    }
+    if report.valid(&["admin_principal"])
+        && let (Some(principal), Some(principals)) =
+            (&report.config.admin_principal, auth.principals())
+        && !principals.iter().any(|identity| identity.id() == principal)
+    {
+        report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "admin_principal",
+            format!("admin_principal {principal:?} is not an id in identity_file; use one of its identities.")));
     }
     // The legacy profile (fake-gcs-server compatible) keeps project-owner objects.
     if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native {
@@ -341,6 +355,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     if report.diagnostics.is_err() {
         return Err(report.diagnostics.into());
     }
+    auth = auth.with_verifier_budget(report.config.max_blocking_threads);
     report.diagnostics.write(io::stderr().lock())?;
     let config = report.config;
     gcs_mimic::diagnostics::set_log_level(config.log_level);

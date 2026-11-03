@@ -717,7 +717,7 @@ pub fn cli(args: &[String]) -> Result<(), ImportError> {
         .copied()
         .unwrap_or("filesystem")
         .parse::<SourceFormat>()
-        .map_err(|fix| invalid("--source-format", &fix))?;
+        .map_err(|fix| invalid("--source-format", &fix.to_string()))?;
     if source_format == SourceFormat::Snapshot
         && (values.contains_key("--metadata-mode") || values.contains_key("--source-platform"))
     {
@@ -729,14 +729,14 @@ pub fn cli(args: &[String]) -> Result<(), ImportError> {
         required("--metadata-mode")?
     }
     .parse::<MetadataMode>()
-    .map_err(|fix| invalid("--metadata-mode", &fix))?;
+    .map_err(|fix| invalid("--metadata-mode", &fix.to_string()))?;
     let platform = if source_format == SourceFormat::Snapshot {
         "unix"
     } else {
         required("--source-platform")?
     }
     .parse::<SourcePlatform>()
-    .map_err(|fix| invalid("--source-platform", &fix))?;
+    .map_err(|fix| invalid("--source-platform", &fix.to_string()))?;
     let mut options = Options::new(
         required("--source")?.into(),
         required("--data-dir")?.into(),

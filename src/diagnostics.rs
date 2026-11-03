@@ -22,7 +22,7 @@ pub enum LogLevel {
 }
 
 impl std::str::FromStr for LogLevel {
-    type Err = String;
+    type Err = crate::config::InvalidChoice;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
@@ -30,7 +30,9 @@ impl std::str::FromStr for LogLevel {
             "info" => Ok(Self::Info),
             "warn" | "warning" => Ok(Self::Warn),
             "error" => Ok(Self::Error),
-            _ => Err("log_level must be debug, info, warn or error (warning aliases warn)".into()),
+            _ => Err(crate::config::InvalidChoice(
+                "log_level must be debug, info, warn or error (warning aliases warn)",
+            )),
         }
     }
 }
@@ -40,6 +42,10 @@ static LOG_LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Info as u8);
 /// Configure the process threshold after preflight and before starting workers.
 pub fn set_log_level(level: LogLevel) {
     LOG_LEVEL.store(level as u8, Ordering::Relaxed);
+}
+
+pub fn enabled(level: LogLevel) -> bool {
+    (level as u8) >= LOG_LEVEL.load(Ordering::Relaxed)
 }
 
 #[derive(Serialize)]

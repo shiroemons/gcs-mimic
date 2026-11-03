@@ -34,9 +34,7 @@ pub(super) fn is_v2(query: Option<&str>) -> bool {
     query.is_some_and(|query| {
         query.split('&').any(|pair| {
             let key = super::super::lenient_decode(pair.split('=').next().unwrap_or_default());
-            V2_PARAMETERS
-                .iter()
-                .any(|name| key.eq_ignore_ascii_case(name.as_bytes()))
+            signing_param(&key) == Some(SigningParams::V2)
         })
     })
 }
@@ -61,40 +59,16 @@ pub(super) fn prepare_resource(
     if has_header(headers) {
         return legacy::prepare(method, uri, headers, now, resource);
     }
-    let query =
-        json::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)?;
-    if headers.contains_key("authorization")
-        || query.keys().any(|key| {
-            PARAMETERS
-                .iter()
-                .chain(AWS_PARAMETERS)
-                .any(|name| key.eq_ignore_ascii_case(name))
-        })
-    {
+    let (query, deadline) = query_fields(uri)?;
+    if headers.contains_key("authorization") {
         return Err(Failure::Malformed);
     }
-    let required = |name| {
-        query
-            .get(name)
-            .filter(|value| !value.is_empty())
-            .map(String::as_str)
-            .ok_or(Failure::Malformed)
-    };
-    let expires = required("Expires")?;
-    let seconds = expires
-        .parse::<u64>()
-        .ok()
-        .filter(|_| expires.bytes().all(|byte| byte.is_ascii_digit()))
-        .ok_or(Failure::Malformed)?;
-    if now
-        >= UNIX_EPOCH
-            .checked_add(Duration::from_secs(seconds))
-            .ok_or(Failure::Malformed)?
-    {
+    if now >= deadline {
         return Err(Failure::Expired);
     }
     Ok(v4::Prepared {
-        signer: required("GoogleAccessId")?.into(),
+        signer: required(&query, "GoogleAccessId")?.into(),
+        date: String::new(),
         algorithm: v4::Algorithm::Rsa,
         scope: String::new(),
         message: string_to_sign(
@@ -103,73 +77,49 @@ pub(super) fn prepare_resource(
             headers,
             &query,
             Canonical {
-                date: expires,
+                date: required(&query, "Expires")?,
                 profile: Profile::GoogleQuery,
                 resource,
             },
         )?,
-        signature: decode_signature(required("Signature")?)?,
+        signature: decode_signature(required(&query, "Signature")?)?,
     })
 }
 
-impl Auth {
-    pub(super) fn authenticate_v2(
-        &self,
-        method: &Method,
-        uri: &Uri,
-        headers: &HeaderMap,
-        clock: &dyn Clock,
-    ) -> Result<Option<Caller<'_>>, Failure> {
-        let query =
-            json::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)?;
-        if query.keys().any(|key| {
-            PARAMETERS
-                .iter()
-                .chain(AWS_PARAMETERS)
-                .any(|name| key.eq_ignore_ascii_case(name))
-        }) {
-            return Err(Failure::Malformed);
-        }
-        let required = |name: &str| {
-            query
-                .get(name)
-                .filter(|value| !value.is_empty())
-                .ok_or(Failure::Malformed)
-        };
-        let signer = required("GoogleAccessId")?;
-        let expires = required("Expires")?;
-        let signature = required("Signature")?;
-        let seconds = expires
-            .parse::<u64>()
-            .ok()
-            .filter(|_| expires.bytes().all(|byte| byte.is_ascii_digit()))
-            .ok_or(Failure::Malformed)?;
-        let deadline = UNIX_EPOCH
-            .checked_add(Duration::from_secs(seconds))
-            .ok_or(Failure::Malformed)?;
-        if self.registry.is_none() {
-            return Ok(None);
-        }
-        if headers.contains_key("authorization") {
-            return Err(Failure::Malformed);
-        }
-        let message = string_to_sign(
-            method,
-            uri,
-            headers,
-            &query,
-            Canonical {
-                date: expires,
-                profile: Profile::GoogleQuery,
-                resource: &Resource::PathStyle,
-            },
-        )?;
-        let caller = self.verify_signer(signer, &message, &decode_signature(signature)?)?;
-        if clock.now() >= deadline {
-            return Err(Failure::Expired);
-        }
-        Ok(Some(caller))
+fn required<'a>(query: &'a BTreeMap<String, String>, name: &str) -> Result<&'a str, Failure> {
+    query
+        .get(name)
+        .filter(|value| !value.is_empty())
+        .map(String::as_str)
+        .ok_or(Failure::Malformed)
+}
+
+fn query_fields(uri: &Uri) -> Result<(BTreeMap<String, String>, SystemTime), Failure> {
+    let query =
+        json::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)?;
+    if query
+        .keys()
+        .any(|key| signing_param(key.as_bytes()).is_some_and(|family| family != SigningParams::V2))
+    {
+        return Err(Failure::Malformed);
     }
+    required(&query, "GoogleAccessId")?;
+    required(&query, "Signature")?;
+    let expires = required(&query, "Expires")?;
+    let seconds = expires
+        .parse::<u64>()
+        .ok()
+        .filter(|_| expires.bytes().all(|byte| byte.is_ascii_digit()))
+        .ok_or(Failure::Malformed)?;
+    let deadline = UNIX_EPOCH
+        .checked_add(Duration::from_secs(seconds))
+        .ok_or(Failure::Malformed)?;
+    Ok((query, deadline))
+}
+
+/// Historical permissive V2 checks only shape; unlike V4 it rejects malformed credential fields.
+pub(super) fn validate_query_shape(uri: &Uri) -> Result<(), Failure> {
+    query_fields(uri).map(|_| ())
 }
 
 fn string_to_sign(
@@ -229,7 +179,10 @@ fn string_to_sign(
                     .map_err(|_| Failure::Malformed)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        message.push_str(&format!("{name}:{}\n", values.join(",")));
+        message.push_str(name);
+        message.push(':');
+        message.push_str(&values.join(","));
+        message.push('\n');
     }
     // The trusted endpoint selector supplies a virtual bucket without decoding the raw object path.
     if let Resource::VirtualHosted(bucket) = resource {

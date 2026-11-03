@@ -11,6 +11,63 @@ const PUBLIC: &str = include_str!("../../../fixtures/signing/test-only-public.pe
 const ISSUER: &str = "jwt@example.invalid";
 const NOW: u64 = 1_793_361_600;
 
+#[tokio::test]
+async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it() {
+    let auth = Auth::strict(registry(&[PUBLIC], &["opaque-token"])).with_verifier_budget(2);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", token(&claims())).parse().unwrap(),
+    );
+    let caller = auth
+        .authenticate_request(&headers, None, &Fixed(NOW))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(caller.principal().unwrap().id(), ISSUER);
+    let bad = token(&claims());
+    let mut bad = bad.into_bytes();
+    let index = bad.len() - 20;
+    bad[index] = if bad[index] == b'A' { b'B' } else { b'A' };
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", String::from_utf8(bad).unwrap())
+            .parse()
+            .unwrap(),
+    );
+    assert!(matches!(
+        auth.authenticate_request(&headers, None, &Fixed(NOW)).await,
+        Err(AuthError::Failure(AuthFailure::InvalidCredentials))
+    ));
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let (release, waiting) = std::sync::mpsc::channel();
+    let occupied = auth.verifiers.run(move || {
+        started.send(()).unwrap();
+        waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+    });
+    let resolve = async {
+        ready.await.unwrap();
+        headers.insert("authorization", "Bearer opaque-token".parse().unwrap());
+        let caller = tokio::time::timeout(
+            Duration::from_secs(1),
+            auth.authenticate_request(&headers, None, &Fixed(NOW)),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+        assert_eq!(caller.principal().unwrap().id(), ISSUER);
+        assert!(matches!(
+            auth.authenticate_request(&HeaderMap::new(), None, &Fixed(NOW))
+                .await,
+            Ok(Some(Caller::Anonymous))
+        ));
+        release.send(()).unwrap();
+    };
+    let (result, ()) = tokio::join!(occupied, resolve);
+    result.unwrap();
+}
+
 struct Fixed(u64);
 impl Clock for Fixed {
     fn now(&self) -> SystemTime {
@@ -206,7 +263,15 @@ fn registered_jwt_shaped_tokens_never_bypass_signature_or_scope_checks() {
     let token = token(&claims);
     // Registry opaque tokens are capped at 512 bytes; use a short unsigned JWT there.
     let unsigned = "eyJhbGciOiJub25lIn0.e30.c2ln";
-    let auth = Auth::strict(registry(&[PUBLIC], &[unsigned]));
+    let error = Registry::parse(
+        &serde_json::to_vec(&json!({"identities":[{
+            "id": ISSUER, "tokens": [unsigned], "public_keys": [PUBLIC]
+        }]}))
+        .unwrap(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("tokens must not be JWT-shaped"));
+    let auth = Auth::strict(registry(&[PUBLIC], &[]));
     for token in [token.as_str(), unsigned] {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());

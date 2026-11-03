@@ -120,6 +120,7 @@ pub(super) fn prepare(
     }
     Ok(v4::Prepared {
         signer: signer.into(),
+        date: String::new(),
         algorithm: v4::Algorithm::LegacyHmacSha1,
         scope: String::new(),
         message: string_to_sign(

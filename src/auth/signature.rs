@@ -36,6 +36,38 @@ const ALGORITHM: &str = "GOOG4-RSA-SHA256";
 pub(crate) const MAX_EXPIRES: u64 = 604800;
 pub(crate) const V2_PARAMETERS: &[&str] = &["GoogleAccessId", "Expires", "Signature"];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SigningParams {
+    GoogleV4,
+    AwsV4,
+    V2,
+}
+
+impl SigningParams {
+    fn names(self) -> &'static [&'static str] {
+        match self {
+            Self::GoogleV4 => PARAMETERS,
+            Self::AwsV4 => AWS_PARAMETERS,
+            Self::V2 => V2_PARAMETERS,
+        }
+    }
+}
+
+/// One decoded-name predicate keeps dispatch, parsing and signing on the same families.
+pub(crate) fn signing_param(name: &[u8]) -> Option<SigningParams> {
+    [
+        SigningParams::GoogleV4,
+        SigningParams::AwsV4,
+        SigningParams::V2,
+    ]
+    .into_iter()
+    .find(|set| {
+        set.names()
+            .iter()
+            .any(|candidate| name.eq_ignore_ascii_case(candidate.as_bytes()))
+    })
+}
+
 pub(crate) enum Resource {
     PathStyle,
     VirtualHosted(String),
@@ -49,6 +81,7 @@ mod verify;
 pub(crate) use streaming::{STREAMING_PAYLOAD, Streaming};
 pub(crate) use v2::{legacy_aws, xml_query};
 pub(crate) use verify::VerificationError;
+pub(crate) use verify::Verifiers;
 pub(crate) use verify::has_header;
 
 pub(crate) fn authentication_header(name: &str) -> bool {
@@ -258,121 +291,9 @@ pub(crate) fn is_signed(query: Option<&str>) -> bool {
     query.is_some_and(|query| {
         query.split('&').any(|pair| {
             let key = super::lenient_decode(pair.split('=').next().unwrap_or_default());
-            PARAMETERS
-                .iter()
-                .chain(AWS_PARAMETERS)
-                .chain(V2_PARAMETERS)
-                .any(|name| key.eq_ignore_ascii_case(name.as_bytes()))
+            signing_param(&key).is_some()
         })
     })
-}
-
-impl Auth {
-    /// The permissive profile ignores credentials; strict XML requests never fall back after failure.
-    pub fn authenticate_signed(
-        &self,
-        method: &Method,
-        uri: &Uri,
-        headers: &HeaderMap,
-        clock: &dyn Clock,
-    ) -> Result<Option<Caller<'_>>, Failure> {
-        if v2::is_v2(uri.query()) {
-            return self.authenticate_v2(method, uri, headers, clock);
-        }
-        if self.registry.is_none() {
-            return Ok(None);
-        }
-        if headers.contains_key("authorization") {
-            return Err(Failure::Malformed);
-        }
-        let query =
-            json::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)?;
-        let required = |key: &str| {
-            query
-                .get(key)
-                .filter(|s| !s.is_empty())
-                .map(String::as_str)
-                .ok_or(Failure::Malformed)
-        };
-        if required("X-Goog-Algorithm")? != ALGORITHM {
-            return Err(Failure::Malformed);
-        }
-        let credential = required("X-Goog-Credential")?;
-        let parts: Vec<_> = credential.split('/').collect();
-        if parts.len() != 5
-            || parts[0].is_empty()
-            || parts[2].is_empty()
-            || parts[3..] != ["storage", "goog4_request"]
-        {
-            return Err(Failure::Malformed);
-        }
-        let date = required("X-Goog-Date")?;
-        let active = parse_timestamp(date).map_err(|_| Failure::Malformed)?;
-        if parts[1] != &date[..8] {
-            return Err(Failure::Malformed);
-        }
-        let raw_expires = required("X-Goog-Expires")?;
-        let expires = raw_expires
-            .parse::<u64>()
-            .ok()
-            .filter(|n| (1..=MAX_EXPIRES).contains(n))
-            .filter(|_| raw_expires.bytes().all(|b| b.is_ascii_digit()))
-            .ok_or(Failure::Malformed)?;
-        let signed_headers = required("X-Goog-SignedHeaders")?;
-        let bytes = unhex(required("X-Goog-Signature")?)?;
-        let canonical = canonical_request(method, uri, headers, &query, signed_headers)?;
-        let message = string_to_sign(date, &parts[1..].join("/"), &canonical);
-        let caller = self.verify_signer(parts[0], &message, &bytes)?;
-        let now = clock.now();
-        // Google documents query signatures as usable 15 minutes before the active datetime.
-        if now
-            .checked_add(Duration::from_secs(900))
-            .is_none_or(|now| now < active)
-        {
-            return Err(Failure::NotYetValid);
-        }
-        if now
-            >= active
-                .checked_add(Duration::from_secs(expires))
-                .ok_or(Failure::Malformed)?
-        {
-            return Err(Failure::Expired);
-        }
-        Ok(Some(caller))
-    }
-
-    fn verify_signer(
-        &self,
-        signer: &str,
-        message: &str,
-        bytes: &[u8],
-    ) -> Result<Caller<'_>, Failure> {
-        let registry = self.registry.as_ref().ok_or(Failure::UnknownSigner)?;
-        let identity = registry
-            .identities
-            .iter()
-            .find(|id| id.id == signer)
-            .ok_or(Failure::UnknownSigner)?;
-        let keys = registry
-            .signing_keys
-            .get(signer)
-            .ok_or(Failure::UnknownSigner)?;
-        if !keys.iter().any(|key| key.verify(message.as_bytes(), bytes)) {
-            return Err(Failure::Mismatch);
-        }
-        Ok(Caller::Principal(identity))
-    }
-}
-
-fn canonical_request(
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    query: &BTreeMap<String, String>,
-    signed: &str,
-) -> Result<String, Failure> {
-    payload_hash(headers)?;
-    canonical_with_payload(method, uri, headers, query, signed, "UNSIGNED-PAYLOAD")
 }
 
 fn canonical_with_payload(
@@ -559,12 +480,7 @@ pub fn parse_timestamp(raw: &str) -> Result<SystemTime, SigningError> {
     let days =
         era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + (153 * m + 2) / 5 + day - 1 - 719468;
     let seconds = days * 86400 + n(9..11)? * 3600 + n(11..13)? * 60 + n(13..15)?;
-    let time = if seconds >= 0 {
-        UNIX_EPOCH.checked_add(Duration::from_secs(seconds as u64))
-    } else {
-        UNIX_EPOCH.checked_sub(Duration::from_secs(seconds.unsigned_abs()))
-    }
-    .ok_or_else(invalid)?;
+    let time = crate::clock::system_time_from_unix_seconds(seconds).ok_or_else(invalid)?;
     if timestamp(time)? != raw {
         return Err(invalid());
     }
@@ -574,14 +490,15 @@ pub fn parse_timestamp(raw: &str) -> Result<SystemTime, SigningError> {
 /// Format a time as the `YYYYMMDDTHHMMSSZ` value of X-Goog-Date and x-goog-date.
 pub fn timestamp(now: SystemTime) -> Result<String, SigningError> {
     let date = json::timestamp(now).map_err(|_| SigningError::TimestampOutOfRange)?;
+    let part = |range| date.get(range).ok_or(SigningError::TimestampOutOfRange);
     Ok(format!(
         "{}{}{}T{}{}{}Z",
-        &date[..4],
-        &date[5..7],
-        &date[8..10],
-        &date[11..13],
-        &date[14..16],
-        &date[17..19]
+        part(0..4)?,
+        part(5..7)?,
+        part(8..10)?,
+        part(11..13)?,
+        part(14..16)?,
+        part(17..19)?
     ))
 }
 
@@ -650,15 +567,14 @@ pub fn sign_url(request: SignUrlRequest<'_>) -> Result<String, SigningError> {
             .map_err(|_| SigningError::InvalidHost)?,
     );
     let date = timestamp(now)?;
-    let scope = format!("{}/auto/storage/goog4_request", &date[..8]);
+    let day = date.get(..8).ok_or(SigningError::TimestampOutOfRange)?;
+    let scope = format!("{day}/auto/storage/goog4_request");
     let mut query = json::parse_query(uri.query().unwrap_or_default())
         .map_err(|e| SigningError::InvalidQuery(e.message))?;
-    if query.keys().any(|k| {
-        PARAMETERS
-            .iter()
-            .chain(AWS_PARAMETERS)
-            .any(|p| k.eq_ignore_ascii_case(p))
-    }) {
+    if query
+        .keys()
+        .any(|key| signing_param(key.as_bytes()).is_some())
+    {
         return Err(SigningError::ExistingSigningParameters);
     }
     let mut names: Vec<_> = headers.keys().map(|h| h.as_str()).collect();
@@ -673,8 +589,10 @@ pub fn sign_url(request: SignUrlRequest<'_>) -> Result<String, SigningError> {
     ] {
         query.insert(k.into(), v);
     }
-    let canonical = canonical_request(method, &uri, &headers, &query, &signed)
-        .map_err(|_| SigningError::InvalidRequest)?;
+    payload_hash(&headers).map_err(|_| SigningError::InvalidRequest)?;
+    let canonical =
+        canonical_with_payload(method, &uri, &headers, &query, &signed, "UNSIGNED-PAYLOAD")
+            .map_err(|_| SigningError::InvalidRequest)?;
     let message = string_to_sign(&date, &scope, &canonical);
     let bytes = rsa_sign(private_key, &message)?;
     Ok(format!(
