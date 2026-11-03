@@ -33,6 +33,7 @@ pub(crate) enum Command {
     },
     Wait {
         deadline: tokio::time::Instant,
+        settling: Arc<std::sync::atomic::AtomicBool>,
         reply: oneshot::Sender<io::Result<WaitResult>>,
         identity: Option<Identity>,
     },

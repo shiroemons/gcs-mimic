@@ -214,10 +214,12 @@ async fn wait(
     // The bounded handler deadline replaces connection inactivity while the server observes work.
     crate::server::begin_catalog_wait_until(ctx.activity, Some(deadline)).await;
     let (reply, receive) = tokio::sync::oneshot::channel();
+    let settling = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     registration
         .sender
         .try_send(Command::Wait {
             deadline,
+            settling: settling.clone(),
             reply,
             identity,
         })
@@ -227,6 +229,13 @@ async fn wait(
         Ok(result) => result
             .map_err(|_| busy())?
             .map_err(|error| control_error(&error))?,
+        Err(_) if settling.load(std::sync::atomic::Ordering::Acquire) => {
+            crate::sync::control::WaitResult::result(
+                crate::sync::control::WaitReason::SourceChanging,
+                None,
+                None,
+            )
+        }
         Err(_) => crate::sync::control::WaitResult::timeout(),
     };
     let mut response = bounded(&json!(result))?;

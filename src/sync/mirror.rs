@@ -49,6 +49,7 @@ async fn export_checkpoint(phase: &str) {
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
 
+mod descriptor;
 mod observation;
 mod wait;
 
@@ -133,10 +134,13 @@ impl DirectoryWatch {
                     diagnostics::emit(
                         LogLevel::Error,
                         "sync_watch_retry",
-                        serde_json::json!({
-                            "reason":crate::error::Report(&error).to_string(),"delay_ms":delay.as_millis(),
-                            "remedy":"Restore read/search permissions on the sync tree; observation remains unhealthy until every subtree is watched"
-                        }),
+                        descriptor::diagnostic(
+                            &error,
+                            serde_json::json!({
+                                "reason":crate::error::Report(&error).to_string(),"delay_ms":delay.as_millis(),
+                                "remedy":"Restore read/search permissions on the sync tree; observation remains unhealthy until every subtree is watched"
+                            }),
+                        ),
                     );
                     tokio::select! {
                         _ = stopping.changed() => return Ok(()),
@@ -163,25 +167,15 @@ fn watch_retryable(error: &io::Error) -> bool {
 impl Task {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) async fn rescan(&self) -> io::Result<Reconciliation> {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-        loop {
-            let (sender, receiver) = tokio::sync::oneshot::channel();
-            self.rescan
-                .send(Command::Rescan {
-                    reply: sender,
-                    identity: None,
-                })
-                .await
-                .map_err(io::Error::other)?;
-            let summary = receiver.await.map_err(io::Error::other)??;
-            if !summary.source_changing {
-                return Ok(summary);
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(io::ErrorKind::TimedOut.into());
-            }
-            tokio::time::sleep(Duration::from_millis(super::SETTLE_MS)).await;
-        }
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.rescan
+            .send(Command::Rescan {
+                reply: sender,
+                identity: None,
+            })
+            .await
+            .map_err(io::Error::other)?;
+        receiver.await.map_err(io::Error::other)?
     }
     pub(crate) fn stop(&self) {
         self.stop.send_replace(true);
@@ -288,11 +282,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
             };
             if !is_transient(&error) {
                 health.mark_restarting();
-                diagnostics::emit(
-                    LogLevel::Error,
-                    "sync_paused",
-                    serde_json::json!({"reason":crate::error::Report(&error).to_string(),"remedy":"Preserve pending data, correct the reported condition and request an explicit rescan"}),
-                );
+                descriptor::paused(&error);
                 if let Err(error) =
                     runtime.block_on(root.observation_pause(Some(pause_reason(&error))))
                 {
@@ -320,14 +310,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
             if started.elapsed() >= RETRY_DELAY_MAX {
                 delay = RETRY_DELAY_MIN;
             }
-            diagnostics::emit(
-                LogLevel::Warn,
-                "sync_retrying",
-                serde_json::json!({
-                    "reason": crate::error::Report(&error).to_string(),
-                    "delay_ms": delay.as_millis(),
-                }),
-            );
+            descriptor::retrying(&error, delay);
             let stopped = runtime.block_on(async {
                 tokio::select! {
                     _ = stopping.wait_for(|stop| *stop) => true,
@@ -439,13 +422,20 @@ async fn run_live_config(
         writeback,
     } = initialize_live(run, stopping).await?;
     let mut publication = None;
+    let mut controls = observation::Controls::default();
+    let mut quiet = observation::Quiet::Unverified;
     while !*stopping.borrow() {
-        if let Ok(request) = requests.try_recv() {
-            if watcher.pending.is_none()
-                && matches!(&request, Command::Rescan { .. } | Command::Wait { .. })
-            {
-                watcher.rebuild(root, stopping, health).await?;
+        let request = controls.ready(&watcher).or_else(|| {
+            if controls.available() {
+                requests.try_recv().ok()
+            } else {
+                None
             }
+        });
+        if let Some(request) = request {
+            let Some(request) = controls.admit(request, &watcher) else {
+                continue;
+            };
             if *stopping.borrow() {
                 break;
             }
@@ -459,7 +449,7 @@ async fn run_live_config(
                 baseline_complete: &mut baseline_complete,
                 cursor: &mut cursor,
             }
-            .handle(request, watcher.control_state())
+            .handle(request, quiet)
             .await?;
             continue;
         }
@@ -489,28 +479,30 @@ async fn run_live_config(
                 observed = watcher.next_observation() => {
                     match observed? {
                         observation::Observed::Pending => {
+                            quiet=observation::Quiet::Unverified;
                             publication=Some(root.begin_observation_publication().await.map_err(io::Error::other)?);
                             root.invalidate_deletions().await.map_err(io::Error::other)?;
                             #[cfg(test)]
                             export_checkpoint("observation-invalidated").await;
                         }
-                        observation::Observed::Settled(observed) => {
+                        observation::Observed::Settled(observed,settled) => {
+                            controls.settled();
+                            quiet=settled;
                             if observed==crate::source_tree::watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
                             if *stopping.borrow() {break}
                             let summary=ingest_external(catalog,root,config,&writeback,stopping,&mut ingest_complete,&mut baseline_complete).await?;
+                            observation::reset_history(root,quiet,&summary).await?;
                             publication.take();
                             diagnostics::emit(LogLevel::Info,"sync_ingested",&summary);
                             health.pass_succeeded();
                         }
                     }
                 }
-                Some(request) = requests.recv() => {
-                    let control_state=watcher.control_state();
-                    if watcher.pending.is_none() && matches!(&request,Command::Rescan {..}|Command::Wait {..}) {
-                        watcher.rebuild(root,stopping,health).await?;
-                    }
+                ()=controls.expired()=>{controls.expire(root,config).await?;}
+                Some(request) = requests.recv(), if controls.available() => {
+                    let Some(request)=controls.admit(request,&watcher) else {continue};
                     if *stopping.borrow() { break }
-                    LiveControl {catalog,root,config,writeback:&writeback,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request,control_state).await?;
+                    LiveControl {catalog,root,config,writeback:&writeback,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request,quiet).await?;
                 }
                 result = catalog.wait_for_changes(cursor) => { result.map_err(io::Error::other)?; }
             }
@@ -848,19 +840,13 @@ impl LiveControl<'_> {
             self.baseline_complete,
         )
         .await?;
-        if !summary.interrupted && summary.deferred == 0 && summary.unrepresentable == 0 {
-            self.root
-                .reset_empty_deletion_history()
-                .await
-                .map_err(io::Error::other)?;
-        }
         Ok(summary)
     }
 
     fn handle(
         &mut self,
         request: Command,
-        observation: observation::ControlState,
+        quiet: observation::Quiet,
     ) -> impl Future<Output = io::Result<()>> + '_ {
         // The single worker boxes one control future to bound nested reconciliation stack use.
         Box::pin(async move {
@@ -890,16 +876,20 @@ impl LiveControl<'_> {
                 baseline_complete: self.baseline_complete,
                 cursor: self.cursor,
             };
-            match observation {
-                observation::ControlState::Quiet => control.handle_authorized(request).await,
-                observation::ControlState::Changing => {
-                    control.handle_source_changing(request).await
-                }
-            }
+            control.handle_authorized_quiet(request, quiet).await
         })
     }
 
+    #[cfg(test)]
     async fn handle_authorized(&mut self, request: Command) -> io::Result<()> {
+        self.handle_authorized_quiet(request, observation::Quiet::Unverified)
+            .await
+    }
+    async fn handle_authorized_quiet(
+        &mut self,
+        request: Command,
+        quiet: observation::Quiet,
+    ) -> io::Result<()> {
         match request {
             Command::Resolve {
                 request,
@@ -920,13 +910,22 @@ impl LiveControl<'_> {
                 deadline,
                 reply,
                 identity,
+                ..
             } => {
                 let result = match self
                     .root
                     .authorize_controls(self.config.seed_project.clone(), identity)
                     .await
                 {
-                    Ok(()) => self.wait(deadline).await,
+                    Ok(()) => match self.wait(deadline).await {
+                        Ok(result) => {
+                            if let Some(summary) = &result.reconciliation {
+                                observation::reset_history(self.root, quiet, summary).await?;
+                            }
+                            Ok(result)
+                        }
+                        Err(error) => Err(error),
+                    },
                     Err(error) => Err(io::Error::other(error)),
                 };
                 let _ = reply.send(result);
@@ -937,7 +936,13 @@ impl LiveControl<'_> {
                     .authorize_controls(self.config.seed_project.clone(), identity)
                     .await
                 {
-                    Ok(()) => self.rescan().await,
+                    Ok(()) => match self.rescan().await {
+                        Ok(summary) => {
+                            observation::reset_history(self.root, quiet, &summary).await?;
+                            Ok(summary)
+                        }
+                        Err(error) => Err(error),
+                    },
                     Err(error) => {
                         let _ = reply.send(Err(io::Error::other(error)));
                         return Ok(());
@@ -1960,7 +1965,11 @@ async fn external_files(
                 return Ok(counts);
             }
             if let Some(kind) = entry.error {
-                return Err(kind.into());
+                if kind == io::ErrorKind::ResourceBusy {
+                    return Err(kind.into());
+                }
+                counts.2 += 1;
+                continue;
             }
             if entry.directory {
                 continue;

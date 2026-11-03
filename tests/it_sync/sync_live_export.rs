@@ -69,43 +69,17 @@ impl SyncServer {
         common::stop_server(&mut self.child, &mut self.stdout);
     }
     fn rescan(&self) -> common::effects::Reply {
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        loop {
-            let reply = self.request("POST", "/_internal/sync/rescan", b"{}");
-            reply.expect(202);
-            let value: Value = serde_json::from_slice(&reply.body).unwrap();
-            if value["reason"] != "SourceChanging" {
-                assert_eq!(value["completed"], true);
-                return reply;
-            }
-            assert!(std::time::Instant::now() < deadline, "{value}");
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        let reply = self.request("POST", "/_internal/sync/rescan", b"{}");
+        reply.expect(202);
+        let value: Value = serde_json::from_slice(&reply.body).unwrap();
+        assert_eq!(value["completed"], true);
+        reply
     }
     fn wait(&self, payload: &[u8]) -> (common::effects::Reply, Duration) {
-        let mut payload: Value = serde_json::from_slice(payload).unwrap();
-        let budget = payload["timeout_ms"].as_u64().unwrap_or(10_000);
-        let deadline = std::time::Instant::now() + Duration::from_millis(budget);
-        loop {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            assert!(
-                !remaining.is_zero(),
-                "wait did not stabilize within its original budget"
-            );
-            payload["timeout_ms"] = serde_json::json!(remaining.as_millis().max(1));
-            let started = std::time::Instant::now();
-            let reply = self.request(
-                "POST",
-                "/_internal/sync/wait",
-                &serde_json::to_vec(&payload).unwrap(),
-            );
-            let elapsed = started.elapsed();
-            let value: Value = serde_json::from_slice(&reply.body).unwrap();
-            if reply.status != 409 || value["reason"] != "SourceChanging" {
-                return (reply, elapsed);
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        let started = std::time::Instant::now();
+        let reply = self.request("POST", "/_internal/sync/wait", payload);
+        let elapsed = started.elapsed();
+        (reply, elapsed)
     }
 }
 

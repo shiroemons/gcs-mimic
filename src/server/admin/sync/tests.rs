@@ -309,25 +309,7 @@ impl Fixture {
         payload: &[u8],
         token: Option<&str>,
     ) -> Result<Response<Full<Bytes>>, JsonError> {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-        loop {
-            let response = self.request_once(method, path, payload, token).await?;
-            if method != "POST"
-                || path != "/_internal/sync/rescan"
-                || response.status() != StatusCode::ACCEPTED
-            {
-                return Ok(response);
-            }
-            let value: Value = serde_json::from_slice(
-                &response.body().clone().collect().await.unwrap().to_bytes(),
-            )
-            .unwrap();
-            if value["reason"] != "SourceChanging" {
-                return Ok(response);
-            }
-            assert!(tokio::time::Instant::now() < deadline, "{value}");
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        self.request_once(method, path, payload, token).await
     }
 
     async fn request_once(
@@ -1366,7 +1348,7 @@ async fn strict_control_authority_precedes_body_parsing_and_requires_each_explic
 }
 
 #[tokio::test]
-async fn rescan_during_native_quiet_reports_source_changing_without_false_completion() {
+async fn rescan_during_native_quiet_waits_for_a_completed_scan() {
     let fixture = Fixture::new(Tree::Empty).await;
     fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
     fs::write(fixture.tree.0.join("test-bucket/body"), b"pending").unwrap();
@@ -1377,7 +1359,7 @@ async fn rescan_during_native_quiet_reports_source_changing_without_false_comple
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     let result = tokio::time::timeout(
-        Duration::from_millis(500),
+        Duration::from_secs(10),
         fixture.request_once("POST", "/_internal/sync/rescan", b"{}", None),
     )
     .await
@@ -1385,8 +1367,36 @@ async fn rescan_during_native_quiet_reports_source_changing_without_false_comple
     .unwrap();
     assert_eq!(result.status(), StatusCode::ACCEPTED);
     let result = body(result).await;
-    assert_eq!(result["completed"], false);
-    assert_eq!(result["reason"], "SourceChanging");
+    assert_eq!(result["completed"], true);
+    assert!(result["reason"].is_null());
+    drop(root);
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn wait_during_native_quiet_reports_source_changing_only_at_its_deadline() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
+    fs::write(fixture.tree.0.join("test-bucket/body"), b"pending").unwrap();
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while root.deletion_set().await.unwrap().is_some() {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let started = tokio::time::Instant::now();
+    let response = fixture
+        .request(
+            "POST",
+            "/_internal/sync/wait",
+            br#"{"timeout_ms":50}"#,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(50));
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(body(response).await["reason"], "SourceChanging");
     drop(root);
     fixture.finish().await;
 }

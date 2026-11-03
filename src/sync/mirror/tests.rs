@@ -81,15 +81,32 @@ async fn live_fixture_with(name: &str) -> (TestDir, TestDir, Catalog, BucketName
 }
 
 #[tokio::test]
+async fn external_inventory_defers_unreadable_children_without_stopping_other_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    let blocked = tree.0.join("test-bucket/blocked");
+    fs::create_dir(&blocked).unwrap();
+    fs::write(blocked.join("hidden"), b"hidden").unwrap();
+    fs::write(tree.0.join("test-bucket/working"), b"working").unwrap();
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    let counts = external_files(&root, &root.sync_admin(), Interrupt::new(&stopping)).await;
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(counts.unwrap(), (1, 0, 1));
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls() {
-    use crate::sync::control::WaitReason;
     let (_data, tree, catalog, _bucket, root) = live_fixture().await;
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     for index in 0..100 {
         fs::write(tree.0.join(format!("test-bucket/{index:03}")), b"body").unwrap();
     }
     let (stop, mut stopping) = tokio::sync::watch::channel(false);
-    let (commands, mut requests) = tokio::sync::mpsc::channel(2);
+    let (_commands, mut requests) = tokio::sync::mpsc::channel(2);
     let worker_root = root.clone();
     let worker_catalog = catalog.clone();
     let hook = std::sync::Arc::new(Hook {
@@ -121,36 +138,12 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
     tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
         .await
         .unwrap();
-    let (wait_reply, wait_result) = tokio::sync::oneshot::channel();
-    commands
-        .send(Command::Wait {
-            deadline: tokio::time::Instant::now() + Duration::from_secs(5),
-            reply: wait_reply,
-            identity: None,
-        })
+    let observed = tokio::time::timeout(Duration::from_millis(500), root.observation())
         .await
+        .unwrap()
         .unwrap();
-    let (scan_reply, scan_result) = tokio::sync::oneshot::channel();
-    commands
-        .send(Command::Rescan {
-            reply: scan_reply,
-            identity: None,
-        })
-        .await
-        .unwrap();
+    assert_eq!(observed.tracked_objects, 100);
     hook.release.notify_one();
-    let waited = tokio::time::timeout(Duration::from_millis(500), wait_result)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert_eq!(waited.reason, WaitReason::SourceChanging);
-    let scanned = tokio::time::timeout(Duration::from_millis(500), scan_result)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert_eq!(scanned.deferred, 1);
     tokio::time::timeout(Duration::from_secs(5), hook.entered.notified())
         .await
         .unwrap();

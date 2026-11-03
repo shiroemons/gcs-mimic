@@ -101,41 +101,52 @@ impl Server {
         token: Option<&str>,
         success: bool,
     ) -> Value {
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        loop {
-            let mut client = common::server_command();
-            if let Some(token) = token {
-                client.env("GCS_MIMIC_SYNC_TOKEN", token);
-            }
-            let Output {
-                status,
-                stdout,
-                stderr,
-            } = client
-                .args(["sync", command, "--endpoint", &self.endpoint])
-                .args(options)
-                .output()
-                .unwrap();
-            let value: Value = serde_json::from_slice(&stdout).unwrap();
-            assert_eq!(
-                status.success(),
-                success,
-                "command={command} options={options:?} stdout={} stderr={}",
-                String::from_utf8_lossy(&stdout),
-                String::from_utf8_lossy(&stderr)
-            );
-            if command == "rescan"
-                && success
-                && value["completed"] == false
-                && value["reason"] == "SourceChanging"
-            {
-                assert!(std::time::Instant::now() < deadline, "{value}");
-                std::thread::sleep(Duration::from_millis(20));
-                continue;
-            }
-            return value;
+        let mut client = common::server_command();
+        if let Some(token) = token {
+            client.env("GCS_MIMIC_SYNC_TOKEN", token);
         }
+        let Output {
+            status,
+            stdout,
+            stderr,
+        } = client
+            .args(["sync", command, "--endpoint", &self.endpoint])
+            .args(options)
+            .output()
+            .unwrap();
+        let value: Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(
+            status.success(),
+            success,
+            "command={command} options={options:?} stdout={} stderr={}",
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr)
+        );
+        value
     }
+}
+
+#[test]
+fn live_cli_wait_after_writing_observes_bytes_without_retrying() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let mut server = Server::start(&data, Some(&tree));
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/body"), b"fresh body").unwrap();
+    let waited = server.cli("wait", &["--timeout", "10s"], true);
+    assert_eq!(waited["completed"], true);
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/body?alt=media",
+                None,
+                b""
+            )
+            .body,
+        b"fresh body"
+    );
+    server.stop();
 }
 
 impl Drop for Server {
