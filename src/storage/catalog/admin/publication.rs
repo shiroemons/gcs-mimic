@@ -521,6 +521,11 @@ impl Admin {
                 "import batch requires 1..=256 entries".into(),
             ));
         }
+        for entry in &entries {
+            entry
+                .identity
+                .validate_publication(&entry.publication.request)?;
+        }
         let elements = entries
             .iter()
             .map(|entry| entry.element.clone())

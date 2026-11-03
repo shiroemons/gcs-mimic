@@ -88,6 +88,48 @@ async fn entry(
 }
 
 #[tokio::test]
+async fn import_batch_rejects_missing_hashes_and_nonreplace_modes_before_binding() {
+    let (dir, catalog, admin, source) = setup(2).await;
+    bucket(&admin, &source).await;
+    for field in ["hashes", "mode"] {
+        let mut item = entry(&dir, &admin, 2, "object", b"imported").await;
+        let message = if field == "hashes" {
+            item.publication.request.expected = Default::default();
+            "imported publication requires MD5 and CRC32C"
+        } else {
+            item.publication.request.mode = PublishMode::SkipIfSameHash;
+            "imported publication requires Replace mode"
+        };
+        let result = admin
+            .publish_import_objects(source.clone(), 1, vec![item])
+            .await;
+        assert!(matches!(result, Err(AdminError::Invalid(ref actual)) if actual == message));
+        assert_eq!(
+            catalog
+                .import_journal()
+                .progress()
+                .await
+                .unwrap()
+                .unwrap()
+                .cursor,
+            1
+        );
+        assert_eq!(
+            admin
+                .get_object(
+                    &BucketName::new("test-bucket").unwrap(),
+                    &ObjectName::new("object").unwrap(),
+                    None
+                )
+                .await,
+            Err(AdminError::NotFound)
+        );
+    }
+    catalog.close().await.unwrap();
+    assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+}
+
+#[tokio::test]
 async fn import_publication_preserves_identity_settings_hold_and_atomic_prefix() {
     let (dir, catalog, admin, source) = setup(2).await;
     let mut record = definition().0;

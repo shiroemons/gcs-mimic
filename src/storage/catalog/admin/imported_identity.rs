@@ -1,18 +1,18 @@
 //! Source identities enter only through trusted, checksum-verified publication.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use super::{AdminError, Generation};
+use super::{AdminError, Generation, Publication, PublishMode};
 use std::time::SystemTime;
-#[cfg(test)]
-use {
-    super::{Admin, BucketName, ObjectName, Publication},
-    crate::object::{ObjectRecord, UploadChunk},
-    std::io,
-    tokio::sync::mpsc,
-};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IdentityOrigin {
+    Import,
+    Fixture,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ImportedIdentity {
+    origin: IdentityOrigin,
     generation: Option<Generation>,
     time_created: SystemTime,
     updated: SystemTime,
@@ -25,7 +25,10 @@ impl ImportedIdentity {
         time_created: SystemTime,
         updated: SystemTime,
     ) -> Result<Self, AdminError> {
-        Self::fixture(Some(generation), time_created, updated)
+        Ok(Self {
+            origin: IdentityOrigin::Import,
+            ..Self::fixture(Some(generation), time_created, updated)?
+        })
     }
 
     pub(crate) fn fixture(
@@ -51,6 +54,7 @@ impl ImportedIdentity {
             }
         }
         Ok(Self {
+            origin: IdentityOrigin::Fixture,
             generation,
             time_created,
             updated,
@@ -80,30 +84,22 @@ impl ImportedIdentity {
     pub(crate) fn time_deleted(self) -> Option<SystemTime> {
         self.time_deleted
     }
-}
 
-#[cfg(test)]
-impl Admin {
-    pub(crate) async fn publish_imported_object(
-        &self,
-        bucket: &BucketName,
-        name: &ObjectName,
-        request: Publication,
-        identity: ImportedIdentity,
-        body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
-    ) -> Result<ObjectRecord, AdminError> {
+    pub(super) fn validate_publication(self, request: &Publication) -> Result<(), AdminError> {
+        if self.origin == IdentityOrigin::Fixture {
+            return Ok(());
+        }
         if request.expected.md5.is_none() || request.expected.crc32c.is_none() {
             return Err(AdminError::Invalid(
                 "imported publication requires MD5 and CRC32C".into(),
             ));
         }
-        if request.mode != super::PublishMode::Replace {
+        if request.mode != PublishMode::Replace {
             return Err(AdminError::Invalid(
                 "imported publication requires Replace mode".into(),
             ));
         }
-        self.publish_with_identity(bucket, name, request, Some(identity), body)
-            .await
+        Ok(())
     }
 }
 
@@ -112,19 +108,21 @@ mod tests {
     use super::*;
     use crate::{
         clock::Clock,
-        object::{ExpectedHashes, ObjectMetadataUpdate},
+        object::{ExpectedHashes, ObjectMetadataUpdate, UploadChunk},
         storage::{
             Catalog,
-            admin::{BucketDefinition, GenerationCondition, Origin, PublishMode},
+            admin::{Admin, BucketDefinition, BucketName, GenerationCondition, ObjectName, Origin},
         },
         test_support::TestDir,
     };
     use bytes::Bytes;
     use md5::{Digest, Md5};
     use std::{
+        io,
         sync::Arc,
         time::{Duration, UNIX_EPOCH},
     };
+    use tokio::sync::mpsc;
 
     struct FixedClock;
     impl Clock for FixedClock {
@@ -225,7 +223,7 @@ mod tests {
         let (dir, catalog, admin, bucket, name) = setup(true).await;
         let source = identity(9_000_000_000_000_000);
         let mut record = admin
-            .publish_imported_object(&bucket, &name, request(), source, body())
+            .publish_with_identity(&bucket, &name, request(), Some(source), body())
             .await
             .unwrap();
         assert_eq!(record.generation, source.generation().unwrap().get());
@@ -236,13 +234,13 @@ mod tests {
         assert_eq!(record.md5, request().expected.md5.unwrap());
         assert_eq!(record.crc32c, request().expected.crc32c.unwrap());
         admin
-            .publish_imported_object(&bucket, &name, request(), identity(7), body())
+            .publish_with_identity(&bucket, &name, request(), Some(identity(7)), body())
             .await
             .unwrap();
         record.time_deleted = Some(FixedClock.now());
         assert_eq!(
             admin
-                .publish_imported_object(&bucket, &name, request(), source, body())
+                .publish_with_identity(&bucket, &name, request(), Some(source), body())
                 .await,
             Err(AdminError::Precondition)
         );
@@ -265,7 +263,7 @@ mod tests {
         stale.condition = Some(GenerationCondition::Is(source.generation().unwrap()));
         assert_eq!(
             admin
-                .publish_imported_object(&bucket, &name, stale, identity(8), body())
+                .publish_with_identity(&bucket, &name, stale, Some(identity(8)), body())
                 .await,
             Err(AdminError::Precondition)
         );
@@ -302,19 +300,24 @@ mod tests {
             .publish_object(&bucket, &name, request(), body())
             .await
             .unwrap();
-        for field in ["md5", "crc32c", "missing"] {
+        for field in ["md5", "crc32c", "missing", "missing_md5", "missing_crc32c"] {
             let mut invalid = request();
             match field {
                 "md5" => invalid.expected.md5 = Some([0; 16]),
                 "crc32c" => invalid.expected.crc32c = Some(0),
+                "missing_md5" => invalid.expected.md5 = None,
+                "missing_crc32c" => invalid.expected.crc32c = None,
                 _ => invalid.expected = ExpectedHashes::default(),
             }
             let failure = admin
-                .publish_imported_object(&bucket, &name, invalid, identity(i64::MAX), body())
+                .publish_with_identity(&bucket, &name, invalid, Some(identity(i64::MAX)), body())
                 .await
                 .unwrap_err();
-            if field == "missing" {
-                assert!(matches!(failure, AdminError::Invalid(_)));
+            if field.starts_with("missing") {
+                assert_eq!(
+                    failure,
+                    AdminError::Invalid("imported publication requires MD5 and CRC32C".into())
+                );
             } else {
                 assert_eq!(failure, AdminError::Checksum);
             }
@@ -351,12 +354,14 @@ mod tests {
         ] {
             let mut input = request();
             input.mode = mode;
-            assert!(matches!(
+            assert_eq!(
                 admin
-                    .publish_imported_object(&bucket, &name, input, identity(i64::MAX), body())
+                    .publish_with_identity(&bucket, &name, input, Some(identity(i64::MAX)), body())
                     .await,
-                Err(AdminError::Invalid(_))
-            ));
+                Err(AdminError::Invalid(
+                    "imported publication requires Replace mode".into()
+                ))
+            );
             assert_eq!(
                 admin.get_object(&bucket, &name, None).await.unwrap(),
                 original
@@ -364,7 +369,7 @@ mod tests {
             assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
         }
         let imported = admin
-            .publish_imported_object(&bucket, &name, request(), identity(7), body())
+            .publish_with_identity(&bucket, &name, request(), Some(identity(7)), body())
             .await
             .unwrap();
         assert_eq!(imported.generation, 7);
@@ -377,11 +382,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fixture_identity_keeps_hashes_optional() {
+        let (_dir, catalog, admin, bucket, name) = setup(false).await;
+        let source = identity(7);
+        let fixture =
+            ImportedIdentity::fixture(source.generation(), source.time_created(), source.updated())
+                .unwrap();
+        let mut input = request();
+        input.expected = ExpectedHashes::default();
+        let record = admin
+            .publish_with_identity(&bucket, &name, input, Some(fixture), body())
+            .await
+            .unwrap();
+        assert_eq!(record.generation, 7);
+        assert_eq!(record.md5, request().expected.md5.unwrap());
+        assert_eq!(record.crc32c, request().expected.crc32c.unwrap());
+        assert_eq!(
+            (record.time_created, record.updated),
+            (fixture.time_created(), fixture.updated())
+        );
+        catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn imported_identity_collision_is_atomic_and_exhaustion_is_safe() {
         let (_dir, catalog, admin, bucket, name) = setup(false).await;
         let (left, right) = tokio::join!(
-            admin.publish_imported_object(&bucket, &name, request(), identity(i64::MAX), body()),
-            admin.publish_imported_object(&bucket, &name, request(), identity(i64::MAX), body()),
+            admin.publish_with_identity(
+                &bucket,
+                &name,
+                request(),
+                Some(identity(i64::MAX)),
+                body()
+            ),
+            admin.publish_with_identity(
+                &bucket,
+                &name,
+                request(),
+                Some(identity(i64::MAX)),
+                body()
+            ),
         );
         assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
         assert_eq!(left.err().or(right.err()), Some(AdminError::Precondition));
@@ -401,12 +441,12 @@ mod tests {
         );
         let other = ObjectName::new("other").unwrap();
         admin
-            .publish_imported_object(&bucket, &other, request(), identity(i64::MAX), body())
+            .publish_with_identity(&bucket, &other, request(), Some(identity(i64::MAX)), body())
             .await
             .unwrap();
         let third = ObjectName::new("third").unwrap();
         admin
-            .publish_imported_object(&bucket, &third, request(), identity(2), body())
+            .publish_with_identity(&bucket, &third, request(), Some(identity(2)), body())
             .await
             .unwrap();
         catalog.close().await.unwrap();

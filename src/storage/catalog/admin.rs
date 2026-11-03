@@ -711,6 +711,9 @@ impl Admin {
         identity: Option<ImportedIdentity>,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<ObjectRecord, AdminError> {
+        if let Some(identity) = identity {
+            identity.validate_publication(&request)?;
+        }
         if identity.and_then(ImportedIdentity::time_deleted).is_some() {
             return Err(AdminError::Invalid(
                 "archived identities require imported file-batch publication".into(),

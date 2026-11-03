@@ -93,10 +93,18 @@ and file publication remain pending, and `DESIGN-072` stays PARTIAL.
 
 `storage::admin::ImportedIdentity::new` validates a typed positive generation
 and representable, exact microsecond `SystemTime` values before upload starts.
-`Admin::publish_imported_object` requires both source hashes in `Publication`;
-the existing streaming upload verifies them against the immutable staged bytes.
-The supported mode is Replace. The importer supplies supported metadata and
-explicit hold values; default-hold exceptions belong to shared-publication-modes.
+`Admin::publish_with_identity` and `Admin::publish_import_objects` require both
+source hashes in `Publication` for identities created by `ImportedIdentity::new`.
+Batch entries are checked before their staged bytes are bound to imported
+identities; streaming publication checks before staging begins. The existing
+upload paths verify the hashes against the immutable staged bytes. The supported import mode is
+Replace. Identities created by `ImportedIdentity::fixture` keep the direct fixture
+contract: supplied hashes are verified and both remain optional. Appendable
+finalization uses the lower shared publication path and keeps its existing
+checksum behavior. The filesystem importer already supplies both hashes and
+Replace mode, so this guard does not change its behavior. The importer supplies
+supported metadata and explicit hold values; default-hold exceptions belong to
+shared-publication-modes.
 Metageneration starts at one and ETags retain existing generated behavior.
 
 `objects::GenerationAssignment` adds only Automatic/Imported selection to the
