@@ -4,6 +4,139 @@ use common::TestDir;
 use common::effects::Server;
 use serde_json::{Value, json};
 
+#[test]
+fn stale_conditions_and_invalid_storage_classes_keep_wire_precedence() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, false);
+    server.bucket();
+    server.put("source", b"source").json_ok();
+    let before = server.put("held", b"preserved").json_ok();
+    for class in ["REGIONAL", "standard", "UNKNOWN"] {
+        let metadata = json!({"name":"held","storageClass":class}).to_string();
+        let bucket_metadata = json!({"storageClass":class}).to_string();
+        let multipart = format!(
+            "--boundary\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--boundary\r\nContent-Type: text/plain\r\n\r\nx\r\n--boundary--\r\n"
+        );
+        for (label, method, path, headers, body) in [
+            (
+                "bucket-patch",
+                "PATCH",
+                "/storage/v1/b/test-bucket?ifMetagenerationMatch=0",
+                "",
+                bucket_metadata.as_bytes(),
+            ),
+            (
+                "bucket-put",
+                "PUT",
+                "/storage/v1/b/test-bucket?ifMetagenerationMatch=0",
+                "",
+                bucket_metadata.as_bytes(),
+            ),
+            (
+                "resumable",
+                "POST",
+                "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=held&ifGenerationMatch=0",
+                "",
+                metadata.as_bytes(),
+            ),
+            (
+                "multipart",
+                "POST",
+                "/upload/storage/v1/b/test-bucket/o?uploadType=multipart&ifGenerationMatch=0",
+                "Content-Type: multipart/related; boundary=boundary\r\n",
+                multipart.as_bytes(),
+            ),
+            (
+                "copy-destination",
+                "POST",
+                "/storage/v1/b/test-bucket/o/source/copyTo/b/test-bucket/o/held?ifGenerationMatch=0",
+                "",
+                metadata.as_bytes(),
+            ),
+            (
+                "rewrite-destination",
+                "POST",
+                "/storage/v1/b/test-bucket/o/source/rewriteTo/b/test-bucket/o/held?ifGenerationMatch=0",
+                "",
+                metadata.as_bytes(),
+            ),
+            (
+                "copy-source",
+                "POST",
+                "/storage/v1/b/test-bucket/o/source/copyTo/b/test-bucket/o/held?ifSourceGenerationMatch=0",
+                "",
+                metadata.as_bytes(),
+            ),
+            (
+                "rewrite-source",
+                "POST",
+                "/storage/v1/b/test-bucket/o/source/rewriteTo/b/test-bucket/o/held?ifSourceGenerationMatch=0",
+                "",
+                metadata.as_bytes(),
+            ),
+        ] {
+            let reply = common::http::Client {
+                address: &server.address,
+                host: "localhost",
+                headers: if label == "multipart" {
+                    ""
+                } else {
+                    "Content-Type: application/json\r\n"
+                },
+                timeout: std::time::Duration::from_secs(10),
+            }
+            .request_eof(method, path, headers, body)
+            .into_joined();
+            let value: Value = serde_json::from_slice(&reply.body).unwrap();
+            let (status, reason, message) = if label.ends_with("-source") {
+                (
+                    412,
+                    "conditionNotMet",
+                    "At least one of the pre-conditions you specified did not hold.".to_owned(),
+                )
+            } else if class == "REGIONAL" {
+                (400, "badRequest", if matches!(label, "resumable" | "multipart") {
+                    "gcs-mimic does not support object API setting storageClass=REGIONAL: storageClass requires a region or zone; omit this option or header (for example, use projection=noAcl)."
+                } else {
+                    "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
+                }.to_owned())
+            } else {
+                (400, "invalid", match label {
+                    "bucket-patch" | "bucket-put" => format!("Invalid storage class \"{class}\""),
+                    "resumable" | "multipart" => "Invalid object storageClass; use STANDARD, NEARLINE, COLDLINE or ARCHIVE".into(),
+                    _ => "The storage class you specified is not valid.".into(),
+                })
+            };
+            assert_eq!(reply.status, status, "{label} {class}");
+            assert_eq!(
+                value["error"]["errors"][0]["reason"], reason,
+                "{label} {class}"
+            );
+            assert_eq!(value["error"]["message"], message, "{label} {class}");
+        }
+        let reply = server.request(
+            "PUT",
+            "/test-bucket/held",
+            &format!("x-goog-storage-class: {class}\r\nx-goog-if-generation-match: 0\r\n"),
+            b"x",
+        );
+        assert_eq!(reply.status, 400, "xml {class}");
+        let message = if class == "REGIONAL" {
+            "gcs-mimic does not support XML API storageClass=REGIONAL: storageClass requires a region or zone; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
+        } else {
+            "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE."
+        };
+        assert_eq!(
+            String::from_utf8(reply.body).unwrap(),
+            format!(
+                "<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>{message}</Message></Error>"
+            ),
+            "xml {class}"
+        );
+        assert_eq!(server.get("held").json_ok(), before, "{class}");
+    }
+}
+
 fn update(server: &Server, method: &str, value: Value) -> common::effects::Reply {
     server.update(method, "held", &value)
 }
