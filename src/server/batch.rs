@@ -66,7 +66,7 @@ async fn execute(
     let permit = PARSERS
         .acquire()
         .await
-        .map_err(|_| invalid("Batch parser unavailable"))?;
+        .map_err(|_| parser_unavailable())?;
     let api_base_url = ctx.endpoints.api_base_url.clone();
     let parts = crate::task::spawn_blocking("batch-parser", move || {
         let _permit = permit;
@@ -111,6 +111,10 @@ async fn execute(
 
 fn parser_failed() -> JsonError {
     JsonError::service_unavailable("Batch parser failed")
+}
+
+fn parser_unavailable() -> JsonError {
+    JsonError::service_unavailable("Batch parser unavailable")
 }
 
 fn too_large() -> JsonError {
@@ -208,6 +212,18 @@ async fn append_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parser_worker_failures_are_retryable_server_errors() {
+        for (error, message) in [
+            (parser_failed(), "Batch parser failed"),
+            (parser_unavailable(), "Batch parser unavailable"),
+        ] {
+            assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(error.reason, "backendError");
+            assert_eq!(error.message, message);
+        }
+    }
 
     #[tokio::test]
     async fn oversized_part_responses_keep_complete_error_framing_and_content_ids() {
