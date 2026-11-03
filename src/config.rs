@@ -4,7 +4,7 @@ use crate::config_input::Fix as SettingFix;
 use crate::{
     auth::AuthMode,
     bucket::bucket_location,
-    config_input::{CliCommand, Input, InputError, InputKind, Inputs},
+    config_input::{CliCommand, Input, InputError, InputKind, Inputs, LEGACY_PREFIX},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     url::PublicOrigin,
 };
@@ -34,21 +34,21 @@ const CONFIG_VALUE_FIX: &str =
 macro_rules! string_enum {
     ($(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:literal) => {
+    } $error:expr) => {
         $crate::config::string_enum! { @impl [Default] $(#[$meta])* $vis enum $name {
             $($(#[$variant_meta])* $variant => $value),+
         } $error }
     };
     (no_default $(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:literal) => {
+    } $error:expr) => {
         $crate::config::string_enum! { @impl [] $(#[$meta])* $vis enum $name {
             $($(#[$variant_meta])* $variant => $value),+
         } $error }
     };
     (@impl [$($derive:ident),*] $(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:literal) => {
+    } $error:expr) => {
         $(#[$meta])*
         #[derive(Clone, Copy, Debug, PartialEq, Eq, $($derive),*)]
         $vis enum $name {
@@ -378,7 +378,7 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
                     key: key.clone(),
                     name: key.clone(),
                     value: text.clone().unwrap_or_default(),
-                    kind: if key.starts_with("FAKE_GCS_") {
+                    kind: if key.starts_with(LEGACY_PREFIX) {
                         InputKind::UnknownLegacy
                     } else {
                         InputKind::Native
@@ -538,7 +538,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
 }
 
 fn unknown_setting() -> SettingFix {
-    "Unknown setting; remove it and use --help.".into()
+    setting::UNKNOWN_SETTING.into()
 }
 
 fn apply_network_setting(

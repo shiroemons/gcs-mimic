@@ -1,5 +1,7 @@
 use super::{SettingFix, bounded, unknown_setting};
 
+pub(super) const UNKNOWN_SETTING: &str = "Unknown setting; remove it and use --help.";
+
 super::string_enum! {
     no_default pub(crate) enum Setting {
         Config => "config",
@@ -52,34 +54,65 @@ super::string_enum! {
         EventObjectPrefix => "event_object_prefix",
         EventList => "event_list",
     }
-    "Unknown setting; remove it and use --help."
+    UNKNOWN_SETTING
 }
 
-const INTEGER_BOUNDS: &[(Setting, u64, u64)] = &[
-    (Setting::TlsHandshakeTimeoutMs, 1, 60_000),
-    (Setting::MemoryMaxBytes, 1, 1024 * 1024 * 1024),
-    (
-        Setting::MemoryCatalogMaxBytes,
-        1024 * 1024,
-        1024 * 1024 * 1024,
-    ),
-    (Setting::MaxConnections, 1, 1024),
-    (Setting::MaxObjectBytes, 1, 5 * 1024_u64.pow(4)),
-    (Setting::WorkerThreads, 1, 32),
-    (Setting::MaxBlockingThreads, 1, 32),
-    (Setting::ConnectionTimeoutMs, 1, 60_000),
-    (Setting::KeepAliveTimeoutMs, 1, 600_000),
-    (Setting::ObjectRequestTimeoutMs, 1, 86_400_000),
-    (Setting::CatalogWaitTimeoutMs, 1, 60_000),
-    (Setting::ShutdownTimeoutMs, 1, 60_000),
-];
-
 impl Setting {
+    const fn bounds(self) -> Option<(u64, u64)> {
+        match self {
+            Self::TlsHandshakeTimeoutMs
+            | Self::ConnectionTimeoutMs
+            | Self::CatalogWaitTimeoutMs
+            | Self::ShutdownTimeoutMs => Some((1, 60_000)),
+            Self::MemoryMaxBytes => Some((1, 1024 * 1024 * 1024)),
+            Self::MemoryCatalogMaxBytes => Some((1024 * 1024, 1024 * 1024 * 1024)),
+            Self::MaxConnections => Some((1, 1024)),
+            Self::MaxObjectBytes => Some((1, 5 * 1024_u64.pow(4))),
+            Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 32)),
+            Self::KeepAliveTimeoutMs => Some((1, 600_000)),
+            Self::ObjectRequestTimeoutMs => Some((1, 86_400_000)),
+            Self::Config
+            | Self::LogLevel
+            | Self::Listen
+            | Self::ListenHttp
+            | Self::GrpcListen
+            | Self::UnixSocket
+            | Self::Scheme
+            | Self::TlsCert
+            | Self::TlsKey
+            | Self::DataDir
+            | Self::Backend
+            | Self::SeedDir
+            | Self::DefaultSeedDir
+            | Self::SeedProject
+            | Self::SeedContentType
+            | Self::SyncDir
+            | Self::SyncDeleteGuard
+            | Self::SyncReinitialize
+            | Self::DefaultLocation
+            | Self::DefaultSoftDeleteRetentionSeconds
+            | Self::BucketsFile
+            | Self::ApiBaseUrl
+            | Self::PublicBaseUrl
+            | Self::AdminEnabled
+            | Self::AdminPrincipal
+            | Self::LocalCreatorEmail
+            | Self::XmlVirtualHostDomains
+            | Self::AuthMode
+            | Self::CompatProfile
+            | Self::CorsFallback
+            | Self::IdentityFile
+            | Self::PubsubEmulatorHost
+            | Self::EventPubsubProjectId
+            | Self::EventPubsubTopic
+            | Self::EventBucket
+            | Self::EventObjectPrefix
+            | Self::EventList => None,
+        }
+    }
+
     pub(super) fn integer(self, value: &str) -> Result<u64, SettingFix> {
-        let (_, minimum, maximum) = INTEGER_BOUNDS
-            .iter()
-            .find(|(setting, _, _)| *setting == self)
-            .ok_or_else(unknown_setting)?;
-        bounded(self.as_str(), value, *minimum, *maximum)
+        let (minimum, maximum) = self.bounds().ok_or_else(unknown_setting)?;
+        bounded(self.as_str(), value, minimum, maximum)
     }
 }

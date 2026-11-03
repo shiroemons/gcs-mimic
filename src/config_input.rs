@@ -14,6 +14,7 @@ pub(crate) const MAX_SETTINGS: usize = 1024;
 /// The extra three pairs reserve two command words and two overflow pairs; equality detects take() truncation.
 pub const MAX_CLI_ARGS: usize = 2 * (MAX_SETTINGS + 3);
 pub(crate) const MAX_KEY_BYTES: usize = 256;
+pub(crate) const LEGACY_PREFIX: &str = "FAKE_GCS_";
 
 pub(crate) fn ordered_members<'de, D, V>(
     deserializer: D,
@@ -242,7 +243,7 @@ impl Inputs {
             .into_iter()
             .filter(|(key, _)| {
                 key.as_encoded_bytes().starts_with(b"GCS_MIMIC_")
-                    || key.as_encoded_bytes().starts_with(b"FAKE_GCS_")
+                    || key.as_encoded_bytes().starts_with(LEGACY_PREFIX.as_bytes())
                     || key == "PUBSUB_EMULATOR_HOST"
             })
             .take(MAX_SETTINGS + 1)
@@ -266,7 +267,7 @@ impl Inputs {
                 ));
                 continue;
             };
-            let suffix = key.strip_prefix("FAKE_GCS_");
+            let suffix = key.strip_prefix(LEGACY_PREFIX);
             let legacy = suffix.is_some_and(|s| LEGACY.iter().any(|(known, _)| *known == s));
             let name = suffix
                 .or_else(|| key.strip_prefix("GCS_MIMIC_"))
