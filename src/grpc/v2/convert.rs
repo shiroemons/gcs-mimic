@@ -1,7 +1,7 @@
 use super::pb;
 use crate::{
     acl::{AclEntry, AclKind},
-    bucket::BucketRecord,
+    bucket::{BucketRecord, CatalogError},
     json::acl::AclOwner,
     object::{ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
 };
@@ -109,14 +109,15 @@ pub(crate) fn bucket(record: &BucketRecord) -> Result<pb::Bucket, tonic::Status>
         .retention_policy
         .as_ref()
         .map(|policy| {
-            Ok::<_, ObjectError>(pb::bucket::RetentionPolicy {
+            Ok::<_, CatalogError>(pb::bucket::RetentionPolicy {
                 effective_time: Some(policy.effective_time.into()),
                 is_locked: policy.is_locked,
                 retention_duration: Some(Duration {
                     seconds: crate::grpc::convert::signed(
                         policy.retention_period,
                         "retention_period",
-                    )?,
+                    )
+                    .map_err(crate::storage::failure::unavailable)?,
                     nanos: 0,
                 }),
             })
@@ -126,13 +127,14 @@ pub(crate) fn bucket(record: &BucketRecord) -> Result<pb::Bucket, tonic::Status>
         .soft_delete_policy
         .as_ref()
         .map(|policy| {
-            Ok::<_, ObjectError>(pb::bucket::SoftDeletePolicy {
+            Ok::<_, CatalogError>(pb::bucket::SoftDeletePolicy {
                 effective_time: Some(policy.effective_time.into()),
                 retention_duration: Some(Duration {
                     seconds: crate::grpc::convert::signed(
                         policy.retention_duration_seconds,
                         "retention_duration_seconds",
-                    )?,
+                    )
+                    .map_err(crate::storage::failure::unavailable)?,
                     nanos: 0,
                 }),
             })
@@ -206,13 +208,69 @@ fn millis(time: std::time::SystemTime) -> Timestamp {
     unix_nanos_timestamp(UnixNanos::from(time).floor_to_millis())
 }
 
-pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status> {
-    let custom_time = record.custom_time.as_ref().map(|time| {
-        crate::object::custom_time_key(time)
-            .map(|(seconds, nanos)| Timestamp { seconds, nanos: i32::try_from(nanos).unwrap_or_default() })
-            .map_err(|_| tonic::Status::internal("Stored customTime is invalid; repair the catalog or restore a valid backup"))
-    }).transpose()?;
-    let (size, component_count) = object_integers(record)?;
+const INVALID_CUSTOM_TIME: &str =
+    "Stored customTime is invalid; repair the catalog or restore a valid backup";
+
+#[derive(Debug)]
+pub(crate) enum ObjectConversionError {
+    InvalidCustomTime(ObjectError),
+    Storage(ObjectError),
+}
+
+impl std::fmt::Display for ObjectConversionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidCustomTime(_) => formatter.write_str(INVALID_CUSTOM_TIME),
+            Self::Storage(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for ObjectConversionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidCustomTime(error) | Self::Storage(error) => Some(error),
+        }
+    }
+}
+
+impl From<ObjectError> for ObjectConversionError {
+    fn from(error: ObjectError) -> Self {
+        Self::Storage(error)
+    }
+}
+
+impl From<ObjectConversionError> for tonic::Status {
+    fn from(error: ObjectConversionError) -> Self {
+        match error {
+            ObjectConversionError::InvalidCustomTime(_) => Self::internal(INVALID_CUSTOM_TIME),
+            ObjectConversionError::Storage(error) => error.into(),
+        }
+    }
+}
+
+impl From<ObjectConversionError> for ObjectError {
+    fn from(error: ObjectConversionError) -> Self {
+        match error {
+            ObjectConversionError::InvalidCustomTime(_) => Self::InvalidMetadata,
+            ObjectConversionError::Storage(error) => error,
+        }
+    }
+}
+
+pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversionError> {
+    let custom_time = record
+        .custom_time
+        .as_ref()
+        .map(|time| {
+            crate::object::custom_time_key(time)
+                .map(|(seconds, nanos)| Timestamp {
+                    seconds,
+                    nanos: i32::try_from(nanos).unwrap_or_default(),
+                })
+                .map_err(ObjectConversionError::InvalidCustomTime)
+        })
+        .transpose()?;
     Ok(pb::Object {
         name: record.name.clone(),
         bucket: format!("projects/_/buckets/{}", record.bucket),
@@ -220,7 +278,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         etag: crate::json::object_etag(record),
         generation: record.generation,
         metageneration: record.metageneration,
-        size,
+        size: crate::grpc::convert::signed(record.size, "size")?,
         storage_class: record.storage_class.clone(),
         content_type: record.content_type.clone(),
         content_encoding: record.content_encoding.clone().unwrap_or_default(),
@@ -259,7 +317,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
                 encryption_algorithm: crate::csek::ALGORITHM.into(),
                 key_sha256_bytes: sha256.to_vec(),
             }),
-        component_count,
+        component_count: crate::grpc::convert::component_count(record.component_count)?,
         temporary_hold: record.temporary_hold == Some(true),
         // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
         // the three states exist only in the JSON resource.
@@ -280,19 +338,6 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         custom_time,
         ..Default::default()
     })
-}
-
-fn object_integers(record: &ObjectRecord) -> Result<(i64, i32), ObjectError> {
-    Ok((
-        crate::grpc::convert::signed(record.size, "size")?,
-        crate::grpc::convert::component_count(record.component_count)?,
-    ))
-}
-
-/// Completion callbacks must keep storage corruption distinct from rejected metadata.
-pub(super) fn completion_object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
-    object_integers(record)?;
-    object(record).map_err(|_| ObjectError::InvalidMetadata)
 }
 
 /// Object ACL entries rendered by the shared JSON renderer, so IDs, etags and entity details
@@ -337,6 +382,32 @@ mod tests {
     };
 
     #[test]
+    fn out_of_range_bucket_durations_keep_catalog_corruption_guidance() {
+        let record = crate::storage::test_fixtures::bucket("bucket", "project");
+        for invalid in [
+            BucketRecord {
+                retention_policy: Some(crate::bucket::RetentionPolicy {
+                    retention_period: u64::MAX,
+                    effective_time: UNIX_EPOCH,
+                    is_locked: false,
+                }),
+                ..record.clone()
+            },
+            BucketRecord {
+                soft_delete_policy: Some(crate::bucket::SoftDeletePolicy {
+                    retention_duration_seconds: u64::MAX,
+                    effective_time: UNIX_EPOCH,
+                }),
+                ..record
+            },
+        ] {
+            let status = bucket(&invalid).unwrap_err();
+            assert_eq!(status.code(), tonic::Code::Unavailable);
+            assert_eq!(status.message(), "Bucket catalog is unavailable");
+        }
+    }
+
+    #[test]
     fn completion_encoders_keep_integer_corruption_and_metadata_errors_distinct() {
         let record = crate::grpc::test_support::object_record("bucket", std::time::UNIX_EPOCH);
         for invalid in [
@@ -349,20 +420,27 @@ mod tests {
                 ..record.clone()
             },
         ] {
-            assert!(matches!(
-                completion_object(&invalid),
-                Err(ObjectError::Corrupt(_))
-            ));
+            let error = object(&invalid).unwrap_err();
+            assert!(
+                std::error::Error::source(&error)
+                    .unwrap()
+                    .is::<ObjectError>()
+            );
+            assert!(matches!(ObjectError::from(error), ObjectError::Corrupt(_)));
             assert_eq!(
-                object(&invalid).unwrap_err().code(),
+                object(&invalid)
+                    .map_err(tonic::Status::from)
+                    .unwrap_err()
+                    .code(),
                 tonic::Code::Unavailable
             );
         }
         assert!(matches!(
-            completion_object(&ObjectRecord {
+            object(&ObjectRecord {
                 custom_time: Some("corrupt".into()),
                 ..record
-            }),
+            })
+            .map_err(ObjectError::from),
             Err(ObjectError::InvalidMetadata)
         ));
     }
@@ -509,6 +587,7 @@ mod tests {
                 custom_time: Some("corrupt".into()),
                 ..record
             })
+            .map_err(tonic::Status::from)
             .unwrap_err()
             .code(),
             tonic::Code::Internal

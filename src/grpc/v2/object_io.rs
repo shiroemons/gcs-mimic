@@ -709,7 +709,7 @@ impl Storage {
             .items
             .iter()
             .map(convert::object)
-            .collect::<Result<Vec<_>, Status>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
         self.add_owner_fields(
             caller,
             bucket,
@@ -1027,7 +1027,7 @@ impl Storage {
                 self.state
                     .catalog
                     .write_resumable_session(lease, chunk, rx, permit, |record| {
-                        let resource = convert::completion_object(record)?;
+                        let resource = convert::object(record)?;
                         serde_json::to_value(resource.encode_to_vec())
                             .map_err(|_| ObjectError::InvalidMetadata)
                     });

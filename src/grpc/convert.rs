@@ -5,7 +5,7 @@ use crate::{object::ObjectError, storage::failure::BackendCause};
 pub(super) fn signed(value: u64, field: &str) -> Result<i64, ObjectError> {
     i64::try_from(value).map_err(|error| {
         ObjectError::Corrupt(BackendCause::with_source(
-            format!("Stored {field} value {value} is outside the protobuf int64 range"),
+            format!("{field} value {value} is outside the protobuf int64 range"),
             error,
         ))
     })
@@ -15,7 +15,7 @@ pub(super) fn component_count(value: Option<i64>) -> Result<i32, ObjectError> {
     let value = value.unwrap_or_default();
     i32::try_from(value).map_err(|error| {
         ObjectError::Corrupt(BackendCause::with_source(
-            format!("Stored component_count value {value} is outside the protobuf int32 range"),
+            format!("component_count value {value} is outside the protobuf int32 range"),
             error,
         ))
     })
@@ -50,7 +50,7 @@ mod tests {
         ] {
             assert!(matches!(&error, ObjectError::Corrupt(_)));
             assert!(error.source().unwrap().is::<std::num::TryFromIntError>());
-            assert!(error.to_string().contains("Stored "));
+            assert!(error.to_string().contains(" value "));
             let status = tonic::Status::from(error);
             assert_eq!(status.code(), tonic::Code::Unavailable);
             assert_eq!(

@@ -585,7 +585,14 @@ impl Storage {
             owner = Some(guard);
             token
         };
-        let progress=self.state.catalog.continue_rewrite(&token,read,create,|record|Ok(json!({"proto":prost::Message::encode_to_vec(&convert::completion_object(record)?)}))).await.map_err(rewrite_error)?;
+        let progress = self
+            .state
+            .catalog
+            .continue_rewrite(&token, read, create, |record| {
+                Ok(json!({"proto":prost::Message::encode_to_vec(&convert::object(record)?)}))
+            })
+            .await
+            .map_err(rewrite_error)?;
         let resource = progress
             .resource
             .map(|v| {
