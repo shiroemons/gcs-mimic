@@ -451,34 +451,6 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
 }
 
 #[tokio::test]
-async fn timestamp_version_fourteen_reopen_preserves_timestamps() {
-    let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    let mut original = bucket("timestamp-reopen", "project");
-    original.time_created = UNIX_EPOCH + Duration::from_micros(42_123_456);
-    original.updated = UNIX_EPOCH + Duration::from_micros(43_987_654);
-    let original = catalog.insert_bucket(original).await.unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        CATALOG_SCHEMA_VERSION
-    );
-    drop(connection);
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    assert_eq!(
-        catalog
-            .get_bucket("timestamp-reopen", PERMISSIVE)
-            .await
-            .unwrap(),
-        Some(original)
-    );
-    catalog.close().await.unwrap();
-}
-
-#[tokio::test]
 async fn pap_migrates_version_twelve_and_persists_configured_state() {
     let dir = TestDir::new();
     let (catalog, original) = migrated(&dir, bucket("pap-migration", "project"), |connection| {
@@ -933,11 +905,11 @@ async fn create_get_delete_and_restart_preserve_every_field() {
     let mut expected = bucket("bucket", "project");
     expected.versioning_enabled = true;
     expected.default_event_based_hold = true;
+    expected.time_created = UNIX_EPOCH + Duration::from_micros(42_123_456);
+    expected.updated = UNIX_EPOCH + Duration::from_micros(43_987_654);
     let created = catalog.insert_bucket(expected.clone()).await.unwrap();
-    expected.time_created = UNIX_EPOCH + Duration::from_millis(42_123);
-    expected.updated = UNIX_EPOCH + Duration::from_millis(43_987);
     // The catalog assigns the generation; the first one is the creation time in nanoseconds.
-    expected.generation = 42_123_000_000;
+    expected.generation = 42_123_456_000;
     assert_eq!(created, expected);
     assert_eq!(
         catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
@@ -949,7 +921,10 @@ async fn create_get_delete_and_restart_preserve_every_field() {
             .await,
         Err(CatalogError::AlreadyExists)
     );
-    drop(catalog);
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_current_schema(&connection);
+    drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
         catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
@@ -973,7 +948,7 @@ async fn create_get_delete_and_restart_preserve_every_field() {
             .await,
         Err(CatalogError::NotFound)
     );
-    drop(catalog);
+    catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
         catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
