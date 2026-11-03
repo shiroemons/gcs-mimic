@@ -2191,9 +2191,8 @@ mod tests {
 
     async fn bucket_metadata_rechecks_revocation(mode: BucketWrite) {
         use crate::auth::{BUCKETS_UPDATE, Binding};
-        let directory =
-            std::env::temp_dir().join(format!("gcs-mimic-policy-{mode:?}-{}", std::process::id()));
-        let catalog = Catalog::open(&directory).await.unwrap();
+        let directory = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&directory.0).await.unwrap();
         let record =
             crate::json::parse_insert(br#"{"name":"patch-policy"}"#, "project", UNIX_EPOCH)
                 .unwrap();
@@ -2306,7 +2305,6 @@ mod tests {
             Some(replacement)
         );
         catalog.close().await.unwrap();
-        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2398,10 +2396,8 @@ mod tests {
 
     #[test]
     fn immutable_uri_reads_exact_unicode_and_reserved_filename() {
-        let dir = std::env::temp_dir().join(format!(
-            "gcs-mimic-immutable-{}-日本語 # percent%",
-            std::process::id()
-        ));
+        let parent = crate::test_support::TestDir::new();
+        let dir = parent.0.join("日本語 # percent%");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("catalog.sqlite3");
         let writable = Connection::open(&path).unwrap();
@@ -2429,16 +2425,14 @@ mod tests {
         readonly.close().unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
     async fn close_waits_for_cancelled_blocking_work_and_invalidates_clones() {
         use std::{future::Future, task::Poll};
 
-        let dir =
-            std::env::temp_dir().join(format!("gcs-mimic-catalog-close-{}", std::process::id()));
-        let catalog = Catalog::open(&dir).await.unwrap();
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
         let worker = catalog.clone();
         let (started, running) = tokio::sync::oneshot::channel();
         let (release, finish) = std::sync::mpsc::channel();
@@ -2466,16 +2460,15 @@ mod tests {
                 catalog.get_bucket("missing", PERMISSIVE).await,
                 Err(CatalogError::Unavailable(_))
             ));
-            assert!(Catalog::open(&dir).await.is_err());
+            assert!(Catalog::open(&dir.0).await.is_err());
             release.send(()).unwrap();
             close.await.unwrap();
         }
-        let reopened = Catalog::open(&dir).await.unwrap();
+        let reopened = Catalog::open(&dir.0).await.unwrap();
         catalog.close().await.unwrap();
         drop(catalog);
-        assert!(Catalog::open(&dir).await.is_err());
+        assert!(Catalog::open(&dir.0).await.is_err());
         reopened.close().await.unwrap();
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -2540,9 +2533,8 @@ mod tests {
         use crate::server::State;
         use std::sync::atomic::Ordering;
 
-        let dir =
-            std::env::temp_dir().join(format!("gcs-mimic-catalog-poison-{}", std::process::id()));
-        let catalog = Catalog::open(&dir).await.unwrap();
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
         let state = State {
             api_base_url: "http://127.0.0.1:4443".into(),
             ..State::for_test(catalog.clone(), Default::default())
@@ -2580,10 +2572,9 @@ mod tests {
         assert!(catalog.is_healthy());
         assert!(!state.is_ready());
         catalog.close().await.unwrap();
-        Catalog::open(&dir).await.unwrap().close().await.unwrap();
+        Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
         drop(state);
         drop(catalog);
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -2606,9 +2597,8 @@ mod tests {
 
     #[tokio::test]
     async fn admission_is_bounded_and_sqlite_settings_are_explicit() {
-        let dir =
-            std::env::temp_dir().join(format!("gcs-mimic-catalog-settings-{}", std::process::id()));
-        let catalog = Catalog::open(&dir).await.unwrap();
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
         let permits = catalog
             .0
             .admission
@@ -2645,7 +2635,6 @@ mod tests {
             })
             .await
             .unwrap();
-        drop(catalog);
-        std::fs::remove_dir_all(dir).unwrap();
+        catalog.close().await.unwrap();
     }
 }
