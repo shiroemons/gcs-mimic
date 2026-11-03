@@ -1286,6 +1286,7 @@ fn json_response(value: &serde_json::Value) -> Response<Full<Bytes>> {
     json_response_body(value, json::render_body(value))
 }
 
+/// `body` must be `value` rendered in the current request's JSON format.
 fn json_response_body(value: &serde_json::Value, body: String) -> Response<Full<Bytes>> {
     let mut response = Response::new(Full::new(Bytes::from(body)));
     response.headers_mut().insert(

@@ -48,20 +48,33 @@ pub(super) async fn list(
             "GET synchronization controls do not accept a body",
         ));
     }
-    let page = root
+    let mut page = root
         .conflict_page(revision, after, limit, authority)
         .await
         .map_err(error)?;
-    let next = page.next_after.map(|ordinal| {
-        SyncCursor::Conflicts {
-            revision: page.revision.clone(),
-            ordinal,
+    let mut truncated = false;
+    loop {
+        let next = page
+            .items
+            .last()
+            .filter(|_| page.next_after.is_some() || truncated)
+            .map(|item| {
+                SyncCursor::Conflicts {
+                    revision: page.revision.clone(),
+                    ordinal: item.ordinal,
+                }
+                .encode(&prefix)
+            });
+        let value = json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"revision":page.revision,"items":page.items,"quota":page.usage,"next_cursor":next});
+        if let Some(response) = render_within_limit(&value) {
+            return Ok(response);
         }
-        .encode(&prefix)
-    });
-    bounded(
-        &json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"revision":page.revision,"items":page.items,"quota":page.usage,"next_cursor":next}),
-    )
+        if page.items.len() <= 1 {
+            return Err(busy());
+        }
+        page.items.truncate(page.items.len() / 2);
+        truncated = true;
+    }
 }
 
 #[derive(Deserialize)]

@@ -87,5 +87,7 @@ mod tests {
                 "{suffix}"
             );
         }
+        let uppercase_revision = format!("{prefix}{}0000000000000001", "AB".repeat(16));
+        assert!(SyncCursor::decode(&uppercase_revision, &prefix).is_err());
     }
 }

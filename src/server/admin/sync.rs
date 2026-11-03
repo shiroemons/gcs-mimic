@@ -427,9 +427,8 @@ async fn findings_page(
         });
         let value = json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"view":"findings","revision":revision,
             "total_count":observation.mapping_findings+observation.pending_writeback+observation.path_stops+observation.unresolved_conflicts+u64::from(observation.paused_reason.is_some())+u64::from(observation.scan_stop.is_some()),"items":items.iter().map(|item|findings::value(item,&prefix,observation.writeback.as_ref())).collect::<Vec<_>>(),"next_cursor":next});
-        let body = json::render_body(&value);
-        if body.len() <= RESPONSE_LIMIT {
-            return Ok(json_response_body(&value, body));
+        if let Some(response) = render_within_limit(&value) {
+            return Ok(response);
         }
         if items.len() <= 1 {
             return Err(busy());
@@ -460,15 +459,15 @@ async fn deletion_page(
         .map_err(|error| root_error(&error))?;
     loop {
         let last = items.last().map_or(after, |item| item.ordinal);
-        let next = ((last as u64) < set.candidate_count)
+        let next = u64::try_from(last)
+            .is_ok_and(|last| last < set.candidate_count)
             .then(|| SyncCursor::Deletions(last).encode(&prefix));
         let value = json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"view":"deletions","revision":set.revision,
             "total_count":set.candidate_count,"scan_revision":set.scan_revision,"journal_fence":set.journal_fence,
             "baseline_count":set.baseline_count,"candidate_count":set.candidate_count,"guard_enabled":set.guard_enabled,
             "min_objects":100,"percent":50,"items":items,"next_cursor":next});
-        let body = json::render_body(&value);
-        if body.len() <= RESPONSE_LIMIT {
-            return Ok(json_response_body(&value, body));
+        if let Some(response) = render_within_limit(&value) {
+            return Ok(response);
         }
         if items.len() <= 1 {
             return Err(busy());
@@ -487,12 +486,12 @@ fn hex(value: &str, len: usize) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 fn bounded(value: &Value) -> Result<Response<Full<Bytes>>, JsonError> {
+    render_within_limit(value).ok_or_else(busy)
+}
+
+fn render_within_limit(value: &Value) -> Option<Response<Full<Bytes>>> {
     let body = json::render_body(value);
-    if body.len() > RESPONSE_LIMIT {
-        Err(busy())
-    } else {
-        Ok(json_response_body(value, body))
-    }
+    (body.len() <= RESPONSE_LIMIT).then(|| json_response_body(value, body))
 }
 fn stale() -> JsonError {
     JsonError::new(
