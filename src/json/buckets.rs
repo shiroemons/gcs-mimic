@@ -1,8 +1,8 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CatalogError, CorsRule, SoftDeletedBucket, StorageClass,
-    UNIFORM_ACCESS_LOCK_PERIOD, bucket_location, cors_from_value, cors_value, valid_label,
-    validate_storage_class,
+    BucketMetadataUpdate, BucketRecord, CorsRule, RETENTION_RANGE_MESSAGE,
+    SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket, StorageClass, UNIFORM_ACCESS_LOCK_PERIOD,
+    bucket_location, cors_from_value, cors_value, valid_label, validate_storage_class,
 };
 use crate::config::CompatProfile;
 use crate::object::unix_nanos::UnixNanos;
@@ -602,12 +602,7 @@ fn update_storage_class(
             .as_str()
             .ok_or_else(|| JsonError::invalid("storageClass must be a string"))?,
     };
-    let class = validate_storage_class(class).map_err(|error| match error {
-        CatalogError::InvalidMetadata(_) => {
-            JsonError::invalid(format!("Invalid storage class \"{class}\""))
-        }
-        error => error.into(),
-    })?;
+    let class = crate::bucket::validate_update_storage_class(class)?;
     Ok(Some(class))
 }
 
@@ -682,11 +677,6 @@ fn int64_setting(value: &Value) -> Result<i64, JsonError> {
         .ok_or_else(|| int64_parse_error(value))
 }
 
-const SOFT_DELETE_RANGE_MESSAGE: &str =
-    "Soft delete policy must have a retention duration between 3 days and 90 days.";
-const RETENTION_RANGE_MESSAGE: &str =
-    "Retention policy must have a retention period greater than 0 and less than 100 years.";
-
 /// The soft-delete retention of a policy member. An absent member, a null policy and an empty
 /// policy all leave the setting alone: Cloud Storage answered a null policy with the unchanged
 /// resource (recorded 2026-10-31).
@@ -703,11 +693,9 @@ fn parse_soft_delete_retention(value: Option<&Value>) -> Result<Option<u64>, Jso
     else {
         return Ok(None);
     };
-    u64::try_from(int64_setting(duration)?)
-        .ok()
-        .filter(|v| *v == 0 || (604800..=7776000).contains(v))
+    crate::bucket::soft_delete_retention(int64_setting(duration)?)
         .map(Some)
-        .ok_or_else(|| JsonError::invalid(SOFT_DELETE_RANGE_MESSAGE))
+        .map_err(Into::into)
 }
 
 /// The retention period of a bucket policy: `None` leaves the policy alone (absent member or an
@@ -726,11 +714,9 @@ fn parse_retention_period(value: Option<&Value>) -> Result<Option<Option<u64>>, 
     let Some(period) = policy.get("retentionPeriod").filter(|v| !v.is_null()) else {
         return Ok(Some(None));
     };
-    u64::try_from(int64_setting(period)?)
-        .ok()
-        .filter(|v| (1..3_155_760_000).contains(v))
+    crate::bucket::retention_period(int64_setting(period)?)
         .map(|period| Some(Some(period)))
-        .ok_or_else(|| JsonError::invalid(RETENTION_RANGE_MESSAGE))
+        .map_err(Into::into)
 }
 
 fn parse_uniform_access(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
@@ -774,8 +760,7 @@ fn parse_public_access_prevention(value: Option<&Value>) -> Result<Option<bool>,
         .get("publicAccessPrevention")
         .filter(|value| !value.is_null())
         .map(|value| match value.as_str() {
-            Some("enforced") => Ok(true),
-            Some("inherited") => Ok(false),
+            Some(value) => crate::bucket::public_access_prevention(value).map_err(Into::into),
             _ => Err(JsonError::invalid(format!(
                 "Invalid value for: {} is not a valid value",
                 value

@@ -1,6 +1,7 @@
 mod append;
 mod bidi_read;
 pub use bidi_read::ReadHandles;
+mod bucket_update;
 mod buckets;
 pub(crate) mod convert;
 pub(crate) mod names;

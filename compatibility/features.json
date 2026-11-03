@@ -20919,7 +20919,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_update_copy_contract",
-          "description": "JSON-shared UpdateBucket subset: atomic preconditions and whole-label-map replacement without implicit conditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "description": "UpdateBucket constructs typed shared updates directly from proto fields, with shared validation, atomic preconditions and whole-label-map replacement without implicit conditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract. An empty iam_config parent mask advances metageneration locally; provider evidence is pending in SPEC-GRPC-EMPTY-IAM-UPDATE.",
           "result": "PASS",
           "test_ids": [
             "grpc_masks_reject_unsupported_and_accept_defaults",
@@ -20947,7 +20947,7 @@
         },
         {
           "id": "grpc_bucket_acl_masks",
-          "description": "acl and default_object_acl masks replace the stored ACLs through the shared JSON validation and catalog; invalid entities and uniform bucket-level access return INVALID_ARGUMENT; strict callers without permission are denied and leave the ACL unchanged; the response carries the ACL fields.",
+          "description": "acl and default_object_acl masks construct shared typed ACL entries directly and replace them through the catalog; invalid entities and uniform bucket-level access return INVALID_ARGUMENT; strict callers without permission are denied and leave the ACL unchanged; the response carries the ACL fields.",
           "result": "PASS",
           "test_ids": [
             "grpc_buckets_acl_read_and_update",

@@ -434,6 +434,44 @@ pub(crate) fn validate_storage_class(storage_class: &str) -> Result<StorageClass
     storage_class.parse()
 }
 
+pub(crate) fn validate_update_storage_class(class: &str) -> Result<StorageClass, CatalogError> {
+    validate_storage_class(class).map_err(|error| match error {
+        CatalogError::InvalidMetadata(_) => {
+            CatalogError::InvalidMetadata(format!("Invalid storage class \"{class}\""))
+        }
+        error => error,
+    })
+}
+
+pub(crate) const SOFT_DELETE_RANGE_MESSAGE: &str =
+    "Soft delete policy must have a retention duration between 3 days and 90 days.";
+pub(crate) const RETENTION_RANGE_MESSAGE: &str =
+    "Retention policy must have a retention period greater than 0 and less than 100 years.";
+
+pub(crate) fn soft_delete_retention(seconds: i64) -> Result<u64, CatalogError> {
+    u64::try_from(seconds)
+        .ok()
+        .filter(|value| *value == 0 || (604800..=7776000).contains(value))
+        .ok_or_else(|| CatalogError::InvalidMetadata(SOFT_DELETE_RANGE_MESSAGE.into()))
+}
+
+pub(crate) fn retention_period(seconds: i64) -> Result<u64, CatalogError> {
+    u64::try_from(seconds)
+        .ok()
+        .filter(|value| (1..3_155_760_000).contains(value))
+        .ok_or_else(|| CatalogError::InvalidMetadata(RETENTION_RANGE_MESSAGE.into()))
+}
+
+pub(crate) fn public_access_prevention(value: &str) -> Result<bool, CatalogError> {
+    match value {
+        "enforced" => Ok(true),
+        "inherited" => Ok(false),
+        _ => Err(CatalogError::InvalidMetadata(format!(
+            "Invalid value for: {value} is not a valid value"
+        ))),
+    }
+}
+
 #[test]
 fn storage_class_validation_keeps_exact_errors() {
     for class in [

@@ -1458,6 +1458,17 @@
       "required_resolution": "Obtain authoritative clarification or authorized provider evidence for expiry and removed-generation reconnection before claiming provider-exact read-handle behavior. Keep the local lifetime, status and resource limits explicit."
     },
     {
+      "id": "SPEC-GRPC-EMPTY-IAM-UPDATE",
+      "title": "Empty gRPC bucket IAM configuration update needs provider evidence",
+      "status": "OPEN",
+      "affected_features": ["RPC-STORAGE-009"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-04",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The typed gRPC bucket update treats every accepted nonempty update_mask as a metadata update. An iam_config parent mask with no present settings preserves UBLA and PAP but advances metageneration. The provider behavior for that empty parent update has not been observed; JSON retains its separately observed empty-message behavior.",
+      "required_resolution": "Observe an empty iam_config parent update on an authorized provider fixture and match its metageneration behavior before claiming exact parity."
+    },
+    {
       "id": "LOCAL-RETENTION-WINDOWS-TICK",
       "title": "Object retention times keep only whole 100 ns ticks on Windows",
       "status": "OPEN",

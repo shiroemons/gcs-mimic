@@ -149,120 +149,6 @@ fn retention(retention: Option<&pb::object::Retention>) -> Result<Value, Status>
     Ok(json!({"mode": mode, "retainUntilTime": until.to_string()}))
 }
 
-fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
-    let mut body = json!({});
-    for path in paths {
-        match path.as_str() {
-            "labels" => {
-                body["labels"] = if b.labels.is_empty() {
-                    Value::Null
-                } else {
-                    json!(b.labels)
-                };
-            }
-            p if p.starts_with("labels.") && p.len() > 7 => {
-                let key = &p[7..];
-                body["labels"][key] = b.labels.get(key).map_or(Value::Null, |v| v.clone().into());
-            }
-            "storage_class" => body["storageClass"] = b.storage_class.clone().into(),
-            "autoclass" | "autoclass.enabled" | "autoclass.terminal_storage_class" => {
-                let autoclass = b.autoclass.clone().unwrap_or_default();
-                if path != "autoclass.terminal_storage_class" {
-                    body["autoclass"]["enabled"] = autoclass.enabled.into();
-                }
-                if path != "autoclass.enabled"
-                    && let Some(class) = autoclass.terminal_storage_class
-                {
-                    body["autoclass"]["terminalStorageClass"] = class.into();
-                }
-            }
-            "versioning" | "versioning.enabled" => {
-                body["versioning"] =
-                    json!({"enabled": b.versioning.as_ref().is_some_and(|v| v.enabled)});
-            }
-            "default_event_based_hold" => {
-                body["defaultEventBasedHold"] = b.default_event_based_hold.into();
-            }
-            "cors" => body["cors"] = super::buckets::cors_json(&b.cors),
-            "lifecycle" | "lifecycle.rule" => {
-                body["lifecycle"] =
-                    json!({"rule": convert::lifecycle_rules(b.lifecycle.as_ref())?});
-            }
-            "retention_policy" | "retention_policy.retention_duration" => {
-                body["retentionPolicy"] = b
-                    .retention_policy
-                    .as_ref()
-                    .and_then(|p| p.retention_duration)
-                    .map_or(
-                        Value::Null,
-                        |d| json!({"retentionPeriod": d.seconds.to_string()}),
-                    );
-                if b.retention_policy.as_ref().is_some_and(|p| p.is_locked) {
-                    return Err(unsupported(
-                        "retention_policy.is_locked; use LockBucketRetentionPolicy",
-                    ));
-                }
-            }
-            "soft_delete_policy" | "soft_delete_policy.retention_duration" => {
-                let duration = b
-                    .soft_delete_policy
-                    .as_ref()
-                    .and_then(|p| p.retention_duration)
-                    .unwrap_or_default();
-                if duration.nanos != 0 {
-                    return Err(unsupported(
-                        "fractional soft delete duration; use whole seconds",
-                    ));
-                }
-                body["softDeletePolicy"] =
-                    json!({"retentionDurationSeconds": duration.seconds.to_string()});
-            }
-            "iam_config" => {
-                // Go uses this parent mask even when only one IAM setting is present.
-                if let Some(iam) = &b.iam_config {
-                    if let Some(uniform) = &iam.uniform_bucket_level_access {
-                        body["iamConfiguration"]["uniformBucketLevelAccess"] =
-                            json!({"enabled": uniform.enabled});
-                    }
-                    if !iam.public_access_prevention.is_empty() {
-                        body["iamConfiguration"]["publicAccessPrevention"] =
-                            iam.public_access_prevention.clone().into();
-                    }
-                }
-            }
-            "iam_config.uniform_bucket_level_access"
-            | "iam_config.uniform_bucket_level_access.enabled" => {
-                let enabled = b
-                    .iam_config
-                    .as_ref()
-                    .and_then(|iam| iam.uniform_bucket_level_access.as_ref())
-                    .is_some_and(|uniform| uniform.enabled);
-                body["iamConfiguration"]["uniformBucketLevelAccess"] = json!({"enabled": enabled});
-            }
-            "acl" => body["acl"] = acl_entries(b.acl.iter().map(|e| (&e.entity, &e.role))),
-            "default_object_acl" => {
-                body["defaultObjectAcl"] =
-                    acl_entries(b.default_object_acl.iter().map(|e| (&e.entity, &e.role)));
-            }
-            "iam_config.public_access_prevention" => {
-                body["iamConfiguration"]["publicAccessPrevention"] = b
-                    .iam_config
-                    .as_ref()
-                    .map(|i| i.public_access_prevention.as_str())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("inherited")
-                    .into();
-            }
-            _ => {
-                return Err(unsupported(&format!(
-                    "UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"
-                )));
-            }
-        }
-    }
-    Ok(body)
-}
-
 fn object_patch(o: &pb::Object, paths: &[String]) -> Result<Value, Status> {
     let mut body = json!({});
     for path in paths {
@@ -805,16 +691,9 @@ impl Storage {
             ..Default::default()
         })?;
         let paths = mask(r.update_mask.as_ref())?;
-        let body = bucket_patch(&b, paths)?;
+        let update = super::bucket_update::from_proto(&b, paths)?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
         let conditions = bucket_conditions!(r);
-        let mut update = json::parse_bucket_patch(
-            body.to_string().as_bytes(),
-            crate::config::CompatProfile::Native,
-        )?;
-        if paths.iter().any(|path| path == "labels") {
-            update.labels_mode = MapMode::Replace;
-        }
         let record = self
             .state
             .catalog
@@ -1051,6 +930,7 @@ impl Storage {
 
 #[cfg(test)]
 mod tests {
+    use super::super::bucket_update::from_proto as bucket_patch;
     use super::*;
     use crate::grpc::test_support::{self as fixtures, assert_code, caller, registry};
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
@@ -1112,20 +992,14 @@ mod tests {
             "iam_config",
         ]
         .map(String::from);
-        assert_eq!(
-            bucket_patch(&bucket, &paths).unwrap(),
-            json!({
-                "autoclass": {"enabled": false},
-                "versioning": {"enabled": false},
-                "retentionPolicy": null,
-                "softDeletePolicy": {"retentionDurationSeconds": "0"},
-                "cors": [],
-                "iamConfiguration": {
-                    "publicAccessPrevention": "inherited",
-                    "uniformBucketLevelAccess": {"enabled": false},
-                },
-            })
-        );
+        let update = bucket_patch(&bucket, &paths).unwrap();
+        assert_eq!(update.autoclass.unwrap().enabled, Some(false));
+        assert_eq!(update.versioning_enabled, Some(false));
+        assert_eq!(update.retention_period, Some(None));
+        assert_eq!(update.soft_delete_retention, Some(0));
+        assert!(update.cors.unwrap().is_empty());
+        assert_eq!(update.public_access_prevention_enforced, Some(false));
+        assert_eq!(update.uniform_bucket_level_access_enabled, Some(false));
         let create = super::super::buckets::create_fields(&bucket, "").unwrap();
         for omitted in [
             "autoclass",
@@ -1210,8 +1084,8 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            bucket_patch(&b, &["labels.keep".into()]).unwrap(),
-            json!({"labels":{"keep":"changed"}})
+            bucket_patch(&b, &["labels.keep".into()]).unwrap().labels,
+            Some(Some([("keep".into(), Some("changed".into()))].into()))
         );
         assert_eq!(
             object_patch(
@@ -1234,20 +1108,37 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            bucket_patch(&autoclass(true, Some("ARCHIVE")), &["autoclass".into()]).unwrap(),
-            json!({"autoclass":{"enabled":true,"terminalStorageClass":"ARCHIVE"}})
+            bucket_patch(&autoclass(true, Some("ARCHIVE")), &["autoclass".into()])
+                .unwrap()
+                .autoclass
+                .unwrap(),
+            crate::bucket::autoclass::AutoclassUpdate {
+                enabled: Some(true),
+                terminal_storage_class: Some("ARCHIVE".into())
+            }
         );
         assert_eq!(
             bucket_patch(
                 &autoclass(true, Some("ARCHIVE")),
                 &["autoclass.terminal_storage_class".into()]
             )
+            .unwrap()
+            .autoclass
             .unwrap(),
-            json!({"autoclass":{"terminalStorageClass":"ARCHIVE"}})
+            crate::bucket::autoclass::AutoclassUpdate {
+                enabled: None,
+                terminal_storage_class: Some("ARCHIVE".into())
+            }
         );
         assert_eq!(
-            bucket_patch(&pb::Bucket::default(), &["autoclass.enabled".into()]).unwrap(),
-            json!({"autoclass":{"enabled":false}})
+            bucket_patch(&pb::Bucket::default(), &["autoclass.enabled".into()])
+                .unwrap()
+                .autoclass
+                .unwrap(),
+            crate::bucket::autoclass::AutoclassUpdate {
+                enabled: Some(false),
+                terminal_storage_class: None
+            }
         );
         let (s, _dir) = setup().await;
         let update = |bucket: pb::Bucket, paths: &[&str]| pb::UpdateBucketRequest {
@@ -1294,17 +1185,18 @@ mod tests {
 
     #[tokio::test]
     async fn grpc_iam_config_updates_preserve_other_setting() {
-        assert_eq!(
-            bucket_patch(&pb::Bucket::default(), &["iam_config".into()]).unwrap(),
-            json!({})
-        );
+        let empty = bucket_patch(&pb::Bucket::default(), &["iam_config".into()]).unwrap();
+        assert_eq!(empty.uniform_bucket_level_access_enabled, None);
+        assert_eq!(empty.public_access_prevention_enforced, None);
+        assert!(empty.touched);
         assert_eq!(
             bucket_patch(
                 &pb::Bucket::default(),
                 &["iam_config.uniform_bucket_level_access.enabled".into()]
             )
-            .unwrap(),
-            json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}})
+            .unwrap()
+            .uniform_bucket_level_access_enabled,
+            Some(false)
         );
         let (s, _dir) = setup().await;
         let resource = "projects/_/buckets/update-copy-bucket";
