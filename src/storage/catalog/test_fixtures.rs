@@ -1,6 +1,8 @@
-use super::{ObjectUpload, RestoreAccess};
+use super::admin::{BucketDefinition, Origin, Publication, PublishMode};
+use super::{Catalog, ObjectReader, ObjectUpload, RestoreAccess};
 use crate::bucket::{BucketAccess, BucketRecord};
-use crate::object::ObjectTarget;
+use crate::object::{ObjectTarget, UploadChunk};
+use bytes::Bytes;
 use std::time::UNIX_EPOCH;
 
 pub(in crate::storage) fn guidance_source_failures() -> Vec<(
@@ -106,4 +108,46 @@ pub(crate) fn bucket(name: &str, project: &str) -> BucketRecord {
         time_created: UNIX_EPOCH,
         updated: UNIX_EPOCH,
     }
+}
+
+pub(crate) async fn seed_bucket(catalog: &Catalog) {
+    catalog
+        .admin(Origin::Seed)
+        .ensure_bucket(BucketDefinition::new(bucket("bucket", "project")).unwrap())
+        .await
+        .unwrap();
+}
+
+pub(crate) fn publication(max_bytes: u64) -> Publication {
+    Publication {
+        content_type: "text/plain".into(),
+        metadata: Default::default(),
+        expected: Default::default(),
+        condition: None,
+        max_bytes,
+        mode: PublishMode::Replace,
+    }
+}
+
+pub(crate) fn body(
+    parts: Vec<Bytes>,
+) -> tokio::sync::mpsc::Receiver<Result<UploadChunk, std::io::Error>> {
+    let (sender, receiver) = tokio::sync::mpsc::channel(2);
+    tokio::spawn(async move {
+        for part in parts {
+            if sender.send(Ok(UploadChunk::Data(part))).await.is_err() {
+                return;
+            }
+        }
+        let _ = sender.send(Ok(UploadChunk::End)).await;
+    });
+    receiver
+}
+
+pub(crate) async fn read_all(reader: &mut ObjectReader) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = reader.next_chunk().await.unwrap() {
+        bytes.extend_from_slice(&chunk);
+    }
+    bytes
 }

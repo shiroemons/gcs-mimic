@@ -22,12 +22,7 @@ async fn chunk(
 ) -> Result<Option<serde_json::Value>, ResumableError> {
     let lease = catalog.lock_resumable_session(id, "test-bucket").await?;
     let options = lease.session.options.clone();
-    let (sender, body) = mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
-    drop(sender);
+    let body = test_fixtures::body(vec![Bytes::from_static(bytes)]);
     catalog
         .write_resumable_session(
             lease,
@@ -102,10 +97,7 @@ async fn ram_resumable_overlap_preserves_prefix_hashes_and_atomic_completion() {
         .open_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    let mut bytes = Vec::new();
-    while let Some(next) = reader.next_chunk().await.unwrap() {
-        bytes.extend_from_slice(&next);
-    }
+    let bytes = read_all(&mut reader).await;
     assert_eq!(bytes, b"parttail");
     assert_eq!(
         catalog
@@ -432,12 +424,7 @@ async fn ram_resumable_eof_cancellation_keeps_the_owned_checkpoint_offset_and_ha
             .await
     });
     started.await.unwrap();
-    let (sender, body) = mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(Bytes::from_static(b"tail"))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
-    drop(sender);
+    let body = test_fixtures::body(vec![Bytes::from_static(b"tail")]);
     let (catalog_wait, mut progress) = tokio::sync::watch::channel(false);
     let worker = catalog.clone();
     let request = tokio::spawn(async move {

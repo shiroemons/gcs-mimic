@@ -1,6 +1,6 @@
 use super::catalog::test_fixtures::bucket;
 use crate as gcs_mimic;
-use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
+use crate::storage::test_fixtures::{PERMISSIVE, body, live, permissive_upload, version};
 use bytes::Bytes;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
@@ -43,19 +43,6 @@ async fn setup(dir: &TestDir) -> Catalog {
         .await
         .unwrap();
     catalog
-}
-
-fn body(parts: Vec<Bytes>) -> mpsc::Receiver<Result<UploadChunk, io::Error>> {
-    let (sender, receiver) = mpsc::channel(2);
-    tokio::spawn(async move {
-        for part in parts {
-            if sender.send(Ok(UploadChunk::Data(part))).await.is_err() {
-                return;
-            }
-        }
-        let _ = sender.send(Ok(UploadChunk::End)).await;
-    });
-    receiver
 }
 
 async fn put(

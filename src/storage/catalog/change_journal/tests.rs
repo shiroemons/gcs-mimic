@@ -1,9 +1,9 @@
 use super::*;
-use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::storage::test_fixtures::{PERMISSIVE, body, live, publication};
 use crate::{
     clock::SystemClock,
-    object::{ObjectMetadataUpdate, UploadChunk},
-    storage::admin::{BucketDefinition, BucketName, ObjectName, Publication, PublishMode},
+    object::ObjectMetadataUpdate,
+    storage::admin::{BucketDefinition, BucketName, ObjectName},
     test_support::TestDir,
 };
 use bytes::Bytes;
@@ -39,24 +39,13 @@ fn bucket(name: &str) -> BucketDefinition {
 }
 
 async fn publish(catalog: &Catalog, origin: Origin, name: &str) {
-    let (tx, rx) = tokio::sync::mpsc::channel(2);
-    tx.try_send(Ok(UploadChunk::Data(Bytes::from_static(b"body"))))
-        .unwrap();
-    tx.try_send(Ok(UploadChunk::End)).unwrap();
     catalog
         .admin(origin)
         .publish_object(
             &BucketName::new("test-bucket").unwrap(),
             &ObjectName::new(name).unwrap(),
-            Publication {
-                content_type: "text/plain".into(),
-                metadata: Default::default(),
-                expected: Default::default(),
-                condition: None,
-                max_bytes: 100,
-                mode: PublishMode::Replace,
-            },
-            rx,
+            publication(100),
+            body(vec![Bytes::from_static(b"body")]),
         )
         .await
         .unwrap();
@@ -412,10 +401,6 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
         .lock_resumable_session(&session.id, "test-bucket")
         .await
         .unwrap();
-    let (tx, rx) = tokio::sync::mpsc::channel(2);
-    tx.try_send(Ok(UploadChunk::Data(Bytes::from_static(b"body"))))
-        .unwrap();
-    tx.try_send(Ok(UploadChunk::End)).unwrap();
     catalog
         .write_resumable_session(
             lease,
@@ -428,7 +413,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
                 options,
                 catalog_wait: tokio::sync::watch::channel(false).0,
             },
-            rx,
+            body(vec![Bytes::from_static(b"body")]),
             catalog.admit_object_upload().unwrap(),
             |_| Ok(serde_json::json!({})),
         )

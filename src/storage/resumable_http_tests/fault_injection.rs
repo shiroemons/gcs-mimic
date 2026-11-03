@@ -9,7 +9,7 @@
 
 use super::*;
 use crate::storage::catalog::fault::{Fault, Step};
-use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::storage::test_fixtures::{PERMISSIVE, live, read_all as read_body};
 use std::{io::ErrorKind, path::Path};
 
 const CORRUPT: &str =
@@ -278,11 +278,7 @@ async fn read_all(catalog: &Catalog, name: &str) -> Option<Vec<u8>> {
         Err(crate::object::ObjectError::ObjectNotFound) => return None,
         Err(error) => panic!("{name}: {error}"),
     };
-    let mut bytes = Vec::new();
-    while let Some(chunk) = reader.next_chunk().await.unwrap() {
-        bytes.extend_from_slice(&chunk);
-    }
-    Some(bytes)
+    Some(read_body(&mut reader).await)
 }
 
 /// Reopens a crash snapshot, which runs startup recovery, and checks that it holds

@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::test_fixtures::{PERMISSIVE, live, version};
+use crate::storage::test_fixtures::{PERMISSIVE, body, live, read_all, version};
 use crate::test_support::TestDir;
 
 mod owner_tests;
@@ -504,11 +504,6 @@ async fn publishing_a_reserved_generation_retires_its_row_atomically() {
     )
     .unwrap();
     // Publish exactly as finalization does, without the steps that follow its commit.
-    let (tx, rx) = mpsc::channel(2);
-    tx.send(Ok(UploadChunk::Data(Bytes::from_static(b"old"))))
-        .await
-        .unwrap();
-    tx.send(Ok(UploadChunk::End)).await.unwrap();
     let published = catalog
         .put_object_with_mode(
             ObjectUpload {
@@ -524,7 +519,7 @@ async fn publishing_a_reserved_generation_retires_its_row_atomically() {
                 metadata: Default::default(),
                 access: BucketAccess::Permissive,
             },
-            rx,
+            body(vec![Bytes::from_static(b"old")]),
             catalog.admit_object_upload().unwrap(),
             super::super::admin::PublishMode::Replace,
             Some(identity),
@@ -672,10 +667,7 @@ async fn appendable_size_limit_and_reader_bound_by_persisted_size() {
         .await
         .unwrap();
     assert_eq!(record.size, 4);
-    let mut content = Vec::new();
-    while let Some(chunk) = reader.next_chunk().await.unwrap() {
-        content.extend_from_slice(&chunk);
-    }
+    let content = read_all(&mut reader).await;
     assert_eq!(content, b"1234");
     assert_eq!(
         catalog
@@ -709,11 +701,7 @@ async fn persisted_content(catalog: &Catalog, name: &str) -> Vec<u8> {
         .open_appendable(live("append", name), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    let mut content = Vec::new();
-    while let Some(chunk) = reader.next_chunk().await.unwrap() {
-        content.extend_from_slice(&chunk);
-    }
-    content
+    read_all(&mut reader).await
 }
 
 async fn take_over(catalog: &Catalog, name: &str, generation: i64) -> AppendWriter {

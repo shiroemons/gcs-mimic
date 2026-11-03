@@ -178,12 +178,7 @@ fn timestamp_fixture_downgrade_floors_signed_values_and_deletion_times() {
 }
 
 fn body() -> tokio::sync::mpsc::Receiver<Result<UploadChunk, std::io::Error>> {
-    let (sender, receiver) = tokio::sync::mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(Bytes::from_static(b"x"))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
-    receiver
+    test_fixtures::body(vec![Bytes::from_static(b"x")])
 }
 
 #[tokio::test]

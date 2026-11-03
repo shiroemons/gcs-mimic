@@ -1,15 +1,14 @@
 use super::*;
-use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::storage::test_fixtures::{PERMISSIVE, body, live};
 use crate::{
     auth::{Auth, Registry},
     clock::SystemClock,
-    object::{ExpectedHashes, ObjectMetadataUpdate, UploadChunk},
+    object::{ExpectedHashes, ObjectMetadataUpdate},
     storage::{ObjectUpload, admin::LocalAdmin},
     test_support::TestDir,
 };
 use bytes::Bytes;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 async fn setup(data: &TestDir, backend: &str) -> (Catalog, Auth, crate::object::ObjectRecord) {
     let auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"uploader@example.test","tokens":[],"project_roles":{"local":["roles/storage.objectCreator"]}},{"id":"delegate@example.test","tokens":[]}]}"#).unwrap());
@@ -43,11 +42,7 @@ async fn setup(data: &TestDir, backend: &str) -> (Catalog, Auth, crate::object::
         )
         .await
         .unwrap();
-    let (sender, body) = mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(Bytes::from_static(b"snapshot bytes"))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
+    let body = body(vec![Bytes::from_static(b"snapshot bytes")]);
     let record = catalog
         .put_object_prechecked(
             ObjectUpload {

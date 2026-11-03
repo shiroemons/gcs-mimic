@@ -8,11 +8,11 @@ mod soft_delete;
 mod terminal_retention;
 mod upload_replay;
 use crate as gcs_mimic;
+use crate::storage::test_fixtures::seed_bucket;
 use crate::test_support::TestDir;
-use gcs_mimic::storage::admin::{BucketDefinition, BucketName, ObjectName, Origin};
+use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
     auth::{Auth, Registry},
-    bucket::BucketRecord,
     clock::{Clock, ManualClock},
     config::Config,
     server::{State, serve},
@@ -219,36 +219,7 @@ impl Harness {
         let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
             .await
             .unwrap();
-        catalog
-            .admin(Origin::Seed)
-            .ensure_bucket(
-                BucketDefinition::new(BucketRecord {
-                    name: "bucket".into(),
-                    project: "project".into(),
-                    location: "US".into(),
-                    location_type: "multi-region".into(),
-                    storage_class: "STANDARD".into(),
-                    autoclass: None,
-                    labels: Default::default(),
-                    versioning_enabled: false,
-                    versioning_configured: false,
-                    default_event_based_hold: false,
-                    public_access_prevention_enforced: false,
-                    uniform_bucket_level_access_locked_time: None,
-                    lifecycle: Vec::new(),
-                    retention_policy: None,
-                    soft_delete_policy: None,
-                    object_retention_enabled: false,
-                    cors: Vec::new(),
-                    metageneration: 1,
-                    generation: 0,
-                    time_created: UNIX_EPOCH,
-                    updated: UNIX_EPOCH,
-                })
-                .unwrap(),
-            )
-            .await
-            .unwrap();
+        seed_bucket(&catalog).await;
         let auth = if strict {
             Auth::strict(Registry::parse(json!({"identities":[{"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"creator@example.test","tokens":["creator"],"project_roles":{"project":["roles/storage.objectCreator"]}},{"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}).to_string().as_bytes()).unwrap())
         } else {

@@ -568,18 +568,7 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
             options,
             catalog_wait,
         };
-        let (sender, body) = tokio::sync::mpsc::channel(2);
-        sender
-            .send(Ok(crate::object::UploadChunk::Data(
-                bytes::Bytes::from_static(&[0]),
-            )))
-            .await
-            .unwrap();
-        sender
-            .send(Ok(crate::object::UploadChunk::End))
-            .await
-            .unwrap();
-        drop(sender);
+        let body = crate::storage::test_fixtures::body(vec![bytes::Bytes::from_static(&[0])]);
         let permit = catalog.admit_object_upload().unwrap();
         let result = catalog
             .write_resumable_session(lease, chunk, body, permit, |record| {

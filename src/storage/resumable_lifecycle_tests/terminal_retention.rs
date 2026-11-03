@@ -20,12 +20,7 @@ async fn create(
 async fn complete(catalog: &Catalog, id: &str) -> serde_json::Value {
     let lease = catalog.lock_resumable_session(id, "bucket").await.unwrap();
     let options = lease.session.options.clone();
-    let (sender, body) = tokio::sync::mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(hyper::body::Bytes::from_static(b"x"))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
-    drop(sender);
+    let body = body(vec![hyper::body::Bytes::from_static(b"x")]);
     catalog
         .write_resumable_session(
             lease,

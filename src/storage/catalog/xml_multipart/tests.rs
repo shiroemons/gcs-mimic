@@ -1,6 +1,6 @@
 use super::super::fault::{Fault, Step};
 use super::*;
-use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
+use crate::storage::test_fixtures::{PERMISSIVE, body, live, permissive_upload, read_all};
 use crate::{
     clock::{Clock, ManualClock, SystemClock},
     object::UploadChunk,
@@ -55,11 +55,7 @@ async fn put(
     let lease = catalog
         .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
         .await?;
-    let (sender, body) = mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(bytes::Bytes::from_static(bytes))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
+    let body = body(vec![bytes::Bytes::from_static(bytes)]);
     catalog
         .put_xml_part(
             lease,
@@ -94,21 +90,11 @@ async fn bytes(catalog: &Catalog) -> Vec<u8> {
         .open_object(live("bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = reader.next_chunk().await.unwrap() {
-        bytes.extend_from_slice(&chunk);
-    }
-    bytes
+    read_all(&mut reader).await
 }
 
 async fn old_object(catalog: &Catalog) {
-    let (sender, body) = mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(bytes::Bytes::from_static(
-            b"previous",
-        ))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
+    let body = body(vec![bytes::Bytes::from_static(b"previous")]);
     catalog
         .put_object(permissive_upload("bucket", "value", 1024), body)
         .await

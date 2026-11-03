@@ -1,10 +1,10 @@
 use super::*;
 use crate::storage::catalog::sql;
 use crate::storage::test_fixtures::{
-    PERMISSIVE, PERMISSIVE_RESTORE, live, permissive_upload, version,
+    PERMISSIVE, PERMISSIVE_RESTORE, live, permissive_upload, publication, read_all, version,
 };
 use crate::{
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget, UploadChunk},
+    object::{ObjectConditions, ObjectError, ObjectTarget, UploadChunk},
     storage::admin::{AdminError, BucketDefinition, BucketName},
 };
 use bytes::Bytes;
@@ -132,10 +132,7 @@ async fn ram_derived_pins_survive_source_delete_and_checkpoints_share_hash_and_p
         .open_object(live("test-bucket", "copy"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = reader.next_chunk().await.unwrap() {
-        bytes.extend_from_slice(&chunk);
-    }
+    let bytes = read_all(&mut reader).await;
     assert_eq!(bytes, b"data");
     assert_eq!(
         catalog.get_derived(&transfer.id).await,
@@ -569,14 +566,7 @@ async fn ram_full_catalog_resets_many_objects_without_growing_a_deletion_journal
             .publish_object(
                 &bucket,
                 &admin::ObjectName::new(format!("object-{index:04}")).unwrap(),
-                admin::Publication {
-                    content_type: "text/plain".into(),
-                    expected: ExpectedHashes::default(),
-                    condition: None,
-                    metadata: Default::default(),
-                    max_bytes: 1024,
-                    mode: admin::PublishMode::Replace,
-                },
+                publication(1024),
                 body(true),
             )
             .await
@@ -637,23 +627,14 @@ async fn ram_default_budgets_accept_one_thousand_small_objects_and_report_databa
             )]))),
             ..Default::default()
         };
-        let (sender, body) = mpsc::channel(2);
-        sender
-            .try_send(Ok(UploadChunk::Data(Bytes::from(vec![b'x'; 1024]))))
-            .unwrap();
-        sender.try_send(Ok(UploadChunk::End)).unwrap();
-        drop(sender);
+        let body = test_fixtures::body(vec![Bytes::from(vec![b'x'; 1024])]);
         admin
             .publish_object(
                 &bucket,
                 &name,
                 admin::Publication {
-                    content_type: "text/plain".into(),
-                    expected: ExpectedHashes::default(),
-                    condition: None,
                     metadata,
-                    max_bytes: 1024,
-                    mode: admin::PublishMode::Replace,
+                    ..publication(1024)
                 },
                 body,
             )

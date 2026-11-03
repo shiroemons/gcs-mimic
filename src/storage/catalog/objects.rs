@@ -2822,12 +2822,7 @@ mod tests {
         // tokio completes a write in the background after write_all returns, so a
         // read-only handle makes exactly that final, unreported write fail.
         let mut file = UploadSink::Disk(tokio::fs::File::open(&blob.0).await.unwrap());
-        let (sender, body) = mpsc::channel(2);
-        sender
-            .send(Ok(UploadChunk::Data(Bytes::from_static(b"tail"))))
-            .await
-            .unwrap();
-        sender.send(Ok(UploadChunk::End)).await.unwrap();
+        let body = crate::storage::test_fixtures::body(vec![Bytes::from_static(b"tail")]);
         let (_cancel, cancellation) = oneshot::channel();
         let result = write_body(
             &mut file,
@@ -3165,13 +3160,7 @@ mod tests {
                 .delete_bucket("bucket", Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
-            let (sender, body) = mpsc::channel(2);
-            sender
-                .send(Ok(UploadChunk::Data(Bytes::from_static(b"new"))))
-                .await
-                .unwrap();
-            sender.send(Ok(UploadChunk::End)).await.unwrap();
-            drop(sender);
+            let body = crate::storage::test_fixtures::body(vec![Bytes::from_static(b"new")]);
             let expected = ExpectedHashes {
                 md5: checksum_mismatch.then_some([0; 16]),
                 crc32c: None,
@@ -3230,12 +3219,7 @@ mod tests {
                         &project_access(allow_overwrite),
                     )
                     .await?;
-                let (sender, body) = mpsc::channel(2);
-                sender
-                    .send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
-                    .await
-                    .unwrap();
-                sender.send(Ok(UploadChunk::End)).await.unwrap();
+                let body = crate::storage::test_fixtures::body(vec![Bytes::from_static(bytes)]);
                 Ok::<_, ObjectError>((permit, body))
             }
         };
@@ -3361,12 +3345,7 @@ mod tests {
     }
 
     fn body(bytes: &'static [u8]) -> mpsc::Receiver<Result<UploadChunk, io::Error>> {
-        let (sender, body) = mpsc::channel(2);
-        sender
-            .try_send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
-            .unwrap();
-        sender.try_send(Ok(UploadChunk::End)).unwrap();
-        body
+        crate::storage::test_fixtures::body(vec![Bytes::from_static(bytes)])
     }
 
     async fn put(catalog: &Catalog, name: &str, bytes: &'static [u8]) -> ObjectRecord {

@@ -1,13 +1,10 @@
 use crate as gcs_mimic;
+use crate::storage::test_fixtures::{body, publication, seed_bucket};
 use crate::test_support::TestDir;
-use gcs_mimic::storage::admin::{
-    BucketDefinition, BucketName, ObjectName, Origin, Publication, PublishMode,
-};
+use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
-    bucket::BucketRecord,
     clock::{Clock, ManualClock},
     json::resumable_cancel::cancel_response,
-    object::UploadChunk,
     storage::{Catalog, ResumableError},
 };
 use http_body_util::BodyExt;
@@ -30,36 +27,7 @@ mod terminal_retention;
 
 async fn setup(dir: &TestDir, clock: Arc<impl Clock + 'static>) -> Catalog {
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
-    catalog
-        .admin(Origin::Seed)
-        .ensure_bucket(
-            BucketDefinition::new(BucketRecord {
-                name: "bucket".into(),
-                project: "project".into(),
-                location: "US".into(),
-                location_type: "multi-region".into(),
-                storage_class: "STANDARD".into(),
-                autoclass: None,
-                labels: Default::default(),
-                versioning_enabled: false,
-                versioning_configured: false,
-                default_event_based_hold: false,
-                public_access_prevention_enforced: false,
-                uniform_bucket_level_access_locked_time: None,
-                lifecycle: Vec::new(),
-                retention_policy: None,
-                soft_delete_policy: None,
-                object_retention_enabled: false,
-                cors: Vec::new(),
-                metageneration: 1,
-                generation: 0,
-                time_created: UNIX_EPOCH,
-                updated: UNIX_EPOCH,
-            })
-            .unwrap(),
-        )
-        .await
-        .unwrap();
+    seed_bucket(&catalog).await;
     catalog
 }
 
@@ -113,28 +81,13 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
     let dir = TestDir::new();
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
-    let (sender, body) = tokio::sync::mpsc::channel(2);
-    sender
-        .send(Ok(UploadChunk::Data(hyper::body::Bytes::from_static(
-            b"old bytes",
-        ))))
-        .await
-        .unwrap();
-    sender.send(Ok(UploadChunk::End)).await.unwrap();
-    drop(sender);
+    let body = body(vec![hyper::body::Bytes::from_static(b"old bytes")]);
     let old = catalog
         .admin(Origin::Seed)
         .publish_object(
             &BucketName::new("bucket").unwrap(),
             &ObjectName::new("name").unwrap(),
-            Publication {
-                content_type: "text/plain".into(),
-                expected: Default::default(),
-                condition: None,
-                metadata: Default::default(),
-                max_bytes: 1024,
-                mode: PublishMode::Replace,
-            },
+            publication(1024),
             body,
         )
         .await
@@ -506,36 +459,7 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
     let calls = clock.calls.load(Ordering::SeqCst);
     tokio::time::sleep(Duration::from_millis(30)).await;
     assert_eq!(clock.calls.load(Ordering::SeqCst), calls);
-    catalog
-        .admin(Origin::Seed)
-        .ensure_bucket(
-            BucketDefinition::new(BucketRecord {
-                name: "bucket".into(),
-                project: "project".into(),
-                location: "US".into(),
-                location_type: "multi-region".into(),
-                storage_class: "STANDARD".into(),
-                autoclass: None,
-                labels: Default::default(),
-                versioning_enabled: false,
-                versioning_configured: false,
-                default_event_based_hold: false,
-                public_access_prevention_enforced: false,
-                uniform_bucket_level_access_locked_time: None,
-                lifecycle: Vec::new(),
-                retention_policy: None,
-                soft_delete_policy: None,
-                object_retention_enabled: false,
-                cors: Vec::new(),
-                metageneration: 1,
-                generation: 0,
-                time_created: UNIX_EPOCH,
-                updated: UNIX_EPOCH,
-            })
-            .unwrap(),
-        )
-        .await
-        .unwrap();
+    seed_bucket(&catalog).await;
     let first = catalog
         .create_resumable_session(
             "bucket",
@@ -685,28 +609,13 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
     let dir = TestDir::new();
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
-    let (sender, body) = tokio::sync::mpsc::channel(2);
-    sender
-        .send(Ok(UploadChunk::Data(hyper::body::Bytes::from_static(
-            b"published",
-        ))))
-        .await
-        .unwrap();
-    sender.send(Ok(UploadChunk::End)).await.unwrap();
-    drop(sender);
+    let body = body(vec![hyper::body::Bytes::from_static(b"published")]);
     let object = catalog
         .admin(Origin::Seed)
         .publish_object(
             &BucketName::new("bucket").unwrap(),
             &ObjectName::new("name").unwrap(),
-            Publication {
-                content_type: "text/plain".into(),
-                expected: Default::default(),
-                condition: None,
-                metadata: Default::default(),
-                max_bytes: 1024,
-                mode: PublishMode::Replace,
-            },
+            publication(1024),
             body,
         )
         .await

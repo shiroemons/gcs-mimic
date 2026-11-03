@@ -666,8 +666,8 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
-    use crate::{clock::Clock, object::UploadChunk};
+    use crate::clock::Clock;
+    use crate::storage::test_fixtures::{PERMISSIVE, body, bucket, live, permissive_upload};
     use std::{
         sync::{
             Arc,
@@ -778,11 +778,8 @@ mod tests {
             .insert_bucket(bucket("bucket", "project"))
             .await
             .unwrap();
-        let (sender, receiver) = tokio::sync::mpsc::channel(1);
-        sender.send(Ok(UploadChunk::End)).await.unwrap();
-        drop(sender);
         catalog
-            .put_object(permissive_upload("bucket", "source", 8), receiver)
+            .put_object(permissive_upload("bucket", "source", 8), body(vec![]))
             .await
             .unwrap();
         (catalog, directory, clock)
