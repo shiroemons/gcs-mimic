@@ -156,7 +156,6 @@ impl Iterator for Walker {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     #[test]
     fn root_snapshot_is_shared_with_the_walk() {

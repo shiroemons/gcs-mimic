@@ -12,6 +12,10 @@ mod startup;
 mod sync_cli;
 // Binary tests cannot access the library's cfg(test) module.
 #[cfg(test)]
+#[expect(
+    dead_code,
+    reason = "The binary uses a subset of the shared test fixtures"
+)]
 mod test_support;
 use startup::phase;
 

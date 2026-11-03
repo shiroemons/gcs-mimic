@@ -733,7 +733,6 @@ fn migration_path(path: &std::path::Path) -> std::io::Result<std::path::PathBuf>
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use proptest::prelude::*;
 

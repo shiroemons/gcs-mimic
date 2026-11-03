@@ -1,4 +1,7 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "Tests fail at the input that violates an assertion"
+)]
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{

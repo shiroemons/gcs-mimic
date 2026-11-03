@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 //! Test-only local input fixtures shared by unit and wire tests.
 
 use std::path::{Path, PathBuf};
@@ -87,7 +85,10 @@ fn descriptor_path(fd: i32) -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "F_GETPATH has no safe descriptor-relative std equivalent"
+)]
 fn descriptor_path(fd: i32) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     let mut buffer = [0u8; libc::MAXPATHLEN as usize];
