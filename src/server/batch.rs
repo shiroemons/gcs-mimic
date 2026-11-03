@@ -68,7 +68,7 @@ async fn execute(
         .await
         .map_err(|_| invalid("Batch parser unavailable"))?;
     let api_base_url = ctx.endpoints.api_base_url.clone();
-    let parts = tokio::task::spawn_blocking(move || {
+    let parts = crate::task::spawn_blocking("batch-parser", move || {
         let _permit = permit;
         parse::parts(
             &Bytes::from(bytes),
@@ -79,7 +79,8 @@ async fn execute(
         )
     })
     .await
-    .map_err(|_| invalid("Batch parser failed"))??;
+    .map_err(|_| parser_failed())?
+    .map_err(|_| parser_failed())??;
     let mut output = Vec::new();
     for part in parts {
         // Reserve enough space to render every remaining per-part error, even after large lists.
@@ -106,6 +107,10 @@ async fn execute(
             .map_err(|_| invalid("Batch response header failed"))?,
     );
     Ok(response)
+}
+
+fn parser_failed() -> JsonError {
+    JsonError::service_unavailable("Batch parser failed")
 }
 
 fn too_large() -> JsonError {
