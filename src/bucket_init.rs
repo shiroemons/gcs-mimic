@@ -1356,22 +1356,12 @@ fn records(
 mod tests {
 
     use super::*;
+    use crate::diagnostics::test_support::has;
     use proptest::prelude::*;
     use std::{
         fs,
         time::{Duration, UNIX_EPOCH},
     };
-
-    #[track_caller]
-    fn has(errors: &Diagnostics, key: &str, fix: &str) {
-        assert!(
-            errors
-                .errors
-                .iter()
-                .any(|error| error.key == key && error.fix.contains(fix)),
-            "{errors}"
-        );
-    }
 
     struct FixedClock;
     impl Clock for FixedClock {

@@ -19,7 +19,7 @@ pub(super) fn assert_precedence<T: Debug + PartialEq>(
     let mut cli = file_args.to_vec();
     cli.extend(options.iter().map(|option| (*option).to_owned()));
     let empty = BTreeMap::new();
-    for ((args, env), expected) in [
+    for (index, ((args, env), expected)) in [
         (&[][..], &empty),
         (file_args, &empty),
         (file_args, environment),
@@ -27,8 +27,13 @@ pub(super) fn assert_precedence<T: Debug + PartialEq>(
     ]
     .into_iter()
     .zip(expected)
+    .enumerate()
     {
-        assert_eq!(value(load(args, env).unwrap()), expected);
+        assert_eq!(
+            value(load(args, env).unwrap()),
+            expected,
+            "stage {index}: args={args:?} env={env:?}"
+        );
     }
     cli
 }

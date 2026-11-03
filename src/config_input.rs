@@ -734,21 +734,11 @@ fn migration_path(path: &std::path::Path) -> std::io::Result<std::path::PathBuf>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostics::test_support::has;
     use proptest::prelude::*;
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|s| (*s).into()).collect()
-    }
-
-    #[track_caller]
-    fn has(errors: &Diagnostics, key: &str, fix: &str) {
-        assert!(
-            errors
-                .errors
-                .iter()
-                .any(|error| error.key == key && error.fix.contains(fix)),
-            "{errors}"
-        );
     }
 
     #[test]
