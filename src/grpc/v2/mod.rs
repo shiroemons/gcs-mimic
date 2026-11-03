@@ -131,8 +131,10 @@ fn access_status(error: impl Into<Status>, caller: Option<Caller<'_>>) -> Status
 }
 
 pub(super) fn auth_error(error: AuthError) -> Status {
-    if matches!(error, AuthError::Unavailable(_)) {
-        return Status::unavailable("The credential verifier is unavailable");
+    if let AuthError::Unavailable(cause) = error {
+        let mut status = Status::unavailable("The credential verifier is unavailable");
+        status.set_source(Arc::new(cause));
+        return status;
     }
     Status::unauthenticated(
         "gcs-mimic strict authentication requires a registered local Bearer token; supply authorization: Bearer local-admin-token with a matching identity_file",

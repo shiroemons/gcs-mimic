@@ -6,6 +6,20 @@ use crate::{
     test_support::TestDir,
 };
 
+#[test]
+fn authentication_worker_failures_keep_their_source_and_unavailable_status() {
+    use std::error::Error as _;
+    let failure = || {
+        crate::auth::AuthError::Unavailable(crate::storage::failure::BackendCause::from_error(
+            std::io::Error::other("verifier failure"),
+        ))
+    };
+    let status = auth_error(failure());
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+    assert_eq!(status.source().unwrap().to_string(), "verifier failure");
+    assert_eq!(crate::json::JsonError::from(failure()).status.as_u16(), 503);
+}
+
 #[tokio::test]
 async fn grpc_auth_metadata_handoff() {
     let dir = TestDir::new();
