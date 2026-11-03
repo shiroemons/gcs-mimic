@@ -988,7 +988,7 @@ impl Catalog {
         local_admin: admin::LocalAdmin,
         memory_limits: Option<(u64, u64)>,
     ) -> Result<Self, CatalogError> {
-        crate::task::spawn_blocking("catalog-open", move || -> Result<Self, CatalogError> {
+        crate::task::run_blocking("catalog-open", move || -> Result<Self, CatalogError> {
             let backend = match memory_limits {
                 Some((bytes, _)) => BlobBackend::Memory(super::memory::Store::new(bytes)),
                 None => BlobBackend::Disk(data_dir.clone()),
@@ -1070,7 +1070,7 @@ impl Catalog {
                 maintenance_panics: std::sync::atomic::AtomicUsize::new(0),
             })))
         })
-        .await??
+        .await?
     }
 
     /// Arms a one-shot fault for the `skip + 1`-th time a write path reaches `step`.

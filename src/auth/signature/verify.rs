@@ -16,12 +16,11 @@ pub(super) async fn crypto_job<T: Send + 'static>(
         .acquire()
         .await
         .map_err(|error| VerificationError::Worker(BackendCause::from_error(error)))?;
-    crate::task::spawn_blocking("xml-signature", move || {
+    crate::task::run_blocking("xml-signature", move || {
         let _permit = permit;
         job()
     })
     .await
-    .map_err(|error| VerificationError::Worker(BackendCause::from_error(error)))?
     .map_err(|error| VerificationError::Worker(BackendCause::from_error(error)))
 }
 

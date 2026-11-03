@@ -301,7 +301,7 @@ unavailable_cause!(
     tokio::sync::TryLockError,
     tokio::sync::oneshot::error::RecvError,
     tokio::task::JoinError,
-    crate::task::JobPanicked,
+    crate::task::BlockingFailed,
     crate::fsutil::FsError,
     crate::storage::admin::AdminError,
 );
@@ -358,7 +358,7 @@ classified_from!(
     rusqlite::Error,
     io::Error,
     tokio::task::JoinError,
-    crate::task::JobPanicked
+    crate::task::BlockingFailed
 );
 
 #[cfg(test)]

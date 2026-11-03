@@ -396,10 +396,10 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::BeforePublish).map_err(object_unavailable)?;
-        crate::task::spawn_blocking("blob-publication", move || {
+        crate::task::run_blocking("blob-publication", move || {
             publish_blob(&source, &destination)
         })
-        .await??
+        .await?
         .map_err(object_unavailable)?;
         #[cfg(test)]
         fault::hit(&self.0.data_dir, Step::AfterPublish).map_err(object_unavailable)?;
@@ -741,7 +741,7 @@ pub(super) async fn create_upload_stage(
     stage: PathBuf,
     published: PathBuf,
 ) -> Result<File, ObjectError> {
-    crate::task::spawn_blocking("upload-stage", move || -> io::Result<File> {
+    crate::task::run_blocking("upload-stage", move || -> io::Result<File> {
         if published.try_exists()? {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -753,7 +753,7 @@ pub(super) async fn create_upload_stage(
             .create_new(true)
             .open(stage)
     })
-    .await??
+    .await?
     .map_err(object_unavailable)
 }
 
@@ -2505,8 +2505,8 @@ impl Catalog {
             }
             let backend = catalog.0.backend.clone();
             let (removed, failure) =
-                crate::task::spawn_blocking("blob-reclamation", move || backend.reclaim_batch(ids))
-                    .await??
+                crate::task::run_blocking("blob-reclamation", move || backend.reclaim_batch(ids))
+                    .await?
                     .map_err(object_unavailable)?;
             catalog
                 .run_upload(move |connection| {

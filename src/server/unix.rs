@@ -24,18 +24,15 @@ pub struct Listener {
 }
 
 impl Listener {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "The job catches and sends panics before cancellation-safe pathname cleanup on this same worker."
-    )]
     pub async fn bind(path: &Path) -> io::Result<Self> {
         let path = path.to_owned();
         let runtime = Handle::current();
+        let bind_runtime = runtime.clone();
         // There is one startup job, and no await between bind and establishing
         // pathname ownership. A canceled waiter drops the returned owner in the pool.
         let (send, receive) = tokio::sync::oneshot::channel();
-        tokio::task::spawn_blocking(move || {
-            let result = crate::task::catch_job("unix_socket_bind", || bind(path, runtime))
+        crate::task::spawn_blocking_on(&runtime, "unix_socket_bind", move || {
+            let result = crate::task::catch_job("unix_socket_bind", || bind(path, bind_runtime))
                 .map_err(io::Error::other)
                 .and_then(|result| result);
             if let Err(Ok((socket, mut owner))) = send.send(result) {
@@ -62,9 +59,12 @@ impl Listener {
         let Self { socket, mut owner } = self;
         drop(socket);
         if let Some(path) = owner.path.take() {
-            cleanup_job(&owner.runtime, path, owner.identity)
-                .await
-                .map_err(io::Error::other)??;
+            let identity = owner.identity;
+            crate::task::run_blocking_on(&owner.runtime, "unix_socket_cleanup", move || {
+                cleanup(path, identity)
+            })
+            .await
+            .map_err(io::Error::other)??;
         }
         Ok(())
     }
@@ -128,18 +128,6 @@ struct Owner {
     runtime: Handle,
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "Drop may run outside the runtime; cleanup reports panics through catch_job on the retained runtime."
-)]
-fn cleanup_job(
-    runtime: &Handle,
-    path: PathBuf,
-    identity: (u64, u64),
-) -> tokio::task::JoinHandle<io::Result<()>> {
-    runtime.spawn_blocking(move || cleanup(path, identity))
-}
-
 fn cleanup(path: PathBuf, identity: (u64, u64)) -> io::Result<()> {
     let result = crate::task::catch_job("unix_socket_cleanup", || {
         match fs::symlink_metadata(&path) {
@@ -171,7 +159,12 @@ impl Drop for Owner {
         // Only canceled/failed startup uses this fallback. The captured runtime
         // waits for its bounded blocking jobs before destruction; normal close awaits it.
         if let Some(path) = self.path.take() {
-            drop(cleanup_job(&self.runtime, path, self.identity));
+            let identity = self.identity;
+            drop(crate::task::spawn_blocking_on(
+                &self.runtime,
+                "unix_socket_cleanup",
+                move || cleanup(path, identity),
+            ));
         }
     }
 }

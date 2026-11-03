@@ -63,12 +63,9 @@ async fn execute(
         bytes.extend_from_slice(&data);
         super::body_progress(ctx.activity);
     }
-    let permit = PARSERS
-        .acquire()
-        .await
-        .map_err(|_| parser_unavailable())?;
+    let permit = PARSERS.acquire().await.map_err(|_| parser_unavailable())?;
     let api_base_url = ctx.endpoints.api_base_url.clone();
-    let parts = crate::task::spawn_blocking("batch-parser", move || {
+    let parts = crate::task::run_blocking("batch-parser", move || {
         let _permit = permit;
         parse::parts(
             &Bytes::from(bytes),
@@ -79,7 +76,6 @@ async fn execute(
         )
     })
     .await
-    .map_err(|_| parser_failed())?
     .map_err(|_| parser_failed())??;
     let mut output = Vec::new();
     for part in parts {

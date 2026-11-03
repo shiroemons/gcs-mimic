@@ -166,12 +166,11 @@ pub(super) async fn decode_metadata(
         .acquire()
         .await
         .map_err(|_| decoder_unavailable())?;
-    let decoded = crate::task::spawn_blocking("json-gzip-decoder", move || {
+    let decoded = crate::task::run_blocking("json-gzip-decoder", move || {
         let _permit = permit;
         decode(&compressed, BUCKET_BODY_LIMIT)
     })
     .await
-    .map_err(|_| decoder_unavailable())?
     .map_err(|_| decoder_unavailable())?
     .map_err(|error| match error {
         DecodeError::Limit => too_large(),
