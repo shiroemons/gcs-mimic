@@ -59,3 +59,26 @@ test result: FAILED. 4 passed; 1 failed; 0 ignored
 This sandbox result does not verify socket behavior. Existing wire tests keep
 their negative assertions and require execution outside the restricted sandbox.
 No SDK suite, container build or real Google Cloud request was run.
+
+Final-source host checks on 2026-11-04 passed workspace/all-targets Clippy,
+production lint (zero violations), formatting, compatibility generation/check
+and the documentation gate. The three shell self-tests and offline container
+publication/mirroring tests also passed; no image was built.
+
+`GCSM_CHECK_CROSS=0 just check` stops in the existing `test-check.sh` self-test,
+which inherits the switch but expects mocked cross-target commands. With that
+variable removed the self-test passes. The host gate was therefore run directly:
+
+```sh
+GCSM_CHECK_CROSS=0 CARGO_BUILD_JOBS=4 env -u RUSTUP_TOOLCHAIN \
+  bash scripts/with-test-tmpdir.sh bash scripts/check.sh
+```
+
+The library run completed with 1100 passing and 121 failing tests. All 121 failure
+blocks contain PermissionDenied or Operation not permitted, including the accept
+recovery/drain and upload-frame socket tests. Process-based wire tests also cannot
+start listeners in this sandbox; some report EOF while reading the missing ready
+event rather than the underlying listener diagnostic. This is a failed full test
+gate, not passing wire evidence. No negative assertion was removed or skipped.
+The documentation and offline shell checks following the Rust gate were run
+separately because the gate stops after a failing test binary.
