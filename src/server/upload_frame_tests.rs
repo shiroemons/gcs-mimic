@@ -43,6 +43,10 @@ async fn unknown_routes_use_json_error_envelopes_and_probes_accept_zero_lengths(
     assert!(probe(&request, &state).is_none());
     let response = unknown_route().into_response();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response.headers()["content-type"],
+        "application/json; charset=UTF-8"
+    );
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(error["error"]["code"], 404);

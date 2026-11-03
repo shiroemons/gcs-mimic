@@ -51,7 +51,9 @@ fn multipart_memory_capacity_failures_are_reported_without_publishing_a_part() {
         "",
         &vec![b'x'; 1024],
     );
-    reply.status(507);
+    reply.status(503);
+    assert_eq!(tag(&reply.body, "Code"), "ServiceUnavailable");
+    assert!(tag(&reply.body, "Message").starts_with("Storage capacity exhausted;"));
     let parts = server.request(
         "GET",
         &format!("/multipart-bucket/value?uploadId={id}"),

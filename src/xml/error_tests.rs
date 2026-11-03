@@ -2,6 +2,16 @@ use super::*;
 use crate::{auth::AuthFailure, bucket::CatalogError, csek::CsekError, object::ObjectError};
 
 #[test]
+fn storage_capacity_failures_keep_the_xml_service_unavailable_contract() {
+    let error = Error::from(JsonError::from(ObjectError::Io(
+        std::io::ErrorKind::StorageFull.into(),
+    )));
+    assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error.code.as_str(), "ServiceUnavailable");
+    assert!(error.message.starts_with("Storage capacity exhausted;"));
+}
+
+#[test]
 fn legacy_trailing_dot_hosts_do_not_fall_through_to_a_shorter_domain() {
     let endpoints = EndpointSnapshot {
         api_base_url: "http://localhost".into(),

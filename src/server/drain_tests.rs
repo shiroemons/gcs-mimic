@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_support::TestDir;
+use crate::{config::Scheme, test_support::TestDir};
 
 #[tokio::test]
 #[cfg(unix)]
@@ -71,15 +71,20 @@ async fn exhausted_accepts_pause_and_keep_serving() {
     let faults = Arc::new(std::sync::Mutex::new(
         [libc::EMFILE, libc::EMFILE, libc::EMFILE, libc::ECONNABORTED].into(),
     ));
+    let config = Config {
+        scheme: Scheme::Http,
+        ..Config::default()
+    };
     let server = tokio::spawn(ACCEPT_FAULTS.scope(
         faults,
-        serve(listener, Config::default(), state, async {
+        serve(listener, config, state, async {
             shutdown.await.map_err(io::Error::other)
         }),
     ));
-    assert!(health(address).await.starts_with("HTTP/1.1 200"));
+    let reply = health(address).await;
     stop.send(()).unwrap();
     server.await.unwrap().unwrap();
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply:?}");
 }
 
 #[cfg(unix)]
