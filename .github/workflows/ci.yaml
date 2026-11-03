@@ -4,7 +4,7 @@ on:
   # the same scripts/check-docs.sh that check.sh runs here. Release workflows
   # call this workflow directly, which these filters do not affect.
   push:
-    branches: ['**']
+    branches: [main]
     paths-ignore: ['**/*.md', 'docs/**']
   pull_request:
     paths-ignore: ['**/*.md', 'docs/**']
