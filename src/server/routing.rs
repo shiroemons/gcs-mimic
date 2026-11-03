@@ -490,7 +490,7 @@ fn respond_unsupported(
                     StatusCode::BAD_REQUEST,
                     "badRequest",
                     format!("gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."),
-                ))
+                ).with_kind(json::ErrorKind::Unsupported))
             })
             .unwrap_or_else(JsonError::into_response),
     )
@@ -758,14 +758,14 @@ async fn respond_bucket(
 fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonError {
     if profile == CompatProfile::LegacyEmulator
         && error.status == StatusCode::BAD_REQUEST
-        && matches!(error.reason, "invalidArgument" | "parseError")
+        && matches!(
+            error.kind,
+            json::ErrorKind::InvalidArgument | json::ErrorKind::ParseError
+        )
     {
         error.reason = "invalid";
     }
-    if profile == CompatProfile::LegacyEmulator
-        && error.status == StatusCode::NOT_FOUND
-        && error.reason == "notFound"
-    {
+    if profile == CompatProfile::LegacyEmulator && error.is_missing_bucket() {
         error.message = "Not Found".into();
     }
     error

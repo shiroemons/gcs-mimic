@@ -199,7 +199,7 @@ pub(super) fn content_type_and_hashes(
     }
     // Checksum failures omit the algorithm; CRC32C codes await provider parity (SPEC-XML-PUT-EDGES).
     let mut expected = json::declared_hashes(&selected).map_err(|error| {
-        if error.reason == "badRequest" {
+        if error.kind == json::ErrorKind::Unsupported {
             return Error::from(error);
         }
         Error::new(

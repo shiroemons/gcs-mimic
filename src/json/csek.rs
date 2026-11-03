@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 impl From<CsekError> for JsonError {
     fn from(error: CsekError) -> Self {
         Self::new(StatusCode::BAD_REQUEST, error.reason(), error.message())
+            .with_kind(super::ErrorKind::Csek(error))
     }
 }
 

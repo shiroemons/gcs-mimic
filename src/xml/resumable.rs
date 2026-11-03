@@ -187,7 +187,7 @@ pub(crate) async fn session(
         Ok(Some(Transfer::Complete(value))) => completed(&value),
         Ok(None) => Ok(no_content()),
         Err(error) if error.status == StatusCode::GONE => Ok(no_content()),
-        Err(error) if error.reason == "clientClosedRequest" => Ok(no_content()),
+        Err(error) if error.kind == json::ErrorKind::CancelledUpload => Ok(no_content()),
         Err(error) if error.status == StatusCode::NOT_FOUND => Err(Error::new(
             StatusCode::NOT_FOUND,
             "NoSuchUpload",

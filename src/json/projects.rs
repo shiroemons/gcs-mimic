@@ -224,6 +224,7 @@ pub(crate) fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonE
             "parseError",
             "HMAC key metadata must be valid JSON",
         )
+        .with_kind(super::ErrorKind::ParseError)
     })?;
     let body = value
         .as_object()

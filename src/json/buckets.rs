@@ -110,7 +110,8 @@ fn bucket_parse_error(
             StatusCode::BAD_REQUEST,
             "parseError",
             "Invalid JSON bucket resource",
-        );
+        )
+        .with_kind(super::ErrorKind::ParseError);
     }
     JsonError::parse_error(bytes, error)
 }

@@ -17,6 +17,8 @@ mod copy;
 mod cors;
 mod document;
 pub(crate) mod envelope;
+#[cfg(test)]
+mod error_tests;
 pub(crate) mod list;
 pub(crate) mod multipart;
 pub use cors::CorsWarnings;
@@ -321,18 +323,24 @@ pub(crate) const PRIVATE_CACHE_CONTROL: &str = "private, max-age=0";
 impl From<JsonError> for Error {
     fn from(error: JsonError) -> Self {
         // XML reference-status pairs invalid/unsupported auth headers with 400; 401 covers expiry.
-        let status = if error.status == StatusCode::UNAUTHORIZED && error.reason != "required" {
+        let status = if error.status == StatusCode::UNAUTHORIZED
+            && error.kind != json::ErrorKind::Required
+        {
             StatusCode::BAD_REQUEST
         } else {
             error.status
         };
         let code = match error.status {
-            StatusCode::UNAUTHORIZED if error.reason == "required" => "AuthenticationRequired",
+            StatusCode::UNAUTHORIZED if error.kind == json::ErrorKind::Required => {
+                "AuthenticationRequired"
+            }
             StatusCode::UNAUTHORIZED => "InvalidAuthentication",
-            StatusCode::FORBIDDEN if error.reason == "retentionPolicyNotMet" => {
+            StatusCode::FORBIDDEN if error.kind == json::ErrorKind::RetentionNotMet => {
                 "RetentionPolicyNotMet"
             }
-            StatusCode::FORBIDDEN if error.xml_active_hold => "ObjectUnderActiveHold",
+            StatusCode::FORBIDDEN if error.kind == json::ErrorKind::ActiveHold => {
+                "ObjectUnderActiveHold"
+            }
             StatusCode::FORBIDDEN => "AccessDenied",
             StatusCode::NOT_FOUND if error.is_missing_bucket() => "NoSuchBucket",
             StatusCode::NOT_FOUND => "NoSuchKey",
@@ -340,8 +348,10 @@ impl From<JsonError> for Error {
             StatusCode::RANGE_NOT_SATISFIABLE => "InvalidRange",
             StatusCode::REQUEST_TIMEOUT => "uploadBrokenConnection",
             StatusCode::SERVICE_UNAVAILABLE => "ServiceUnavailable",
-            _ => crate::csek::CsekError::from_reason(error.reason)
-                .map_or("InvalidArgument", crate::csek::CsekError::xml_code),
+            _ => match error.kind {
+                json::ErrorKind::Csek(error) => error.xml_code(),
+                _ => "InvalidArgument",
+            },
         };
         let message = if error.is_missing_object() {
             NO_SUCH_KEY.to_owned()

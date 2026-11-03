@@ -176,7 +176,7 @@ fn unsupported(name: &str) -> JsonError {
         format!(
             "gcs-mimic does not support JSON API selector {name}; omit fields or select a supported field (for example, fields=name)."
         ),
-    )
+    ).with_kind(super::ErrorKind::Unsupported)
 }
 
 /// Whether an empty segment such as the middle of `name,,size` is ignored (as Cloud Storage did

@@ -608,6 +608,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 "parseError",
                 "Invalid checksum JSON",
             )
+            .with_kind(super::ErrorKind::ParseError)
         })?;
         let mut values = value.as_object().cloned().ok_or_else(invalid)?;
         if values

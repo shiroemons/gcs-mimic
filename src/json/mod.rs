@@ -57,8 +57,8 @@ pub(crate) use envelope::{
 };
 pub use error::JsonError;
 pub(crate) use error::{
-    IF_MATCH_HEADER, MEDIA_ERROR_CACHE_CONTROL, NO_STORE_CACHE_CONTROL, PRECONDITION_NOT_HELD,
-    safe_backend_cause,
+    ErrorKind, IF_MATCH_HEADER, MEDIA_ERROR_CACHE_CONTROL, NO_STORE_CACHE_CONTROL,
+    PRECONDITION_NOT_HELD, safe_backend_cause,
 };
 pub(crate) use fields::Fields;
 pub(crate) use format::{ResponseFormat, render_body, with_format};

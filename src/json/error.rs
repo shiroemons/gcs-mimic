@@ -86,6 +86,7 @@ fn escape_html(text: &str) -> String {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JsonError {
+    pub(crate) kind: ErrorKind,
     pub status: StatusCode,
     pub reason: &'static str,
     pub message: String,
@@ -93,12 +94,29 @@ pub struct JsonError {
     /// The `locationType`/`location` pair of the error item, if any. A reference keeps the error
     /// small, which `Result` returns throughout the crate depend on.
     pub location: Option<&'static ErrorLocation>,
-    /// Whether the XML API reports this as `ObjectUnderActiveHold`.
-    pub(crate) xml_active_hold: bool,
     /// Cloud Storage answered some failures with a bare text page instead of a JSON envelope.
     pub(crate) plain: Option<&'static PlainText>,
     /// Cloud Storage's upload front end sent some JSON error envelopes as `text/html`.
     pub(crate) html_typed: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ErrorKind {
+    MissingBucket,
+    MissingObject,
+    NamedMissingObject,
+    Required,
+    RetentionNotMet,
+    ActiveHold,
+    Csek(crate::csek::CsekError),
+    Unsupported,
+    CancelledUpload,
+    IncompleteBody,
+    InvalidArgument,
+    ParseError,
+    PreconditionFailed,
+    NotModified,
+    Other,
 }
 
 /// A bare text error page: the front end's answer to a request no JSON handler claims.
@@ -289,15 +307,20 @@ impl JsonError {
         message: impl Into<String>,
     ) -> Self {
         Self {
+            kind: ErrorKind::Other,
             status,
             reason,
             message: message.into(),
             allow: None,
             location: None,
-            xml_active_hold: false,
             plain: None,
             html_typed: false,
         }
+    }
+
+    pub(crate) fn with_kind(mut self, kind: ErrorKind) -> Self {
+        self.kind = kind;
+        self
     }
 
     /// Names the rejected query parameter in the error item (`locationType: parameter`). A name
@@ -319,7 +342,7 @@ impl JsonError {
     }
 
     pub(crate) fn required(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, "required", message)
+        Self::new(StatusCode::BAD_REQUEST, "required", message).with_kind(ErrorKind::Required)
     }
 
     pub(crate) fn method_not_allowed(
@@ -412,6 +435,7 @@ impl JsonError {
 
     pub(crate) fn invalid_argument(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalidArgument", message)
+            .with_kind(ErrorKind::InvalidArgument)
     }
 
     pub(crate) fn forbidden() -> Self {
@@ -425,7 +449,7 @@ impl JsonError {
             format!(
                 "gcs-mimic does not support bucket API setting {name}; omit this setting (for example, create a bucket with only name)."
             ),
-        )
+        ).with_kind(ErrorKind::Unsupported)
     }
 
     pub fn unsupported_object(name: &str) -> Self {
@@ -435,7 +459,7 @@ impl JsonError {
             format!(
                 "gcs-mimic does not support object API setting {name}; omit this option or header (for example, use projection=noAcl)."
             ),
-        )
+        ).with_kind(ErrorKind::Unsupported)
     }
 
     pub(crate) fn value(&self) -> Value {
@@ -449,24 +473,24 @@ impl JsonError {
 
     /// Whether this is a missing-bucket error, in either the bucket or the object wording.
     pub(crate) fn is_missing_bucket(&self) -> bool {
-        self.status == StatusCode::NOT_FOUND
-            && self.reason == "notFound"
-            && (self.message == BUCKET_NOT_FOUND || self.message == "Bucket not found")
+        self.kind == ErrorKind::MissingBucket
     }
 
     /// Whether this is the catalog's missing-object error, before or after it names the object.
     pub(crate) fn is_missing_object(&self) -> bool {
-        self.status == StatusCode::NOT_FOUND
-            && self.reason == "notFound"
-            && (self.message == OBJECT_NOT_FOUND || self.message.starts_with(NO_SUCH_OBJECT))
+        matches!(
+            self.kind,
+            ErrorKind::MissingObject | ErrorKind::NamedMissingObject
+        )
     }
 
     /// Cloud Storage names the requested object in its not-found message, which the catalog
     /// error cannot do because it does not know which request selected the object.
     pub(crate) fn naming_object(mut self, bucket: &str, name: &str) -> Self {
         // An error that already names its object, such as a copy source, keeps that name.
-        if self.message == OBJECT_NOT_FOUND && self.status == StatusCode::NOT_FOUND {
+        if self.kind == ErrorKind::MissingObject {
             self.message = format!("{NO_SUCH_OBJECT}{bucket}/{name}");
+            self.kind = ErrorKind::NamedMissingObject;
         }
         self
     }
@@ -582,6 +606,7 @@ impl From<AuthFailure> for JsonError {
             // Documented status-code example for a missing credential.
             AuthFailure::LoginRequired => {
                 let mut error = Self::new(StatusCode::UNAUTHORIZED, "required", "Login Required");
+                error.kind = ErrorKind::Required;
                 error.location = Some(&AUTHORIZATION_HEADER);
                 error
             }
@@ -609,6 +634,7 @@ impl From<CatalogError> for JsonError {
             ),
             CatalogError::NotFound => {
                 Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
+                    .with_kind(ErrorKind::MissingBucket)
             }
             // The wording is a local choice; only the "you already own it" text of a create
             // conflict was recorded.
@@ -624,7 +650,8 @@ impl From<CatalogError> for JsonError {
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
                 PRECONDITION_NOT_HELD,
-            ),
+            )
+            .with_kind(ErrorKind::PreconditionFailed),
             CatalogError::Forbidden => Self::forbidden(),
             error @ CatalogError::RetentionPolicyLocked(_) => Self::new(
                 StatusCode::BAD_REQUEST,
@@ -701,6 +728,7 @@ impl JsonError {
             "clientClosedRequest",
             "clientClosedRequest",
         )
+        .with_kind(ErrorKind::CancelledUpload)
     }
 }
 
@@ -713,7 +741,8 @@ impl From<Box<crate::object::ComponentFailure>> for JsonError {
                 StatusCode::NOT_FOUND,
                 "notFound",
                 format!("{NO_SUCH_OBJECT}{}/{}", failure.bucket, failure.name),
-            ),
+            )
+            .with_kind(ErrorKind::NamedMissingObject),
             ComponentFailureKind::GenerationMismatch { required, actual } => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
@@ -731,6 +760,7 @@ impl From<ObjectError> for JsonError {
         match error {
             ObjectError::BucketNotFound => {
                 Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
+                    .with_kind(ErrorKind::MissingBucket)
             }
             ObjectError::Component(failure) => failure.into(),
             ObjectError::InvalidMetadata => Self::invalid_argument("Custom metadata exceeds 8 KiB"),
@@ -753,9 +783,11 @@ impl From<ObjectError> for JsonError {
             ObjectError::CustomerEncryption(error) => error.into(),
             ObjectError::NotModified => {
                 Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
+                    .with_kind(ErrorKind::NotModified)
             }
             ObjectError::ObjectNotFound => {
                 Self::new(StatusCode::NOT_FOUND, "notFound", OBJECT_NOT_FOUND)
+                    .with_kind(ErrorKind::MissingObject)
             }
             ObjectError::ObjectNotSoftDeleted => Self::new(
                 StatusCode::PRECONDITION_FAILED,
@@ -767,6 +799,7 @@ impl From<ObjectError> for JsonError {
                 "conditionNotMet",
                 PRECONDITION_NOT_HELD,
             )
+            .with_kind(ErrorKind::PreconditionFailed)
             .at_if_match(),
             ObjectError::OverwriteForbidden | ObjectError::Forbidden => Self::forbidden(),
             ObjectError::UnlockedRetentionOverrideRequired => Self::new(
@@ -792,7 +825,7 @@ impl From<ObjectError> for JsonError {
                         held.bucket, held.name
                     ),
                 );
-                error.xml_active_hold = true;
+                error.kind = ErrorKind::ActiveHold;
                 error
             }
             // Bucket retention policies and object retention share the reason and wording
@@ -806,7 +839,7 @@ impl From<ObjectError> for JsonError {
                     retained.name,
                     crate::object::retention::pacific_rfc3339(retained.until)
                 ),
-            ),
+            ).with_kind(ErrorKind::RetentionNotMet),
             ObjectError::HashMismatch(mismatch) => {
                 let (label, noun) = match mismatch.algorithm {
                     crate::object::HashAlgorithm::Crc32c => ("CRC32C", "CRC32C"),
@@ -832,7 +865,7 @@ impl From<ObjectError> for JsonError {
                 StatusCode::BAD_REQUEST,
                 "badRequest",
                 "The upload request body did not complete",
-            ),
+            ).with_kind(ErrorKind::IncompleteBody),
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid(reason),
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(cause) => Self::backend(cause.message()),
@@ -897,6 +930,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn error_classification_does_not_depend_on_the_public_wording() {
+        let mut bucket = JsonError::from(CatalogError::NotFound);
+        bucket.message = "different bucket wording".into();
+        bucket.reason = "differentReason";
+        assert!(bucket.is_missing_bucket());
+        let mut object = JsonError::from(ObjectError::ObjectNotFound).naming_object("b", "o");
+        assert_eq!(object.message, "No such object: b/o");
+        object.message = "different object wording".into();
+        assert!(object.is_missing_object());
+        assert_eq!(
+            object.naming_object("other", "other").message,
+            "different object wording"
+        );
+        let other = JsonError::new(StatusCode::NOT_FOUND, "notFound", OBJECT_NOT_FOUND);
+        assert!(!other.is_missing_object());
+    }
+
+    #[test]
     fn json_parse_errors_quote_the_input_with_a_caret_like_cloud_storage() {
         let parse = |input: &str| {
             let cause = serde_json::from_slice::<Value>(input.as_bytes()).unwrap_err();
@@ -930,7 +981,7 @@ mod tests {
             error.message,
             "Object 'b/o' is under active Event-Based hold and cannot be deleted, overwritten or archived until hold is removed."
         );
-        assert!(error.xml_active_hold);
+        assert_eq!(error.kind, ErrorKind::ActiveHold);
         let component = |kind| {
             JsonError::from(ObjectError::Component(Box::new(ComponentFailure {
                 bucket: "b".into(),
