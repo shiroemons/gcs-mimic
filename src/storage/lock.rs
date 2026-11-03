@@ -9,12 +9,14 @@ use std::{
 pub(super) struct DirectoryLock {
     directory: Option<File>,
     file: File,
+    released: bool,
 }
 
 impl DirectoryLock {
-    pub(super) fn release(self) -> io::Result<()> {
+    pub(super) fn release(mut self) -> io::Result<()> {
         self.file.unlock()?;
-        if let Some(directory) = &self.directory {
+        self.released = true;
+        if let Some(directory) = self.directory.take() {
             directory.unlock()?;
         }
         Ok(())
@@ -27,6 +29,9 @@ impl DirectoryLock {
 
 impl Drop for DirectoryLock {
     fn drop(&mut self) {
+        if self.released {
+            return;
+        }
         // Closing alone leaves flock held by descriptors inherited between fork and exec.
         for file in std::iter::once(&self.file).chain(self.directory.as_ref()) {
             if let Err(error) = file.unlock() {
@@ -44,6 +49,7 @@ pub(super) fn acquire_directory(path: &Path) -> io::Result<DirectoryLock> {
     Ok(DirectoryLock {
         directory: None,
         file: acquire_directory_file(path)?,
+        released: false,
     })
 }
 
@@ -110,5 +116,9 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
         ),
     })?;
     // Keep the file in place: unlinking it would let another process lock a different inode.
-    Ok(DirectoryLock { directory, file })
+    Ok(DirectoryLock {
+        directory,
+        file,
+        released: false,
+    })
 }
