@@ -773,14 +773,15 @@ fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonErro
 async fn legacy_bucket_body(response: Response<Full<Bytes>>) -> Response<Full<Bytes>> {
     let (mut parts, body) = response.into_parts();
     let Ok(collected) = body.collect().await;
-    let mut bytes = collected.to_bytes().to_vec();
+    let bytes = collected.to_bytes();
+    let mut bytes = bytes.try_into_mut().unwrap_or_else(bytes::BytesMut::from);
     if !bytes.ends_with(b"\n") {
-        bytes.push(b'\n');
+        bytes.extend_from_slice(b"\n");
     }
     parts
         .headers
         .insert("content-type", HeaderValue::from_static("application/json"));
-    Response::from_parts(parts, Full::new(Bytes::from(bytes)))
+    Response::from_parts(parts, Full::new(bytes.freeze()))
 }
 
 #[cfg(test)]
@@ -801,5 +802,8 @@ mod tests {
             cors_lookup_failure("bucket", &known)["cause"],
             "database is locked"
         );
+        let leaky = CatalogError::Io(std::io::Error::other("secret catalog filename").into());
+        let fields = cors_lookup_failure("bucket", &leaky);
+        assert!(!fields["cause"].as_str().unwrap().contains("secret"));
     }
 }

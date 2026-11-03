@@ -92,16 +92,13 @@ pub(super) async fn initiate(
 /// The session URI Cloud Storage returned: the initiation's own query parameters plus the
 /// `upload_id`, sorted by name (recorded for `name`, `ifGenerationMatch` and `uploadType`).
 fn session_location(base: &str, query: &str, id: &str) -> String {
-    let mut pairs: Vec<String> = query
+    let mut pairs: Vec<&str> = query
         .split('&')
         .filter(|pair| !pair.is_empty() && !pair.starts_with("upload_id="))
-        .map(str::to_owned)
         .collect();
-    pairs.push(format!("upload_id={id}"));
-    pairs.sort_by(|a, b| {
-        let key = |pair: &str| pair.split('=').next().unwrap_or_default().to_owned();
-        key(a).cmp(&key(b))
-    });
+    let upload_id = format!("upload_id={id}");
+    pairs.push(&upload_id);
+    pairs.sort_by(|a, b| a.split('=').next().cmp(&b.split('=').next()));
     format!("{base}?{}", pairs.join("&"))
 }
 

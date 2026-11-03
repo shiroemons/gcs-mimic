@@ -865,7 +865,8 @@ impl ConnectionWatch {
             keep_alive,
         } = self;
         let deadline = tokio::time::sleep(timeout);
-        tokio::pin!(deadline);
+        let object_deadline = tokio::time::sleep(timeout);
+        tokio::pin!(deadline, object_deadline);
         let mut current = ObjectActivity::default();
         let mut draining = false;
         let mut expiring = false;
@@ -878,7 +879,11 @@ impl ConnectionWatch {
             tokio::select! {
                 biased;
                 Ok(()) = progress.changed(), if !expiring => {
-                    current = *progress.borrow_and_update();
+                    let next = *progress.borrow_and_update();
+                    if next.deadline != current.deadline && let Some(at) = next.deadline {
+                        object_deadline.as_mut().reset(at);
+                    }
+                    current = next;
                     next_head = false;
                     // A finished request leaves the connection waiting for the next one.
                     let idle = served.load(Ordering::Acquire) && !active.load(Ordering::Acquire);
@@ -890,7 +895,7 @@ impl ConnectionWatch {
                         deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
                     }
                 },
-                _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if requesting && current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
+                _ = &mut object_deadline, if requesting && current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
                     if responded.load(Ordering::Acquire) { break; }
                     // A catalog wait that started after this branch was chosen pauses the deadline.
                     if !claim_expiry(&activity) { continue; }
