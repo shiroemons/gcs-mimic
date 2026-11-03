@@ -4,6 +4,7 @@ use crate as gcs_mimic;
 use crate::storage::test_fixtures::PERMISSIVE;
 use gcs_mimic::{
     bucket::{BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError},
+    clock::ManualClock,
     storage::Catalog,
     test_support::TestDir,
 };
@@ -13,10 +14,7 @@ use std::{
     fs,
     path::PathBuf,
     process::Command,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -378,12 +376,6 @@ async fn lifecycle_schema_migration_and_restart() {
 
 #[tokio::test]
 async fn uniform_access_migration_deadline_conditions_and_restart() {
-    struct TestClock(AtomicU64);
-    impl gcs_mimic::clock::Clock for TestClock {
-        fn now(&self) -> std::time::SystemTime {
-            UNIX_EPOCH + Duration::from_secs(self.0.load(Ordering::Relaxed))
-        }
-    }
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let original = catalog
@@ -395,7 +387,7 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
     common::downgrade_soft_delete_schema(&connection);
     connection.execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; PRAGMA user_version = 22;").unwrap();
     drop(connection);
-    let clock = Arc::new(TestClock(AtomicU64::new(1000)));
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_secs(1000)));
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
         .unwrap();
@@ -430,7 +422,7 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
             .await,
         Err(CatalogError::PreconditionFailed)
     );
-    clock.0.store(2000, Ordering::Relaxed);
+    clock.set(UNIX_EPOCH + Duration::from_secs(2000));
     let unconditioned = Default::default();
     let repeated = catalog
         .replace_bucket("uniform-bucket", update(true), unconditioned, PERMISSIVE)
@@ -472,7 +464,7 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
             .unwrap(),
         Some(enabled.clone())
     );
-    clock.0.store(2000 + 90 * 24 * 60 * 60, Ordering::Relaxed);
+    clock.set(UNIX_EPOCH + Duration::from_secs(2000 + 90 * 24 * 60 * 60));
     for replace in [false, true] {
         let result = if replace {
             catalog

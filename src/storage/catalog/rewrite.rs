@@ -666,17 +666,12 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::clock::Clock;
+    use crate::clock::ManualClock;
     use crate::storage::test_fixtures::{PERMISSIVE, body, bucket, live, permissive_upload};
     use std::{
-        sync::{
-            Arc,
-            atomic::{AtomicU64, Ordering},
-        },
+        sync::Arc,
         time::{Duration, UNIX_EPOCH},
     };
-
-    struct TestClock(AtomicU64);
 
     #[test]
     fn persisted_request_keeps_its_json_bytes() {
@@ -759,18 +754,12 @@ mod tests {
             }
         }
     }
-    impl Clock for TestClock {
-        fn now(&self) -> SystemTime {
-            UNIX_EPOCH + Duration::from_millis(self.0.load(Ordering::SeqCst))
-        }
-    }
-
-    async fn fixture() -> (Catalog, std::path::PathBuf, Arc<TestClock>) {
+    async fn fixture() -> (Catalog, std::path::PathBuf, Arc<ManualClock>) {
         let directory = std::env::temp_dir().join(format!(
             "gcs-mimic-rewrite-{}",
             RewriteToken::generate().unwrap().as_str()
         ));
-        let clock = Arc::new(TestClock(AtomicU64::new(1000)));
+        let clock = Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_millis(1000)));
         let catalog = Catalog::open_with_clock(&directory, clock.clone())
             .await
             .unwrap();
@@ -841,7 +830,7 @@ mod tests {
         let guard = catalog
             .try_resumable_writer(&format!("rewrite:{}", session.id))
             .unwrap();
-        clock.0.store(604801000, Ordering::SeqCst);
+        clock.set(UNIX_EPOCH + Duration::from_millis(604801000));
         assert!(matches!(
             catalog.rewrite_session(&token).await,
             Err(RewriteError::Gone)
@@ -909,7 +898,7 @@ mod tests {
                 BucketAccess::Permissive,
                 BucketAccess::Permissive,
                 move |record| {
-                    expiry_clock.0.store(604801000, Ordering::SeqCst);
+                    expiry_clock.set(UNIX_EPOCH + Duration::from_millis(604801000));
                     Ok(json!({"generation":record.generation}))
                 },
             )

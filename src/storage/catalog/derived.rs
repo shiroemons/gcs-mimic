@@ -1935,20 +1935,12 @@ mod tests {
 
     #[tokio::test]
     async fn injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs() {
-        use std::sync::{
-            Arc,
-            atomic::{AtomicU64, Ordering},
-        };
-        struct Clock(AtomicU64);
-        impl crate::clock::Clock for Clock {
-            fn now(&self) -> std::time::SystemTime {
-                UNIX_EPOCH + std::time::Duration::from_secs(self.0.load(Ordering::SeqCst))
-            }
-        }
+        use crate::clock::ManualClock;
+        use std::sync::Arc;
         let (catalog, path) = setup().await;
         catalog.close().await.unwrap();
         drop(catalog);
-        let clock = Arc::new(Clock(AtomicU64::new(0)));
+        let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
         let catalog = Catalog::open_with_clock(&path, clock.clone())
             .await
             .unwrap();
@@ -1971,7 +1963,7 @@ mod tests {
             .await
             .unwrap();
         let writer = catalog.derived_guard(&transfer.id).unwrap();
-        clock.0.store(604800, Ordering::SeqCst);
+        clock.set(UNIX_EPOCH + std::time::Duration::from_secs(604800));
         assert_eq!(
             catalog.get_derived(&transfer.id).await,
             Err(ObjectError::DerivedTransferExpired)

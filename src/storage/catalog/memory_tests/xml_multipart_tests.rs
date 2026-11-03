@@ -348,15 +348,9 @@ async fn ram_xml_multipart_close_wakes_stalled_parts_without_publishing_them() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_replacing_bytes() {
-    struct Time(std::sync::Mutex<std::time::SystemTime>);
-    impl crate::clock::Clock for Time {
-        fn now(&self) -> std::time::SystemTime {
-            *self.0.lock().unwrap()
-        }
-    }
-    let clock = Arc::new(Time(std::sync::Mutex::new(
+    let clock = Arc::new(crate::clock::ManualClock::new(
         std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000),
-    )));
+    ));
     let catalog = setup_with_clock(8192, false, clock.clone()).await;
     let original = put(&catalog, Default::default(), true).await.unwrap();
     let target = begin(&catalog).await;
@@ -415,7 +409,7 @@ async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_repl
     tokio::time::timeout(std::time::Duration::from_secs(2), sender.closed())
         .await
         .unwrap();
-    *clock.0.lock().unwrap() += std::time::Duration::from_secs(604800);
+    clock.advance(std::time::Duration::from_secs(604800));
     release.send(()).unwrap();
     gate.await.unwrap().unwrap();
     assert!(matches!(request.await.unwrap(), Err(Error::NoSuchUpload)));

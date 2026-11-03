@@ -4,7 +4,7 @@ use crate::storage::test_fixtures::{PERMISSIVE, body, live, permissive_upload, v
 use bytes::Bytes;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
-    clock::Clock,
+    clock::ManualClock,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
     storage::{Catalog, MoveConditions, MoveNames, ObjectReader, ObjectUpload},
     test_support::{TestDir, live_len},
@@ -15,25 +15,15 @@ use std::{
     collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::Arc,
+    time::{Duration, UNIX_EPOCH},
 };
 use tokio::sync::mpsc;
 
-#[derive(Default)]
-struct FixedClock(AtomicU64);
-
-impl Clock for FixedClock {
-    fn now(&self) -> SystemTime {
-        UNIX_EPOCH + Duration::from_micros(self.0.load(Ordering::Relaxed))
-    }
-}
-
 async fn setup(dir: &TestDir) -> Catalog {
-    let clock = Arc::new(FixedClock(AtomicU64::new(1_234_567)));
+    let clock = Arc::new(ManualClock::new(
+        UNIX_EPOCH + Duration::from_micros(1_234_567),
+    ));
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     catalog
         .insert_bucket(BucketRecord {
@@ -768,9 +758,12 @@ async fn deleted_generations_are_never_reused_after_restart_or_backward_clock() 
         .await
         .unwrap();
     catalog.close().await.unwrap();
-    let catalog = Catalog::open_with_clock(&dir.0, Arc::new(FixedClock(AtomicU64::new(100))))
-        .await
-        .unwrap();
+    let catalog = Catalog::open_with_clock(
+        &dir.0,
+        Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_micros(100))),
+    )
+    .await
+    .unwrap();
     let third = put(&catalog, "identity", b"third", ObjectConditions::default())
         .await
         .unwrap();
@@ -1586,7 +1579,9 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         customer_key_sha256: None,
     };
     drop(connection);
-    let clock = Arc::new(FixedClock(AtomicU64::new(9_876_000)));
+    let clock = Arc::new(ManualClock::new(
+        UNIX_EPOCH + Duration::from_micros(9_876_000),
+    ));
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
         .unwrap();
@@ -1629,7 +1624,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         .await
         .unwrap();
     assert_eq!(read(reader).await, b"unchanged");
-    clock.0.store(10_000_000, Ordering::Relaxed);
+    clock.set(UNIX_EPOCH + Duration::from_micros(10_000_000));
     let cleared = catalog
         .update_object_metadata(
             live("bucket", "metadata"),
