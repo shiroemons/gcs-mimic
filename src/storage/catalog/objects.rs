@@ -845,15 +845,16 @@ impl PublishIdentity {
 impl UploadCommit {
     /// Identifies the request for upload replay: target, metadata, conditions and body.
     fn fingerprint(&self) -> Vec<u8> {
-        super::upload_replay::fingerprint(&(
-            &self.bucket,
-            &self.name,
-            &self.content_type,
-            &self.metadata,
-            self.conditions,
-            self.body.size,
-            self.body.sha256,
-        ))
+        super::upload_replay::UploadFingerprint {
+            bucket: &self.bucket,
+            name: &self.name,
+            content_type: &self.content_type,
+            metadata: &self.metadata,
+            conditions: self.conditions,
+            size: self.body.size,
+            sha256: self.body.sha256,
+        }
+        .digest()
     }
 
     fn record(

@@ -8,6 +8,9 @@ use ring::digest::{SHA256, digest};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::sync::{Arc, OnceLock};
 
+mod fingerprint;
+pub(super) use fingerprint::{UploadFingerprint, copy_fingerprint};
+
 pub(crate) type UploadAclSnapshot = Arc<OnceLock<Option<super::acl::ObjectAclSnapshot>>>;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -352,10 +355,6 @@ fn check_capacity(connection: &Connection, now: i64) -> Result<(), ObjectError> 
     Ok(())
 }
 
-pub(super) fn fingerprint(value: &impl std::fmt::Debug) -> Vec<u8> {
-    hash(format!("upload-v1:{value:?}").as_bytes())
-}
-
 fn copy_source_generation(
     connection: &Connection,
     source: CopyReplaySource<'_>,
@@ -464,7 +463,7 @@ impl Catalog {
             .ok_or_else(|| objects::object_unavailable("Missing copy replay binding"))?;
         Ok(Some(CopyReplay {
             replay,
-            fingerprint: fingerprint(&request),
+            fingerprint: copy_fingerprint(&request),
             source_bucket,
             source_name,
             source_generation,
@@ -693,12 +692,9 @@ mod tests {
         }
     }
 
-    /// A replay token outlives a restart, and a restart can be an upgrade, so the fingerprint
-    /// of a request must not change with the JSON library's map ordering. Its input is typed
-    /// and ordered (`BTreeMap`), never a `serde_json::Map`; this golden value was recorded
-    /// before `serde_json` began preserving insertion order and must stay unchanged.
+    /// Replay identities survive restarts and upgrades; their versioned encoding is fixed.
     #[test]
-    fn fingerprint_is_stable_across_the_json_map_ordering_change() {
+    fn fingerprint_encoding_has_a_stable_golden_digest() {
         let metadata = ObjectMetadataUpdate {
             content_type: Some(Some("text/plain".into())),
             metadata: Some(Some(BTreeMap::from([
@@ -716,21 +712,28 @@ mod tests {
                     role: crate::acl::AclRole::Reader,
                 },
             ]),
-            ..Default::default()
+            override_unlocked_retention: crate::object::retention::UnlockedOverride::Requested,
+            ..super::super::resumable::golden_tests::populated_options().metadata
         };
-        let digest = fingerprint(&(
-            "bucket",
-            "name",
-            "text/plain",
-            &metadata,
-            ObjectConditions::default(),
-            5_u64,
-            [7_u8; 32],
-        ));
+        let digest = UploadFingerprint {
+            bucket: "bucket",
+            name: "name",
+            content_type: "text/plain",
+            metadata: &metadata,
+            conditions: ObjectConditions {
+                if_generation_match: Some(7),
+                if_generation_not_match: Some(8),
+                if_metageneration_match: Some(9),
+                if_metageneration_not_match: Some(10),
+            },
+            size: 5,
+            sha256: [7; 32],
+        }
+        .digest();
         let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
         assert_eq!(
             hex,
-            "efb78fcb6bc2c1dbe3cc0e0e0b4e797c09c5227c43717186eb9271699df8876f"
+            "9800c73b1029a34e7809af2ace71da8e6668531db720b33ce2f448732d4735d7"
         );
     }
 }
