@@ -177,14 +177,7 @@ fn cancelled_cleanup_keeps_its_writer_and_directory_ownership_until_close() {
         release.send(()).unwrap();
         blocker.await.unwrap().unwrap();
         close.await.unwrap().unwrap();
-        assert!(
-            catalog
-                .0
-                .session_writers
-                .lock()
-                .unwrap()
-                .is_empty()
-        );
+        assert!(catalog.0.session_writers.lock().unwrap().is_empty());
         assert!(!session.blob_id.staging_path(&data.0).exists());
         assert_eq!(fault::catalog_thread_io(&data.0), catalog_io);
         let recovered = Catalog::open(&data.0).await.unwrap();

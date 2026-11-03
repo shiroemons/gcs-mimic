@@ -516,6 +516,8 @@ and invoke maintenance without waiting a week.
 Each pass runs independent derived, resumable, rewrite, XML multipart and bucket
 cleanup sweeps even if another fails. The first typed failure fails the pass; later
 failures are logged, and successful deadlines are combined by their earliest value.
+Busy resumable sessions are skipped; releasing their request's writer guard wakes
+maintenance to retry them, including journaled cleanup failures.
 Session cleanup keeps its writer lease and upload slot through blocking unlink/sync
 and catalog journal removal, including after the requesting future is dropped.
 

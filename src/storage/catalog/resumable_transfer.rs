@@ -311,7 +311,6 @@ impl Catalog {
                 ));
             }
         }
-        self.0.maintenance_wake.notify_one();
         Ok(())
     }
 

@@ -23,6 +23,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
+mod scheduler;
 mod terminal_retention;
 
 async fn setup(dir: &TestDir, clock: Arc<impl Clock + 'static>) -> Catalog {

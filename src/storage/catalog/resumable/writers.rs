@@ -116,7 +116,12 @@ impl Drop for WriterGuard {
             WriterKey::Rewrite(_) | WriterKey::Multipart(_) => {
                 self.catalog.0.maintenance_wake.notify_one()
             }
-            WriterKey::Resumable(_) => {}
+            WriterKey::Resumable(_) => {
+                // Maintenance failures already schedule a retry; only requests rearm skipped work.
+                if self.origin == KeyOrigin::Client {
+                    self.catalog.0.maintenance_wake.notify_one();
+                }
+            }
         }
     }
 }
