@@ -1,5 +1,8 @@
 use super::*;
-use gcs_mimic::{auth::signature::sign_url, url::encode_object_name};
+use gcs_mimic::{
+    auth::signature::{SignUrlRequest, sign_url},
+    url::encode_object_name,
+};
 use hyper::{HeaderMap, Method, Uri};
 use std::time::SystemTime;
 
@@ -248,15 +251,15 @@ fn host(server: &Server) -> String {
 }
 
 fn signed(method: &Method, authority: &str, path: &str, signer: &str) -> String {
-    sign_url(
-        &format!("http://{authority}{path}"),
+    sign_url(SignUrlRequest {
+        url: &format!("http://{authority}{path}"),
         method,
         signer,
-        include_bytes!("../../fixtures/signing/test-only-private.pem"),
-        60,
-        SystemTime::now(),
-        HeaderMap::new(),
-    )
+        private_key: include_bytes!("../../fixtures/signing/test-only-private.pem"),
+        expires: 60,
+        now: SystemTime::now(),
+        headers: HeaderMap::new(),
+    })
     .unwrap()
 }
 

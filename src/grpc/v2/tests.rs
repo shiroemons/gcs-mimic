@@ -1,24 +1,16 @@
 use super::*;
+use crate::grpc::test_support::{self as fixtures, assert_code, registry};
 use crate::{
     auth::{Auth, Registry},
-    clock::SystemClock,
     storage::Catalog,
     test_support::TestDir,
 };
-use std::sync::atomic::AtomicBool;
 
 #[tokio::test]
 async fn grpc_auth_metadata_handoff() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    let mut state = State {
-        ready: AtomicBool::new(true),
-        clock: Arc::new(SystemClock),
-        catalog,
-        api_base_url: "http://localhost:4443".into(),
-        default_location: "US".into(),
-        auth: Auth::permissive(),
-    };
+    let mut state = fixtures::state(catalog, Auth::permissive());
     let mut request = Request::new(pb::GetBucketRequest::default());
     request
         .metadata_mut()
@@ -34,28 +26,23 @@ async fn grpc_auth_metadata_handoff() {
         state: Arc::new(state),
         max_object_bytes: 1024 * 1024 * 1024,
     };
-    assert_eq!(
-        storage.authenticate(&request).unwrap_err().code(),
-        tonic::Code::Unauthenticated
-    );
+    assert_code(storage.authenticate(&request), tonic::Code::Unauthenticated);
     request.metadata_mut().clear();
     assert!(matches!(
         storage.authenticate(&request).unwrap(),
         Some(Caller::Anonymous)
     ));
-    assert_eq!(
+    assert_code(
         storage
             .get_bucket(
                 Request::new(pb::GetBucketRequest {
                     name: "projects/_/buckets/example-bucket".into(),
                     ..Default::default()
                 }),
-                Some(Caller::Anonymous)
+                Some(Caller::Anonymous),
             )
-            .await
-            .unwrap_err()
-            .code(),
-        tonic::Code::Unauthenticated
+            .await,
+        tonic::Code::Unauthenticated,
     );
     request
         .metadata_mut()
@@ -74,57 +61,35 @@ async fn call<M: prost::Message, R: prost::Message + Default>(
     message: &M,
     token: Option<&str>,
 ) -> Result<R, tonic::Code> {
-    use http_body_util::BodyExt;
-    let payload = message.encode_to_vec();
-    let mut frame = vec![0];
-    frame.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
-    frame.extend_from_slice(&payload);
-    let mut request = hyper::Request::builder()
-        .method("POST")
-        .uri(format!("http://localhost{path}"))
-        .header("content-type", "application/grpc")
-        .header("te", "trailers");
-    if let Some(token) = token {
-        request = request.header("authorization", format!("Bearer {token}"));
+    let (code, mut responses) = fixtures::rpc(
+        path,
+        token,
+        std::slice::from_ref(message),
+        async |request| {
+            dispatch(service(state.clone(), 1024 * 1024), request)
+                .await
+                .unwrap()
+        },
+    )
+    .await;
+    if code != tonic::Code::Ok {
+        return Err(code);
     }
-    let request = request
-        .body(tonic::body::Body::new(http_body_util::Full::new(
-            bytes::Bytes::from(frame),
-        )))
-        .unwrap();
-    let response = dispatch(service(state.clone(), 1024 * 1024), request)
-        .await
-        .unwrap();
-    let headers = response.headers().clone();
-    let collected = response.into_body().collect().await.unwrap();
-    let trailers = collected.trailers().cloned().unwrap_or_default();
-    let status = trailers
-        .get("grpc-status")
-        .or_else(|| headers.get("grpc-status"))
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .parse::<i32>()
-        .unwrap();
-    if status != 0 {
-        return Err(tonic::Code::from_i32(status));
-    }
-    let body = collected.to_bytes();
-    Ok(R::decode(&body[5..]).unwrap())
+    assert_eq!(responses.len(), 1);
+    Ok(responses.pop().unwrap())
 }
 
 #[tokio::test]
 async fn grpc_storage_control_bucket_iam() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    let state = Arc::new(State {
-        ready: AtomicBool::new(true),
-        clock: Arc::new(SystemClock),
+    let state = Arc::new(fixtures::state(
         catalog,
-        api_base_url: "http://localhost:4443".into(),
-        default_location: "US".into(),
-        auth: Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"p":["roles/storage.admin"]}},{"id":"reader@example.invalid","tokens":["reader"]}]}"#).unwrap()),
-    });
+        Auth::strict(registry(&[
+            ("admin", "p", "roles/storage.admin"),
+            ("reader", "", ""),
+        ])),
+    ));
     state
         .catalog
         .insert_bucket(

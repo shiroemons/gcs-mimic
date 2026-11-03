@@ -1,5 +1,6 @@
 mod append;
 mod bidi_read;
+pub use bidi_read::ReadHandles;
 mod buckets;
 pub(crate) mod convert;
 pub(crate) mod names;
@@ -100,8 +101,8 @@ impl Storage {
 }
 
 /// Anonymous denials ask for credentials, matching the shared JSON authorization rules.
-fn access_status(error: crate::json::JsonError, caller: Option<Caller<'_>>) -> Status {
-    status::from_json(crate::server::anonymous_error(error, caller))
+fn access_status(error: impl Into<crate::json::JsonError>, caller: Option<Caller<'_>>) -> Status {
+    crate::server::anonymous_error(error.into(), caller).into()
 }
 
 fn auth_error(_: AuthFailure) -> Status {

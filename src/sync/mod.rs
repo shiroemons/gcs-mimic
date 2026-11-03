@@ -53,11 +53,7 @@ pub(crate) fn parse_catalog_id(value: &str) -> Result<CatalogId, InvalidCatalogI
     {
         return Err(InvalidCatalogId);
     }
-    let mut bytes = [0; 16];
-    for (index, byte) in bytes.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
-            .map_err(|_| InvalidCatalogId)?;
-    }
+    let bytes = crate::hex::decode(value).ok_or(InvalidCatalogId)?;
     Ok(CatalogId::from_bytes(bytes))
 }
 

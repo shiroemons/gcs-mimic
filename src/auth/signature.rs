@@ -529,9 +529,11 @@ fn unhex(raw: &str) -> Result<Vec<u8>, Failure> {
     {
         return Err(Failure::Malformed);
     }
-    (0..raw.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&raw[i..i + 2], 16).map_err(|_| Failure::Malformed))
+    raw.as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| crate::hex::byte(pair).ok_or(Failure::Malformed))
         .collect()
 }
 
@@ -583,16 +585,28 @@ pub fn timestamp(now: SystemTime) -> Result<String, SigningError> {
     ))
 }
 
+/// The final URL and local credentials bound by a V4 signature.
+pub struct SignUrlRequest<'a> {
+    pub url: &'a str,
+    pub method: &'a Method,
+    pub signer: &'a str,
+    pub private_key: &'a [u8],
+    pub expires: u64,
+    pub now: SystemTime,
+    pub headers: HeaderMap,
+}
+
 /// Sign the exact final URL, including its authority and optional query, using a local PEM key.
-pub fn sign_url(
-    url: &str,
-    method: &Method,
-    signer: &str,
-    private_key: &[u8],
-    expires: u64,
-    now: SystemTime,
-    mut headers: HeaderMap,
-) -> Result<String, SigningError> {
+pub fn sign_url(request: SignUrlRequest<'_>) -> Result<String, SigningError> {
+    let SignUrlRequest {
+        url,
+        method,
+        signer,
+        private_key,
+        expires,
+        now,
+        mut headers,
+    } = request;
     let mut uri: Uri = url.parse().map_err(|_| SigningError::InvalidUrl)?;
     let (Some(scheme), Some(mut authority)) = (uri.scheme().cloned(), uri.authority().cloned())
     else {

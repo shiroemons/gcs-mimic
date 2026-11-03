@@ -33,7 +33,10 @@ use tokio::{
     task::JoinSet,
 };
 
+pub use crate::grpc::v2::ReadHandles;
+
 pub struct State {
+    pub grpc_read_handles: ReadHandles,
     pub ready: AtomicBool,
     pub clock: Arc<dyn Clock>,
     pub catalog: Catalog,

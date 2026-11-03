@@ -1,16 +1,11 @@
 use super::*;
+use crate::grpc::test_support::{self as fixtures, assert_code, registry};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
-use crate::{
-    auth::{Auth, Registry},
-    clock::SystemClock,
-    json,
-    storage::Catalog,
-    test_support::TestDir,
-};
+use crate::{auth::Auth, json, storage::Catalog, test_support::TestDir};
 use bytes::Bytes;
 use pb::bidi_write_object_request::{Data, FirstMessage};
 use pb::bidi_write_object_response::WriteStatus;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::Arc;
 use tonic::{Code, Request};
 
 const BUCKET: &str = "projects/_/buckets/grpc-append";
@@ -26,19 +21,15 @@ async fn setup(strict: bool) -> (TestDir, Storage) {
     .unwrap();
     catalog.insert_bucket(definition).await.unwrap();
     let auth = if strict {
-        Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},{"id":"reader@example.invalid","tokens":["reader"],"project_roles":{"project":["roles/storage.objectViewer"]}}]}"#).unwrap())
+        Auth::strict(registry(&[
+            ("admin", "project", "roles/storage.admin"),
+            ("reader", "project", "roles/storage.objectViewer"),
+        ]))
     } else {
         Auth::permissive()
     };
     let storage = Storage {
-        state: Arc::new(crate::server::State {
-            ready: AtomicBool::new(true),
-            clock: Arc::new(SystemClock),
-            catalog,
-            api_base_url: "http://localhost:4443".into(),
-            default_location: "US".into(),
-            auth,
-        }),
+        state: Arc::new(fixtures::state(catalog, auth)),
         max_object_bytes: 1024 * 1024,
     };
     (dir, storage)
@@ -237,7 +228,7 @@ async fn append_creates_flushes_reads_and_finalizes_with_reserved_generation() {
     );
 
     let (result, _) = append(&storage, vec![Ok(take_over("log", generation, None))], None).await;
-    assert_eq!(result.unwrap_err().code(), Code::FailedPrecondition);
+    assert_code(result, Code::FailedPrecondition);
 }
 
 /// The proto allows object_checksums on the finish_write message of an appendable upload,
@@ -291,24 +282,21 @@ async fn append_accepts_checksums_on_a_single_finishing_message() {
         None,
     )
     .await;
-    assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
+    assert_code(result, Code::InvalidArgument);
     assert!(get(&storage, "bad").await.unwrap().finalize_time.is_none());
     let md5 = pb::ObjectChecksums {
         crc32c: None,
         md5_hash: vec![0; 16],
     };
     let (result, _) = append(&storage, vec![Ok(single_message("md5", b"x", md5))], None).await;
-    assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
+    assert_code(result, Code::InvalidArgument);
 
     // Without finish_write, first-message checksums are rejected before anything is created.
     let mut early = create("early", b"x");
     early.object_checksums = Some(crc(crc32c::crc32c(b"x")));
     let (result, _) = append(&storage, vec![Ok(early)], None).await;
-    assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
-    assert_eq!(
-        get(&storage, "early").await.unwrap_err().code(),
-        Code::NotFound
-    );
+    assert_code(result, Code::InvalidArgument);
+    assert_code(get(&storage, "early").await, Code::NotFound);
 }
 
 #[tokio::test]
@@ -324,7 +312,7 @@ async fn append_hides_unflushed_bytes_and_truncates_them_on_takeover() {
         None,
     )
     .await;
-    assert_eq!(result.unwrap_err().code(), Code::Cancelled);
+    assert_code(result, Code::Cancelled);
     let generation = match responses[0].write_status.as_ref().unwrap() {
         WriteStatus::Resource(object) => object.generation,
         WriteStatus::PersistedSize(_) => panic!("missing resource"),
@@ -342,7 +330,7 @@ async fn append_hides_unflushed_bytes_and_truncates_them_on_takeover() {
         None,
     )
     .await;
-    assert_eq!(result.unwrap_err().code(), Code::OutOfRange);
+    assert_code(result, Code::OutOfRange);
     assert_eq!(persisted(&responses[0]), 3);
     assert_eq!(persisted(&responses[1]), 5);
     assert_eq!(read(&storage, "tail").await.unwrap().1, b"abcXY");
@@ -462,7 +450,7 @@ async fn append_rejects_replacement_and_invalid_messages_without_false_success()
         spec.if_generation_match = Some(0);
     }
     let (result, _) = append(&storage, vec![Ok(create_only)], None).await;
-    assert_eq!(result.unwrap_err().code(), Code::FailedPrecondition);
+    assert_code(result, Code::FailedPrecondition);
     assert_eq!(read(&storage, "existing").await.unwrap().1, b"first");
 
     let mut sized = create("sized", b"x");
@@ -540,10 +528,7 @@ async fn append_rejects_replacement_and_invalid_messages_without_false_success()
         )
         .await
         .unwrap();
-    assert_eq!(
-        get(&storage, "crc").await.unwrap_err().code(),
-        Code::NotFound
-    );
+    assert_code(get(&storage, "crc").await, Code::NotFound);
     let (result, _) = append(&storage, vec![Ok(create("crc", b"new"))], None).await;
     result.unwrap();
     assert_eq!(read(&storage, "crc").await.unwrap().1, b"new");
@@ -568,14 +553,14 @@ async fn append_strict_requires_create_and_allows_viewer_reads() {
         WriteStatus::PersistedSize(_) => panic!("missing resource"),
     };
     let (result, _) = append(&storage, vec![Ok(create("denied", b"x"))], reader).await;
-    assert_eq!(result.unwrap_err().code(), Code::PermissionDenied);
+    assert_code(result, Code::PermissionDenied);
     let (result, _) = append(
         &storage,
         vec![Ok(take_over("strict", generation, None))],
         reader,
     )
     .await;
-    assert_eq!(result.unwrap_err().code(), Code::PermissionDenied);
+    assert_code(result, Code::PermissionDenied);
     let object = storage
         .get_object(
             Request::new(pb::GetObjectRequest {

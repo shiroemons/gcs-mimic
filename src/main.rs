@@ -573,15 +573,15 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
                     "Cannot read private key; provide a readable local RSA PEM file."
                 }
             })?;
-    gcs_mimic::auth::signature::sign_url(
-        &url,
-        &method,
-        required("--signer")?,
-        &key,
+    gcs_mimic::auth::signature::sign_url(gcs_mimic::auth::signature::SignUrlRequest {
+        url: &url,
+        method: &method,
+        signer: required("--signer")?,
+        private_key: &key,
         expires,
         now,
         headers,
-    )
+    })
     .map_err(|error| error.to_string().into())
 }
 

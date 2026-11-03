@@ -89,7 +89,7 @@ fn status_response(
             None,
         ),
         Acknowledgement::PersistedSize => (
-            WriteStatus::PersistedSize(writer.persisted_size() as i64),
+            WriteStatus::PersistedSize(crate::grpc::convert::signed(writer.persisted_size())),
             Some(pb::ObjectChecksums {
                 crc32c: Some(record.crc32c),
                 md5_hash: Vec::new(),
@@ -155,12 +155,11 @@ impl Storage {
                     ));
                 }
                 let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
-                let conditions = conditions(
-                    None,
-                    None,
-                    spec.if_metageneration_match,
-                    spec.if_metageneration_not_match,
-                )?;
+                let conditions = conditions(ObjectConditions {
+                    if_metageneration_match: spec.if_metageneration_match,
+                    if_metageneration_not_match: spec.if_metageneration_not_match,
+                    ..Default::default()
+                })?;
                 let target = ObjectTarget::new(bucket, name, spec.generation);
                 let writer = self
                     .state

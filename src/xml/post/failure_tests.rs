@@ -75,6 +75,7 @@ impl Fixture {
         let (activity, _) = watch::channel(ObjectActivity::default());
         Self {
             state: State {
+                grpc_read_handles: Default::default(),
                 ready: AtomicBool::new(true),
                 clock,
                 catalog,

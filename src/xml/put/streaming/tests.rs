@@ -54,6 +54,7 @@ impl Fixture {
         Self {
             dir,
             state: State {
+                grpc_read_handles: Default::default(),
                 ready: AtomicBool::new(true),
                 clock,
                 catalog,

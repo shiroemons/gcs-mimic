@@ -101,6 +101,7 @@ impl Fixture {
         let task = crate::sync::start(catalog.clone(), root, &config).unwrap();
         assert!(task.rescan().await.unwrap().baseline_complete);
         let state = State {
+            grpc_read_handles: Default::default(),
             ready: AtomicBool::new(true),
             clock: Arc::new(SystemClock),
             catalog,
