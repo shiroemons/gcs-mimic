@@ -13,7 +13,7 @@ async fn require(
     state: &State,
     access: &BucketAccess,
     bucket: &str,
-    permission: &str,
+    permission: auth::Permission,
 ) -> Result<(), JsonError> {
     if let BucketAccess::Policy { identity, .. } = access {
         state

@@ -1050,7 +1050,7 @@ pub(crate) fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> J
 pub(crate) async fn authorize_bucket(
     state: &State,
     caller: Option<Caller<'_>>,
-    permission: &str,
+    permission: auth::Permission,
     bucket: &str,
 ) -> Result<BucketAccess, JsonError> {
     let Some(caller) = caller else {
@@ -1069,7 +1069,7 @@ pub(crate) async fn authorize_bucket(
 /// Authorize a project-scoped collection request such as buckets.insert or buckets.list.
 fn authorize_project(
     caller: Option<Caller<'_>>,
-    permission: &str,
+    permission: auth::Permission,
     project: &str,
 ) -> Result<(), JsonError> {
     match caller {

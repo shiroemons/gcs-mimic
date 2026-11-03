@@ -101,7 +101,7 @@ impl Storage {
         &self,
         caller: Option<Caller<'_>>,
         bucket: &str,
-        permission: &str,
+        permission: crate::auth::Permission,
     ) -> Result<crate::bucket::BucketAccess, Status> {
         crate::server::authorize_bucket(&self.state, caller, permission, bucket)
             .await

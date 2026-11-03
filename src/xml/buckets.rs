@@ -121,7 +121,7 @@ fn project(headers: &HeaderMap) -> Result<&str, Error> {
 
 fn authorize_project(
     caller: Option<auth::Caller<'_>>,
-    permission: &str,
+    permission: auth::Permission,
     project: &str,
 ) -> Result<(), Error> {
     if let Some(caller) = caller {

@@ -40,14 +40,10 @@ use std::{
 /// The documented 401 body cannot explain JWT setup failures, so log guidance once.
 static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);
 
-// Keep string constants until authorization adapters migrate; the enum marks this untestable.
-pub(crate) const BUCKETS_ENABLE_OBJECT_RETENTION: &str = "storage.buckets.enableObjectRetention";
-
-// Optional constants serve call sites that authorize by permission name.
 // `untestable` excludes a permission from bucket testIamPermissions, not authorization.
 macro_rules! permissions {
     ($($variant:ident $(($constant:ident))? => $name:literal $([$untestable:ident])?),+ $(,)?) => {
-        $($(pub(crate) const $constant: &str = $name;)?)+
+        $($(pub(crate) const $constant: Permission = Permission::$variant;)?)+
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub(crate) enum Permission {
@@ -56,10 +52,6 @@ macro_rules! permissions {
 
         impl Permission {
             pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
-
-            fn from_name(value: &str) -> Option<Self> {
-                match value { $($name => Some(Self::$variant),)+ _ => None }
-            }
 
             pub(crate) fn parse_testable(value: &str) -> Option<Self> {
                 match value { $($name => permissions!(@parsed Self::$variant $(, $untestable)?),)+ _ => None }
@@ -100,13 +92,6 @@ impl fmt::Display for UnsupportedPermission {
 
 impl std::error::Error for UnsupportedPermission {}
 
-// Keep existing diagnostic conversions until authorization adapters take Permission directly.
-impl From<UnsupportedPermission> for String {
-    fn from(error: UnsupportedPermission) -> Self {
-        error.to_string()
-    }
-}
-
 permissions! {
     BucketsCreate(BUCKETS_CREATE) => "storage.buckets.create",
     BucketsDelete(BUCKETS_DELETE) => "storage.buckets.delete",
@@ -130,7 +115,7 @@ permissions! {
     MultipartAbort => "storage.multipartUploads.abort",
     MultipartList => "storage.multipartUploads.list",
     MultipartListParts => "storage.multipartUploads.listParts",
-    BucketsEnableObjectRetention => "storage.buckets.enableObjectRetention" [untestable],
+    BucketsEnableObjectRetention(BUCKETS_ENABLE_OBJECT_RETENTION) => "storage.buckets.enableObjectRetention" [untestable],
     HmacKeysCreate => "storage.hmacKeys.create" [untestable],
     HmacKeysDelete => "storage.hmacKeys.delete" [untestable],
     HmacKeysGet => "storage.hmacKeys.get" [untestable],
@@ -160,17 +145,15 @@ struct ProjectGrant {
 }
 
 impl ProjectGrant {
-    fn grant(&mut self, permission: &str) {
+    fn grant(&mut self, permission: Permission) {
         self.any_storage_permission = true;
-        if let Some(permission) = Permission::from_name(permission) {
-            self.permissions.insert(permission);
-        }
+        self.permissions.insert(permission);
     }
 }
 
 #[cfg(test)]
-impl FromIterator<&'static str> for ProjectGrant {
-    fn from_iter<T: IntoIterator<Item = &'static str>>(iter: T) -> Self {
+impl FromIterator<Permission> for ProjectGrant {
+    fn from_iter<T: IntoIterator<Item = Permission>>(iter: T) -> Self {
         let mut grant = Self::default();
         for permission in iter {
             grant.grant(permission);
@@ -312,8 +295,8 @@ impl Identity {
             let mut set = ProjectGrant::default();
             for entry in entries.as_array().ok_or_else(invalid)? {
                 set.grant(match entry.as_str() {
-                    Some(OBJECTS_CREATE) => OBJECTS_CREATE,
-                    Some(OBJECTS_DELETE) => OBJECTS_DELETE,
+                    Some("storage.objects.create") => OBJECTS_CREATE,
+                    Some("storage.objects.delete") => OBJECTS_DELETE,
                     _ => return Err(invalid()),
                 });
             }
@@ -337,11 +320,10 @@ impl Identity {
     }
 
     /// Whether any granted role in `project` contains `permission`.
-    pub(crate) fn allows(&self, permission: &str, project: &str) -> bool {
-        self.projects.get(project).is_some_and(|grant| {
-            Permission::from_name(permission)
-                .is_some_and(|permission| grant.permissions.contains(permission))
-        })
+    pub(crate) fn allows(&self, permission: Permission, project: &str) -> bool {
+        self.projects
+            .get(project)
+            .is_some_and(|grant| grant.permissions.contains(permission))
     }
 
     /// Whether any role is granted in `project`. The pinned snapshot keeps only `storage.*`
@@ -353,21 +335,17 @@ impl Identity {
             .is_some_and(|grant| grant.any_storage_permission)
     }
 
-    pub(crate) fn allows_anywhere(&self, permission: &str) -> bool {
-        self.projects.values().any(|grant| {
-            Permission::from_name(permission)
-                .is_some_and(|permission| grant.permissions.contains(permission))
-        })
+    pub(crate) fn allows_anywhere(&self, permission: Permission) -> bool {
+        self.projects
+            .values()
+            .any(|grant| grant.permissions.contains(permission))
     }
 
     /// Projects in which any granted role contains `permission`.
-    pub(crate) fn projects_allowing(&self, permission: &str) -> Vec<String> {
+    pub(crate) fn projects_allowing(&self, permission: Permission) -> Vec<String> {
         self.projects
             .iter()
-            .filter(|(_, grant)| {
-                Permission::from_name(permission)
-                    .is_some_and(|permission| grant.permissions.contains(permission))
-            })
+            .filter(|(_, grant)| grant.permissions.contains(permission))
             .map(|(project, _)| project.clone())
             .collect()
     }
@@ -395,7 +373,7 @@ impl<'a> Caller<'a> {
     /// project; otherwise the caller cannot learn whether the bucket exists.
     pub(crate) fn authorize(
         self,
-        permission: &str,
+        permission: Permission,
         project: Option<&str>,
     ) -> Result<(), AuthFailure> {
         let identity = self.principal()?;
@@ -737,8 +715,11 @@ fn parse_project_roles(
                     "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
                 ))
             })?;
-            for permission in expanded {
-                granted.grant(permission);
+            granted.any_storage_permission |= !expanded.is_empty();
+            for permission in Permission::ALL {
+                if expanded.contains(&permission.as_str()) {
+                    granted.grant(*permission);
+                }
             }
             granted.explicit_storage_admin |= role == "roles/storage.admin";
         }
@@ -1000,10 +981,10 @@ mod tests {
             restored.upload_snapshot(),
             serde_json::json!({"id":"legacy","projects":{"project":["storage.objects.create"]}})
         );
-        assert!(Permission::parse_testable(BUCKETS_ENABLE_OBJECT_RETENTION).is_none());
+        assert!(Permission::parse_testable(BUCKETS_ENABLE_OBJECT_RETENTION.as_str()).is_none());
         assert_eq!(
-            Permission::from_name(BUCKETS_ENABLE_OBJECT_RETENTION),
-            Some(Permission::BucketsEnableObjectRetention)
+            BUCKETS_ENABLE_OBJECT_RETENTION,
+            Permission::BucketsEnableObjectRetention
         );
     }
 
@@ -1012,14 +993,14 @@ mod tests {
         let registry = Registry::parse(br#"{"identities":[{"id":"hmac","tokens":[],"project_roles":{"project":["roles/storage.hmacKeyAdmin"]}}]}"#).unwrap();
         let identity = &registry.identities[0];
         for permission in [
-            "storage.hmacKeys.create",
-            "storage.hmacKeys.delete",
-            "storage.hmacKeys.get",
-            "storage.hmacKeys.list",
-            "storage.hmacKeys.update",
+            Permission::HmacKeysCreate,
+            Permission::HmacKeysDelete,
+            Permission::HmacKeysGet,
+            Permission::HmacKeysList,
+            Permission::HmacKeysUpdate,
         ] {
             assert!(identity.allows(permission, "project"), "{permission}");
-            assert!(Permission::parse_testable(permission).is_none());
+            assert!(Permission::parse_testable(permission.as_str()).is_none());
             let query = format!("permissions={permission}");
             let error = crate::json::test_permissions_query(Some(&query)).unwrap_err();
             assert_eq!(error.status, hyper::StatusCode::BAD_REQUEST);
@@ -1193,9 +1174,9 @@ mod tests {
         catalog.insert_bucket(record).await.unwrap();
         for default_acl in [false, true] {
             for readable in [false, true] {
-                let mut permissions = BTreeSet::from([BUCKETS_UPDATE]);
+                let mut permissions = vec![BUCKETS_UPDATE];
                 if readable {
-                    permissions.insert(BUCKETS_GET_IAM);
+                    permissions.push(BUCKETS_GET_IAM);
                 }
                 let access = BucketAccess::Policy {
                     identity: Some(Identity {
@@ -1484,15 +1465,11 @@ mod tests {
         )
         .unwrap();
         let identity = &registry.identities[0];
-        let all: BTreeSet<_> = roles::PREDEFINED_ROLES
-            .iter()
-            .flat_map(|(_, _, permissions)| permissions.iter().copied())
-            .collect();
         for (index, (_, _, permissions)) in roles::PREDEFINED_ROLES.iter().enumerate() {
-            for permission in &all {
+            for permission in Permission::ALL {
                 assert_eq!(
-                    identity.allows(permission, &projects[index]),
-                    permissions.contains(permission) && Permission::from_name(permission).is_some(),
+                    identity.allows(*permission, &projects[index]),
+                    permissions.contains(&permission.as_str()),
                     "{index} {permission}"
                 );
             }
@@ -1513,8 +1490,11 @@ mod tests {
 
     #[test]
     fn notable_role_consequences_follow_the_snapshot() {
-        let has =
-            |role: &str, permission: &str| roles::permissions(role).unwrap().contains(&permission);
+        let has = |role: &str, permission: Permission| {
+            roles::permissions(role)
+                .unwrap()
+                .contains(&permission.as_str())
+        };
         assert!(!has("roles/storage.objectViewer", BUCKETS_GET));
         assert!(has("roles/storage.objectViewer", OBJECTS_GET));
         assert!(has("roles/storage.objectCreator", OBJECTS_CREATE));

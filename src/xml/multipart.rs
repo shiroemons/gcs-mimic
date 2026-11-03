@@ -195,11 +195,11 @@ pub(crate) async fn respond(
     xml_text(&path.target.name)?;
     let permission = match operation {
         Operation::Begin | Operation::Put(_) | Operation::Complete => {
-            "storage.multipartUploads.create"
+            crate::auth::Permission::MultipartCreate
         }
-        Operation::Parts => "storage.multipartUploads.listParts",
-        Operation::Uploads => "storage.multipartUploads.list",
-        Operation::Abort => "storage.multipartUploads.abort",
+        Operation::Parts => crate::auth::Permission::MultipartListParts,
+        Operation::Uploads => crate::auth::Permission::MultipartList,
+        Operation::Abort => crate::auth::Permission::MultipartAbort,
     };
     let access = ctx
         .authorize(permission, &path.target.bucket)

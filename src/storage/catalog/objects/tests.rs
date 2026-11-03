@@ -1724,7 +1724,7 @@ async fn missing_bucket_access_reauthorizes_against_the_actual_project() {
         unreachable!()
     };
     let access = catalog
-        .bucket_access("bucket", identity.as_ref(), permission.as_str())
+        .bucket_access("bucket", identity.as_ref(), permission)
         .await
         .unwrap();
     let conditions = ObjectConditions::default();

@@ -258,7 +258,7 @@ impl Storage {
         &self,
         caller: Option<Caller<'_>>,
         bucket: &str,
-        permission: &str,
+        permission: crate::auth::Permission,
     ) -> Result<BucketAccess, Status> {
         json::validate_bucket_name_for_profile(bucket, self.compat_profile)?;
         crate::server::authorize_bucket(&self.state, caller, permission, bucket)
@@ -270,7 +270,7 @@ impl Storage {
         &self,
         caller: Option<Caller<'_>>,
         project: &str,
-        permission: &str,
+        permission: crate::auth::Permission,
     ) -> Result<(), Status> {
         json::validate_project(project)?;
         if let Some(caller) = caller {

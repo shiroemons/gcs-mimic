@@ -620,7 +620,7 @@ impl Storage {
         }
         let mut requested = Vec::new();
         for permission in r.permissions {
-            json::check_testable_permission(&permission)?;
+            let permission = json::check_testable_permission(&permission)?;
             if !requested.contains(&permission) {
                 requested.push(permission);
             }
@@ -631,7 +631,7 @@ impl Storage {
             .await?;
         let mut permissions = Vec::new();
         for p in requested {
-            match authorize_bucket(&self.state, caller, &p, bucket).await {
+            match authorize_bucket(&self.state, caller, p, bucket).await {
                 Ok(access)
                     if self
                         .state
@@ -639,7 +639,7 @@ impl Storage {
                         .has_bucket_permission(bucket, &access)
                         .await? =>
                 {
-                    permissions.push(p)
+                    permissions.push(p.as_str().to_owned())
                 }
                 Ok(_) => {}
                 Err(e) if e.status == hyper::StatusCode::FORBIDDEN => {}
@@ -1168,7 +1168,7 @@ mod tests {
         let resource = "projects/_/buckets/update-copy-bucket";
         for permission in [
             "",
-            auth::BUCKETS_CREATE,
+            auth::BUCKETS_CREATE.as_str(),
             "storage.invalid",
             "storage.objects.get&permissions=storage.objects.delete",
         ] {
@@ -1188,14 +1188,14 @@ mod tests {
             .test_iam_permissions(
                 Request::new(iam::TestIamPermissionsRequest {
                     resource: resource.into(),
-                    permissions: vec![auth::OBJECTS_GET.into(); 1024],
+                    permissions: vec![auth::OBJECTS_GET.as_str().into(); 1024],
                 }),
                 None,
             )
             .await
             .unwrap()
             .into_inner();
-        assert_eq!(response.permissions, [auth::OBJECTS_GET]);
+        assert_eq!(response.permissions, [auth::OBJECTS_GET.as_str()]);
         assert_code(
             storage
                 .test_iam_permissions(

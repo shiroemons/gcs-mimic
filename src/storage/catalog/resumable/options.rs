@@ -174,7 +174,7 @@ impl StoredOptions {
         let access = match self.access {
             None => BucketAccess::Permissive,
             Some(access) => {
-                if access.permission != OBJECTS_CREATE {
+                if access.permission != OBJECTS_CREATE.as_str() {
                     return Err(InvalidOptions::new("invalid resumable options"));
                 }
                 BucketAccess::Policy {

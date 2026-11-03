@@ -339,7 +339,7 @@ pub(super) fn bucket_granted(
     bucket: &str,
     project: &str,
     identity: Option<&crate::auth::Identity>,
-    permission: &str,
+    permission: crate::auth::Permission,
 ) -> Result<bool, CatalogError> {
     let entries = stored_bucket_entries(connection, bucket, AclKind::Bucket)?
         .unwrap_or_else(|| project_private(project));
@@ -349,7 +349,7 @@ pub(super) fn bucket_granted(
         identity,
         |role| {
             crate::auth::roles::permissions(crate::acl::bucket_iam_role(role))
-                .is_some_and(|permissions| permissions.binary_search(&permission).is_ok())
+                .is_some_and(|permissions| permissions.binary_search(&permission.as_str()).is_ok())
         },
         || super::policies::policy_public_access(connection, bucket),
     )

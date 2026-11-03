@@ -546,10 +546,10 @@ fn admin_names_generations_and_permissions_are_validated() {
     assert!(Generation::new(-1).is_err());
     assert_eq!(Generation::new(i64::MAX).unwrap().get(), i64::MAX);
     assert_eq!(
-        crate::auth::Permission::try_from("storage.objects.get").unwrap(),
+        crate::auth::Permission::parse_testable("storage.objects.get").unwrap(),
         crate::auth::Permission::ObjectsGet
     );
-    assert!(crate::auth::Permission::try_from("storage.objects.typo").is_err());
+    assert!(crate::auth::Permission::parse_testable("storage.objects.typo").is_none());
     assert_eq!(WAIT_TIMEOUT, Duration::from_secs(30));
 }
 
