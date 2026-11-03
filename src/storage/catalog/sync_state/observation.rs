@@ -82,22 +82,26 @@ struct RetainedProjection {
     hashes: Option<RetainedHashes>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum RecoveryPhase {
+    Protected,
+    DiscardAccepted,
+}
+sql::integer_enum!(RecoveryPhase, { Protected => 0, DiscardAccepted => 1 });
+
+#[cfg(test)]
+mod codec_tests;
+
 fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     let category: String = row.get(2)?;
     let reason: String = row.get(7)?;
     let recovery = if category == "writeback" && reason == "protected" {
         let bytes: Vec<u8> = row.get(12)?;
-        let observed: RetainedProjection = serde_json::from_slice(&bytes).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                12,
-                rusqlite::types::Type::Blob,
-                Box::new(error),
-            )
-        })?;
-        let phase = match row.get::<_, i64>(13)? {
-            0 => "protected",
-            1 => "discard_accepted",
-            _ => return Err(rusqlite::Error::InvalidQuery),
+        let observed: RetainedProjection = serde_json::from_slice(&bytes)
+            .map_err(|error| sql::conversion_error(12, rusqlite::types::Type::Blob, error))?;
+        let phase = match row.get::<_, RecoveryPhase>(13)? {
+            RecoveryPhase::Protected => "protected",
+            RecoveryPhase::DiscardAccepted => "discard_accepted",
         };
         Some(RecoveryDetails {
             recovery_revision: row.get(10)?,
@@ -149,7 +153,7 @@ impl RootLease {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root.as_bytes())?;
             let revision=revision(&tx,root.as_bytes())?;
-            let (baseline_complete,tracked_objects,mapping_findings,pending_writeback,paused_reason,path_stops,unresolved_conflicts,scan_stop)=sql::row(&tx, "SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1", [root.as_bytes()],|row|Ok((row.get(0)?,row.get::<_,i64>(1)? as u64,row.get::<_,i64>(2)? as u64,row.get::<_,i64>(3)? as u64,row.get(4)?,row.get::<_,i64>(5)? as u64,row.get::<_,i64>(6)? as u64,row.get(7)?)))?;
+            let (baseline_complete,tracked_objects,mapping_findings,pending_writeback,paused_reason,path_stops,unresolved_conflicts,scan_stop)=sql::row(&tx, "SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1", [root.as_bytes()],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)))?;
             let exists:bool=sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)", [root.as_bytes()])?;
             let writeback=if exists {Some(writeback::observation(&tx,root).map_err(|error|unavailable(std::io::Error::other(error)))?)} else {None};
             Ok(Summary {revision,baseline_complete,tracked_objects,mapping_findings,pending_writeback,path_stops,unresolved_conflicts,paused_reason,scan_stop,writeback})
@@ -186,7 +190,7 @@ impl RootLease {
                     return Err(CatalogError::PreconditionFailed);
                 }
                 tx.prepare_cached(PAGE)?
-                    .query_map(params![root, after.0, after.1, limit as i64], read_item)?
+                    .query_map(params![root, after.0, after.1, limit], read_item)?
                     .collect::<rusqlite::Result<Vec<_>>>()
                     .map_err(unavailable)
             })

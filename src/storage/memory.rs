@@ -12,6 +12,11 @@ use std::{
 
 const CHUNK_OVERHEAD: u64 = 128;
 const BLOCK_SIZE: u64 = 64 * 1024;
+// Cancelled append jobs can retain slots after their Store's address becomes reusable.
+static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct StoreId(u64);
 
 struct Budget {
     limit: u64,
@@ -94,6 +99,7 @@ impl Drop for Reservation {
 }
 
 pub(super) struct Store {
+    id: StoreId,
     budget: Arc<Budget>,
     blobs: Mutex<HashMap<String, Arc<Blob>>>,
     drafts: Mutex<HashMap<String, Box<Stage>>>,
@@ -119,6 +125,7 @@ pub(super) struct Stage {
 impl Store {
     pub(super) fn new(limit: u64) -> Arc<Self> {
         Arc::new(Self {
+            id: StoreId(NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed)),
             budget: Arc::new(Budget {
                 limit,
                 used: AtomicU64::new(0),
@@ -127,6 +134,10 @@ impl Store {
             drafts: Mutex::new(HashMap::new()),
             failed: AtomicBool::new(false),
         })
+    }
+
+    pub(super) fn id(&self) -> StoreId {
+        self.id
     }
 
     pub(super) fn is_healthy(&self) -> bool {

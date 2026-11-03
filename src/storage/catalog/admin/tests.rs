@@ -9,6 +9,175 @@ use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::{fs, time::Duration};
 
+#[test]
+fn administrative_diagnostics_keep_their_existing_messages() {
+    for (error, expected) in [
+        (
+            AdminError::Busy {
+                retry_after: Duration::from_secs(2),
+            },
+            "administrative operation: Busy { retry_after: 2s }",
+        ),
+        (AdminError::DiskFull, "administrative operation: DiskFull"),
+        (AdminError::Closed, "administrative operation: Closed"),
+        (
+            AdminError::Precondition,
+            "administrative operation: Precondition",
+        ),
+        (AdminError::Hold, "administrative operation: Hold"),
+        (
+            AdminError::SeedProjectMismatch,
+            "administrative operation: Invalid(\"existing seed bucket belongs to another project\")",
+        ),
+        (
+            AdminError::SourceChanged {
+                fields: vec!["size".into()],
+            },
+            r#"administrative operation: SourceChanged { fields: ["size"] }"#,
+        ),
+        (
+            AdminError::Corrupt("row".into()),
+            r#"administrative operation: Corrupt("row")"#,
+        ),
+        (
+            AdminError::Io(io::ErrorKind::PermissionDenied.into()),
+            "administrative operation: Io(PermissionDenied)",
+        ),
+        (AdminError::NotFound, "administrative operation: NotFound"),
+        (
+            AdminError::Invalid("input".into()),
+            r#"administrative operation: Invalid("input")"#,
+        ),
+        (AdminError::Checksum, "administrative operation: Checksum"),
+        (AdminError::TooLarge, "administrative operation: TooLarge"),
+        (AdminError::Forbidden, "administrative operation: Forbidden"),
+        (
+            AdminError::BodyAborted("body".into()),
+            r#"administrative operation: BodyAborted("body")"#,
+        ),
+        (
+            AdminError::Backend("database".into()),
+            r#"administrative operation: Backend("database")"#,
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+    }
+}
+
+#[test]
+fn administrative_failures_retain_io_and_corruption_causes() {
+    let io_failure = || io::Error::new(io::ErrorKind::PermissionDenied, "denied fixture");
+    for error in [
+        AdminError::from(io_failure()),
+        AdminError::from(CatalogError::Io(io_failure().into())),
+        AdminError::from(ObjectError::Io(io_failure().into())),
+    ] {
+        let cause = std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref::<io::Error>()
+            .unwrap();
+        assert_eq!(cause.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(cause.to_string(), "denied fixture");
+    }
+    let invalid = || "bad".parse::<u64>().unwrap_err();
+    for error in [
+        AdminError::from(CatalogError::Corrupt(BackendCause::from_error(invalid()))),
+        AdminError::from(ObjectError::Corrupt(BackendCause::from_error(invalid()))),
+    ] {
+        assert!(
+            std::error::Error::source(&error)
+                .unwrap()
+                .is::<std::num::ParseIntError>()
+        );
+    }
+}
+
+#[test]
+fn synchronization_diagnostics_keep_their_existing_messages() {
+    use crate::storage::sync_state::{
+        conflicts::Error as ConflictError, root::RootError, writeback::Error as WritebackError,
+    };
+    for (error, expected) in [
+        (
+            RootError::Admin(AdminError::Hold),
+            "synchronization root: Admin(Hold)",
+        ),
+        (RootError::InUse, "synchronization root: InUse"),
+        (RootError::Unsupported, "synchronization root: Unsupported"),
+        (RootError::RootChanged, "synchronization root: RootChanged"),
+        (
+            RootError::MissingMarker,
+            "synchronization root: MissingMarker",
+        ),
+        (
+            RootError::InvalidMarker,
+            "synchronization root: InvalidMarker",
+        ),
+        (
+            RootError::ForeignMarker,
+            "synchronization root: ForeignMarker",
+        ),
+        (
+            RootError::ReinitializeDenied,
+            "synchronization root: ReinitializeDenied",
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+    }
+    for (error, expected) in [
+        (
+            ConflictError::Admin(AdminError::Corrupt("row".into())),
+            r#"sync conflict: Admin(Corrupt("row"))"#,
+        ),
+        (
+            ConflictError::Root(RootError::InUse),
+            "sync conflict: Root(InUse)",
+        ),
+        (ConflictError::Capacity, "sync conflict: Capacity"),
+        (
+            ConflictError::RevisionMismatch,
+            "sync conflict: RevisionMismatch",
+        ),
+        (ConflictError::TargetChanged, "sync conflict: TargetChanged"),
+        (
+            ConflictError::OperationIdReused,
+            "sync conflict: OperationIdReused",
+        ),
+        (
+            ConflictError::ConfirmationRequired,
+            "sync conflict: ConfirmationRequired",
+        ),
+        (
+            ConflictError::InvalidResolution,
+            "sync conflict: InvalidResolution",
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+    }
+    for (error, expected) in [
+        (
+            WritebackError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into())),
+            "write-back: Admin(Io(PermissionDenied))",
+        ),
+        (
+            WritebackError::Root(RootError::InUse),
+            "write-back: Root(InUse)",
+        ),
+        (WritebackError::Capacity, "write-back: Capacity"),
+        (
+            WritebackError::RecoveryRequired,
+            "write-back: RecoveryRequired",
+        ),
+        (WritebackError::Protected, "write-back: Protected"),
+        (
+            WritebackError::WorkspaceChanged,
+            "write-back: WorkspaceChanged",
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+    }
+}
+
 fn publication_blobs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     fs::read_dir(dir.join("blobs"))
         .unwrap()
@@ -32,7 +201,7 @@ async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
         )
         .await
         .unwrap();
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     fs::remove_file(&stage).unwrap();
     fs::create_dir(&stage).unwrap();
     let lease = catalog
@@ -41,7 +210,7 @@ async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
         .unwrap();
     catalog.invalidate_resumable_session(&lease).await.unwrap();
     catalog.reclaim_pending().await.unwrap();
-    let id = session.blob_id.clone();
+    let id = session.blob_id;
     catalog
         .run_upload(move |connection| {
             let pending: bool = connection
@@ -193,7 +362,7 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
             let transaction = connection.transaction().unwrap();
             for index in 0..140 {
                 let id = format!("{index:032x}");
-                let path = objects::blob_path(&data_dir, &id).unwrap();
+                let path = objects::blob_path(&data_dir, &id.parse().unwrap());
                 fs::create_dir_all(path.parent().unwrap()).unwrap();
                 fs::write(path, b"retired").unwrap();
                 transaction
@@ -1208,7 +1377,7 @@ async fn disk_full_during_resumable_retirement_preserves_the_same_session_and_by
     assert_eq!(retained.state, super::super::SessionState::Active);
     assert_eq!(retained.offset, 5);
     assert_eq!(
-        std::fs::read(dir.0.join("staging").join(&session.blob_id)).unwrap(),
+        std::fs::read(session.blob_id.staging_path(&dir.0)).unwrap(),
         b"hello"
     );
     assert_eq!(

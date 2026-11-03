@@ -301,7 +301,7 @@ mod tests {
         (request, observed, resume)
     }
 
-    async fn clean(catalog: &Catalog, path: &std::path::Path, id: &str) {
+    async fn clean(catalog: &Catalog, path: &std::path::Path, id: &crate::storage::BlobId) {
         tokio::time::timeout(Duration::from_secs(5), async {
             while catalog.get_derived(id).await != Err(ObjectError::DerivedTransferNotFound) {
                 tokio::task::yield_now().await;
@@ -397,7 +397,7 @@ mod tests {
                 let pinned = fs::read_dir(path.join("staging"))
                     .unwrap()
                     .map(|entry| entry.unwrap())
-                    .find(|entry| entry.file_name().to_string_lossy() != progress.id)
+                    .find(|entry| entry.file_name().to_string_lossy() != progress.id.to_hex())
                     .unwrap();
                 fs::remove_file(pinned.path()).unwrap();
                 resume.send(()).unwrap();
@@ -436,9 +436,7 @@ mod tests {
             );
             let progress = progress.await.unwrap();
             assert_eq!(
-                fs::metadata(path.join("staging").join(&progress.id))
-                    .unwrap()
-                    .len(),
+                fs::metadata(progress.id.staging_path(&path)).unwrap().len(),
                 BYTE_BUDGET
             );
             let replacement = put(&catalog, "source", b"new source".to_vec()).await;

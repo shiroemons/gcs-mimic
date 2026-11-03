@@ -209,7 +209,7 @@ fn is_transient(error: &io::Error) -> bool {
         if let Some(admin) = cause.downcast_ref::<AdminError>() {
             match admin {
                 AdminError::Busy { .. } => true,
-                AdminError::Io(kind) => transient_kind(*kind),
+                AdminError::Io(cause) => transient_kind(cause.kind()),
                 _ => false,
             }
         } else if let Some(catalog) = cause.downcast_ref::<CatalogError>() {
@@ -681,7 +681,7 @@ async fn recover_writeback(root: &RootLease) -> io::Result<Writeback> {
     if recovered.stop != Stop::Ready {
         return Err(io::Error::other(match recovered.stop {
             Stop::ConflictCapacity => writeback::Error::Capacity,
-            Stop::IoFailure => writeback::Error::Admin(AdminError::Io(io::ErrorKind::Other)),
+            Stop::IoFailure => writeback::Error::Admin(AdminError::Io(io::ErrorKind::Other.into())),
             _ => writeback::Error::RecoveryRequired,
         }));
     }
@@ -1224,11 +1224,14 @@ impl LiveObject<'_> {
             Err(
                 crate::storage::sync_state::conflicts::Error::TargetChanged
                 | crate::storage::sync_state::conflicts::Error::Admin(
-                    AdminError::Precondition
-                    | AdminError::NotFound
-                    | AdminError::Io(io::ErrorKind::NotFound),
+                    AdminError::Precondition | AdminError::NotFound,
                 ),
             ) => return Ok(None),
+            Err(crate::storage::sync_state::conflicts::Error::Admin(AdminError::Io(cause)))
+                if cause.kind() == io::ErrorKind::NotFound =>
+            {
+                return Ok(None);
+            }
             Err(error) => return Err(io::Error::other(error)),
         };
         diagnostics::emit(
@@ -1272,17 +1275,18 @@ fn retryable(error: &writeback::Error) -> bool {
         writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => error,
         _ => return false,
     };
-    matches!(
-        error,
-        AdminError::DiskFull
-            | AdminError::Io(
-                std::io::ErrorKind::StorageFull
-                    | std::io::ErrorKind::PermissionDenied
-                    | std::io::ErrorKind::Other
-                    | std::io::ErrorKind::Interrupted
-                    | std::io::ErrorKind::WouldBlock
-            )
-    )
+    match error {
+        AdminError::DiskFull => true,
+        AdminError::Io(cause) => matches!(
+            cause.kind(),
+            std::io::ErrorKind::StorageFull
+                | std::io::ErrorKind::PermissionDenied
+                | std::io::ErrorKind::Other
+                | std::io::ErrorKind::Interrupted
+                | std::io::ErrorKind::WouldBlock
+        ),
+        _ => false,
+    }
 }
 
 async fn wait_retry(error: &writeback::Error, seconds: &mut u64, root: &RootLease) -> bool {
@@ -1367,7 +1371,7 @@ async fn with_retry<T, F: Future<Output = Result<T, writeback::Error>>>(
 pub(super) fn fs_error(error: fsutil::FsError) -> AdminError {
     match error {
         fsutil::FsError::Io(error) => error.into(),
-        fsutil::FsError::Unsupported => AdminError::Io(io::ErrorKind::Unsupported),
+        fsutil::FsError::Unsupported => AdminError::Io(io::ErrorKind::Unsupported.into()),
     }
 }
 
@@ -1705,14 +1709,13 @@ async fn export(
 }
 
 fn concurrent_change(error: &writeback::Error) -> bool {
-    matches!(
-        error,
-        writeback::Error::Admin(
-            AdminError::Precondition
-                | AdminError::NotFound
-                | AdminError::Io(io::ErrorKind::AlreadyExists)
-        )
-    )
+    match error {
+        writeback::Error::Admin(AdminError::Precondition | AdminError::NotFound) => true,
+        writeback::Error::Admin(AdminError::Io(cause)) => {
+            cause.kind() == io::ErrorKind::AlreadyExists
+        }
+        _ => false,
+    }
 }
 
 pub async fn reconcile(

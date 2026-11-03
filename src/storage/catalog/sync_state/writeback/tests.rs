@@ -14,6 +14,32 @@ use crate::{
 use bytes::Bytes;
 use std::{fs, io::Seek, time::Duration};
 
+#[test]
+fn complete_phase_matches_static_active_row_predicates() {
+    let connection = Connection::open_in_memory().unwrap();
+    assert!(SCHEMA.contains("WHERE phase != 4"));
+    assert!(SELECT_PENDING_PAGE.contains("phase!=4"));
+    for phase in [
+        Phase::Prepared,
+        Phase::Armed,
+        Phase::Protected,
+        Phase::Durable,
+        Phase::Complete,
+    ] {
+        assert_eq!(
+            sql::scalar::<bool>(&connection, "SELECT ?1 != 4", [phase]).unwrap(),
+            phase != Phase::Complete
+        );
+    }
+}
+
+#[test]
+fn retained_limits_match_static_schema_bounds() {
+    assert!(SCHEMA.contains(&format!("max_bytes BETWEEN 1 AND {MAX_RETAINED_BYTES}")));
+    assert!(SCHEMA.contains(&format!("max_entries BETWEEN 1 AND {MAX_RETAINED_ENTRIES}")));
+    assert!(SCHEMA.contains(&format!("entries BETWEEN 0 AND {MAX_RETAINED_ENTRIES}")));
+}
+
 async fn setup() -> (TestDir, TestDir, Catalog, RootLease, Writeback, BucketName) {
     let data = TestDir::new();
     let root = TestDir::new();
@@ -106,7 +132,7 @@ async fn writeback_abandon_unpublished_copy_preserves_external_bytes_and_release
                     "object".as_ref(),
                     None,
                 )
-                .map_err(|_| AdminError::Io(std::io::ErrorKind::AlreadyExists))?;
+                .map_err(|_| AdminError::Io(std::io::ErrorKind::AlreadyExists.into()))?;
                 Ok(())
             })
             .await
@@ -305,7 +331,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
             fsutil::clone_or_copy_into(&source, workspace, entry.as_ref()).map_err(
                 |e| match e {
                     fsutil::FsError::Io(e) => AdminError::from(e),
-                    _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                    _ => AdminError::Io(std::io::ErrorKind::Unsupported.into()),
                 },
             )?;
             let parent = fsutil::directory_path_at(
@@ -322,7 +348,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
             )
             .map_err(|e| match e {
                 fsutil::FsError::Io(e) => AdminError::from(e),
-                _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                _ => AdminError::Io(std::io::ErrorKind::Unsupported.into()),
             })?;
             Ok(())
         })
@@ -377,7 +403,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
             fsutil::clone_or_copy_into(&source, workspace, entry.as_ref()).map_err(
                 |e| match e {
                     fsutil::FsError::Io(e) => AdminError::from(e),
-                    _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                    _ => AdminError::Io(std::io::ErrorKind::Unsupported.into()),
                 },
             )?;
             let parent = fsutil::directory_path_at(
@@ -389,7 +415,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
                 fsutil::stat_identity(&fsutil::open_regular_at(&parent, "body".as_ref())?)
                     .map_err(|e| match e {
                         fsutil::FsError::Io(e) => AdminError::from(e),
-                        _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                        _ => AdminError::Io(std::io::ErrorKind::Unsupported.into()),
                     })?;
             assert!(matches!(
                 fsutil::durable_replace_between(

@@ -2,21 +2,15 @@ use super::*;
 use crate::storage::catalog::sql;
 use crate::storage::{admin::ObjectName, sync_state::SyncBinding};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PathStop {
     ProtectedDeletion,
     SourceChanging,
     IoFailure,
 }
-impl PathStop {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::ProtectedDeletion => "ProtectedDeletion",
-            Self::SourceChanging => "SourceChanging",
-            Self::IoFailure => "IoFailure",
-        }
-    }
-}
+sql::text_enum!(PathStop, "invalid path stop", {
+    ProtectedDeletion => "ProtectedDeletion", SourceChanging => "SourceChanging", IoFailure => "IoFailure",
+});
 
 impl RootLease {
     pub(crate) async fn transient_stop_page(
@@ -45,7 +39,7 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             super::super::matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
-            sql::exec(&tx, "INSERT INTO sync_path_stops(root_id,bucket,name,owner_project,incarnation,generation,reason) SELECT ?1,?2,?3,b.project,?4,coalesce((SELECT generation FROM objects WHERE bucket=?2 AND name=?3 AND time_deleted IS NULL),(SELECT generation FROM sync_objects WHERE bucket=?2 AND name=?3 AND incarnation=?4),0),?5 FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4 ON CONFLICT(root_id,bucket,name,incarnation,reason) DO UPDATE SET generation=excluded.generation WHERE generation!=excluded.generation", params![root,binding.bucket,name.as_str(),binding.incarnation,reason.as_str()])?;
+            sql::exec(&tx, "INSERT INTO sync_path_stops(root_id,bucket,name,owner_project,incarnation,generation,reason) SELECT ?1,?2,?3,b.project,?4,coalesce((SELECT generation FROM objects WHERE bucket=?2 AND name=?3 AND time_deleted IS NULL),(SELECT generation FROM sync_objects WHERE bucket=?2 AND name=?3 AND incarnation=?4),0),?5 FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4 ON CONFLICT(root_id,bucket,name,incarnation,reason) DO UPDATE SET generation=excluded.generation WHERE generation!=excluded.generation", params![root,binding.bucket,name.as_str(),binding.incarnation,reason])?;
             tx.commit().map_err(unavailable)
         }).await.map_err(RootError::from)
     }
@@ -61,7 +55,7 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             scope.authorize(&tx)?;
-            sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root,binding.bucket,name.as_str(),binding.incarnation,reason.as_str()])?;
+            sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root,binding.bucket,name.as_str(),binding.incarnation,reason])?;
             tx.commit().map_err(unavailable)
         }).await.map_err(RootError::from)
     }

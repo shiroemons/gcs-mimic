@@ -11,7 +11,10 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     object::ObjectRecord,
 };
-use rusqlite::{Connection, params};
+use rusqlite::{
+    Connection, ToSql, params,
+    types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
+};
 
 #[cfg(test)]
 struct WaitHook {
@@ -77,7 +80,25 @@ CREATE TABLE change_journal (
 PRAGMA user_version = 15;";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct JournalSeq(pub u64);
+pub struct JournalSeq(u64);
+
+impl JournalSeq {
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl ToSql for JournalSeq {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
+}
+
+impl FromSql for JournalSeq {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        u64::column_result(value).map(Self)
+    }
+}
 
 /// Capture once, then page to this position without chasing concurrent mutations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,32 +118,16 @@ pub(crate) enum ChangeKind {
     Iam,
 }
 
-impl ChangeKind {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Publish => "publish",
-            Self::Metadata => "metadata",
-            Self::Delete => "delete",
-            Self::BucketCreate => "bucket-create",
-            Self::BucketUpdate => "bucket-update",
-            Self::BucketDelete => "bucket-delete",
-            Self::Iam => "iam",
-        }
-    }
+sql::text_enum!(pub(crate) ChangeKind, "invalid change kind", {
+    Publish => "publish", Metadata => "metadata", Delete => "delete",
+    BucketCreate => "bucket-create", BucketUpdate => "bucket-update",
+    BucketDelete => "bucket-delete", Iam => "iam",
+});
 
-    fn from_stored(value: &str) -> rusqlite::Result<Self> {
-        match value {
-            "publish" => Ok(Self::Publish),
-            "metadata" => Ok(Self::Metadata),
-            "delete" => Ok(Self::Delete),
-            "bucket-create" => Ok(Self::BucketCreate),
-            "bucket-update" => Ok(Self::BucketUpdate),
-            "bucket-delete" => Ok(Self::BucketDelete),
-            "iam" => Ok(Self::Iam),
-            _ => Err(rusqlite::Error::InvalidQuery),
-        }
-    }
-}
+sql::text_enum!(pub(crate) Origin, "invalid journal origin", {
+    Api => "api", Seed => "seed", BucketInit => "bucket-init",
+    SyncIngest => "sync-ingest", Import => "import",
+});
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Change {
@@ -155,9 +160,9 @@ pub(crate) struct ChangeObservation {
     pub rescan_required: bool,
 }
 
-fn valid_cursor(cursor: JournalFence, current: JournalFence, floor: i64) -> bool {
+fn valid_cursor(cursor: JournalFence, current: JournalFence, floor: JournalSeq) -> bool {
     cursor.revision == current.revision
-        && cursor.sequence >= JournalSeq(floor as u64)
+        && cursor.sequence >= floor
         && cursor.sequence <= current.sequence
 }
 
@@ -173,16 +178,6 @@ pub(super) fn origin(access: &BucketAccess) -> Origin {
     match access {
         BucketAccess::Admin(grant) => grant.origin(),
         _ => Origin::Api,
-    }
-}
-
-fn origin_name(origin: Origin) -> &'static str {
-    match origin {
-        Origin::Api => "api",
-        Origin::Seed => "seed",
-        Origin::BucketInit => "bucket-init",
-        Origin::SyncIngest => "sync-ingest",
-        Origin::Import => "import",
     }
 }
 
@@ -230,8 +225,8 @@ pub(super) fn append(
         connection,
         "INSERT INTO change_journal SELECT s.sequence, ?1, ?2, b.name, b.project, i.incarnation, ?4, ?5, coalesce(?6, b.metageneration) FROM change_journal_state s, buckets b JOIN bucket_incarnations i ON i.bucket = b.name WHERE b.name = ?3",
         params![
-            origin_name(origin),
-            kind.as_str(),
+            origin,
+            kind,
             bucket,
             object.map(|o| &o.name),
             object.map(|o| o.generation),
@@ -275,7 +270,7 @@ pub(super) fn parent_pap(connection: &Connection, projects: &[String]) -> Result
     Ok(())
 }
 
-fn state(connection: &Connection) -> Result<(JournalFence, i64, bool), CatalogError> {
+fn state(connection: &Connection) -> Result<(JournalFence, JournalSeq, bool), CatalogError> {
     sql::row(
         connection,
         "SELECT sequence, epoch, floor, enabled FROM change_journal_state WHERE singleton = 1",
@@ -283,7 +278,7 @@ fn state(connection: &Connection) -> Result<(JournalFence, i64, bool), CatalogEr
         |r| {
             Ok((
                 JournalFence {
-                    sequence: JournalSeq(r.get::<_, i64>(0)? as u64),
+                    sequence: r.get(0)?,
                     revision: r.get(1)?,
                 },
                 r.get(2)?,
@@ -378,10 +373,8 @@ impl Catalog {
             if rescan { return Ok(ChangePage {items: vec![], next: current, fence: current, has_more: false, rescan_required: true}); }
             let start = after.ok_or_else(|| unavailable("missing journal cursor"))?;
             let mut statement = connection.prepare_cached("SELECT sequence, origin, kind, bucket, project, incarnation, object, generation, metageneration FROM change_journal WHERE sequence > ?1 AND sequence <= ?2 ORDER BY sequence LIMIT ?3")?;
-            let items = statement.query_map(params![start.sequence.0 as i64, target.sequence.0 as i64, limit as i64], |r| {
-                let value: String = r.get(1)?;
-                let origin = match value.as_str() { "api" => Origin::Api, "seed" => Origin::Seed, "bucket-init" => Origin::BucketInit, "sync-ingest" => Origin::SyncIngest, "import" => Origin::Import, _ => return Err(rusqlite::Error::InvalidQuery) };
-                Ok(Change { sequence: JournalSeq(r.get::<_, i64>(0)? as u64), origin, kind: ChangeKind::from_stored(&r.get::<_, String>(2)?)?, bucket: r.get(3)?, project: r.get(4)?, incarnation: r.get(5)?, object: r.get(6)?, generation: r.get(7)?, metageneration: r.get(8)? })
+            let items = statement.query_map(params![start.sequence, target.sequence, limit], |r| {
+                Ok(Change { sequence: r.get(0)?, origin: r.get(1)?, kind: r.get(2)?, bucket: r.get(3)?, project: r.get(4)?, incarnation: r.get(5)?, object: r.get(6)?, generation: r.get(7)?, metageneration: r.get(8)? })
             })?.collect::<rusqlite::Result<Vec<_>>>()?;
             let next = items.last().map_or(target, |c| JournalFence {sequence: c.sequence, revision: target.revision});
             Ok(ChangePage {has_more: next.sequence < target.sequence, items, next, fence: target, rescan_required: false})

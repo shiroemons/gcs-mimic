@@ -162,7 +162,7 @@ async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_o
     let original = put(&catalog, Default::default(), true).await.unwrap();
     let transfer = ram_transfer(&catalog).await;
     catalog.advance_derived(&transfer.id, 2).await.unwrap();
-    let memory = catalog.0.memory.as_ref().unwrap();
+    let memory = catalog.0.backend.memory().unwrap();
     let mut blocker = memory.stage().unwrap();
     while blocker.write(&[0; 128]).is_ok() {}
     let mut reservations = Vec::new();
@@ -379,7 +379,7 @@ async fn ram_derived_cancel_expiry_and_abandoned_begin_reclaim_their_owned_state
                 4,
                 derived::TransferKind::Ephemeral,
                 move |_, transfer| {
-                    entered.send(transfer.id.clone()).unwrap();
+                    entered.send(transfer.id).unwrap();
                     blocked.recv().unwrap();
                     Ok(())
                 },

@@ -1,12 +1,13 @@
+use super::blob_backend::ReadAccess;
 use super::{Catalog, objects};
+use crate::storage::blob_id::BlobId;
 use crate::{
     hashing::{Hasher, Hashes},
     object::ObjectError,
     storage::failure::object_unavailable,
 };
 use std::{
-    fs,
-    io::{self, Read, Seek},
+    io::{self, Read},
     path::{Path, PathBuf},
 };
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
@@ -14,28 +15,8 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 #[cfg(test)]
 use super::fault;
 
-pub(super) fn stage_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
-    super::super::blob_id::BlobId::parse(id)
-        .map(|id| id.staging_path(data_dir))
-        .ok_or_else(|| object_unavailable("invalid opaque blob ID"))
-}
-
-pub(super) fn create_empty(
-    data_dir: &Path,
-    memory: Option<&std::sync::Arc<crate::storage::memory::Store>>,
-    id: &str,
-) -> Result<PathBuf, ObjectError> {
-    let path = stage_path(data_dir, id)?;
-    if let Some(memory) = memory {
-        memory.create_draft(id.into())?;
-    } else {
-        fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&path)
-            .and_then(|file| file.sync_all())?;
-    }
-    Ok(path)
+pub(super) fn stage_path(data_dir: &Path, id: &BlobId) -> PathBuf {
+    id.staging_path(data_dir)
 }
 
 pub(super) enum InputReader {
@@ -50,16 +31,12 @@ impl InputReader {
             Self::Memory(reader) => reader.read(bytes).map_err(object_unavailable),
         }
     }
-    pub(super) async fn open(catalog: &Catalog, id: &str, start: u64) -> Result<Self, ObjectError> {
-        if let Some(memory) = &catalog.0.memory {
-            let mut reader = memory.open(id)?;
-            reader.seek(io::SeekFrom::Start(start))?;
-            Ok(Self::Memory(reader))
-        } else {
-            let mut file = tokio::fs::File::open(stage_path(&catalog.0.data_dir, id)?).await?;
-            file.seek(io::SeekFrom::Start(start)).await?;
-            Ok(Self::Disk(file))
-        }
+    pub(super) async fn open(
+        catalog: &Catalog,
+        id: &BlobId,
+        start: u64,
+    ) -> Result<Self, ObjectError> {
+        catalog.0.backend.open_input(id, start).await
     }
 
     pub(super) async fn read_exact(&mut self, bytes: &mut [u8]) -> Result<(), ObjectError> {
@@ -78,15 +55,10 @@ pub(super) enum Output {
     Memory(crate::storage::memory::Draft),
 }
 
-enum ReadAccess {
-    WriteOnly,
-    ReadWrite,
-}
-
 impl Output {
     pub(super) async fn open(
         catalog: &Catalog,
-        id: &str,
+        id: &BlobId,
         offset: u64,
     ) -> Result<Self, ObjectError> {
         Self::open_with_access(catalog, id, offset, ReadAccess::WriteOnly).await
@@ -94,7 +66,7 @@ impl Output {
 
     pub(super) async fn open_readable(
         catalog: &Catalog,
-        id: &str,
+        id: &BlobId,
         offset: u64,
     ) -> Result<Self, ObjectError> {
         Self::open_with_access(catalog, id, offset, ReadAccess::ReadWrite).await
@@ -102,30 +74,11 @@ impl Output {
 
     async fn open_with_access(
         catalog: &Catalog,
-        id: &str,
+        id: &BlobId,
         offset: u64,
         read: ReadAccess,
     ) -> Result<Self, ObjectError> {
-        if let Some(memory) = &catalog.0.memory {
-            return memory
-                .draft(id, offset)
-                .map(Self::Memory)
-                .map_err(object_unavailable);
-        }
-        let path = stage_path(&catalog.0.data_dir, id)?;
-        let mut file = tokio::fs::OpenOptions::new()
-            .read(matches!(read, ReadAccess::ReadWrite))
-            .write(true)
-            .open(path)
-            .await?;
-        if file.metadata().await?.len() < offset {
-            return Err(object_unavailable("acknowledged upload prefix is missing"));
-        }
-        file.set_len(offset).await?;
-        #[cfg(test)]
-        fault::truncated(&catalog.0.data_dir, &file.metadata().await?);
-        file.seek(io::SeekFrom::Start(offset)).await?;
-        Ok(Self::Disk(file))
+        catalog.0.backend.open_output(id, offset, read).await
     }
 
     pub(super) async fn write(&mut self, bytes: &[u8]) -> Result<(), ObjectError> {

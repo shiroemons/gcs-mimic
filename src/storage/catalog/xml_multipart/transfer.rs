@@ -1,4 +1,4 @@
-use super::super::transfer_io::{InputReader, Output};
+use super::super::transfer_io::InputReader;
 use super::*;
 use crate::storage::catalog::sql;
 use crate::{
@@ -12,12 +12,6 @@ pub(crate) struct PartUpload {
     pub number: u16,
     pub expected: ExpectedHashes,
     pub max_bytes: u64,
-}
-
-fn stage(data_dir: &Path, id: &str) -> Result<std::path::PathBuf, ObjectError> {
-    super::super::super::blob_id::BlobId::parse(id)
-        .map(|id| id.staging_path(data_dir))
-        .ok_or_else(|| object_unavailable("invalid multipart blob ID"))
 }
 
 fn publication_error(error: Error) -> ObjectError {
@@ -50,51 +44,44 @@ impl Catalog {
                 let transaction=connection.transaction().map_err(object_unavailable)?;
                 active(&transaction,&target,&access,now)?;
                 objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
-                sql::scalar::<i64>(&transaction, "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2", params![target.id,request.number]).map(|value|value as u64).map_err(object_unavailable).map_err(Error::from)
+                sql::scalar::<u64>(&transaction, "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2", params![target.id,request.number]).map_err(object_unavailable).map_err(Error::from)
             }).await?;
             let budget=request.max_bytes.checked_sub(retained).ok_or(ObjectError::TooLarge)?.min(MAX_PART_BYTES);
             let blob=super::super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
-            let id=blob.to_hex();
-            let path=blob.staging_path(&catalog.0.data_dir);
-            let mut file=if let Some(memory)=&catalog.0.memory {
-                objects::UploadSink::Memory(memory.stage().map_err(object_unavailable)?)
-            } else {
-                objects::UploadSink::Disk(tokio::fs::File::from_std(objects::create_upload_stage(path.clone(),blob.blob_path(&catalog.0.data_dir)).await?))
-            };
+            let id=blob;
+            let mut file=catalog.0.backend.stage(&id).await?;
             let result=async {
                 let (size,md5,crc32c,_)=objects::write_body(&mut file,request.expected,budget,body,cancellation,&catalog).await?;
-                #[cfg(any(unix, test))]
+                #[cfg(test)]
                 let data_dir=catalog.0.data_dir.clone();
                 let target=lease.upload.target.clone();
                 let access=lease.access.clone();
-                let id=id.clone();
                 let clock=catalog.0.clock.clone();
                 #[cfg(unix)]
-                let memory=catalog.0.memory.clone();
+                let backend=catalog.0.backend.clone();
                 catalog.run(move |connection| -> Result<_, Error> {
-                    if let objects::UploadSink::Memory(stage)=file { stage.publish(id.clone()).map_err(object_unavailable)?; }
-                    #[cfg(unix)] if memory.is_none() { objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?; }
+                    if let objects::UploadSink::Memory(stage)=file { stage.publish(id.to_hex()).map_err(object_unavailable)?; }
+                    #[cfg(unix)] backend.sync_staging_dir().map_err(object_unavailable)?;
                     #[cfg(test)] super::super::fault::hit(&data_dir,super::super::fault::Step::Checkpoint).map_err(object_unavailable)?;
                     let transaction=sql::immediate(connection).map_err(object_unavailable)?;
                     let now=unix_millis(clock.now())?;
                     active(&transaction,&target,&access,now)?;
                     objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
                     sql::exec(&transaction, "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![target.id,request.number]).map_err(object_unavailable)?;
-                    sql::exec(&transaction, "INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated", params![target.id,request.number,id,size as i64,md5.as_slice(),crc32c,now]).map_err(object_unavailable)?;
+                    sql::exec(&transaction, "INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated", params![target.id,request.number,id,size,md5.as_slice(),crc32c,now]).map_err(object_unavailable)?;
                     let stored=part(&transaction,&target.id,request.number)?;
                     objects::commit_publication(transaction)?;
                     Ok(stored)
                 }).await
             }.await;
             // An error after COMMIT is ambiguous: only reclaim a file without a committed reference.
-            let data_dir=catalog.0.data_dir.clone();
-            let memory=catalog.0.memory.clone();
+            let backend=catalog.0.backend.clone();
             if let Err(error)=catalog.run(move |connection| {
                 let referenced:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)", [&id])?;
                 if !referenced {
                     sql::exec(connection, "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)", [id])?;
                 }
-                maintenance::drain_storage(connection,&data_dir,memory.as_deref())?;
+                maintenance::drain_storage(connection,&backend)?;
                 Ok(())
             }).await {catalog.multipart_cleanup_failed(&error);}
             drop(lease);
@@ -125,17 +112,14 @@ impl Catalog {
         let permit = self.admit_object_upload()?;
         crate::task::spawn_supervised("xml-multipart-complete", async move {
             let (_permit, lease) = (permit, lease);
-            let id = super::super::super::blob_id::BlobId::generate()
-                .map_err(object_unavailable)?
-                .to_hex();
+            let id = BlobId::generate().map_err(object_unavailable)?;
             let owner = catalog.guard_derived_request(&id);
             let total = catalog
                 .xml_completion_total(&lease, parts.clone(), max_bytes)
                 .await?;
             if let Err(error) = catalog.assemble_xml_parts(&lease, &parts, &id, total).await {
-                let data_dir = catalog.0.data_dir.clone();
-                let orphan = id.clone();
-                let memory = catalog.0.memory.clone();
+                let orphan = id;
+                let backend = catalog.0.backend.clone();
                 if let Err(cleanup) = catalog
                     .run(move |connection| {
                         sql::exec(
@@ -143,7 +127,7 @@ impl Catalog {
                             "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
                             [orphan],
                         )?;
-                        maintenance::drain_storage(connection, &data_dir, memory.as_deref())?;
+                        maintenance::drain_storage(connection, &backend)?;
                         Ok(())
                     })
                     .await
@@ -186,11 +170,10 @@ impl Catalog {
                 )
                 .await;
             drop(owner);
-            let data_dir = catalog.0.data_dir.clone();
-            let memory = catalog.0.memory.clone();
+            let backend = catalog.0.backend.clone();
             if let Err(error) = catalog
                 .run(move |connection| {
-                    maintenance::drain_storage(connection, &data_dir, memory.as_deref())?;
+                    maintenance::drain_storage(connection, &backend)?;
                     Ok(())
                 })
                 .await
@@ -247,19 +230,10 @@ impl Catalog {
         &self,
         lease: &Lease,
         parts: &[CompletedPart],
-        id: &str,
+        id: &BlobId,
         total: u64,
     ) -> Result<(), Error> {
-        let mut file = if let Some(memory) = &self.0.memory {
-            memory.create_draft(id.into()).map_err(object_unavailable)?;
-            Output::open(self, id, 0).await?
-        } else {
-            let path = stage(&self.0.data_dir, id)?;
-            let blob_path = objects::blob_path(&self.0.data_dir, id)?;
-            Output::Disk(tokio::fs::File::from_std(
-                objects::create_upload_stage(path, blob_path).await?,
-            ))
-        };
+        let mut file = self.0.backend.stage_output(id).await?;
         let mut hasher = Hasher::default();
         let mut buffer = [0; 64 * 1024];
         for wanted in parts {
@@ -287,7 +261,7 @@ impl Catalog {
                     .map_err(object_unavailable)?;
                 file.write(&buffer[..n]).await?;
                 remaining -= n as u64;
-                if self.0.memory.is_some() {
+                if self.0.backend.is_memory() {
                     tokio::task::yield_now().await;
                 }
             }
@@ -298,17 +272,13 @@ impl Catalog {
         }
         file.finish(self).await?;
         #[cfg(unix)]
-        let data_dir = self.0.data_dir.clone();
-        let id = id.to_owned();
+        let backend = self.0.backend.clone();
+        let id = *id;
         let now = unix_millis(self.0.clock.now())?;
         let (state, crc32c) = hasher.md5_state();
-        #[cfg(unix)]
-        let memory = self.0.memory.clone();
         self.run(move |connection| {
             #[cfg(unix)]
-            if memory.is_none() {
-                objects::sync_dir(&data_dir.join("staging"))?;
-            }
+            backend.sync_staging_dir()?;
             let count: i64 = sql::scalar(
                 connection,
                 "SELECT count(*) FROM derived_transfers WHERE ephemeral=1",
@@ -320,14 +290,7 @@ impl Catalog {
             sql::exec(
                 connection,
                 "INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)",
-                params![
-                    id,
-                    total as i64,
-                    state.as_slice(),
-                    crc32c,
-                    now,
-                    now + 900000
-                ],
+                params![id, total, state.as_slice(), crc32c, now, now + 900000],
             )?;
             file.acknowledge(total);
             Ok(())

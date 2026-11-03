@@ -87,13 +87,25 @@ impl From<fsutil::FsError> for Error {
     fn from(error: fsutil::FsError) -> Self {
         match error {
             fsutil::FsError::Io(error) => Self::from(error),
-            fsutil::FsError::Unsupported => Self::Admin(AdminError::Io(io::ErrorKind::Unsupported)),
+            fsutil::FsError::Unsupported => {
+                Self::Admin(AdminError::Io(io::ErrorKind::Unsupported.into()))
+            }
         }
     }
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "sync conflict: {self:?}")
+        f.write_str("sync conflict: ")?;
+        match self {
+            Self::Admin(error) => write!(f, "Admin({error:?})"),
+            Self::Root(error) => write!(f, "Root({error:?})"),
+            Self::Capacity => f.write_str("Capacity"),
+            Self::RevisionMismatch => f.write_str("RevisionMismatch"),
+            Self::TargetChanged => f.write_str("TargetChanged"),
+            Self::OperationIdReused => f.write_str("OperationIdReused"),
+            Self::ConfirmationRequired => f.write_str("ConfirmationRequired"),
+            Self::InvalidResolution => f.write_str("InvalidResolution"),
+        }
     }
 }
 impl std::error::Error for Error {
@@ -323,7 +335,7 @@ fn check_original(
 ) -> Result<String, Error> {
     super::matching(connection, binding, &binding.bucket)?;
     let current = objects::lookup(connection, &binding.bucket, name.as_str())?;
-    if current.as_ref().map(|(record, _)| record.generation) != expected.map(Generation::get) {
+    if current.as_ref().map(|stored| stored.record.generation) != expected.map(Generation::get) {
         return Err(Error::TargetChanged);
     }
     connection

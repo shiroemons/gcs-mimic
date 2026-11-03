@@ -44,7 +44,7 @@ impl RootLease {
                         root,
                         revision,
                         scan_revision,
-                        current.sequence.0 as i64,
+                        current.sequence,
                         current.revision,
                         matches!(guard, Guard::Enabled)
                     ],
@@ -87,11 +87,11 @@ impl RootLease {
             let transaction=connection.transaction()?;
             scope.authorize(&transaction)?;
             if fence(&transaction)?!=inventory.fence {return Err(CatalogError::PreconditionFailed)}
-            let ordinal:i64=sql::scalar(&transaction, "SELECT candidate_count FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=0", params![inventory.root,inventory.revision])?;
+            let ordinal:u64=sql::scalar(&transaction, "SELECT candidate_count FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=0", params![inventory.root,inventory.revision])?;
             for (index,candidate) in candidates.iter().enumerate() {
-                sql::exec(&transaction, "INSERT INTO sync_deletion_members VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0)", params![inventory.root,ordinal+index as i64+1,candidate.bucket,candidate.name,candidate.owner_project,candidate.bucket_incarnation,candidate.generation,candidate.path])?;
+                sql::exec(&transaction, "INSERT INTO sync_deletion_members VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0)", params![inventory.root,ordinal+u64::try_from(index).map_err(unavailable)?+1,candidate.bucket,candidate.name,candidate.owner_project,candidate.bucket_incarnation,candidate.generation,candidate.path])?;
             }
-            sql::exec(&transaction, "UPDATE sync_deletion_sets SET baseline_count=baseline_count+?3,candidate_count=candidate_count+?4 WHERE root_id=?1 AND revision=?2 AND complete=0", params![inventory.root,inventory.revision,baseline as i64,candidates.len() as i64])?;
+            sql::exec(&transaction, "UPDATE sync_deletion_sets SET baseline_count=baseline_count+?3,candidate_count=candidate_count+?4 WHERE root_id=?1 AND revision=?2 AND complete=0", params![inventory.root,inventory.revision,baseline,candidates.len()])?;
             transaction.commit()?;
             Ok(())
         }).await?)
@@ -107,8 +107,8 @@ impl RootLease {
             let transaction=connection.transaction()?;
             scope.authorize(&transaction)?;
             if fence(&transaction)?!=inventory.fence {return Err(CatalogError::PreconditionFailed)}
-            let (baseline,candidates,enabled):(i64,i64,bool)=sql::row(&transaction, "SELECT baseline_count,candidate_count,guard_enabled FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=0", params![inventory.root,inventory.revision],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?)))?;
-            let guard=guarded(Guard::from(enabled),baseline as u64,candidates as u64);
+            let (baseline,candidates,enabled):(u64,u64,bool)=sql::row(&transaction, "SELECT baseline_count,candidate_count,guard_enabled FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=0", params![inventory.root,inventory.revision],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?)))?;
+            let guard=guarded(Guard::from(enabled),baseline,candidates);
             sql::exec(&transaction, "UPDATE sync_deletion_sets SET complete=1,valid=1,guarded=?3,authorization=?4 WHERE root_id=?1 AND revision=?2", params![inventory.root,inventory.revision,guard,i64::from(!guard)])?;
             let snapshot=read_set(&transaction,inventory.root)?.ok_or(CatalogError::PreconditionFailed)?;
             transaction.commit()?;

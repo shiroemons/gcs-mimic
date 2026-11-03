@@ -470,7 +470,7 @@ async fn resumable_chunk_and_finalization_failures_keep_the_acknowledged_prefix(
         .resumable_session(id, "bucket")
         .await
         .unwrap();
-    let stage = h.dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&h.dir.0);
     let next = "Content-Range: bytes 262144-524287/*\r\n";
     for (case, step, skip, fault) in [
         (
@@ -669,6 +669,7 @@ async fn session_blob(h: &Harness, path: &str) -> String {
         .await
         .unwrap()
         .blob_id
+        .to_hex()
 }
 
 /// After recovery an uncommitted session is still active, and its staged body holds exactly

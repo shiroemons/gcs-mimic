@@ -1,4 +1,5 @@
 use super::{CatalogError, unavailable};
+use crate::storage::blob_id::BlobId;
 use rusqlite::Connection;
 use std::{fs, io, path::Path};
 
@@ -7,18 +8,13 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
     let mut after = String::new();
     loop {
         let rows = connection.prepare_cached("SELECT id, blob_id, offset FROM resumable_sessions WHERE id > ?1 AND state = 'ACTIVE' ORDER BY id LIMIT 16")?
-            .query_map([&after], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)))?
+            .query_map([&after], |row| Ok((row.get::<_, String>(0)?, row.get::<_, BlobId>(1)?, row.get::<_, u64>(2)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if rows.is_empty() {
             return Ok(());
         }
         for (id, blob_id, offset) in rows {
-            recover_prefix(
-                connection,
-                data_dir,
-                &blob_id,
-                u64::try_from(offset).map_err(unavailable)?,
-            )?;
+            recover_prefix(connection, data_dir, &blob_id, offset)?;
             after = id;
         }
     }
@@ -27,13 +23,11 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
 pub(super) fn recover_prefix(
     connection: &Connection,
     data_dir: &Path,
-    blob_id: &str,
+    blob_id: &BlobId,
     offset: u64,
 ) -> Result<(), CatalogError> {
-    let id = super::super::blob_id::BlobId::parse(blob_id)
-        .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
-    let stage = id.staging_path(data_dir);
-    let blob = id.blob_path(data_dir);
+    let stage = blob_id.staging_path(data_dir);
+    let blob = blob_id.blob_path(data_dir);
     // Also runs after a failed resumable finalization request, so the statement is cached.
     let live: bool = super::objects::blob_referenced(connection, blob_id)?;
     if live {
@@ -83,7 +77,7 @@ pub(super) fn recover_prefix(
 
 fn validate_prefix(
     metadata: &fs::Metadata,
-    blob_id: &str,
+    blob_id: &BlobId,
     offset: u64,
 ) -> Result<(), CatalogError> {
     if !metadata.is_file() || metadata.len() < offset {

@@ -116,13 +116,23 @@ impl From<fsutil::FsError> for Error {
     fn from(e: fsutil::FsError) -> Self {
         match e {
             fsutil::FsError::Io(e) => Self::from(e),
-            fsutil::FsError::Unsupported => Self::Admin(AdminError::Io(io::ErrorKind::Unsupported)),
+            fsutil::FsError::Unsupported => {
+                Self::Admin(AdminError::Io(io::ErrorKind::Unsupported.into()))
+            }
         }
     }
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "write-back: {self:?}")
+        f.write_str("write-back: ")?;
+        match self {
+            Self::Admin(error) => write!(f, "Admin({error:?})"),
+            Self::Root(error) => write!(f, "Root({error:?})"),
+            Self::Capacity => f.write_str("Capacity"),
+            Self::RecoveryRequired => f.write_str("RecoveryRequired"),
+            Self::Protected => f.write_str("Protected"),
+            Self::WorkspaceChanged => f.write_str("WorkspaceChanged"),
+        }
     }
 }
 impl std::error::Error for Error {
@@ -143,9 +153,14 @@ pub(crate) struct Limits {
     bytes: u64,
     entries: u64,
 }
+const MAX_RETAINED_BYTES: u64 = 1 << 40;
+const MAX_RETAINED_ENTRIES: u64 = 1_000_000;
+
 impl Limits {
     pub(crate) fn new(bytes: u64, entries: u64) -> Result<Self, Error> {
-        if !(1..=1_099_511_627_776).contains(&bytes) || !(1..=1_000_000).contains(&entries) {
+        if !(1..=MAX_RETAINED_BYTES).contains(&bytes)
+            || !(1..=MAX_RETAINED_ENTRIES).contains(&entries)
+        {
             return Err(AdminError::Invalid("invalid write-back limits".into()).into());
         }
         Ok(Self { bytes, entries })
@@ -165,18 +180,10 @@ pub(crate) enum Phase {
     Durable,
     Complete,
 }
-impl Phase {
-    fn read(value: i64) -> rusqlite::Result<Self> {
-        match value {
-            0 => Ok(Self::Prepared),
-            1 => Ok(Self::Armed),
-            2 => Ok(Self::Protected),
-            3 => Ok(Self::Durable),
-            4 => Ok(Self::Complete),
-            _ => Err(rusqlite::Error::InvalidQuery),
-        }
-    }
-}
+sql::integer_enum!(Kind, { Publish => 0, Remove => 1 });
+sql::integer_enum!(Phase, {
+    Prepared => 0, Armed => 1, Protected => 2, Durable => 3, Complete => 4,
+});
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Token {
     catalog: CatalogId,
@@ -299,19 +306,8 @@ pub(crate) struct Writeback {
 mod unpublished;
 impl RootLease {
     pub(crate) async fn writeback(&self, limits: Limits) -> Result<Writeback, Error> {
-        let permit = self
-            .catalog()
-            .wait_admin(
-                self.catalog().0.writeback_execution.clone(),
-                tokio::time::Instant::now() + WAIT_TIMEOUT,
-            )
-            .await?;
         let lease = self.clone();
-        owned(async move {
-            let _permit = permit;
-            lease.writeback_inner(limits).await
-        })
-        .await
+        serialized(self, async move { lease.writeback_inner(limits).await }).await
     }
     async fn writeback_inner(&self, limits: Limits) -> Result<Writeback, Error> {
         let root = self.status().root_id.as_bytes();
@@ -363,7 +359,7 @@ impl RootLease {
         };
         state.db(move |connection| {
             connection.prepare_cached("INSERT INTO sync_writeback_roots(root_id,max_bytes,max_entries,reserved,retained,entries,protected,recovery,io_failure,workspace_device,workspace_inode,sequence,epoch) VALUES(?1,?2,?3,?4,?4,0,0,0,0,?5,?6,NULL,NULL) ON CONFLICT(root_id) DO UPDATE SET max_bytes=excluded.max_bytes,max_entries=excluded.max_entries WHERE workspace_device=excluded.workspace_device AND workspace_inode=excluded.workspace_inode")?
-                .execute(params![root,limits.bytes as i64,limits.entries as i64,[0u8;16],identity.device.to_be_bytes(),identity.inode.to_be_bytes()])?;
+                .execute(params![root,limits.bytes,limits.entries,[0u8;16],identity.device.to_be_bytes(),identity.inode.to_be_bytes()])?;
             let current:([u8;8],[u8;8])=connection.prepare_cached("SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root],|r|Ok((r.get(0)?,r.get(1)?)))?;
             if current!=(identity.device.to_be_bytes(),identity.inode.to_be_bytes()){return Err(Error::WorkspaceChanged);}
             Ok(())
@@ -391,9 +387,14 @@ const SELECT_PENDING: &str = concat!(
 fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlite::Result<Pending> {
     let id: String = row.get(0)?;
     if BlobId::parse(&id).is_none() {
-        return Err(rusqlite::Error::InvalidQuery);
+        return Err(sql::conversion_error(
+            0,
+            rusqlite::types::Type::Text,
+            "invalid write-back operation ID",
+        ));
     }
-    let generation = Generation::new(row.get(7)?).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let generation = Generation::new(row.get(7)?)
+        .map_err(|error| sql::conversion_error(7, rusqlite::types::Type::Integer, error))?;
     Ok(Pending {
         token: Token {
             catalog,
@@ -408,33 +409,29 @@ fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlit
         name: row.get(5)?,
         path: row.get(6)?,
         generation,
-        kind: match row.get::<_, i64>(8)? {
-            0 => Kind::Publish,
-            1 => Kind::Remove,
-            _ => return Err(rusqlite::Error::InvalidQuery),
-        },
-        phase: Phase::read(row.get(9)?)?,
+        kind: row.get(8)?,
+        phase: row.get(9)?,
         fence: JournalFence {
-            sequence: JournalSeq(row.get::<_, i64>(11)? as u64),
+            sequence: row.get(11)?,
             revision: row.get(12)?,
         },
         workspace_entry: WorkspaceEntry(id),
         reserved_bytes: u64::from_be_bytes(row.get(13)?),
         retained_bytes: row.get::<_, Option<[u8; 8]>>(14)?.map(u64::from_be_bytes),
-        size: row.get::<_, i64>(15)? as u64,
+        size: row.get(15)?,
         md5: row.get(16)?,
         crc32c: row.get(17)?,
     })
 }
 fn status(connection: &Connection, root: RootId) -> Result<Status, Error> {
     let mut value = connection.prepare_cached("SELECT max_bytes,max_entries,reserved,retained,entries,protected,recovery,io_failure,sequence,epoch FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root.as_bytes()], |r| {
-        let sequence: Option<i64> = r.get(8)?;
+        let sequence: Option<JournalSeq> = r.get(8)?;
         let epoch: Option<i64> = r.get(9)?;
         let progress = match (sequence,epoch) {
-            (None,None)=>None,(Some(s),Some(e))=>Some(JournalFence {sequence:JournalSeq(s as u64),revision:e}),
-            _=>return Err(rusqlite::Error::InvalidQuery),
+            (None,None)=>None,(Some(s),Some(e))=>Some(JournalFence {sequence:s,revision:e}),
+            _=>return Err(sql::conversion_error(8,rusqlite::types::Type::Integer,"inconsistent journal progress")),
         };
-        Ok(Status { limits:Limits {bytes:r.get::<_,i64>(0)? as u64,entries:r.get::<_,i64>(1)? as u64}, reserved_bytes:u128::from_be_bytes(r.get(2)?),retained_bytes:u128::from_be_bytes(r.get(3)?),entries:r.get::<_,i64>(4)? as u64,protected_entries:r.get::<_,i64>(5)? as u64,recovery:r.get(6)?,io_failure:r.get(7)?,progress,stop:Stop::Ready,conflicts:Default::default(),captured_entries:0 })
+        Ok(Status { limits:Limits {bytes:r.get(0)?,entries:r.get(1)?}, reserved_bytes:u128::from_be_bytes(r.get(2)?),retained_bytes:u128::from_be_bytes(r.get(3)?),entries:r.get(4)?,protected_entries:r.get(5)?,recovery:r.get(6)?,io_failure:r.get(7)?,progress,stop:Stop::Ready,conflicts:Default::default(),captured_entries:0 })
     })?;
     value.io_failure |= connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND io_failure!=0)")?.query_row([root.as_bytes()],|r|r.get::<_,bool>(0))?;
     value.conflicts =
@@ -466,7 +463,7 @@ pub(super) fn observation(
         protected_entries: value.protected_entries,
         max_bytes: value.limits.bytes,
         max_entries: value.limits.entries,
-        journal_sequence: value.progress.map(|f| f.sequence.0),
+        journal_sequence: value.progress.map(|f| f.sequence.get()),
         journal_epoch: value.progress.map(|f| f.revision),
         over_limit: value.over_limit(),
     })
@@ -474,11 +471,11 @@ pub(super) fn observation(
 fn save_status(connection: &Connection, root: RootId, value: &Status) -> Result<(), Error> {
     // Aggregated operation failures must never be copied into the workspace-only root flag.
     connection.prepare_cached("UPDATE sync_writeback_roots SET reserved=?2,retained=?3,entries=?4,protected=?5,recovery=?6,sequence=?7,epoch=?8 WHERE root_id=?1")?
-        .execute(params![root.as_bytes(),value.reserved_bytes.to_be_bytes(),value.retained_bytes.to_be_bytes(),value.entries as i64,value.protected_entries as i64,value.recovery,value.progress.map(|p|p.sequence.0 as i64),value.progress.map(|p|p.revision)])?;
+        .execute(params![root.as_bytes(),value.reserved_bytes.to_be_bytes(),value.retained_bytes.to_be_bytes(),value.entries,value.protected_entries,value.recovery,value.progress.map(|p|p.sequence),value.progress.map(|p|p.revision)])?;
     Ok(())
 }
 fn check_fence(connection: &Connection, fence: JournalFence) -> Result<(), Error> {
-    let valid: bool = connection.prepare_cached("SELECT enabled AND epoch=?1 AND ?2 BETWEEN floor AND sequence FROM change_journal_state WHERE singleton=1")?.query_row(params![fence.revision,i64::try_from(fence.sequence.0).map_err(|_|stale())?], |r|r.get(0))?;
+    let valid: bool = connection.prepare_cached("SELECT enabled AND epoch=?1 AND ?2 BETWEEN floor AND sequence FROM change_journal_state WHERE singleton=1")?.query_row(params![fence.revision,i64::try_from(fence.sequence.get()).map_err(|_|stale())?], |r|r.get(0))?;
     if !valid {
         return Err(stale());
     }
@@ -507,7 +504,7 @@ fn original_with_protection(
         Kind::Publish => {
             let record = objects::lookup(connection, &item.bucket, &item.name)?
                 .ok_or_else(stale)?
-                .0;
+                .record;
             if record.has_hold() && protection == OriginalProtection::Enforce {
                 return Err(AdminError::Hold.into());
             }
@@ -530,7 +527,7 @@ fn original_with_protection(
             if held {
                 return Err(AdminError::Hold.into());
             }
-            let valid: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4 AND size=?5 AND md5=?6 AND crc32c=?7)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation.get(),item.size as i64,item.md5,item.crc32c],|r|r.get(0))?;
+            let valid: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4 AND size=?5 AND md5=?6 AND crc32c=?7)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation.get(),item.size,item.md5,item.crc32c],|r|r.get(0))?;
             if !valid {
                 return Err(stale());
             }
@@ -661,24 +658,15 @@ impl Writeback {
     pub(crate) fn root_lease(&self) -> &RootLease {
         &self.lease
     }
-    async fn serial<T: Send + 'static>(
+    async fn serial_with<T: Send + 'static, F>(
         &self,
-        future: impl std::future::Future<Output = Result<T, Error>> + Send + 'static,
-    ) -> Result<T, Error> {
-        let permit = self
-            .lease
-            .catalog()
-            .wait_admin(
-                self.lease.catalog().0.writeback_execution.clone(),
-                tokio::time::Instant::now() + WAIT_TIMEOUT,
-            )
-            .await?;
-        // Cancellation can release a waiting request, but never an executing file/SQL transition.
-        owned(async move {
-            let _permit = permit;
-            future.await
-        })
-        .await
+        operation: impl FnOnce(Self) -> F + Send + 'static,
+    ) -> Result<T, Error>
+    where
+        F: std::future::Future<Output = Result<T, Error>> + Send + 'static,
+    {
+        let this = self.clone();
+        serialized(&self.lease, async move { operation(this).await }).await
     }
     /// Keeps the selected workspace descriptor and root/catalog leases through worker drain.
     /// The closure must finish its work before returning; directory descriptors must not escape it.
@@ -689,8 +677,7 @@ impl Writeback {
         job: impl FnOnce(&File, &File) -> Result<T, AdminError> + Send + 'static,
     ) -> Result<T, Error> {
         self.token(&token)?;
-        let this = self.clone();
-        self.serial(async move {
+        self.serial_with(move |this| async move {
             let selected = token.clone();
             this.db(move |c| {
                 let item = checked(c, &selected)?;
@@ -773,8 +760,8 @@ impl Writeback {
         Ok(())
     }
     pub(crate) async fn status(&self) -> Result<Status, Error> {
-        let this = self.clone();
-        self.serial(async move { this.status_inner().await }).await
+        self.serial_with(|this| async move { this.status_inner().await })
+            .await
     }
     async fn status_inner(&self) -> Result<Status, Error> {
         self.fs(|_, _| Ok(())).await?;
@@ -783,8 +770,7 @@ impl Writeback {
     }
     #[cfg(all(test, unix))]
     pub(crate) async fn page(&self, after: i64, limit: usize) -> Result<Vec<Pending>, Error> {
-        let this = self.clone();
-        self.serial(async move { this.page_inner(after, limit).await })
+        self.serial_with(move |this| async move { this.page_inner(after, limit).await })
             .await
     }
     async fn page_inner(&self, after: i64, limit: usize) -> Result<Vec<Pending>, Error> {
@@ -795,7 +781,7 @@ impl Writeback {
         let (catalog, root) = self.identities();
         self.db(move |c| {
             Ok(c.prepare_cached(SELECT_PENDING_PAGE)?
-                .query_map(params![root.as_bytes(), after, limit as i64], |r| {
+                .query_map(params![root.as_bytes(), after, limit], |r| {
                     pending(r, catalog, root)
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
@@ -807,8 +793,9 @@ impl Writeback {
         if BlobId::parse(id).is_none() {
             return Err(stale());
         }
-        let (this, id) = (self.clone(), id.to_owned());
-        self.serial(async move { this.get_inner(&id).await }).await
+        let id = id.to_owned();
+        self.serial_with(move |this| async move { this.get_inner(&id).await })
+            .await
     }
     #[cfg(all(test, unix))]
     async fn get_inner(&self, id: &str) -> Result<Pending, Error> {
@@ -829,8 +816,8 @@ impl Writeback {
         kind: Kind,
         fence: JournalFence,
     ) -> Result<Pending, Error> {
-        let (this, bucket, name) = (self.clone(), bucket.clone(), name.clone());
-        self.serial(async move {
+        let (bucket, name) = (bucket.clone(), name.clone());
+        self.serial_with(move |this| async move {
             this.prepare_inner(&bucket, &name, generation, kind, fence)
                 .await
         })
@@ -872,12 +859,12 @@ impl Writeback {
             }
             let (owner,incarnation):(String,String)=tx.query_row("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1",[&bucket],|r|Ok((r.get(0)?,r.get(1)?)))?;
             let (size,md5,crc32c)=match kind {
-                Kind::Publish=>{let value=objects::lookup(&tx,&bucket,&name)?.ok_or_else(stale)?.0;(value.size,value.md5,value.crc32c)},
-                Kind::Remove=>tx.query_row("SELECT size,md5,crc32c FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![bucket,name,incarnation,generation.get()],|r|Ok((r.get::<_,i64>(0)? as u64,r.get(1)?,r.get(2)?)))?,
+                Kind::Publish=>{let value=objects::lookup(&tx,&bucket,&name)?.ok_or_else(stale)?.record;(value.size,value.md5,value.crc32c)},
+                Kind::Remove=>tx.query_row("SELECT size,md5,crc32c FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![bucket,name,incarnation,generation.get()],|r|Ok((r.get::<_,u64>(0)?,r.get(1)?,r.get(2)?)))?,
             };
             let id=BlobId::generate().map_err(|e|Error::Admin(AdminError::backend(e)))?.to_hex();
             tx.execute("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)",
-                params![id,root.as_bytes(),owner,bucket,incarnation,name,path,generation.get(),kind as i64,fence.sequence.0 as i64,fence.revision,reservation.to_be_bytes(),size as i64,md5,crc32c])?;
+                params![id,root.as_bytes(),owner,bucket,incarnation,name,path,generation.get(),kind,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
             let item=load(&tx,catalog,root,&id)?;original(&tx,&item)?;
             usage.entries+=1;usage.reserved_bytes+=u128::from(reservation);save_status(&tx,root,&usage)?;tx.commit()?;Ok(item)
         }).await
@@ -885,8 +872,7 @@ impl Writeback {
     #[cfg(all(test, unix))]
     pub(crate) async fn arm(&self, token: Token) -> Result<Pending, Error> {
         self.token(&token)?;
-        let this = self.clone();
-        self.serial(async move { this.arm_inner(token).await })
+        self.serial_with(move |this| async move { this.arm_inner(token).await })
             .await
     }
     #[cfg(all(test, unix))]
@@ -921,8 +907,7 @@ impl Writeback {
     #[cfg(all(test, unix))]
     pub(crate) async fn inspect(&self, token: Token) -> Result<Pending, Error> {
         self.token(&token)?;
-        let this = self.clone();
-        self.serial(async move { this.inspect_inner(token).await })
+        self.serial_with(move |this| async move { this.inspect_inner(token).await })
             .await
     }
     async fn inspect_inner(&self, token: Token) -> Result<Pending, Error> {
@@ -982,8 +967,7 @@ impl Writeback {
     #[cfg(all(test, unix))]
     pub(crate) async fn durable(&self, token: Token) -> Result<DurableReceipt, Error> {
         self.token(&token)?;
-        let this = self.clone();
-        self.serial(async move { this.durable_inner(token).await })
+        self.serial_with(move |this| async move { this.durable_inner(token).await })
             .await
     }
     #[cfg(all(test, unix))]
@@ -1031,8 +1015,7 @@ impl Writeback {
         progress: Option<JournalFence>,
     ) -> Result<Pending, Error> {
         self.token(&receipt.token)?;
-        let this = self.clone();
-        self.serial(async move { this.ack_inner(receipt, progress).await })
+        self.serial_with(move |this| async move { this.ack_inner(receipt, progress).await })
             .await
     }
     #[cfg(all(test, unix))]
@@ -1083,7 +1066,7 @@ impl Writeback {
             }
             match receipt.fingerprint {
                 Some(fp)=>{let binding=SyncBinding {catalog:token.catalog,bucket:item.bucket.clone(),incarnation:item.incarnation.clone(),deletion:None,control:None};let update=SyncUpdate::new(binding,item.path.clone(),fp)?;
-                    let record=objects::lookup(&tx,&item.bucket,&item.name)?.ok_or_else(stale)?.0;super::record_in_transaction(&tx,&update,&record)?;},
+                    let record=objects::lookup(&tx,&item.bucket,&item.name)?.ok_or_else(stale)?.record;super::record_in_transaction(&tx,&update,&record)?;},
                 None=>{let count=tx.execute("DELETE FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![item.bucket,item.name,item.incarnation,item.generation.get()])?;if count!=1{return Err(stale());}},
             }
             usage.entries=usage.entries.checked_sub(1).ok_or_else(stale)?;usage.reserved_bytes=usage.reserved_bytes.checked_sub(u128::from(item.reserved_bytes)).ok_or_else(stale)?;
@@ -1095,8 +1078,8 @@ impl Writeback {
     }
     #[cfg(all(test, unix))]
     pub(crate) async fn resume(&self) -> Result<Status, Error> {
-        let this = self.clone();
-        self.serial(async move { this.resume_inner().await }).await
+        self.serial_with(|this| async move { this.resume_inner().await })
+            .await
     }
     async fn resume_inner(&self) -> Result<Status, Error> {
         self.fs(|_, _| Ok(())).await?;
@@ -1120,8 +1103,7 @@ impl Writeback {
     }
     #[cfg(all(test, unix))]
     pub(crate) async fn checkpoint(&self, fence: JournalFence) -> Result<(), Error> {
-        let this = self.clone();
-        self.serial(async move { this.checkpoint_inner(fence).await })
+        self.serial_with(move |this| async move { this.checkpoint_inner(fence).await })
             .await
     }
     #[cfg(all(test, unix))]
@@ -1189,6 +1171,25 @@ fn advance(
     usage.progress = Some(fence);
     Ok(())
 }
+async fn serialized<T: Send + 'static>(
+    lease: &RootLease,
+    future: impl std::future::Future<Output = Result<T, Error>> + Send + 'static,
+) -> Result<T, Error> {
+    let permit = lease
+        .catalog()
+        .wait_admin(
+            lease.catalog().0.writeback_execution.clone(),
+            tokio::time::Instant::now() + WAIT_TIMEOUT,
+        )
+        .await?;
+    // Cancellation can release a waiting request, but never an executing file/SQL transition.
+    owned(async move {
+        let _permit = permit;
+        future.await
+    })
+    .await
+}
+
 async fn owned<T: Send + 'static>(
     future: impl std::future::Future<Output = Result<T, Error>> + Send + 'static,
 ) -> Result<T, Error> {

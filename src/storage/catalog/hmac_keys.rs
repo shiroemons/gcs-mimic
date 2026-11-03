@@ -34,6 +34,8 @@ const ACCESS_ID_PREFIX: &str = "GOOG1E";
 const ACCESS_ID_RANDOM_CHARS: usize = 55;
 /// 30 random bytes encode to the documented 40-character base64 secret without padding.
 const SECRET_BYTES: usize = 30;
+// HMAC secrets must remain 40 base64 characters without padding.
+const _: () = assert!(SECRET_BYTES.is_multiple_of(3));
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum HmacKeyState {
@@ -42,24 +44,9 @@ pub(crate) enum HmacKeyState {
     Deleted,
 }
 
-impl HmacKeyState {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Active => "ACTIVE",
-            Self::Inactive => "INACTIVE",
-            Self::Deleted => "DELETED",
-        }
-    }
-
-    pub(crate) fn parse(value: &str) -> Option<Self> {
-        match value {
-            "ACTIVE" => Some(Self::Active),
-            "INACTIVE" => Some(Self::Inactive),
-            "DELETED" => Some(Self::Deleted),
-            _ => None,
-        }
-    }
-}
+sql::text_enum!(pub(crate) HmacKeyState, "invalid HMAC key state", {
+    Active => "ACTIVE", Inactive => "INACTIVE", Deleted => "DELETED",
+});
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyRecord {
@@ -155,18 +142,11 @@ const LIST_KEYS: &str = concat!(
 );
 
 fn record(row: &Row<'_>) -> rusqlite::Result<HmacKeyRecord> {
-    let state: String = row.get(3)?;
     Ok(HmacKeyRecord {
         access_id: row.get(0)?,
         project: row.get(1)?,
         service_account_email: row.get(2)?,
-        state: HmacKeyState::parse(&state).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
-                3,
-                rusqlite::types::Type::Text,
-                "invalid HMAC key state".into(),
-            )
-        })?,
+        state: row.get(3)?,
         time_created: system_time_millis(row.get(4)?)?,
         updated: system_time_millis(row.get(5)?)?,
         revision: row.get(6)?,
@@ -204,16 +184,7 @@ fn generate_access_id() -> Result<String, CatalogError> {
 }
 
 fn generate_secret() -> Result<String, CatalogError> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes = random_bytes::<SECRET_BYTES>()?;
-    let mut secret = String::with_capacity(SECRET_BYTES / 3 * 4);
-    for chunk in bytes.as_chunks::<3>().0 {
-        let value = u32::from(chunk[0]) << 16 | u32::from(chunk[1]) << 8 | u32::from(chunk[2]);
-        for shift in [18, 12, 6, 0] {
-            secret.push(char::from(ALPHABET[(value >> shift & 63) as usize]));
-        }
-    }
-    Ok(secret)
+    Ok(crate::base64::encode(&random_bytes::<SECRET_BYTES>()?))
 }
 
 impl Catalog {
@@ -294,7 +265,7 @@ impl Catalog {
                             query.service_account_email,
                             query.show_deleted,
                             query.after,
-                            (query.limit + 1) as i64
+                            query.limit + 1
                         ],
                         record,
                     )?
@@ -337,7 +308,7 @@ impl Catalog {
                 return Err(HmacKeyError::Deleted);
             }
             sql::exec(&transaction,
-                    "UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3", params![state.as_str(), now, access_id])?;
+                    "UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3", params![state, now, access_id])?;
             let record = select(&transaction, &project, &access_id)?
                 .ok_or_else(|| unavailable("updated HMAC key is missing"))?;
             transaction.commit()?;

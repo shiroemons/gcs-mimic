@@ -1,11 +1,12 @@
-use super::{Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis};
+use super::{
+    BlobBackend, Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis,
+};
+use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, params};
-use std::{
-    fs, io,
-    path::Path,
-    time::{Duration, SystemTime},
-};
+#[cfg(test)]
+use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 const PAGE_SIZE: i64 = 16;
 const RETRY_DELAY: Duration = Duration::from_secs(1);
@@ -14,7 +15,7 @@ fn cleanup_page(
     connection: &Connection,
     now: i64,
     after: &str,
-) -> Result<Vec<(String, String, i64)>, CatalogError> {
+) -> Result<Vec<(String, BlobId, i64)>, CatalogError> {
     connection.prepare_cached("SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND deadline <= ?2 UNION ALL SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND state = 'CANCELLED' AND deadline > ?2 AND EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = resumable_sessions.blob_id) ORDER BY id LIMIT ?3")?
         .query_map(params![after, now, PAGE_SIZE], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<rusqlite::Result<_>>().map_err(unavailable)
@@ -22,14 +23,13 @@ fn cleanup_page(
 
 fn clean_record(
     connection: &Connection,
-    data_dir: &Path,
-    memory: Option<&crate::storage::memory::Store>,
+    backend: &BlobBackend,
     id: &str,
-    blob_id: &str,
+    blob_id: &BlobId,
     deadline: i64,
     now: i64,
 ) -> Result<(), CatalogError> {
-    clean_session_storage(connection, data_dir, memory, blob_id)?;
+    clean_session_storage(connection, backend, blob_id)?;
     if deadline <= now {
         // Resumable session requests wake the maintenance sweep, so this runs per request.
         sql::exec(
@@ -43,7 +43,7 @@ fn clean_record(
 
 pub(super) fn recover_due(
     connection: &Connection,
-    data_dir: &Path,
+    backend: &BlobBackend,
     now: i64,
 ) -> Result<(), CatalogError> {
     let mut after = String::new();
@@ -53,56 +53,31 @@ pub(super) fn recover_due(
             return Ok(());
         }
         for (id, blob_id, deadline) in rows {
-            clean_record(connection, data_dir, None, &id, &blob_id, deadline, now)?;
+            clean_record(connection, backend, &id, &blob_id, deadline, now)?;
             after = id;
         }
     }
-}
-
-fn unlink(path: &Path) -> Result<(), CatalogError> {
-    match fs::remove_file(path) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        result => result?,
-    }
-    #[cfg(unix)]
-    if let Some(parent) = path.parent()
-        && parent.exists()
-    {
-        fs::File::open(parent).and_then(|directory| directory.sync_all())?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
 pub(super) fn clean_session_files(
     connection: &rusqlite::Connection,
     data_dir: &Path,
-    blob_id: &str,
+    blob_id: &BlobId,
 ) -> Result<(), CatalogError> {
-    clean_session_storage(connection, data_dir, None, blob_id)
+    clean_session_storage(connection, &BlobBackend::Disk(data_dir.to_owned()), blob_id)
 }
 
 pub(super) fn clean_session_storage(
     connection: &rusqlite::Connection,
-    data_dir: &Path,
-    memory: Option<&crate::storage::memory::Store>,
-    blob_id: &str,
+    backend: &BlobBackend,
+    blob_id: &BlobId,
 ) -> Result<(), CatalogError> {
-    let blob = super::super::blob_id::BlobId::parse(blob_id)
-        .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
     let live: bool = super::objects::blob_referenced(connection, blob_id)?;
-    if let Some(memory) = memory {
-        memory.remove_draft(blob_id)?;
-    } else {
-        unlink(&blob.staging_path(data_dir))?;
-    }
+    backend.remove_draft_durable(blob_id)?;
     // A completed object outlives its capability and must never be reclaimed with it.
     if !live {
-        if let Some(memory) = memory {
-            memory.remove(blob_id)?;
-        } else {
-            unlink(&blob.blob_path(data_dir))?;
-        }
+        backend.remove_durable(blob_id)?;
     }
     sql::exec(
         connection,
@@ -124,7 +99,7 @@ impl Catalog {
         }
         let id = lease.session.id.clone();
         let now = unix_millis(self.0.clock.now())?;
-        let blob_id = lease.session.blob_id.clone();
+        let blob_id = lease.session.blob_id;
         let changed = self.run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now])?;
@@ -140,13 +115,10 @@ impl Catalog {
             return Err(ResumableError::Gone);
         }
         // Remove the cleanup journal only after file removal and directory sync succeed.
-        let blob_id = lease.session.blob_id.clone();
-        let data_dir = self.0.data_dir.clone();
-        let memory = self.0.memory.clone();
+        let blob_id = lease.session.blob_id;
+        let backend = self.0.backend.clone();
         let result = self
-            .run(move |connection| {
-                clean_session_storage(connection, &data_dir, memory.as_deref(), &blob_id)
-            })
+            .run(move |connection| clean_session_storage(connection, &backend, &blob_id))
             .await;
         if let Err(error) = &result {
             *self
@@ -210,8 +182,7 @@ impl Catalog {
                         let result = catalog.try_resumable_writer(&id).and_then(|_guard| {
                             clean_record(
                                 connection,
-                                &catalog.0.data_dir,
-                                catalog.0.memory.as_deref(),
+                                &catalog.0.backend,
                                 &id,
                                 &blob_id,
                                 deadline,
@@ -378,23 +349,26 @@ async fn maintenance_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
-    fn malformed_session_blob_ids_cannot_select_cleanup_or_recovery_paths() {
+    fn typed_session_cleanup_and_recovery_preserve_unrelated_files() {
         let dir = crate::test_support::TestDir::new();
         let data_dir = dir.0.join("data");
         fs::create_dir_all(data_dir.join("staging")).unwrap();
         let protected = dir.0.join("protected");
         fs::write(&protected, b"keep").unwrap();
         let connection = Connection::open_in_memory().unwrap();
-        for id in ["", "a", "../../protected", &"A".repeat(32), &"é".repeat(16)] {
-            let cleanup = clean_session_files(&connection, &data_dir, id).unwrap_err();
-            let recovery =
-                super::super::resumable_recovery::recover_prefix(&connection, &data_dir, id, 0)
-                    .unwrap_err();
-            assert!(cleanup.to_string().contains("invalid opaque blob ID"));
-            assert!(recovery.to_string().contains("invalid opaque blob ID"));
-            assert_eq!(fs::read(&protected).unwrap(), b"keep");
-        }
+        connection.execute_batch("CREATE TABLE objects(blob_id TEXT); CREATE TABLE pending_blob_deletions(blob_id TEXT);").unwrap();
+        let id: BlobId = "0".repeat(32).parse().unwrap();
+        let stage = id.staging_path(&data_dir);
+        fs::write(&stage, b"old").unwrap();
+        clean_session_files(&connection, &data_dir, &id).unwrap();
+        assert!(!stage.exists());
+        assert_eq!(fs::read(&protected).unwrap(), b"keep");
+        fs::write(&stage, b"prefix-tail").unwrap();
+        super::super::resumable_recovery::recover_prefix(&connection, &data_dir, &id, 6).unwrap();
+        assert_eq!(fs::read(&stage).unwrap(), b"prefix");
+        assert_eq!(fs::read(&protected).unwrap(), b"keep");
     }
 }

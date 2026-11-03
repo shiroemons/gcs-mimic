@@ -96,7 +96,7 @@ pub(super) fn published(
     connection: &Connection,
     origin: super::admin::Origin,
     record: &crate::object::ObjectRecord,
-    previous: Option<&(crate::object::ObjectRecord, String)>,
+    previous: Option<&super::objects::StoredObject>,
     time: std::time::SystemTime,
 ) -> Result<(), CatalogError> {
     if origin == super::admin::Origin::Import {
@@ -108,7 +108,7 @@ pub(super) fn published(
             event: crate::notification::Event::Finalize,
             object: record,
             time,
-            replacement: previous.map(|(object, _)| object.generation),
+            replacement: previous.map(|stored| stored.record.generation),
         },
     )
 }

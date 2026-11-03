@@ -269,11 +269,11 @@ impl RootLease {
                     .query_row(params![root,op,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),selected.expected_generation.map(Generation::get)],|row|row.get::<_,String>(0)).optional()?.ok_or(Error::TargetChanged)?
             } else {check_original(&tx,&selected.binding,&selected.name,selected.expected_generation)?};
             let usage=list::total_usage(&tx,root)?;
-            let limits:Option<(u64,u64)>=tx.prepare_cached("SELECT max_bytes,max_entries FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root],|row|Ok((row.get::<_,i64>(0)? as u64,row.get::<_,i64>(1)? as u64))).optional()?;
+            let limits:Option<(u64,u64)>=tx.prepare_cached("SELECT max_bytes,max_entries FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root],|row|Ok((row.get(0)?,row.get(1)?))).optional()?;
             let (max_bytes,max_entries)=limits.unwrap_or((MAX_BYTES,MAX_ENTRIES));
             if usage.over_limit || usage.reserved_bytes+usage.retained_bytes+u128::from(size)>u128::from(max_bytes.min(MAX_BYTES)) || usage.entries>=max_entries.min(MAX_ENTRIES) {return Err(Error::Capacity)}
             tx.prepare_cached("INSERT INTO sync_conflicts(id,root_id,revision,owner,bucket,incarnation,name,generation,state,size,source_op,source) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,?9,?10,?11)")?
-                .execute(params![reserved_id,root,reserved_revision,owner,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),selected.expected_generation.map(Generation::get),size as i64,selected.source_op,observed])?;
+                .execute(params![reserved_id,root,reserved_revision,owner,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),selected.expected_generation.map(Generation::get),size,selected.source_op,observed])?;
             changed(&tx,root)?;tx.commit()?;Ok(())
         }).await?;
         #[cfg(test)]
@@ -358,7 +358,11 @@ impl RootLease {
         self.conflict_files(move |_| {
             let store = match open_store(&data) {
                 Ok(store) => store,
-                Err(Error::Admin(AdminError::Io(io::ErrorKind::NotFound))) => return Ok(()),
+                Err(Error::Admin(AdminError::Io(cause)))
+                    if cause.kind() == io::ErrorKind::NotFound =>
+                {
+                    return Ok(());
+                }
                 Err(error) => return Err(error),
             };
             match fsutil::unlink_file_at(&store, selected.as_ref()) {

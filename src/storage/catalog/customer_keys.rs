@@ -4,6 +4,7 @@
 //! that selects the generation, so a key is always verified against the record whose bytes
 //! (or hashes) are returned.
 
+use super::sql;
 use super::{
     Catalog, CatalogError,
     derived::{DerivedSource, DerivedSourceSpec},
@@ -34,10 +35,10 @@ pub(super) fn decode(value: Option<Vec<u8>>) -> rusqlite::Result<Option<[u8; 32]
     value
         .map(|bytes| {
             bytes.try_into().map_err(|_| {
-                rusqlite::Error::FromSqlConversionFailure(
+                sql::conversion_error(
                     27,
                     rusqlite::types::Type::Blob,
-                    "invalid customer key fingerprint length".into(),
+                    "invalid customer key fingerprint length",
                 )
             })
         })

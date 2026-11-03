@@ -1407,7 +1407,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
                 .unwrap()
                 .fence
                 .sequence
-                .0
+                .get()
     );
     assert_eq!(
         fs::read(tree.0.join("test-bucket/object")).unwrap(),
@@ -1446,7 +1446,7 @@ async fn retry_repeats_transient_errors_and_keeps_permanent_causes() {
         attempts += 1;
         std::future::ready(if attempts == 1 {
             Err(writeback::Error::Admin(AdminError::Io(
-                io::ErrorKind::Interrupted,
+                io::ErrorKind::Interrupted.into(),
             )))
         } else {
             Ok(7)
@@ -1479,7 +1479,7 @@ fn only_contention_and_timeouts_are_transient() {
         wrapped(AdminError::Busy {
             retry_after: std::time::Duration::from_secs(1),
         }),
-        wrapped(AdminError::Io(io::ErrorKind::TimedOut)),
+        wrapped(AdminError::Io(io::ErrorKind::TimedOut.into())),
         wrapped(AdminError::backend(CatalogError::Unavailable(
             "database is locked".into(),
         ))),

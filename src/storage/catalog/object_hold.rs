@@ -6,6 +6,7 @@
 //! "released". Adding a column keeps every older row readable and avoids rebuilding the
 //! objects table; the state is `held` for 1, `released` for 0 with the flag, otherwise unset.
 
+use super::sql;
 use rusqlite::{Row, types::Type};
 
 /// Schema 48. Rows written earlier read as unset (0) or held (1): a stored 0 cannot show
@@ -25,10 +26,10 @@ pub(super) fn read(row: &Row<'_>, hold: usize, released: usize) -> rusqlite::Res
         match row.get::<_, i64>(index)? {
             0 => Ok(false),
             1 => Ok(true),
-            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+            _ => Err(sql::conversion_error(
                 index,
                 Type::Integer,
-                "invalid hold flag".into(),
+                "invalid hold flag",
             )),
         }
     };

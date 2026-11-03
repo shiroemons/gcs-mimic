@@ -236,7 +236,10 @@ async fn publication_streaming_modes_preserve_patches_and_require_all_hash_field
         .unwrap();
     assert_ne!(first.generation, second.generation);
     assert_eq!(second.content_type, first.content_type);
-    let previous = (second.clone(), "unused".into());
+    let previous = objects::StoredObject {
+        record: second.clone(),
+        blob: crate::storage::blob_id::BlobId::generate().unwrap(),
+    };
     assert!(objects::skip_same(
         PublishMode::SkipIfSameHash,
         Some(&previous),

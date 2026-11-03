@@ -39,28 +39,11 @@ pub struct Finding {
     pub reason: Reason,
 }
 
-fn reason_text(reason: Reason) -> &'static str {
-    match reason {
-        Reason::InvalidName => "invalid-name",
-        Reason::HostRestriction => "host-restriction",
-        Reason::Reserved => "reserved",
-        Reason::Ignored => "ignored",
-        Reason::Collision => "collision",
-        Reason::UnsafeEntry => "unsafe-entry",
-    }
-}
-
-fn read_reason(reason: &str) -> rusqlite::Result<Reason> {
-    match reason {
-        "invalid-name" => Ok(Reason::InvalidName),
-        "host-restriction" => Ok(Reason::HostRestriction),
-        "reserved" => Ok(Reason::Reserved),
-        "ignored" => Ok(Reason::Ignored),
-        "collision" => Ok(Reason::Collision),
-        "unsafe-entry" => Ok(Reason::UnsafeEntry),
-        _ => Err(rusqlite::Error::InvalidQuery),
-    }
-}
+sql::text_enum!(pub(crate) Reason, "invalid synchronization finding", {
+    InvalidName => "invalid-name", HostRestriction => "host-restriction",
+    Reserved => "reserved", Ignored => "ignored", Collision => "collision",
+    UnsafeEntry => "unsafe-entry",
+});
 
 fn remember_owner(
     transaction: &rusqlite::Transaction<'_>,
@@ -92,7 +75,7 @@ impl RootLease {
             let tx = c.transaction()?;
             lease.control_scope().authorize(&tx)?;
             matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
-            let live = objects::lookup(&tx,&binding.bucket,name.as_str()).map_err(unavailable)?.is_some_and(|(record,_)| record.generation == generation.get());
+            let live = objects::lookup(&tx,&binding.bucket,name.as_str()).map_err(unavailable)?.is_some_and(|stored| stored.record.generation == generation.get());
             let tracked: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)", params![binding.bucket,name.as_str(),generation.get(),binding.incarnation])?;
             let valid = live || tracked;
             if valid {
@@ -120,13 +103,13 @@ impl RootLease {
             lease.control_scope().authorize(&tx)?;
             matching(&tx, &binding, &binding.bucket)?;
             let record = objects::lookup(&tx, &binding.bucket, name.as_str())?
-                .ok_or(AdminError::Precondition)?.0;
+                .ok_or(AdminError::Precondition)?.record;
             if record.generation != generation.get() {
                 return Err(AdminError::Precondition);
             }
             sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4))
                 ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project
-                WHERE incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project", params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get(),reason_text(reason)]).map_err(unavailable)?;
+                WHERE incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project", params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get(),reason]).map_err(unavailable)?;
             remember_owner(&tx,root,&binding.bucket,name.as_str())?;
             tx.commit().map_err(unavailable)?;
             Ok::<_, AdminError>(())
@@ -146,8 +129,8 @@ impl RootLease {
             let tx = c.transaction()?;
             lease.control_scope().authorize(&tx)?;
             tx.prepare_cached("SELECT ordinal,bucket,name,incarnation,generation,reason FROM sync_findings INDEXED BY sync_findings_page WHERE root_id=?1 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")?
-                .query_map(params![status.root_id.as_bytes(),after,limit as i64], |r| {
-                    Ok(Finding {catalog_id:status.catalog_id,root_id:status.root_id,ordinal:r.get(0)?,bucket:r.get(1)?,name:r.get(2)?,incarnation:r.get(3)?,generation:Generation::new(r.get(4)?).map_err(|_|rusqlite::Error::InvalidQuery)?,reason:read_reason(&r.get::<_,String>(5)?)?})
+                .query_map(params![status.root_id.as_bytes(),after,limit], |r| {
+                    Ok(Finding {catalog_id:status.catalog_id,root_id:status.root_id,ordinal:r.get(0)?,bucket:r.get(1)?,name:r.get(2)?,incarnation:r.get(3)?,generation:Generation::new(r.get(4)?).map_err(|error|sql::conversion_error(4,rusqlite::types::Type::Integer,error))?,reason:r.get(5)?})
                 })?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(RootError::from)
     }
@@ -164,7 +147,7 @@ impl RootLease {
         let lease = self.clone();
         self.catalog().run_admin(move |c| {
             let _lease = lease;
-            sql::exec(c, "DELETE FROM sync_findings WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND incarnation=?5 AND generation=?6 AND reason=?7", params![finding.root_id.as_bytes(),finding.ordinal,finding.bucket,finding.name,finding.incarnation,finding.generation.get(),reason_text(finding.reason)])
+            sql::exec(c, "DELETE FROM sync_findings WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND incarnation=?5 AND generation=?6 AND reason=?7", params![finding.root_id.as_bytes(),finding.ordinal,finding.bucket,finding.name,finding.incarnation,finding.generation.get(),finding.reason])
                 .map(|count|count == 1).map_err(unavailable)
         }).await.map_err(RootError::from)
     }

@@ -107,7 +107,7 @@ impl SyncUpdate {
         path: String,
         fingerprint: SyncFingerprint,
     ) -> Result<Self, AdminError> {
-        if !valid_path(&path) || fingerprint.size > i64::MAX as u64 {
+        if !valid_path(&path) || i64::try_from(fingerprint.size).is_err() {
             return Err(AdminError::Invalid(
                 "invalid synchronization path or size".into(),
             ));
@@ -216,7 +216,7 @@ pub(super) fn record_in_transaction(
          ON CONFLICT(bucket,name) DO UPDATE SET incarnation=excluded.incarnation,path=excluded.path,
          generation=excluded.generation,size=excluded.size,mtime_ns=excluded.mtime_ns,ctime_ns=excluded.ctime_ns,
          inode=excluded.inode,md5=excluded.md5,crc32c=excluded.crc32c,racy=excluded.racy",
-        params![record.bucket,record.name,update.binding.incarnation,update.path,record.generation,fp.size as i64,
+        params![record.bucket,record.name,update.binding.incarnation,update.path,record.generation,fp.size,
             fp.mtime_ns.to_be_bytes(),fp.ctime_ns.to_be_bytes(),fp.inode.to_be_bytes(),fp.md5,fp.crc32c,fp.racy],
     )?;
     if let Some(scope) = &update.binding.control {
@@ -288,7 +288,7 @@ fn read_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncRecord> {
         generation: Generation::new(generation)
             .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(2, generation))?,
         fingerprint: SyncFingerprint {
-            size: row.get::<_, i64>(3)? as u64,
+            size: row.get(3)?,
             mtime_ns: i128::from_be_bytes(row.get(4)?),
             ctime_ns: i128::from_be_bytes(row.get(5)?),
             inode: u64::from_be_bytes(row.get(6)?),
@@ -343,7 +343,7 @@ impl SyncState {
                 matching(&transaction, &update.binding, &update.binding.bucket)?;
                 let record = super::objects::lookup(&transaction, &update.binding.bucket, &name)?
                     .ok_or(ObjectError::ObjectNotFound)?
-                    .0;
+                    .record;
                 if record.generation != generation.get() {
                     return Err(ObjectError::PreconditionFailed.into());
                 }
@@ -397,7 +397,7 @@ impl SyncState {
                     .prepare_cached(SELECT_PAGE)
                     .map_err(super::objects::object_unavailable)?
                     .query_map(
-                        params![after, binding.bucket, binding.incarnation, limit as i64],
+                        params![after, binding.bucket, binding.incarnation, limit],
                         read_record,
                     )
                     .map_err(super::objects::object_unavailable)?

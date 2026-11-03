@@ -77,7 +77,7 @@ impl RootLease {
         let pending=self.conflict_db(move|connection| {
             let tx=connection.transaction()?;auth.authorize(&tx,root)?;
             let ids=tx.prepare_cached("SELECT id FROM sync_writeback_ops WHERE root_id=?1 AND phase=2 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")?
-                .query_map(params![root,after,limit as i64],|row|row.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                .query_map(params![root,after,limit],|row|row.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
             ids.iter().map(|id|workspace(&tx,root,id)).collect::<Result<Vec<_>,Error>>()
         }).await?;
         let mut results = Vec::with_capacity(pending.len());

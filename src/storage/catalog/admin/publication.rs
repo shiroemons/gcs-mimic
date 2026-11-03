@@ -2,6 +2,7 @@
 
 use super::objects::object_unavailable as objects_error;
 use super::*;
+use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
 use crate::{fsutil, hashing::Hasher, storage::failure::BackendCause};
 use std::{
@@ -97,7 +98,7 @@ impl FileWorkers {
 /// Verified private bytes; dropping schedules owned cleanup, never synchronous I/O.
 pub(crate) struct StagedObject {
     catalog: Catalog,
-    id: Option<String>,
+    id: Option<BlobId>,
     permit: Option<OwnedSemaphorePermit>,
     size: u64,
     hashes: crate::hashing::Hashes,
@@ -334,34 +335,51 @@ fn stage_file(
     Ok((size, hashes))
 }
 
-async fn cleanup(catalog: &Catalog, id: String) -> Result<(), AdminError> {
-    let probe = id.clone();
+impl super::super::BlobBackend {
+    // A collision must not give the cleanup handle ownership of another stage.
+    fn stage_admin_file(
+        &self,
+        source: &File,
+        id: BlobId,
+        expected: ExpectedHashes,
+        max_bytes: u64,
+    ) -> Result<Result<(u64, crate::hashing::Hashes), AdminError>, AdminError> {
+        match self {
+            Self::Memory(memory) => Ok(stage_memory(memory, source, id, expected, max_bytes)),
+            Self::Disk(root) => {
+                let stage = id.staging_path(root);
+                if id.blob_path(root).try_exists()? || stage.try_exists()? {
+                    return Err(AdminError::Invalid("blob ID collision".into()));
+                }
+                Ok(stage_file(source, &stage, expected, max_bytes))
+            }
+        }
+    }
+}
+
+async fn cleanup(catalog: &Catalog, id: BlobId) -> Result<(), AdminError> {
+    let probe = id;
     let referenced = catalog
         .run_upload(move |connection| {
             objects::blob_referenced(connection, &probe).map_err(objects_error)
         })
         .await?;
-    if let Some(memory) = &catalog.0.memory {
+    if catalog.0.backend.is_memory() {
         if !referenced {
-            memory.remove(&id)?;
+            catalog.0.backend.remove(&id)?;
         }
         return Ok(());
     }
-    let stage = catalog.0.data_dir.join("staging").join(&id);
-    let blob = objects::blob_path(&catalog.0.data_dir, &id)?;
+    let backend = catalog.0.backend.clone();
     catalog
         .0
         .file_workers
         .run(move || {
-            objects::unlink(&stage)?;
+            backend.remove_draft(&id)?;
             if !referenced {
-                objects::unlink(&blob)?;
+                backend.remove(&id)?;
                 #[cfg(unix)]
-                if let Some(shard) = blob.parent()
-                    && shard.exists()
-                {
-                    fsutil::sync_dir(shard)?;
-                }
+                backend.sync_blob_dir(&id)?;
             }
             Ok(())
         })
@@ -389,9 +407,7 @@ impl Admin {
         // Owned work returns a handle even if its receiving future is cancelled; Drop then cleans it.
         crate::task::spawn_supervised("admin-stage-object", async move {
             let _worker = worker;
-            let mut random = [0; 16];
-            getrandom::fill(&mut random).map_err(AdminError::backend)?;
-            let id = crate::hashing::encode_lower(&random);
+            let id = BlobId::generate().map_err(AdminError::backend)?;
             let mut handle = StagedObject {
                 catalog: catalog.clone(),
                 id: None,
@@ -409,35 +425,22 @@ impl Admin {
                 activity: Some(activity),
                 batch_ownership: None,
             };
-            let stage = catalog.0.data_dir.join("staging").join(&id);
-            let blob = objects::blob_path(&catalog.0.data_dir, &id)?;
-            let memory = catalog.0.memory.clone();
-            let memory_id = id.clone();
+            let backend = catalog.0.backend.clone();
             let result = catalog
                 .0
                 .file_workers
-                .run(move || {
-                    if let Some(memory) = memory {
-                        return Ok(stage_memory(
-                            &memory, &source, memory_id, expected, max_bytes,
-                        ));
-                    }
-                    if blob.try_exists()? || stage.try_exists()? {
-                        return Err(AdminError::Invalid("blob ID collision".into()));
-                    }
-                    Ok(stage_file(&source, &stage, expected, max_bytes))
-                })
+                .run(move || backend.stage_admin_file(&source, id, expected, max_bytes))
                 .await?;
             handle.id = Some(id);
             match result {
                 Ok((size, hashes)) => {
                     handle.size = size;
                     handle.hashes = hashes;
-                    handle.published = catalog.0.memory.is_some();
+                    handle.published = catalog.0.backend.is_memory();
                     Ok(handle)
                 }
                 Err(error) => {
-                    if error == AdminError::Io(io::ErrorKind::AlreadyExists) {
+                    if error == AdminError::Io(io::ErrorKind::AlreadyExists.into()) {
                         handle.id = None;
                     }
                     handle.cleanup().await?;
@@ -616,7 +619,7 @@ impl Admin {
 fn stage_memory(
     memory: &Arc<crate::storage::memory::Store>,
     source: &File,
-    id: String,
+    id: BlobId,
     expected: ExpectedHashes,
     max_bytes: u64,
 ) -> Result<(u64, crate::hashing::Hashes), AdminError> {
@@ -650,7 +653,7 @@ fn stage_memory(
     {
         return Err(AdminError::Checksum);
     }
-    stage.publish(id)?;
+    stage.publish(id.to_hex())?;
     Ok((size, hashes))
 }
 
@@ -683,13 +686,13 @@ async fn run_batch(
                 .id
                 .as_ref()
                 .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?;
-            let stage = catalog.0.data_dir.join("staging").join(id);
-            let blob = objects::blob_path(&catalog.0.data_dir, id)?;
+            let id = *id;
+            let backend = catalog.0.backend.clone();
             catalog
                 .0
                 .file_workers
                 .run(move || {
-                    objects::publish_blob(&stage, &blob)?;
+                    backend.publish_draft(&id)?;
                     Ok::<_, AdminError>(())
                 })
                 .await?;
@@ -807,8 +810,8 @@ fn commit_batch(
 fn objects_error_admin(error: AdminError) -> ObjectError {
     match error {
         AdminError::DiskFull => ObjectError::Io(io::ErrorKind::StorageFull.into()),
-        AdminError::Io(kind) => ObjectError::Io(kind.into()),
-        AdminError::Corrupt(reason) => ObjectError::Corrupt(reason.into()),
+        AdminError::Io(cause) => ObjectError::Io(cause),
+        AdminError::Corrupt(cause) => ObjectError::Corrupt(cause),
         error => ObjectError::Unavailable(BackendCause::from_error(error)),
     }
 }
@@ -905,7 +908,7 @@ fn publish_entry(
         staged.hashes.crc32c,
     ) {
         let record = previous
-            .map(|(record, _)| record)
+            .map(|stored| stored.record)
             .ok_or(ObjectError::ObjectNotFound)?;
         record_staged_state(transaction, staged, &record)?;
         return Ok(record);
@@ -917,7 +920,7 @@ fn publish_entry(
     let time = super::super::system_time_micros(micros)?;
     let id = staged
         .id
-        .as_deref()
+        .as_ref()
         .ok_or_else(|| objects_error("resolved staged handle"))?;
     let defaults = objects::PublicationDefaults {
         storage_class,
@@ -939,7 +942,7 @@ fn publish_entry(
         previous.as_ref(),
         versioning,
         objects::NewVersion {
-            blob_id: id,
+            blob_id: *id,
             assignment: staged
                 .import_identity
                 .and_then(|identity| identity.generation())

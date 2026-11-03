@@ -368,7 +368,7 @@ fn copy_source_generation(
             None => {
                 objects::lookup(connection, source.bucket, source.name)?
                     .ok_or(ObjectError::Forbidden)?
-                    .0
+                    .record
                     .generation
             }
         },

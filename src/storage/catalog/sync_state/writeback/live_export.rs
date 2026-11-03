@@ -315,8 +315,7 @@ impl Writeback {
         fence: JournalFence,
         source: LiveSource,
     ) -> Result<LiveExport, Error> {
-        let this = self.clone();
-        self.serial(async move {
+        self.serial_with(move |this| async move {
             let (purpose,source,captured)=match source {
                 LiveSource::Observe=>(CopyPurpose::Ordinary,None,None),
                 LiveSource::ApiCopy(file)=>(CopyPurpose::Ordinary,Some(file),None),
@@ -344,7 +343,7 @@ impl Writeback {
                 let (owner, incarnation): (String,String) = tx.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([bucket.as_str()], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(stale)?;
                 let stored = tx.prepare_cached(super::super::SELECT_BY_NAME)?.query_row(params![bucket.as_str(),name.as_str(),incarnation],super::super::read_record).optional()?;
                 if stored != selected { return Err(stale()); }
-                let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|(record,_)| record);
+                let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|stored| stored.record);
                 let expected_generation=record.as_ref().map(|record|Generation::new(record.generation)).transpose()?;
                 let proof=proof_token.as_ref().map(|token|token.validate(&tx,root.as_bytes(),&binding,&name,expected_generation)).transpose()?;
                 let kind = if has_source || record.is_some() { Kind::Publish } else { Kind::Remove };
@@ -360,7 +359,7 @@ impl Writeback {
                 let captured_snapshot=proof_token.as_ref().map(|token|token.durable_snapshot(&tx).map_err(AdminError::backend)).transpose()?;
                 if if proof.is_some() {usage.over_limit()} else {usage.would_exceed(reservation)} { return Err(Error::Capacity); }
                 let id = BlobId::generate().map_err(AdminError::backend)?.to_hex();
-                tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root.as_bytes(),owner,bucket.as_str(),incarnation,name.as_str(),path,generation.get(),kind as i64,fence.sequence.0 as i64,fence.revision,reservation.to_be_bytes(),size as i64,md5,crc32c])?;
+                tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root.as_bytes(),owner,bucket.as_str(),incarnation,name.as_str(),path,generation.get(),kind,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
                 if let Some(snapshot)=captured_snapshot {
                     tx.prepare_cached("UPDATE sync_writeback_ops SET snapshot=?2 WHERE id=?1")?.execute(params![id,snapshot])?;
                 }
@@ -385,8 +384,7 @@ impl Writeback {
         &self,
         operation: LiveExport,
     ) -> Result<LiveResult, Error> {
-        let this = self.clone();
-        self.serial(async move {
+        self.serial_with(move |this| async move {
             let mut operation = operation.0.lock().await;
             let operation = &mut *operation;
             this.token(&operation.item.token)?;

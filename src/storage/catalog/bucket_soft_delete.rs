@@ -293,7 +293,7 @@ fn purge_batch(connection: &mut Connection, now: i64) -> Result<i64, CatalogErro
         )?;
     }
     transaction.commit()?;
-    Ok(expired.len() as i64)
+    i64::try_from(expired.len()).map_err(unavailable)
 }
 
 fn earliest_hard_delete(connection: &Connection) -> Result<Option<i64>, CatalogError> {
@@ -351,7 +351,7 @@ impl Catalog {
                 prefix,
                 after_name,
                 after_generation,
-                limit as i64 + 1
+                limit + 1
             ])?;
             let mut items = Vec::new();
             let mut remaining = super::BUCKET_LIST_METADATA_BUDGET;

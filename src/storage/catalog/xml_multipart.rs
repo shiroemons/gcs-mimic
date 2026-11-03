@@ -1,6 +1,7 @@
 //! Persistent XML multipart state; ordinary objects appear only at completion.
 
 use super::{Catalog, objects, resumable, system_time_millis, unix_millis};
+use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     auth::Permission,
@@ -118,7 +119,7 @@ pub(crate) struct Part {
     pub etag: String,
     pub size: u64,
     pub updated: SystemTime,
-    blob_id: String,
+    blob_id: BlobId,
     md5: [u8; 16],
     crc32c: u32,
 }
@@ -148,12 +149,10 @@ fn access_for(access: &BucketAccess, permission: Permission) -> BucketAccess {
 
 fn read_upload(row: &rusqlite::Row<'_>) -> rusqlite::Result<Upload> {
     let options: String = row.get(4)?;
-    let value = serde_json::from_str(&options).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(error))
-    })?;
-    let options = resumable::decode_options(&value).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(error))
-    })?;
+    let value = serde_json::from_str(&options)
+        .map_err(|error| sql::conversion_error(4, rusqlite::types::Type::Text, error))?;
+    let options = resumable::decode_options(&value)
+        .map_err(|error| sql::conversion_error(4, rusqlite::types::Type::Text, error))?;
     Ok(Upload {
         target: Target {
             id: row.get(0)?,
@@ -181,7 +180,7 @@ fn read_part(row: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
     Ok(Part {
         number: row.get(0)?,
         blob_id: row.get(1)?,
-        size: row.get::<_, i64>(2)? as u64,
+        size: row.get(2)?,
         md5,
         crc32c: row.get(4)?,
         updated: system_time_millis(row.get(5)?)?,
@@ -323,7 +322,7 @@ impl Catalog {
             let transaction=connection.transaction().map_err(object_unavailable)?;
             let upload=active(&transaction,&target,&access,now)?;
             let mut parts=transaction.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
-                .and_then(|mut s|s.query_map(params![target.id,marker,(limit.clamp(1,1000)+1) as i64],read_part)?.collect::<rusqlite::Result<Vec<_>>>()).map_err(object_unavailable)?;
+                .and_then(|mut s|s.query_map(params![target.id,marker,limit.clamp(1,1000)+1],read_part)?.collect::<rusqlite::Result<Vec<_>>>()).map_err(object_unavailable)?;
             let more=parts.len()>limit.clamp(1,1000); if more {parts.pop();}
             Ok((upload,parts,more))
         }).await
@@ -344,11 +343,7 @@ impl Catalog {
                 objects::commit_publication(transaction)?;
                 Ok(())
             })();
-            if let Err(error) = maintenance::drain_storage(
-                connection,
-                &catalog.0.data_dir,
-                catalog.0.memory.as_deref(),
-            ) {
+            if let Err(error) = maintenance::drain_storage(connection, &catalog.0.backend) {
                 catalog.multipart_cleanup_failed(&error);
             }
             result

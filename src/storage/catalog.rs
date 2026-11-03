@@ -93,7 +93,9 @@ pub(crate) use objects::{
 };
 pub(crate) use soft_delete::RestoreAccess;
 
+mod blob_backend;
 mod derived;
+use blob_backend::BlobBackend;
 mod transfer_io;
 #[cfg(test)]
 pub(crate) use derived::DerivedTransfer;
@@ -457,7 +459,7 @@ struct Inner {
     default_soft_delete_retention: AtomicU64,
     notification_attempts: Arc<Semaphore>,
     data_dir: PathBuf,
-    memory: Option<Arc<super::memory::Store>>,
+    backend: BlobBackend,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<std::collections::HashSet<String>>,
     derived_wake: Notify,
@@ -874,9 +876,12 @@ const MIGRATIONS: &[(i64, Migration)] = &[
 )]
 fn recover_on_open(
     connection: &mut Connection,
-    data_dir: &Path,
+    backend: &BlobBackend,
     clock: &dyn Clock,
 ) -> Result<(), CatalogError> {
+    let BlobBackend::Disk(data_dir) = backend else {
+        return Err(unavailable("disk recovery requires a disk backend"));
+    };
     let pending: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)",
         [],
@@ -917,7 +922,7 @@ fn recover_on_open(
     }
     let recovery_now = unix_millis(clock.now())?;
     rewrite::recover_due(connection, recovery_now)?;
-    resumable_maintenance::recover_due(connection, data_dir, recovery_now)?;
+    resumable_maintenance::recover_due(connection, backend, recovery_now)?;
     xml_multipart::recover(connection, data_dir, recovery_now)?;
     objects::recover(connection, data_dir, recovery_now)?;
     appendable::recover(connection, data_dir)
@@ -984,6 +989,10 @@ impl Catalog {
         memory_limits: Option<(u64, u64)>,
     ) -> Result<Self, CatalogError> {
         let catalog = tokio::task::spawn_blocking(move || -> Result<Self, CatalogError> {
+            let backend = match memory_limits {
+                Some((bytes, _)) => BlobBackend::Memory(super::memory::Store::new(bytes)),
+                None => BlobBackend::Disk(data_dir.clone()),
+            };
             let (lock, stored_version, mut connection) = if let Some((_, bytes)) = memory_limits {
                 (None, 0, open_memory(bytes)?)
             } else {
@@ -1016,7 +1025,7 @@ impl Catalog {
                 connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
                 notification_outbox::open(&connection)?;
             } else {
-                recover_on_open(&mut connection, &data_dir, &*clock)?;
+                recover_on_open(&mut connection, &backend, &*clock)?;
             }
             Ok(Self(Arc::new(Inner {
                 principals: OnceLock::new(),
@@ -1045,8 +1054,8 @@ impl Catalog {
                 pubsub_endpoint: OnceLock::new(),
                 default_soft_delete_retention: AtomicU64::new(0),
                 notification_attempts: Arc::new(Semaphore::new(1)),
+                backend,
                 data_dir,
-                memory: memory_limits.map(|(bytes, _)| super::memory::Store::new(bytes)),
                 clock,
                 session_writers: Mutex::new(Default::default()),
                 derived_wake: Notify::new(),
@@ -1079,11 +1088,7 @@ impl Catalog {
 
     pub fn is_healthy(&self) -> bool {
         !self.0.resources.is_poisoned()
-            && self
-                .0
-                .memory
-                .as_ref()
-                .is_none_or(|memory| memory.is_healthy())
+            && self.0.backend.is_healthy()
             && !self.0.session_writers.is_poisoned()
             && !self.0.admission.is_closed()
             && !self.0.admin_uploads.is_closed()
@@ -1186,9 +1191,7 @@ impl Catalog {
                     if let Some(lock) = lock {
                         lock.release()?;
                     }
-                    if let Some(memory) = &inner.memory {
-                        memory.clear()?;
-                    }
+                    inner.backend.clear_memory()?;
                 }
                 Ok(())
             })
@@ -1542,7 +1545,13 @@ impl Catalog {
         let prefix = prefix.unwrap_or("").to_owned();
         let start_after = start_after.map(str::to_owned);
         self.run(move |connection| {
-            bucket_list_page(connection, projects, prefix, start_after, limit)
+            bucket_list_page(
+                connection,
+                projects.as_deref(),
+                &prefix,
+                start_after.as_deref(),
+                limit,
+            )
         })
         .await
     }
@@ -1825,25 +1834,18 @@ fn apply_labels(
 
 fn bucket_list_page(
     connection: &Connection,
-    projects: Option<Vec<String>>,
-    prefix: String,
-    start_after: Option<String>,
+    projects: Option<&[String]>,
+    prefix: &str,
+    start_after: Option<&str>,
     limit: usize,
 ) -> Result<BucketListPage, CatalogError> {
+    use objects::SeekStart;
     use rusqlite::types::Value;
-    let mut upper = prefix.as_bytes().to_vec();
-    let upper = upper
-        .iter()
-        .rposition(|byte| *byte != u8::MAX)
-        .map(|index| {
-            upper[index] += 1;
-            upper.truncate(index + 1);
-            upper
-        });
+    let upper = objects::prefix_end(prefix);
     // Both bounds remain indexable, including when a page starts beyond the prefix.
     let (lower, comparison) = match start_after {
-        Some(start) if start >= prefix => (start, ">"),
-        _ => (prefix, ">="),
+        Some(start) if start >= prefix => (start, SeekStart::Exclusive),
+        _ => (prefix, SeekStart::Inclusive),
     };
     // One static text per bound shape keeps both name bounds indexable; the project list is
     // bound as one JSON array so its length does not change the statement text.
@@ -1868,26 +1870,30 @@ fn bucket_list_page(
         };
     }
     let sql = match (projects.is_some(), comparison, upper.is_some()) {
-        (false, ">", false) => page!("", ">", ""),
-        (false, ">", true) => page!("", ">", "AND name < CAST(? AS TEXT)"),
-        (false, _, false) => page!("", ">=", ""),
-        (false, _, true) => page!("", ">=", "AND name < CAST(? AS TEXT)"),
-        (true, ">", false) => page!(projects!(), ">", ""),
-        (true, ">", true) => page!(projects!(), ">", "AND name < CAST(? AS TEXT)"),
-        (true, _, false) => page!(projects!(), ">=", ""),
-        (true, _, true) => page!(projects!(), ">=", "AND name < CAST(? AS TEXT)"),
+        (false, SeekStart::Exclusive, false) => page!("", ">", ""),
+        (false, SeekStart::Exclusive, true) => page!("", ">", "AND name < CAST(? AS TEXT)"),
+        (false, SeekStart::Inclusive, false) => page!("", ">=", ""),
+        (false, SeekStart::Inclusive, true) => page!("", ">=", "AND name < CAST(? AS TEXT)"),
+        (true, SeekStart::Exclusive, false) => page!(projects!(), ">", ""),
+        (true, SeekStart::Exclusive, true) => page!(projects!(), ">", "AND name < CAST(? AS TEXT)"),
+        (true, SeekStart::Inclusive, false) => page!(projects!(), ">=", ""),
+        (true, SeekStart::Inclusive, true) => {
+            page!(projects!(), ">=", "AND name < CAST(? AS TEXT)")
+        }
     };
     let mut values = Vec::new();
     if let Some(projects) = projects {
         values.push(Value::Text(
-            serde_json::to_string(&projects).map_err(unavailable)?,
+            serde_json::to_string(projects).map_err(unavailable)?,
         ));
     }
-    values.push(Value::Text(lower));
+    values.push(Value::Text(lower.to_owned()));
     if let Some(upper) = upper {
         values.push(Value::Blob(upper));
     }
-    values.push(Value::Integer(limit as i64 + 1));
+    values.push(Value::Integer(
+        i64::try_from(limit).map_err(unavailable)? + 1,
+    ));
     let mut statement = connection.prepare_cached(sql)?;
     let mut rows = statement.query(rusqlite::params_from_iter(values))?;
     let mut records = Vec::new();
@@ -2067,11 +2073,7 @@ fn signed_system_time(value: i64, unit: fn(u64) -> Duration) -> rusqlite::Result
         UNIX_EPOCH.checked_add(duration)
     };
     time.ok_or_else(|| {
-        rusqlite::Error::FromSqlConversionFailure(
-            0,
-            Type::Integer,
-            "timestamp outside SystemTime range".into(),
-        )
+        sql::conversion_error(0, Type::Integer, "timestamp outside SystemTime range")
     })
 }
 
@@ -2091,19 +2093,11 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
     Ok(BucketRecord {
         soft_delete_policy: row
             .get::<_, Option<String>>(16)?
-            .map(|v| {
-                serde_json::from_str(&v).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(16, Type::Text, Box::new(e))
-                })
-            })
+            .map(|v| serde_json::from_str(&v).map_err(|e| sql::conversion_error(16, Type::Text, e)))
             .transpose()?,
         retention_policy: row
             .get::<_, Option<String>>(15)?
-            .map(|v| {
-                serde_json::from_str(&v).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(15, Type::Text, Box::new(e))
-                })
-            })
+            .map(|v| serde_json::from_str(&v).map_err(|e| sql::conversion_error(15, Type::Text, e)))
             .transpose()?,
         name: row.get(0)?,
         project: row.get(1)?,
@@ -2112,9 +2106,9 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         storage_class: row.get(4)?,
         autoclass: bucket_autoclass::read(row)?,
         labels: serde_json::from_str(&labels)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(e)))?,
+            .map_err(|e| sql::conversion_error(5, Type::Text, e))?,
         lifecycle: serde_json::from_str(&row.get::<_, String>(14)?)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(14, Type::Text, Box::new(e)))?,
+            .map_err(|e| sql::conversion_error(14, Type::Text, e))?,
         metageneration: row.get(6)?,
         generation: row.get("generation")?,
         time_created: bucket_timestamps::read(row, row.get(7)?, "time_created_nanos")?,
@@ -2129,11 +2123,10 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
             .map(system_time_micros)
             .transpose()?,
         cors: cors_from_value(
-            &serde_json::from_str(&row.get::<_, String>(11)?).map_err(|e| {
-                rusqlite::Error::FromSqlConversionFailure(11, Type::Text, Box::new(e))
-            })?,
+            &serde_json::from_str(&row.get::<_, String>(11)?)
+                .map_err(|e| sql::conversion_error(11, Type::Text, e))?,
         )
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(11, Type::Text, Box::new(e)))?,
+        .map_err(|e| sql::conversion_error(11, Type::Text, e))?,
     })
 }
 

@@ -56,7 +56,10 @@ impl Catalog {
         let record = self
             .run(move |connection| {
                 let transaction = sql::immediate(connection)?;
-                let (mut record, blob_id) = selected(
+                let super::objects::StoredObject {
+                    mut record,
+                    blob: blob_id,
+                } = selected(
                     &transaction,
                     &bucket,
                     &source,
@@ -121,7 +124,7 @@ impl Catalog {
                     previous.as_ref(),
                     versioning,
                     NewVersion {
-                        blob_id: &blob_id,
+                        blob_id,
                         assignment: GenerationAssignment::Automatic,
                         micros,
                         origin,

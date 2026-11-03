@@ -11,8 +11,7 @@ mod tests;
 
 impl Writeback {
     pub(crate) async fn recover_pending(&self) -> Result<Status, Error> {
-        let this = self.clone();
-        self.serial(async move { this.recover_pending_inner().await })
+        self.serial_with(|this| async move { this.recover_pending_inner().await })
             .await
     }
 

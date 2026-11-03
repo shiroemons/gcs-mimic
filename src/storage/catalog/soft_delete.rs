@@ -45,7 +45,7 @@ fn selected(
     name: &str,
     generation: i64,
     now: i64,
-) -> Result<(ObjectRecord, String), ObjectError> {
+) -> Result<objects::StoredObject, ObjectError> {
     sql::row(
         connection,
         SELECT_SOFT_DELETED_GENERATION,
@@ -72,7 +72,7 @@ impl Catalog {
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
-            let (record, _) = selected(
+            let objects::StoredObject { record, .. } = selected(
                 &transaction,
                 &bucket,
                 &name,
@@ -120,8 +120,8 @@ impl Catalog {
             generation,
         } = target;
         let (restore_access, create_access) = (access.restore.clone(), access.create.clone());
-        let (clock, data_dir) = (self.0.clock.clone(), self.0.data_dir.clone());
-        let memory = self.0.memory.clone();
+        let clock = self.0.clock.clone();
+        let backend = self.0.backend.clone();
         let result = self
             .run(move |connection| {
                 authorized_bucket(connection, &bucket, &restore_access)?;
@@ -136,32 +136,33 @@ impl Catalog {
                     "INSERT INTO pending_blob_deletions VALUES (?1)",
                     [&text],
                 )?;
-                let stage = id.staging_path(&data_dir);
                 let result = (|| {
                     let transaction = sql::immediate(connection)?;
                     authorized_bucket(&transaction, &bucket, &restore_access)?;
                     let (_, delete_permission) =
                         authorized_bucket(&transaction, &bucket, &create_access)?;
-                    let (mut record, original) =
-                        match selected(&transaction, &bucket, &name, generation, micros) {
-                            Err(ObjectError::ObjectNotFound) => {
-                                return Err(
-                                    match objects::selected(
-                                        &transaction,
-                                        &bucket,
-                                        &name,
-                                        Some(generation),
-                                        Default::default(),
-                                        super::objects::RequestKind::Write,
-                                        &restore_access,
-                                    ) {
-                                        Ok(_) => ObjectError::ObjectNotSoftDeleted,
-                                        Err(error) => error,
-                                    },
-                                );
-                            }
-                            result => result?,
-                        };
+                    let objects::StoredObject {
+                        mut record,
+                        blob: original,
+                    } = match selected(&transaction, &bucket, &name, generation, micros) {
+                        Err(ObjectError::ObjectNotFound) => {
+                            return Err(
+                                match objects::selected(
+                                    &transaction,
+                                    &bucket,
+                                    &name,
+                                    Some(generation),
+                                    Default::default(),
+                                    super::objects::RequestKind::Write,
+                                    &restore_access,
+                                ) {
+                                    Ok(_) => ObjectError::ObjectNotSoftDeleted,
+                                    Err(error) => error,
+                                },
+                            );
+                        }
+                        result => result?,
+                    };
                     record.check_retention(now)?;
                     let previous = objects::lookup(&transaction, &bucket, &name)?;
                     objects::check_publication(
@@ -172,12 +173,7 @@ impl Catalog {
                     )?;
                     let (versioning, _) =
                         Catalog::bucket_settings_in_transaction(&transaction, &bucket)?;
-                    if let Some(memory) = &memory {
-                        memory.pin(&original, text.clone())?;
-                    } else {
-                        std::fs::hard_link(objects::blob_path(&data_dir, &original)?, &stage)?;
-                        objects::publish_blob(&stage, &id.blob_path(&data_dir))?;
-                    }
+                    backend.publish_pin(&original, &id)?;
                     record.metageneration = 1;
                     record.time_created = super::system_time_micros(micros)?;
                     record.updated = record.time_created;
@@ -189,7 +185,7 @@ impl Catalog {
                         previous.as_ref(),
                         versioning,
                         objects::NewVersion {
-                            blob_id: &text,
+                            blob_id: id,
                             assignment: objects::GenerationAssignment::Automatic,
                             micros,
                             origin: super::change_journal::origin(&create_access),
@@ -212,8 +208,8 @@ impl Catalog {
                     transaction.commit()?;
                     Ok(record)
                 })();
-                if memory.is_none()
-                    && let Err(error) = objects::unlink(&stage)
+                if !backend.is_memory()
+                    && let Err(error) = backend.remove_draft(&id)
                 {
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,

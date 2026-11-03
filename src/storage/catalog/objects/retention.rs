@@ -11,6 +11,26 @@ use crate::{
     },
 };
 use rusqlite::{Connection, Row, Transaction, types::Type};
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+struct SessionRetention {
+    #[serde(deserialize_with = "Option::<StoredRetention>::deserialize")]
+    value: Option<StoredRetention>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredRetention {
+    mode: RetentionMode,
+    retain_until_micros: i64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    retain_until_sub_micro_nanos: u32,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
+}
 
 /// Schema 29. Both object columns are NULL when the object has no configuration.
 pub(in crate::storage) const SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN object_retention_enabled INTEGER NOT NULL DEFAULT 0 CHECK(object_retention_enabled IN (0, 1));
@@ -44,20 +64,9 @@ pub(super) fn read(
     let (Some(mode), Some(until)) = (mode, until) else {
         return Ok(None);
     };
-    let mode = RetentionMode::parse(&mode).ok_or_else(|| {
-        rusqlite::Error::FromSqlConversionFailure(
-            index,
-            Type::Text,
-            "invalid retention mode".into(),
-        )
-    })?;
-    let invalid = || {
-        rusqlite::Error::FromSqlConversionFailure(
-            index + 1,
-            Type::Integer,
-            "invalid retain-until time".into(),
-        )
-    };
+    let mode = RetentionMode::parse(&mode)
+        .ok_or_else(|| sql::conversion_error(index, Type::Text, "invalid retention mode"))?;
+    let invalid = || sql::conversion_error(index + 1, Type::Integer, "invalid retain-until time");
     let remainder = u32::try_from(row.get::<_, i64>(sub_index)?).map_err(|_| invalid())?;
     let retain_until =
         UnixNanos::from_micros_and_remainder(until, remainder).ok_or_else(invalid)?;
@@ -100,15 +109,13 @@ pub(in crate::storage) fn session_value(
             .retain_until
             .micros_and_remainder()
             .unwrap_or((i64::MAX, 0));
-        let mut value =
-            serde_json::json!({"mode": retention.mode.as_str(), "retainUntilMicros": micros});
-        // Absent when zero, so sessions written before nanosecond comparison read unchanged.
-        if remainder != 0 {
-            value["retainUntilSubMicroNanos"] = remainder.into();
+        StoredRetention {
+            mode: retention.mode,
+            retain_until_micros: micros,
+            retain_until_sub_micro_nanos: remainder,
         }
-        value
     });
-    serde_json::json!({ "value": value })
+    serde_json::json!(SessionRetention { value })
 }
 
 /// Decodes [`session_value`]; sessions written before retention support have no key.
@@ -119,28 +126,20 @@ pub(in crate::storage) fn from_session(
     if value.is_null() {
         return Ok(None);
     }
-    let inner = value.get("value").ok_or_else(invalid)?;
-    if inner.is_null() {
+    let snapshot = SessionRetention::deserialize(value)
+        .map_err(|error| InvalidOptions::with_source("invalid resumable retention", error))?;
+    let Some(inner) = snapshot.value else {
         return Ok(Some(None));
-    }
-    let mode = inner["mode"]
-        .as_str()
-        .and_then(RetentionMode::parse)
-        .ok_or_else(invalid)?;
-    let micros = inner["retainUntilMicros"].as_i64().ok_or_else(invalid)?;
-    let remainder = match inner.get("retainUntilSubMicroNanos") {
-        None => 0,
-        Some(value) => value
-            .as_u64()
-            .filter(|nanos| *nanos < 1000)
-            .ok_or_else(invalid)?,
     };
     let retain_until = UnixNanos::from_micros_and_remainder(
-        micros,
-        u32::try_from(remainder).map_err(|_| invalid())?,
+        inner.retain_until_micros,
+        inner.retain_until_sub_micro_nanos,
     )
     .ok_or_else(invalid)?;
-    Ok(Some(Some(ObjectRetention { mode, retain_until })))
+    Ok(Some(Some(ObjectRetention {
+        mode: inner.mode,
+        retain_until,
+    })))
 }
 
 /// Reads the bucket flag inside the caller's mutation transaction.
@@ -294,6 +293,10 @@ mod tests {
             retain_until: at(4_000_000_000, 123_456_000 + REMAINDER),
         };
         let value = session_value(Some(&Some(retention)));
+        assert_eq!(
+            value.to_string(),
+            r#"{"value":{"mode":"Unlocked","retainUntilMicros":4000000000123456,"retainUntilSubMicroNanos":789}}"#
+        );
         assert_eq!(value["value"]["retainUntilSubMicroNanos"], REMAINDER);
         assert_eq!(from_session(&value).unwrap(), Some(Some(retention)));
         // Without a remainder the key is absent, which is also how older sessions look.
@@ -302,6 +305,10 @@ mod tests {
             ..retention
         };
         let value = session_value(Some(&Some(whole)));
+        assert_eq!(
+            value.to_string(),
+            r#"{"value":{"mode":"Unlocked","retainUntilMicros":4000000000123456}}"#
+        );
         assert!(value["value"].get("retainUntilSubMicroNanos").is_none());
         assert_eq!(from_session(&value).unwrap(), Some(Some(whole)));
         let mut invalid = session_value(Some(&Some(retention)));

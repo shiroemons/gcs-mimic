@@ -31,6 +31,9 @@ use crate::storage::failure::object_unavailable;
 #[cfg(test)]
 use super::fault::{self, Step};
 
+#[cfg(test)]
+mod tests;
+
 async fn receive_chunk(
     catalog: &Catalog,
     lease: &SessionLease,
@@ -150,13 +153,7 @@ fn publication_record(
     );
     options.metadata.reject_past_retention(time)?;
     options.metadata.apply(&mut record)?;
-    let period: Option<i64> = sql::scalar(
-        connection,
-        "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1",
-        [&record.bucket],
-    )?;
-    record.retention_expiration_time =
-        period.map(|period| time + std::time::Duration::from_secs(period as u64));
+    record.retention_expiration_time = objects::retention_expiration(connection, &record)?;
     Ok(record)
 }
 
@@ -236,22 +233,22 @@ impl Catalog {
         if let Some(session) = committed
             && session.state == SessionState::Complete
         {
-            if let Some(memory) = &self.0.memory {
-                memory
-                    .remove_draft(&lease.session.blob_id)
-                    .map_err(object_unavailable)?;
-            }
+            self.0
+                .backend
+                .finish_draft(&lease.session.blob_id)
+                .map_err(object_unavailable)?;
             return Ok(session.completion);
         }
         if matches!(&error, ResumableError::Object(error) if error.is_backend_failure()) {
-            if let Some(memory) = &self.0.memory {
-                memory
+            if self.0.backend.is_memory() {
+                self.0
+                    .backend
                     .remove(&lease.session.blob_id)
                     .map_err(object_unavailable)?;
                 return Err(error);
             }
             let data_dir = self.0.data_dir.clone();
-            let blob_id = lease.session.blob_id.clone();
+            let blob_id = lease.session.blob_id;
             let offset = lease.session.offset;
             self.run_upload(move |connection| {
                 super::resumable_recovery::recover_prefix(connection, &data_dir, &blob_id, offset)
@@ -284,7 +281,7 @@ impl Catalog {
         reason: &'static str,
     ) -> Result<(), ResumableError> {
         let id = lease.session.id.clone();
-        let blob_id = lease.session.blob_id.clone();
+        let blob_id = lease.session.blob_id;
         #[cfg(test)]
         let data_dir = self.0.data_dir.clone();
         let changed = self.run_upload(move |connection| {
@@ -301,16 +298,12 @@ impl Catalog {
             Ok(changed)
         }).await?;
         if changed == 1 {
-            let data_dir = self.0.data_dir.clone();
-            let memory = self.0.memory.clone();
-            let blob_id = lease.session.blob_id.clone();
+            let backend = self.0.backend.clone();
+            let blob_id = lease.session.blob_id;
             let cleanup = self
                 .run_upload(move |connection| {
                     super::resumable_maintenance::clean_session_storage(
-                        connection,
-                        &data_dir,
-                        memory.as_deref(),
-                        &blob_id,
+                        connection, &backend, &blob_id,
                     )
                     .map_err(object_unavailable)
                 })
@@ -354,7 +347,10 @@ impl Catalog {
         // Every chunk, the final one included, was made durable by `receive_chunk` before its
         // checkpoint, and hashing only reads the file, so there is nothing left to sync.
         drop(file);
-        self.publish_resumable_bytes(lease).await?;
+        self.0
+            .backend
+            .publish_resumable(self, lease.session.blob_id)
+            .await?;
         let session = lease.session.clone();
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
@@ -401,7 +397,7 @@ impl Catalog {
                     previous.as_ref(),
                     versioning,
                     objects::NewVersion {
-                        blob_id: &session.blob_id,
+                        blob_id: session.blob_id,
                         assignment: objects::GenerationAssignment::Automatic,
                         micros,
                         origin: super::change_journal::origin(&options.access),
@@ -436,27 +432,12 @@ impl Catalog {
             .run_upload(move |connection| Ok(publication(connection)))
             .await?;
         if result.is_ok() {
-            if let Some(memory) = &self.0.memory {
-                memory
-                    .remove_draft(&lease.session.blob_id)
-                    .map_err(object_unavailable)?;
-            }
+            self.0
+                .backend
+                .finish_draft(&lease.session.blob_id)
+                .map_err(object_unavailable)?;
             self.reclaim_after_commit().await;
         }
         result
-    }
-
-    async fn publish_resumable_bytes(&self, lease: &SessionLease) -> Result<(), ResumableError> {
-        if let Some(memory) = &self.0.memory {
-            let memory = memory.clone();
-            let blob_id = lease.session.blob_id.clone();
-            self.run_upload(move |_| memory.publish_draft(&blob_id).map_err(object_unavailable))
-                .await?;
-        } else {
-            let destination = objects::blob_path(&self.0.data_dir, &lease.session.blob_id)?;
-            self.publish_staged(lease.staging_path(), destination)
-                .await?;
-        }
-        Ok(())
     }
 }

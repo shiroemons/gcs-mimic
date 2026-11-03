@@ -17,7 +17,7 @@
 
 use super::{Catalog, objects, read_bucket, select_bucket, unavailable};
 use crate::storage::catalog::sql;
-use crate::storage::failure::BackendCause;
+use crate::storage::failure::{BackendCause, IoCause};
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError},
     clock::Clock,
@@ -262,8 +262,8 @@ pub enum AdminError {
     Hold,
     SeedProjectMismatch,
     SourceChanged { fields: Vec<String> },
-    Corrupt(String),
-    Io(io::ErrorKind),
+    Corrupt(BackendCause),
+    Io(IoCause),
     NotFound,
     Invalid(String),
     Checksum,
@@ -274,24 +274,44 @@ pub enum AdminError {
 }
 impl fmt::Display for AdminError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("administrative operation: ")?;
         match self {
+            Self::Busy { retry_after } => write!(f, "Busy {{ retry_after: {retry_after:?} }}"),
+            Self::DiskFull => f.write_str("DiskFull"),
+            Self::Closed => f.write_str("Closed"),
+            Self::Precondition => f.write_str("Precondition"),
+            Self::Hold => f.write_str("Hold"),
             // Preserve the diagnostic that preceded the typed project mismatch.
-            Self::SeedProjectMismatch => f.write_str("administrative operation: Invalid(\"existing seed bucket belongs to another project\")"),
-            _ => write!(f, "administrative operation: {self:?}"),
+            Self::SeedProjectMismatch => {
+                f.write_str("Invalid(\"existing seed bucket belongs to another project\")")
+            }
+            Self::SourceChanged { fields } => write!(f, "SourceChanged {{ fields: {fields:?} }}"),
+            Self::Corrupt(cause) => write!(f, "Corrupt({cause:?})"),
+            Self::Io(cause) => write!(f, "Io({cause:?})"),
+            Self::NotFound => f.write_str("NotFound"),
+            Self::Invalid(reason) => write!(f, "Invalid({reason:?})"),
+            Self::Checksum => f.write_str("Checksum"),
+            Self::TooLarge => f.write_str("TooLarge"),
+            Self::Forbidden => f.write_str("Forbidden"),
+            Self::BodyAborted(cause) => write!(f, "BodyAborted({cause:?})"),
+            Self::Backend(cause) => write!(f, "Backend({cause:?})"),
         }
     }
 }
 impl std::error::Error for AdminError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::BodyAborted(cause) | Self::Backend(cause) => cause.source(),
+            Self::BodyAborted(cause) | Self::Backend(cause) | Self::Corrupt(cause) => {
+                cause.source()
+            }
+            Self::Io(cause) => cause.source(),
             _ => None,
         }
     }
 }
 impl From<io::Error> for AdminError {
     fn from(error: io::Error) -> Self {
-        Self::from_kind(error.kind())
+        Self::from_io(error.into())
     }
 }
 impl AdminError {
@@ -300,19 +320,19 @@ impl AdminError {
         Self::Backend(BackendCause::from_error(error))
     }
 
-    fn from_kind(kind: io::ErrorKind) -> Self {
-        if kind == io::ErrorKind::StorageFull {
+    fn from_io(cause: IoCause) -> Self {
+        if cause.kind() == io::ErrorKind::StorageFull {
             Self::DiskFull
         } else {
-            Self::Io(kind)
+            Self::Io(cause)
         }
     }
 }
 impl From<CatalogError> for AdminError {
     fn from(error: CatalogError) -> Self {
         match error {
-            CatalogError::Io(cause) => Self::from_kind(cause.kind()),
-            CatalogError::Corrupt(cause) => Self::Corrupt(cause.to_string()),
+            CatalogError::Io(cause) => Self::from_io(cause),
+            CatalogError::Corrupt(cause) => Self::Corrupt(cause),
             CatalogError::PreconditionFailed => Self::Precondition,
             CatalogError::NotFound => Self::NotFound,
             CatalogError::Forbidden | CatalogError::PublicAccessPrevention => Self::Forbidden,
@@ -328,8 +348,8 @@ impl From<CatalogError> for AdminError {
 impl From<ObjectError> for AdminError {
     fn from(error: ObjectError) -> Self {
         match error {
-            ObjectError::Io(cause) => Self::from_kind(cause.kind()),
-            ObjectError::Corrupt(cause) => Self::Corrupt(cause.to_string()),
+            ObjectError::Io(cause) => Self::from_io(cause),
+            ObjectError::Corrupt(cause) => Self::Corrupt(cause),
             ObjectError::InvalidFixedMetadata(reason)
             | ObjectError::UnsupportedMetadata(reason) => Self::Invalid(reason),
             ObjectError::PreconditionFailed => Self::Precondition,
@@ -623,13 +643,7 @@ impl Admin {
         let after = after.map(|name| name.0.clone());
         self.catalog
             .run_admin(move |connection| {
-                super::bucket_list_page(
-                    connection,
-                    Some(vec![project]),
-                    String::new(),
-                    after,
-                    limit,
-                )
+                super::bucket_list_page(connection, Some(&[project]), "", after.as_deref(), limit)
             })
             .await
     }
@@ -655,7 +669,7 @@ impl Admin {
                  LEFT JOIN bucket_incarnations i ON i.bucket = buckets.name
                  WHERE name > ?1 ORDER BY name LIMIT ?2"
                 ))?;
-                let mut rows = statement.query(rusqlite::params![after, limit as i64 + 1])?;
+                let mut rows = statement.query(rusqlite::params![after, limit + 1])?;
                 let mut items = Vec::new();
                 let mut remaining = super::BUCKET_LIST_METADATA_BUDGET;
                 let mut has_more = false;
@@ -798,7 +812,7 @@ impl Admin {
                     super::objects::RequestKind::Read,
                     &access,
                 )
-                .map(|(record, _)| record)
+                .map(|stored| stored.record)
                 .map_err(AdminError::from)
             })
             .await

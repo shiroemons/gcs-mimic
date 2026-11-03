@@ -118,7 +118,7 @@ async fn attempt(
     let now = unix_micros(catalog.0.clock.now())?;
     if pending.due > now {
         return Ok(Some(Duration::from_micros(
-            pending.due.saturating_sub(now) as u64
+            u64::try_from(pending.due.saturating_sub(now)).map_err(unavailable)?,
         )));
     }
     match endpoint.publish(&pending.topic, pending.message).await {
@@ -128,7 +128,8 @@ async fn attempt(
         }
         Err(error) => {
             let delay = Duration::from_millis((100_u64 << pending.attempts.min(9)).min(30_000));
-            let due = unix_micros(catalog.0.clock.now())?.saturating_add(delay.as_micros() as i64);
+            let due = unix_micros(catalog.0.clock.now())?
+                .saturating_add(i64::try_from(delay.as_micros()).map_err(unavailable)?);
             catalog.retry_notification(pending.id, due).await?;
             health.pass_failed();
             crate::diagnostics::emit(

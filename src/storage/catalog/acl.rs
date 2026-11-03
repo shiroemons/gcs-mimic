@@ -589,7 +589,7 @@ fn load(
         AclTarget::Object {
             name, generation, ..
         } => {
-            let (record, _) = selected(
+            let super::objects::StoredObject { record, .. } = selected(
                 connection,
                 bucket,
                 name,

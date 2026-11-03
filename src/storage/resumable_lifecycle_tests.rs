@@ -155,7 +155,7 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
         )
         .await
         .unwrap();
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     assert_eq!(cancel_wire(&catalog, &session.id, b"nonempty").await, 400);
     assert!(stage.exists());
     assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
@@ -199,7 +199,7 @@ async fn completed_session_cannot_be_cancelled_or_have_its_bytes_removed() {
         )
         .await
         .unwrap();
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap().execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = '{}', total = 0 WHERE id = ?1", [&session.id]).unwrap();
     assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 410);
     assert!(stage.exists());
@@ -265,9 +265,9 @@ async fn cancel_reloads_terminal_state_when_transition_no_longer_matches() {
                 ResumableError::Cancelled
             }
         );
-        assert!(dir.0.join("staging").join(&session.blob_id).exists());
+        assert!(session.blob_id.staging_path(&dir.0).exists());
         catalog.maintain_resumable_sessions().await.unwrap();
-        assert!(!dir.0.join("staging").join(&session.blob_id).exists());
+        assert!(!session.blob_id.staging_path(&dir.0).exists());
         catalog.close().await.unwrap();
     }
 }
@@ -362,7 +362,7 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
         ResumableError::NotFound
     );
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
-    assert!(!dir.0.join("staging").join(session.blob_id).exists());
+    assert!(!session.blob_id.staging_path(&dir.0).exists());
     catalog.close().await.unwrap();
 }
 
@@ -415,7 +415,7 @@ async fn cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slo
         )
         .await
         .unwrap();
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     std::fs::remove_file(&stage).unwrap();
     std::fs::create_dir(&stage).unwrap();
     assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
@@ -478,7 +478,7 @@ async fn expiry_waits_for_writer_and_retries_after_lease_release() {
     assert!(lease.staging_path().exists());
     drop(lease);
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
-    assert!(!dir.0.join("staging").join(session.blob_id).exists());
+    assert!(!session.blob_id.staging_path(&dir.0).exists());
     catalog.close().await.unwrap();
 }
 
@@ -563,7 +563,7 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
         .await
         .unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {
-        while dir.0.join("staging").join(&first.blob_id).exists() {
+        while first.blob_id.staging_path(&dir.0).exists() {
             tokio::task::yield_now().await;
         }
     })
@@ -608,7 +608,7 @@ async fn restart_discards_write_before_offset_commit_and_preserves_committed_pre
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
     let catalog = setup(&dir, clock.clone()).await;
     let session = prefix(&catalog, b"acknowledged").await;
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     // Inject the disk state after a file write/sync but before the offset transaction.
     std::fs::write(&stage, b"acknowledged-uncommitted-tail").unwrap();
     std::fs::OpenOptions::new()
@@ -666,10 +666,10 @@ async fn restart_restores_rename_before_commit_instead_of_deleting_acknowledged_
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
     let catalog = setup(&dir, clock.clone()).await;
     let session = prefix(&catalog, b"prefix").await;
-    let stage = dir.0.join("staging").join(&session.blob_id);
-    let shard = dir.0.join("blobs").join(&session.blob_id[..2]);
+    let stage = session.blob_id.staging_path(&dir.0);
+    let shard = dir.0.join("blobs").join(&session.blob_id.to_hex()[..2]);
     std::fs::create_dir_all(&shard).unwrap();
-    let blob = shard.join(&session.blob_id);
+    let blob = shard.join(session.blob_id.to_hex());
     // Inject publication's rename-before-Object/session-commit boundary.
     std::fs::rename(&stage, &blob).unwrap();
     catalog.close().await.unwrap();
@@ -719,10 +719,10 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
         .await
         .unwrap();
     let session = prefix(&catalog, b"published").await;
-    let shard = dir.0.join("blobs").join(&session.blob_id[..2]);
+    let shard = dir.0.join("blobs").join(&session.blob_id.to_hex()[..2]);
     std::fs::create_dir_all(&shard).unwrap();
-    let blob = shard.join(&session.blob_id);
-    std::fs::rename(dir.0.join("staging").join(&session.blob_id), &blob).unwrap();
+    let blob = shard.join(session.blob_id.to_hex());
+    std::fs::rename(session.blob_id.staging_path(&dir.0), &blob).unwrap();
     let completion = gcs_mimic::json::object_resource(
         &object,
         "http://local",
@@ -784,7 +784,7 @@ async fn missing_short_and_nonfile_acknowledged_prefixes_block_readiness() {
         let catalog = setup(&dir, clock.clone()).await;
         let session = prefix(&catalog, b"prefix").await;
         catalog.close().await.unwrap();
-        let stage = dir.0.join("staging").join(&session.blob_id);
+        let stage = session.blob_id.staging_path(&dir.0);
         match damage {
             "missing" => std::fs::remove_file(&stage).unwrap(),
             "short" => std::fs::write(&stage, b"x").unwrap(),
@@ -829,7 +829,7 @@ async fn recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs(
         .unwrap();
     catalog.close().await.unwrap();
     std::fs::write(
-        dir.0.join("staging").join(&cancelled.blob_id),
+        cancelled.blob_id.staging_path(&dir.0),
         b"cancelled-crash-tail",
     )
     .unwrap();
@@ -855,7 +855,7 @@ async fn recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs(
     );
     for session in sessions {
         assert_eq!(
-            std::fs::read(dir.0.join("staging").join(&session.blob_id)).unwrap(),
+            std::fs::read(session.blob_id.staging_path(&dir.0)).unwrap(),
             b"prefix"
         );
         assert_eq!(
@@ -917,10 +917,10 @@ async fn recovery_rejects_ambiguous_active_publication_without_deleting_either_c
     let catalog = setup(&dir, clock.clone()).await;
     let session = prefix(&catalog, b"prefix").await;
     catalog.close().await.unwrap();
-    let stage = dir.0.join("staging").join(&session.blob_id);
-    let shard = dir.0.join("blobs").join(&session.blob_id[..2]);
+    let stage = session.blob_id.staging_path(&dir.0);
+    let shard = dir.0.join("blobs").join(&session.blob_id.to_hex()[..2]);
     std::fs::create_dir_all(&shard).unwrap();
-    let blob = shard.join(&session.blob_id);
+    let blob = shard.join(session.blob_id.to_hex());
     std::fs::copy(&stage, &blob).unwrap();
     assert!(Catalog::open_with_clock(&dir.0, clock).await.is_err());
     assert_eq!(std::fs::read(&stage).unwrap(), b"prefix");
@@ -942,7 +942,7 @@ async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
         )
         .await
         .unwrap();
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     std::fs::remove_file(&stage).unwrap();
     std::fs::create_dir(&stage).unwrap();
     *clock.0.lock().unwrap() = session.deadline;
@@ -1053,7 +1053,7 @@ async fn persistent_maintenance_failures_turn_readiness_off_until_a_pass_succeed
         .await
         .unwrap();
     // A directory in place of the staged file makes every expiry pass fail.
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     std::fs::remove_file(&stage).unwrap();
     std::fs::create_dir(&stage).unwrap();
     *clock.0.lock().unwrap() = session.deadline;
@@ -1112,7 +1112,7 @@ async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadlin
             .unwrap(),
         0
     );
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     // A second cleanup would fail here, proving that the successful journal is not replayed.
     std::fs::create_dir(&stage).unwrap();
     for _ in 0..3 {
@@ -1146,7 +1146,7 @@ async fn recovery_rejects_symlink_prefix_without_changing_its_target() {
     let catalog = setup(&dir, clock.clone()).await;
     let session = prefix(&catalog, b"prefix").await;
     catalog.close().await.unwrap();
-    let stage = dir.0.join("staging").join(&session.blob_id);
+    let stage = session.blob_id.staging_path(&dir.0);
     let target = dir.0.join("untouched");
     std::fs::write(&target, b"target-tail").unwrap();
     std::fs::remove_file(&stage).unwrap();

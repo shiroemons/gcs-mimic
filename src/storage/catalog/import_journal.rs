@@ -145,7 +145,7 @@ pub(super) fn record_outcomes(
     }
     for (offset, (element, success)) in elements.iter().zip(succeeded).enumerate() {
         let ordinal = cursor
-            .checked_add(offset as i64 + 1)
+            .checked_add(i64::try_from(offset).map_err(unavailable)? + 1)
             .filter(|ordinal| *ordinal <= binding.expected_elements)
             .ok_or(CatalogError::PreconditionFailed)?;
         if element.ordinal != ordinal {
@@ -166,7 +166,7 @@ pub(super) fn record_outcomes(
     transaction.execute(
         "UPDATE import_journal SET cursor = ?1, failure = ?2 WHERE singleton = 1",
         params![
-            cursor + prefix as i64,
+            cursor + i64::try_from(prefix).map_err(unavailable)?,
             (prefix != succeeded.len()).then_some("element_rejected")
         ],
     )?;
@@ -274,7 +274,7 @@ impl ImportJournal {
             matching(connection, &binding)?;
             connection.prepare_cached(
                 "SELECT ordinal, fingerprint, inode, ctime_ns FROM import_observations WHERE ordinal > ?1 ORDER BY ordinal LIMIT ?2",
-            )?.query_map(params![after, limit as i64], |row| {
+            )?.query_map(params![after, limit], |row| {
                 Ok(ImportElement {
                     ordinal: row.get(0)?, fingerprint: row.get(1)?,
                     inode: row.get::<_, Option<[u8; 8]>>(2)?.map(u64::from_be_bytes),

@@ -23,6 +23,28 @@ fn options() -> ResumableOptions {
 }
 
 #[tokio::test]
+async fn retained_memory_slots_do_not_alias_a_replacement_catalog() {
+    let dir = TestDir::new();
+    let open = || {
+        Catalog::open_backend(
+            dir.0.clone(),
+            Arc::new(crate::clock::SystemClock),
+            super::super::admin::LocalAdmin::Enabled,
+            Some((8192, 1024 * 1024)),
+        )
+    };
+    let first = open().await.unwrap();
+    let first_slot = SlotHandle::new(&first, "bucket", "object");
+    drop(first);
+    let replacement = open().await.unwrap();
+    let replacement_slot = SlotHandle::new(&replacement, "bucket", "object");
+    // This checks catalog separation; the StoreId key type prevents address-based aliasing.
+    assert_ne!(first_slot.key, replacement_slot.key);
+    assert!(!Arc::ptr_eq(&first_slot.slot, &replacement_slot.slot));
+    replacement.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn ram_and_disk_cancelled_takeover_keeps_slot_registered_until_truncation_finishes() {
     for backend in [crate::config::Backend::Disk, crate::config::Backend::Memory] {
         let dir = TestDir::new();
@@ -117,7 +139,7 @@ async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_recla
         .await
         .unwrap();
     writer.flush().await.unwrap();
-    let id = writer.blob_id.clone();
+    let id = writer.blob_id.to_hex();
     let generation = writer.record().generation;
     let (_, mut reader) = catalog
         .open_appendable(live("append", "cancelled"), Default::default(), PERMISSIVE)
@@ -141,7 +163,7 @@ async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_recla
         .unwrap();
     assert_eq!((published.generation, published.size), (generation, 4));
     catalog.reclaim_pending().await.unwrap();
-    let memory = catalog.0.memory.as_ref().unwrap();
+    let memory = catalog.0.backend.memory().unwrap();
     assert!(memory.open(&id).is_err());
     assert!(memory.draft(&id, 0).is_err());
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"body"[..]);
@@ -363,7 +385,7 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
         .await
         .unwrap();
     assert_eq!(published.size, 3);
-    assert!(!writer.path.exists());
+    assert!(!data_path(&dir.0, &writer.blob_id).exists());
 
     // Recreate the state between the publication commit and the row removal.
     let leftover = BlobId::generate().unwrap().to_hex();

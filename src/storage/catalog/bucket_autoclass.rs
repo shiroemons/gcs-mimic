@@ -17,9 +17,8 @@ pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Option<Autoclass>> {
     let index = row.as_ref().column_index("autoclass")?;
     row.get::<_, Option<String>>(index)?
         .map(|value| {
-            serde_json::from_str(&value).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
-            })
+            serde_json::from_str(&value)
+                .map_err(|error| sql::conversion_error(index, Type::Text, error))
         })
         .transpose()
 }

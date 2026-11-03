@@ -1,20 +1,27 @@
 use super::{Catalog, CatalogError, system_time_millis, unavailable, unix_millis};
-use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::{
+    blob_id::BlobId,
+    catalog::{bucket_incarnation, sql},
+};
 
 use crate::{
-    auth::{Identity, OBJECTS_CREATE},
     bucket::BucketAccess,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate},
     storage::failure::BackendCause,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Value, json};
+#[cfg(test)]
+use std::path::PathBuf;
 use std::{
     borrow::Cow,
-    fmt, fs,
-    path::PathBuf,
+    fmt,
     time::{Duration, SystemTime},
 };
+
+#[cfg(test)]
+pub(super) mod golden_tests;
+mod options;
 
 /// Caps ACTIVE sessions, the only ones that own staged bytes.
 pub(crate) const MAX_SESSIONS: usize = 128;
@@ -85,7 +92,7 @@ impl ResumableOptions {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResumableSession {
     pub id: String,
-    pub blob_id: String,
+    pub blob_id: BlobId,
     pub bucket: String,
     pub name: String,
     pub incarnation: String,
@@ -142,7 +149,6 @@ impl From<CatalogError> for ResumableError {
 /// A nonqueued exclusive operation on one session; dropping always releases admission.
 pub(crate) struct SessionLease {
     pub session: ResumableSession,
-    blob_id: super::super::blob_id::BlobId,
     guard: WriterGuard,
 }
 pub(super) struct WriterGuard {
@@ -170,8 +176,11 @@ impl Drop for WriterGuard {
     }
 }
 impl SessionLease {
+    #[cfg(test)]
     pub(crate) fn staging_path(&self) -> PathBuf {
-        self.blob_id.staging_path(&self.guard.catalog.0.data_dir)
+        self.session
+            .blob_id
+            .staging_path(&self.guard.catalog.0.data_dir)
     }
 }
 
@@ -181,39 +190,20 @@ fn random_id<const N: usize>() -> Result<String, CatalogError> {
     Ok(crate::hashing::encode_lower(&bytes))
 }
 
-fn create_session_bytes(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogError> {
-    if let Some(memory) = &catalog.0.memory {
-        return memory
-            .create_resumable_draft(blob_id.into())
-            .map_err(unavailable);
-    }
-    let path = super::transfer_io::stage_path(&catalog.0.data_dir, blob_id).map_err(unavailable)?;
-    let file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)?;
-    let synced = (|| -> std::io::Result<()> {
-        file.sync_all()?;
-        #[cfg(unix)]
-        fs::File::open(catalog.0.data_dir.join("staging"))?.sync_all()?;
-        Ok(())
-    })();
-    if let Err(error) = synced {
-        drop(file);
-        fs::remove_file(path)?;
-        return Err(unavailable(error));
-    }
-    Ok(())
+fn create_session_bytes(catalog: &Catalog, blob_id: &BlobId) -> Result<(), CatalogError> {
+    catalog
+        .0
+        .backend
+        .create_resumable_draft(blob_id)
+        .map_err(unavailable)
 }
 
-fn remove_session_stage(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogError> {
-    if let Some(memory) = &catalog.0.memory {
-        memory.remove_draft(blob_id).map_err(unavailable)
-    } else {
-        let path =
-            super::transfer_io::stage_path(&catalog.0.data_dir, blob_id).map_err(unavailable)?;
-        fs::remove_file(path).map_err(unavailable)
-    }
+fn remove_session_stage(catalog: &Catalog, blob_id: &BlobId) -> Result<(), CatalogError> {
+    catalog
+        .0
+        .backend
+        .remove_new_draft(blob_id)
+        .map_err(unavailable)
 }
 
 #[expect(
@@ -253,13 +243,13 @@ fn admit_session(
     transaction: &rusqlite::Transaction<'_>,
     catalog: &Catalog,
 ) -> Result<Vec<WriterGuard>, CatalogError> {
-    let (active, terminal): (i64, i64) = sql::row(
+    let (active, terminal): (usize, i64) = sql::row(
         transaction,
         "SELECT coalesce(sum(state = 'ACTIVE'), 0), coalesce(sum(state != 'ACTIVE'), 0) FROM resumable_sessions",
         [],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    if active >= MAX_SESSIONS as i64 {
+    if active >= MAX_SESSIONS {
         return Err(unavailable("retained upload session limit reached"));
     }
     let mut excess = terminal - MAX_TERMINAL_SESSIONS;
@@ -270,7 +260,7 @@ fn admit_session(
     // A completed session owns no staging bytes and never its published blob, which object
     // reclamation tracks. A cancelled one is reclaimable only after its cleanup journal entry
     // is gone; until then maintenance still needs the row.
-    let candidates: Vec<(String, String, String)> = transaction
+    let candidates: Vec<(String, BlobId, String)> = transaction
         .prepare_cached("SELECT id, blob_id, state FROM resumable_sessions WHERE state = 'COMPLETE' OR (state = 'CANCELLED' AND NOT EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = resumable_sessions.blob_id)) ORDER BY deadline, id LIMIT 256")
         .and_then(|mut statement| {
             statement
@@ -285,11 +275,9 @@ fn admit_session(
         let Ok(guard) = catalog.try_resumable_writer(&id) else {
             continue;
         };
-        if state == "COMPLETE"
-            && let Some(memory) = &catalog.0.memory
-        {
+        if state == "COMPLETE" {
             // Completion normally drops the RAM draft; this covers a failed drop.
-            memory.remove_draft(&blob_id)?;
+            catalog.0.backend.finish_draft(&blob_id)?;
         }
         sql::exec(
             transaction,
@@ -335,9 +323,9 @@ impl Catalog {
             let incarnation: String = bucket_incarnation(&transaction, &bucket).optional().map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;
             let id = random_id::<32>()?;
             let blob = super::super::blob_id::BlobId::generate().map_err(unavailable)?;
-            let blob_id = blob.to_hex();
+            let blob_id = blob;
             let now = unix_millis(catalog.0.clock.now())?;
-            let deadline = now.checked_add(SESSION_LIFETIME.as_millis() as i64).ok_or_else(|| unavailable("upload deadline overflow"))?;
+            let deadline = now.checked_add(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?).ok_or_else(|| unavailable("upload deadline overflow"))?;
             let encoded = encode_options(&options).to_string();
             let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
             create_session_bytes(&catalog, &blob_id)?;
@@ -345,12 +333,14 @@ impl Catalog {
             if let Err(error) = inserted { remove_session_stage(&catalog, &blob_id)?; return Err(unavailable(error).into()); }
             // A failed commit can be ambiguous; retain its file for reference-aware recovery.
             if let Err(error) = transaction.commit() {
-                if catalog.0.memory.is_some() {
+                if catalog.0.backend.is_memory() {
                     let retained: bool = sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1)", [&blob_id]).map_err(unavailable)?;
                     if !retained { remove_session_stage(&catalog, &blob_id)?; }
                 }
                 return Err(unavailable(error).into());
             }
+            #[cfg(test)]
+            super::fault::hit(&catalog.0.data_dir, super::fault::Step::SessionCreated).map_err(unavailable)?;
             sql::row(connection, "SELECT * FROM resumable_sessions WHERE id = ?1", [&id], read_session).map_err(|e|unavailable(e).into())
         }).await?;
         self.0.maintenance_wake.notify_one();
@@ -399,13 +389,7 @@ impl Catalog {
     ) -> Result<SessionLease, ResumableError> {
         let guard = self.try_resumable_writer(id)?;
         let session = self.resumable_session(id, bucket).await?;
-        let blob_id = super::super::blob_id::BlobId::parse(&session.blob_id)
-            .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
-        Ok(SessionLease {
-            session,
-            blob_id,
-            guard,
-        })
+        Ok(SessionLease { session, guard })
     }
 
     pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {
@@ -497,11 +481,8 @@ impl Catalog {
             ));
         }
         let (changed, output) = self.run_waiting::<_, CatalogError>(move |connection| {
-            let offset = i64::try_from(offset).map_err(unavailable)?;
-            let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
-            let old = i64::try_from(old).map_err(unavailable)?;
             let changed = sql::exec(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded])?;
-            if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset as u64); }
+            if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset); }
             Ok((changed, output))
         }).await?;
         if changed != 1 {
@@ -519,43 +500,7 @@ impl Catalog {
 }
 
 pub(super) fn encode_options(o: &ResumableOptions) -> Value {
-    let m = &o.metadata;
-    let access = match &o.access {
-        BucketAccess::Permissive => Value::Null,
-        BucketAccess::Admin(_) => {
-            unreachable!("administrative grants cannot be persisted as resumable credentials")
-        }
-        BucketAccess::Policy {
-            identity,
-            permission,
-            project,
-        } => {
-            json!({"identity": identity.as_ref().map(Identity::upload_snapshot), "permission": permission.as_str(), "project": project})
-        }
-    };
-    let mut options = json!({"version":2,"content_type":o.content_type,"metadata":{"replace":m.replace,"eventBasedHold":m.event_based_hold,"temporaryHold":m.temporary_hold,"customTime":m.custom_time.as_ref().map(|v|json!({"value":v})),"contentType":m.content_type.as_ref().map(|v|json!({"value":v})),"contentEncoding":m.content_encoding.as_ref().map(|v|json!({"value":v})),"contentDisposition":m.content_disposition.as_ref().map(|v|json!({"value":v})),"contentLanguage":m.content_language.as_ref().map(|v|json!({"value":v})),"cacheControl":m.cache_control.as_ref().map(|v|json!({"value":v})),"metadata":m.metadata.as_ref().map(|v|json!({"value":v})),"retention":super::objects::retention::session_value(m.retention.as_ref()),"customerKeySha256":m.customer_key_sha256.map(|v| v.to_vec())},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full,"response_fields":o.response_fields});
-    // Older sessions omit the key, which decodes as "use the bucket default".
-    if let Some(class) = &m.storage_class {
-        options["metadata"]["storageClass"] = class.as_str().into();
-    }
-    // Likewise omitted by older sessions, which keep inheriting the bucket's default ACL.
-    if let Some(predefined) = m.predefined_acl {
-        options["metadata"]["predefinedAcl"] = predefined.as_str().into();
-    }
-    options
-}
-
-fn decode_predefined_acl(
-    value: &Value,
-) -> Result<Option<crate::acl::PredefinedObjectAcl>, InvalidOptions> {
-    let invalid = || InvalidOptions::new("invalid resumable predefinedAcl");
-    match value {
-        Value::Null => Ok(None),
-        Value::String(value) => crate::acl::PredefinedObjectAcl::parse(value)
-            .map(Some)
-            .ok_or_else(invalid),
-        _ => Err(invalid()),
-    }
+    json!(options::StoredOptions::from_options(o))
 }
 
 /// Stored resumable session options that no longer decode; the catalog treats them as corrupt.
@@ -570,6 +515,13 @@ impl InvalidOptions {
     /// Options whose embedded value failed to decode; the decoding error stays the source.
     fn from_error(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self(BackendCause::from_error(error))
+    }
+
+    pub(in crate::storage) fn with_source(
+        reason: &'static str,
+        error: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self(BackendCause::with_source(reason, error))
     }
 }
 
@@ -586,145 +538,22 @@ impl std::error::Error for InvalidOptions {
 }
 
 pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptions> {
-    let invalid = || InvalidOptions::new("invalid resumable options");
-    let field = |key: &str| -> Result<Option<Option<String>>, InvalidOptions> {
-        if v["version"] == 2 {
-            let value = &v["metadata"][key];
-            if value.is_null() {
-                return Ok(None);
-            }
-            return Ok(Some(
-                serde_json::from_value(value.get("value").ok_or_else(invalid)?.clone())
-                    .map_err(|_| invalid())?,
-            ));
-        }
-        match &v["metadata"][key] {
-            Value::Null => Ok(None),
-            Value::String(s) => Ok(Some(Some(s.clone()))),
-            _ => Err(invalid()),
-        }
-    };
-    let conditions = v["conditions"]
-        .as_array()
-        .filter(|v| v.len() == 4)
-        .ok_or_else(invalid)?;
-    let mut c = [None; 4];
-    for (i, value) in conditions.iter().enumerate() {
-        c[i] = if value.is_null() {
-            None
-        } else {
-            Some(value.as_i64().ok_or_else(invalid)?)
-        };
-    }
-    let md5: Option<Vec<u8>> = serde_json::from_value(v["md5"].clone()).map_err(|_| invalid())?;
-    let crc32c = serde_json::from_value(v["crc32c"].clone()).map_err(|_| invalid())?;
-    let custom = if v["version"] == 2 {
-        if v["metadata"]["metadata"].is_null() {
-            None
-        } else {
-            Some(
-                serde_json::from_value(
-                    v["metadata"]["metadata"]
-                        .get("value")
-                        .ok_or_else(invalid)?
-                        .clone(),
-                )
-                .map_err(|_| invalid())?,
-            )
-        }
-    } else {
-        serde_json::from_value(v["metadata"]["metadata"].clone()).map_err(|_| invalid())?
-    };
-    let access = if v["access"].is_null() {
-        BucketAccess::Permissive
-    } else {
-        let a = &v["access"];
-        if a["permission"] != OBJECTS_CREATE {
-            return Err(invalid());
-        }
-        BucketAccess::Policy {
-            identity: if a["identity"].is_null() {
-                None
-            } else {
-                Some(
-                    Identity::from_upload_snapshot(&a["identity"])
-                        .map_err(InvalidOptions::from_error)?,
-                )
-            },
-            permission: crate::auth::Permission::ObjectsCreate,
-            project: serde_json::from_value(a["project"].clone()).map_err(|_| invalid())?,
-        }
-    };
-    Ok(ResumableOptions {
-        content_type: v["content_type"].as_str().ok_or_else(invalid)?.into(),
-        metadata: ObjectMetadataUpdate {
-            acl: None,
-            predefined_acl: decode_predefined_acl(&v["metadata"]["predefinedAcl"])?,
-            replace: if v["version"] == 2 {
-                v["metadata"]["replace"].as_bool().ok_or_else(invalid)?
-            } else {
-                false
-            },
-            content_type: field("contentType")?,
-            content_encoding: field("contentEncoding")?,
-            content_disposition: field("contentDisposition")?,
-            content_language: field("contentLanguage")?,
-            cache_control: field("cacheControl")?,
-            metadata: custom,
-            temporary_hold: serde_json::from_value(v["metadata"]["temporaryHold"].clone())
-                .map_err(|_| invalid())?,
-            custom_time: field("customTime")?,
-            event_based_hold: serde_json::from_value(v["metadata"]["eventBasedHold"].clone())
-                .map_err(|_| invalid())?,
-            retention: super::objects::retention::from_session(&v["metadata"]["retention"])?,
-            override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
-            customer_key_sha256: serde_json::from_value::<Option<Vec<u8>>>(
-                v["metadata"]["customerKeySha256"].clone(),
-            )
-            .map_err(|_| invalid())?
-            .map(|v| v.try_into().map_err(|_| invalid()))
-            .transpose()?,
-            storage_class: serde_json::from_value(v["metadata"]["storageClass"].clone())
-                .map_err(|_| invalid())?,
-        },
-        expected: ExpectedHashes {
-            md5: md5
-                .map(|v| v.try_into().map_err(|_| invalid()))
-                .transpose()?,
-            crc32c,
-        },
-        conditions: ObjectConditions {
-            if_generation_match: c[0],
-            if_generation_not_match: c[1],
-            if_metageneration_match: c[2],
-            if_metageneration_not_match: c[3],
-        },
-        access,
-        origin: serde_json::from_value(v["origin"].clone()).map_err(|_| invalid())?,
-        projection_full: v["full"].as_bool().ok_or_else(invalid)?,
-        response_fields: serde_json::from_value(v["response_fields"].clone())
-            .map_err(|_| invalid())?,
-    })
-}
-
-/// A stored session row that does not decode, keeping the decoding error as the source.
-fn invalid(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, error.into())
+    options::decode(v)
 }
 
 pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> {
+    use rusqlite::types::Type;
     let id: String = row.get(0)?;
-    let blob_id: String = row.get(1)?;
-    if id.len() != 64
-        || blob_id.len() != 32
-        || !id
-            .bytes()
-            .chain(blob_id.bytes())
-            .all(|b| b.is_ascii_hexdigit())
-    {
-        return Err(invalid("invalid upload opaque ID"));
+    let blob_id: BlobId = row.get(1)?;
+    if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(sql::conversion_error(
+            0,
+            Type::Text,
+            "invalid upload opaque ID",
+        ));
     }
-    let options = serde_json::from_str::<Value>(&row.get::<_, String>(5)?).map_err(invalid)?;
+    let options = serde_json::from_str::<Value>(&row.get::<_, String>(5)?)
+        .map_err(|error| sql::conversion_error(5, Type::Text, error))?;
     // Keep terminal reasons in the versioned options document so existing catalogs need no migration.
     let state = match (
         row.get::<_, String>(10)?.as_str(),
@@ -737,7 +566,13 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
         ("CANCELLED", Some(Value::String(reason))) if reason == "content-range" => {
             SessionState::InvalidContentRange
         }
-        _ => return Err(invalid("invalid upload state")),
+        _ => {
+            return Err(sql::conversion_error(
+                10,
+                Type::Text,
+                "invalid upload state",
+            ));
+        }
     };
     let completion: Option<String> = row.get(11)?;
     Ok(ResumableSession {
@@ -746,17 +581,18 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
         bucket: row.get(2)?,
         name: row.get(3)?,
         incarnation: row.get(4)?,
-        options: decode_options(&options).map_err(invalid)?,
-        total: row
-            .get::<_, Option<i64>>(6)?
-            .map(|n| u64::try_from(n).map_err(invalid))
-            .transpose()?,
-        offset: u64::try_from(row.get::<_, i64>(7)?).map_err(invalid)?,
+        options: decode_options(&options)
+            .map_err(|error| sql::conversion_error(5, Type::Text, error))?,
+        total: row.get(6)?,
+        offset: row.get(7)?,
         created: system_time_millis(row.get(8)?)?,
         deadline: system_time_millis(row.get(9)?)?,
         state,
         completion: completion
-            .map(|v| serde_json::from_str(&v).map_err(invalid))
+            .map(|v| {
+                serde_json::from_str(&v)
+                    .map_err(|error| sql::conversion_error(11, Type::Text, error))
+            })
             .transpose()?,
     })
 }
@@ -764,6 +600,69 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const OPTIONS_JSON: &str = r#"{"version":2,"content_type":"text/plain","metadata":{"replace":false,"eventBasedHold":null,"temporaryHold":null,"customTime":null,"contentType":null,"contentEncoding":null,"contentDisposition":null,"contentLanguage":null,"cacheControl":null,"metadata":null,"retention":null,"customerKeySha256":null},"md5":null,"crc32c":null,"conditions":[null,null,null,null],"access":null,"origin":null,"full":false,"response_fields":null}"#;
+
+    #[test]
+    fn persisted_options_keep_their_json_bytes() {
+        let mut options = ResumableOptions::new(BucketAccess::Permissive);
+        options.content_type = "text/plain".into();
+        let encoded = encode_options(&options).to_string();
+        assert_eq!(encoded, OPTIONS_JSON);
+        assert_eq!(
+            decode_options(&serde_json::from_str(&encoded).unwrap()).unwrap(),
+            options
+        );
+    }
+
+    #[test]
+    fn legacy_options_keep_nullable_metadata_and_conditions() {
+        let legacy = json!({"content_type":"text/plain","metadata":{"contentType":"text/custom","metadata":{"key":"value"}},"conditions":[0,null,1,null],"access":null,"full":true});
+        let options = decode_options(&legacy).unwrap();
+        assert_eq!(
+            options.metadata.content_type,
+            Some(Some("text/custom".into()))
+        );
+        assert_eq!(
+            options.metadata.metadata,
+            Some(Some(std::collections::BTreeMap::from([(
+                "key".into(),
+                Some("value".into())
+            )])))
+        );
+        assert_eq!(options.conditions.if_generation_match, Some(0));
+        assert!(options.projection_full);
+    }
+
+    #[test]
+    fn nullable_updates_keep_removal_distinct_from_omission() {
+        let mut options = ResumableOptions::new(BucketAccess::Permissive);
+        options.metadata.content_type = Some(None);
+        options.metadata.metadata = Some(None);
+        options.metadata.retention = Some(None);
+        let encoded = encode_options(&options);
+        assert_eq!(
+            encoded["metadata"]["contentType"].to_string(),
+            r#"{"value":null}"#
+        );
+        assert_eq!(
+            encoded["metadata"]["metadata"].to_string(),
+            r#"{"value":null}"#
+        );
+        assert_eq!(
+            encoded["metadata"]["retention"].to_string(),
+            r#"{"value":null}"#
+        );
+        assert_eq!(decode_options(&encoded).unwrap(), options);
+        for field in ["contentType", "metadata"] {
+            let mut invalid = encoded.clone();
+            invalid["metadata"][field] = json!({});
+            let error = decode_options(&invalid).unwrap_err();
+            assert_eq!(error.to_string(), "invalid resumable options");
+            assert!(std::error::Error::source(&error).is_some());
+        }
+    }
+
     #[test]
     fn failed_session_migration_rolls_back_tables_indexes_and_version() {
         let mut connection = Connection::open_in_memory().unwrap();

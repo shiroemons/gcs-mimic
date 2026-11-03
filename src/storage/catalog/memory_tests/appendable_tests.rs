@@ -329,7 +329,7 @@ async fn ram_appendable_cancelled_flush_rolls_back_candidate_and_allows_takeover
     let flush = tokio::spawn(async move { writer.flush().await });
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            let mut reader = catalog.0.memory.as_ref().unwrap().open(&id).unwrap();
+            let mut reader = catalog.0.backend.memory().unwrap().open(&id).unwrap();
             let mut output = Vec::new();
             std::io::Read::read_to_end(&mut reader, &mut output).unwrap();
             if output == b"abcdlost" {
