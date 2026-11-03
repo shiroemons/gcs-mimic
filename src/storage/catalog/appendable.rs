@@ -1131,7 +1131,6 @@ impl Catalog {
             })
             .await?;
         guard.owner = None;
-        drop(guard);
         self.release_appendable_data(id).await;
         Ok(())
     }

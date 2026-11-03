@@ -26,9 +26,9 @@ use tokio::{
 #[cfg(test)]
 use super::fault::{self, Step};
 
+mod list_query;
 #[cfg(test)]
 mod reclaim_tests;
-mod list_query;
 pub(super) mod retention;
 pub(crate) use list_query::{FoldersAsPrefixes, ListQueryError};
 

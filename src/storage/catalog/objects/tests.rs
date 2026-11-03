@@ -278,6 +278,10 @@ fn acl_update_errors_keep_client_input_and_authorization_status() {
             CatalogError::UnsupportedMetadata("unsupported".into()),
             ObjectError::UnsupportedMetadata("unsupported".into()),
         ),
+        (
+            CatalogError::Metadata(crate::metadata_error::MetadataError::AutoclassDisabled),
+            ObjectError::Metadata(crate::metadata_error::MetadataError::AutoclassDisabled),
+        ),
         (CatalogError::Forbidden, ObjectError::Forbidden),
         (
             CatalogError::PublicAccessPrevention,
