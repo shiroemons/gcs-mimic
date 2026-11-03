@@ -1,7 +1,7 @@
 use super::catalog::test_fixtures::bucket as bucket_record;
 use super::catalog::{CATALOG_SCHEMA_VERSION, test_support as common};
 use crate as gcs_mimic;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, assert_current_schema, downgraded, migrated};
 use gcs_mimic::{
     bucket::{BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError},
     clock::ManualClock,
@@ -39,16 +39,16 @@ async fn versioning_presence_migration_preserves_existing_bucket_states() {
     let mut enabled = bucket("enabled", "project");
     enabled.versioning_enabled = true;
     catalog.insert_bucket(enabled).await.unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    connection
-        .execute_batch(
-            "ALTER TABLE buckets DROP COLUMN versioning_configured;
+    downgraded(&dir, &catalog, |connection| {
+        connection
+            .execute_batch(
+                "ALTER TABLE buckets DROP COLUMN versioning_configured;
         ALTER TABLE soft_deleted_buckets DROP COLUMN versioning_configured;
         PRAGMA user_version = 48;",
-        )
-        .unwrap();
-    drop(connection);
+            )
+            .unwrap()
+    })
+    .await;
     let catalog = Catalog::open(&dir.0).await.unwrap();
     for (name, expected) in [("plain", false), ("enabled", true)] {
         let record = catalog.get_bucket(name, PERMISSIVE).await.unwrap().unwrap();
@@ -61,17 +61,15 @@ async fn versioning_presence_migration_preserves_existing_bucket_states() {
 #[tokio::test]
 async fn soft_delete_schema_migration_preserves_existing_buckets() {
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    let original = catalog
-        .insert_bucket(bucket("soft-delete-migration", "project"))
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    common::downgrade_soft_delete_schema(&connection);
-    connection.pragma_update(None, "user_version", 25).unwrap();
-    drop(connection);
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (catalog, original) = migrated(
+        &dir,
+        bucket("soft-delete-migration", "project"),
+        |connection| {
+            common::downgrade_soft_delete_schema(connection);
+            connection.pragma_update(None, "user_version", 25).unwrap();
+        },
+    )
+    .await;
     assert_eq!(
         catalog
             .get_bucket("soft-delete-migration", PERMISSIVE)
@@ -85,19 +83,12 @@ async fn soft_delete_schema_migration_preserves_existing_buckets() {
 #[tokio::test]
 async fn sync_bucket_schema_migration_preserves_existing_catalog() {
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    let original = catalog
-        .insert_bucket(bucket("sync-migration", "project"))
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    common::downgrade_object_retention_schema(&connection);
-    connection
-        .execute_batch("DROP TABLE bucket_notifications; DROP TABLE bucket_notification_ids; DROP TABLE sync_buckets; PRAGMA user_version=26;")
-        .unwrap();
-    drop(connection);
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (catalog, original) = migrated(&dir, bucket("sync-migration", "project"), |connection| {
+        common::downgrade_object_retention_schema(connection);
+        connection
+            .execute_batch("DROP TABLE bucket_notifications; DROP TABLE bucket_notification_ids; DROP TABLE sync_buckets; PRAGMA user_version=26;")
+            .unwrap();
+    }).await;
     assert_eq!(
         catalog
             .get_bucket("sync-migration", PERMISSIVE)
@@ -107,12 +98,7 @@ async fn sync_bucket_schema_migration_preserves_existing_catalog() {
     );
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        CATALOG_SCHEMA_VERSION
-    );
+    assert_current_schema(&connection);
     assert_eq!(
         connection
             .query_row("SELECT count(*) FROM sync_buckets", [], |row| row
@@ -125,18 +111,15 @@ async fn sync_bucket_schema_migration_preserves_existing_catalog() {
 #[tokio::test]
 async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration() {
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    let original = catalog
-        .insert_bucket(bucket("autoclass-migration", "project"))
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    common::downgrade_autoclass_schema(&connection);
-    connection.pragma_update(None, "user_version", 30).unwrap();
-    drop(connection);
-
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (catalog, original) = migrated(
+        &dir,
+        bucket("autoclass-migration", "project"),
+        |connection| {
+            common::downgrade_autoclass_schema(connection);
+            connection.pragma_update(None, "user_version", 30).unwrap();
+        },
+    )
+    .await;
     assert_eq!(
         catalog
             .get_bucket("autoclass-migration", PERMISSIVE)
@@ -197,18 +180,11 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
 #[tokio::test]
 async fn acl_schema_migration_keeps_buckets_on_the_project_private_default() {
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    let original = catalog
-        .insert_bucket(bucket("acl-migration", "123"))
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    common::downgrade_acl_schema(&connection);
-    connection.pragma_update(None, "user_version", 32).unwrap();
-    drop(connection);
-
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (catalog, original) = migrated(&dir, bucket("acl-migration", "123"), |connection| {
+        common::downgrade_acl_schema(connection);
+        connection.pragma_update(None, "user_version", 32).unwrap();
+    })
+    .await;
     assert_eq!(
         catalog
             .get_bucket("acl-migration", PERMISSIVE)
@@ -243,12 +219,7 @@ async fn acl_schema_migration_keeps_buckets_on_the_project_private_default() {
     assert_eq!(state.metageneration, original.metageneration + 1);
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        CATALOG_SCHEMA_VERSION
-    );
+    assert_current_schema(&connection);
 }
 
 #[tokio::test]
@@ -298,19 +269,19 @@ async fn default_object_acl_reads_apply_bucket_metageneration_conditions() {
 #[tokio::test]
 async fn retention_schema_migration_preserves_existing_buckets() {
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    let original = catalog
-        .insert_bucket(bucket("retention-migration", "project"))
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    common::downgrade_soft_delete_schema(&connection);
-    connection
-        .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; PRAGMA user_version=24;")
-        .unwrap();
-    drop(connection);
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (catalog, original) = migrated(
+        &dir,
+        bucket("retention-migration", "project"),
+        |connection| {
+            common::downgrade_soft_delete_schema(connection);
+            connection
+                .execute_batch(
+                    "ALTER TABLE buckets DROP COLUMN retention_policy; PRAGMA user_version=24;",
+                )
+                .unwrap();
+        },
+    )
+    .await;
     assert_eq!(
         catalog
             .get_bucket("retention-migration", PERMISSIVE)
@@ -324,19 +295,12 @@ async fn retention_schema_migration_preserves_existing_buckets() {
 #[tokio::test]
 async fn lifecycle_schema_migration_and_restart() {
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    let original = catalog
-        .insert_bucket(bucket("lifecycle-bucket", "project"))
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    common::downgrade_soft_delete_schema(&connection);
-    connection
-        .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; PRAGMA user_version = 23;")
-        .unwrap();
-    drop(connection);
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (catalog, original) = migrated(&dir, bucket("lifecycle-bucket", "project"), |connection| {
+        common::downgrade_soft_delete_schema(connection);
+        connection
+            .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; PRAGMA user_version = 23;")
+            .unwrap();
+    }).await;
     assert_eq!(
         catalog
             .get_bucket("lifecycle-bucket", PERMISSIVE)
@@ -382,11 +346,10 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
         .insert_bucket(bucket("uniform-bucket", "project"))
         .await
         .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    common::downgrade_soft_delete_schema(&connection);
-    connection.execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; PRAGMA user_version = 22;").unwrap();
-    drop(connection);
+    downgraded(&dir, &catalog, |connection| {
+        common::downgrade_soft_delete_schema(connection);
+        connection.execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; PRAGMA user_version = 22;").unwrap();
+    }).await;
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_secs(1000)));
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
@@ -518,17 +481,10 @@ async fn timestamp_version_fourteen_reopen_preserves_timestamps() {
 #[tokio::test]
 async fn pap_migrates_version_twelve_and_persists_configured_state() {
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    let original = catalog
-        .insert_bucket(bucket("pap-migration", "project"))
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    common::downgrade_timestamp_precision(&connection);
-    connection.execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; PRAGMA user_version = 12;").unwrap();
-    drop(connection);
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (catalog, original) = migrated(&dir, bucket("pap-migration", "project"), |connection| {
+        common::downgrade_timestamp_precision(connection);
+        connection.execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; PRAGMA user_version = 12;").unwrap();
+    }).await;
     assert_eq!(
         catalog
             .get_bucket("pap-migration", PERMISSIVE)
@@ -553,12 +509,7 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
         .unwrap();
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        CATALOG_SCHEMA_VERSION
-    );
+    assert_current_schema(&connection);
     assert!(
         connection
             .execute(
@@ -582,19 +533,12 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
 async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates() {
     use gcs_mimic::bucket::CorsRule;
     let dir = TestDir::new();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
-    let original = catalog
-        .insert_bucket(bucket("cors-migration", "project"))
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    common::downgrade_timestamp_precision(&connection);
-    connection
-        .execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; PRAGMA user_version = 11;")
-        .unwrap();
-    drop(connection);
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (catalog, original) = migrated(&dir, bucket("cors-migration", "project"), |connection| {
+        common::downgrade_timestamp_precision(connection);
+        connection
+            .execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; PRAGMA user_version = 11;")
+            .unwrap();
+    }).await;
     assert_eq!(
         catalog
             .get_bucket("cors-migration", PERMISSIVE)
@@ -1401,37 +1345,37 @@ async fn bucket_settings_migrate_supported_catalogs() {
             .insert_bucket(bucket("bucket", "project"))
             .await
             .unwrap();
-        catalog.close().await.unwrap();
         let path = dir.0.join("catalog.sqlite3");
-        let connection = Connection::open(&path).unwrap();
-        let objects_sql: String = connection
-            .query_row(
-                "SELECT sql FROM sqlite_schema WHERE name = 'objects'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        connection.execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold;").unwrap();
-        common::downgrade_object_schema(&connection);
-        if version < 7 {
-            connection
-                .execute_batch("DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations;")
+        let objects_sql = downgraded(&dir, &catalog, |connection| {
+            let objects_sql: String = connection
+                .query_row(
+                    "SELECT sql FROM sqlite_schema WHERE name = 'objects'",
+                    [],
+                    |row| row.get(0),
+                )
                 .unwrap();
-        }
-        if version < 6 {
+            connection.execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold;").unwrap();
+            common::downgrade_object_schema(connection);
+            if version < 7 {
+                connection
+                    .execute_batch("DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations;")
+                    .unwrap();
+            }
+            if version < 6 {
+                connection
+                    .execute_batch("DROP TABLE bucket_policies; DROP TABLE policy_revision;")
+                    .unwrap();
+            }
+            if version < 5 {
+                connection
+                    .execute_batch("DROP TABLE startup_seed;")
+                    .unwrap();
+            }
             connection
-                .execute_batch("DROP TABLE bucket_policies; DROP TABLE policy_revision;")
+                .pragma_update(None, "user_version", version)
                 .unwrap();
-        }
-        if version < 5 {
-            connection
-                .execute_batch("DROP TABLE startup_seed;")
-                .unwrap();
-        }
-        connection
-            .pragma_update(None, "user_version", version)
-            .unwrap();
-        drop(connection);
+            objects_sql
+        }).await;
         let catalog = Catalog::open(&dir.0).await.unwrap();
         assert_eq!(
             catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
@@ -1466,12 +1410,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
         }
         catalog.close().await.unwrap();
         let mut connection = Connection::open(path).unwrap();
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                .unwrap(),
-            CATALOG_SCHEMA_VERSION
-        );
+        assert_current_schema(&connection);
         assert_eq!(
             connection
                 .query_row(
@@ -1677,12 +1616,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        CATALOG_SCHEMA_VERSION
-    );
+    assert_current_schema(&connection);
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
             "SELECT bucket, bindings, revision FROM bucket_policies ORDER BY bucket COLLATE BINARY",
@@ -1728,23 +1662,22 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
                 .unwrap(),
         );
     }
-    catalog.close().await.unwrap();
     let path = dir.0.join("catalog.sqlite3");
-    let connection = Connection::open(&path).unwrap();
-    common::downgrade_object_schema(&connection);
-    connection
-        .execute_batch(
-            "ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
-        )
-        .unwrap();
-    // An oversized default policy fails the second insert, after the first policy and v6 marker.
-    connection
-        .execute(
-            "UPDATE buckets SET project = ?1 WHERE name = 'zzz'",
-            ["x".repeat(65536)],
-        )
-        .unwrap();
-    drop(connection);
+    downgraded(&dir, &catalog, |connection| {
+        common::downgrade_object_schema(connection);
+        connection
+            .execute_batch(
+                "ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
+            )
+            .unwrap();
+        // An oversized default policy fails the second insert, after the first policy and v6 marker.
+        connection
+            .execute(
+                "UPDATE buckets SET project = ?1 WHERE name = 'zzz'",
+                ["x".repeat(65536)],
+            )
+            .unwrap();
+    }).await;
     let error = Catalog::open(&dir.0).await.err().unwrap();
     assert!(matches!(error, CatalogError::Unavailable(_)));
     assert!(
@@ -1785,12 +1718,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
     }
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        CATALOG_SCHEMA_VERSION
-    );
+    assert_current_schema(&connection);
     assert_eq!(
         connection
             .query_row("SELECT count(*) FROM bucket_policies", [], |row| row

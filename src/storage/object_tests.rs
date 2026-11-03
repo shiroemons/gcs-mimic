@@ -1,6 +1,8 @@
 use super::catalog::test_fixtures::bucket;
 use crate as gcs_mimic;
-use crate::storage::test_fixtures::{PERMISSIVE, body, live, permissive_upload, version};
+use crate::storage::test_fixtures::{
+    PERMISSIVE, assert_current_schema, body, downgraded, live, permissive_upload, version,
+};
 use bytes::Bytes;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
@@ -811,11 +813,12 @@ async fn unreleased_v2_catalog_is_rejected_without_changing_data() {
     put(&catalog, "identity", b"first", ObjectConditions::default())
         .await
         .unwrap();
-    catalog.close().await.unwrap();
-    Connection::open(dir.0.join("catalog.sqlite3"))
-        .unwrap()
-        .execute_batch("DROP TABLE object_generation; PRAGMA user_version = 2;")
-        .unwrap();
+    downgraded(&dir, &catalog, |connection| {
+        connection
+            .execute_batch("DROP TABLE object_generation; PRAGMA user_version = 2;")
+            .unwrap()
+    })
+    .await;
     let path = dir.0.join("catalog.sqlite3");
     let before = fs::read(&path).unwrap();
     fs::write(dir.0.join("staging/sentinel"), b"untouched").unwrap();
@@ -1031,29 +1034,28 @@ async fn incompatible_schema_constraints_indexes_and_v1_conflicts_are_read_only(
     ] {
         let dir = TestDir::new();
         let catalog = setup(&dir).await;
-        catalog.close().await.unwrap();
         let path = dir.0.join("catalog.sqlite3");
-        let connection = Connection::open(&path).unwrap();
-        match fixture {
-            "object-constraints" => connection.execute_batch("ALTER TABLE objects RENAME TO old_objects; CREATE TABLE objects AS SELECT * FROM old_objects; DROP TABLE old_objects;").unwrap(),
-            "blob-unique" => {
-                let sql: String = connection.query_row("SELECT sql FROM sqlite_schema WHERE name='objects'", [], |row| row.get(0)).unwrap();
-                connection.execute("DROP TABLE objects", []).unwrap();
-                connection.execute_batch(&sql.replace("blob_id TEXT NOT NULL UNIQUE", "blob_id TEXT NOT NULL")).unwrap();
+        let version = downgraded(&dir, &catalog, |connection| {
+            match fixture {
+                "object-constraints" => connection.execute_batch("ALTER TABLE objects RENAME TO old_objects; CREATE TABLE objects AS SELECT * FROM old_objects; DROP TABLE old_objects;").unwrap(),
+                "blob-unique" => {
+                    let sql: String = connection.query_row("SELECT sql FROM sqlite_schema WHERE name='objects'", [], |row| row.get(0)).unwrap();
+                    connection.execute("DROP TABLE objects", []).unwrap();
+                    connection.execute_batch(&sql.replace("blob_id TEXT NOT NULL UNIQUE", "blob_id TEXT NOT NULL")).unwrap();
+                }
+                "journal-constraints" => connection.execute_batch("DROP TABLE pending_blob_deletions; CREATE TABLE pending_blob_deletions(blob_id TEXT);").unwrap(),
+                "bucket-index" => connection.execute("DROP INDEX buckets_project_name", []).map(|_| ()).unwrap(),
+                "v1-conflict" => connection.execute_batch("DROP TABLE objects; DROP TABLE object_generation; PRAGMA user_version = 1;").unwrap(),
+                "hidden-inventory" => connection.execute("CREATE TABLE sqliteXunexpected(value TEXT)", []).map(|_| ()).unwrap(),
+                _ => unreachable!(),
             }
-            "journal-constraints" => connection.execute_batch("DROP TABLE pending_blob_deletions; CREATE TABLE pending_blob_deletions(blob_id TEXT);").unwrap(),
-            "bucket-index" => connection.execute("DROP INDEX buckets_project_name", []).map(|_| ()).unwrap(),
-            "v1-conflict" => connection.execute_batch("DROP TABLE objects; DROP TABLE object_generation; PRAGMA user_version = 1;").unwrap(),
-            "hidden-inventory" => connection.execute("CREATE TABLE sqliteXunexpected(value TEXT)", []).map(|_| ()).unwrap(),
-            _ => unreachable!(),
-        }
-        connection
-            .pragma_update(None, "journal_mode", "DELETE")
-            .unwrap();
-        let version: i64 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        drop(connection);
+            connection
+                .pragma_update(None, "journal_mode", "DELETE")
+                .unwrap();
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap()
+        }).await;
         let before = fs::read(&path).unwrap();
         fs::write(dir.0.join("staging/sentinel"), b"must not be recovered").unwrap();
         assert!(Catalog::open(&dir.0).await.is_err(), "{fixture}");
@@ -1427,28 +1429,27 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
     // The migration backfills the generation from the creation time (zero here, so 1 in
     // microseconds) and schema 46 scales it to nanoseconds.
     bucket.as_mut().unwrap().generation = 1000;
-    catalog.close().await.unwrap();
-    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    connection
-        .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time;")
-        .unwrap();
-    crate::storage::catalog::test_support::downgrade_soft_delete_schema(&connection);
-    connection
-        .execute_batch("DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; DROP TABLE sync_objects; DROP TABLE catalog_identity; DROP TABLE import_observations; DROP TABLE import_journal; DROP TABLE change_journal; DROP TABLE change_journal_state;")
-        .unwrap();
-    connection
-        .execute_batch(
-            "ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers; ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE objects; DROP TABLE pending_blob_deletions; DROP TABLE object_generation; DROP TABLE startup_seed; PRAGMA user_version = 1;",
-        )
-        .unwrap();
-    // Force the second DDL statement to fail and verify the first statement rolls back.
-    connection
-        .execute(
-            "CREATE TABLE pending_blob_deletions (incompatible TEXT)",
-            [],
-        )
-        .unwrap();
-    drop(connection);
+    downgraded(&dir, &catalog, |connection| {
+        connection
+            .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time;")
+            .unwrap();
+        crate::storage::catalog::test_support::downgrade_soft_delete_schema(connection);
+        connection
+            .execute_batch("DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; DROP TABLE sync_objects; DROP TABLE catalog_identity; DROP TABLE import_observations; DROP TABLE import_journal; DROP TABLE change_journal; DROP TABLE change_journal_state;")
+            .unwrap();
+        connection
+            .execute_batch(
+                "ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers; ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE objects; DROP TABLE pending_blob_deletions; DROP TABLE object_generation; DROP TABLE startup_seed; PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        // Force the second DDL statement to fail and verify the first statement rolls back.
+        connection
+            .execute(
+                "CREATE TABLE pending_blob_deletions (incompatible TEXT)",
+                [],
+            )
+            .unwrap();
+    }).await;
     assert!(Catalog::open(&dir.0).await.is_err());
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     assert_eq!(
@@ -1498,12 +1499,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         catalog.close().await.unwrap();
     }
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
-            .unwrap(),
-        super::catalog::CATALOG_SCHEMA_VERSION
-    );
+    assert_current_schema(&connection);
 }
 
 #[tokio::test]
