@@ -1052,34 +1052,16 @@ pub async fn apply(
         .iter()
         .map(|record| record.project.clone())
         .collect();
-    let failure = |error: AdminError| {
-        let reason = match error {
-            AdminError::DiskFull => "disk full",
-            AdminError::Busy { .. } => "administrative admission timed out",
-            AdminError::Closed => "catalog closed",
-            AdminError::Corrupt(_) => "catalog corrupt",
-            AdminError::Io(_) => "storage I/O failure",
-            AdminError::Invalid(_) => "invalid bucket definition",
-            _ => "catalog operation failed",
-        };
-        std::io::Error::other(Diagnostics::error(
-            DiagnosticSource::Initializer,
-            "buckets_file",
-            format!(
-                "Cannot initialize buckets ({reason}); inspect the native catalog and available disk space, then restart to retry create-missing."
-            ),
-        ))
-    };
     let definitions = records
         .into_iter()
         .map(BucketDefinition::new)
         .collect::<Result<Vec<_>, _>>()
-        .map_err(failure)?;
+        .map_err(|error| failure(&error))?;
     let results = catalog
         .admin(Origin::BucketInit)
         .ensure_buckets(definitions)
         .await
-        .map_err(failure)?;
+        .map_err(|error| failure(&error))?;
     let mut created = 0;
     let mut existing = 0;
     let mut diagnostics = Diagnostics::default();
@@ -1103,6 +1085,25 @@ pub async fn apply(
         existing,
         project_mismatches: diagnostics.warnings.len(),
     })
+}
+
+fn failure(error: &AdminError) -> std::io::Error {
+    let reason = match error {
+        AdminError::DiskFull => "disk full",
+        AdminError::Busy { .. } => "administrative admission timed out",
+        AdminError::Closed => "catalog closed",
+        AdminError::Corrupt(_) => "catalog corrupt",
+        AdminError::Io(_) => "storage I/O failure",
+        AdminError::Invalid(_) => "invalid bucket definition",
+        _ => "catalog operation failed",
+    };
+    std::io::Error::other(Diagnostics::error(
+        DiagnosticSource::Initializer,
+        "buckets_file",
+        format!(
+            "Cannot initialize buckets ({reason}); inspect the native catalog and available disk space, then restart to retry create-missing."
+        ),
+    ))
 }
 
 /// Read one selected regular file; relative paths use the process working directory.
@@ -2187,6 +2188,11 @@ mod tests {
 
     #[test]
     fn shared_renderer_preserves_complete_sorted_escaped_batches() {
+        assert!(
+            failure(&AdminError::Corrupt("invalid stored enum".into()))
+                .to_string()
+                .contains("catalog corrupt")
+        );
         let errors = parsed(r#"{"version":1,"buckets":[{"name":"example-bucket","z\n\"secret-field":1,"storageClas":"secret-value","name":"bad name","name":"also bad"}]}"#).unwrap_err();
         let mut output = Vec::new();
         errors.write(&mut output).unwrap();

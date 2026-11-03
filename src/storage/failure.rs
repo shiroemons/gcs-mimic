@@ -84,6 +84,7 @@ impl Error for BackendCause {
 /// Formats like the bare message so `Debug` output of the error enums is unchanged.
 impl fmt::Debug for BackendCause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Sync diagnostics expose this text, so preserve the original message format.
         fmt::Debug::fmt(&*self.message, formatter)
     }
 }
@@ -142,6 +143,7 @@ impl fmt::Display for IoCause {
 
 impl fmt::Debug for IoCause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Sync diagnostics expose this text, so preserve the original kind format.
         fmt::Debug::fmt(&self.kind, formatter)
     }
 }
