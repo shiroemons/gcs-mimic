@@ -12,8 +12,9 @@ use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 pub(super) async fn respond(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
+    authorized: super::Authorized,
 ) -> Response<Full<Bytes>> {
-    reseed(request, ctx)
+    reseed(request, ctx, authorized)
         .await
         .unwrap_or_else(JsonError::into_response)
 }
@@ -21,8 +22,9 @@ pub(super) async fn respond(
 async fn reseed(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
+    authorized: super::Authorized,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let admin = super::authority(&request, ctx)?;
+    let admin = authorized.into_admin();
     if !matches!(*request.method(), Method::POST | Method::PUT) {
         return Err(JsonError::method_not_allowed(
             "Use POST or PUT /_internal/reseed with an empty body",

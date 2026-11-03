@@ -129,17 +129,9 @@ async fn route(
         }
     };
     if selected.is_none()
-        && (matches!(
-            request.uri().path(),
-            "/_internal/config"
-                | "/_internal/objects"
-                | "/_internal/reset"
-                | "/_internal/reseed"
-                | "/_internal/delete_all"
-        ) || request.uri().path() == "/_internal/sync"
-            || request.uri().path().starts_with("/_internal/sync/"))
+        && let Some(route) = super::admin::AdminRoute::parse(request.uri().path())
     {
-        return super::admin::respond(request, ctx).await;
+        return super::admin::respond(route, request, ctx).await;
     }
     if selected.is_none() && request.uri().path() == "/batch/storage/v1" {
         return super::batch::respond(request, ctx).await;

@@ -33,8 +33,9 @@ struct Fixture {
 pub(super) async fn insert(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
+    authorized: super::Authorized,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let admin = super::authority(&request, ctx)?;
+    let admin = authorized.into_admin();
     if request.method() != Method::POST {
         return Ok(JsonError::method_not_allowed(
             "Use POST /_internal/objects with multipart/related",

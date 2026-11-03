@@ -14,11 +14,18 @@ struct Confirmation {
     confirm: String,
 }
 
+pub(super) enum Form {
+    Confirmed,
+    SourceAlias,
+}
+
 pub(super) async fn respond(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
+    authorized: super::Authorized,
+    form: Form,
 ) -> Response<Full<Bytes>> {
-    let mut response = reset(request, ctx)
+    let mut response = reset(request, ctx, authorized, form)
         .await
         .unwrap_or_else(JsonError::into_response);
     if response.status() == StatusCode::SERVICE_UNAVAILABLE {
@@ -32,8 +39,10 @@ pub(super) async fn respond(
 async fn reset(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
+    authorized: super::Authorized,
+    form: Form,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let admin = super::authority(&request, ctx)?;
+    let admin = authorized.into_admin();
     if request.method() != Method::POST {
         return Err(JsonError::method_not_allowed(
             "Use POST /_internal/reset with an explicit confirmation",
@@ -52,9 +61,8 @@ async fn reset(
             "Stop directory synchronization and restart without sync_dir before resetting; external files are never reset",
         ));
     }
-    let source_alias = request.uri().path() == "/_internal/delete_all";
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-    let confirmation: Confirmation = if source_alias {
+    let confirmation: Confirmation = if matches!(form, Form::SourceAlias) {
         if !bytes.is_empty() {
             return Err(JsonError::invalid_argument(
                 "Source delete_all accepts only an empty body",
