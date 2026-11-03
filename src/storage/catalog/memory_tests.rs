@@ -30,6 +30,27 @@ async fn setup(budget: u64, versioning: Versioning) -> Catalog {
     setup_with_clock(budget, versioning, Arc::new(SystemClock)).await
 }
 
+#[tokio::test]
+async fn ram_reader_peeking_preserves_the_selected_range() {
+    let catalog = setup(1024 * 1024, Off).await;
+    catalog
+        .put_object(
+            permissive_upload("test-bucket", "range", 1000),
+            body(b"range", Complete),
+        )
+        .await
+        .unwrap();
+    let (_, mut reader) = catalog
+        .open_object(live("test-bucket", "range"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    reader.set_range(1, 3).await.unwrap();
+    assert_eq!(reader.peek_prefix(1).await.unwrap(), b"a"[..]);
+    assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"ang"[..]);
+    assert!(reader.next_chunk().await.unwrap().is_none());
+    catalog.close().await.unwrap();
+}
+
 async fn setup_with_clock(
     budget: u64,
     versioning: Versioning,

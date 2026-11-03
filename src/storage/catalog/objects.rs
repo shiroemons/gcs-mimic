@@ -766,6 +766,7 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
 pub struct ObjectReader {
     file: ReaderData,
     remaining: u64,
+    position: u64,
     /// Selected with the object and authorization, so a concurrent policy change cannot mix headers.
     pub(crate) publicly_readable: bool,
 }
@@ -775,6 +776,7 @@ pub(super) enum ReaderData {
     Memory(super::super::memory::Reader),
 }
 
+#[cfg(test)]
 impl ReaderData {
     async fn stream_position(&mut self) -> io::Result<u64> {
         match self {
@@ -790,6 +792,7 @@ impl ObjectReader {
         Self {
             file,
             remaining,
+            position: 0,
             publicly_readable: false,
         }
     }
@@ -828,6 +831,7 @@ impl ObjectReader {
             }
         }
         self.remaining = length;
+        self.position = offset;
         Ok(())
     }
 
@@ -835,7 +839,7 @@ impl ObjectReader {
     /// before choosing response headers. The selected range and current position are preserved;
     /// it reads one bounded chunk, never the whole object.
     pub(crate) async fn peek_prefix(&mut self, limit: usize) -> io::Result<Bytes> {
-        let offset = self.file.stream_position().await?;
+        let offset = self.position;
         let remaining = self.remaining;
         let prefix = match self.next_chunk().await? {
             Some(bytes) => bytes.slice(..bytes.len().min(limit)),
@@ -855,6 +859,7 @@ impl ObjectReader {
                 .next_chunk(limit as usize)
                 .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
             self.remaining -= bytes.len() as u64;
+            self.position += bytes.len() as u64;
             return Ok(Some(bytes));
         }
         // Reading into spare capacity skips zero-filling a buffer the read overwrites;
@@ -868,6 +873,7 @@ impl ObjectReader {
             return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
         }
         self.remaining -= length as u64;
+        self.position += length as u64;
         Ok(Some(buffer.freeze()))
     }
 }
@@ -1708,6 +1714,7 @@ pub(super) fn open_selected(
         ObjectReader {
             file,
             remaining,
+            position: 0,
             publicly_readable,
         },
     ))
@@ -3370,6 +3377,7 @@ mod tests {
         let mut reader = ObjectReader {
             file: ReaderData::Disk(tokio::fs::File::from_std(file)),
             remaining: size,
+            position: size - 3,
             publicly_readable: false,
         };
         let offset = size - CHUNK_SIZE as u64 - 3;
@@ -3381,6 +3389,8 @@ mod tests {
         let chunk = reader.next_chunk().await.unwrap().unwrap();
         assert_eq!(chunk.len(), CHUNK_SIZE);
         assert!(chunk.iter().all(|byte| *byte == 0));
+        assert_eq!(reader.peek_prefix(2).await.unwrap(), b"en"[..]);
+        assert_eq!(reader.file.stream_position().await.unwrap(), size - 3);
         assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"end"[..]);
         assert!(reader.next_chunk().await.unwrap().is_none());
         assert_eq!(reader.file.stream_position().await.unwrap(), size);
