@@ -358,7 +358,7 @@ pub(crate) fn unavailable(cause: impl StorageCause) -> CatalogError {
     cause.classify().into()
 }
 
-/// Maps an object failure to `ObjectError`, classifying corrupt and I/O causes.
+/// Maps backend failures to `ObjectError`; domain and authorization errors use `From`.
 pub(crate) fn object_unavailable(cause: impl StorageCause) -> ObjectError {
     cause.classify().into()
 }
@@ -389,18 +389,6 @@ pub(crate) fn object_context(context: impl fmt::Display, cause: impl StorageCaus
                 })),
             })
         }
-    }
-}
-
-/// Keeps access and metadata rejections consistent across object publication paths.
-pub(crate) fn object_access_error(error: CatalogError) -> ObjectError {
-    match error {
-        CatalogError::Forbidden => ObjectError::Forbidden,
-        CatalogError::PublicAccessPrevention => ObjectError::PublicAccessPrevention,
-        CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
-        CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason),
-        CatalogError::NotFound => ObjectError::BucketNotFound,
-        error => object_unavailable(error),
     }
 }
 

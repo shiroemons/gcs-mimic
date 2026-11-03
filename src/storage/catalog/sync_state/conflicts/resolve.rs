@@ -68,7 +68,7 @@ pub(crate) fn validate_restore(
     binding
         .authority
         .authorize(tx, binding.root)
-        .map_err(crate::storage::failure::object_access_error)?;
+        .map_err(ObjectError::from)?;
     let owner = check_original(
         tx,
         &binding.binding,
@@ -106,7 +106,7 @@ pub(crate) fn complete_restore(
     binding
         .authority
         .authorize(tx, binding.root)
-        .map_err(crate::storage::failure::object_access_error)?;
+        .map_err(ObjectError::from)?;
     super::super::matching(tx, &binding.binding, &record.bucket)?;
     active_restore(tx, binding)?;
     if record.bucket != binding.binding.bucket || record.name != binding.name.as_str() {

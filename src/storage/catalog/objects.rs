@@ -1567,7 +1567,7 @@ impl Catalog {
                     entries,
                     &access,
                     principals.as_ref(),
-                ).map_err(crate::storage::failure::object_access_error)?;
+                ).map_err(acl_update_error)?;
             }
             let previous_retention = record.retention;
             let previous_event_hold = record.event_based_hold;
@@ -2309,6 +2309,15 @@ fn trailing_marker(name: &str, query: &ObjectListQuery) -> bool {
             .is_some_and(|stem| !stem.ends_with(&query.delimiter))
 }
 
+/// ACL metadata rejections keep their client-input status across publication paths.
+pub(super) fn acl_update_error(error: CatalogError) -> ObjectError {
+    match error {
+        CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
+        CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason),
+        error => error.into(),
+    }
+}
+
 /// Resolves the bucket and re-validates `access` against the owning project observed on the
 /// same connection, before any object state is read or changed.
 ///
@@ -2328,8 +2337,8 @@ pub(super) fn authorized_bucket(
     )
     .optional()?
     .ok_or(ObjectError::BucketNotFound)?;
-    let delete_permission = super::check_access(connection, bucket, &project, access)
-        .map_err(crate::storage::failure::object_access_error)?;
+    let delete_permission =
+        super::check_access(connection, bucket, &project, access).map_err(ObjectError::from)?;
     Ok((storage_class, delete_permission))
 }
 
@@ -2917,6 +2926,31 @@ mod tests {
     use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn acl_update_errors_keep_client_input_and_authorization_status() {
+        for (error, expected) in [
+            (
+                CatalogError::InvalidMetadata("invalid".into()),
+                ObjectError::InvalidFixedMetadata("invalid".into()),
+            ),
+            (
+                CatalogError::UnsupportedMetadata("unsupported".into()),
+                ObjectError::UnsupportedMetadata("unsupported".into()),
+            ),
+            (CatalogError::Forbidden, ObjectError::Forbidden),
+            (
+                CatalogError::PublicAccessPrevention,
+                ObjectError::PublicAccessPrevention,
+            ),
+        ] {
+            assert_eq!(acl_update_error(error), expected);
+        }
+        assert!(matches!(
+            acl_update_error(CatalogError::NotFound),
+            ObjectError::Unavailable(_)
+        ));
+    }
 
     #[tokio::test]
     async fn retention_expiration_matches_between_publication_and_reads() {

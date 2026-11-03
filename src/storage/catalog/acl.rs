@@ -132,12 +132,8 @@ pub(super) fn publish_object_acl(
     if let Some(owner) = &record.owner {
         owner.preserve_grant(&mut entries);
     }
-    validate_effective_entries(AclKind::Object, &entries, record.owner.as_ref()).map_err(
-        |error| match error {
-            CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
-            error => object_unavailable(error),
-        },
-    )?;
+    validate_effective_entries(AclKind::Object, &entries, record.owner.as_ref())
+        .map_err(super::objects::acl_update_error)?;
     if let Some(owner) = &record.owner {
         owner.remove_implicit_grant(&mut entries);
     }

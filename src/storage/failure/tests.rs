@@ -1,24 +1,15 @@
 use super::*;
 
 #[test]
-fn object_access_rejections_keep_their_domain_status() {
+fn object_error_keeps_authorization_from_catalog() {
     for (input, expected) in [
         (CatalogError::Forbidden, ObjectError::Forbidden),
-        (CatalogError::NotFound, ObjectError::BucketNotFound),
         (
             CatalogError::PublicAccessPrevention,
             ObjectError::PublicAccessPrevention,
         ),
-        (
-            CatalogError::InvalidMetadata("invalid".into()),
-            ObjectError::InvalidFixedMetadata("invalid".into()),
-        ),
-        (
-            CatalogError::UnsupportedMetadata("unsupported".into()),
-            ObjectError::UnsupportedMetadata("unsupported".into()),
-        ),
     ] {
-        assert_eq!(object_access_error(input), expected);
+        assert_eq!(ObjectError::from(input), expected);
     }
     assert_eq!(
         ObjectError::from(CatalogError::Forbidden),

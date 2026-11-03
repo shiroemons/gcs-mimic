@@ -57,7 +57,7 @@ impl From<ObjectError> for RewriteError {
 }
 impl From<CatalogError> for RewriteError {
     fn from(error: CatalogError) -> Self {
-        Self::Object(object_unavailable(error))
+        Self::Object(error.into())
     }
 }
 use crate::storage::failure::object_unavailable;

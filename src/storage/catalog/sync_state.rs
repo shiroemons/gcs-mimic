@@ -177,9 +177,7 @@ pub(super) fn matching(
     bucket: &str,
 ) -> Result<(), ObjectError> {
     if let Some(scope) = &binding.control {
-        scope
-            .authorize(connection)
-            .map_err(crate::storage::failure::object_access_error)?;
+        scope.authorize(connection).map_err(ObjectError::from)?;
     }
     let incarnation: Option<String> = bucket_incarnation(connection, bucket).optional()?;
     if binding.catalog != catalog_id(connection)?

@@ -660,6 +660,7 @@ impl From<crate::bucket::CatalogError> for ObjectError {
     fn from(error: crate::bucket::CatalogError) -> Self {
         match error {
             crate::bucket::CatalogError::Forbidden => Self::Forbidden,
+            crate::bucket::CatalogError::PublicAccessPrevention => Self::PublicAccessPrevention,
             crate::bucket::CatalogError::Io(kind) => Self::Io(kind),
             crate::bucket::CatalogError::Corrupt(reason) => Self::Corrupt(reason),
             error => Self::Unavailable(BackendCause::from_error(error)),

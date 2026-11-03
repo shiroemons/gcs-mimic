@@ -1024,7 +1024,7 @@ pub(in crate::storage::catalog) fn apply_acl(
             access,
             None,
         )
-        .map_err(crate::storage::failure::object_access_error)?;
+        .map_err(objects::acl_update_error)?;
     }
     Ok(())
 }
