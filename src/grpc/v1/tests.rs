@@ -4,7 +4,7 @@ use crate::{
     auth::{Auth, Registry},
     bucket::BucketRecord,
     clock::SystemClock,
-    storage::Catalog,
+    storage::{Catalog, test_fixtures::PERMISSIVE},
     test_support::TestDir,
 };
 use std::{
@@ -136,7 +136,7 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
             storage
                 .state
                 .catalog
-                .get_bucket("list-a", crate::storage::test_fixtures::PERMISSIVE)
+                .get_bucket("list-a", PERMISSIVE)
                 .await
                 .unwrap()
                 .unwrap()
@@ -172,7 +172,7 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
             storage
                 .state
                 .catalog
-                .get_bucket("list-a", crate::storage::test_fixtures::PERMISSIVE)
+                .get_bucket("list-a", PERMISSIVE)
                 .await
                 .unwrap()
                 .is_some()
@@ -190,7 +190,7 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
         storage
             .state
             .catalog
-            .get_bucket("list-a", crate::storage::test_fixtures::PERMISSIVE)
+            .get_bucket("list-a", PERMISSIVE)
             .await
             .unwrap()
             .is_none()
