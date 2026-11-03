@@ -26,6 +26,8 @@ use tokio::{
 #[cfg(test)]
 use super::fault::{self, Step};
 
+#[cfg(test)]
+mod reclaim_tests;
 pub(super) mod retention;
 
 use super::object_hold::columns as hold_columns;
@@ -451,6 +453,14 @@ pub(super) fn blob_referenced(connection: &Connection, id: &BlobId) -> rusqlite:
     )
 }
 
+const JOURNAL_CONFLICT: &str = "SELECT pending.blob_id FROM pending_blob_deletions AS pending JOIN objects ON objects.blob_id = pending.blob_id ORDER BY pending.blob_id LIMIT 1";
+
+fn live_journal_error(id: BlobId) -> ObjectError {
+    object_unavailable(format!(
+        "deletion journal blob {id}: deletion journal references a live blob; its file is kept"
+    ))
+}
+
 pub(super) fn reclaim(
     connection: &Connection,
     data_dir: &Path,
@@ -543,12 +553,12 @@ fn drain_deletion_journal(connection: &Connection, data_dir: &Path) -> Result<()
     loop {
         let ids = connection
             .prepare_cached(
-                "SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128",
+                "SELECT blob_id FROM pending_blob_deletions AS pending WHERE NOT EXISTS (SELECT 1 FROM objects WHERE objects.blob_id = pending.blob_id) ORDER BY blob_id LIMIT 128",
             )?
             .query_map([], |r| r.get::<_, BlobId>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if ids.is_empty() {
-            return Ok(());
+            break;
         }
         for id in ids {
             reclaim(connection, data_dir, &id).map_err(|error| {
@@ -559,6 +569,8 @@ fn drain_deletion_journal(connection: &Connection, data_dir: &Path) -> Result<()
             })?;
         }
     }
+    sql::optional_scalar::<BlobId>(connection, JOURNAL_CONFLICT, [])?
+        .map_or(Ok(()), |id| Err(live_journal_error(id)))
 }
 
 /// Every catalog row must name a regular blob file of the recorded size.
@@ -2589,28 +2601,21 @@ impl Catalog {
         // Detached callers retain the cleanup slot until filesystem work and SQL settle.
         let task = crate::task::spawn_supervised("blob-reclamation", async move {
             let (_permit, _activity) = (permit, activity);
-            let ids = catalog
+            let (ids, conflict) = catalog
                 .run_upload(|connection| {
                     let ids = connection
                         .prepare_cached(
                             // Cancelled sessions need their marker until staging cleanup also succeeds.
-                            "SELECT blob_id FROM pending_blob_deletions AS pending WHERE NOT EXISTS (SELECT 1 FROM resumable_sessions AS session WHERE session.blob_id = pending.blob_id AND session.state != 'COMPLETE') ORDER BY blob_id LIMIT 128",
+                            "SELECT blob_id FROM pending_blob_deletions AS pending WHERE NOT EXISTS (SELECT 1 FROM resumable_sessions AS session WHERE session.blob_id = pending.blob_id AND session.state != 'COMPLETE') AND NOT EXISTS (SELECT 1 FROM objects WHERE objects.blob_id = pending.blob_id) ORDER BY blob_id LIMIT 128",
                         )?
                         .query_map([], |row| row.get::<_, BlobId>(0))?
                         .collect::<rusqlite::Result<Vec<_>>>()?;
-                    for id in &ids {
-                        let referenced: bool = blob_referenced(connection, id)?;
-                        if referenced {
-                            return Err(object_unavailable(
-                                "deletion journal references a live blob",
-                            ));
-                        }
-                    }
-                    Ok(ids)
+                    let conflict: Option<BlobId> = sql::optional_scalar(connection, JOURNAL_CONFLICT, [])?;
+                    Ok((ids, conflict))
                 })
                 .await?;
             if ids.is_empty() {
-                return Ok(());
+                return conflict.map_or(Ok(()), |id| Err(live_journal_error(id)));
             }
             let backend = catalog.0.backend.clone();
             let (removed, failure) =
@@ -2623,19 +2628,22 @@ impl Catalog {
                     for id in removed {
                         sql::exec(
                             &transaction,
-                            "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
+                            "DELETE FROM pending_blob_deletions WHERE blob_id = ?1 AND NOT EXISTS (SELECT 1 FROM objects WHERE blob_id = ?1)",
                             [&id],
                         )?;
                         sql::exec(
                             &transaction,
-                            "DELETE FROM derived_deletions WHERE blob_id = ?1",
+                            "DELETE FROM derived_deletions WHERE blob_id = ?1 AND NOT EXISTS (SELECT 1 FROM objects WHERE blob_id = ?1)",
                             [&id],
                         )?;
                     }
                     transaction.commit().map_err(object_unavailable)
                 })
                 .await?;
-            failure.map_or(Ok(()), Err)
+            failure.map_or_else(
+                || conflict.map_or(Ok(()), |id| Err(live_journal_error(id))),
+                Err,
+            )
         });
         task.await?
     }
