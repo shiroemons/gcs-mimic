@@ -113,26 +113,9 @@ pub(super) fn published(
     )
 }
 
-#[derive(Debug)]
-struct OutboxFull;
-
 #[cfg(test)]
 pub(super) fn full_test_cause() -> CatalogError {
-    unavailable(OutboxFull)
-}
-
-impl std::fmt::Display for OutboxFull {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("notification outbox limit reached")
-    }
-}
-
-impl std::error::Error for OutboxFull {}
-
-impl crate::storage::failure::StorageCause for OutboxFull {
-    fn into_cause(self) -> crate::storage::failure::BackendCause {
-        crate::storage::failure::BackendCause::from_error(self)
-    }
+    unavailable(crate::storage::failure::BackendFailure::OutboxLimit)
 }
 
 fn insert(
@@ -148,7 +131,9 @@ fn insert(
         [bytes],
     )?;
     if full {
-        return Err(unavailable(OutboxFull));
+        return Err(unavailable(
+            crate::storage::failure::BackendFailure::OutboxLimit,
+        ));
     }
     let id: i64 = sql::optional_scalar(
         connection,

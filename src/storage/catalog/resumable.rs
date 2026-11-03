@@ -7,7 +7,7 @@ use crate::storage::{
 use crate::{
     bucket::BucketAccess,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate},
-    storage::failure::BackendCause,
+    storage::failure::{BackendCause, BackendFailure},
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Value, json};
@@ -250,7 +250,7 @@ fn admit_session(
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     if active >= MAX_SESSIONS {
-        return Err(unavailable("retained upload session limit reached"));
+        return Err(unavailable(BackendFailure::RetainedSessionLimit));
     }
     let mut excess = terminal - MAX_TERMINAL_SESSIONS;
     let mut trimmed = Vec::new();
@@ -288,7 +288,7 @@ fn admit_session(
         excess -= 1;
     }
     if excess > 0 {
-        return Err(unavailable("retained upload session limit reached"));
+        return Err(unavailable(BackendFailure::RetainedSessionLimit));
     }
     Ok(trimmed)
 }
@@ -396,7 +396,7 @@ impl Catalog {
         let activity = self.activity()?;
         let mut writers = self.0.session_writers.lock().map_err(unavailable)?;
         if writers.len() >= MAX_SESSIONS || !writers.insert(id.to_owned()) {
-            return Err(unavailable("upload session is busy"));
+            return Err(unavailable(BackendFailure::SessionBusy));
         }
         Ok(WriterGuard {
             catalog: self.clone(),

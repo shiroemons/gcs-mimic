@@ -6,7 +6,10 @@ use crate::{
     http_conditions::{EtagError, etag_not_modified},
     json::{self, JsonError},
     object::{ObjectError, UploadChunk},
-    storage::Catalog,
+    storage::{
+        Catalog,
+        failure::{BackendFailure, object_unavailable},
+    },
     tls, xml,
 };
 use http_body_util::{BodyExt, Full, combinators::UnsyncBoxBody};
@@ -1133,9 +1136,7 @@ pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
         operation,
     )
     .await
-    .unwrap_or_else(|_| {
-        Err(ObjectError::Unavailable("upload catalog wait timed out".into()).into())
-    });
+    .unwrap_or_else(|_| Err(object_unavailable(BackendFailure::UploadWaitTimeout).into()));
     activity.send_modify(|progress| progress.awaiting_catalog = false);
     result
 }

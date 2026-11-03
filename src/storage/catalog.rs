@@ -6,7 +6,7 @@ use crate::bucket::{
     validate_storage_class,
 };
 use crate::clock::{Clock, SystemClock};
-use crate::storage::failure::unavailable;
+use crate::storage::failure::{BackendFailure, unavailable};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, types::Type};
 use std::{
     path::{Path, PathBuf},
@@ -35,13 +35,11 @@ pub(in crate::storage) fn guidance_source_failures() -> Vec<(crate::object::Obje
         (object_unavailable(executor::ExecutorError::Closed), 0),
         (object_unavailable(ConnectionUnavailable::Closed), 0),
         (
-            ObjectError::from(CatalogError::Unavailable("catalog is closed".into())),
+            ObjectError::from(unavailable(tokio::sync::TryAcquireError::Closed)),
             0,
         ),
         (
-            ObjectError::from(CatalogError::Unavailable(
-                "catalog operation limit reached".into(),
-            )),
+            ObjectError::from(unavailable(tokio::sync::TryAcquireError::NoPermits)),
             1,
         ),
         (ObjectError::from(notification_outbox::full_test_cause()), 4),
@@ -533,7 +531,7 @@ enum ConnectionUnavailable {
 impl std::fmt::Display for ConnectionUnavailable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Closed => f.write_str("catalog is closed"),
+            Self::Closed => f.write_str(BackendFailure::CatalogClosed.message()),
             Self::Panicked => {
                 f.write_str("catalog operation panicked; its changes were rolled back")
             }
@@ -546,7 +544,8 @@ impl std::error::Error for ConnectionUnavailable {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Unrecovered(error) => Some(error),
-            Self::Closed | Self::Panicked => None,
+            Self::Closed => Some(&BackendFailure::CatalogClosed),
+            Self::Panicked => None,
         }
     }
 }
@@ -1242,14 +1241,7 @@ impl Catalog {
             .clone()
             .try_acquire_owned()
             // A closed catalog is not full: reporting a limit would invite retries at shutdown.
-            .map_err(|error| {
-                CatalogError::Unavailable(match error {
-                    tokio::sync::TryAcquireError::Closed => "catalog is closed".into(),
-                    tokio::sync::TryAcquireError::NoPermits => {
-                        "catalog operation limit reached".into()
-                    }
-                })
-            })?;
+            .map_err(unavailable)?;
         self.run_admitted(admission, operation).await
     }
 
@@ -1263,7 +1255,7 @@ impl Catalog {
             .clone()
             .acquire_owned()
             .await
-            .map_err(|_| unavailable("catalog is closed"))?;
+            .map_err(|_| unavailable(BackendFailure::CatalogClosed))?;
         self.run_admitted(admission, operation).await
     }
 
@@ -1288,7 +1280,7 @@ impl Catalog {
                 let result = match inner.with_connection(operation) {
                     Ok(result) => result,
                     Err(ConnectionUnavailable::Closed) => {
-                        Err(CatalogError::Unavailable("catalog is closed".into()).into())
+                        Err(unavailable(BackendFailure::CatalogClosed).into())
                     }
                     Err(error) => Err(unavailable(error).into()),
                 };

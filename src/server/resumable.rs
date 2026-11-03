@@ -7,7 +7,10 @@ use crate::{
         resumable::{self, Range},
     },
     object::{ObjectError, ObjectRecord, UploadChunk},
-    storage::{ResumableChunk, ResumableOptions, SessionState},
+    storage::{
+        ResumableChunk, ResumableOptions, SessionState,
+        failure::{BackendFailure, object_unavailable},
+    },
 };
 use bytes::Bytes;
 use http_body_util::Full;
@@ -491,9 +494,10 @@ pub(crate) async fn transfer(
     }
     if session.state == SessionState::Complete {
         // Completing a session stores its response in the same transaction.
-        let completion = session.completion.as_ref().ok_or_else(|| {
-            ObjectError::Unavailable("Completed upload session has no stored response".into())
-        })?;
+        let completion = session
+            .completion
+            .as_ref()
+            .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion))?;
         return Ok(Transfer::Complete(completion.clone()));
     }
     if status_only {
@@ -620,8 +624,8 @@ async fn await_session_upload<T>(
             result = &mut operation => break result,
             Ok(()) = progress.changed() => {},
             _ = tokio::time::sleep_until(wait_deadline) => {
-                let message = if waiting { "upload catalog wait timed out" } else { "upload finalization timed out" };
-                break Err(ObjectError::Unavailable(message.into()).into());
+                let failure = if waiting { BackendFailure::UploadWaitTimeout } else { BackendFailure::FinalizationTimeout };
+                break Err(object_unavailable(failure).into());
             }
         }
     };
@@ -670,12 +674,12 @@ mod tests {
 
     // Checks completion before awaiting: an idle paused runtime would otherwise
     // auto-advance to whichever later deadline is pending.
-    async fn timed_out(task: JoinHandle<Result<(), JsonError>>) -> String {
+    async fn timed_out(task: JoinHandle<Result<(), JsonError>>) -> crate::json::ErrorKind {
         settle().await;
         assert!(task.is_finished());
         let error = task.await.unwrap().unwrap_err();
         assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
-        error.message
+        error.kind
     }
 
     #[tokio::test(start_paused = true)]
@@ -692,11 +696,10 @@ mod tests {
         settle().await;
         assert!(!task.is_finished());
         advance(Duration::from_millis(1)).await;
-        assert!(
-            timed_out(task)
-                .await
-                .contains("upload finalization timed out")
-        );
+        assert!(matches!(
+            timed_out(task).await,
+            crate::json::ErrorKind::Backend(BackendFailure::FinalizationTimeout)
+        ));
     }
 
     #[tokio::test(start_paused = true)]
@@ -706,11 +709,10 @@ mod tests {
         settle().await;
         assert!(!task.is_finished());
         advance(Duration::from_millis(1)).await;
-        assert!(
-            timed_out(task)
-                .await
-                .contains("upload catalog wait timed out")
-        );
+        assert!(matches!(
+            timed_out(task).await,
+            crate::json::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
+        ));
     }
 
     #[tokio::test(start_paused = true)]
@@ -726,10 +728,9 @@ mod tests {
         settle().await;
         assert!(!task.is_finished());
         advance(Duration::from_millis(1)).await;
-        assert!(
-            timed_out(task)
-                .await
-                .contains("upload catalog wait timed out")
-        );
+        assert!(matches!(
+            timed_out(task).await,
+            crate::json::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
+        ));
     }
 }

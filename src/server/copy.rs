@@ -4,7 +4,10 @@ use crate::{
     config::Config,
     json,
     object::{ObjectError, ObjectRecord},
-    storage::{Catalog, CopyReplay, DerivedDestination, DerivedSource},
+    storage::{
+        Catalog, CopyReplay, DerivedDestination, DerivedSource,
+        failure::{BackendFailure, object_unavailable},
+    },
 };
 use std::time::Duration;
 use tokio::{sync::watch, time::Instant};
@@ -31,11 +34,11 @@ async fn checkpoint_at(
         checkpoint
             .reached
             .send(progress.clone())
-            .map_err(|_| ObjectError::Unavailable("copy checkpoint observer dropped".into()))?;
+            .map_err(|_| object_unavailable(BackendFailure::CopyObserverDropped))?;
         checkpoint
             .resume
             .await
-            .map_err(|_| ObjectError::Unavailable("copy checkpoint abandoned".into()))?;
+            .map_err(|_| object_unavailable(BackendFailure::CopyAbandoned))?;
     }
     Ok(())
 }
@@ -102,7 +105,7 @@ pub(crate) async fn execute(
         catalog.begin_derived_ephemeral(vec![source.whole()], config.max_object_bytes),
     )
     .await
-    .map_err(|_| ObjectError::Unavailable("copy request deadline exceeded".into()))??;
+    .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;
     activity.send_modify(|activity| activity.awaiting_catalog = false);
     let mut owner = catalog.guard_derived_request(&transfer.id);
     // The request owns this future: cancellation can finish an in-flight bounded advance,
@@ -121,7 +124,7 @@ pub(crate) async fn execute(
         Ok::<_, ObjectError>(())
     })
     .await
-    .map_err(|_| ObjectError::Unavailable("copy request deadline exceeded".into()))??;
+    .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;
     begin_catalog_wait(activity).await;
     // Only catalog admission can time out. Once publication starts, return its durable outcome
     // rather than reporting a timeout while a detached mutation can still commit.
