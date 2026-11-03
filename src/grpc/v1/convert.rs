@@ -174,7 +174,7 @@ mod tests {
             },
             ObjectRecord {
                 customer_key_sha256: Some([0; 32]),
-                ..record.clone()
+                ..record
             },
         ] {
             let json = json::object_resource(&record, "", Projection::NoAcl).unwrap();
