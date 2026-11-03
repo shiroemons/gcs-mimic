@@ -14,7 +14,7 @@ type CustomMetadata = BTreeMap<String, Option<String>>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(bound(deserialize = "T: Deserialize<'de>"))]
-pub(super) struct Field<T> {
+struct Field<T> {
     #[serde(deserialize_with = "T::deserialize")]
     value: T,
 }
@@ -39,7 +39,7 @@ struct Metadata<T, C> {
     #[serde(skip_serializing_if = "Option::is_none")]
     storage_class: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    predefined_acl: Option<String>,
+    predefined_acl: Option<Value>,
 }
 
 impl<T, C> Metadata<T, C> {
@@ -49,6 +49,7 @@ impl<T, C> Metadata<T, C> {
         custom: impl Fn(C) -> Option<CustomMetadata>,
     ) -> Result<ObjectMetadataUpdate, InvalidOptions> {
         Ok(ObjectMetadataUpdate {
+            acl: None,
             replace: self.replace.unwrap_or(false),
             event_based_hold: self.event_based_hold,
             temporary_hold: self.temporary_hold,
@@ -65,11 +66,13 @@ impl<T, C> Metadata<T, C> {
             predefined_acl: self
                 .predefined_acl
                 .map(|value| {
-                    crate::acl::PredefinedObjectAcl::parse(&value)
+                    value
+                        .as_str()
+                        .and_then(crate::acl::PredefinedObjectAcl::parse)
                         .ok_or_else(|| InvalidOptions::new("invalid resumable predefinedAcl"))
                 })
                 .transpose()?,
-            ..Default::default()
+            override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
         })
     }
 }

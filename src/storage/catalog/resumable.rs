@@ -15,6 +15,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+#[cfg(test)]
+pub(super) mod golden_tests;
 mod options;
 
 /// Caps ACTIVE sessions, the only ones that own staged bytes.

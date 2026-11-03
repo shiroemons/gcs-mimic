@@ -20,6 +20,9 @@ use std::{
 
 pub(crate) use super::rewrite_token::{RewriteBinding, RewriteNames};
 
+#[cfg(test)]
+mod golden_tests;
+
 pub(super) const SCHEMA: &str = "CREATE TABLE rewrite_sessions (
     id TEXT PRIMARY KEY CHECK(length(id) = 32),
     token TEXT NOT NULL UNIQUE CHECK(length(token) = 64),
@@ -162,6 +165,13 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         .map_err(|error| conversion_error(3, rusqlite::types::Type::Text, error))?;
     let options = resumable::decode_options(&request.options)
         .map_err(|error| conversion_error(3, rusqlite::types::Type::Text, error))?;
+    if request.budget == 0 {
+        return Err(conversion_error(
+            3,
+            rusqlite::types::Type::Text,
+            "invalid rewrite budget",
+        ));
+    }
     let [
         source_bucket,
         source_object,
@@ -283,7 +293,6 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<&str>) -> bo
         && RewriteToken::parse(&session.token).is_some()
         && session.binding.source_generation > 0
         && session.source_metageneration > 0
-        && session.budget > 0
         && session.offset <= session.total
 }
 
