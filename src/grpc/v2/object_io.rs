@@ -1388,6 +1388,7 @@ mod tests {
     use crate::grpc::test_support::{self as fixtures, assert_code, registry};
     use crate::storage::test_fixtures::{PERMISSIVE, live};
     use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
+    use serde_json::json;
     use std::sync::Arc;
 
     #[test]
@@ -1850,6 +1851,149 @@ mod tests {
                 "{class}"
             );
         }
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_class_and_stale_conditions_keep_error_precedence() {
+        let (_dir, storage) = setup(false).await;
+        write(&storage, vec![message("source", b"source")])
+            .await
+            .unwrap();
+        write(&storage, vec![message("held", b"preserved")])
+            .await
+            .unwrap();
+        let before = storage
+            .state
+            .catalog
+            .get_object(live("grpc-io", "held"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        let mut snapshots = Vec::new();
+        for class in ["REGIONAL", "standard", "UNKNOWN"] {
+            let mut request = message("held", b"x");
+            let Some(pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)) =
+                &mut request.first_message
+            else {
+                unreachable!()
+            };
+            spec.resource.as_mut().unwrap().storage_class = class.into();
+            spec.if_generation_match = Some(0);
+            let resumable_spec = spec.clone();
+            let status = write(&storage, vec![request]).await.unwrap_err();
+            snapshots.push(json!([
+                "write",
+                class,
+                format!("{:?}", status.code()),
+                status.message()
+            ]));
+            let status = storage
+                .start_resumable_write(
+                    Request::new(pb::StartResumableWriteRequest {
+                        write_object_spec: Some(resumable_spec),
+                        ..Default::default()
+                    }),
+                    None,
+                )
+                .await
+                .unwrap_err();
+            snapshots.push(json!([
+                "start-resumable",
+                class,
+                format!("{:?}", status.code()),
+                status.message()
+            ]));
+            for (label, source) in [("rewrite-destination", None), ("rewrite-source", Some(0))] {
+                let status = storage
+                    .rewrite_object(
+                        Request::new(pb::RewriteObjectRequest {
+                            source_bucket: "projects/_/buckets/grpc-io".into(),
+                            source_object: "source".into(),
+                            destination_bucket: "projects/_/buckets/grpc-io".into(),
+                            destination_name: "held".into(),
+                            destination: Some(pb::Object {
+                                storage_class: class.into(),
+                                ..Default::default()
+                            }),
+                            if_generation_match: Some(0),
+                            if_source_generation_match: source,
+                            ..Default::default()
+                        }),
+                        None,
+                    )
+                    .await
+                    .unwrap_err();
+                snapshots.push(json!([
+                    label,
+                    class,
+                    format!("{:?}", status.code()),
+                    status.message()
+                ]));
+            }
+            let status = storage
+                .update_bucket(
+                    Request::new(pb::UpdateBucketRequest {
+                        bucket: Some(pb::Bucket {
+                            name: "projects/_/buckets/grpc-io".into(),
+                            storage_class: class.into(),
+                            ..Default::default()
+                        }),
+                        update_mask: fixtures::mask(&["storage_class"]),
+                        if_metageneration_match: Some(999),
+                        ..Default::default()
+                    }),
+                    None,
+                )
+                .await
+                .unwrap_err();
+            snapshots.push(json!([
+                "bucket-update",
+                class,
+                format!("{:?}", status.code()),
+                status.message()
+            ]));
+            assert_eq!(
+                storage
+                    .state
+                    .catalog
+                    .get_object(live("grpc-io", "held"), Default::default(), PERMISSIVE)
+                    .await
+                    .unwrap(),
+                before,
+                "{class}"
+            );
+        }
+        let mut expected = Vec::new();
+        for class in ["REGIONAL", "standard", "UNKNOWN"] {
+            for label in [
+                "write",
+                "start-resumable",
+                "rewrite-destination",
+                "rewrite-source",
+                "bucket-update",
+            ] {
+                let (code, message) = if label == "rewrite-source" {
+                    (
+                        "FailedPrecondition",
+                        "At least one of the pre-conditions you specified did not hold.".to_owned(),
+                    )
+                } else if class == "REGIONAL" {
+                    ("Unimplemented", if matches!(label, "write" | "start-resumable") {
+                        "gcs-mimic does not support gRPC unsupported metadata change: storageClass=REGIONAL: storageClass requires a region or zone; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+                    } else {
+                        "gcs-mimic does not support gRPC gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name).; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+                    }.to_owned())
+                } else {
+                    ("InvalidArgument", match label {
+                        "write" | "start-resumable" => "Invalid object storageClass; use STANDARD, NEARLINE, COLDLINE or ARCHIVE".into(),
+                        "bucket-update" => format!("Invalid storage class \"{class}\""),
+                        _ => "The storage class you specified is not valid.".into(),
+                    })
+                };
+                expected.push(json!([label, class, code, message]));
+            }
+        }
+        assert_eq!(snapshots, expected);
         storage.state.catalog.close().await.unwrap();
     }
 
