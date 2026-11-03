@@ -9,6 +9,14 @@ async fn setup() -> (TestDir, TestDir, Catalog) {
     (data, root, catalog)
 }
 
+#[test]
+fn unrelated_would_block_keeps_its_io_cause() {
+    let error = RootError::from(io::Error::from_raw_os_error(libc::EAGAIN));
+    assert!(
+        matches!(error, RootError::Admin(AdminError::Io(ref cause)) if cause.source().and_then(|source| source.downcast_ref::<io::Error>()).and_then(io::Error::raw_os_error) == Some(libc::EAGAIN))
+    );
+}
+
 #[tokio::test]
 async fn sync_root_activation_baseline_reopen_and_reinitialize_preserve_data() {
     let (data, root, catalog) = setup().await;

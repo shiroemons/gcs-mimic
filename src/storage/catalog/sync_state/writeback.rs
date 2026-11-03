@@ -126,8 +126,8 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("write-back: ")?;
         match self {
-            Self::Admin(error) => write!(f, "Admin({error:?})"),
-            Self::Root(error) => write!(f, "Root({error:?})"),
+            Self::Admin(_) => f.write_str("admin operation failed"),
+            Self::Root(_) => f.write_str("root validation failed"),
             Self::Capacity => f.write_str("Capacity"),
             Self::RecoveryRequired => f.write_str("RecoveryRequired"),
             Self::Protected => f.write_str("Protected"),
@@ -274,16 +274,19 @@ pub(crate) struct Status {
     captured_entries: u64,
 }
 impl Status {
+    fn effective_entries(&self) -> u64 {
+        self.entries + self.conflicts.entries - self.captured_entries
+    }
     fn over_limit(&self) -> bool {
         self.reserved_bytes
             + self.retained_bytes
             + self.conflicts.reserved_bytes
             + self.conflicts.retained_bytes
             > u128::from(self.limits.bytes)
-            || self.entries + self.conflicts.entries - self.captured_entries > self.limits.entries
+            || self.effective_entries() > self.limits.entries
     }
     fn would_exceed(&self, reservation: u64) -> bool {
-        self.entries + self.conflicts.entries - self.captured_entries >= self.limits.entries
+        self.effective_entries() >= self.limits.entries
             || self.reserved_bytes
                 + self.retained_bytes
                 + self.conflicts.reserved_bytes
@@ -345,7 +348,8 @@ impl RootLease {
                         } else {
                             fsutil::DirectoryOpen::Existing
                         },
-                    )?;
+                    )
+                    .map_err(workspace_open_error)?;
                     let identity = fsutil::stat_identity(&directory)?;
                     if identity.device != fsutil::stat_identity(root)?.device
                         || expected.is_some_and(|(device, inode)| {
@@ -364,11 +368,12 @@ impl RootLease {
             .await?;
         let directory = match directory {
             Ok(directory) => directory,
-            Err(error) => {
+            Err(error @ Error::WorkspaceChanged) => {
                 let owner = self.clone();
                 self.catalog().run_admin(move|c| {let _owner=owner;sql::exec(c, "UPDATE sync_writeback_roots SET recovery=1,io_failure=1 WHERE root_id=?1", [root])?;Ok(())}).await?;
                 return Err(error);
             }
+            Err(error) => return Err(error),
         };
         let identity = fsutil::stat_identity(&directory)?;
         let state = Writeback {
@@ -471,7 +476,7 @@ pub(super) fn observation(
         state: value.stop,
         reserved_bytes: value.reserved_bytes + value.conflicts.reserved_bytes,
         retained_bytes: value.retained_bytes + value.conflicts.retained_bytes,
-        entries: value.entries + value.conflicts.entries - value.captured_entries,
+        entries: value.effective_entries(),
         protected_entries: value.protected_entries,
         max_bytes: value.limits.bytes,
         max_entries: value.limits.entries,
@@ -601,7 +606,7 @@ fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
         mapping::WORKSPACE.as_ref(),
         fsutil::DirectoryOpen::Existing,
     )
-    .map_err(|_| Error::WorkspaceChanged)?;
+    .map_err(workspace_open_error)?;
     let selected = fsutil::stat_identity(&selected)?;
     let owned = fsutil::stat_identity(workspace)?;
     if selected.device != owned.device
@@ -611,6 +616,14 @@ fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
         return Err(Error::WorkspaceChanged);
     }
     Ok(())
+}
+
+fn workspace_open_error(error: io::Error) -> Error {
+    if error.kind() == io::ErrorKind::NotFound {
+        Error::WorkspaceChanged
+    } else {
+        error.into()
+    }
 }
 fn fingerprint(
     root: &File,

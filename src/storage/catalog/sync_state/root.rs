@@ -109,7 +109,6 @@ impl From<CatalogError> for RootError {
 impl From<io::Error> for RootError {
     fn from(error: io::Error) -> Self {
         match error.kind() {
-            io::ErrorKind::WouldBlock => Self::InUse,
             io::ErrorKind::Unsupported => Self::Unsupported,
             _ => Self::Admin(error.into()),
         }
@@ -127,7 +126,7 @@ impl std::fmt::Display for RootError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("synchronization root: ")?;
         match self {
-            Self::Admin(error) => write!(f, "Admin({error:?})"),
+            Self::Admin(_) => f.write_str("admin operation failed"),
             Self::InUse => f.write_str("InUse"),
             Self::Unsupported => f.write_str("Unsupported"),
             Self::RootChanged => f.write_str("RootChanged"),
@@ -464,7 +463,13 @@ impl SyncState {
                 .file_workers
                 .run(move || {
                     let selected_path = std::path::absolute(&path)?;
-                    let lock = lock::acquire_directory(&selected_path)?;
+                    let lock = lock::acquire_directory(&selected_path).map_err(|error| {
+                        if error.kind() == io::ErrorKind::WouldBlock {
+                            RootError::InUse
+                        } else {
+                            error.into()
+                        }
+                    })?;
                     let canonical = selected_path.canonicalize()?;
                     if crate::source_tree::paths_overlap(&canonical, &data_dir)? {
                         return Err(RootError::RootChanged);

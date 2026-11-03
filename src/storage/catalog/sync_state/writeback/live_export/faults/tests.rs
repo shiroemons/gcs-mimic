@@ -10,6 +10,27 @@ use std::{fs, io::Read, path::Path, time::SystemTime};
 
 const BODY: &[u8] = b"\0\xff immutable API bytes";
 
+#[tokio::test]
+async fn workspace_access_failures_keep_their_cause_without_persisting_recovery() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new().await;
+    let workspace = fixture.tree.0.join(mapping::WORKSPACE);
+    fs::set_permissions(&workspace, fs::Permissions::from_mode(0o000)).unwrap();
+    let status = fixture.writeback.status().await;
+    let reopen = fixture.root.writeback(limits()).await;
+    fs::set_permissions(&workspace, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        matches!(status, Err(Error::Admin(AdminError::Io(ref cause))) if cause.kind() == io::ErrorKind::PermissionDenied)
+    );
+    assert!(
+        matches!(reopen, Err(Error::Admin(AdminError::Io(ref cause))) if cause.kind() == io::ErrorKind::PermissionDenied)
+    );
+    let status = fixture.writeback.status().await.unwrap();
+    assert!(!status.io_failure);
+    assert!(!status.recovery);
+    fixture.shut_down().await;
+}
+
 struct Fixture {
     _data: TestDir,
     tree: TestDir,
