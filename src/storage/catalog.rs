@@ -467,7 +467,7 @@ struct Inner {
     data_dir: PathBuf,
     backend: BlobBackend,
     clock: Arc<dyn Clock>,
-    session_writers: Mutex<std::collections::HashSet<String>>,
+    session_writers: Mutex<resumable::writers::SessionWriters>,
     derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
     maintenance_error: Mutex<Option<BackendCause>>,

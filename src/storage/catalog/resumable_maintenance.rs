@@ -313,7 +313,13 @@ impl Catalog {
             after = last.0.clone();
             for (id, blob_id, deadline) in rows {
                 let catalog = self;
-                let writer = match catalog.try_resumable_writer(&id) {
+                let writer = match catalog
+                    .claim_writer(
+                        super::resumable::writers::WriterKey::Resumable(id.clone()),
+                        super::resumable::writers::KeyOrigin::Catalog,
+                    )
+                    .map_err(CatalogError::from)
+                {
                     Ok(writer) => Arc::new(writer),
                     Err(CatalogError::Unavailable(cause))
                         if cause.failure()

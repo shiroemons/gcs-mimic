@@ -138,8 +138,20 @@ pub(crate) enum Step {
     BeforeCommit,
     /// After the publication transaction committed.
     AfterCommit,
+    /// After a derived draft is created, before its staging directory is synced.
+    DerivedDraftSync,
+    /// Before committing the derived transfer's durable draft and input references.
+    DerivedBeginCommit,
+    /// Before committing removal of a derived transfer and its input references.
+    DerivedCleanupCommit,
+    /// After discarding the derived transfer's references, before releasing staged data.
+    DerivedCleanup,
+    /// After releasing the discarded transfer's staging entries.
+    DerivedCleaned,
     /// Before one write of appended bytes to an appendable data file.
     AppendWrite,
+    /// Before releasing data no committed appendable row references.
+    AppendCleanup,
     /// Before the appendable data file's `sync_data` on a flush.
     AppendSync,
     /// After the appended bytes are durable, before the transaction that publishes their size.

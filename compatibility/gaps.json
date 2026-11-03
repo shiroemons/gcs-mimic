@@ -3,6 +3,17 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-HMAC-RETENTION",
+      "title": "Deleted HMAC key retention uses a bounded local policy",
+      "status": "OPEN",
+      "affected_features": ["JSON-PROJECTS-HMACKEYS-002", "JSON-PROJECTS-HMACKEYS-003", "JSON-PROJECTS-HMACKEYS-004"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/list", "https://docs.cloud.google.com/storage/docs/authentication/managing-hmackeys"],
+      "observed_at": "2026-11-03",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Cloud Storage exposes DELETED metadata through showDeletedKeys without documenting a retention period. Each successful local deletion retains the newest 128 DELETED keys in that project by updated time and access ID, purging older tombstones in the same transaction. Purged metadata returns 404; secrets are erased immediately on deletion. Existing overfull projects converge on their next successful deletion. The separate ten-live-key service-account quota is unchanged. Contract: docs/en/slices/project-hmac-keys.md.",
+      "required_resolution": "Keep the method rows PARTIAL and identify this count bound as local policy. Do not claim exact provider tombstone retention without authoritative evidence. Preserve project isolation and immediate secret erasure."
+    },
+    {
       "id": "SPEC-V2-LEGACY",
       "title": "Legacy V2 provider, encoding and SDK boundaries beyond the accepted native cores",
       "status": "OPEN",
@@ -1112,7 +1123,7 @@
       "observed_at": "2026-10-29",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Media/multipart and JSON copy accept a single nonempty invocation token with or without conditions. Schema 35 commits the ObjectRecord and originally visible ACL snapshot atomically with publication. Copy binds method, raw URI, advertised base, raw body digest, both CSEK digests, authentication profile/principal and source/destination bucket incarnations. Identical retries retain the original response after source/destination overwrite or deletion and restart; current source-read/destination-create authorization is rechecked, including in the publication transaction. ACL-read revocation omits ACL/owner from an otherwise authorized response; required create/source-read denial remains 403. A changed binding fails 400; mid-flight bucket recreation fails 412. Media/multipart retain their existing body/EOF/size/hash checks and replay semantics. All three share a global 4096-entry, ten-minute cache with 64 KiB completions; new entries fail safely with 503 at capacity, without early eviction, while retained duplicates still replay. Empty/duplicate tokens fail 400. GET/DELETE/update and resumable initiation retain their no-replay contract; session offsets govern chunk retries. Source and acceptance tests: docs/en/slices/sdk-upload-replay.md; final-source suite/SDK evidence remains pending.",
-      "required_resolution": "Keep affected broad rows PARTIAL. Exact provider cache lifetime, conflict/error semantics and replay for other methods remain unverified; malformed-token HTTP coverage on list/PATCH is still pending. Copy token admission checks destination conditions/capacity before source-object lookup; local 412/503 precedence over source 404/412 is provider-unverified. Preserve current authorization, checksum and atomic-condition checks and do not strip SDK headers. Shared HTTPS frontend coverage does not establish native TLS, strict/other profile integration or real-GCS parity."
+      "required_resolution": "Keep affected broad rows PARTIAL. Exact provider cache lifetime, conflict/error semantics and replay for other methods remain unverified; malformed-token HTTP coverage on list/PATCH is still pending. Copy token admission checks destination conditions/capacity before source-object lookup; local 412/503 precedence over source 404/412 is provider-unverified. A missing or recreated source bucket fails the recorded incarnation precondition with local 412, including during publication. Versioned canonical binary fingerprints replace Debug formatting; retained older encodings can fail closed with 400 until their original ten-minute deadline after an upgrade. Preserve current authorization, checksum and atomic-condition checks and do not strip SDK headers. Shared HTTPS frontend coverage does not establish native TLS, strict/other profile integration or real-GCS parity."
     },
     {
       "id": "SPEC-015",

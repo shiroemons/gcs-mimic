@@ -58,6 +58,7 @@ pub(in crate::storage::catalog) enum PublishIdentity {
     Assigned,
     /// Admin publication validates imported identities against their request before admission.
     Imported(super::super::admin::ImportedIdentity),
+    Reserved(super::super::appendable::ReservedGeneration),
 }
 
 impl PublishIdentity {
@@ -68,6 +69,7 @@ impl PublishIdentity {
                 GenerationAssignment::Automatic,
                 GenerationAssignment::Imported,
             ),
+            Self::Reserved(reserved) => GenerationAssignment::Imported(reserved.generation()),
         }
     }
 
@@ -75,6 +77,7 @@ impl PublishIdentity {
         match self {
             Self::Assigned => None,
             Self::Imported(identity) => Some((identity.time_created(), identity.updated())),
+            Self::Reserved(reserved) => Some((reserved.time_created(), reserved.updated())),
         }
     }
 
@@ -90,15 +93,16 @@ impl PublishIdentity {
 impl UploadCommit {
     /// Identifies the request for upload replay: target, metadata, conditions and body.
     fn fingerprint(&self) -> Vec<u8> {
-        super::super::upload_replay::fingerprint(&(
-            &self.bucket,
-            &self.name,
-            &self.content_type,
-            &self.metadata,
-            self.conditions,
-            self.body.size,
-            self.body.sha256,
-        ))
+        super::super::upload_replay::UploadFingerprint {
+            bucket: &self.bucket,
+            name: &self.name,
+            content_type: &self.content_type,
+            metadata: &self.metadata,
+            conditions: self.conditions,
+            size: self.body.size,
+            sha256: self.body.sha256,
+        }
+        .digest()
     }
 
     fn record(

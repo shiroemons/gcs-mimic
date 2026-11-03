@@ -209,8 +209,10 @@ File content I/O, publication/removal, directory sync and gzip decoding stay on 
 runtime's bounded blocking pool, so a saturated pool cannot hold the execution permit
 while catalog work waits for a pool thread. A serialized metadata job may pin an
 immutable inode while selecting its source, so a concurrent purge cannot remove that
-source before publication. This short namespace operation performs no content copying
-or synchronization. A queued job runs to completion even if its caller is cancelled, and a
+source before publication. Pin hard links and in-transaction descriptor opens stay
+on the catalog thread because catalog serialization orders them before reclamation.
+These short namespace operations perform no content copying or synchronization.
+A queued job runs to completion even if its caller is cancelled, and a
 panicking job fails only its own call. Closing the catalog runs the last job, which
 closes the connection and releases the directory lock before close returns; the
 thread then exits. Inserts enforce globally unique local names in SQL; delete checks

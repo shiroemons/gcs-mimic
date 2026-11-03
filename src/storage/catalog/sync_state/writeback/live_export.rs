@@ -28,7 +28,7 @@ fn failure(root: RootId, phase: &str) -> Result<(), Error> {
         .find(|(selected, step, count)| *selected == root && *step == phase && *count > 0)
     {
         *count -= 1;
-        return Err(AdminError::DiskFull.into());
+        return Err(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into()).into());
     }
     Ok(())
 }

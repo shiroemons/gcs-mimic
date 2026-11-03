@@ -20,7 +20,7 @@ ACTIVE keys verify signatures under the [V4](xml-v4-signatures.md) and
 - HMAC-SECRET-ONCE: get, list and update return metadata only; the secret is
   never returned again.
 - HMAC-GET: get returns `storage#hmacKeyMetadata` for a key in the path project,
-  including DELETED keys. An unknown access ID or a key owned by another project
+  including retained DELETED keys. An unknown access ID or a key owned by another project
   returns 404 notFound.
 - HMAC-LIST: list returns `storage#hmacKeysMetadata` ordered by access ID.
   `serviceAccountEmail` filters exactly; `showDeletedKeys=true` includes DELETED
@@ -39,6 +39,11 @@ ACTIVE keys verify signatures under the [V4](xml-v4-signatures.md) and
   the etag and erases the stored secret in the same transaction. Deleting an
   ACTIVE key returns 400 badRequest; deleting or updating a DELETED key returns
   400 badRequest. Rejected requests leave the key unchanged.
+  Each successful deletion retains the newest 128 DELETED keys in that project,
+  ordered by update time and access ID; older tombstones are purged and then
+  return 404 from get. This is a local resource bound: Cloud Storage documents
+  `showDeletedKeys` without guaranteeing a retention period. Existing larger
+  catalogs converge at the next successful deletion in each project.
 - HMAC-LIMIT: at most ten keys that are not DELETED exist per project and
   service account email. The eleventh creation returns 400 badRequest;
   deleting a key frees a slot. The count and insert run in one immediate

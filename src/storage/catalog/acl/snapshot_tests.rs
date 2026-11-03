@@ -11,6 +11,158 @@ use bytes::Bytes;
 use std::sync::Arc;
 
 #[test]
+fn malformed_stored_acl_keeps_the_json_error_source() {
+    let error = decode("[", AclKind::Bucket).unwrap_err();
+    assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+}
+
+#[test]
+fn public_policy_is_read_only_for_an_eligible_public_grant() {
+    let private = [AclEntry {
+        entity: "user-delegate@example.test".into(),
+        role: AclRole::Owner,
+    }];
+    assert!(
+        !entries_grant(
+            &private,
+            None,
+            |_| true,
+            || panic!("private entities do not consult public policy")
+        )
+        .unwrap()
+    );
+    let public = [
+        AclEntry {
+            entity: "allUsers".into(),
+            role: AclRole::Reader,
+        },
+        AclEntry {
+            entity: "allAuthenticatedUsers".into(),
+            role: AclRole::Reader,
+        },
+    ];
+    assert!(
+        !entries_grant(
+            &public,
+            None,
+            |_| false,
+            || panic!("irrelevant roles do not consult public policy")
+        )
+        .unwrap()
+    );
+    let mut reads = 0;
+    assert!(
+        !entries_grant(
+            &public,
+            None,
+            |_| true,
+            || {
+                reads += 1;
+                Ok(crate::auth::PublicAccess::Prevented)
+            }
+        )
+        .unwrap()
+    );
+    assert_eq!(reads, 1);
+}
+
+#[tokio::test]
+async fn page_projection_preserves_generation_order_owner_and_access_restrictions() {
+    let data = TestDir::new();
+    let (catalog, auth, record) = setup(&data, "disk").await;
+    let generation = record.generation;
+    catalog.run::<_, CatalogError>(move |connection| {
+        sql::exec(connection, "UPDATE acl_object_entries SET entries=?1 WHERE bucket='bucket' AND name='object' AND generation=?2", params![r#"[{"entity":"allUsers","role":"OWNER"},{"entity":"user-delegate@example.test","role":"OWNER"}]"#, generation])?;
+        Ok(())
+    }).await.unwrap();
+    let principals = auth.principals().unwrap();
+    for (uniform, prevented) in [(false, false), (false, true), (true, false)] {
+        catalog
+            .patch_bucket(
+                "bucket",
+                crate::bucket::BucketMetadataUpdate {
+                    uniform_bucket_level_access_enabled: Some(uniform),
+                    public_access_prevention_enforced: Some(prevented),
+                    ..Default::default()
+                },
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        for identity in [None, Some(&principals[0]), Some(&principals[1])] {
+            let access = catalog
+                .bucket_access("bucket", identity, crate::auth::OBJECTS_GET_IAM)
+                .await
+                .unwrap();
+            let projection = catalog
+                .object_acl_projection(
+                    "bucket",
+                    vec![
+                        ("object".into(), generation),
+                        ("missing".into(), generation),
+                        ("object".into(), generation + 1),
+                        ("object".into(), generation),
+                    ],
+                    &access,
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            let checked = access.clone();
+            let allowed = catalog
+                .run::<_, CatalogError>(move |connection| {
+                    match super::super::objects::authorize_generation(
+                        connection, "bucket", "object", generation, &checked,
+                    ) {
+                        Ok(()) => Ok(true),
+                        Err(ObjectError::Forbidden) => Ok(false),
+                        Err(error) => Err(unavailable(error)),
+                    }
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                projection.visible,
+                [allowed, false, false, allowed],
+                "uniform={uniform}, prevented={prevented}"
+            );
+            assert_eq!(projection.objects[0], projection.objects[3]);
+            if allowed {
+                assert_eq!(projection.owners[0], record.owner);
+            }
+            assert!(projection.objects[1].is_empty() && projection.owners[1].is_none());
+            if let BucketAccess::Policy {
+                identity,
+                permission,
+                ..
+            } = access
+            {
+                let wrong_project = BucketAccess::Policy {
+                    identity,
+                    permission,
+                    project: Some("other".into()),
+                };
+                assert_eq!(
+                    catalog
+                        .object_acl_projection(
+                            "bucket",
+                            vec![("object".into(), generation)],
+                            &wrong_project
+                        )
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .visible,
+                    [false]
+                );
+            }
+        }
+    }
+    catalog.close().await.unwrap();
+}
+
+#[test]
 fn unknown_stored_acl_role_is_catalog_corruption() {
     for role in ["unknown", "reader", "", "FULL_CONTROL"] {
         let encoded = serde_json::json!([{"entity":"allUsers","role":role}]).to_string();
