@@ -22,6 +22,9 @@ use std::{
 #[cfg(test)]
 pub(super) mod golden_tests;
 mod options;
+pub(super) mod writers;
+pub(super) use writers::WriterGuard;
+use writers::{KeyOrigin, WriterKey};
 
 /// Caps ACTIVE sessions, the only ones that own staged bytes.
 pub(crate) const MAX_SESSIONS: usize = 128;
@@ -52,6 +55,10 @@ CREATE TABLE resumable_sessions (
 ) WITHOUT ROWID;
 CREATE INDEX resumable_sessions_deadline ON resumable_sessions(deadline, id);
 PRAGMA user_version = 7;";
+
+macro_rules! session_columns {
+    () => { "id, blob_id, bucket, name, incarnation, options, total, offset, created, deadline, state, completion" };
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SessionState {
@@ -151,30 +158,6 @@ pub(crate) struct SessionLease {
     pub session: ResumableSession,
     guard: WriterGuard,
 }
-pub(super) struct WriterGuard {
-    pub(super) catalog: Catalog,
-    pub(super) id: String,
-    pub(super) _activity: super::Activity,
-}
-impl Drop for WriterGuard {
-    fn drop(&mut self) {
-        self.catalog
-            .0
-            .session_writers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&self.id);
-        if self.id.starts_with("derived:") {
-            self.catalog.0.derived_wake.notify_waiters();
-        }
-        if self.id.starts_with("derived:")
-            || self.id.starts_with("rewrite:")
-            || self.id.starts_with("multipart:")
-        {
-            self.catalog.0.maintenance_wake.notify_one();
-        }
-    }
-}
 impl SessionLease {
     #[cfg(test)]
     pub(crate) fn staging_path(&self) -> PathBuf {
@@ -227,8 +210,11 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         "invalid resumable catalog state",
     )?;
     // Admission keeps at most MAX_SESSIONS active plus MAX_TERMINAL_SESSIONS terminal rows.
-    let mut statement =
-        connection.prepare_cached("SELECT * FROM resumable_sessions ORDER BY id LIMIT 257")?;
+    let mut statement = connection.prepare_cached(concat!(
+        "SELECT ",
+        session_columns!(),
+        " FROM resumable_sessions ORDER BY id LIMIT 257"
+    ))?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         read_session(row)?;
@@ -272,7 +258,8 @@ fn admit_session(
             break;
         }
         // A request holding the session (such as a finalizer re-reading its outcome) keeps it.
-        let Ok(guard) = catalog.try_resumable_writer(&id) else {
+        let Ok(guard) = catalog.claim_writer(WriterKey::Resumable(id.clone()), KeyOrigin::Catalog)
+        else {
             continue;
         };
         if state == "COMPLETE" {
@@ -341,7 +328,7 @@ impl Catalog {
             }
             #[cfg(test)]
             super::fault::hit(&catalog.0.data_dir, super::fault::Step::SessionCreated).map_err(unavailable)?;
-            sql::row(connection, "SELECT * FROM resumable_sessions WHERE id = ?1", [&id], read_session).map_err(|e|unavailable(e).into())
+            sql::row(connection, concat!("SELECT ", session_columns!(), " FROM resumable_sessions WHERE id = ?1"), [&id], read_session).map_err(|e|unavailable(e).into())
         }).await?;
         self.0.maintenance_wake.notify_one();
         Ok(session)
@@ -361,7 +348,11 @@ impl Catalog {
             .run_waiting(move |connection| {
                 sql::row(
                     connection,
-                    "SELECT * FROM resumable_sessions WHERE id = ?1 AND bucket = ?2",
+                    concat!(
+                        "SELECT ",
+                        session_columns!(),
+                        " FROM resumable_sessions WHERE id = ?1 AND bucket = ?2"
+                    ),
                     params![id, bucket],
                     read_session,
                 )
@@ -393,16 +384,8 @@ impl Catalog {
     }
 
     pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {
-        let activity = self.activity()?;
-        let mut writers = self.0.session_writers.lock().map_err(unavailable)?;
-        if writers.len() >= MAX_SESSIONS || !writers.insert(id.to_owned()) {
-            return Err(unavailable(BackendFailure::SessionBusy));
-        }
-        Ok(WriterGuard {
-            catalog: self.clone(),
-            id: id.to_owned(),
-            _activity: activity,
-        })
+        self.claim_writer(WriterKey::Resumable(id.to_owned()), KeyOrigin::Client)
+            .map_err(CatalogError::from)
     }
 
     pub(crate) async fn prepare_resumable_status(

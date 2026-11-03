@@ -207,7 +207,11 @@ Each operation has immediate bounded admission (32 calls), then awaits one execu
 permit before queuing its job on a dedicated catalog thread that owns no other work.
 File I/O and gzip decoding stay on the runtime's bounded blocking pool, so a
 saturated pool cannot hold the execution permit while catalog work waits for a pool
-thread. A queued job runs to completion even if its caller is cancelled, and a
+thread.
+Pin hard links and in-transaction opens stay on the catalog thread because
+catalog serialization orders them before reclamation. Data and directory fsync,
+publication renames and unlinks run on the blocking pool before or after the SQL job.
+A queued job runs to completion even if its caller is cancelled, and a
 panicking job fails only its own call. Closing the catalog runs the last job, which
 closes the connection and releases the directory lock before close returns; the
 thread then exits. Inserts enforce globally unique local names in SQL; delete checks

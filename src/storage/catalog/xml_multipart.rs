@@ -1,5 +1,6 @@
 //! Persistent XML multipart state; ordinary objects appear only at completion.
 
+use super::resumable::writers::{ClaimError, KeyOrigin, WriterKey};
 use super::{Catalog, objects, resumable, system_time_millis, unix_millis};
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{bucket_incarnation, sql};
@@ -279,22 +280,12 @@ impl Catalog {
         target: Target,
         access: BucketAccess,
     ) -> Result<Lease, Error> {
-        let activity = self.activity()?;
-        let id = format!("multipart:{}", target.id);
-        if !self
-            .0
-            .session_writers
-            .lock()
-            .map_err(object_unavailable)?
-            .insert(id.clone())
-        {
-            return Err(Error::Busy);
-        }
-        let guard = resumable::WriterGuard {
-            catalog: self.clone(),
-            id,
-            _activity: activity,
-        };
+        let guard = self
+            .claim_writer(WriterKey::Multipart(target.id.clone()), KeyOrigin::Client)
+            .map_err(|error| match error {
+                ClaimError::Busy => Error::Busy,
+                error => CatalogError::from(error).into(),
+            })?;
         let checked = access.clone();
         let now = unix_millis(self.0.clock.now())?;
         let upload = self

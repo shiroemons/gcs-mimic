@@ -179,16 +179,22 @@ impl Catalog {
                     let mut failure = None;
                     for (id, blob_id, deadline) in rows {
                         last = Some(id.clone());
-                        let result = catalog.try_resumable_writer(&id).and_then(|_guard| {
-                            clean_record(
-                                connection,
-                                &catalog.0.backend,
-                                &id,
-                                &blob_id,
-                                deadline,
-                                now,
+                        let result = catalog
+                            .claim_writer(
+                                super::resumable::writers::WriterKey::Resumable(id.clone()),
+                                super::resumable::writers::KeyOrigin::Catalog,
                             )
-                        });
+                            .map_err(CatalogError::from)
+                            .and_then(|_guard| {
+                                clean_record(
+                                    connection,
+                                    &catalog.0.backend,
+                                    &id,
+                                    &blob_id,
+                                    deadline,
+                                    now,
+                                )
+                            });
                         if let Err(error) = result {
                             failure = Some(error);
                         }

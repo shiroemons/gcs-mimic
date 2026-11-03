@@ -2,6 +2,7 @@ use super::{
     Catalog, CatalogError,
     derived::{DerivedDestination, DerivedSegment},
     resumable,
+    resumable::writers::{ClaimError, KeyOrigin, WriterKey},
     rewrite_token::RewriteToken,
     system_time_millis, unix_millis,
 };
@@ -38,6 +39,12 @@ pub(super) const SCHEMA: &str = "CREATE TABLE rewrite_sessions (
 ) WITHOUT ROWID;
 CREATE INDEX rewrite_sessions_deadline ON rewrite_sessions(deadline, id);
 PRAGMA user_version = 11;";
+
+macro_rules! session_columns {
+    () => {
+        "id, token, previous_token, request, offset, total, deadline, response, transfer_id"
+    };
+}
 
 #[derive(Debug)]
 pub(crate) enum RewriteError {
@@ -245,12 +252,7 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
 /// Whether a decoded session's identifiers, progress and stored response agree; an
 /// incomplete session owns the derived transfer with its own ID, a completed one none.
 fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> bool {
-    let opaque_id = |value: &str| {
-        value.len() == 32
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    };
+    let opaque_id = |value: &str| BlobId::parse(value).is_some();
     let completed = session
         .response
         .as_ref()
@@ -291,8 +293,11 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         "SELECT (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL)<=128 AND (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)<=128",
         "rewrite session limit exceeded",
     )?;
-    let mut statement =
-        connection.prepare_cached("SELECT * FROM rewrite_sessions ORDER BY id LIMIT 257")?;
+    let mut statement = connection.prepare_cached(concat!(
+        "SELECT ",
+        session_columns!(),
+        " FROM rewrite_sessions ORDER BY id LIMIT 257"
+    ))?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         read(row).map_err(super::unavailable)?;
@@ -437,7 +442,11 @@ impl Catalog {
                 )?;
                 let session = sql::row(
                     connection,
-                    "SELECT * FROM rewrite_sessions WHERE id=?1",
+                    concat!(
+                        "SELECT ",
+                        session_columns!(),
+                        " FROM rewrite_sessions WHERE id=?1"
+                    ),
                     [&transfer.id],
                     read,
                 )?;
@@ -467,7 +476,11 @@ impl Catalog {
             .run(move |connection| {
                 sql::row(
                     connection,
-                    "SELECT * FROM rewrite_sessions WHERE token = ?1 OR previous_token = ?1",
+                    concat!(
+                        "SELECT ",
+                        session_columns!(),
+                        " FROM rewrite_sessions WHERE token = ?1 OR previous_token = ?1"
+                    ),
                     [token],
                     read,
                 )
@@ -490,7 +503,9 @@ impl Catalog {
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<RewriteProgress, RewriteError> {
         let session = self.rewrite_session(token).await?;
-        let _guard = self.try_resumable_writer(&format!("rewrite:{}", session.id))?;
+        let _guard = self
+            .claim_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
+            .map_err(CatalogError::from)?;
         let mut session = self.rewrite_session(token).await?;
         let replay = session.previous_token.as_deref() == Some(token);
         let checked = session.clone();
@@ -597,10 +612,13 @@ impl Catalog {
         let saved = response.to_string();
         let id = session.id;
         let now = unix_millis(self.0.clock.now())?;
-        self.run(move |connection| {
+        let changed = self.run(move |connection| {
             let changed=sql::exec(connection, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5", params![id,next,current.offset,saved,now])?;
-            if changed!=1 {return Err(ObjectError::PreconditionFailed);}Ok(())
+            Ok::<_, ObjectError>(changed)
         }).await?;
+        if changed != 1 {
+            return Err(RewriteError::Gone);
+        }
         progress(&session, &response).map_err(Into::into)
     }
 
@@ -608,6 +626,7 @@ impl Catalog {
         &self,
         now: i64,
     ) -> Result<Option<SystemTime>, CatalogError> {
+        let mut failure = None;
         let mut after = String::new();
         loop {
             let cursor = after.clone();
@@ -617,35 +636,40 @@ impl Catalog {
             }
             for id in ids {
                 after = id.to_hex();
-                let key = format!("rewrite:{id}");
-                let activity = self.activity()?;
-                let _guard = {
-                    let mut writers = self.0.session_writers.lock().map_err(super::unavailable)?;
-                    if writers.contains(&key) || writers.len() >= 128 {
+                let _guard = match self.claim_writer(WriterKey::Rewrite(id), KeyOrigin::Catalog) {
+                    Ok(guard) => guard,
+                    Err(ClaimError::Busy) => continue,
+                    Err(error) => {
+                        failure = Some(CatalogError::from(error));
                         continue;
-                    }
-                    writers.insert(key.clone());
-                    resumable::WriterGuard {
-                        catalog: self.clone(),
-                        id: key,
-                        _activity: activity,
                     }
                 };
                 match self.cancel_derived(&id).await {
                     Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
-                    Err(error) => return Err(super::unavailable(error)),
+                    Err(ObjectError::DerivedTransferBusy) => continue,
+                    Err(error) => {
+                        failure = Some(super::unavailable(error));
+                        continue;
+                    }
                 }
-                self.run(move |connection| {
-                    sql::exec(
-                        connection,
-                        "DELETE FROM rewrite_sessions WHERE id=?1 AND deadline<=?2",
-                        params![id, now],
-                    )
-                    .map(|_| ())
-                    .map_err(super::unavailable)
-                })
-                .await?;
+                if let Err(error) = self
+                    .run(move |connection| {
+                        sql::exec(
+                            connection,
+                            "DELETE FROM rewrite_sessions WHERE id=?1 AND deadline<=?2",
+                            params![id, now],
+                        )
+                        .map(|_| ())
+                        .map_err(super::unavailable)
+                    })
+                    .await
+                {
+                    failure = Some(error);
+                }
             }
+        }
+        if let Some(error) = failure {
+            return Err(error);
         }
         self.run(move |connection| {
             // Rewrite calls wake the maintenance sweep, so this runs per request.
@@ -809,6 +833,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn expiry_during_copy_returns_gone_when_checkpointing_the_next_token() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct ExpiringClock(AtomicUsize);
+        impl crate::clock::Clock for ExpiringClock {
+            fn now(&self) -> SystemTime {
+                let expired = self.0.fetch_add(1, Ordering::SeqCst) >= 4;
+                UNIX_EPOCH + Duration::from_millis(if expired { 604801000 } else { 1000 })
+            }
+        }
+        let dir = crate::test_support::TestDir::new();
+        let clock = Arc::new(ExpiringClock(AtomicUsize::new(0)));
+        let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+            .await
+            .unwrap();
+        clock.0.store(0, Ordering::SeqCst);
+        catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        clock.0.store(0, Ordering::SeqCst);
+        catalog
+            .put_object(
+                permissive_upload("bucket", "source", 8),
+                body(vec![bytes::Bytes::from_static(b"contents")]),
+            )
+            .await
+            .unwrap();
+        clock.0.store(0, Ordering::SeqCst);
+        let (token, mut owner) = new_session(&catalog).await.unwrap();
+        owner.disarm();
+        catalog
+            .run::<_, CatalogError>(|connection| {
+                sql::exec(
+                    connection,
+                    "UPDATE rewrite_sessions SET request=json_set(request,'$.budget',1)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        clock.0.store(0, Ordering::SeqCst);
+        assert!(matches!(
+            catalog
+                .continue_rewrite(
+                    &token,
+                    BucketAccess::Permissive,
+                    BucketAccess::Permissive,
+                    |_| Ok(json!({}))
+                )
+                .await,
+            Err(RewriteError::Gone)
+        ));
+        catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others() {
         let (catalog, directory, clock) = fixture().await;
         let mut first = None;
@@ -828,7 +909,10 @@ mod tests {
         let token = first.unwrap();
         let session = catalog.rewrite_session(&token).await.unwrap();
         let guard = catalog
-            .try_resumable_writer(&format!("rewrite:{}", session.id))
+            .claim_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
+            .unwrap();
+        let derived_guard = catalog
+            .claim_writer(WriterKey::Derived(session.id), KeyOrigin::Catalog)
             .unwrap();
         clock.set(UNIX_EPOCH + Duration::from_millis(604801000));
         assert!(matches!(
@@ -860,6 +944,22 @@ mod tests {
         )
         .await
         .unwrap();
+        assert!(
+            catalog
+                .maintain_rewrite_sessions(604801000)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let remaining: i64 = catalog
+            .run(|connection| {
+                sql::scalar(connection, "SELECT count(*) FROM rewrite_sessions", [])
+                    .map_err(super::super::unavailable)
+            })
+            .await
+            .unwrap();
+        assert_eq!(remaining, 1);
+        drop(derived_guard);
         assert!(
             catalog
                 .maintain_rewrite_sessions(604801000)
@@ -945,7 +1045,12 @@ mod tests {
                     })
                     .await
                     .unwrap();
-                if count == 0 {
+                if count == 0
+                    && std::fs::read_dir(directory.join("staging"))
+                        .unwrap()
+                        .count()
+                        == 0
+                {
                     break;
                 }
                 tokio::task::yield_now().await;
