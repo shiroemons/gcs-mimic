@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::catalog::fault::{Fault, Step};
+use crate::storage::catalog::fault::{Crash, Fault, Step};
 use crate::storage::catalog::sql;
 
 #[tokio::test]
@@ -63,31 +63,8 @@ async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_disca
                 10
             );
         }
-        let Fixture {
-            data,
-            tree,
-            catalog,
-            lease,
-            bucket,
-            winner,
-        } = fixture;
         drop(writeback);
-        drop(lease);
-        catalog.close().await.unwrap();
-        let catalog = Catalog::open(&data.0).await.unwrap();
-        let lease = catalog
-            .sync_state()
-            .activate_root(&tree.0, Activation::Open)
-            .await
-            .unwrap();
-        let fixture = Fixture {
-            data,
-            tree,
-            catalog,
-            lease,
-            bucket,
-            winner,
-        };
+        let fixture = fixture.restart(Journal::Disabled).await;
         if step == Step::ConflictAccept {
             assert!(matches!(
                 fixture
@@ -273,7 +250,7 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
         Step::ConflictComplete,
         Step::ConflictCompleted,
     ] {
-        for power_loss in [false, true] {
+        for &crash in Crash::ALL {
             let fixture = Fixture::new().await;
             let (writeback, id) = protected_workspace(&fixture, 10).await;
             let item = fixture
@@ -300,11 +277,7 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
                 &fixture.tree.0,
                 step,
                 0,
-                if power_loss {
-                    Fault::PowerLoss(tree_snapshot.clone())
-                } else {
-                    Fault::Snapshot(tree_snapshot.clone())
-                },
+                crash.fault(tree_snapshot.clone()),
             );
             fixture
                 .catalog
@@ -323,20 +296,13 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
             let saved = tree_snapshot
                 .join(crate::sync::mapping::WORKSPACE)
                 .join(&id);
-            if power_loss && matches!(step, Step::ConflictUnlinked | Step::ConflictParentSync) {
+            if crash == Crash::PowerLoss
+                && matches!(step, Step::ConflictUnlinked | Step::ConflictParentSync)
+            {
                 assert_eq!(fs::read(&saved).unwrap(), [0; 10]);
             }
-            let Fixture {
-                data: _data,
-                tree,
-                catalog,
-                lease,
-                bucket,
-                winner,
-            } = fixture;
             drop(writeback);
-            drop(lease);
-            catalog.close().await.unwrap();
+            let (_data, tree, bucket, winner) = fixture.shut_down().await;
             for entry in fs::read_dir(&workspace).unwrap() {
                 fs::remove_file(entry.unwrap().path()).unwrap();
             }

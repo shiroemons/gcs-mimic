@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     hashing::Hasher,
-    storage::catalog::fault::{self, Fault, Step},
+    storage::catalog::fault::{self, Crash, Step},
 };
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -31,6 +31,7 @@ fn restore_tree(snapshot: &std::path::Path, tree: &std::path::Path) {
     }
 }
 
+#[track_caller]
 fn translated(original: &[u8], file: &std::path::Path) -> Vec<u8> {
     let mut value: serde_json::Value = serde_json::from_slice(original).unwrap();
     let identity = fsutil::stat_identity(&File::open(file).unwrap()).unwrap();
@@ -128,31 +129,14 @@ async fn protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_f
         Step::TransferComplete,
         Step::TransferCompleted,
     ] {
-        for power_loss in [false, true] {
+        for &crash in Crash::ALL {
             let fixture = Fixture::new(4096, 1000).await;
             let item = fixture.protected(BODY).await;
             let snapshots = TestDir::new();
             let data = snapshots.0.join("catalog");
             let tree = snapshots.0.join("tree");
-            fault::arm(
-                &fixture.tree.0,
-                step,
-                0,
-                if power_loss {
-                    Fault::PowerLoss(tree.clone())
-                } else {
-                    Fault::Snapshot(tree.clone())
-                },
-            );
-            fixture.catalog.inject(
-                step,
-                0,
-                if power_loss {
-                    Fault::PowerLoss(data.clone())
-                } else {
-                    Fault::Snapshot(data.clone())
-                },
-            );
+            fault::arm(&fixture.tree.0, step, 0, crash.fault(tree.clone()));
+            fixture.catalog.inject(step, 0, crash.fault(data.clone()));
             fixture.writeback.preserve_protected().await.unwrap();
             assert_eq!(
                 (
@@ -162,18 +146,7 @@ async fn protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_f
                 (0, 0),
                 "{step:?}"
             );
-            let Fixture {
-                data: original_data,
-                tree: original_tree,
-                catalog,
-                lease,
-                writeback,
-                bucket,
-                record,
-            } = fixture;
-            drop(writeback);
-            drop(lease);
-            catalog.close().await.unwrap();
+            let (original_data, original_tree, bucket, record) = fixture.shut_down().await;
             restore_tree(&tree, &original_tree.0);
             let catalog = Catalog::open(&data).await.unwrap();
             translate_snapshot(&catalog, &data, &original_tree.0, item.token.id()).await;
@@ -201,17 +174,17 @@ async fn protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_f
                 .writeback
                 .preserve_protected()
                 .await
-                .unwrap_or_else(|error| panic!("{step:?} power={power_loss}: {error:?}"));
+                .unwrap_or_else(|error| panic!("{step:?} {crash:?}: {error:?}"));
             assert_eq!(
                 (usage.entries, usage.retained_bytes, usage.stop),
                 (0, 0, Stop::Ready),
-                "{step:?} {power_loss}"
+                "{step:?} {crash:?}"
             );
             let page = recovered.page().await;
             assert_eq!(
                 (page.usage.entries, page.usage.retained_bytes),
                 (1, BODY.len() as u128),
-                "{step:?} {power_loss}"
+                "{step:?} {crash:?}"
             );
             assert_eq!(
                 fs::read(data.join("sync-conflicts").join(&page.items[0].conflict_id)).unwrap(),

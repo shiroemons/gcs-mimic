@@ -19,6 +19,13 @@ struct Fixture {
     record: ObjectRecord,
 }
 impl Fixture {
+    async fn shut_down(self) -> (TestDir, TestDir, ObjectRecord) {
+        drop(self.writeback);
+        drop(self.root);
+        self.catalog.close().await.unwrap();
+        (self._data, self.tree, self.record)
+    }
+
     async fn new() -> Self {
         let data = TestDir::new();
         let tree = TestDir::new();
@@ -213,9 +220,7 @@ async fn protected_read_copy_rejects_a_new_external_file_and_failed_writes_or_sy
             fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
             BODY
         );
-        drop(fixture.writeback);
-        drop(fixture.root);
-        fixture.catalog.close().await.unwrap();
+        fixture.shut_down().await;
     }
     let fixture = Fixture::new().await;
     let operation = fixture.begin().await;
@@ -245,9 +250,7 @@ async fn protected_read_copy_rejects_a_new_external_file_and_failed_writes_or_sy
         b"new external file"
     );
     unchanged_api(&fixture.catalog, &fixture.record).await;
-    drop(fixture.writeback);
-    drop(fixture.root);
-    fixture.catalog.close().await.unwrap();
+    fixture.shut_down().await;
 }
 
 fn restore_tree(snapshot: &Path, tree: &Path) {
@@ -278,55 +281,53 @@ async fn protected_read_copy_crash_and_power_loss_preserve_api_bytes_and_stop_un
         Step::SyncCopyInstalled,
         Step::SyncCopyCommit,
     ] {
-        for power_loss in [false, true] {
+        for &crash in fault::Crash::ALL {
             let fixture = Fixture::new().await;
             let snapshots = TestDir::new();
             let data_snapshot = snapshots.0.join("catalog");
             let tree_snapshot = snapshots.0.join("tree");
-            fault::arm(
-                &fixture.tree.0,
-                step,
-                0,
-                if power_loss {
-                    fault::Fault::PowerLoss(tree_snapshot.clone())
-                } else {
-                    fault::Fault::Snapshot(tree_snapshot.clone())
-                },
-            );
+            fault::arm(&fixture.tree.0, step, 0, crash.fault(tree_snapshot.clone()));
             fixture
                 .catalog
                 .inject(step, 0, fault::Fault::Snapshot(data_snapshot.clone()));
             drain(&fixture.writeback, fixture.begin().await).await;
-            assert_eq!(fixture.catalog.pending_faults(), 0);
-            assert_eq!(fault::pending(&fixture.tree.0), 0);
+            assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
+            assert_eq!(fault::pending(&fixture.tree.0), 0, "{step:?} {crash:?}");
             unchanged_api(&fixture.catalog, &fixture.record).await;
-            drop(fixture.writeback);
-            drop(fixture.root);
-            fixture.catalog.close().await.unwrap();
-            restore_tree(&tree_snapshot, &fixture.tree.0);
+            let (_data, tree, record) = fixture.shut_down().await;
+            restore_tree(&tree_snapshot, &tree.0);
             let recovered = Catalog::open(&data_snapshot).await.unwrap();
-            unchanged_api(&recovered, &fixture.record).await;
+            unchanged_api(&recovered, &record).await;
             let root = recovered
                 .sync_state()
-                .activate_root(
-                    &fixture.tree.0,
-                    super::super::super::super::root::Activation::Open,
-                )
+                .activate_root(&tree.0, super::super::super::super::root::Activation::Open)
                 .await
                 .unwrap();
             let writeback = root.writeback(limits()).await.unwrap();
             if step == Step::SyncCopyCommit {
-                assert_eq!(writeback.status().await.unwrap().stop, Stop::Ready);
+                assert_eq!(
+                    writeback.status().await.unwrap().stop,
+                    Stop::Ready,
+                    "{step:?} {crash:?}"
+                );
             } else {
-                assert_ne!(writeback.status().await.unwrap().stop, Stop::Ready);
+                assert_ne!(
+                    writeback.status().await.unwrap().stop,
+                    Stop::Ready,
+                    "{step:?} {crash:?}"
+                );
             }
             if matches!(step, Step::SyncCopyInstalled | Step::SyncCopyCommit) {
                 assert_eq!(
-                    fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
-                    BODY
+                    fs::read(tree.0.join("test-bucket/object")).unwrap(),
+                    BODY,
+                    "{step:?} {crash:?}"
                 );
             } else {
-                assert!(!fixture.tree.0.join("test-bucket/object").exists());
+                assert!(
+                    !tree.0.join("test-bucket/object").exists(),
+                    "{step:?} {crash:?}"
+                );
             }
             drop(writeback);
             drop(root);

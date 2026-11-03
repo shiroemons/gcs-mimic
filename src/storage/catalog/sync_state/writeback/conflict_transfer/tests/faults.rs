@@ -83,7 +83,7 @@ async fn protected_transfer_restarts_each_copy_and_unlink_failure_without_losing
         );
         assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?}");
         fixture.assert_api().await;
-        let fixture = fixture.restart().await;
+        let fixture = fixture.restart(Journal::Enabled).await;
         fixture.writeback.recover_pending().await.unwrap();
         let usage = fixture.writeback.preserve_protected().await.unwrap();
         assert_eq!(
@@ -148,7 +148,7 @@ async fn protected_transfer_retains_original_owner_incarnation_and_generation_af
                 .await
                 .unwrap();
         }
-        let fixture = fixture.restart().await;
+        let fixture = fixture.restart(Journal::Enabled).await;
         fixture.writeback.recover_pending().await.unwrap();
         fixture.writeback.preserve_protected().await.unwrap();
         let page = fixture.page().await;

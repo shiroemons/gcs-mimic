@@ -92,7 +92,7 @@ async fn native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_
         );
         fixture.assert_api().await;
         drop(operation);
-        let fixture = fixture.restart().await;
+        let fixture = fixture.restart(Journal::Enabled).await;
         fixture.writeback.recover_pending().await.unwrap();
         if phase == "displaced-parent-sync" {
             assert_eq!(
@@ -137,7 +137,7 @@ async fn preserved_native_proof_survives_restart_without_charging_another_retain
         (1, BODY.len() as u128)
     );
     drop(operation);
-    let fixture = fixture.restart().await;
+    let fixture = fixture.restart(Journal::Enabled).await;
     assert_eq!(
         fixture.writeback.recover_pending().await.unwrap().stop,
         Stop::Ready

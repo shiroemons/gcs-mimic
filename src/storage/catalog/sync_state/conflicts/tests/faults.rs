@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::catalog::fault::{Fault, Step};
+use crate::storage::catalog::fault::{Crash, Fault, Step};
 use crate::storage::catalog::sql;
 
 #[tokio::test]
@@ -72,30 +72,7 @@ async fn conflict_discard_unlink_and_commit_failures_replay_after_restart() {
         assert_eq!(fixture.catalog.pending_faults(), 0);
         assert_eq!(fixture.page().await.usage.entries, 1);
         assert_eq!(fixture.api_bytes().await, b"api winner");
-        let Fixture {
-            data,
-            tree,
-            catalog,
-            lease,
-            bucket,
-            winner,
-        } = fixture;
-        drop(lease);
-        catalog.close().await.unwrap();
-        let catalog = Catalog::open(&data.0).await.unwrap();
-        let lease = catalog
-            .sync_state()
-            .activate_root(&tree.0, Activation::Open)
-            .await
-            .unwrap();
-        let fixture = Fixture {
-            data,
-            tree,
-            catalog,
-            lease,
-            bucket,
-            winner,
-        };
+        let fixture = fixture.restart(Journal::Disabled).await;
         assert!(
             fixture
                 .resolve(&captured, Action::Discard, "restart-discard")
@@ -133,30 +110,7 @@ async fn conflict_restore_ambiguous_commit_returns_recorded_generation_after_res
         .await
         .unwrap();
     assert_eq!(fixture.api_bytes().await, b"external\0\xff");
-    let Fixture {
-        data,
-        tree,
-        catalog,
-        lease,
-        bucket,
-        winner,
-    } = fixture;
-    drop(lease);
-    catalog.close().await.unwrap();
-    let catalog = Catalog::open(&data.0).await.unwrap();
-    let lease = catalog
-        .sync_state()
-        .activate_root(&tree.0, Activation::Open)
-        .await
-        .unwrap();
-    let fixture = Fixture {
-        data,
-        tree,
-        catalog,
-        lease,
-        bucket,
-        winner,
-    };
+    let fixture = fixture.restart(Journal::Disabled).await;
     let result = fixture
         .resolve(&captured, Action::Restore, "ambiguous")
         .await
@@ -182,7 +136,7 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
         Step::ConflictComplete,
         Step::ConflictCompleted,
     ] {
-        for power_loss in [false, true] {
+        for &crash in Crash::ALL {
             let fixture = Fixture::new().await;
             let discard = matches!(
                 step,
@@ -200,15 +154,9 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
             };
             let snapshots = TestDir::new();
             let snapshot = snapshots.0.join("data");
-            fixture.catalog.inject(
-                step,
-                0,
-                if power_loss {
-                    Fault::PowerLoss(snapshot.clone())
-                } else {
-                    Fault::Snapshot(snapshot.clone())
-                },
-            );
+            fixture
+                .catalog
+                .inject(step, 0, crash.fault(snapshot.clone()));
             if let Some(captured) = &captured {
                 fixture
                     .resolve(captured, Action::Discard, "snapshot")
@@ -230,14 +178,16 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                 assert_eq!(
                     fs::read(&file).unwrap(),
                     b"external\0\xff",
-                    "{step:?} power={power_loss}"
+                    "{step:?} {crash:?}"
                 );
             }
             if state.0.1 == 2 {
                 assert!(state.1);
                 assert!(!file.exists());
             }
-            if matches!(step, Step::ConflictUnlinked | Step::ConflictParentSync) && power_loss {
+            if matches!(step, Step::ConflictUnlinked | Step::ConflictParentSync)
+                && crash == Crash::PowerLoss
+            {
                 assert!(
                     file.exists(),
                     "missing parent fsync must restore the test inode"
@@ -291,16 +241,7 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                     .await
                     .unwrap();
             }
-            let Fixture {
-                data: _original_data,
-                tree,
-                catalog,
-                lease,
-                bucket: _,
-                winner: _,
-            } = fixture;
-            drop(lease);
-            catalog.close().await.unwrap();
+            let (_original_data, tree, _, _) = fixture.shut_down().await;
             let root = recovered
                 .sync_state()
                 .activate_root(&tree.0, Activation::Open)
