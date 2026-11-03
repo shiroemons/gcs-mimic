@@ -4,6 +4,10 @@
 
 対象は RPC-STORAGE-011、RPC-STORAGE-013、RPC-STORAGE-014、RPC-STORAGE-015、RPC-STORAGE-018、RPC-STORAGE-019、RPC-STORAGE-020、RPC-STORAGE-022、RPC-STORAGE-023、BEHAVIOR-RPC-003 です。広い API 全体の状態は PARTIAL とし、正本の台帳から両言語の対応表を生成します。
 
+確定済みupload_idの完了応答は、ストリームの先頭で再開した場合に返します。
+途中で別ストリームが確定した場合、後続データにはFAILED_PRECONDITIONを返します。
+それ以外の並行ストリームの挙動は未検証です。
+
 `STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444` のように、設定済みの h2c リスナーを指定すると、Go の通常の `storage.NewGRPCClient(ctx)` で Writer、NewReader、NewRangeReader、Attrs、Delete、Objects を使えます。Writer のチャンクサイズを変更せず、小さい本文と 5 MiB の本文を検証しました。JSON と gRPC は同じオブジェクト、世代、権限、ホールド、保持、soft delete を使います。
 
 WriteObject と BidiWriteObject は同じ処理を使い、チェックサムを確認してから共有カタログで確定します。StartResumableWrite の upload_id で再開でき、QueryWriteStatus は永続化済みのオフセットまたは確定したメタデータを返します。オフセット不一致、CRC32C・MD5 不一致、世代条件の失敗で既存の本文を置き換えません。ReadObject は範囲と負のオフセット、CRC32C、世代指定に対応し、一覧は prefix・delimiter・ページングに対応します。

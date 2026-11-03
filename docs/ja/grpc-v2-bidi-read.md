@@ -27,6 +27,8 @@ handle と前提条件の併用、暗号化、ルーティングトークン、�
 エラー詳細には、受理した未完了範囲のread_idをすべて含める。失敗した範囲は固有のstatusを保ち、ほかの範囲は再試行を促すABORTEDにする。
 通常のバッチ内で一部の範囲が不正な場合も、バッチの全read_idを報告する。100件を超えるバッチは受理しない。
 ABORTEDの選択はGoogleで未観測のため、SPEC-GRPC-PENDING-RANGESに記録している。
+詳細内のgoogle.rpc.Statusのcodeとmessageは、I/O障害やread_id重複でも外側のgRPC statusと一致させる。
+read handleの照合は長さを確認した後、32バイトすべてを比較する。
 新しい設定・依存・カタログ変更・ポーリングは加えていない。
 エラーは共有の`status::from_json`を使い、JSONの503はUNAVAILABLE、
 未対応の501はErrorInfo付きUNIMPLEMENTEDへ変換する。

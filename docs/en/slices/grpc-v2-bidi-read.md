@@ -11,6 +11,8 @@ foundation/object-I/O implementation.
 
 ## Acceptance contract
 
+- Every rich error's google.rpc.Status code and message match its outer gRPC status, including storage I/O failures and duplicate read_ids. Existing range details survive normalization. Read handle tokens are compared across all 32 bytes after checking their length.
+
 - Select bucket, object, generation and all four preconditions from the first read_object_spec through shared authorized catalog selection; send metadata and a read_handle first.
 - Read multiple read_ids, including later requests on the same stream; preserve increasing offsets per range and emit range_end, including empty ranges. Zero length reads to EOF, negative offsets are relative to EOF and clamp at zero, lengths truncate at EOF, negative lengths and offsets beyond EOF return OUT_OF_RANGE.
 - Send CRC32C for every bounded data chunk; interleave ranges without collecting their bodies.

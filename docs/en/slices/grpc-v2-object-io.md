@@ -1,16 +1,12 @@
 # Storage v2 object I/O
 
-Single-shot writes use the typed intake shared with legacy v1 for offsets,
-CRC32C, complete hashes, size limits and bounded staging. Protocol-specific
-validation and messages stay in each adapter. Both adapters await producer and
-catalog completion, preserving root storage failures and the producer's error
-when storage reports only BodyAborted; closed consumers interrupt input waits.
-
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Scope: RPC-STORAGE-011, RPC-STORAGE-014, RPC-STORAGE-015, RPC-STORAGE-018, RPC-STORAGE-019, RPC-STORAGE-020, RPC-STORAGE-022, RPC-STORAGE-023 and BEHAVIOR-RPC-003, plus the later CancelResumableWrite addition (RPC-STORAGE-013). RestoreObject and Rapid append are excluded.
 
 ## Acceptance contract
+
+- A completed upload is replayed only when the stream starts with that upload_id. If another stream finalizes it after this stream has persisted a message, later messages fail with FAILED_PRECONDITION instead of claiming their bytes were published. Other concurrent-stream behavior remains unverified.
 
 - Ordinary Go `storage.NewGRPCClient(ctx)` Writer, with default chunk size, writes small and multi-MiB bodies; JSON reads the result. JSON uploads are readable through gRPC NewReader and NewRangeReader.
 - BidiWriteObject and WriteObject share bounded staging, CRC32C chunk validation, final CRC32C/MD5 validation and transactional publication. Incorrect offsets and checksums never publish an object.
@@ -26,6 +22,12 @@ Scope: RPC-STORAGE-011, RPC-STORAGE-014, RPC-STORAGE-015, RPC-STORAGE-018, RPC-S
 - Strict authentication uses shared bucket permissions and rechecks them inside catalog operations. No credentials are discovered and no Google Cloud calls are made.
 
 ## Sources and boundaries
+
+Single-shot writes use the typed intake shared with legacy v1 for offsets,
+CRC32C, complete hashes, size limits and bounded staging. Protocol-specific
+validation and messages stay in each adapter. Both adapters await producer and
+catalog completion, preserving root storage failures and the producer's error
+when storage reports only BodyAborted; closed consumers interrupt input waits.
 
 The contract uses the foundation's pinned [Storage v2 proto](https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto), SHA-256 `a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf`, and the existing Go Storage v1.70.0 SDK. Existing source gaps remain open; JSON error choices are not assumed to define gRPC status codes. No dependency, setting, catalog schema or startup order is changed.
 

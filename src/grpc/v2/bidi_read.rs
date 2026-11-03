@@ -29,8 +29,20 @@ struct Selected {
     finality: Finality,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 struct HandleToken([u8; 32]);
+
+impl HandleToken {
+    fn matches(self, other: &[u8]) -> bool {
+        other.len() == self.0.len()
+            && self
+                .0
+                .iter()
+                .zip(other)
+                .fold(0, |difference, (a, b)| difference | (a ^ b))
+                == 0
+    }
+}
 
 #[derive(Clone)]
 struct Handle {
@@ -61,14 +73,17 @@ impl ReadHandles {
     fn find(&self, token: &[u8], now: SystemTime) -> Option<Handle> {
         let mut entries = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         entries.retain(|entry| entry.expires > now);
-        entries.iter().find(|entry| entry.token.0 == token).cloned()
+        entries
+            .iter()
+            .find(|entry| entry.token.matches(token))
+            .cloned()
     }
 
     fn remove(&self, token: HandleToken) {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .retain(|entry| entry.token != token);
+            .retain(|entry| !entry.token.matches(&token.0));
     }
 }
 
@@ -361,11 +376,9 @@ fn range_error(read_id: i64) -> Status {
 
 fn stream_error(error: Status, failed: Option<i64>, pending: impl Iterator<Item = i64>) -> Status {
     use crate::grpc::generated::google::rpc::Status as RpcStatus;
-    let mut rpc = RpcStatus::decode(error.details()).unwrap_or_else(|_| RpcStatus {
-        code: error.code() as i32,
-        message: error.message().into(),
-        details: vec![],
-    });
+    let mut rpc = RpcStatus::decode(error.details()).unwrap_or_default();
+    rpc.code = error.code() as i32;
+    rpc.message = error.message().into();
     let index = rpc
         .details
         .iter()
@@ -902,6 +915,8 @@ mod tests {
         )
         .unwrap_err();
         let rpc = crate::grpc::generated::google::rpc::Status::decode(error.details()).unwrap();
+        assert_eq!(rpc.code, error.code() as i32);
+        assert_eq!(rpc.message, error.message());
         let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
         let states = detail
             .read_range_errors
@@ -917,6 +932,57 @@ mod tests {
             ]
             .into()
         );
+    }
+
+    #[test]
+    fn bidi_duplicate_id_keeps_outer_error_in_details() {
+        let range = pb::ReadRange {
+            read_id: 7,
+            ..Default::default()
+        };
+        let error = add_ranges(&mut VecDeque::new(), vec![range, range], 10).unwrap_err();
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        let rpc = crate::grpc::generated::google::rpc::Status::decode(error.details()).unwrap();
+        assert_eq!(rpc.code, error.code() as i32);
+        assert_eq!(rpc.message, error.message());
+        let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
+        assert_eq!(detail.read_range_errors[0].read_id, 7);
+    }
+
+    #[test]
+    fn handle_tokens_reject_every_changed_byte_and_wrong_length() {
+        let token = HandleToken([0xa5; 32]);
+        assert!(token.matches(&token.0));
+        for index in 0..32 {
+            let mut changed = token.0;
+            changed[index] ^= 1;
+            assert!(!token.matches(&changed));
+        }
+        assert!(!token.matches(&token.0[..31]));
+        assert!(!token.matches(&[0xa5; 33]));
+    }
+
+    #[test]
+    fn stream_errors_normalize_existing_rich_status_and_preserve_details() {
+        use crate::grpc::generated::google::rpc::Status as RpcStatus;
+        let original = range_error(3);
+        let mut rpc = RpcStatus::decode(original.details()).unwrap();
+        rpc.code = 0;
+        rpc.message = "incorrect inner message".into();
+        let error = stream_error(
+            Status::with_details(
+                original.code(),
+                original.message(),
+                rpc.encode_to_vec().into(),
+            ),
+            Some(3),
+            [4].into_iter(),
+        );
+        let rpc = RpcStatus::decode(error.details()).unwrap();
+        assert_eq!(rpc.code, error.code() as i32);
+        assert_eq!(rpc.message, error.message());
+        let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
+        assert_eq!(detail.read_range_errors.len(), 2);
     }
 
     #[test]

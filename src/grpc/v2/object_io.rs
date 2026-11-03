@@ -1003,14 +1003,13 @@ impl Storage {
                 .await
                 .map_err(session_status)?;
             if lease.session.state == SessionState::Complete {
+                position.require_resume_start()?;
                 let resource = self
                     .completed_resource(lease.session.completion.as_ref(), caller, bucket)
                     .await?;
                 drop(lease);
                 let result = WriteStatus::Resource(resource);
-                if let Some(tx) = responses {
-                    send_status(tx, &result).await?;
-                }
+                send_status(responses, &result).await?;
                 return Ok(result);
             }
             let mut options = lease.session.options.clone();
@@ -1084,11 +1083,8 @@ impl Storage {
             } else {
                 WriteStatus::PersistedSize(crate::grpc::convert::signed(written, "persisted_size")?)
             };
-            let reported = if let Some(tx) = responses
-                && (message.finish_write || message.flush || message.state_lookup)
-            {
-                send_status(tx, &result).await?;
-                Reported::Yes
+            let reported = if message.finish_write || message.flush || message.state_lookup {
+                send_status(responses, &result).await?
             } else {
                 Reported::No
             };
@@ -1097,10 +1093,8 @@ impl Storage {
             }
             position = MessagePosition::Later;
             let Some(next) = stream.next().await.transpose()? else {
-                if let Some(tx) = responses
-                    && reported == Reported::No
-                {
-                    send_status(tx, &result).await?;
+                if reported == Reported::No {
+                    send_status(responses, &result).await?;
                 }
                 break;
             };
@@ -1163,9 +1157,7 @@ impl Storage {
         let record = upload::completed(sent, written, object_status)?;
         let resource = self.written_object(&record, caller).await?;
         let result = pb::bidi_write_object_response::WriteStatus::Resource(resource);
-        if let Some(tx) = responses {
-            send_status(tx, &result).await?;
-        }
+        send_status(responses, &result).await?;
         Ok(result)
     }
 }
@@ -1192,6 +1184,17 @@ enum Reported {
 enum MessagePosition {
     First,
     Later,
+}
+
+impl MessagePosition {
+    fn require_resume_start(self) -> Result<(), Status> {
+        match self {
+            Self::First => Ok(()),
+            Self::Later => Err(Status::failed_precondition(
+                "Upload finalized by another stream; start a new upload",
+            )),
+        }
+    }
 }
 
 /// The resumable session a write stream continues.
@@ -1231,15 +1234,19 @@ struct SingleWriteLimits {
 }
 
 async fn send_status(
-    tx: &Responses,
+    responses: Option<&Responses>,
     status: &pb::bidi_write_object_response::WriteStatus,
-) -> Result<(), Status> {
+) -> Result<Reported, Status> {
+    let Some(tx) = responses else {
+        return Ok(Reported::No);
+    };
     tx.send(Ok(pb::BidiWriteObjectResponse {
         write_status: Some(status.clone()),
         ..Default::default()
     }))
     .await
-    .map_err(|_| Status::cancelled("Response stream closed"))
+    .map_err(|_| Status::cancelled("Response stream closed"))?;
+    Ok(Reported::Yes)
 }
 
 /// Sends `content` to the upload consumer in bounded chunks.
@@ -1577,6 +1584,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn grpc_io_concurrent_finalization_rejects_later_messages() {
+        let (_dir, storage) = setup(false).await;
+        let upload = start(&storage, "concurrent", None).await;
+        let mut first = resume(&upload, 0, b"abc", false);
+        first.flush = true;
+        let (requests, incoming) = mpsc::channel(1);
+        requests.send(Ok(first)).await.unwrap();
+        let (responses, mut acknowledgements) =
+            mpsc::channel::<Result<pb::BidiWriteObjectResponse, Status>>(1);
+        let later = async {
+            acknowledgements.recv().await.unwrap().unwrap();
+            write(&storage, vec![resume(&upload, 3, b"winner", true)])
+                .await
+                .unwrap();
+            let mut next = resume(&upload, 3, b"discarded", true);
+            next.first_message = None;
+            requests.send(Ok(next)).await.unwrap();
+            drop(requests);
+        };
+        let mut stream = ReceiverStream::new(incoming);
+        let (result, ()) = tokio::join!(
+            storage.receive_write(&mut stream, None, Some(&responses), EndOfStream::Required),
+            later
+        );
+        assert_code(result, tonic::Code::FailedPrecondition);
+        let record = storage
+            .state
+            .catalog
+            .get_object(
+                live("grpc-io", "concurrent"),
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        assert_eq!(record.size, 9);
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
         let (_dir, storage) = setup(false).await;
         for (name, data, flush) in [
@@ -1678,6 +1725,8 @@ mod tests {
         .await;
         assert_eq!([read_code, status.code()], [tonic::Code::Unavailable; 2]);
         let rpc = crate::grpc::generated::google::rpc::Status::decode(status.details()).unwrap();
+        assert_eq!(rpc.code, status.code() as i32);
+        assert_eq!(rpc.message, status.message());
         let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
         let states = detail
             .read_range_errors
