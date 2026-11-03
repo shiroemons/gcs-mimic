@@ -106,20 +106,6 @@ impl BlobBackend {
         matches!(self, Self::Memory(_))
     }
 
-    pub(super) fn discard_unreferenced(
-        &self,
-        connection: &rusqlite::Connection,
-        id: &BlobId,
-    ) -> Result<(), crate::object::ObjectError> {
-        if !objects::blob_referenced(connection, id)? {
-            match self {
-                Self::Disk(root) => objects::reclaim(connection, root, id)?,
-                Self::Memory(_) => self.remove(id)?,
-            }
-        }
-        Ok(())
-    }
-
     pub(super) fn is_healthy(&self) -> bool {
         match self {
             Self::Disk(_) => true,
