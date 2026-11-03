@@ -378,7 +378,11 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
                     key: key.clone(),
                     name: key.clone(),
                     value: text.clone().unwrap_or_default(),
-                    kind: InputKind::Native,
+                    kind: if key.starts_with("FAKE_GCS_") {
+                        InputKind::UnknownLegacy
+                    } else {
+                        InputKind::Native
+                    },
                     invalid: None,
                 }) {
                     break;
@@ -1183,6 +1187,22 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn legacy_json_members_remain_ignored_without_environment_warnings() {
+        let dir = crate::test_support::TestDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(
+            &file,
+            r#"{"FAKE_GCS_HOST":"0.0.0.0","FAKE_GCS_LISTEN":"unused"}"#,
+        )
+        .unwrap();
+        let args = ["--config".into(), file.to_str().unwrap().into()];
+        let report = Config::preflight(&args, &BTreeMap::new());
+        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        assert!(report.diagnostics.warnings.is_empty());
+        assert_eq!(report.config.listen, Config::default().listen);
+    }
 
     #[test]
     fn advertised_ipv6_origin_drops_listener_scope_and_flow_information() {
