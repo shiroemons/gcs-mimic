@@ -16,6 +16,11 @@ impl From<crate::object::ObjectError> for Status {
 
 impl From<crate::bucket::CatalogError> for Status {
     fn from(error: crate::bucket::CatalogError) -> Self {
+        if matches!(error, crate::bucket::CatalogError::NotEmpty) {
+            return Status::failed_precondition(
+                "Bucket is not empty; delete its objects and versions before deleting the bucket",
+            );
+        }
         Self::from(crate::json::JsonError::from(error))
     }
 }
@@ -44,7 +49,7 @@ impl From<crate::json::JsonError> for Status {
             413 | 429 => Status::resource_exhausted(error.message),
             416 => Status::out_of_range(error.message),
             499 => Status::cancelled(error.message),
-            501 => unsupported(&error.message),
+            501 => unsupported_message(error.message),
             503 => Status::unavailable(error.message),
             504 => Status::deadline_exceeded(error.message),
             _ => Status::internal(error.message),
@@ -210,7 +215,7 @@ mod tests {
                     "notImplemented",
                     "Unsupported object option",
                 ),
-                "gcs-mimic does not support gRPC Unsupported object option; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event.",
+                "Unsupported object option",
             ),
         ] {
             let actual = Status::from(error);
@@ -236,6 +241,8 @@ mod tests {
 
     #[test]
     fn precondition_failures_use_the_grpc_wording() {
+        let not_empty = Status::from(crate::bucket::CatalogError::NotEmpty);
+        assert_eq!(not_empty.code(), Code::FailedPrecondition);
         let failed = Status::from(crate::object::ObjectError::PreconditionFailed);
         assert_eq!(failed.code(), Code::FailedPrecondition);
         assert_eq!(failed.message(), crate::json::PRECONDITION_NOT_HELD);
@@ -266,7 +273,8 @@ mod tests {
         assert_eq!(info.reason, "GRPC_INVALID_BUCKET");
         assert_eq!(info.domain, ERROR_DOMAIN);
 
-        let object = crate::grpc::v2::names::object_name("projects/_/buckets/b", "").unwrap_err();
+        let object =
+            crate::grpc::v2::names::object_name("projects/_/buckets/bucket", "").unwrap_err();
         assert_eq!(object.message(), "No object name");
         let detail = &rpc_status(&object).details[0];
         let violations = BadRequest::decode(detail.value.as_slice()).unwrap();

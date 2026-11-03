@@ -1,20 +1,10 @@
-use super::{Storage, pb, status::unsupported_for};
+use super::{Storage, access_status, pb, status::unsupported_for};
 use super::{convert, names};
 use crate::auth::Caller;
 use crate::grpc::validate::bucket_conditions;
 use crate::{bucket::CatalogError, json};
 use serde_json::json;
 use tonic::{Request, Response, Status};
-
-/// `?` would bypass the v2 NotEmpty wording and anonymous authorization mapping.
-fn catalog_error(error: CatalogError, caller: Option<Caller<'_>>) -> Status {
-    if matches!(error, CatalogError::NotEmpty) {
-        return Status::failed_precondition(
-            "Bucket is not empty; delete its objects and versions before deleting the bucket",
-        );
-    }
-    super::access_status(error, caller)
-}
 
 fn require_caller(caller: Option<Caller<'_>>) -> Result<(), Status> {
     if matches!(caller, Some(Caller::Anonymous)) {
@@ -376,7 +366,7 @@ impl Storage {
             .catalog
             .delete_bucket(name, bucket_conditions!(request), &access)
             .await
-            .map_err(|error| catalog_error(error, caller))?;
+            .map_err(|error| access_status(error, caller))?;
         Ok(Response::new(()))
     }
     pub(super) async fn get_bucket(
@@ -395,10 +385,10 @@ impl Storage {
             .catalog
             .get_bucket(name, &access)
             .await
-            .map_err(|error| catalog_error(error, caller))?
-            .ok_or_else(|| catalog_error(CatalogError::NotFound, caller))?;
+            .map_err(|error| access_status(error, caller))?
+            .ok_or_else(|| access_status(CatalogError::NotFound, caller))?;
         if !bucket_conditions!(request).hold(record.metageneration) {
-            return Err(catalog_error(CatalogError::PreconditionFailed, caller));
+            return Err(access_status(CatalogError::PreconditionFailed, caller));
         }
         let mut bucket = convert::bucket(&record)?;
         if wants_acl(request.read_mask.as_ref(), AclDefault::Include) {
@@ -471,7 +461,7 @@ impl Storage {
             .catalog
             .insert_bucket(record)
             .await
-            .map_err(|error| catalog_error(error, caller))?;
+            .map_err(|error| access_status(error, caller))?;
         let mut bucket = convert::bucket(&record)?;
         self.add_bucket_acl(caller, &mut bucket).await?;
         Ok(Response::new(bucket))
@@ -523,7 +513,7 @@ impl Storage {
             .catalog
             .list_buckets_page(project, Some(&request.prefix), start.as_deref(), limit)
             .await
-            .map_err(|error| catalog_error(error, caller))?;
+            .map_err(|error| access_status(error, caller))?;
         // A continuation page is never empty, so its last bucket always names the next start.
         let next_page_token = match page.items.last() {
             Some(last) if page.has_more => {
@@ -559,7 +549,7 @@ mod tests {
 
     #[test]
     fn bucket_errors_request_credentials_from_anonymous_callers() {
-        let anonymous = catalog_error(CatalogError::Forbidden, Some(Caller::Anonymous));
+        let anonymous = access_status(CatalogError::Forbidden, Some(Caller::Anonymous));
         let generic = Status::from(CatalogError::Forbidden);
         assert_eq!(anonymous.code(), Code::Unauthenticated);
         assert_eq!(generic.code(), Code::PermissionDenied);

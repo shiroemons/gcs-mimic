@@ -59,7 +59,7 @@ fn names(response: &pb::ListBucketsResponse) -> Vec<&str> {
 }
 
 #[tokio::test]
-async fn nonempty_bucket_deletion_keeps_each_grpc_versions_wording() {
+async fn nonempty_bucket_deletion_uses_the_shared_grpc_status() {
     use crate::grpc::generated::google::storage::v2::{
         self as v2_pb, storage_server::Storage as V2Storage,
     };
@@ -88,7 +88,7 @@ async fn nonempty_bucket_deletion_keeps_each_grpc_versions_wording() {
     );
     assert_eq!(
         legacy.message(),
-        "Bucket is not empty; delete objects and versions first"
+        "Bucket is not empty; delete its objects and versions before deleting the bucket"
     );
     let modern = fixtures::storage_with(storage.state.clone(), 1024);
     let modern = assert_code(

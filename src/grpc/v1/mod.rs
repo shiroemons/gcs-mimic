@@ -82,14 +82,6 @@ pub(crate) fn known_method(path: &str) -> bool {
 fn object_access_error(error: ObjectError, caller: Option<Caller<'_>>) -> Status {
     crate::grpc::v2::status::anonymous(error.into(), caller)
 }
-/// `?` would bypass the legacy adapter's own NotEmpty wording.
-fn catalog_error(error: CatalogError) -> Status {
-    if matches!(error, CatalogError::NotEmpty) {
-        Status::failed_precondition("Bucket is not empty; delete objects and versions first")
-    } else {
-        error.into()
-    }
-}
 
 fn common(
     params: Option<&pb::CommonRequestParams>,
@@ -341,7 +333,7 @@ impl pb::storage_server::Storage for Storage {
             .catalog
             .get_bucket(&r.bucket, &access)
             .await
-            .map_err(catalog_error)?
+            .map_err(Status::from)?
             .ok_or_else(|| {
                 Status::not_found("Bucket not found; create it with InsertBucket or JSON")
             })?;
@@ -372,7 +364,7 @@ impl pb::storage_server::Storage for Storage {
             .catalog
             .delete_bucket(&r.bucket, bucket_conditions!(r), &access)
             .await
-            .map_err(catalog_error)?;
+            .map_err(Status::from)?;
         Ok(Response::new(()))
     }
 
@@ -404,7 +396,7 @@ impl pb::storage_server::Storage for Storage {
             .catalog
             .insert_bucket(record)
             .await
-            .map_err(catalog_error)?;
+            .map_err(Status::from)?;
         Ok(Response::new(convert::bucket(&record)))
     }
 
@@ -439,10 +431,10 @@ impl pb::storage_server::Storage for Storage {
             .catalog
             .get_bucket(&r.bucket, &access)
             .await
-            .map_err(catalog_error)?
-            .ok_or_else(|| catalog_error(CatalogError::NotFound))?;
+            .map_err(Status::from)?
+            .ok_or_else(|| Status::from(CatalogError::NotFound))?;
         if !requested.hold(current.metageneration) {
-            return Err(catalog_error(CatalogError::PreconditionFailed));
+            return Err(Status::from(CatalogError::PreconditionFailed));
         }
         let body = convert::bucket_metadata(&mut bucket, Some(&convert::bucket(&current)))?;
         let update = json::parse_bucket_replacement(&body, self.compat_profile)?;
@@ -460,7 +452,7 @@ impl pb::storage_server::Storage for Storage {
                 &access,
             )
             .await
-            .map_err(catalog_error)?;
+            .map_err(Status::from)?;
         Ok(Response::new(convert::bucket(&record)))
     }
 
@@ -515,7 +507,7 @@ impl pb::storage_server::Storage for Storage {
                 limit(r.max_results)?,
             )
             .await
-            .map_err(catalog_error)?;
+            .map_err(Status::from)?;
         let next_page_token = if page.has_more {
             let last = &page
                 .items

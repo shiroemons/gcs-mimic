@@ -101,8 +101,8 @@ impl Storage {
 }
 
 /// Anonymous denials ask for credentials, matching the shared JSON authorization rules.
-fn access_status(error: impl Into<crate::json::JsonError>, caller: Option<Caller<'_>>) -> Status {
-    crate::server::anonymous_error(error.into(), caller).into()
+fn access_status(error: impl Into<Status>, caller: Option<Caller<'_>>) -> Status {
+    status::anonymous(error.into(), caller)
 }
 
 fn auth_error(_: AuthFailure) -> Status {
