@@ -823,47 +823,21 @@ impl Auth {
     ///
     /// Returns `Ok(None)` in permissive mode, where no permission checks apply.
     #[cfg(test)]
-    pub(crate) fn authenticate(
+    pub(crate) async fn authenticate(
         &self,
         headers: &HeaderMap,
         query: Option<&str>,
     ) -> Result<Option<Caller<'_>>, AuthFailure> {
-        self.authenticate_at(headers, query, &crate::clock::SystemClock)
+        match self
+            .authenticate_request(headers, query, &crate::clock::SystemClock)
+            .await
+        {
+            Ok(caller) => Ok(caller),
+            Err(AuthError::Failure(failure)) => Err(failure),
+            Err(AuthError::Unavailable(error)) => panic!("credential verifier failed: {error}"),
+        }
     }
 
-    /// Temporary synchronous adapter, removed after request adapters migrate to authenticate_request.
-    pub(crate) fn authenticate_at(
-        &self,
-        headers: &HeaderMap,
-        query: Option<&str>,
-        clock: &dyn crate::clock::Clock,
-    ) -> Result<Option<Caller<'_>>, AuthFailure> {
-        let Some(registry) = &self.registry else {
-            return Ok(None);
-        };
-        let identity = match Self::presented(registry, headers, query, clock)? {
-            Presented::Anonymous => return Ok(Some(Caller::Anonymous)),
-            Presented::Token(identity) => Some(identity),
-            Presented::Jwt { candidate, warn } => {
-                let identity = candidate.verify_sync();
-                if identity.is_none() && warn {
-                    warn_self_signed_jwt();
-                }
-                identity
-            }
-        };
-        identity
-            .map(|identity| Some(Caller::Principal(identity)))
-            .ok_or(AuthFailure::InvalidCredentials)
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "adapters migrate to bounded JWT verification after integration"
-        )
-    )]
     pub(crate) async fn authenticate_request(
         &self,
         headers: &HeaderMap,
@@ -1589,8 +1563,8 @@ mod tests {
         headers
     }
 
-    #[test]
-    fn strict_caller_resolution() {
+    #[tokio::test]
+    async fn strict_caller_resolution() {
         let auth = strict();
         let id = |result: Result<Option<Caller<'_>>, AuthFailure>| match result {
             Ok(Some(Caller::Principal(identity))) => Ok(Some(identity.id().to_owned())),
@@ -1598,10 +1572,12 @@ mod tests {
             Ok(None) => panic!("strict mode must resolve a caller"),
             Err(error) => Err(error),
         };
-        assert_eq!(id(auth.authenticate(&headers(&[]), None)), Ok(None));
+        assert_eq!(id(auth.authenticate(&headers(&[]), None).await), Ok(None));
         for value in [&b"Bearer tok-a"[..], b"bearer tok-b", b"BEARER   tok-a"] {
             assert_eq!(
-                id(auth.authenticate(&headers(&[value]), Some("project=p"))),
+                id(auth
+                    .authenticate(&headers(&[value]), Some("project=p"))
+                    .await),
                 Ok(Some("a@example.invalid".into())),
                 "{}",
                 String::from_utf8_lossy(value)
@@ -1621,14 +1597,16 @@ mod tests {
             b"Bearer \xfftok",
         ] {
             assert_eq!(
-                id(auth.authenticate(&headers(&[value]), None)),
+                id(auth.authenticate(&headers(&[value]), None).await),
                 Err(AuthFailure::InvalidCredentials),
                 "{}",
                 String::from_utf8_lossy(value)
             );
         }
         assert_eq!(
-            id(auth.authenticate(&headers(&[b"Bearer tok-a", b"Bearer tok-a"]), None)),
+            id(auth
+                .authenticate(&headers(&[b"Bearer tok-a", b"Bearer tok-a"]), None)
+                .await),
             Err(AuthFailure::InvalidCredentials)
         );
         for query in [
@@ -1647,25 +1625,29 @@ mod tests {
             "X-Amz-Signature=00",
         ] {
             assert_eq!(
-                id(auth.authenticate(&headers(&[b"Bearer tok-a"]), Some(query))),
+                id(auth
+                    .authenticate(&headers(&[b"Bearer tok-a"]), Some(query))
+                    .await),
                 Err(AuthFailure::InvalidCredentials),
                 "{query}"
             );
             assert_eq!(
-                id(auth.authenticate(&headers(&[]), Some(query))),
+                id(auth.authenticate(&headers(&[]), Some(query)).await),
                 Err(AuthFailure::InvalidCredentials),
                 "{query}"
             );
         }
         let permissive = Auth::permissive();
         assert!(matches!(
-            permissive.authenticate(&headers(&[b"Basic garbage", b"x"]), Some("access_token=x")),
+            permissive
+                .authenticate(&headers(&[b"Basic garbage", b"x"]), Some("access_token=x"))
+                .await,
             Ok(None)
         ));
     }
 
-    #[test]
-    fn registered_principal_without_tokens_does_not_gain_bearer_or_jwt_authentication() {
+    #[tokio::test]
+    async fn registered_principal_without_tokens_does_not_gain_bearer_or_jwt_authentication() {
         let registry = Registry::parse(
             br#"{"identities":[{"id":"hmac-only@example.test","tokens":[],"project_roles":{"local":["roles/storage.admin"]}}]}"#,
         )
@@ -1674,7 +1656,11 @@ mod tests {
         assert!(registry.tokens.is_empty());
         assert!(registry.signing_keys.is_empty());
         let auth = Auth::strict(registry);
-        let anonymous = auth.authenticate(&headers(&[]), None).unwrap().unwrap();
+        let anonymous = auth
+            .authenticate(&headers(&[]), None)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(matches!(anonymous, Caller::Anonymous));
         assert_eq!(anonymous.principal(), Err(AuthFailure::LoginRequired));
         for credential in [
@@ -1685,12 +1671,13 @@ mod tests {
             b"Bearer eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJobWFjLW9ubHlAZXhhbXBsZS50ZXN0In0.AA",
         ] {
             assert!(matches!(
-                auth.authenticate(&headers(&[credential]), None),
+                auth.authenticate(&headers(&[credential]), None).await,
                 Err(AuthFailure::InvalidCredentials)
             ));
         }
         assert!(matches!(
-            auth.authenticate(&headers(&[]), Some("X-Goog-Credential=unknown")),
+            auth.authenticate(&headers(&[]), Some("X-Goog-Credential=unknown"))
+                .await,
             Err(AuthFailure::InvalidCredentials)
         ));
     }

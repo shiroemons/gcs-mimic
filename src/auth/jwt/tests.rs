@@ -120,14 +120,25 @@ fn token(claims: &Value) -> String {
     sign_raw(r#"{"alg":"RS256","typ":"JWT"}"#, &claims.to_string())
 }
 
-#[test]
-fn jwt_resolves_registered_keys_and_keeps_opaque_tokens_and_project_permissions() {
+async fn authenticate<'a>(auth: &'a Auth, token: &str, clock: &dyn Clock) -> Option<&'a Identity> {
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+    match auth.authenticate_request(&headers, None, clock).await {
+        Ok(Some(Caller::Principal(identity))) => Some(identity),
+        Ok(_) | Err(AuthError::Failure(_)) => None,
+        Err(AuthError::Unavailable(error)) => panic!("credential verifier failed: {error}"),
+    }
+}
+
+#[tokio::test]
+async fn jwt_resolves_registered_keys_and_keeps_opaque_tokens_and_project_permissions() {
     let auth = Auth::strict(registry(&[PUBLIC], &["opaque-token"]));
     for token in [token(&claims()), "opaque-token".into()] {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
         let caller = auth
-            .authenticate_at(&headers, None, &Fixed(NOW))
+            .authenticate_request(&headers, None, &Fixed(NOW))
+            .await
             .unwrap()
             .unwrap();
         let identity = caller.principal().unwrap();
@@ -141,17 +152,22 @@ fn jwt_resolves_registered_keys_and_keeps_opaque_tokens_and_project_permissions(
         format!("Bearer {}", token(&claims())).parse().unwrap(),
     );
     assert!(matches!(
-        Auth::permissive().authenticate_at(&headers, None, &Fixed(0)),
+        Auth::permissive()
+            .authenticate_request(&headers, None, &Fixed(0))
+            .await,
         Ok(None)
     ));
 }
 
-#[test]
-fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
-    let registry = registry(&[PUBLIC], &[]);
+#[tokio::test]
+async fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
+    let registry = Auth::strict(registry(&[PUBLIC], &[]));
     let valid = token(&claims());
     assert_eq!(
-        authenticate(&registry, &valid, &Fixed(NOW)).unwrap().id(),
+        authenticate(&registry, &valid, &Fixed(NOW))
+            .await
+            .unwrap()
+            .id(),
         ISSUER
     );
     for (field, value) in [
@@ -181,7 +197,9 @@ fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
         let mut claims = claims();
         claims[field] = value;
         assert!(
-            authenticate(&registry, &token(&claims), &Fixed(NOW)).is_none(),
+            authenticate(&registry, &token(&claims), &Fixed(NOW))
+                .await
+                .is_none(),
             "{field}: {claims}"
         );
     }
@@ -200,13 +218,18 @@ fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
                 &sign_raw(header, &claims().to_string()),
                 &Fixed(NOW)
             )
+            .await
             .is_none()
         );
     }
     for field in ["iss", "sub", "scope", "iat", "exp"] {
         let mut claims = claims();
         claims.as_object_mut().unwrap().remove(field);
-        assert!(authenticate(&registry, &token(&claims), &Fixed(NOW)).is_none());
+        assert!(
+            authenticate(&registry, &token(&claims), &Fixed(NOW))
+                .await
+                .is_none()
+        );
     }
     let duplicate = format!(
         r#"{{"iss":"{ISSUER}","iss":"{ISSUER}","sub":"{ISSUER}","scope":"{SCOPE}","iat":{},"exp":{}}}"#,
@@ -219,6 +242,7 @@ fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
             &sign_raw(r#"{"alg":"RS256"}"#, &duplicate),
             &Fixed(NOW)
         )
+        .await
         .is_none()
     );
     let (message, signature) = valid.rsplit_once('.').unwrap();
@@ -230,34 +254,50 @@ fn jwt_rejects_algorithm_issuer_audience_scope_time_and_tampering() {
         format!("{valid}="),
         "a".repeat(MAX_TOKEN_BYTES + 1),
     ] {
-        assert!(authenticate(&registry, &token, &Fixed(NOW)).is_none());
+        assert!(authenticate(&registry, &token, &Fixed(NOW)).await.is_none());
     }
 }
 
-#[test]
-fn jwt_time_boundaries_and_registry_key_rotation_are_explicit() {
-    let original = registry(&[PUBLIC], &[]);
+#[tokio::test]
+async fn jwt_time_boundaries_and_registry_key_rotation_are_explicit() {
+    let original = Auth::strict(registry(&[PUBLIC], &[]));
     let valid = token(&claims());
-    assert!(authenticate(&original, &valid, &Fixed(NOW - 60)).is_some());
-    assert!(authenticate(&original, &valid, &Fixed(NOW + 59)).is_some());
-    assert!(authenticate(&original, &valid, &Fixed(NOW + 60)).is_none());
+    assert!(
+        authenticate(&original, &valid, &Fixed(NOW - 60))
+            .await
+            .is_some()
+    );
+    assert!(
+        authenticate(&original, &valid, &Fixed(NOW + 59))
+            .await
+            .is_some()
+    );
+    assert!(
+        authenticate(&original, &valid, &Fixed(NOW + 60))
+            .await
+            .is_none()
+    );
     let mut boundary = claims();
     boundary["iat"] = json!(NOW);
     boundary["exp"] = json!(NOW + 3600);
     boundary["nbf"] = json!(NOW);
-    assert!(authenticate(&original, &token(&boundary), &Fixed(NOW)).is_some());
+    assert!(
+        authenticate(&original, &token(&boundary), &Fixed(NOW))
+            .await
+            .is_some()
+    );
     // A different supported modulus proves verification tries the next registered key.
     let other = PUBLIC.replace("0YKIIe5A", "0YKJIe5A");
     assert_ne!(other, PUBLIC);
-    let overlap = registry(&[&other, PUBLIC], &[]);
-    let rotated = registry(&[&other], &[]);
-    assert!(authenticate(&overlap, &valid, &Fixed(NOW)).is_some());
-    assert!(authenticate(&rotated, &valid, &Fixed(NOW)).is_none());
-    assert!(authenticate(&original, &valid, &Fixed(NOW)).is_some());
+    let overlap = Auth::strict(registry(&[&other, PUBLIC], &[]));
+    let rotated = Auth::strict(registry(&[&other], &[]));
+    assert!(authenticate(&overlap, &valid, &Fixed(NOW)).await.is_some());
+    assert!(authenticate(&rotated, &valid, &Fixed(NOW)).await.is_none());
+    assert!(authenticate(&original, &valid, &Fixed(NOW)).await.is_some());
 }
 
-#[test]
-fn registered_jwt_shaped_tokens_never_bypass_signature_or_scope_checks() {
+#[tokio::test]
+async fn registered_jwt_shaped_tokens_never_bypass_signature_or_scope_checks() {
     let mut claims = claims();
     claims["scope"] = json!("https://www.googleapis.com/auth/devstorage.read_only");
     let token = token(&claims);
@@ -276,12 +316,13 @@ fn registered_jwt_shaped_tokens_never_bypass_signature_or_scope_checks() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
         assert!(matches!(
-            auth.authenticate_at(&headers, None, &Fixed(NOW)),
-            Err(AuthFailure::InvalidCredentials)
+            auth.authenticate_request(&headers, None, &Fixed(NOW)).await,
+            Err(AuthError::Failure(AuthFailure::InvalidCredentials))
         ));
     }
     assert!(matches!(
-        auth.authenticate_at(&HeaderMap::new(), None, &Fixed(NOW)),
+        auth.authenticate_request(&HeaderMap::new(), None, &Fixed(NOW))
+            .await,
         Ok(Some(Caller::Anonymous))
     ));
 }

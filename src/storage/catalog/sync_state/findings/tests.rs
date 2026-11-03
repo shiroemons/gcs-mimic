@@ -13,7 +13,7 @@ use crate::{
 use rusqlite::Connection;
 use std::fs;
 
-fn control_identity(projects: &[&str]) -> crate::auth::Identity {
+async fn control_identity(projects: &[&str]) -> crate::auth::Identity {
     let projects: std::collections::BTreeMap<_, _> = projects
         .iter()
         .map(|project| (*project, vec!["roles/storage.admin"]))
@@ -25,7 +25,8 @@ fn control_identity(projects: &[&str]) -> crate::auth::Identity {
         "authorization",
         hyper::header::HeaderValue::from_static("Bearer control-token"),
     );
-    auth.authenticate_at(&headers, None, &SystemClock)
+    auth.authenticate_request(&headers, None, &SystemClock)
+        .await
         .unwrap()
         .unwrap()
         .principal()
@@ -209,8 +210,8 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
         assert_eq!(lease.findings_page(0, 1).await.unwrap()[0].reason, reason);
     }
     let old = lease.findings_page(0, 1).await.unwrap().remove(0);
-    let seed_and_current = control_identity(&["seed", "new-owner"]);
-    let all_owners = control_identity(&["seed", "owner", "new-owner"]);
+    let seed_and_current = control_identity(&["seed", "new-owner"]).await;
+    let all_owners = control_identity(&["seed", "owner", "new-owner"]).await;
     assert!(matches!(
         lease
             .authorize_controls("seed".into(), Some(seed_and_current.clone()))
@@ -427,7 +428,7 @@ async fn finding_owner_migration_backfills_only_proven_incarnations_and_rolls_ba
         lease
             .authorize_controls(
                 "seed".into(),
-                Some(control_identity(&["seed", "old-owner", "new-owner"]))
+                Some(control_identity(&["seed", "old-owner", "new-owner"]).await)
             )
             .await,
         Err(RootError::Admin(AdminError::Forbidden))

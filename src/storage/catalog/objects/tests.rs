@@ -1241,14 +1241,7 @@ fn policy_access(project: &str, observed: Option<&str>, overwrite: bool) -> Buck
         )
         .unwrap(),
     );
-    let mut headers = hyper::HeaderMap::new();
-    headers.insert("authorization", "Bearer token".parse().unwrap());
-    let identity = auth
-        .authenticate(&headers, None)
-        .unwrap()
-        .unwrap()
-        .principal()
-        .unwrap();
+    let identity = auth.principals().unwrap().first().unwrap();
     BucketAccess::Policy {
         identity: Some(identity.clone()),
         permission: crate::auth::Permission::ObjectsCreate,
@@ -1500,6 +1493,7 @@ async fn object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot
         headers.insert("authorization", "Bearer token".parse().unwrap());
         let identity = auth
             .authenticate(&headers, None)
+            .await
             .unwrap()
             .unwrap()
             .principal()
@@ -1591,6 +1585,7 @@ async fn revoked_bucket_binding_is_rechecked_inside_operations() {
         headers.insert("authorization", "Bearer token".parse().unwrap());
         let identity = auth
             .authenticate(&headers, None)
+            .await
             .unwrap()
             .unwrap()
             .principal()

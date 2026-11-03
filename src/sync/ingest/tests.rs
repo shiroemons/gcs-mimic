@@ -220,7 +220,7 @@ async fn recovery_rechecks_a_project_added_after_control_authorization() {
     fs::write(tree.0.join("test-bucket/body"), b"API winner").unwrap();
     scan(&catalog, &root, &config).await;
     catalog.enable_change_journal().await.unwrap();
-    let scoped = root.with_authority(control_authority(&[&config.seed_project]));
+    let scoped = root.with_authority(control_authority(&[&config.seed_project]).await);
     let writeback = scoped
         .writeback(
             Limits::new(
@@ -246,7 +246,7 @@ async fn recovery_rechecks_a_project_added_after_control_authorization() {
     let path = tree.0.join(mapping::WORKSPACE).join(pending.token.id());
     fs::write(&path, b"retained original").unwrap();
     writeback.recover_pending().await.unwrap();
-    let authority = control_authority(&[&config.seed_project]);
+    let authority = control_authority(&[&config.seed_project]).await;
     scoped.observation_for(authority).await.unwrap();
     catalog
         .admin(Origin::Api)
@@ -273,7 +273,8 @@ async fn recovery_rechecks_a_project_added_after_control_authorization() {
     assert_eq!(fs::read(&path).unwrap(), b"retained original");
     assert_eq!(object(&catalog, "test-bucket/body").await, winner);
     drop((writeback, scoped));
-    let scoped = root.with_authority(control_authority(&[&config.seed_project, "other-project"]));
+    let scoped =
+        root.with_authority(control_authority(&[&config.seed_project, "other-project"]).await);
     let writeback = scoped
         .writeback(
             Limits::new(
@@ -291,7 +292,9 @@ async fn recovery_rechecks_a_project_added_after_control_authorization() {
     catalog.close().await.unwrap();
 }
 
-fn control_authority(projects: &[&str]) -> crate::storage::sync_state::authority::ControlAuthority {
+async fn control_authority(
+    projects: &[&str],
+) -> crate::storage::sync_state::authority::ControlAuthority {
     let roles: std::collections::BTreeMap<_, _> = projects
         .iter()
         .map(|project| (*project, vec!["roles/storage.admin"]))
@@ -303,7 +306,8 @@ fn control_authority(projects: &[&str]) -> crate::storage::sync_state::authority
         hyper::header::HeaderValue::from_static("Bearer control-token"),
     );
     let identity = auth
-        .authenticate_at(&headers, None, &crate::clock::SystemClock)
+        .authenticate_request(&headers, None, &crate::clock::SystemClock)
+        .await
         .unwrap()
         .unwrap()
         .principal()
@@ -317,7 +321,7 @@ async fn publication_rechecks_a_project_added_after_source_staging() {
     let (_data, tree, catalog, root, config) = fixture().await;
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     fs::write(tree.0.join("test-bucket/body"), b"preserved external body").unwrap();
-    let scoped = root.with_authority(control_authority(&[&config.seed_project]));
+    let scoped = root.with_authority(control_authority(&[&config.seed_project]).await);
     let hook = Arc::new(Hook {
         phase: "publish",
         entered: tokio::sync::Notify::new(),
@@ -361,7 +365,8 @@ async fn publication_rechecks_a_project_added_after_source_staging() {
         b"preserved external body"
     );
     drop(scoped);
-    let scoped = root.with_authority(control_authority(&[&config.seed_project, "other-project"]));
+    let scoped =
+        root.with_authority(control_authority(&[&config.seed_project, "other-project"]).await);
     assert_eq!(scan(&catalog, &scoped, &config).await.ingested, 1);
     assert_eq!(object(&catalog, "test-bucket/body").await.size, 23);
     drop((scoped, root));

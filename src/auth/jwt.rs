@@ -81,13 +81,6 @@ impl<'a> Candidate<'a> {
         })
     }
 
-    pub(super) fn verify_sync(self) -> Option<&'a Identity> {
-        self.keys
-            .iter()
-            .any(|key| key.verify(self.message.as_bytes(), &self.signature))
-            .then_some(self.identity)
-    }
-
     pub(super) async fn verify(
         self,
         verifiers: &Verifiers,
@@ -109,15 +102,6 @@ impl<'a> Candidate<'a> {
             })?;
         Ok(valid.then_some(identity))
     }
-}
-
-#[cfg(test)]
-fn authenticate<'a>(
-    registry: &'a Registry,
-    token: &str,
-    clock: &dyn Clock,
-) -> Option<&'a Identity> {
-    Candidate::parse(registry, token, clock)?.verify_sync()
 }
 
 fn decode(raw: &str) -> Option<Vec<u8>> {

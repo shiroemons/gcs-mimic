@@ -15,7 +15,7 @@ mod update_copy;
 
 use crate::grpc::generated::google::{iam::v1 as iam, storage::v2 as pb};
 use crate::{
-    auth::{AuthFailure, Caller},
+    auth::{AuthError, Caller},
     server::State,
 };
 use std::{pin::Pin, sync::Arc};
@@ -111,14 +111,17 @@ impl Storage {
     pub(crate) fn authenticate<T>(
         &self,
         request: &Request<T>,
-    ) -> Result<Option<Caller<'_>>, Status> {
+    ) -> impl Future<Output = Result<Option<Caller<'_>>, Status>> + Send {
         let headers = request.metadata().clone().into_headers();
-        let caller = self
-            .state
-            .auth
-            .authenticate_at(&headers, None, self.state.clock.as_ref())
-            .map_err(auth_error)?;
-        Ok(caller)
+        async move {
+            let caller = self
+                .state
+                .auth
+                .authenticate_request(&headers, None, self.state.clock.as_ref())
+                .await
+                .map_err(auth_error)?;
+            Ok(caller)
+        }
     }
 }
 
@@ -127,7 +130,10 @@ fn access_status(error: impl Into<Status>, caller: Option<Caller<'_>>) -> Status
     status::anonymous(error.into(), caller)
 }
 
-fn auth_error(_: AuthFailure) -> Status {
+pub(super) fn auth_error(error: AuthError) -> Status {
+    if matches!(error, AuthError::Unavailable(_)) {
+        return Status::unavailable("The credential verifier is unavailable");
+    }
     Status::unauthenticated(
         "gcs-mimic strict authentication requires a registered local Bearer token; supply authorization: Bearer local-admin-token with a matching identity_file",
     )
@@ -152,7 +158,7 @@ macro_rules! storage_methods {
                     &self,
                     request: Request<$request>,
                 ) -> Result<Response<$response>, Status> {
-                    let caller = self.authenticate(&request)?;
+                    let caller = self.authenticate(&request).await?;
                     let $r = request.get_ref();
                     routing::check(request.metadata(), $routes)?;
                     self.$method(request, caller)

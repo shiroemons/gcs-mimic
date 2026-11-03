@@ -110,10 +110,11 @@ async fn control(
         .clone()
         .try_acquire_owned()
         .map_err(|_| busy())?;
-    let caller =
-        ctx.state
-            .auth
-            .authenticate_at(request.headers(), None, ctx.state.clock.as_ref())?;
+    let caller = ctx
+        .state
+        .auth
+        .authenticate_request(request.headers(), None, ctx.state.clock.as_ref())
+        .await?;
     let identity = caller
         .map(|caller| caller.principal().cloned())
         .transpose()?;

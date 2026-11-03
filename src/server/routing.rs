@@ -364,6 +364,7 @@ async fn respond_routed(
     if is_unsupported_protocol_upload(&request) {
         return boxed(
             authenticate(&request, ctx.state)
+                .await
                 .and_then(|_| Err(json::unsupported_upload_type()))
                 .unwrap_or_else(JsonError::into_response),
         );
@@ -380,7 +381,7 @@ async fn respond_routed(
     if selected.is_none()
         && let Some(route) = unsupported::route(method, uri)
     {
-        return respond_unsupported(&request, ctx.state, route);
+        return respond_unsupported(&request, ctx.state, route).await;
     }
     // POST Object targets the bucket itself and authenticates from form fields in the body.
     if let Some(object) = selected.as_ref().filter(|object| {
@@ -434,18 +435,18 @@ async fn respond_routed(
     boxed(probe(&request, ctx.state).unwrap_or_else(|| unknown_route().into_response()))
 }
 
-fn authenticate<'a>(
-    request: &Request<Incoming>,
+fn authenticate<'a, 'r>(
+    request: &'r Request<Incoming>,
     state: &'a State,
-) -> Result<Option<Caller<'a>>, JsonError> {
-    state
-        .auth
-        .authenticate_at(
-            request.headers(),
-            request.uri().query(),
-            state.clock.as_ref(),
-        )
-        .map_err(JsonError::from)
+) -> impl Future<Output = Result<Option<Caller<'a>>, JsonError>> + Send + use<'a, 'r> {
+    let (headers, query) = (request.headers(), request.uri().query());
+    async move {
+        state
+            .auth
+            .authenticate_request(headers, query, state.clock.as_ref())
+            .await
+            .map_err(JsonError::from)
+    }
 }
 
 async fn respond_acl(
@@ -454,29 +455,32 @@ async fn respond_acl(
     parsed: Result<json::acl::AclRequest, JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result =
-        match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => acl::respond(
-                request,
-                operation,
-                caller,
-                state,
-                &ctx.endpoints.api_base_url,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
+    let result = match authenticate(&request, state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)))
+    {
+        Ok((operation, caller)) => acl::respond(
+            request,
+            operation,
+            caller,
+            state,
+            &ctx.endpoints.api_base_url,
+        )
+        .await
+        .map_err(|error| anonymous_error(error, caller)),
+        Err(error) => Err(error),
+    };
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
-fn respond_unsupported(
+async fn respond_unsupported(
     request: &Request<Incoming>,
     state: &State,
     route: &str,
 ) -> Response<ResponseBody> {
     boxed(
         authenticate(request, state)
+            .await
             .and_then(|_| {
                 Err(JsonError::unsupported_message(
                     format!("gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."),
@@ -492,20 +496,22 @@ async fn respond_notifications(
     parsed: Result<(json::notifications::NotificationRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result =
-        match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok(((operation, fields), caller)) => notifications::respond(
-                request,
-                operation,
-                fields,
-                caller,
-                state,
-                &ctx.endpoints.api_base_url,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
+    let result = match authenticate(&request, state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)))
+    {
+        Ok(((operation, fields), caller)) => notifications::respond(
+            request,
+            operation,
+            fields,
+            caller,
+            state,
+            &ctx.endpoints.api_base_url,
+        )
+        .await
+        .map_err(|error| anonymous_error(error, caller)),
+        Err(error) => Err(error),
+    };
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
@@ -618,7 +624,9 @@ async fn respond_rewrite(
     ctx: RequestCtx<'_>,
     parsed: Result<json::rewrite::RewriteRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let parsed = authenticate(&request, ctx.state).and_then(|caller| parsed.map(|op| (op, caller)));
+    let parsed = authenticate(&request, ctx.state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let result = match parsed {
         Ok((operation, caller)) => {
@@ -637,7 +645,9 @@ async fn respond_json_object(
     ctx: RequestCtx<'_>,
     parsed: Result<ObjectRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let parsed = authenticate(&request, ctx.state).and_then(|caller| parsed.map(|op| (op, caller)));
+    let parsed = authenticate(&request, ctx.state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)));
     let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
     // The object a missing-object error names: only operations whose path selects one.
     let target = match &parsed {
@@ -697,20 +707,22 @@ async fn respond_project(
     parsed: Result<(json::ProjectRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result =
-        match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok(((operation, fields), caller)) => project_resources::respond(
-                request,
-                operation,
-                fields,
-                caller,
-                state,
-                &ctx.endpoints.api_base_url,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
+    let result = match authenticate(&request, state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)))
+    {
+        Ok(((operation, fields), caller)) => project_resources::respond(
+            request,
+            operation,
+            fields,
+            caller,
+            state,
+            &ctx.endpoints.api_base_url,
+        )
+        .await
+        .map_err(|error| anonymous_error(error, caller)),
+        Err(error) => Err(error),
+    };
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
@@ -721,20 +733,22 @@ async fn respond_bucket(
     parsed: Result<json::BucketRequest, JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result =
-        match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => buckets::respond(
-                request,
-                operation,
-                caller,
-                state,
-                profile,
-                &ctx.endpoints.api_base_url,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
+    let result = match authenticate(&request, state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)))
+    {
+        Ok((operation, caller)) => buckets::respond(
+            request,
+            operation,
+            caller,
+            state,
+            profile,
+            &ctx.endpoints.api_base_url,
+        )
+        .await
+        .map_err(|error| anonymous_error(error, caller)),
+        Err(error) => Err(error),
+    };
     let response = result
         .map_err(|error| legacy_bucket_error(error, profile))
         .unwrap_or_else(JsonError::into_response);

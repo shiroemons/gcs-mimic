@@ -466,7 +466,7 @@ mod tests {
         );
         let mut headers = hyper::HeaderMap::new();
         headers.insert("authorization", "Bearer token".parse().unwrap());
-        let caller = auth.authenticate(&headers, None).unwrap().unwrap();
+        let caller = auth.authenticate(&headers, None).await.unwrap().unwrap();
         let access = catalog
             .bucket_access("bucket", Some(caller.principal().unwrap()), OBJECTS_GET)
             .await
@@ -540,7 +540,7 @@ mod tests {
         );
         let mut headers = hyper::HeaderMap::new();
         headers.insert("authorization", "Bearer token".parse().unwrap());
-        let caller = auth.authenticate(&headers, None).unwrap().unwrap();
+        let caller = auth.authenticate(&headers, None).await.unwrap().unwrap();
         catalog
             .set_policy(
                 "bucket",

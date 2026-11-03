@@ -118,7 +118,7 @@ pub(crate) fn anonymous(status: Status, caller: Option<crate::auth::Caller<'_>>)
 
 pub(super) fn unsupported_for(method: &str, caller: Option<crate::auth::Caller<'_>>) -> Status {
     if matches!(caller, Some(crate::auth::Caller::Anonymous)) {
-        return super::auth_error(crate::auth::AuthFailure::InvalidCredentials);
+        return super::auth_error(crate::auth::AuthFailure::InvalidCredentials.into());
     }
     unsupported(method)
 }

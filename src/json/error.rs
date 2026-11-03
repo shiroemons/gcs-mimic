@@ -626,6 +626,15 @@ impl From<crate::url::UrlError> for JsonError {
     }
 }
 
+impl From<crate::auth::AuthError> for JsonError {
+    fn from(error: crate::auth::AuthError) -> Self {
+        match error {
+            crate::auth::AuthError::Failure(failure) => failure.into(),
+            crate::auth::AuthError::Unavailable(cause) => Self::backend(&cause),
+        }
+    }
+}
+
 impl From<AuthFailure> for JsonError {
     fn from(failure: AuthFailure) -> Self {
         match failure {

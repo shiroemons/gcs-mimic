@@ -1692,11 +1692,11 @@ mod tests {
             soft_deleted: true,
             ..Default::default()
         };
-        s.list_objects(Request::new(request.clone()), caller(&s, "viewer"))
+        s.list_objects(Request::new(request.clone()), caller(&s, "viewer").await)
             .await
             .unwrap();
         assert_code(
-            s.list_objects(Request::new(request.clone()), caller(&s, "none"))
+            s.list_objects(Request::new(request.clone()), caller(&s, "none").await)
                 .await,
             Code::PermissionDenied,
         );
@@ -1755,7 +1755,7 @@ mod tests {
         };
         // objectUser may update objects but not set retention.
         assert_code(
-            s.update_object(Request::new(request.clone()), caller(&s, "user"))
+            s.update_object(Request::new(request.clone()), caller(&s, "user").await)
                 .await,
             Code::PermissionDenied,
         );
@@ -1772,7 +1772,7 @@ mod tests {
                 .retention
                 .is_none()
         );
-        s.update_object(Request::new(request), caller(&s, "admin"))
+        s.update_object(Request::new(request), caller(&s, "admin").await)
             .await
             .unwrap();
         s.state.catalog.close().await.unwrap();

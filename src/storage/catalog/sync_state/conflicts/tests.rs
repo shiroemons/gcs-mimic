@@ -380,7 +380,7 @@ async fn conflict_restore_stale_generation_and_holds_preserve_quota_and_bytes() 
     fixture.close().await;
 }
 
-fn strict_authority(projects: &[&str]) -> ControlAuthority {
+async fn strict_authority(projects: &[&str]) -> ControlAuthority {
     let roles = projects
         .iter()
         .map(|project| {
@@ -401,6 +401,7 @@ fn strict_authority(projects: &[&str]) -> ControlAuthority {
         seed: "seed".into(),
         identity: auth
             .authenticate(&headers, None)
+            .await
             .unwrap()
             .unwrap()
             .principal()
@@ -413,8 +414,8 @@ fn strict_authority(projects: &[&str]) -> ControlAuthority {
 async fn conflict_original_owner_survives_bucket_recreation_and_completed_retry() {
     let fixture = Fixture::new().await;
     let captured = fixture.capture().await;
-    let denied = strict_authority(&["seed", "new-owner"]);
-    let authorized = strict_authority(&["seed", "owner", "new-owner"]);
+    let denied = strict_authority(&["seed", "new-owner"]).await;
+    let authorized = strict_authority(&["seed", "owner", "new-owner"]).await;
     assert!(matches!(
         fixture
             .lease

@@ -142,7 +142,7 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
     let (writeback, id) = protected_workspace(&fixture, 10).await;
     let item = fixture
         .lease
-        .recovery_page(0, 128, strict_authority(&["seed", "owner"]))
+        .recovery_page(0, 128, strict_authority(&["seed", "owner"]).await)
         .await
         .unwrap()
         .pop()
@@ -160,7 +160,7 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
     assert!(matches!(
         fixture
             .lease
-            .resolve_conflict(request.clone(), strict_authority(&["seed"]), 4096)
+            .resolve_conflict(request.clone(), strict_authority(&["seed"]).await, 4096)
             .await,
         Err(Error::Admin(AdminError::Forbidden))
     ));
