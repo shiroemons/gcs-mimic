@@ -7,7 +7,9 @@ use crate::{
     storage::sync_state::{
         authority::ControlAuthority,
         deletions::DeletionSet,
+        observation::PauseReason,
         root::{RootError, RootLease},
+        writeback::Stop,
     },
     sync::control::{Command, Registration},
 };
@@ -378,16 +380,10 @@ async fn status(
     let pending = set
         .as_ref()
         .map_or(0, |set| set.candidate_count - set.completed_count);
-    let paused = observation
-        .paused_reason
-        .as_deref()
-        .map(|reason| match reason {
-            "ConflictCapacity" | "IoFailure" | "RecoveryRequired" => reason,
-            _ => "Paused",
-        });
+    let paused = observation.paused_reason.map(PauseReason::state);
     bounded(
         &json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"auth_mode":state.auth.mode().as_str(),
-        "state":if let Some(reason)=paused {reason} else if !state.is_ready() {"Unhealthy"} else if observation.writeback.as_ref().is_some_and(|value|value.state!="Ready") {observation.writeback.as_ref().map(|value|value.state).unwrap_or("Observing")} else if observation.scan_stop.is_some() {observation.scan_stop.as_deref().unwrap_or("Observing")} else if !observation.baseline_complete {"Observing"} else if set.as_ref().is_some_and(|set|set.guarded && set.authorization==0) {"DeletionApproval"} else if observation.path_stops+observation.mapping_findings+observation.pending_writeback+observation.unresolved_conflicts>0 {"FindingsPending"} else {"Ready"},
+        "state":if let Some(reason)=paused {reason} else if !state.is_ready() {"Unhealthy"} else if observation.writeback.as_ref().is_some_and(|value|value.state!=Stop::Ready) {observation.writeback.as_ref().map(|value|value.state.as_str()).unwrap_or("Observing")} else if observation.scan_stop.is_some() {observation.scan_stop.map(PauseReason::as_str).unwrap_or("Observing")} else if !observation.baseline_complete {"Observing"} else if set.as_ref().is_some_and(|set|set.guarded && set.authorization==0) {"DeletionApproval"} else if observation.path_stops+observation.mapping_findings+observation.pending_writeback+observation.unresolved_conflicts>0 {"FindingsPending"} else {"Ready"},
         "session_id":session,"findings_revision":findings_revision,"observation":observation,
         "pending_deletion_revision":set.as_ref().filter(|_|pending>0).map(|set|set.revision.clone()),"pending_deletion_count":pending,
             "deletion_set":set,"writeback_safety":"preserve-pending-work","conflict_resolution_available":true,"stable_wait_available":true}),
@@ -525,10 +521,7 @@ fn root_error(error: &RootError) -> JsonError {
     }
 }
 fn control_error(error: &io::Error) -> JsonError {
-    let mut cause = error
-        .get_ref()
-        .map(|error| error as &(dyn std::error::Error + 'static));
-    while let Some(error) = cause {
+    for error in crate::error::causes(error) {
         if let Some(root) = error.downcast_ref::<RootError>() {
             return root_error(root);
         }
@@ -547,13 +540,6 @@ fn control_error(error: &io::Error) -> JsonError {
         ) {
             return stale();
         }
-        cause = if let Some(error) = error.downcast_ref::<io::Error>() {
-            error
-                .get_ref()
-                .map(|error| error as &(dyn std::error::Error + 'static))
-        } else {
-            error.source()
-        };
     }
     busy()
 }

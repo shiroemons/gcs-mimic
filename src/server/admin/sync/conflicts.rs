@@ -1,6 +1,6 @@
 use super::*;
 use crate::storage::sync_state::conflicts::{
-    self, Action, Confirmation, ResolveRequest, ResolveTarget,
+    self, Action, Confirmation, ConflictTarget, RecoveryTarget, ResolveRequest, ResolveTarget,
 };
 
 pub(super) async fn list(
@@ -125,21 +125,21 @@ fn parse(bytes: &[u8]) -> Result<ResolveRequest, JsonError> {
         request.confirmation,
     ) {
         (Some(id), None, Some(generation), None, None) if revision(&id) && generation >= 0 => {
-            ResolveTarget::Conflict {
+            ResolveTarget::Conflict(ConflictTarget {
                 conflict_id: id,
                 revision: request.revision,
-                expected_generation: Some(generation),
-            }
+                expected_generation: generation,
+            })
         }
         (None, Some(id), None, Some(identity), Some(confirmation))
             if revision(&id) && revision(&identity) && request.action == Action::Discard =>
         {
-            ResolveTarget::Recovery {
+            ResolveTarget::Recovery(RecoveryTarget {
                 recovery_id: id,
                 revision: request.revision,
                 target_identity: identity,
-                confirmation: Some(confirmation),
-            }
+                confirmation,
+            })
         }
         (None, Some(_), None, Some(_), None) => {
             return Err(JsonError::new(
@@ -211,11 +211,6 @@ pub(super) fn error(error: conflicts::Error) -> JsonError {
             StatusCode::CONFLICT,
             "operation_id_reused",
             "Use the original payload for this operation ID or choose a new operation ID",
-        ),
-        conflicts::Error::ConfirmationRequired => JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "recovery_confirmation_required",
-            "An explicit exact-target backup or disposal confirmation is required",
         ),
         conflicts::Error::InvalidResolution => JsonError::new(
             StatusCode::BAD_REQUEST,

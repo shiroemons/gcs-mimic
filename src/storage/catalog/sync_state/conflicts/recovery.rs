@@ -136,12 +136,12 @@ impl RootLease {
         request: ResolveRequest,
         authority: ControlAuthority,
     ) -> Result<ResolveOutcome, Error> {
-        let ResolveTarget::Recovery {
+        let ResolveTarget::Recovery(RecoveryTarget {
             recovery_id,
             revision,
             target_identity,
-            confirmation,
-        } = &request.target
+            ..
+        }) = &request.target
         else {
             return Err(Error::InvalidResolution);
         };
@@ -151,9 +151,6 @@ impl RootLease {
             || !valid_id(target_identity)
         {
             return Err(Error::InvalidResolution);
-        }
-        if confirmation.is_none() {
-            return Err(Error::ConfirmationRequired);
         }
         let root = self.status().root_id.as_bytes();
         let req = request.clone();

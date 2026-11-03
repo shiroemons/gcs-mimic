@@ -144,10 +144,7 @@ fn watch_retryable(error: &io::Error) -> bool {
     if is_transient(error) {
         return true;
     }
-    std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |cause| {
-        cause.source()
-    })
-    .any(|cause| {
+    crate::error::causes(error).any(|cause| {
         cause
             .downcast_ref::<io::Error>()
             .is_some_and(|error| error.kind() == io::ErrorKind::PermissionDenied)
@@ -198,14 +195,7 @@ fn is_transient(error: &io::Error) -> bool {
                 | io::ErrorKind::ResourceBusy
         )
     }
-    if transient_kind(error.kind()) {
-        return true;
-    }
-    // `io::Error::source` skips a wrapped error itself, so start the walk at the wrapped one.
-    let first = error
-        .get_ref()
-        .map(|inner| inner as &(dyn std::error::Error + 'static));
-    std::iter::successors(first, |cause| cause.source()).any(|cause| {
+    crate::error::causes(error).any(|cause| {
         if let Some(admin) = cause.downcast_ref::<AdminError>() {
             match admin {
                 AdminError::Busy { .. } => true,
@@ -276,7 +266,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                     serde_json::json!({"reason":error.to_string(),"remedy":"Preserve pending data, correct the reported condition and request an explicit rescan"}),
                 );
                 if let Err(error) =
-                    runtime.block_on(root.observation_pause(Some(pause_reason(&error).into())))
+                    runtime.block_on(root.observation_pause(Some(pause_reason(&error))))
                 {
                     diagnostics::emit(
                         LogLevel::Error,
@@ -566,17 +556,17 @@ struct Initialized {
     writeback: Writeback,
 }
 
-fn pause_reason(error: &io::Error) -> &'static str {
-    for cause in std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |cause| {
-        cause
-            .downcast_ref::<io::Error>()
-            .and_then(|error| {
-                error
-                    .get_ref()
-                    .map(|cause| cause as &(dyn std::error::Error + 'static))
-            })
-            .or_else(|| cause.source())
-    }) {
+fn pause_reason(error: &io::Error) -> crate::storage::sync_state::observation::PauseReason {
+    use crate::storage::sync_state::observation::PauseReason;
+    for cause in crate::error::causes(error) {
+        if let Some(stop) = cause.downcast_ref::<Stop>() {
+            return match stop {
+                Stop::ConflictCapacity => PauseReason::ConflictCapacity,
+                Stop::IoFailure => PauseReason::IoFailure,
+                Stop::RecoveryRequired | Stop::ProtectedBody => PauseReason::RecoveryRequired,
+                Stop::Ready => PauseReason::ObserverFailure,
+            };
+        }
         if matches!(
             cause.downcast_ref::<crate::storage::sync_state::conflicts::Error>(),
             Some(crate::storage::sync_state::conflicts::Error::Capacity)
@@ -584,22 +574,22 @@ fn pause_reason(error: &io::Error) -> &'static str {
             cause.downcast_ref::<writeback::Error>(),
             Some(writeback::Error::Capacity)
         ) {
-            return "ConflictCapacity";
+            return PauseReason::ConflictCapacity;
         }
         if matches!(
             cause.downcast_ref::<writeback::Error>(),
             Some(writeback::Error::RecoveryRequired | writeback::Error::Protected)
         ) {
-            return "RecoveryRequired";
+            return PauseReason::RecoveryRequired;
         }
         if matches!(
             cause.downcast_ref::<AdminError>(),
             Some(AdminError::DiskFull | AdminError::Io(_))
         ) {
-            return "IoFailure";
+            return PauseReason::IoFailure;
         }
     }
-    "observer-failure"
+    PauseReason::ObserverFailure
 }
 
 async fn initialize_live(
@@ -679,11 +669,7 @@ async fn recover_writeback(root: &RootLease) -> io::Result<Writeback> {
         .await
         .map_err(io::Error::other)?;
     if recovered.stop != Stop::Ready {
-        return Err(io::Error::other(match recovered.stop {
-            Stop::ConflictCapacity => writeback::Error::Capacity,
-            Stop::IoFailure => writeback::Error::Admin(AdminError::Io(io::ErrorKind::Other.into())),
-            _ => writeback::Error::RecoveryRequired,
-        }));
+        return Err(io::Error::other(recovered.stop));
     }
     Ok(writeback)
 }

@@ -14,6 +14,35 @@ use crate::{
 use http_body_util::BodyExt;
 use std::{fs, time::Duration};
 
+#[test]
+fn nested_io_control_errors_keep_status_and_text() {
+    for error in [
+        RootError::Admin(crate::storage::admin::AdminError::Forbidden),
+        RootError::Admin(crate::storage::admin::AdminError::Precondition),
+        RootError::InUse,
+    ] {
+        let expected = root_error(&error);
+        let actual = control_error(&io::Error::other(io::Error::other(error)));
+        assert_eq!(actual.status, expected.status);
+        assert_eq!(actual.message, expected.message);
+    }
+}
+
+#[test]
+fn recovered_writeback_stops_keep_the_admin_busy_response() {
+    let expected = busy();
+    for stop in [
+        Stop::ConflictCapacity,
+        Stop::IoFailure,
+        Stop::RecoveryRequired,
+        Stop::ProtectedBody,
+    ] {
+        let actual = control_error(&io::Error::other(stop));
+        assert_eq!(actual.status, expected.status);
+        assert_eq!(actual.message, expected.message);
+    }
+}
+
 struct AuthorizationHook {
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
@@ -508,19 +537,26 @@ async fn recovery_http_refreshes_changed_workspace_identity_and_requires_exact_d
     assert_eq!(selected["retained_bytes"], 22);
     assert_ne!(selected["target_identity"], original["target_identity"]);
     let mut payload = json!({"recovery_id":id,"revision":selected["recovery_revision"],"target_identity":selected["target_identity"],"action":"discard","operation_id":"http-confirmed-recovery"});
-    assert_eq!(
-        fixture
+    for explicit_null in [false, true] {
+        if explicit_null {
+            payload["confirmation"] = Value::Null;
+        }
+        let rejected = fixture
             .request(
                 "POST",
                 "/_internal/sync/resolve",
                 &serde_json::to_vec(&payload).unwrap(),
-                None
+                None,
             )
             .await
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
+            .unwrap_err();
+        assert_eq!(rejected.status, StatusCode::BAD_REQUEST);
+        assert_eq!(rejected.reason, "recovery_confirmation_required");
+        assert_eq!(
+            rejected.message,
+            "Confirm backup_verified or discard_without_backup for the exact inspected recovery identity"
+        );
+    }
     payload["confirmation"] = json!("discard_without_backup");
     for mixed in ["conflict_id", "expected_generation"] {
         payload[mixed] = Value::Null;
@@ -775,10 +811,45 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
 }
 
 #[tokio::test]
+async fn unknown_stored_pause_reasons_fail_status_and_findings_with_service_unavailable() {
+    let fixture = Fixture::new(false).await;
+    let status = fixture.status().await;
+    let findings = format!(
+        "/_internal/sync?view=findings&revision={}",
+        status["findings_revision"].as_str().unwrap()
+    );
+    {
+        let connection =
+            rusqlite::Connection::open(fixture._data.0.join("catalog.sqlite3")).unwrap();
+        connection
+            .execute("UPDATE sync_observations SET paused_reason='bogus'", [])
+            .unwrap();
+    }
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+    assert!(matches!(
+        root.observation().await,
+        Err(RootError::Admin(
+            crate::storage::admin::AdminError::Corrupt(_)
+        ))
+    ));
+    for path in ["/_internal/sync", findings.as_str()] {
+        let response = fixture
+            .request("GET", path, b"", None)
+            .await
+            .unwrap_err()
+            .into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body(response).await["error"]["message"], busy().message);
+    }
+    drop(root);
+    fixture.finish().await;
+}
+
+#[tokio::test]
 async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
     let fixture = Fixture::new(false).await;
     let (registration, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
-    root.observation_pause(Some("operator-review".into()))
+    root.observation_pause(Some(PauseReason::ObserverFailure))
         .await
         .unwrap();
     let status = fixture.status().await;
@@ -790,12 +861,12 @@ async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
     assert_eq!(page["total_count"], 1);
     assert_eq!(page["items"][0]["category"], "root-stop");
     assert_eq!(page["items"][0]["reason"], "Paused");
-    assert_eq!(page["items"][0]["detail_code"], "operator-review");
+    assert_eq!(page["items"][0]["detail_code"], "observer-failure");
     assert_eq!(page["items"][0]["scope"], "root");
     assert!(page["items"][0]["finding_id"].is_string());
     assert!(page["items"][0]["remedy"].is_string());
     assert!(page["next_cursor"].is_null());
-    root.observation_pause(Some("changed-in-place".into()))
+    root.observation_pause(Some(PauseReason::IoFailure))
         .await
         .unwrap();
     assert_eq!(

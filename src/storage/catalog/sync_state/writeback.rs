@@ -241,6 +241,24 @@ pub(crate) enum Stop {
     ConflictCapacity,
     IoFailure,
 }
+impl Stop {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "Ready",
+            Self::RecoveryRequired => "RecoveryRequired",
+            Self::ProtectedBody => "ProtectedBody",
+            Self::ConflictCapacity => "ConflictCapacity",
+            Self::IoFailure => "IoFailure",
+        }
+    }
+}
+crate::serde_util::serialize_as_str!(Stop);
+impl std::fmt::Display for Stop {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "write-back stopped: {}", self.as_str())
+    }
+}
+impl std::error::Error for Stop {}
 #[derive(Clone, Debug)]
 pub(crate) struct Status {
     pub reserved_bytes: u128,
@@ -450,13 +468,7 @@ pub(super) fn observation(
 ) -> Result<super::observation::WritebackSummary, Error> {
     let value = status(connection, root)?;
     Ok(super::observation::WritebackSummary {
-        state: match value.stop {
-            Stop::Ready => "Ready",
-            Stop::RecoveryRequired => "RecoveryRequired",
-            Stop::ProtectedBody => "ProtectedBody",
-            Stop::ConflictCapacity => "ConflictCapacity",
-            Stop::IoFailure => "IoFailure",
-        },
+        state: value.stop,
         reserved_bytes: value.reserved_bytes + value.conflicts.reserved_bytes,
         retained_bytes: value.retained_bytes + value.conflicts.retained_bytes,
         entries: value.entries + value.conflicts.entries - value.captured_entries,

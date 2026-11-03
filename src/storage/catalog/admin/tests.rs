@@ -144,10 +144,6 @@ fn synchronization_diagnostics_keep_their_existing_messages() {
             "sync conflict: OperationIdReused",
         ),
         (
-            ConflictError::ConfirmationRequired,
-            "sync conflict: ConfirmationRequired",
-        ),
-        (
             ConflictError::InvalidResolution,
             "sync conflict: InvalidResolution",
         ),

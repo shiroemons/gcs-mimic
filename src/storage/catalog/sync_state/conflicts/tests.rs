@@ -111,11 +111,11 @@ impl Fixture {
                 ResolveRequest {
                     operation_id: operation.into(),
                     action,
-                    target: ResolveTarget::Conflict {
+                    target: ResolveTarget::Conflict(ConflictTarget {
                         conflict_id: captured.id.clone(),
                         revision: captured.revision.clone(),
-                        expected_generation: Some(self.winner.generation),
-                    },
+                        expected_generation: self.winner.generation,
+                    }),
                 },
                 ControlAuthority::Permissive,
                 4096,
@@ -330,11 +330,11 @@ async fn conflict_restore_stale_generation_and_holds_preserve_quota_and_bytes() 
     let stale = ResolveRequest {
         operation_id: "stale-generation".into(),
         action: Action::Restore,
-        target: ResolveTarget::Conflict {
+        target: ResolveTarget::Conflict(ConflictTarget {
             conflict_id: captured.id.clone(),
             revision: captured.revision.clone(),
-            expected_generation: Some(0),
-        },
+            expected_generation: 0,
+        }),
     };
     assert!(matches!(
         fixture
@@ -427,11 +427,11 @@ async fn conflict_original_owner_survives_bucket_recreation_and_completed_retry(
     let request = ResolveRequest {
         operation_id: "original-owner".into(),
         action: Action::Restore,
-        target: ResolveTarget::Conflict {
+        target: ResolveTarget::Conflict(ConflictTarget {
             conflict_id: captured.id.clone(),
             revision: captured.revision.clone(),
-            expected_generation: Some(0),
-        },
+            expected_generation: 0,
+        }),
     };
     assert!(matches!(
         fixture
@@ -565,11 +565,11 @@ async fn conflict_capturing_copy_without_registration_has_an_explicit_discard_re
     let request = ResolveRequest {
         operation_id: "partial-discard".into(),
         action: Action::Discard,
-        target: ResolveTarget::Conflict {
+        target: ResolveTarget::Conflict(ConflictTarget {
             conflict_id: page.items[0].conflict_id.clone(),
             revision: page.items[0].revision.clone(),
-            expected_generation: None,
-        },
+            expected_generation: 0,
+        }),
     };
     assert!(
         fixture
@@ -719,27 +719,17 @@ async fn recovery_sparse_over_limit_requires_exact_identity_and_confirmation() {
     let mut request = ResolveRequest {
         operation_id: "recovery".into(),
         action: Action::Discard,
-        target: ResolveTarget::Recovery {
+        target: ResolveTarget::Recovery(RecoveryTarget {
             recovery_id: id.clone(),
             revision: recovery.recovery_revision.clone(),
             target_identity: recovery.target_identity.clone(),
-            confirmation: None,
-        },
+            confirmation: Confirmation::DiscardWithoutBackup,
+        }),
     };
-    assert!(matches!(
-        fixture
-            .lease
-            .resolve_conflict(request.clone(), ControlAuthority::Permissive, 4096)
-            .await,
-        Err(Error::ConfirmationRequired)
-    ));
-    if let ResolveTarget::Recovery {
-        confirmation,
-        target_identity,
-        ..
-    } = &mut request.target
+    if let ResolveTarget::Recovery(RecoveryTarget {
+        target_identity, ..
+    }) = &mut request.target
     {
-        *confirmation = Some(Confirmation::DiscardWithoutBackup);
         *target_identity = "00000000000000000000000000000000".into();
     }
     assert!(matches!(
@@ -761,9 +751,9 @@ async fn recovery_sparse_over_limit_requires_exact_identity_and_confirmation() {
         .len(),
         (1 << 40) + 1
     );
-    if let ResolveTarget::Recovery {
+    if let ResolveTarget::Recovery(RecoveryTarget {
         target_identity, ..
-    } = &mut request.target
+    }) = &mut request.target
     {
         *target_identity = recovery.target_identity;
     }

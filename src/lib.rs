@@ -24,6 +24,7 @@ pub mod mime;
 mod notification;
 pub mod object;
 pub mod seed;
+mod serde_util;
 pub mod server;
 pub mod source_tree;
 pub mod storage;

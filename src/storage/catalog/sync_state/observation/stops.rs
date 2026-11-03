@@ -8,7 +8,7 @@ pub(crate) enum PathStop {
     SourceChanging,
     IoFailure,
 }
-sql::text_enum!(PathStop, "invalid path stop", {
+sql::text_enum!(pub(super) PathStop, "invalid path stop", {
     ProtectedDeletion => "ProtectedDeletion", SourceChanging => "SourceChanging", IoFailure => "IoFailure",
 });
 

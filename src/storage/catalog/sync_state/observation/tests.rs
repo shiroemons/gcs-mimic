@@ -25,7 +25,7 @@ async fn observation_revision_rejects_changed_pages_and_overflow_rolls_back() {
     let (_data, _tree, catalog, root) = fixture().await;
     let initial = root.observation().await.unwrap();
     assert_eq!(initial.mapping_findings, 0);
-    root.observation_pause(Some("permission-denied".into()))
+    root.observation_pause(Some(PauseReason::ObserverFailure))
         .await
         .unwrap();
     assert!(matches!(
@@ -38,8 +38,8 @@ async fn observation_revision_rejects_changed_pages_and_overflow_rolls_back() {
         .await
         .unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].category, "root-stop");
-    assert_eq!(items[0].reason, "permission-denied");
+    assert_eq!(items[0].category, FindingCategory::RootStop);
+    assert_eq!(items[0].reason.as_str(), "observer-failure");
     root.observation_pause(None).await.unwrap();
     let cleared = root.observation().await.unwrap();
     assert!(cleared.revision > paused.revision);
@@ -62,7 +62,7 @@ async fn observation_revision_rejects_changed_pages_and_overflow_rolls_back() {
         .await
         .unwrap();
     assert!(
-        root.observation_pause(Some("must-roll-back".into()))
+        root.observation_pause(Some(PauseReason::ObserverFailure))
             .await
             .is_err()
     );
@@ -97,7 +97,8 @@ async fn mapping_updates_deletes_and_restart_keep_a_monotonic_revision() {
         root.observation_page(updated.revision, (0, 0), 256)
             .await
             .unwrap()[0]
-            .reason,
+            .reason
+            .as_str(),
         "unsafe-entry"
     );
     drop(root);

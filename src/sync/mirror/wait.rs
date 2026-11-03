@@ -95,7 +95,7 @@ impl LiveControl<'_> {
                 || observation
                     .writeback
                     .as_ref()
-                    .is_some_and(|value| value.state != "Ready")
+                    .is_some_and(|value| value.state != Stop::Ready)
             {
                 "FindingsPending"
             } else {

@@ -38,7 +38,10 @@ use list::ConflictPage;
 pub(in crate::storage) use list::usage;
 pub(crate) use list::{Conflict, Usage};
 pub(crate) use recovery::Recovery;
-pub(crate) use resolve::{Action, Confirmation, ResolveOutcome, ResolveRequest, ResolveTarget};
+pub(crate) use resolve::{
+    Action, Confirmation, ConflictTarget, RecoveryTarget, ResolveOutcome, ResolveRequest,
+    ResolveTarget,
+};
 pub(crate) use resolve::{ResolutionBinding, complete_restore, validate_restore};
 pub(in crate::storage) use transfer::captured_entries;
 
@@ -50,7 +53,6 @@ pub(crate) enum Error {
     RevisionMismatch,
     TargetChanged,
     OperationIdReused,
-    ConfirmationRequired,
     InvalidResolution,
 }
 impl From<AdminError> for Error {
@@ -103,7 +105,6 @@ impl std::fmt::Display for Error {
             Self::RevisionMismatch => f.write_str("RevisionMismatch"),
             Self::TargetChanged => f.write_str("TargetChanged"),
             Self::OperationIdReused => f.write_str("OperationIdReused"),
-            Self::ConfirmationRequired => f.write_str("ConfirmationRequired"),
             Self::InvalidResolution => f.write_str("InvalidResolution"),
         }
     }
