@@ -20709,7 +20709,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_update_copy_contract",
-          "description": "JSON-shared SetIamPolicy subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "description": "SetIamPolicy constructs a shared typed PolicyInput directly from proto fields; role/member/count validation and opaque ETags remain shared with JSON, with atomic conditions, supported field masks and strict authorization; see the slice contract.",
           "result": "PASS",
           "test_ids": [
             "grpc_masks_reject_unsupported_and_accept_defaults",
@@ -20814,7 +20814,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_update_copy_contract",
-          "description": "JSON-shared TestIamPermissions subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "description": "TestIamPermissions directly validates and deduplicates proto permission strings without JSON query encoding or the JSON 16 KiB query cap; the gRPC message limit applies. Strict per-permission authorization and catalog evaluation remain shared; batched authorization is not implemented. See the slice contract.",
           "result": "PASS",
           "test_ids": [
             "grpc_masks_reject_unsupported_and_accept_defaults",

@@ -60,6 +60,19 @@ impl From<crate::auth::AuthFailure> for Status {
     }
 }
 
+impl From<crate::auth::policy_input::PolicyInputError> for Status {
+    fn from(error: crate::auth::policy_input::PolicyInputError) -> Self {
+        match error {
+            crate::auth::policy_input::PolicyInputError::InvalidInput(message) => {
+                Status::invalid_argument(message)
+            }
+            crate::auth::policy_input::PolicyInputError::UnsupportedInput(message) => {
+                unsupported(&message)
+            }
+        }
+    }
+}
+
 impl From<crate::json::JsonError> for Status {
     fn from(mut error: crate::json::JsonError) -> Self {
         if error.kind == crate::json::ErrorKind::NotModified {

@@ -561,16 +561,29 @@ impl Storage {
                 "IAM conditions or audit configs; supply unconditional bindings",
             ));
         }
-        let mut v = json!({"version":p.version,"bindings":p.bindings.iter().map(|b|json!({"role":b.role,"members":b.members})).collect::<Vec<_>>()});
-        if !p.etag.is_empty() {
+        let etag = if !p.etag.is_empty() {
             let bytes: [u8; 8] = p.etag.try_into().map_err(|_| {
                 Status::failed_precondition(
                     "Policy etag does not match; read the current policy before updating",
                 )
             })?;
-            v["etag"] = json::policy_etag(i64::from_be_bytes(bytes)).into();
+            Some(json::policy_etag(i64::from_be_bytes(bytes)))
+        } else {
+            None
+        };
+        let p = auth::policy_input::PolicyInput {
+            version: p.version,
+            bindings: p
+                .bindings
+                .into_iter()
+                .map(|binding| auth::Binding {
+                    role: binding.role,
+                    members: binding.members,
+                })
+                .collect(),
+            etag,
         }
-        let p = json::parse_policy(v.to_string().as_bytes())?;
+        .into_policy()?;
         Ok(Response::new(policy(
             self.state.catalog.set_policy(bucket, p, &access).await?,
         )?))
@@ -582,13 +595,18 @@ impl Storage {
     ) -> Result<Response<iam::TestIamPermissionsResponse>, Status> {
         let r = request.into_inner();
         let bucket = iam_bucket(&r.resource)?;
-        let query = r
-            .permissions
-            .iter()
-            .map(|p| format!("permissions={}", auth::signature::encode_query_component(p)))
-            .collect::<Vec<_>>()
-            .join("&");
-        let (requested, _) = json::test_permissions_query(Some(&query))?;
+        if r.permissions.is_empty() {
+            return Err(Status::invalid_argument(
+                "permissions is required; supply at least one permission",
+            ));
+        }
+        let mut requested = Vec::new();
+        for permission in r.permissions {
+            json::check_testable_permission(&permission)?;
+            if !requested.contains(&permission) {
+                requested.push(permission);
+            }
+        }
         self.state
             .catalog
             .get_policy(bucket, &BucketAccess::Permissive)
@@ -1112,6 +1130,77 @@ mod tests {
         assert!(!config.enabled);
         assert_eq!(config.terminal_storage_class, None);
         s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_iam_validates_typed_policy_and_permission_values() {
+        let (storage, _dir) = setup().await;
+        let resource = "projects/_/buckets/update-copy-bucket";
+        for permission in [
+            "",
+            auth::BUCKETS_CREATE,
+            "storage.invalid",
+            "storage.objects.get&permissions=storage.objects.delete",
+        ] {
+            let error = storage
+                .test_iam_permissions(
+                    Request::new(iam::TestIamPermissionsRequest {
+                        resource: resource.into(),
+                        permissions: vec![permission.into()],
+                    }),
+                    None,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), Code::InvalidArgument);
+        }
+        let response = storage
+            .test_iam_permissions(
+                Request::new(iam::TestIamPermissionsRequest {
+                    resource: resource.into(),
+                    permissions: vec![auth::OBJECTS_GET.into(); 1024],
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(response.permissions, [auth::OBJECTS_GET]);
+        assert_code(
+            storage
+                .test_iam_permissions(
+                    Request::new(iam::TestIamPermissionsRequest {
+                        resource: resource.into(),
+                        permissions: vec!["storage.anywhereCaches.create".into()],
+                    }),
+                    None,
+                )
+                .await,
+            Code::Unimplemented,
+        );
+        let response = storage
+            .set_iam_policy(
+                Request::new(iam::SetIamPolicyRequest {
+                    resource: resource.into(),
+                    policy: Some(iam::Policy {
+                        version: 3,
+                        bindings: vec![iam::Binding {
+                            role: "roles/storage.objectViewer".into(),
+                            members: vec!["allUsers".into()],
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(response.bindings[0].members, ["allUsers"]);
+        assert_eq!(response.etag.len(), 8);
+        storage.state.catalog.close().await.unwrap();
     }
 
     #[tokio::test]

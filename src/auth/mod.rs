@@ -11,6 +11,7 @@ mod acl_identity;
 pub(crate) use acl_identity::validate_local_creator_email;
 mod jwt;
 mod policy;
+pub(crate) mod policy_input;
 pub(crate) mod roles;
 pub mod signature;
 pub(crate) use policy::PublicAccess;

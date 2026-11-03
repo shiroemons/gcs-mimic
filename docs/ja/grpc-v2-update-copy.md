@@ -16,6 +16,8 @@ UpdateBucketはprotoから共有の`BucketMetadataUpdate`を直接作り、JSON�
 UpdateObjectも`ObjectMetadataUpdate`を直接作り、ACL・保持時刻を型付きで渡します。
 WriteObject・ComposeObject・RewriteObjectはprotoのメタデータ変換と共有検証を再利用します。
 rewrite tokenの照合用保存形式は既存互換を保ちますが、適用時のJSONパーサーは通りません。
+SetIamPolicyは共有の型付きポリシーを直接作ります。TestIamPermissionsは渡された権限文字列をそのまま検証し、クエリ文字列を組み立てません。
+権限の重複は入力順に除き、入力サイズはgRPCメッセージ上限で制限します。権限ごとのカタログ呼び出しは残ります。
 空の`iam_config`親maskも更新としてmetagenerationを進めますが、設定自体は保持します。
 この空更新の扱いはGoogleで未観測のため、SPEC-GRPC-EMPTY-IAM-UPDATEに記録しています。
 

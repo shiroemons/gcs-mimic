@@ -65,7 +65,9 @@ pub(crate) use error::{
 pub(crate) use fields::Fields;
 pub(crate) use format::{ResponseFormat, render_body, with_format};
 pub(crate) use iam::policy_etag;
-pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
+pub(crate) use iam::{
+    check_testable_permission, parse_policy, policy_resource, test_permissions_query,
+};
 pub(crate) use multipart::{
     Multipart, PartKind, batch_boundary, check_declared_content_type, form_data_boundary,
     is_multipart_content_type, multipart_boundary, multipart_metadata,

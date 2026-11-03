@@ -42,7 +42,7 @@ through the JSON metadata parser when applying a new request.
 
 The adapter currently accepts one match or not-match condition per generation kind; simultaneous match/not-match for the same kind returns INVALID_ARGUMENT. JSON's broader combined-condition precedence remains outside this scoped RPC acceptance.
 
-IAM supports bucket resources, unconditional predefined-role policies, versions 0/1/3 and opaque shared policy ETags. SetPolicy accepts its absent/empty default mask or `bindings,etag`; other masks, conditions, audit configs and managed-folder/object resources remain unsupported. TestPermissions reuses the JSON permission-name validation and per-permission authorization, including project grants, bucket grants and PAP. Locking requires a positive matching metageneration and uses shared irreversible emulator-local state.
+IAM supports bucket resources, unconditional predefined-role policies, versions 0/1/3 and opaque shared policy ETags. SetPolicy constructs the shared typed policy input directly and accepts its absent/empty default mask or `bindings,etag`; other masks, conditions, audit configs and managed-folder/object resources remain unsupported. TestPermissions validates the supplied permission strings directly, deduplicates them in request order and retains per-permission authorization, including project grants, bucket grants and PAP. Its input is bounded by the gRPC message limit rather than the JSON query-string limit. Permission evaluation still makes per-permission catalog calls; batching those decisions is deferred to an authorization-layer change. Locking requires a positive matching metageneration and uses shared irreversible emulator-local state.
 
 Rewrite inherits or replaces the JSON-supported editable metadata subset, selects source generations and applies source/destination conditions. Same-location/class copies finish in one call; changed location/class uses the shared 8 MiB default budget or a positive whole-MiB caller budget. Token-only continuation, mismatched-request rejection and last-token replay use the shared durable session. Completed gRPC responses are stored as protobuf bytes inside the existing bounded response envelope; continuation tokens must stay on the gRPC transport. Cross-transport token reuse is not supported. No body bytes are collected: the shared engine stages and copies with a fixed 64 KiB buffer.
 
@@ -55,6 +55,12 @@ Storage errors use the common `status::from_json` mapping, including expired-ses
 UpdateBucket, UpdateObject and TestIamPermissions retain LOCAL_SIMULATION achieved fidelity, matching their shared JSON operations; the remaining delivered scopes have EXACT achieved fidelity with explicit pending cases. This does not turn local principals, policy propagation or lifecycle metadata into Google infrastructure.
 
 ## Verification
+
+The direct IAM conversion passed ten IAM-related library tests and the shared
+typed-policy test on 2026-11-04. Cases include JSON mixed-error precedence and
+opaque ETags, invalid/raw permission strings, unsupported predefined permissions,
+1024 duplicate permission values and typed policy publication. No SDK or provider
+request was made for this change.
 
 The typed object conversion passed all 109 gRPC library tests on 2026-11-04,
 including the class-versus-stale-condition precedence snapshot and three new
