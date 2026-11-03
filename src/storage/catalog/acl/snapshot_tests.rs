@@ -111,7 +111,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 target.clone(),
                 AclChange::Upsert {
                     entity: "user-delegate@example.test".into(),
-                    role: Some("OWNER".into()),
+                    role: Some(crate::acl::AclRole::Owner),
                 },
                 PERMISSIVE,
             )

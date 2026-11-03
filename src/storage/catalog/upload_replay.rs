@@ -24,7 +24,7 @@ fn decode_completion(stored: &str, index: usize) -> rusqlite::Result<Completion>
     crate::bucket::validate_storage_class(&completion.record.storage_class)
         .map_err(|error| sql::conversion_error(index, rusqlite::types::Type::Text, error))?;
     for entry in completion.acl.iter().flatten() {
-        crate::acl::validate_role(crate::acl::AclKind::Object, &entry.role)
+        crate::acl::validate_role(crate::acl::AclKind::Object, entry.role.as_str())
             .map_err(|error| sql::conversion_error(index, rusqlite::types::Type::Text, error))?;
     }
     Ok(completion)
@@ -635,11 +635,11 @@ mod tests {
             acl: Some(vec![
                 crate::acl::AclEntry {
                     entity: "user-b@example.test".into(),
-                    role: "OWNER".into(),
+                    role: crate::acl::AclRole::Owner,
                 },
                 crate::acl::AclEntry {
                     entity: "allUsers".into(),
-                    role: "READER".into(),
+                    role: crate::acl::AclRole::Reader,
                 },
             ]),
             ..Default::default()

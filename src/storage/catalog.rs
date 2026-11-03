@@ -2221,7 +2221,7 @@ mod tests {
             .unwrap();
         let entries = vec![crate::acl::AclEntry {
             entity: "allUsers".into(),
-            role: "READER".into(),
+            role: crate::acl::AclRole::Reader,
         }];
         catalog
             .patch_bucket(
@@ -2293,7 +2293,7 @@ mod tests {
                         crate::acl::AclTarget::Bucket(name.clone()),
                         acl::AclChange::Upsert {
                             entity: "allUsers".into(),
-                            role: Some(role.into()),
+                            role: Some(role.parse().unwrap()),
                         },
                         PERMISSIVE,
                     )

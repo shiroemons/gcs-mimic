@@ -154,11 +154,11 @@ async fn legacy_reconciliation_rejects_invalid_or_oversized_acls_and_rolls_back_
             let transaction = connection.transaction().unwrap();
             assert!(reconcile(&transaction, "bucket", &Profile::TrustedLocal, 1).is_err());
             if case == 2 {
-                let staged = stored_bucket_entries(&transaction, "bucket", "bucket").unwrap().unwrap();
+                let staged = stored_bucket_entries(&transaction, "bucket", AclKind::Bucket).unwrap().unwrap();
                 assert_ne!(serde_json::to_string(&staged).unwrap(), before_acl);
             }
             drop(transaction);
-            let after = stored_bucket_entries(connection, "bucket", "bucket").unwrap().unwrap();
+            let after = stored_bucket_entries(connection, "bucket", AclKind::Bucket).unwrap().unwrap();
             assert_eq!(serde_json::to_string(&after).unwrap(), before_acl);
             assert_eq!(policies::read_policy(connection, "bucket").unwrap(), before_policy);
             assert!(!bucket_row(connection, "bucket").unwrap().unwrap().policy_bound);

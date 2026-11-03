@@ -37,14 +37,14 @@ pub(super) fn acl(
                 "ACL auxiliary identity fields cannot be preserved; retain the source snapshot",
             ));
         }
-        entries.push(crate::acl::AclEntry {
+        entries.push(crate::acl::AclEntryInput {
             entity: source.entity.clone(),
             role: source.role.clone(),
         });
     }
-    crate::acl::validate_entries(kind, &entries)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-    Ok(Some(entries))
+    crate::acl::parse_entries(kind, entries)
+        .map(Some)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
 pub(super) fn retention(
@@ -332,6 +332,36 @@ pub(crate) fn is_unset_time(input: &str) -> Result<bool, &'static str> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn source_acl_validation_keeps_count_and_entity_ahead_of_role_errors() {
+        for (count, entity, expected) in [
+            (101, "allUsers", crate::acl::AclError::TooManyEntries),
+            (1, "bad", crate::acl::AclError::InvalidEntity("bad".into())),
+        ] {
+            let entries = (0..count)
+                .map(|_| SourceAcl {
+                    entity: entity.into(),
+                    role: "invalid".into(),
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>();
+            let error = acl(Some(&entries), crate::acl::AclKind::Object).unwrap_err();
+            assert_eq!(
+                error.kind(),
+                std::io::ErrorKind::InvalidData,
+                "{count} {entity}"
+            );
+            assert_eq!(
+                error
+                    .get_ref()
+                    .unwrap()
+                    .downcast_ref::<crate::acl::AclError>(),
+                Some(&expected),
+                "{count} {entity}"
+            );
+        }
+    }
 
     #[test]
     fn snapshot_acl_and_storage_class_keep_source_spelling() {

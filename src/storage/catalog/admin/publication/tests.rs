@@ -178,11 +178,10 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
         replacement.request.metadata.acl = Some(vec![crate::acl::AclEntry {
             entity: "allUsers".into(),
             role: if restriction == "invalid" {
-                "WRITER"
+                crate::acl::AclRole::Writer
             } else {
-                "READER"
-            }
-            .into(),
+                crate::acl::AclRole::Reader
+            },
         }]);
         let result = admin.publish_objects(vec![replacement]).await.unwrap();
         assert!(result.results[0].is_err(), "{restriction}");

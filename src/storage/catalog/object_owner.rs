@@ -119,13 +119,13 @@ fn reconcile_grant(
     entries.remove(index);
     if let Some(entity) = after.entity() {
         if let Some(existing) = entries.iter_mut().find(|entry| entry.entity == entity) {
-            existing.role = "OWNER".into();
+            existing.role = crate::acl::AclRole::Owner;
         } else {
             entries.insert(
                 index,
                 crate::acl::AclEntry {
                     entity,
-                    role: "OWNER".into(),
+                    role: crate::acl::AclRole::Owner,
                 },
             );
         }

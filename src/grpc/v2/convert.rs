@@ -438,7 +438,7 @@ mod tests {
         ] {
             let entry = AclEntry {
                 entity: "allUsers".into(),
-                role: role.into(),
+                role: role.parse().unwrap(),
             };
             let value = crate::json::acl::acl_entry_resource(
                 "http://localhost",

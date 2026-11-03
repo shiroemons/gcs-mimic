@@ -114,7 +114,7 @@ fn filesystem_import_preserves_explicit_bucket_and_object_acls_after_restart() {
                 projection.bucket,
                 vec![crate::acl::AclEntry {
                     entity: "allAuthenticatedUsers".into(),
-                    role: "WRITER".into()
+                    role: crate::acl::AclRole::Writer
                 }]
             );
             assert!(projection.objects[0].is_empty());
@@ -122,7 +122,7 @@ fn filesystem_import_preserves_explicit_bucket_and_object_acls_after_restart() {
                 projection.objects[1],
                 vec![crate::acl::AclEntry {
                     entity: "allUsers".into(),
-                    role: "READER".into()
+                    role: crate::acl::AclRole::Reader
                 }]
             );
             catalog.close().await.unwrap();
