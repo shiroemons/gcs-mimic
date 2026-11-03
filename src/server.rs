@@ -1392,15 +1392,18 @@ fn insert_unsatisfied_content_range(headers: &mut hyper::HeaderMap, size: u64) {
     }
 }
 
-fn probe_or_unknown(request: &Request<RequestBody>, state: &State) -> Response<Full<Bytes>> {
+fn unknown_route() -> JsonError {
+    JsonError::new(StatusCode::NOT_FOUND, "notFound", "Route not found")
+}
+
+fn probe(request: &Request<RequestBody>, state: &State) -> Option<Response<Full<Bytes>>> {
     let path = request.uri().path();
     let internal = matches!(
         path,
         "/_internal/health" | "/_internal/ready" | "/_internal/healthcheck"
     );
     if !internal {
-        return JsonError::new(StatusCode::NOT_FOUND, "notFound", "Route not found")
-            .into_response();
+        return None;
     }
     let (status, body) = if request.method() != Method::GET && request.method() != Method::HEAD {
         (
@@ -1448,5 +1451,5 @@ fn probe_or_unknown(request: &Request<RequestBody>, state: &State) -> Response<F
             hyper::header::HeaderValue::from_static("GET, HEAD"),
         );
     }
-    response
+    Some(response)
 }

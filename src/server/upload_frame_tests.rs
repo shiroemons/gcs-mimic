@@ -40,7 +40,8 @@ async fn unknown_routes_use_json_error_envelopes_and_probes_accept_zero_lengths(
         .uri("/unknown")
         .body(RequestBody::Buffered(Full::new(Bytes::new())))
         .unwrap();
-    let response = probe_or_unknown(&request, &state);
+    assert!(probe(&request, &state).is_none());
+    let response = unknown_route().into_response();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -51,7 +52,7 @@ async fn unknown_routes_use_json_error_envelopes_and_probes_accept_zero_lengths(
         .header("content-length", "00")
         .body(RequestBody::Buffered(Full::new(Bytes::new())))
         .unwrap();
-    assert_eq!(probe_or_unknown(&request, &state).status(), StatusCode::OK);
+    assert_eq!(probe(&request, &state).unwrap().status(), StatusCode::OK);
     state.catalog.close().await.unwrap();
 }
 

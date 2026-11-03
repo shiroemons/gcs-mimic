@@ -6,8 +6,8 @@
 use super::RequestBody as Incoming;
 use super::{
     DeadlineWatch, RequestCtx, ResponseBody, State, acl, anonymous_error, boxed, buckets,
-    empty_response, notifications, objects, probe_or_unknown, project_resources, resumable,
-    rewrite, unsupported, xml_read,
+    empty_response, notifications, objects, probe, project_resources, resumable, rewrite,
+    unknown_route, unsupported, xml_read,
 };
 use crate::{
     auth::Caller,
@@ -431,7 +431,7 @@ async fn respond_routed(
     if let Some(parsed) = json::route_with_profile(method, uri, profile, &ctx.config.seed_project) {
         return respond_bucket(request, ctx, profile, parsed).await;
     }
-    boxed(probe_or_unknown(&request, ctx.state))
+    boxed(probe(&request, ctx.state).unwrap_or_else(|| unknown_route().into_response()))
 }
 
 fn authenticate<'a>(
