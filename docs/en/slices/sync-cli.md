@@ -58,6 +58,12 @@ public, metadata/link-local, unspecified and multicast addresses are rejected.
 At most eight resolved addresses are accepted, and the checked numeric address
 is the connection target. No ambient proxy, credential discovery, redirect or
 Google endpoint fallback is used.
+Private-network HTTP remains available for container networks; use HTTPS outside
+loopback to protect bearer tokens in transit.
+
+While deletion candidates are being recomputed, status retains the last complete
+observation. Every read rechecks authority and the journal fence; revision-bound
+pages and approval reject an invalidated revision with 409.
 
 HTTPS verifies the embedded development CA by default. `--ca-cert PATH`
 replaces it with the supplied CA while retaining hostname verification. That
@@ -74,13 +80,19 @@ Requests have a default 10000 ms total network deadline, configurable from
 suffix. For `wait` this value is sent as the server's
 observation budget; the client allows an additional one second to receive the
 result. Waiting captures the server's fixed scan/journal fence; unrelated later
-writes do not extend it indefinitely. A 408 deadline or 409 stopped result is
-printed as JSON and returns nonzero. A timeout/disconnect does not cancel an
+writes do not extend it indefinitely. Deadline checks run between owned
+scan/export/deletion steps; settling
+also observes the deadline. An interrupted scan cannot complete its baseline or
+authorize deletion. The status writeback summary omits the former always-null
+`journal_sequence` and `journal_epoch`; wait exposes its actual `journal_fence`.
+A 408 deadline or 409 stopped result is printed as JSON and returns nonzero.
+A timeout/disconnect does not cancel an
 already accepted scan or publication; inspect status before retrying.
 
 Headers are limited to 64 and 16 KiB, and both chunked and length-framed JSON
 responses have a 256 KiB body cap. Malformed, truncated and oversized responses
-fail. Non-success HTTP statuses print their bounded JSON and fail, including
+fail. A non-JSON body reports its HTTP status without echoing the body.
+Non-success HTTP statuses print their bounded JSON and fail, including
 explicitly unsupported operations. Conflict resolution remains subject to the
 server's exact revision, identity, authorization and confirmation checks.
 

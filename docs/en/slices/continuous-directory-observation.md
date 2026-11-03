@@ -9,15 +9,17 @@ Parent feature status remains governed by the feature ledger.
 
 An enabled sync directory now observes native notifications and sends every
 notification through the existing complete bounded ingestion rescan. Linux uses
-inotify directory watches; macOS uses kqueue vnode watches for directories and
-regular files so an in-place write is observable. Atomic file replacement,
+inotify directory watches; macOS uses one FSEvents stream for the root, including
+per-file events so an in-place write is observable. Atomic file replacement,
 new nested directories, renames, attribute changes and disappearance all cause
 reconciliation. Disappearance alone does not authorize deleting API objects.
 
 The existing supervised sync worker owns observation. It waits on native queue
 readiness, catalog changes, explicit rescan or shutdown; no periodic scan or
 idle polling timer is introduced. New watches are registered before scanning,
-and the old queue stays alive until its replacement is complete. A notification
+and the old queue stays alive until its replacement is complete. Content events
+reuse the current watch set; structural changes rebuild Linux registrations.
+A notification
 that arrives during registration or reconciliation causes another pass. Linux
 queue overflow and coalesced names follow the same full-rescan path rather than
 attempting a partial replay of unreliable event names.
@@ -29,10 +31,11 @@ Marker/root validation surrounds file jobs and rescans and precedes ingestion
 publication. The existing generation/incarnation conditions, streaming hashes,
 metadata inheritance and equal-hash suppression remain shared.
 
-Each watch set admits at most 1022 entries: directories on Linux and both
-directories and regular files on macOS. Traversal reuses those descriptors
-instead of cloning a separate directory stack. Even while old and new sets
-overlap, watchers use at most 2048 descriptors, including queues and a candidate.
+Linux admits at most 1022 watched directories and retains one inotify descriptor
+per set; registration closes each temporary directory descriptor immediately.
+macOS FSEvents uses a two-descriptor notification pipe rather than a descriptor
+for each file, and requires a local filesystem. Traversal processes 256-entry
+pages and caps depth and inspected entries instead of retaining a whole tree.
 The operating system's actual descriptor limit still applies; the application
 does not raise it. Exceeding capacity, unsupported watch setup or a permanently
 unwatched subtree fails visibly and keeps readiness off.
@@ -50,16 +53,27 @@ retry barrier rather than racing a wall-clock timeout.
 
 `GET /_internal/sync` exposes the active catalog/root, runtime session, durable
 findings revision, baseline, combined conflict/workspace quota and pending
-deletion revision. Revision-bound `view=findings` and `view=deletions` use keyset
-pages of at most 256 entries and 256 KiB. A terminal page has a null cursor;
+deletion revision. The writeback summary omits the former always-null `journal_sequence`
+and `journal_epoch`; the wait response's `journal_fence` carries its actual fence.
+Revision-bound `view=findings` and `view=deletions` use keyset pages of at most
+256 entries and 256 KiB. A terminal page has a null cursor;
 mutation, foreign sessions and restart reject stale cursors with 409. Root
 source findings cover unmappable entries without inventing a bucket/object or
 returning host paths. A repaired complete scan clears that finding.
 
+While the observer rebuilds deletion membership, status retains the last complete
+observation instead of exposing an intermediate Ready state. The published value
+is cloned under a short lock; readers never wait for the scan. Every read still
+checks current management authority and the journal fence. Revision-bound pages
+and approval use the current database, so a stale published revision cannot
+authorize deletion. Completion or failure releases the previous snapshot.
+
 The live actor accepts bounded rescan, approval, wait and resolution commands.
 Wait captures a source scan and finite journal fence; later unrelated API writes
 do not extend it. Its explicit deadline is independent of connection inactivity
-timeouts. A waiting observer's timeout or disconnection does not cancel owned
+timeouts. A deadline interrupts settling and stops between bounded scan or
+export steps. It does not mark an incomplete scan complete or approve deletion.
+A waiting observer's timeout or disconnection does not cancel owned
 file or catalog work. Persistent I/O, capacity and recovery stops keep inspection
 and explicit disposal available. No idle retry loop runs while paused.
 
@@ -134,6 +148,6 @@ The code handles a reported overflow by rebuilding and scanning; that does not
 prove every filesystem will deliver every notification.
 
 No new dependency was added. The adapter uses the pinned libc and Tokio graph.
-References: Apple's [kqueue manual](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kqueue.2.html)
+References: Apple's [FSEvents reference](https://developer.apple.com/documentation/coreservices/file_system_events)
 and the Linux [inotify manual](https://man7.org/linux/man-pages/man7/inotify.7.html).
 No resource benchmark or performance improvement is claimed.

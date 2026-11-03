@@ -45,6 +45,7 @@ discardの前に必要なbackupを保持してください。同じoperation_id�
 名前解決した全アドレスがloopback、RFC1918 IPv4、IPv6 unique-localのいずれかである必要があります。
 最大8件までを検査し、その数値アドレスへ接続します。外部公開アドレス、metadata/link-local、
 未指定・multicastは拒否します。proxyやGoogle認証情報の自動探索、redirectは使いません。
+コンテナ間通信用にprivate networkのHTTPも使えます。loopback以外では、tokenを平文で流さないようHTTPSを使ってください。
 
 HTTPSは既定の開発用CAとhostnameを検証します。`--ca-cert PATH`でCAを明示的に置き換えられます。
 HTTPにこのオプションを指定すると失敗し、TLS検証を省くオプションはありません。
@@ -57,12 +58,19 @@ CLI専用変数をサーバーの環境変数に混ぜません。サーバー�
 通信期限の既定値は10000 msで、`--timeout-ms`に1～60000、または`--timeout`に整数とms・sの接尾辞を指定できます。
 waitではその値をサーバーの観測期限として送り、応答を受け取るためにCLI側で1秒を追加します。
 観測するscan・journal fenceを固定するため、後から続く無関係な書き込みを待ち続けません。
+期限はsettle待機と、scan・journal再生・削除の処理間で確認します。開始済みのI/Oは途中で取り消しません。
+未完了のscanを完了扱いにしたり、その結果で削除を承認したりはしません。
+statusのwritebackから、常にnullだった`journal_sequence`と`journal_epoch`を除きました。
+実際に待つjournal fenceは、wait応答の`journal_fence`で確認できます。
+削除候補を再計算している間、statusは最後に完了した観測を返します。
+権限とjournal fenceは読み取りごとに再確認し、古いrevisionでのページ取得や承認は409になります。
 期限切れ408、停止中409を含む非成功応答は、JSONを表示して非0で終了します。
 timeoutや切断の後も、受け付け済みの走査・公開処理が完了する場合があります。
 mutationを自動再送しないため、再試行前にstatusを確認してください。
 
 応答はheader 64件・16 KiB、JSON本文256 KiBまでです。chunked応答にも同じ上限を適用し、
 壊れたJSON、途中で切れた本文、超過を成功扱いにしません。
+JSON以外の本文を受け取った場合は、本文を表示せずHTTP statusを含むエラーを返します。
 競合解決では、サーバーが対象revision・identity・権限・明示確認を検査します。
 
 実CLIと実サーバーを使う受入は、既存4件と追加5件で次を確認します。
