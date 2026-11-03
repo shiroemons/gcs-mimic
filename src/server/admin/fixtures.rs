@@ -1,5 +1,8 @@
 //! Direct local fixtures share the ordinary streaming and atomic publication protocol.
 
+use crate::server::upload_drive::{
+    CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
+};
 use crate::{
     auth::AuthFailure,
     json::{self, JsonError},
@@ -16,11 +19,7 @@ use hyper::{
     body::{Body, Bytes},
 };
 use serde_json::Value;
-use std::{
-    io,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
-use tokio::sync::mpsc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 struct Fixture {
     bucket: BucketName,
@@ -70,7 +69,7 @@ pub(super) async fn insert(
         fixture.publication.content_type = content_type;
     }
     let expected = fixture.publication.expected;
-    let (sender, body) = mpsc::channel(2);
+    let (sender, body) = upload_channel();
     let upload = admin.publish_with_identity(
         &fixture.bucket,
         &fixture.name,
@@ -78,35 +77,22 @@ pub(super) async fn insert(
         Some(fixture.identity),
         body,
     );
-    tokio::pin!(upload);
-    let streaming = stream(
-        &mut multipart,
-        &sender,
-        expected,
-        ctx.config.max_object_bytes,
-    );
-    let record = tokio::select! {
-        result = &mut upload => result.map_err(failure)?,
-        result = streaming => {
-            let expected = match result {
-                Ok(expected) => expected,
-                Err(error) => {
-                    let _ = sender.send(Err(io::Error::other("invalid fixture body"))).await;
-                    drop(sender);
-                    match object.await_catalog(upload).await {
-                        Ok(_) | Err(AdminError::BodyAborted(_)) => {},
-                        Err(error) => return Err(failure(error)),
-                    }
-                    return Err(error);
-                }
-            };
-            object.await_catalog(async {
-                let _ = sender.send(Ok(UploadChunk::EndWithHashes(expected))).await;
-                drop(sender);
-                upload.await
-            }).await.map_err(failure)?
-        }
+    let streaming = async {
+        stream(
+            &mut multipart,
+            &sender,
+            expected,
+            ctx.config.max_object_bytes,
+        )
+        .await
+        .map(UploadEnd::EofWithHashes)
     };
+    let record = drive_upload(CatalogWait::Upload(object), upload, &sender, streaming)
+        .await
+        .map_err(|error| match error {
+            DriveError::Upload(error) => failure(error),
+            DriveError::Producer(error) => error,
+        })?;
     Ok(json_response(&json::object_resource(
         &record,
         &object.endpoints.api_base_url,
@@ -116,7 +102,7 @@ pub(super) async fn insert(
 
 async fn stream<B: Body<Data = Bytes> + Unpin>(
     multipart: &mut json::Multipart<B>,
-    sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
+    sender: &UploadSender,
     expected: ExpectedHashes,
     max_bytes: u64,
 ) -> Result<ExpectedHashes, JsonError> {

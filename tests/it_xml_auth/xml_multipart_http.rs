@@ -39,6 +39,32 @@ fn begin(server: &Server, name: &str, auth: &str) -> String {
     tag(&reply.body, "UploadId")
 }
 
+#[test]
+fn multipart_memory_capacity_failures_are_reported_without_publishing_a_part() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--backend", "memory", "--memory-max-bytes", "260"]);
+    bucket(&server, "");
+    let id = begin(&server, "value", "");
+    let reply = server.request(
+        "PUT",
+        &format!("/multipart-bucket/value?uploadId={id}&partNumber=1"),
+        "",
+        &vec![b'x'; 1024],
+    );
+    reply.status(507);
+    let parts = server.request(
+        "GET",
+        &format!("/multipart-bucket/value?uploadId={id}"),
+        "",
+        b"",
+    );
+    parts.status(200);
+    assert!(!parts.body.contains("<PartNumber>1</PartNumber>"));
+    server
+        .request("GET", "/multipart-bucket/value", "", b"")
+        .status(404);
+}
+
 fn part(server: &Server, name: &str, id: &str, number: u16, auth: &str, bytes: &[u8]) -> String {
     let reply = server.request(
         "PUT",

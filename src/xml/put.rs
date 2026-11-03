@@ -1,18 +1,17 @@
 use super::{Error, MinValue, ReadRequest, XmlCode, number};
 use crate::server::RequestBody as Incoming;
+use crate::server::upload_drive::{
+    CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
+};
 use crate::{
     auth::{self, Caller},
     json,
-    object::{
-        ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectMetadataUpdate,
-        UploadChunk,
-    },
+    object::{ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectMetadataUpdate},
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes};
-use std::{collections::BTreeMap, io};
-use tokio::sync::mpsc;
+use std::collections::BTreeMap;
 
 mod streaming;
 
@@ -388,7 +387,7 @@ pub(crate) async fn respond(
         ))
         .await
         .map_err(|error| storage_error(error, caller))?;
-    let (sender, body) = mpsc::channel(2);
+    let (sender, body) = upload_channel();
     let upload = state.catalog.put_object_prechecked(
         ObjectUpload {
             bucket: &operation.target.bucket,
@@ -403,27 +402,24 @@ pub(crate) async fn respond(
         body,
         permit,
     );
-    tokio::pin!(upload);
-    let record = tokio::select! {
-        result = &mut upload => result,
-        result = streaming::upload(request.into_body(), &sender, ctx, streaming, decoded_length, sha256) => {
-            if let Err(error) = result {
-                let _ = sender.send(Err(io::Error::other("XML upload validation failed"))).await;
-                drop(sender);
-                match ctx.await_catalog(upload).await {
-                    Ok(_) | Err(ObjectError::BodyAborted(_)) => {}
-                    Err(error) => return Err(upload_error(error, caller, &operation, &expected)),
-                }
-                return Err(error);
-            }
-            ctx.await_catalog(async {
-                let _ = sender.send(Ok(UploadChunk::End)).await;
-                drop(sender);
-                upload.await
-            }).await
-        }
-    }
-    .map_err(|error| upload_error(error, caller, &operation, &expected))?;
+    let producer = async {
+        streaming::upload(
+            request.into_body(),
+            &sender,
+            ctx,
+            streaming,
+            decoded_length,
+            sha256,
+        )
+        .await
+        .map(|()| UploadEnd::Eof)
+    };
+    let record = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
+        .await
+        .map_err(|error| match error {
+            DriveError::Upload(error) => upload_error(error, caller, &operation, &expected),
+            DriveError::Producer(error) => error,
+        })?;
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
     let mut response = boxed(empty_response(StatusCode::OK));
     json::insert_response_headers(&record, response.headers_mut());
