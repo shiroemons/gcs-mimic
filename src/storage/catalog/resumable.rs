@@ -149,7 +149,7 @@ impl From<CatalogError> for ResumableError {
 /// A nonqueued exclusive operation on one session; dropping always releases admission.
 pub(crate) struct SessionLease {
     pub session: ResumableSession,
-    guard: WriterGuard,
+    pub(super) guard: std::sync::Arc<WriterGuard>,
 }
 pub(super) struct WriterGuard {
     pub(super) catalog: Catalog,
@@ -389,7 +389,10 @@ impl Catalog {
     ) -> Result<SessionLease, ResumableError> {
         let guard = self.try_resumable_writer(id)?;
         let session = self.resumable_session(id, bucket).await?;
-        Ok(SessionLease { session, guard })
+        Ok(SessionLease {
+            session,
+            guard: std::sync::Arc::new(guard),
+        })
     }
 
     pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {

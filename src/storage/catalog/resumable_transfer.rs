@@ -298,16 +298,8 @@ impl Catalog {
             Ok(changed)
         }).await?;
         if changed == 1 {
-            let backend = self.0.backend.clone();
             let blob_id = lease.session.blob_id;
-            let cleanup = self
-                .run_upload(move |connection| {
-                    super::resumable_maintenance::clean_session_storage(
-                        connection, &backend, &blob_id,
-                    )
-                    .map_err(object_unavailable)
-                })
-                .await;
+            let cleanup = self.clean_session_storage(&lease.guard, blob_id).await;
             if let Err(error) = cleanup {
                 *self
                     .0
