@@ -388,7 +388,9 @@ impl RootLease {
                 .conflict_files(move |_| {
                     let directory = match capture::open_store(&selected_data) {
                         Ok(directory) => directory,
-                        Err(Error::Admin(AdminError::Io(io::ErrorKind::NotFound))) => {
+                        Err(Error::Admin(AdminError::Io(cause)))
+                            if cause.kind() == io::ErrorKind::NotFound =>
+                        {
                             return Ok(None);
                         }
                         Err(error) => return Err(error),
@@ -409,7 +411,11 @@ impl RootLease {
         self.conflict_files(move |_| {
             let directory = match capture::open_store(&data) {
                 Ok(directory) => directory,
-                Err(Error::Admin(AdminError::Io(io::ErrorKind::NotFound))) => return Ok(()),
+                Err(Error::Admin(AdminError::Io(cause)))
+                    if cause.kind() == io::ErrorKind::NotFound =>
+                {
+                    return Ok(());
+                }
                 Err(error) => return Err(error),
             };
             checked_unlink(

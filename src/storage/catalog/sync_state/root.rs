@@ -125,7 +125,17 @@ impl From<FsError> for RootError {
 }
 impl std::fmt::Display for RootError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "synchronization root: {self:?}")
+        f.write_str("synchronization root: ")?;
+        match self {
+            Self::Admin(error) => write!(f, "Admin({error:?})"),
+            Self::InUse => f.write_str("InUse"),
+            Self::Unsupported => f.write_str("Unsupported"),
+            Self::RootChanged => f.write_str("RootChanged"),
+            Self::MissingMarker => f.write_str("MissingMarker"),
+            Self::InvalidMarker => f.write_str("InvalidMarker"),
+            Self::ForeignMarker => f.write_str("ForeignMarker"),
+            Self::ReinitializeDenied => f.write_str("ReinitializeDenied"),
+        }
     }
 }
 impl std::error::Error for RootError {

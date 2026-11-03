@@ -125,7 +125,7 @@ async fn writeback_abandon_unpublished_copy_preserves_external_bytes_and_release
                     "object".as_ref(),
                     None,
                 )
-                .map_err(|_| AdminError::Io(std::io::ErrorKind::AlreadyExists))?;
+                .map_err(|_| AdminError::Io(std::io::ErrorKind::AlreadyExists.into()))?;
                 Ok(())
             })
             .await
@@ -324,7 +324,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
             fsutil::clone_or_copy_into(&source, workspace, entry.as_ref()).map_err(
                 |e| match e {
                     fsutil::FsError::Io(e) => AdminError::from(e),
-                    _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                    _ => AdminError::Io(std::io::ErrorKind::Unsupported.into()),
                 },
             )?;
             let parent = fsutil::directory_path_at(
@@ -341,7 +341,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
             )
             .map_err(|e| match e {
                 fsutil::FsError::Io(e) => AdminError::from(e),
-                _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                _ => AdminError::Io(std::io::ErrorKind::Unsupported.into()),
             })?;
             Ok(())
         })
@@ -396,7 +396,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
             fsutil::clone_or_copy_into(&source, workspace, entry.as_ref()).map_err(
                 |e| match e {
                     fsutil::FsError::Io(e) => AdminError::from(e),
-                    _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                    _ => AdminError::Io(std::io::ErrorKind::Unsupported.into()),
                 },
             )?;
             let parent = fsutil::directory_path_at(
@@ -408,7 +408,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
                 fsutil::stat_identity(&fsutil::open_regular_at(&parent, "body".as_ref())?)
                     .map_err(|e| match e {
                         fsutil::FsError::Io(e) => AdminError::from(e),
-                        _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                        _ => AdminError::Io(std::io::ErrorKind::Unsupported.into()),
                     })?;
             assert!(matches!(
                 fsutil::durable_replace_between(

@@ -310,7 +310,9 @@ impl RootLease {
             .conflict_files(move |_| {
                 let store = match capture::open_store(&data) {
                     Ok(store) => store,
-                    Err(Error::Admin(AdminError::Io(io::ErrorKind::NotFound))) => {
+                    Err(Error::Admin(AdminError::Io(cause)))
+                        if cause.kind() == io::ErrorKind::NotFound =>
+                    {
                         return Ok(None);
                     }
                     Err(error) => return Err(error),

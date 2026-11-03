@@ -116,13 +116,23 @@ impl From<fsutil::FsError> for Error {
     fn from(e: fsutil::FsError) -> Self {
         match e {
             fsutil::FsError::Io(e) => Self::from(e),
-            fsutil::FsError::Unsupported => Self::Admin(AdminError::Io(io::ErrorKind::Unsupported)),
+            fsutil::FsError::Unsupported => {
+                Self::Admin(AdminError::Io(io::ErrorKind::Unsupported.into()))
+            }
         }
     }
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "write-back: {self:?}")
+        f.write_str("write-back: ")?;
+        match self {
+            Self::Admin(error) => write!(f, "Admin({error:?})"),
+            Self::Root(error) => write!(f, "Root({error:?})"),
+            Self::Capacity => f.write_str("Capacity"),
+            Self::RecoveryRequired => f.write_str("RecoveryRequired"),
+            Self::Protected => f.write_str("Protected"),
+            Self::WorkspaceChanged => f.write_str("WorkspaceChanged"),
+        }
     }
 }
 impl std::error::Error for Error {

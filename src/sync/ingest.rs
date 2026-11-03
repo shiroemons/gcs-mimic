@@ -116,7 +116,7 @@ impl Scan {
                     Ok(file) => match fsutil::stat_identity(&file).map_err(fs_error) {
                         Ok(identity) => Some(identity),
                         Err(AdminError::Io(error)) => {
-                            failure = Some(error);
+                            failure = Some(error.kind());
                             None
                         }
                         Err(error) => return Err(error),
@@ -536,19 +536,21 @@ impl Ingest<'_> {
             .to_owned();
         let staged = match self.stage(entry.path.clone(), identity).await {
             Ok(staged) => staged,
-            Err(RootError::Admin(
-                AdminError::Precondition
-                | AdminError::NotFound
-                | AdminError::SourceChanged { .. }
-                | AdminError::Io(io::ErrorKind::NotFound),
-            )) => {
+            Err(RootError::Admin(error))
+                if matches!(
+                    &error,
+                    AdminError::Precondition
+                        | AdminError::NotFound
+                        | AdminError::SourceChanged { .. }
+                ) || matches!(&error, AdminError::Io(cause) if cause.kind() == io::ErrorKind::NotFound) =>
+            {
                 summary.deferred += 1;
                 self.record_observation(entry, binding, PathStop::SourceChanging)
                     .await?;
                 return Ok(None);
             }
             Err(RootError::Admin(AdminError::Io(error))) => {
-                deferred(&entry.path, error, summary);
+                deferred(&entry.path, error.kind(), summary);
                 self.record_observation(entry, binding, PathStop::IoFailure)
                     .await?;
                 return Ok(None);

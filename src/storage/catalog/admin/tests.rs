@@ -9,6 +9,171 @@ use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::{fs, time::Duration};
 
+#[test]
+fn administrative_diagnostics_keep_their_existing_messages() {
+    for (error, expected) in [
+        (
+            AdminError::Busy {
+                retry_after: Duration::from_secs(2),
+            },
+            "administrative operation: Busy { retry_after: 2s }",
+        ),
+        (AdminError::DiskFull, "administrative operation: DiskFull"),
+        (AdminError::Closed, "administrative operation: Closed"),
+        (
+            AdminError::Precondition,
+            "administrative operation: Precondition",
+        ),
+        (AdminError::Hold, "administrative operation: Hold"),
+        (
+            AdminError::SourceChanged {
+                fields: vec!["size".into()],
+            },
+            r#"administrative operation: SourceChanged { fields: ["size"] }"#,
+        ),
+        (
+            AdminError::Corrupt("row".into()),
+            r#"administrative operation: Corrupt("row")"#,
+        ),
+        (
+            AdminError::Io(io::ErrorKind::PermissionDenied.into()),
+            "administrative operation: Io(PermissionDenied)",
+        ),
+        (AdminError::NotFound, "administrative operation: NotFound"),
+        (
+            AdminError::Invalid("input".into()),
+            r#"administrative operation: Invalid("input")"#,
+        ),
+        (AdminError::Checksum, "administrative operation: Checksum"),
+        (AdminError::TooLarge, "administrative operation: TooLarge"),
+        (AdminError::Forbidden, "administrative operation: Forbidden"),
+        (
+            AdminError::BodyAborted("body".into()),
+            r#"administrative operation: BodyAborted("body")"#,
+        ),
+        (
+            AdminError::Backend("database".into()),
+            r#"administrative operation: Backend("database")"#,
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+    }
+}
+
+#[test]
+fn administrative_failures_retain_io_and_corruption_causes() {
+    let io_failure = || io::Error::new(io::ErrorKind::PermissionDenied, "denied fixture");
+    for error in [
+        AdminError::from(io_failure()),
+        AdminError::from(CatalogError::Io(io_failure().into())),
+        AdminError::from(ObjectError::Io(io_failure().into())),
+    ] {
+        let cause = std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref::<io::Error>()
+            .unwrap();
+        assert_eq!(cause.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(cause.to_string(), "denied fixture");
+    }
+    let invalid = || "bad".parse::<u64>().unwrap_err();
+    for error in [
+        AdminError::from(CatalogError::Corrupt(BackendCause::from_error(invalid()))),
+        AdminError::from(ObjectError::Corrupt(BackendCause::from_error(invalid()))),
+    ] {
+        assert!(
+            std::error::Error::source(&error)
+                .unwrap()
+                .is::<std::num::ParseIntError>()
+        );
+    }
+}
+
+#[test]
+fn synchronization_diagnostics_keep_their_existing_messages() {
+    use crate::storage::sync_state::{
+        conflicts::Error as ConflictError, root::RootError, writeback::Error as WritebackError,
+    };
+    for (error, expected) in [
+        (
+            RootError::Admin(AdminError::Hold),
+            "synchronization root: Admin(Hold)",
+        ),
+        (RootError::InUse, "synchronization root: InUse"),
+        (RootError::Unsupported, "synchronization root: Unsupported"),
+        (RootError::RootChanged, "synchronization root: RootChanged"),
+        (
+            RootError::MissingMarker,
+            "synchronization root: MissingMarker",
+        ),
+        (
+            RootError::InvalidMarker,
+            "synchronization root: InvalidMarker",
+        ),
+        (
+            RootError::ForeignMarker,
+            "synchronization root: ForeignMarker",
+        ),
+        (
+            RootError::ReinitializeDenied,
+            "synchronization root: ReinitializeDenied",
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+    }
+    for (error, expected) in [
+        (
+            ConflictError::Admin(AdminError::Corrupt("row".into())),
+            r#"sync conflict: Admin(Corrupt("row"))"#,
+        ),
+        (
+            ConflictError::Root(RootError::InUse),
+            "sync conflict: Root(InUse)",
+        ),
+        (ConflictError::Capacity, "sync conflict: Capacity"),
+        (
+            ConflictError::RevisionMismatch,
+            "sync conflict: RevisionMismatch",
+        ),
+        (ConflictError::TargetChanged, "sync conflict: TargetChanged"),
+        (
+            ConflictError::OperationIdReused,
+            "sync conflict: OperationIdReused",
+        ),
+        (
+            ConflictError::ConfirmationRequired,
+            "sync conflict: ConfirmationRequired",
+        ),
+        (
+            ConflictError::InvalidResolution,
+            "sync conflict: InvalidResolution",
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+    }
+    for (error, expected) in [
+        (
+            WritebackError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into())),
+            "write-back: Admin(Io(PermissionDenied))",
+        ),
+        (
+            WritebackError::Root(RootError::InUse),
+            "write-back: Root(InUse)",
+        ),
+        (WritebackError::Capacity, "write-back: Capacity"),
+        (
+            WritebackError::RecoveryRequired,
+            "write-back: RecoveryRequired",
+        ),
+        (WritebackError::Protected, "write-back: Protected"),
+        (
+            WritebackError::WorkspaceChanged,
+            "write-back: WorkspaceChanged",
+        ),
+    ] {
+        assert_eq!(error.to_string(), expected);
+    }
+}
+
 fn publication_blobs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     fs::read_dir(dir.join("blobs"))
         .unwrap()

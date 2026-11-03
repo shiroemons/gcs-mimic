@@ -437,7 +437,7 @@ impl Admin {
                     Ok(handle)
                 }
                 Err(error) => {
-                    if error == AdminError::Io(io::ErrorKind::AlreadyExists) {
+                    if error == AdminError::Io(io::ErrorKind::AlreadyExists.into()) {
                         handle.id = None;
                     }
                     handle.cleanup().await?;
@@ -807,8 +807,8 @@ fn commit_batch(
 fn objects_error_admin(error: AdminError) -> ObjectError {
     match error {
         AdminError::DiskFull => ObjectError::Io(io::ErrorKind::StorageFull.into()),
-        AdminError::Io(kind) => ObjectError::Io(kind.into()),
-        AdminError::Corrupt(reason) => ObjectError::Corrupt(reason.into()),
+        AdminError::Io(cause) => ObjectError::Io(cause),
+        AdminError::Corrupt(cause) => ObjectError::Corrupt(cause),
         error => ObjectError::Unavailable(BackendCause::from_error(error)),
     }
 }

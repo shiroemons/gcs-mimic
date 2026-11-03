@@ -358,7 +358,11 @@ impl RootLease {
         self.conflict_files(move |_| {
             let store = match open_store(&data) {
                 Ok(store) => store,
-                Err(Error::Admin(AdminError::Io(io::ErrorKind::NotFound))) => return Ok(()),
+                Err(Error::Admin(AdminError::Io(cause)))
+                    if cause.kind() == io::ErrorKind::NotFound =>
+                {
+                    return Ok(());
+                }
                 Err(error) => return Err(error),
             };
             match fsutil::unlink_file_at(&store, selected.as_ref()) {
