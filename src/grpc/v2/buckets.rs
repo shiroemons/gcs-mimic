@@ -281,7 +281,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
         bucket: &mut pb::Bucket,
     ) -> Result<(), Status> {
-        use crate::{acl::AclKind, json::acl::AclOwner};
+        use crate::acl::AclKind;
         let name = bucket.bucket_id.clone();
         let readable =
             match crate::server::may_read_acl(&self.state, caller, AclKind::Bucket, &name).await {
@@ -295,6 +295,13 @@ impl Storage {
         let Some(acl) = self.state.catalog.acl_projection(&name, Vec::new()).await? else {
             return Ok(());
         };
+        self.apply_bucket_acl(bucket, &acl);
+        Ok(())
+    }
+
+    fn apply_bucket_acl(&self, bucket: &mut pb::Bucket, acl: &crate::storage::AclProjection) {
+        use crate::{acl::AclKind, json::acl::AclOwner};
+        let name = &bucket.bucket_id;
         bucket.owner = Some(pb::Owner {
             entity: format!(
                 "project-owners-{}",
@@ -303,12 +310,12 @@ impl Storage {
             entity_id: String::new(),
         });
         if acl.uniform_access {
-            return Ok(());
+            return;
         }
         let base = &self.state.api_base_url;
         let owner = |kind| AclOwner {
             kind,
-            bucket: &name,
+            bucket: name,
             object: None,
             metageneration: bucket.metageneration,
         };
@@ -323,7 +330,6 @@ impl Storage {
             .iter()
             .map(|entry| convert::object_access_control(&rendered(AclKind::DefaultObject, entry)))
             .collect();
-        Ok(())
     }
 
     pub(super) async fn delete_bucket(
@@ -489,11 +495,36 @@ impl Storage {
             _ => String::new(),
         };
         let acl = wants_acl(request.read_mask.as_ref(), AclDefault::Exclude);
+        let mut projections = if acl {
+            let access = caller.map_or(crate::bucket::BucketAccess::Permissive, |caller| {
+                crate::bucket::BucketAccess::Policy {
+                    identity: match caller {
+                        Caller::Principal(identity) => Some(identity.clone()),
+                        Caller::Anonymous => None,
+                    },
+                    permission: crate::auth::Permission::BucketsGetIam,
+                    project: Some(project.to_owned()),
+                }
+            });
+            self.state
+                .catalog
+                .bucket_acl_projections(
+                    page.items
+                        .iter()
+                        .map(|record| record.name.clone())
+                        .collect(),
+                    &access,
+                )
+                .await?
+        } else {
+            Vec::new()
+        }
+        .into_iter();
         let mut buckets = Vec::with_capacity(page.items.len());
         for record in &page.items {
             let mut bucket = convert::bucket(record)?;
-            if acl {
-                self.add_bucket_acl(caller, &mut bucket).await?;
+            if let Some(Some(projection)) = projections.next() {
+                self.apply_bucket_acl(&mut bucket, &projection);
             }
             buckets.push(bucket_mask(bucket, request.read_mask.as_ref())?);
         }
@@ -1070,6 +1101,106 @@ mod tests {
             update_mask: fixtures::mask(&[path]),
             ..Default::default()
         }
+    }
+
+    #[tokio::test]
+    async fn grpc_bucket_list_acl_views_keep_per_bucket_permissions_and_uniform_access() {
+        let dir = TestDir::new();
+        let storage = fixtures::storage_with(
+            Arc::new(crate::server::State::for_test(
+                Catalog::open(&dir.0).await.unwrap(),
+                Auth::strict(registry(&[
+                    ("admin", "p", "roles/storage.admin"),
+                    ("reader", "p", "roles/storage.bucketViewer"),
+                ])),
+            )),
+            1024,
+        );
+        let admin = caller(&storage, "admin");
+        let viewer = caller(&storage, "reader");
+        for name in ["batch-readable", "batch-denied", "batch-uniform"] {
+            storage
+                .create_bucket(Request::new(create(name)), admin)
+                .await
+                .unwrap();
+        }
+        // The collection permission does not grant access to every bucket's ACL.
+        for name in ["batch-readable", "batch-uniform"] {
+            storage
+                .state
+                .catalog
+                .set_policy(
+                    name,
+                    crate::auth::Policy {
+                        bindings: vec![crate::auth::Binding {
+                            role: "roles/storage.legacyBucketOwner".into(),
+                            members: vec!["allAuthenticatedUsers".into()],
+                        }],
+                        etag: None,
+                    },
+                    PERMISSIVE,
+                )
+                .await
+                .unwrap();
+        }
+        storage
+            .state
+            .catalog
+            .patch_bucket(
+                "batch-uniform",
+                crate::bucket::BucketMetadataUpdate {
+                    uniform_bucket_level_access_enabled: Some(true),
+                    ..Default::default()
+                },
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        let request = || {
+            Request::new(pb::ListBucketsRequest {
+                parent: "projects/p".into(),
+                read_mask: fixtures::mask(&["*"]),
+                ..Default::default()
+            })
+        };
+        let response = storage
+            .list_buckets(request(), viewer)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(response.buckets.len(), 3);
+        for bucket in response.buckets {
+            let expected = storage
+                .get_bucket(Request::new(get(&bucket.bucket_id)), viewer)
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(bucket.owner, expected.owner);
+            assert_eq!(bucket.acl, expected.acl);
+            assert_eq!(bucket.default_object_acl, expected.default_object_acl);
+            match bucket.bucket_id.as_str() {
+                "batch-readable" => {
+                    assert!(bucket.owner.is_some());
+                    assert!(
+                        bucket
+                            .acl
+                            .iter()
+                            .any(|entry| entry.entity == "allAuthenticatedUsers")
+                    );
+                }
+                "batch-denied" => {
+                    assert!(bucket.owner.is_none());
+                    assert!(bucket.acl.is_empty() && bucket.default_object_acl.is_empty());
+                }
+                "batch-uniform" => {
+                    assert!(bucket.owner.is_some());
+                    assert!(bucket.acl.is_empty() && bucket.default_object_acl.is_empty());
+                }
+                other => panic!("unexpected bucket: {other}"),
+            }
+        }
+        storage.state.catalog.close().await.unwrap();
     }
 
     fn reader(entity: &str) -> (pb::BucketAccessControl, pb::ObjectAccessControl) {
