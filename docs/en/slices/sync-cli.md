@@ -70,6 +70,8 @@ Wait observes its original deadline; if quiet has not been established at that
 deadline it reports SourceChanging with HTTP 409. A single CLI invocation waits
 for quiet and observation without client retries. Rescan runs after quiet or the
 ten-second quiet cap instead of returning an unperformed scan as success.
+Reaching that cap alone never completes wait; another quiet interval runs while
+its original deadline remains fixed. Queued controls survive observer recovery.
 Automatic deletion history is durable across restart and guarded rescans;
 approval, a new complete baseline, or a complete zero-candidate observation after
 established quiet resets it. Automatic and explicit scans use the same reset

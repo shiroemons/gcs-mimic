@@ -17,8 +17,18 @@ pub(super) enum Observed {
 pub(super) enum Quiet {
     Established,
     Unverified,
+    Capped,
 }
 impl DirectoryWatch {
+    pub(super) fn continue_quiet(&mut self) {
+        let now = tokio::time::Instant::now();
+        let settle = Duration::from_millis(super::super::SETTLE_MS);
+        self.pending = Some(Pending {
+            change: Change::Content,
+            quiet: now + settle,
+            limit: now + settle * 10,
+        });
+    }
     pub(super) async fn next_observation(&mut self) -> io::Result<Observed> {
         let settle = Duration::from_millis(super::super::SETTLE_MS);
         if self.pending.is_none() {
@@ -45,7 +55,7 @@ impl DirectoryWatch {
                 }
                 ()=tokio::time::sleep_until(pending.quiet.min(pending.limit))=>{
                     let change=pending.change;
-                    let quiet=if pending.quiet<=pending.limit {Quiet::Established} else {Quiet::Unverified};
+                    let quiet=if pending.quiet<=pending.limit {Quiet::Established} else {Quiet::Capped};
                     self.pending=None;
                     return Ok(Observed::Settled(change,quiet));
                 }
@@ -75,6 +85,36 @@ pub(super) async fn reset_history(
 #[derive(Default)]
 pub(super) struct Controls(std::collections::VecDeque<Command>);
 impl Controls {
+    pub(super) fn stop(&mut self) {
+        for request in self.0.drain(..) {
+            match request {
+                Command::Wait { reply, .. } => {
+                    let _ = reply.send(Ok(crate::sync::control::WaitResult::result(
+                        crate::sync::control::WaitReason::Stopped,
+                        None,
+                        None,
+                    )));
+                }
+                Command::Rescan { reply, .. } => {
+                    let _ = reply.send(Err(io::ErrorKind::Interrupted.into()));
+                }
+                _ => {}
+            }
+        }
+    }
+    pub(super) fn has_waiters(&self) -> bool {
+        !self.0.is_empty()
+    }
+    pub(super) async fn receive(
+        &mut self,
+        requests: &mut tokio::sync::mpsc::Receiver<Command>,
+    ) -> Option<Command> {
+        if let Some(request) = self.0.pop_front() {
+            Some(request)
+        } else {
+            requests.recv().await
+        }
+    }
     pub(super) fn settled(&self) {
         for request in &self.0 {
             if let Command::Wait { settling, .. } = request {
@@ -85,17 +125,25 @@ impl Controls {
     pub(super) fn available(&self) -> bool {
         self.0.len() < 8
     }
-    pub(super) fn ready(&mut self, watcher: &DirectoryWatch) -> Option<Command> {
-        if watcher.pending.is_none() {
-            self.0.pop_front()
-        } else {
-            None
-        }
+    pub(super) fn ready(&mut self, watcher: &DirectoryWatch, quiet: Quiet) -> Option<Command> {
+        let index = self.0.iter().position(|request| match request {
+            Command::Wait { .. } => watcher.pending.is_none() && quiet == Quiet::Established,
+            _ => watcher.pending.is_none() || quiet == Quiet::Capped,
+        })?;
+        self.0.remove(index)
     }
-    pub(super) fn admit(&mut self, request: Command, watcher: &DirectoryWatch) -> Option<Command> {
-        if watcher.pending.is_some()
-            && matches!(&request, Command::Wait { .. } | Command::Rescan { .. })
-        {
+    pub(super) fn admit(
+        &mut self,
+        request: Command,
+        watcher: &DirectoryWatch,
+        quiet: Quiet,
+    ) -> Option<Command> {
+        let waits = match &request {
+            Command::Wait { .. } => true,
+            Command::Rescan { .. } => quiet != Quiet::Capped,
+            _ => false,
+        };
+        if watcher.pending.is_some() && waits {
             if let Command::Wait { settling, .. } = &request {
                 settling.store(true, std::sync::atomic::Ordering::Release);
             }

@@ -90,7 +90,8 @@ async fn quiet_waits_hold_their_original_deadline_without_blocking_other_control
                     reply,
                     identity: None
                 },
-                &watcher
+                &watcher,
+                Quiet::Unverified
             )
             .is_none()
     );
@@ -112,7 +113,8 @@ async fn quiet_waits_hold_their_original_deadline_without_blocking_other_control
                 reply,
                 identity: None
             },
-            &watcher
+            &watcher,
+            Quiet::Unverified
         ),
         Some(Command::Approve { .. })
     ));
@@ -189,9 +191,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
             root.deletion_set().await.unwrap().unwrap().candidate_count,
             0
         );
-        reset_history(&root, Quiet::Unverified, &summary)
-            .await
-            .unwrap();
+        reset_history(&root, Quiet::Capped, &summary).await.unwrap();
         assert_eq!(root.automatic_deletion_count().await.unwrap(), 20);
         reset_history(&root, Quiet::Established, &summary)
             .await
@@ -252,9 +252,170 @@ async fn native_quiet_deadline_is_capped_and_survives_cancelled_waits() {
         .unwrap();
     assert!(matches!(
         result,
-        Observed::Settled(Change::Structure, Quiet::Unverified)
+        Observed::Settled(Change::Structure, Quiet::Capped)
     ));
     assert!(watcher.pending.is_none());
+    drop(watcher);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn observation_cap_allows_rescans_but_never_releases_a_wait_as_quiet() {
+    let (_data, _tree, catalog, root, _config) = crate::sync::test_support::fixture(None).await;
+    let mut watcher = DirectoryWatch::new(&root).await.unwrap();
+    watcher.continue_quiet();
+    let mut controls = Controls::default();
+    let settling = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (reply, mut received) = tokio::sync::oneshot::channel();
+    assert!(
+        controls
+            .admit(
+                Command::Wait {
+                    deadline: tokio::time::Instant::now() + Duration::from_secs(5),
+                    settling: settling.clone(),
+                    reply,
+                    identity: None
+                },
+                &watcher,
+                Quiet::Unverified
+            )
+            .is_none()
+    );
+    watcher.pending = None;
+    assert!(controls.ready(&watcher, Quiet::Capped).is_none());
+    assert!(received.try_recv().is_err());
+    assert!(settling.load(std::sync::atomic::Ordering::Acquire));
+    watcher.continue_quiet();
+    let (reply, _receive) = tokio::sync::oneshot::channel();
+    assert!(matches!(
+        controls.admit(
+            Command::Rescan {
+                reply,
+                identity: None
+            },
+            &watcher,
+            Quiet::Capped
+        ),
+        Some(Command::Rescan { .. })
+    ));
+    assert!(controls.ready(&watcher, Quiet::Capped).is_none());
+    watcher.pending = None;
+    controls.settled();
+    assert!(matches!(
+        controls.ready(&watcher, Quiet::Established),
+        Some(Command::Wait { .. })
+    ));
+    assert!(!settling.load(std::sync::atomic::Ordering::Acquire));
+    drop(watcher);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn queued_rescan_recovers_from_pause_without_closing_its_reply() {
+    let (_data, _tree, catalog, root, config) = crate::sync::test_support::fixture(None).await;
+    let mut watcher = DirectoryWatch::new(&root).await.unwrap();
+    watcher.continue_quiet();
+    let mut controls = Controls::default();
+    let (reply, result) = tokio::sync::oneshot::channel();
+    assert!(
+        controls
+            .admit(
+                Command::Rescan {
+                    reply,
+                    identity: None
+                },
+                &watcher,
+                Quiet::Unverified
+            )
+            .is_none()
+    );
+    root.observation_pause(Some(
+        crate::storage::sync_state::observation::PauseReason::ObserverFailure,
+    ))
+    .await
+    .unwrap();
+    let (_commands, mut requests) = tokio::sync::mpsc::channel(1);
+    let (_stop, mut stopping) = tokio::sync::watch::channel(false);
+    let resume = tokio::time::timeout(
+        Duration::from_secs(5),
+        await_resume(
+            &catalog,
+            &root,
+            &config,
+            &mut requests,
+            &mut stopping,
+            &mut controls,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let initialized = initialize_live(
+        LiveRun {
+            catalog: &catalog,
+            root: &root,
+            config: &config,
+            health: &crate::task::TaskHealth::default(),
+            resume: Some(resume),
+        },
+        &stopping,
+    )
+    .await
+    .unwrap();
+    assert!(result.await.unwrap().unwrap().baseline_complete);
+    assert!(root.observation().await.unwrap().paused_reason.is_none());
+    drop(initialized);
+    drop(watcher);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn stopping_a_quiet_queue_answers_waiters_without_losing_their_replies() {
+    let (_data, _tree, catalog, root, _config) = crate::sync::test_support::fixture(None).await;
+    let mut watcher = DirectoryWatch::new(&root).await.unwrap();
+    watcher.continue_quiet();
+    let mut controls = Controls::default();
+    let (reply, waited) = tokio::sync::oneshot::channel();
+    assert!(
+        controls
+            .admit(
+                Command::Wait {
+                    deadline: tokio::time::Instant::now() + Duration::from_secs(5),
+                    settling: Default::default(),
+                    reply,
+                    identity: None
+                },
+                &watcher,
+                Quiet::Unverified
+            )
+            .is_none()
+    );
+    let (reply, scanned) = tokio::sync::oneshot::channel();
+    assert!(
+        controls
+            .admit(
+                Command::Rescan {
+                    reply,
+                    identity: None
+                },
+                &watcher,
+                Quiet::Unverified
+            )
+            .is_none()
+    );
+    controls.stop();
+    assert_eq!(
+        waited.await.unwrap().unwrap().reason,
+        crate::sync::control::WaitReason::Stopped
+    );
+    assert_eq!(
+        scanned.await.unwrap().unwrap_err().kind(),
+        io::ErrorKind::Interrupted
+    );
+    assert!(!controls.has_waiters());
     drop(watcher);
     drop(root);
     catalog.close().await.unwrap();

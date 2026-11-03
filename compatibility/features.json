@@ -51228,6 +51228,12 @@
           "test_ids": ["external_inventory_defers_unreadable_children_without_stopping_other_files", "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion", "unavailable_casefold_flags_fall_back_to_exact_directory_names", "source_recheck_preserves_precondition_when_staging_cleanup_also_fails", "racy_exported_bytes_are_verified_without_staging_again", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations"]
         },
         {
+          "id": "sync-observer-queue-recovery",
+          "description": "The observation cap permits an actual rescan but never releases wait as quiet. Pending waits retain their original deadline across repeated capped scans. Worker-owned queued controls survive observer pause and recovery, reestablish quiet after retry and receive a stopped response during shutdown. Protected workspace recovery must retain the queued rescan reply. Scope: docs/en/slices/continuous-directory-observation.md.",
+          "result": "PASS",
+          "test_ids": ["observation_cap_allows_rescans_but_never_releases_a_wait_as_quiet", "queued_rescan_recovers_from_pause_without_closing_its_reply", "stopping_a_quiet_queue_answers_waiters_without_losing_their_replies", "live_rescan_registers_a_protected_workspace_before_resuming_intake"]
+        },
+        {
           "id": "sync-wait-preparation-budget",
           "description": "Wait claims bounded catalog activity before authorization, keeps permission-before-body ordering, bounds preparation by catalog_wait_timeout_ms and releases activity after errors, timeout or cancellation before applying the requested observation budget. Scope: docs/en/slices/continuous-directory-observation.md.",
           "result": "PASS",
@@ -51578,6 +51584,10 @@
         "rescan_during_native_quiet_waits_for_a_completed_scan",
         "quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restart",
         "native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",
+        "observation_cap_allows_rescans_but_never_releases_a_wait_as_quiet",
+        "queued_rescan_recovers_from_pause_without_closing_its_reply",
+        "stopping_a_quiet_queue_answers_waiters_without_losing_their_replies",
+        "live_rescan_registers_a_protected_workspace_before_resuming_intake",
         "quiet_waits_hold_their_original_deadline_without_blocking_other_controls",
         "wait_during_native_quiet_reports_source_changing_only_at_its_deadline",
         "live_cli_wait_after_writing_observes_bytes_without_retrying",
@@ -51848,6 +51858,13 @@
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/shared-sync-writeback.md",
           "test_ids": ["durable_rehash_rejects_same_inode_edits_with_restored_mtime", "wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors", "wait_authorization_deadline_and_cancellation_release_activity"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- observation_cap queued_rescan stopping_a_quiet_queue live_rescan_registers wait_during_native_quiet --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["observation_cap_allows_rescans_but_never_releases_a_wait_as_quiet", "queued_rescan_recovers_from_pause_without_closing_its_reply", "stopping_a_quiet_queue_answers_waiters_without_losing_their_replies", "live_rescan_registers_a_protected_workspace_before_resuming_intake", "wait_during_native_quiet_reports_source_changing_only_at_its_deadline"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",

@@ -258,6 +258,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
     crate::task::spawn_thread("sync-mirror", move || {
         let mut delay = RETRY_DELAY_MIN;
         let mut resume = None;
+        let mut controls = observation::Controls::default();
         loop {
             let started = std::time::Instant::now();
             let result = crate::task::catch_job("sync-mirror", || {
@@ -273,6 +274,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                     },
                     &mut stopping,
                     &mut requests,
+                    &mut controls,
                 ))
             });
             let error = match result {
@@ -298,6 +300,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                     &config,
                     &mut requests,
                     &mut stopping,
+                    &mut controls,
                 ));
                 if resume.is_none() {
                     break;
@@ -322,6 +325,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
             }
             delay = delay.saturating_mul(2).min(RETRY_DELAY_MAX);
         }
+        controls.stop();
         drop(requests);
         if let Err(error) = catalog.clear_sync_controls() {
             health.mark_stopped();
@@ -371,6 +375,7 @@ async fn await_resume(
     config: &Config,
     requests: &mut tokio::sync::mpsc::Receiver<Command>,
     stopping: &mut tokio::sync::watch::Receiver<bool>,
+    controls: &mut observation::Controls,
 ) -> Option<Resume> {
     if let Err(error) = root
         .observe_recoveries(crate::storage::sync_state::authority::ControlAuthority::Permissive)
@@ -387,7 +392,7 @@ async fn await_resume(
         tokio::select! {
             biased;
             _=stopping.changed()=>return None,
-            request=requests.recv()=>match request? {
+            request=controls.receive(requests)=>match request? {
                 Command::Rescan {reply,identity}=> {
                     match root.authorize_controls(config.seed_project.clone(),identity.clone()).await {
                         Ok(())=>return Some(Resume {reply,authority:crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity)}),
@@ -412,6 +417,7 @@ async fn run_live_config(
     run: LiveRun<'_>,
     stopping: &mut tokio::sync::watch::Receiver<bool>,
     requests: &mut tokio::sync::mpsc::Receiver<Command>,
+    controls: &mut observation::Controls,
 ) -> io::Result<()> {
     let (catalog, root, config, health) = (run.catalog, run.root, run.config, run.health);
     let Initialized {
@@ -422,10 +428,20 @@ async fn run_live_config(
         writeback,
     } = initialize_live(run, stopping).await?;
     let mut publication = None;
-    let mut controls = observation::Controls::default();
+    if controls.has_waiters() {
+        watcher.continue_quiet();
+        publication = Some(
+            root.begin_observation_publication()
+                .await
+                .map_err(io::Error::other)?,
+        );
+        root.invalidate_deletions()
+            .await
+            .map_err(io::Error::other)?;
+    }
     let mut quiet = observation::Quiet::Unverified;
     while !*stopping.borrow() {
-        let request = controls.ready(&watcher).or_else(|| {
+        let request = controls.ready(&watcher, quiet).or_else(|| {
             if controls.available() {
                 requests.try_recv().ok()
             } else {
@@ -433,7 +449,7 @@ async fn run_live_config(
             }
         });
         if let Some(request) = request {
-            let Some(request) = controls.admit(request, &watcher) else {
+            let Some(request) = controls.admit(request, &watcher, quiet) else {
                 continue;
             };
             if *stopping.borrow() {
@@ -486,13 +502,18 @@ async fn run_live_config(
                             export_checkpoint("observation-invalidated").await;
                         }
                         observation::Observed::Settled(observed,settled) => {
-                            controls.settled();
+                            if settled==observation::Quiet::Established {controls.settled();}
                             quiet=settled;
                             if observed==crate::source_tree::watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
                             if *stopping.borrow() {break}
                             let summary=ingest_external(catalog,root,config,&writeback,stopping,&mut ingest_complete,&mut baseline_complete).await?;
                             observation::reset_history(root,quiet,&summary).await?;
                             publication.take();
+                            if quiet==observation::Quiet::Capped {
+                                watcher.continue_quiet();
+                                publication=Some(root.begin_observation_publication().await.map_err(io::Error::other)?);
+                                root.invalidate_deletions().await.map_err(io::Error::other)?;
+                            }
                             diagnostics::emit(LogLevel::Info,"sync_ingested",&summary);
                             health.pass_succeeded();
                         }
@@ -500,7 +521,7 @@ async fn run_live_config(
                 }
                 ()=controls.expired()=>{controls.expire(root,config).await?;}
                 Some(request) = requests.recv(), if controls.available() => {
-                    let Some(request)=controls.admit(request,&watcher) else {continue};
+                    let Some(request)=controls.admit(request,&watcher,quiet) else {continue};
                     if *stopping.borrow() { break }
                     LiveControl {catalog,root,config,writeback:&writeback,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request,quiet).await?;
                 }

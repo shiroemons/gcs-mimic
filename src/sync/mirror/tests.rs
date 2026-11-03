@@ -33,6 +33,7 @@ async fn run_live(
         },
         stopping,
         &mut receiver,
+        &mut observation::Controls::default(),
     )
     .await
 }
@@ -125,6 +126,7 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
             },
             &mut stopping,
             &mut requests,
+            &mut observation::Controls::default(),
         )
         .await
     }));

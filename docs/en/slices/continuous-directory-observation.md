@@ -72,8 +72,10 @@ releases the previous deletion snapshot.
 
 Native notifications also coalesce through a one-second quiet interval with a
 ten-second cap. Further events restart quiet without starving control requests;
-wait and rescan queue until quiet or its cap, while status, approval and resolution
-remain available. Wait reports SourceChanging only if its own deadline arrives
+rescan queues until quiet or its cap, while status, approval and resolution
+remain available. A capped scan starts another quiet interval and retains waiting
+barriers; it does not establish quiet for wait or history reset. Wait reports
+SourceChanging only if its own deadline arrives
 while still settling. Schema 50 retains automatic
 deletion history across scans and restart, so the absolute and percentage guard
 cannot be reset by splitting one operation into smaller scans. During an operation
@@ -92,6 +94,9 @@ the test fails when the automatic reset is disabled. Separate tests retain
 zero-candidate scan, and keep pending candidates from resetting history.
 The racy-clean regression counts staging calls directly and requires zero.
 The single-request HTTP/CLI tests contain no SourceChanging retry loop.
+Queued controls remain owned through observer failure and recovery. A queued
+rescan can recover retained work instead of losing its response sender when a
+background scan pauses; a retried worker reestablishes quiet for pending waits.
 
 The live actor accepts bounded rescan, approval, wait and resolution commands.
 Wait claims catalog activity before authorization's database wait. Authorization
