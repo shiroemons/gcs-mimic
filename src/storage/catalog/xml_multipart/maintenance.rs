@@ -20,6 +20,45 @@ pub(super) fn drain_storage(
     connection: &Connection,
     backend: &super::super::BlobBackend,
 ) -> Result<bool, ObjectError> {
+    drain_with(connection, |id| match backend {
+        super::super::BlobBackend::Memory(_) => {
+            let referenced: bool = sql::scalar(
+                connection,
+                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id=?1 UNION ALL SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1 UNION ALL SELECT 1 FROM derived_transfers WHERE id=?1)",
+                [id],
+            )?;
+            if referenced {
+                return Err(object_unavailable(
+                    "multipart deletion journal references retained bytes",
+                ));
+            }
+            backend.remove_draft(id)?;
+            backend.remove(id)?;
+            Ok(())
+        }
+        super::super::BlobBackend::Disk(root) => reclaim_disk(root, id),
+    })
+}
+
+fn reclaim_disk(data_dir: &Path, id: &BlobId) -> Result<(), ObjectError> {
+    #[cfg(test)]
+    super::super::fault::hit(data_dir, super::super::fault::Step::MultipartReclaim)
+        .map_err(object_unavailable)?;
+    objects::unlink(&id.staging_path(data_dir))?;
+    #[cfg(unix)]
+    {
+        #[cfg(test)]
+        super::super::fault::hit(data_dir, super::super::fault::Step::MultipartReclaimSync)
+            .map_err(object_unavailable)?;
+        objects::sync_dir(&data_dir.join("staging"))?;
+    }
+    Ok(())
+}
+
+fn drain_with(
+    connection: &Connection,
+    mut reclaim: impl FnMut(&BlobId) -> Result<(), ObjectError>,
+) -> Result<bool, ObjectError> {
     let ids = connection
         .prepare_cached("SELECT blob_id FROM xml_multipart_deletions ORDER BY blob_id LIMIT 32")
         .and_then(|mut s| {
@@ -27,38 +66,7 @@ pub(super) fn drain_storage(
                 .collect::<rusqlite::Result<Vec<_>>>()
         })?;
     for id in ids {
-        match backend {
-            super::super::BlobBackend::Memory(_) => {
-                let referenced: bool = sql::scalar(
-                    connection,
-                    "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id=?1 UNION ALL SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1 UNION ALL SELECT 1 FROM derived_transfers WHERE id=?1)",
-                    [&id],
-                )?;
-                if referenced {
-                    return Err(object_unavailable(
-                        "multipart deletion journal references retained bytes",
-                    ));
-                }
-                backend.remove_draft(&id)?;
-                backend.remove(&id)?;
-            }
-            super::super::BlobBackend::Disk(data_dir) => {
-                #[cfg(test)]
-                super::super::fault::hit(data_dir, super::super::fault::Step::MultipartReclaim)
-                    .map_err(object_unavailable)?;
-                backend.remove_draft(&id)?;
-                #[cfg(unix)]
-                {
-                    #[cfg(test)]
-                    super::super::fault::hit(
-                        data_dir,
-                        super::super::fault::Step::MultipartReclaimSync,
-                    )
-                    .map_err(object_unavailable)?;
-                    objects::sync_dir(&data_dir.join("staging"))?;
-                }
-            }
-        }
+        reclaim(&id)?;
         sql::exec(
             connection,
             "DELETE FROM xml_multipart_deletions WHERE blob_id=?1",
@@ -80,12 +88,9 @@ fn due(connection: &Connection, now: i64) -> Result<Vec<String>, CatalogError> {
 
 pub(super) fn recover(
     connection: &Connection,
-    backend: &super::super::BlobBackend,
+    data_dir: &Path,
     now: i64,
 ) -> Result<(), CatalogError> {
-    let super::super::BlobBackend::Disk(data_dir) = backend else {
-        return Ok(());
-    };
     for id in due(connection, now)? {
         connection.execute_batch("BEGIN IMMEDIATE")?;
         if let Err(error) = retire(connection, &id) {
@@ -94,7 +99,9 @@ pub(super) fn recover(
         }
         connection.execute_batch("COMMIT")?;
     }
-    while drain_storage(connection, backend).map_err(super::super::unavailable)? {}
+    while drain_with(connection, |id| reclaim_disk(data_dir, id))
+        .map_err(super::super::unavailable)?
+    {}
     let mut after = String::new();
     loop {
         let part:Option<(BlobId,u64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;

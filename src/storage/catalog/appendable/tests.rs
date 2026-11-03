@@ -385,7 +385,7 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
         .await
         .unwrap();
     assert_eq!(published.size, 3);
-    assert!(!writer.path.exists());
+    assert!(!data_path(&dir.0, &writer.blob_id).exists());
 
     // Recreate the state between the publication commit and the row removal.
     let leftover = BlobId::generate().unwrap().to_hex();

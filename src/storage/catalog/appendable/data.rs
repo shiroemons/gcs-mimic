@@ -2,7 +2,10 @@ use super::*;
 
 #[derive(Clone)]
 pub(super) enum Data {
-    Disk(Arc<fs::File>),
+    Disk {
+        file: Arc<fs::File>,
+        path: PathBuf,
+    },
     Memory {
         store: Arc<crate::storage::memory::Store>,
         id: BlobId,
@@ -22,13 +25,17 @@ impl Data {
         };
         let directory = root.join("appendable");
         fs::create_dir_all(&directory)?;
+        let path = data_path(root, id);
         let file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(data_path(root, id))?;
+            .open(&path)?;
         #[cfg(unix)]
         crate::fsutil::sync_dir(&directory)?;
-        Ok(Self::Disk(Arc::new(file)))
+        Ok(Self::Disk {
+            file: Arc::new(file),
+            path,
+        })
     }
 
     pub(super) fn take_over(
@@ -47,9 +54,8 @@ impl Data {
                 });
             }
         };
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .open(data_path(root, id))?;
+        let path = data_path(root, id);
+        let file = fs::OpenOptions::new().write(true).open(&path)?;
         if file.metadata()?.len() < size {
             return Err(ObjectError::Corrupt(
                 "appendable data is shorter than its persisted size".into(),
@@ -57,12 +63,15 @@ impl Data {
         }
         file.set_len(size)?;
         file.sync_data()?;
-        Ok(Self::Disk(Arc::new(file)))
+        Ok(Self::Disk {
+            file: Arc::new(file),
+            path,
+        })
     }
 
     pub(super) fn write(&self, start: u64, bytes: &[u8]) -> io::Result<()> {
         match self {
-            Self::Disk(file) => {
+            Self::Disk { file, .. } => {
                 let mut file = &**file;
                 file.seek(io::SeekFrom::Start(start))?;
                 file.write_all(bytes)
@@ -78,14 +87,14 @@ impl Data {
 
     pub(super) fn sync(&self) -> io::Result<Option<crate::storage::memory::Checkpoint>> {
         match self {
-            Self::Disk(file) => file.sync_data().map(|()| None),
+            Self::Disk { file, .. } => file.sync_data().map(|()| None),
             Self::Memory { store, id } => store.checkpoint_draft(&id.to_hex()).map(Some),
         }
     }
 
-    pub(super) fn reader(&self, path: &Path) -> io::Result<Box<dyn Read + Send>> {
+    pub(super) fn reader(&self) -> io::Result<Box<dyn Read + Send>> {
         match self {
-            Self::Disk(_) => Ok(Box::new(fs::File::open(path)?)),
+            Self::Disk { path, .. } => Ok(Box::new(fs::File::open(path)?)),
             Self::Memory { store, id } => Ok(Box::new(store.open(&id.to_hex())?)),
         }
     }

@@ -880,7 +880,7 @@ fn recover_on_open(
     clock: &dyn Clock,
 ) -> Result<(), CatalogError> {
     let BlobBackend::Disk(data_dir) = backend else {
-        return Ok(());
+        return Err(unavailable("disk recovery requires a disk backend"));
     };
     let pending: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)",
@@ -923,8 +923,8 @@ fn recover_on_open(
     let recovery_now = unix_millis(clock.now())?;
     rewrite::recover_due(connection, recovery_now)?;
     resumable_maintenance::recover_due(connection, backend, recovery_now)?;
-    xml_multipart::recover(connection, backend, recovery_now)?;
-    objects::recover(connection, backend, recovery_now)?;
+    xml_multipart::recover(connection, data_dir, recovery_now)?;
+    objects::recover(connection, data_dir, recovery_now)?;
     appendable::recover(connection, data_dir)
 }
 

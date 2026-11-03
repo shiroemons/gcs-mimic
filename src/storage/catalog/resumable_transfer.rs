@@ -347,7 +347,10 @@ impl Catalog {
         // Every chunk, the final one included, was made durable by `receive_chunk` before its
         // checkpoint, and hashing only reads the file, so there is nothing left to sync.
         drop(file);
-        self.publish_resumable_bytes(lease).await?;
+        self.0
+            .backend
+            .publish_resumable(self, lease.session.blob_id)
+            .await?;
         let session = lease.session.clone();
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
@@ -436,19 +439,5 @@ impl Catalog {
             self.reclaim_after_commit().await;
         }
         result
-    }
-
-    async fn publish_resumable_bytes(&self, lease: &SessionLease) -> Result<(), ResumableError> {
-        if self.0.backend.is_memory() {
-            let backend = self.0.backend.clone();
-            let blob_id = lease.session.blob_id;
-            self.run_upload(move |_| backend.publish_draft(&blob_id).map_err(object_unavailable))
-                .await?;
-        } else {
-            let destination = objects::blob_path(&self.0.data_dir, &lease.session.blob_id);
-            self.publish_staged(lease.staging_path(), destination)
-                .await?;
-        }
-        Ok(())
     }
 }

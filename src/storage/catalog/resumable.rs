@@ -11,10 +11,11 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Value, json};
+#[cfg(test)]
+use std::path::PathBuf;
 use std::{
     borrow::Cow,
     fmt,
-    path::PathBuf,
     time::{Duration, SystemTime},
 };
 
@@ -175,6 +176,7 @@ impl Drop for WriterGuard {
     }
 }
 impl SessionLease {
+    #[cfg(test)]
     pub(crate) fn staging_path(&self) -> PathBuf {
         self.session
             .blob_id

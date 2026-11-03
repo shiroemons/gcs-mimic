@@ -10,7 +10,7 @@ use crate::{
     storage::failure::object_unavailable,
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use std::{fmt, time::SystemTime};
+use std::{fmt, path::Path, time::SystemTime};
 
 mod listing;
 mod maintenance;
@@ -368,10 +368,10 @@ impl Catalog {
 
 pub(super) fn recover(
     connection: &Connection,
-    backend: &super::BlobBackend,
+    data_dir: &Path,
     now: i64,
 ) -> Result<(), CatalogError> {
-    maintenance::recover(connection, backend, now)
+    maintenance::recover(connection, data_dir, now)
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {

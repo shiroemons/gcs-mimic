@@ -196,12 +196,40 @@ impl BlobBackend {
         }
     }
 
+    pub(super) async fn publish_resumable(
+        &self,
+        catalog: &super::Catalog,
+        id: BlobId,
+    ) -> Result<(), ObjectError> {
+        match self {
+            Self::Disk(root) => {
+                catalog
+                    .publish_staged(id.staging_path(root), id.blob_path(root))
+                    .await
+            }
+            Self::Memory(_) => {
+                let backend = self.clone();
+                catalog
+                    .run_upload(move |_| backend.publish_draft(&id).map_err(object_unavailable))
+                    .await
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    pub(super) fn sync_blob_dir(&self, id: &BlobId) -> io::Result<()> {
+        if let Self::Disk(root) = self
+            && let Some(shard) = id.blob_path(root).parent()
+            && shard.exists()
+        {
+            crate::fsutil::sync_dir(shard)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn restore_draft(&self, id: &BlobId) -> io::Result<()> {
         if let Self::Disk(root) = self {
-            let stage = id.staging_path(root);
-            if !stage.try_exists()? {
-                fs::rename(id.blob_path(root), stage)?;
-            }
+            restore_disk_draft(root, id)?;
         }
         Ok(())
     }
@@ -390,6 +418,14 @@ impl BlobBackend {
             }
         }
     }
+}
+
+pub(super) fn restore_disk_draft(root: &Path, id: &BlobId) -> io::Result<()> {
+    let stage = id.staging_path(root);
+    if !stage.try_exists()? {
+        fs::rename(id.blob_path(root), stage)?;
+    }
+    Ok(())
 }
 
 fn unlink_synced(path: &Path, #[cfg(all(test, unix))] data_dir: &Path) -> io::Result<()> {

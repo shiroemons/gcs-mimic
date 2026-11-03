@@ -1055,12 +1055,9 @@ fn discard_record(connection: &Connection, id: &BlobId) -> Result<(), ObjectErro
 )]
 pub(super) fn recover(
     connection: &Connection,
-    backend: &super::BlobBackend,
+    data_dir: &Path,
     now: i64,
 ) -> Result<(), ObjectError> {
-    let super::BlobBackend::Disk(data_dir) = backend else {
-        return Ok(());
-    };
     reclaim_derived_deletions(connection, data_dir, None)?;
     let over_limit: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM derived_transfers GROUP BY ephemeral HAVING count(*) > ?1)",
@@ -1098,7 +1095,7 @@ pub(super) fn recover(
             {
                 return Err(object_unavailable("invalid derived sources"));
             }
-            backend.restore_draft(&id)?;
+            super::blob_backend::restore_disk_draft(data_dir, &id)?;
             let stage = stage_path(data_dir, &id);
             let mut output = fs::OpenOptions::new().write(true).read(true).open(stage)?;
             if output.metadata()?.len() < progress.offset {
@@ -2244,18 +2241,8 @@ mod tests {
                 .unwrap();
             match mode {
                 "cancel" => cleanup_record(&connection, &std::env::temp_dir(), &id).unwrap(),
-                "expiry" => recover(
-                    &connection,
-                    &super::super::BlobBackend::Disk(std::env::temp_dir()),
-                    1,
-                )
-                .unwrap(),
-                "quarantine" => recover(
-                    &connection,
-                    &super::super::BlobBackend::Disk(std::env::temp_dir()),
-                    0,
-                )
-                .unwrap(),
+                "expiry" => recover(&connection, &std::env::temp_dir(), 1).unwrap(),
+                "quarantine" => recover(&connection, &std::env::temp_dir(), 0).unwrap(),
                 _ => unreachable!(),
             }
             assert_eq!(

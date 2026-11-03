@@ -335,6 +335,28 @@ fn stage_file(
     Ok((size, hashes))
 }
 
+impl super::super::BlobBackend {
+    // A collision must not give the cleanup handle ownership of another stage.
+    fn stage_admin_file(
+        &self,
+        source: &File,
+        id: BlobId,
+        expected: ExpectedHashes,
+        max_bytes: u64,
+    ) -> Result<Result<(u64, crate::hashing::Hashes), AdminError>, AdminError> {
+        match self {
+            Self::Memory(memory) => Ok(stage_memory(memory, source, id, expected, max_bytes)),
+            Self::Disk(root) => {
+                let stage = id.staging_path(root);
+                if id.blob_path(root).try_exists()? || stage.try_exists()? {
+                    return Err(AdminError::Invalid("blob ID collision".into()));
+                }
+                Ok(stage_file(source, &stage, expected, max_bytes))
+            }
+        }
+    }
+}
+
 async fn cleanup(catalog: &Catalog, id: BlobId) -> Result<(), AdminError> {
     let probe = id;
     let referenced = catalog
@@ -348,7 +370,6 @@ async fn cleanup(catalog: &Catalog, id: BlobId) -> Result<(), AdminError> {
         }
         return Ok(());
     }
-    let blob = objects::blob_path(&catalog.0.data_dir, &id);
     let backend = catalog.0.backend.clone();
     catalog
         .0
@@ -358,11 +379,7 @@ async fn cleanup(catalog: &Catalog, id: BlobId) -> Result<(), AdminError> {
             if !referenced {
                 backend.remove(&id)?;
                 #[cfg(unix)]
-                if let Some(shard) = blob.parent()
-                    && shard.exists()
-                {
-                    fsutil::sync_dir(shard)?;
-                }
+                backend.sync_blob_dir(&id)?;
             }
             Ok(())
         })
@@ -408,21 +425,11 @@ impl Admin {
                 activity: Some(activity),
                 batch_ownership: None,
             };
-            let stage = id.staging_path(&catalog.0.data_dir);
-            let blob = objects::blob_path(&catalog.0.data_dir, &id);
             let backend = catalog.0.backend.clone();
             let result = catalog
                 .0
                 .file_workers
-                .run(move || {
-                    if let super::super::BlobBackend::Memory(memory) = backend {
-                        return Ok(stage_memory(&memory, &source, id, expected, max_bytes));
-                    }
-                    if blob.try_exists()? || stage.try_exists()? {
-                        return Err(AdminError::Invalid("blob ID collision".into()));
-                    }
-                    Ok(stage_file(&source, &stage, expected, max_bytes))
-                })
+                .run(move || backend.stage_admin_file(&source, id, expected, max_bytes))
                 .await?;
             handle.id = Some(id);
             match result {
@@ -679,13 +686,13 @@ async fn run_batch(
                 .id
                 .as_ref()
                 .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?;
-            let stage = id.staging_path(&catalog.0.data_dir);
-            let blob = objects::blob_path(&catalog.0.data_dir, id);
+            let id = *id;
+            let backend = catalog.0.backend.clone();
             catalog
                 .0
                 .file_workers
                 .run(move || {
-                    objects::publish_blob(&stage, &blob)?;
+                    backend.publish_draft(&id)?;
                     Ok::<_, AdminError>(())
                 })
                 .await?;

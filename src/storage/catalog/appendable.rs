@@ -431,7 +431,6 @@ pub(crate) struct AppendWriter {
     activity: Arc<super::Activity>,
     bucket: String,
     name: String,
-    path: PathBuf,
     blob_id: BlobId,
     /// Appends and flushes share this descriptor. Linux tracks writeback errors per open file:
     /// a descriptor opened after a failure reports it only while no other descriptor has seen
@@ -616,12 +615,11 @@ impl AppendWriter {
         .map_err(object_unavailable)?;
         let permit = catalog.admit_object_upload()?;
         let (tx, rx) = mpsc::channel(2);
-        let path = self.path.clone();
         let data = self.file.clone();
         let size = self.record.size;
         // Bounded copy: one 64 KiB chunk is read per send, never the whole object.
         let producer = async move {
-            let mut file = tokio::task::spawn_blocking(move || data.reader(&path))
+            let mut file = tokio::task::spawn_blocking(move || data.reader())
                 .await
                 .map_err(io::Error::other)??;
             let mut remaining = size;
@@ -793,7 +791,6 @@ impl Catalog {
         let blob = BlobId::generate().map_err(object_unavailable)?;
         let handle = BlobId::generate().map_err(object_unavailable)?.to_hex();
         let blob_id = blob;
-        let path = data_path(&self.0.data_dir, &blob_id);
         let catalog = self.clone();
         let id = blob_id;
         let file_activity = activity.clone();
@@ -836,7 +833,6 @@ impl Catalog {
             activity,
             bucket: bucket.to_owned(),
             name: name.to_owned(),
-            path,
             blob_id,
             file,
             handle,
@@ -978,7 +974,6 @@ impl Catalog {
             })
             .await??;
         let (blob_id, record) = selected;
-        let path = data_path(&self.0.data_dir, &blob_id);
         let catalog = self.clone();
         let id = blob_id;
         let size = record.size;
@@ -1001,7 +996,6 @@ impl Catalog {
             activity,
             bucket: record.bucket.clone(),
             name: record.name.clone(),
-            path,
             blob_id,
             file,
             handle: new_handle,
