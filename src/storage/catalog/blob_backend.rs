@@ -44,11 +44,11 @@ impl BlobBackend {
         for id in ids {
             let path = id.blob_path(root);
             let shard = objects::blob_shard(&path)?.to_owned();
-            let result = (|| {
-                #[cfg(test)]
-                hit_io(root, super::fault::Step::ReclaimUnlink)?;
-                objects::unlink(&path)
-            })();
+            #[cfg(test)]
+            let result = hit_io(root, super::fault::Step::ReclaimUnlink)
+                .and_then(|()| objects::unlink(&path));
+            #[cfg(not(test))]
+            let result = objects::unlink(&path);
             match result {
                 Ok(()) => shards.entry(shard).or_default().push(id),
                 Err(error) => {
@@ -65,11 +65,11 @@ impl BlobBackend {
         for (shard, ids) in shards {
             #[cfg(unix)]
             if shard.exists() {
-                let result = (|| {
-                    #[cfg(test)]
-                    hit_io(root, super::fault::Step::ReclaimSync)?;
-                    objects::sync_dir(&shard)
-                })();
+                #[cfg(test)]
+                let result = hit_io(root, super::fault::Step::ReclaimSync)
+                    .and_then(|()| objects::sync_dir(&shard));
+                #[cfg(not(test))]
+                let result = objects::sync_dir(&shard);
                 if let Err(error) = result {
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,
