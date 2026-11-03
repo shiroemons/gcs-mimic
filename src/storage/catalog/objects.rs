@@ -426,22 +426,6 @@ pub(super) fn blob_referenced(connection: &Connection, id: &BlobId) -> rusqlite:
     )
 }
 
-pub(super) fn discard_unreferenced_blob(
-    connection: &Connection,
-    data_dir: &Path,
-    memory: Option<&crate::storage::memory::Store>,
-    id: &BlobId,
-) -> Result<(), ObjectError> {
-    if !blob_referenced(connection, id)? {
-        if let Some(memory) = memory {
-            memory.remove(&id.to_hex())?;
-        } else {
-            reclaim(connection, data_dir, id)?;
-        }
-    }
-    Ok(())
-}
-
 pub(super) fn reclaim(
     connection: &Connection,
     data_dir: &Path,
@@ -637,7 +621,7 @@ pub struct ObjectReader {
     pub(crate) publicly_readable: bool,
 }
 
-enum ReaderData {
+pub(super) enum ReaderData {
     Disk(tokio::fs::File),
     Memory(super::super::memory::Reader),
 }
@@ -653,9 +637,10 @@ impl ReaderData {
 }
 
 impl ObjectReader {
-    pub(super) fn bounded_memory(reader: super::super::memory::Reader, remaining: u64) -> Self {
+    /// Appendable generations grow in place, so reads stop at the persisted size.
+    pub(super) fn bounded_data(file: ReaderData, remaining: u64) -> Self {
         Self {
-            file: ReaderData::Memory(reader),
+            file,
             remaining,
             publicly_readable: false,
         }
@@ -664,16 +649,7 @@ impl ObjectReader {
     /// Wraps an arbitrary file so server tests can exercise reader failures.
     #[cfg(test)]
     pub(crate) fn bounded_for_test(file: tokio::fs::File, remaining: u64) -> Self {
-        Self::bounded(file, remaining)
-    }
-
-    /// Appendable generations grow in place, so reads stop at the persisted size.
-    pub(super) fn bounded(file: tokio::fs::File, remaining: u64) -> Self {
-        Self {
-            file: ReaderData::Disk(file),
-            remaining,
-            publicly_readable: false,
-        }
+        Self::bounded_data(ReaderData::Disk(file), remaining)
     }
 
     /// Transfers the already-opened immutable generation; no storage path is exposed.
@@ -1161,13 +1137,7 @@ impl Catalog {
             let id = blob;
             let stage = blob.staging_path(&catalog.0.data_dir);
             let published = blob.blob_path(&catalog.0.data_dir);
-            let mut file = if let Some(memory) = &catalog.0.memory {
-                UploadSink::Memory(memory.stage()?)
-            } else {
-                UploadSink::Disk(tokio::fs::File::from_std(
-                    create_upload_stage(stage.clone(), published.clone()).await?,
-                ))
-            };
+            let mut file = catalog.0.backend.stage(&id).await?;
             let result = async {
                 let (size, md5, crc32c, sha256) =
                     write_stream(&mut file, expected, max_bytes, body, cancellation, &catalog)
@@ -1182,11 +1152,7 @@ impl Catalog {
                     }
                 }
                 let commit = UploadCommit {
-                    backend: if catalog.0.memory.is_some() {
-                        crate::config::Backend::Memory
-                    } else {
-                        crate::config::Backend::Disk
-                    },
+                    backend: catalog.0.backend.kind(),
                     bucket,
                     name,
                     content_type,
@@ -1236,14 +1202,13 @@ impl Catalog {
         stage: PathBuf,
         id: BlobId,
     ) -> Result<(), ObjectError> {
-        let data_dir = self.0.data_dir.clone();
-        let memory = self.0.memory.clone();
+        let backend = self.0.backend.clone();
         // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
         self.run_upload(move |connection| {
-            if memory.is_none() {
+            if !backend.is_memory() {
                 unlink(&stage)?;
             }
-            discard_unreferenced_blob(connection, &data_dir, memory.as_deref(), &id)
+            backend.discard_unreferenced(connection, &id)
         })
         .await
     }
@@ -1474,13 +1439,7 @@ pub(super) fn open_selected(
         access,
     )?;
     // Open under the same execution permit that serializes deletes and overwrites.
-    let file = match catalog.0.memory.as_deref() {
-        Some(memory) => ReaderData::Memory(memory.open(&id.to_hex())?),
-        None => ReaderData::Disk(tokio::fs::File::from_std(File::open(blob_path(
-            &catalog.0.data_dir,
-            &id,
-        ))?)),
-    };
+    let file = catalog.0.backend.open(&id)?;
     let remaining = record.size;
     let publicly_readable = super::policies::read_policy(&transaction, bucket)?.allows(
         None,
@@ -2531,49 +2490,9 @@ impl Catalog {
             if ids.is_empty() {
                 return Ok(());
             }
-            let data_dir = catalog.0.data_dir.clone();
-            let memory = catalog.0.memory.clone();
-            let (removed, failure) = tokio::task::spawn_blocking(move || {
-                if let Some(memory) = memory {
-                    for id in &ids {
-                        memory.remove_draft(&id.to_hex())?;
-                        memory.remove(&id.to_hex())?;
-                    }
-                    return Ok((ids, None));
-                }
-                let mut shards = std::collections::BTreeMap::<PathBuf, Vec<BlobId>>::new();
-                let mut failure = None;
-                for id in ids {
-                    let path = blob_path(&data_dir, &id);
-                    let shard = blob_shard(&path)?.to_owned();
-                    match unlink(&path) {
-                        Ok(()) => shards
-                            .entry(shard)
-                            .or_default()
-                            .push(id),
-                        Err(error) => {
-                            crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "blob_reclaim_deferred", serde_json::json!({"message":format!("deferred blob reclaim {id}: {error}")}));
-                            failure = Some(object_unavailable(error));
-                        }
-                    }
-                }
-                let mut removed = Vec::new();
-                for (shard, ids) in shards {
-                    #[cfg(unix)]
-                    if shard.exists()
-                        && let Err(error) = sync_dir(&shard)
-                    {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "blob_reclaim_deferred", serde_json::json!({"message":format!("deferred blob reclaim directory: {error}")}));
-                        failure = Some(object_unavailable(error));
-                        continue;
-                    }
-                    #[cfg(not(unix))]
-                    let _ = shard;
-                    removed.extend(ids);
-                }
-                Ok::<_, ObjectError>((removed, failure))
-            })
-            .await??;
+            let backend = catalog.0.backend.clone();
+            let (removed, failure) =
+                tokio::task::spawn_blocking(move || backend.reclaim_batch(ids)).await??;
             catalog
                 .run_upload(move |connection| {
                     let transaction = connection.transaction()?;

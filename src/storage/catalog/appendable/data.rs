@@ -10,39 +10,46 @@ pub(super) enum Data {
 }
 
 impl Data {
-    pub(super) fn create(catalog: &Catalog, id: &BlobId, path: &Path) -> io::Result<Self> {
-        if let Some(store) = &catalog.0.memory {
-            return Ok(Self::Memory {
-                store: store.clone(),
-                id: *id,
-            });
-        }
-        let directory = catalog.0.data_dir.join("appendable");
+    pub(super) fn create(backend: &super::super::BlobBackend, id: &BlobId) -> io::Result<Self> {
+        let root = match backend {
+            super::super::BlobBackend::Disk(root) => root,
+            super::super::BlobBackend::Memory(store) => {
+                return Ok(Self::Memory {
+                    store: store.clone(),
+                    id: *id,
+                });
+            }
+        };
+        let directory = root.join("appendable");
         fs::create_dir_all(&directory)?;
         let file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(path)?;
+            .open(data_path(root, id))?;
         #[cfg(unix)]
         crate::fsutil::sync_dir(&directory)?;
         Ok(Self::Disk(Arc::new(file)))
     }
 
     pub(super) fn take_over(
-        catalog: &Catalog,
+        backend: &super::super::BlobBackend,
         id: &BlobId,
-        path: &Path,
         size: u64,
     ) -> Result<Self, ObjectError> {
-        if let Some(store) = &catalog.0.memory {
-            let mut draft = store.draft(&id.to_hex(), size)?;
-            draft.acknowledge(size);
-            return Ok(Self::Memory {
-                store: store.clone(),
-                id: *id,
-            });
-        }
-        let file = fs::OpenOptions::new().write(true).open(path)?;
+        let root = match backend {
+            super::super::BlobBackend::Disk(root) => root,
+            super::super::BlobBackend::Memory(store) => {
+                let mut draft = store.draft(&id.to_hex(), size)?;
+                draft.acknowledge(size);
+                return Ok(Self::Memory {
+                    store: store.clone(),
+                    id: *id,
+                });
+            }
+        };
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(data_path(root, id))?;
         if file.metadata()?.len() < size {
             return Err(ObjectError::Corrupt(
                 "appendable data is shorter than its persisted size".into(),
@@ -85,10 +92,9 @@ impl Data {
 }
 
 pub(super) fn remove(catalog: &Catalog, id: &BlobId) -> Result<(), ObjectError> {
-    if let Some(store) = &catalog.0.memory {
-        store.remove_draft(&id.to_hex())?;
-        store.remove(&id.to_hex()).map_err(object_unavailable)
-    } else {
-        unlink(&data_path(&catalog.0.data_dir, id)).map_err(object_unavailable)
-    }
+    catalog
+        .0
+        .backend
+        .remove_appendable(id)
+        .map_err(object_unavailable)
 }

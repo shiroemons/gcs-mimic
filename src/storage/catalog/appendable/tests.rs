@@ -163,7 +163,7 @@ async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_recla
         .unwrap();
     assert_eq!((published.generation, published.size), (generation, 4));
     catalog.reclaim_pending().await.unwrap();
-    let memory = catalog.0.memory.as_ref().unwrap();
+    let memory = catalog.0.backend.memory().unwrap();
     assert!(memory.open(&id).is_err());
     assert!(memory.draft(&id, 0).is_err());
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"body"[..]);

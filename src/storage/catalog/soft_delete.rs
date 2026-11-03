@@ -120,8 +120,8 @@ impl Catalog {
             generation,
         } = target;
         let (restore_access, create_access) = (access.restore.clone(), access.create.clone());
-        let (clock, data_dir) = (self.0.clock.clone(), self.0.data_dir.clone());
-        let memory = self.0.memory.clone();
+        let clock = self.0.clock.clone();
+        let backend = self.0.backend.clone();
         let result = self
             .run(move |connection| {
                 authorized_bucket(connection, &bucket, &restore_access)?;
@@ -136,7 +136,6 @@ impl Catalog {
                     "INSERT INTO pending_blob_deletions VALUES (?1)",
                     [&text],
                 )?;
-                let stage = id.staging_path(&data_dir);
                 let result = (|| {
                     let transaction = sql::immediate(connection)?;
                     authorized_bucket(&transaction, &bucket, &restore_access)?;
@@ -174,12 +173,7 @@ impl Catalog {
                     )?;
                     let (versioning, _) =
                         Catalog::bucket_settings_in_transaction(&transaction, &bucket)?;
-                    if let Some(memory) = &memory {
-                        memory.pin(&original.to_hex(), text.clone())?;
-                    } else {
-                        std::fs::hard_link(objects::blob_path(&data_dir, &original), &stage)?;
-                        objects::publish_blob(&stage, &id.blob_path(&data_dir))?;
-                    }
+                    backend.publish_pin(&original, &id)?;
                     record.metageneration = 1;
                     record.time_created = super::system_time_micros(micros)?;
                     record.updated = record.time_created;
@@ -214,8 +208,8 @@ impl Catalog {
                     transaction.commit()?;
                     Ok(record)
                 })();
-                if memory.is_none()
-                    && let Err(error) = objects::unlink(&stage)
+                if !backend.is_memory()
+                    && let Err(error) = backend.remove_draft(&id)
                 {
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,

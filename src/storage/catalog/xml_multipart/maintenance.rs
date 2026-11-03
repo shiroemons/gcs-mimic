@@ -17,13 +17,15 @@ pub(super) fn retire(connection: &Connection, id: &str) -> Result<(), ObjectErro
 
 /// A journal entry survives a failed unlink or directory sync and is retried by maintenance.
 pub(super) fn drain(connection: &Connection, data_dir: &Path) -> Result<bool, ObjectError> {
-    drain_storage(connection, data_dir, None)
+    drain_storage(
+        connection,
+        &super::super::BlobBackend::Disk(data_dir.to_owned()),
+    )
 }
 
 pub(super) fn drain_storage(
     connection: &Connection,
-    data_dir: &Path,
-    memory: Option<&crate::storage::memory::Store>,
+    backend: &super::super::BlobBackend,
 ) -> Result<bool, ObjectError> {
     let ids = connection
         .prepare_cached("SELECT blob_id FROM xml_multipart_deletions ORDER BY blob_id LIMIT 32")
@@ -32,30 +34,36 @@ pub(super) fn drain_storage(
                 .collect::<rusqlite::Result<Vec<_>>>()
         })?;
     for id in ids {
-        if let Some(memory) = memory {
-            let referenced: bool = sql::scalar(
-                connection,
-                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id=?1 UNION ALL SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1 UNION ALL SELECT 1 FROM derived_transfers WHERE id=?1)",
-                [&id],
-            )?;
-            if referenced {
-                return Err(object_unavailable(
-                    "multipart deletion journal references retained bytes",
-                ));
+        match backend {
+            super::super::BlobBackend::Memory(_) => {
+                let referenced: bool = sql::scalar(
+                    connection,
+                    "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id=?1 UNION ALL SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1 UNION ALL SELECT 1 FROM derived_transfers WHERE id=?1)",
+                    [&id],
+                )?;
+                if referenced {
+                    return Err(object_unavailable(
+                        "multipart deletion journal references retained bytes",
+                    ));
+                }
+                backend.remove_draft(&id)?;
+                backend.remove(&id)?;
             }
-            memory.remove_draft(&id.to_hex())?;
-            memory.remove(&id.to_hex())?;
-        } else {
-            #[cfg(test)]
-            super::super::fault::hit(data_dir, super::super::fault::Step::MultipartReclaim)
-                .map_err(object_unavailable)?;
-            objects::unlink(&id.staging_path(data_dir))?;
-            #[cfg(unix)]
-            {
+            super::super::BlobBackend::Disk(data_dir) => {
                 #[cfg(test)]
-                super::super::fault::hit(data_dir, super::super::fault::Step::MultipartReclaimSync)
+                super::super::fault::hit(data_dir, super::super::fault::Step::MultipartReclaim)
                     .map_err(object_unavailable)?;
-                objects::sync_dir(&data_dir.join("staging"))?;
+                backend.remove_draft(&id)?;
+                #[cfg(unix)]
+                {
+                    #[cfg(test)]
+                    super::super::fault::hit(
+                        data_dir,
+                        super::super::fault::Step::MultipartReclaimSync,
+                    )
+                    .map_err(object_unavailable)?;
+                    objects::sync_dir(&data_dir.join("staging"))?;
+                }
             }
         }
         sql::exec(
@@ -135,8 +143,7 @@ impl Catalog {
                 transaction.commit()?;
             }
             let pending =
-                drain_storage(connection, &catalog.0.data_dir, catalog.0.memory.as_deref())
-                    .map_err(super::super::unavailable)?;
+                drain_storage(connection, &catalog.0.backend).map_err(super::super::unavailable)?;
             let deadline: Option<i64> = sql::scalar(
                 connection,
                 "SELECT min(deadline) FROM xml_multipart_uploads",

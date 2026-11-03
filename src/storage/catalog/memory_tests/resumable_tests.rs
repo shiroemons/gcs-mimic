@@ -125,7 +125,7 @@ async fn ram_resumable_capacity_and_checkpoint_failure_restore_bytes_offset_and_
         .await
         .unwrap();
     let mut reservations = Vec::new();
-    while let Ok(stage) = catalog.0.memory.as_ref().unwrap().stage() {
+    while let Ok(stage) = catalog.0.backend.memory().unwrap().stage() {
         reservations.push(stage);
     }
     assert!(

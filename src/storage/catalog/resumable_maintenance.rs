@@ -1,9 +1,10 @@
-use super::{Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis};
+use super::{
+    BlobBackend, Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis,
+};
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, params};
 use std::{
-    fs, io,
     path::Path,
     time::{Duration, SystemTime},
 };
@@ -23,14 +24,13 @@ fn cleanup_page(
 
 fn clean_record(
     connection: &Connection,
-    data_dir: &Path,
-    memory: Option<&crate::storage::memory::Store>,
+    backend: &BlobBackend,
     id: &str,
     blob_id: &BlobId,
     deadline: i64,
     now: i64,
 ) -> Result<(), CatalogError> {
-    clean_session_storage(connection, data_dir, memory, blob_id)?;
+    clean_session_storage(connection, backend, blob_id)?;
     if deadline <= now {
         // Resumable session requests wake the maintenance sweep, so this runs per request.
         sql::exec(
@@ -47,6 +47,7 @@ pub(super) fn recover_due(
     data_dir: &Path,
     now: i64,
 ) -> Result<(), CatalogError> {
+    let backend = BlobBackend::Disk(data_dir.to_owned());
     let mut after = String::new();
     loop {
         let rows = cleanup_page(connection, now, &after)?;
@@ -54,24 +55,10 @@ pub(super) fn recover_due(
             return Ok(());
         }
         for (id, blob_id, deadline) in rows {
-            clean_record(connection, data_dir, None, &id, &blob_id, deadline, now)?;
+            clean_record(connection, &backend, &id, &blob_id, deadline, now)?;
             after = id;
         }
     }
-}
-
-fn unlink(path: &Path) -> Result<(), CatalogError> {
-    match fs::remove_file(path) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        result => result?,
-    }
-    #[cfg(unix)]
-    if let Some(parent) = path.parent()
-        && parent.exists()
-    {
-        fs::File::open(parent).and_then(|directory| directory.sync_all())?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -80,28 +67,19 @@ pub(super) fn clean_session_files(
     data_dir: &Path,
     blob_id: &BlobId,
 ) -> Result<(), CatalogError> {
-    clean_session_storage(connection, data_dir, None, blob_id)
+    clean_session_storage(connection, &BlobBackend::Disk(data_dir.to_owned()), blob_id)
 }
 
 pub(super) fn clean_session_storage(
     connection: &rusqlite::Connection,
-    data_dir: &Path,
-    memory: Option<&crate::storage::memory::Store>,
+    backend: &BlobBackend,
     blob_id: &BlobId,
 ) -> Result<(), CatalogError> {
     let live: bool = super::objects::blob_referenced(connection, blob_id)?;
-    if let Some(memory) = memory {
-        memory.remove_draft(&blob_id.to_hex())?;
-    } else {
-        unlink(&blob_id.staging_path(data_dir))?;
-    }
+    backend.remove_draft_durable(blob_id)?;
     // A completed object outlives its capability and must never be reclaimed with it.
     if !live {
-        if let Some(memory) = memory {
-            memory.remove(&blob_id.to_hex())?;
-        } else {
-            unlink(&blob_id.blob_path(data_dir))?;
-        }
+        backend.remove_durable(blob_id)?;
     }
     sql::exec(
         connection,
@@ -140,12 +118,9 @@ impl Catalog {
         }
         // Remove the cleanup journal only after file removal and directory sync succeed.
         let blob_id = lease.session.blob_id;
-        let data_dir = self.0.data_dir.clone();
-        let memory = self.0.memory.clone();
+        let backend = self.0.backend.clone();
         let result = self
-            .run(move |connection| {
-                clean_session_storage(connection, &data_dir, memory.as_deref(), &blob_id)
-            })
+            .run(move |connection| clean_session_storage(connection, &backend, &blob_id))
             .await;
         if let Err(error) = &result {
             *self
@@ -209,8 +184,7 @@ impl Catalog {
                         let result = catalog.try_resumable_writer(&id).and_then(|_guard| {
                             clean_record(
                                 connection,
-                                &catalog.0.data_dir,
-                                catalog.0.memory.as_deref(),
+                                &catalog.0.backend,
                                 &id,
                                 &blob_id,
                                 deadline,
@@ -377,6 +351,7 @@ async fn maintenance_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn typed_session_cleanup_and_recovery_preserve_unrelated_files() {

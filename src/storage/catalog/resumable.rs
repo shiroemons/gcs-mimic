@@ -13,7 +13,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Value, json};
 use std::{
     borrow::Cow,
-    fmt, fs,
+    fmt,
     path::PathBuf,
     time::{Duration, SystemTime},
 };
@@ -189,37 +189,19 @@ fn random_id<const N: usize>() -> Result<String, CatalogError> {
 }
 
 fn create_session_bytes(catalog: &Catalog, blob_id: &BlobId) -> Result<(), CatalogError> {
-    if let Some(memory) = &catalog.0.memory {
-        return memory
-            .create_resumable_draft(blob_id.to_hex())
-            .map_err(unavailable);
-    }
-    let path = blob_id.staging_path(&catalog.0.data_dir);
-    let file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)?;
-    let synced = (|| -> std::io::Result<()> {
-        file.sync_all()?;
-        #[cfg(unix)]
-        fs::File::open(catalog.0.data_dir.join("staging"))?.sync_all()?;
-        Ok(())
-    })();
-    if let Err(error) = synced {
-        drop(file);
-        fs::remove_file(path)?;
-        return Err(unavailable(error));
-    }
-    Ok(())
+    catalog
+        .0
+        .backend
+        .create_resumable_draft(blob_id)
+        .map_err(unavailable)
 }
 
 fn remove_session_stage(catalog: &Catalog, blob_id: &BlobId) -> Result<(), CatalogError> {
-    if let Some(memory) = &catalog.0.memory {
-        memory.remove_draft(&blob_id.to_hex()).map_err(unavailable)
-    } else {
-        let path = blob_id.staging_path(&catalog.0.data_dir);
-        fs::remove_file(path).map_err(unavailable)
-    }
+    catalog
+        .0
+        .backend
+        .remove_new_draft(blob_id)
+        .map_err(unavailable)
 }
 
 #[expect(
@@ -291,11 +273,9 @@ fn admit_session(
         let Ok(guard) = catalog.try_resumable_writer(&id) else {
             continue;
         };
-        if state == "COMPLETE"
-            && let Some(memory) = &catalog.0.memory
-        {
+        if state == "COMPLETE" {
             // Completion normally drops the RAM draft; this covers a failed drop.
-            memory.remove_draft(&blob_id.to_hex())?;
+            catalog.0.backend.finish_draft(&blob_id)?;
         }
         sql::exec(
             transaction,
@@ -351,7 +331,7 @@ impl Catalog {
             if let Err(error) = inserted { remove_session_stage(&catalog, &blob_id)?; return Err(unavailable(error).into()); }
             // A failed commit can be ambiguous; retain its file for reference-aware recovery.
             if let Err(error) = transaction.commit() {
-                if catalog.0.memory.is_some() {
+                if catalog.0.backend.is_memory() {
                     let retained: bool = sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1)", [&blob_id]).map_err(unavailable)?;
                     if !retained { remove_session_stage(&catalog, &blob_id)?; }
                 }

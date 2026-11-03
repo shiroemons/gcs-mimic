@@ -169,7 +169,7 @@ async fn ram_xml_multipart_quota_preserves_parts_and_old_destination_for_retry()
     let target = begin(&catalog).await;
     let first = part(&catalog, &target, b"first", true).await.unwrap();
     let mut reservations = Vec::new();
-    while let Ok(stage) = catalog.0.memory.as_ref().unwrap().stage() {
+    while let Ok(stage) = catalog.0.backend.memory().unwrap().stage() {
         reservations.push(stage);
     }
     assert!(part(&catalog, &target, b"new part", true).await.is_err());

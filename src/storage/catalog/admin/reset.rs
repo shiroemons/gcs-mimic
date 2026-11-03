@@ -1,6 +1,6 @@
 //! Instance-local reset owns the same gate as SQL jobs and unpublished byte leases.
 
-use super::super::{ConnectionUnavailable, objects};
+use super::super::{BlobBackend, ConnectionUnavailable, objects};
 use super::{Admin, AdminError};
 use crate::storage::catalog::sql;
 use crate::{bucket::CatalogError, storage::failure::unavailable};
@@ -45,9 +45,7 @@ impl Admin {
             .run(move || {
                 // Cancellation cannot release admission while the owned transaction/cleanup runs.
                 let (_exclusive, _execution) = (exclusive, execution);
-                let result = inner.with_connection(|connection| {
-                    reset(connection, &inner.data_dir, inner.memory.as_deref())
-                });
+                let result = inner.with_connection(|connection| reset(connection, &inner.backend));
                 inner.maintenance_wake.notify_one();
                 match result {
                     Ok(result) => result.map_err(AdminError::from),
@@ -60,13 +58,9 @@ impl Admin {
     }
 }
 
-fn reset(
-    connection: &mut Connection,
-    data_dir: &Path,
-    memory: Option<&crate::storage::memory::Store>,
-) -> Result<ResetOutcome, CatalogError> {
+fn reset(connection: &mut Connection, backend: &BlobBackend) -> Result<ResetOutcome, CatalogError> {
     let transaction = sql::immediate(connection)?;
-    let mode = if memory.is_some() {
+    let mode = if backend.is_memory() {
         Reclamation::ClearMemory
     } else {
         Reclamation::Journal
@@ -83,9 +77,9 @@ fn reset(
             return Err(unavailable(error));
         }
     }
-    let cleanup = match memory {
-        Some(memory) => memory.clear().map_err(unavailable),
-        None => reclaim(connection, data_dir),
+    let cleanup = match backend {
+        BlobBackend::Memory(_) => backend.clear_memory().map_err(unavailable),
+        BlobBackend::Disk(data_dir) => reclaim(connection, data_dir),
     };
     let cleanup_pending = match cleanup {
         Ok(()) => false,

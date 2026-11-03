@@ -233,17 +233,17 @@ impl Catalog {
         if let Some(session) = committed
             && session.state == SessionState::Complete
         {
-            if let Some(memory) = &self.0.memory {
-                memory
-                    .remove_draft(&lease.session.blob_id.to_hex())
-                    .map_err(object_unavailable)?;
-            }
+            self.0
+                .backend
+                .finish_draft(&lease.session.blob_id)
+                .map_err(object_unavailable)?;
             return Ok(session.completion);
         }
         if matches!(&error, ResumableError::Object(error) if error.is_backend_failure()) {
-            if let Some(memory) = &self.0.memory {
-                memory
-                    .remove(&lease.session.blob_id.to_hex())
+            if self.0.backend.is_memory() {
+                self.0
+                    .backend
+                    .remove(&lease.session.blob_id)
                     .map_err(object_unavailable)?;
                 return Err(error);
             }
@@ -298,16 +298,12 @@ impl Catalog {
             Ok(changed)
         }).await?;
         if changed == 1 {
-            let data_dir = self.0.data_dir.clone();
-            let memory = self.0.memory.clone();
+            let backend = self.0.backend.clone();
             let blob_id = lease.session.blob_id;
             let cleanup = self
                 .run_upload(move |connection| {
                     super::resumable_maintenance::clean_session_storage(
-                        connection,
-                        &data_dir,
-                        memory.as_deref(),
-                        &blob_id,
+                        connection, &backend, &blob_id,
                     )
                     .map_err(object_unavailable)
                 })
@@ -433,26 +429,21 @@ impl Catalog {
             .run_upload(move |connection| Ok(publication(connection)))
             .await?;
         if result.is_ok() {
-            if let Some(memory) = &self.0.memory {
-                memory
-                    .remove_draft(&lease.session.blob_id.to_hex())
-                    .map_err(object_unavailable)?;
-            }
+            self.0
+                .backend
+                .finish_draft(&lease.session.blob_id)
+                .map_err(object_unavailable)?;
             self.reclaim_after_commit().await;
         }
         result
     }
 
     async fn publish_resumable_bytes(&self, lease: &SessionLease) -> Result<(), ResumableError> {
-        if let Some(memory) = &self.0.memory {
-            let memory = memory.clone();
+        if self.0.backend.is_memory() {
+            let backend = self.0.backend.clone();
             let blob_id = lease.session.blob_id;
-            self.run_upload(move |_| {
-                memory
-                    .publish_draft(&blob_id.to_hex())
-                    .map_err(object_unavailable)
-            })
-            .await?;
+            self.run_upload(move |_| backend.publish_draft(&blob_id).map_err(object_unavailable))
+                .await?;
         } else {
             let destination = objects::blob_path(&self.0.data_dir, &lease.session.blob_id);
             self.publish_staged(lease.staging_path(), destination)

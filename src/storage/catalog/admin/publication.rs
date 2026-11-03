@@ -342,21 +342,21 @@ async fn cleanup(catalog: &Catalog, id: BlobId) -> Result<(), AdminError> {
             objects::blob_referenced(connection, &probe).map_err(objects_error)
         })
         .await?;
-    if let Some(memory) = &catalog.0.memory {
+    if catalog.0.backend.is_memory() {
         if !referenced {
-            memory.remove(&id.to_hex())?;
+            catalog.0.backend.remove(&id)?;
         }
         return Ok(());
     }
-    let stage = id.staging_path(&catalog.0.data_dir);
     let blob = objects::blob_path(&catalog.0.data_dir, &id);
+    let backend = catalog.0.backend.clone();
     catalog
         .0
         .file_workers
         .run(move || {
-            objects::unlink(&stage)?;
+            backend.remove_draft(&id)?;
             if !referenced {
-                objects::unlink(&blob)?;
+                backend.remove(&id)?;
                 #[cfg(unix)]
                 if let Some(shard) = blob.parent()
                     && shard.exists()
@@ -410,16 +410,13 @@ impl Admin {
             };
             let stage = id.staging_path(&catalog.0.data_dir);
             let blob = objects::blob_path(&catalog.0.data_dir, &id);
-            let memory = catalog.0.memory.clone();
-            let memory_id = id;
+            let backend = catalog.0.backend.clone();
             let result = catalog
                 .0
                 .file_workers
                 .run(move || {
-                    if let Some(memory) = memory {
-                        return Ok(stage_memory(
-                            &memory, &source, memory_id, expected, max_bytes,
-                        ));
+                    if let super::super::BlobBackend::Memory(memory) = backend {
+                        return Ok(stage_memory(&memory, &source, id, expected, max_bytes));
                     }
                     if blob.try_exists()? || stage.try_exists()? {
                         return Err(AdminError::Invalid("blob ID collision".into()));
@@ -432,7 +429,7 @@ impl Admin {
                 Ok((size, hashes)) => {
                     handle.size = size;
                     handle.hashes = hashes;
-                    handle.published = catalog.0.memory.is_some();
+                    handle.published = catalog.0.backend.is_memory();
                     Ok(handle)
                 }
                 Err(error) => {

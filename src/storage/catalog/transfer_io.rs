@@ -1,3 +1,4 @@
+use super::blob_backend::ReadAccess;
 use super::{Catalog, objects};
 use crate::storage::blob_id::BlobId;
 use crate::{
@@ -6,8 +7,7 @@ use crate::{
     storage::failure::object_unavailable,
 };
 use std::{
-    fs,
-    io::{self, Read, Seek},
+    io::{self, Read},
     path::{Path, PathBuf},
 };
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
@@ -17,24 +17,6 @@ use super::fault;
 
 pub(super) fn stage_path(data_dir: &Path, id: &BlobId) -> PathBuf {
     id.staging_path(data_dir)
-}
-
-pub(super) fn create_empty(
-    data_dir: &Path,
-    memory: Option<&std::sync::Arc<crate::storage::memory::Store>>,
-    id: &BlobId,
-) -> Result<PathBuf, ObjectError> {
-    let path = stage_path(data_dir, id);
-    if let Some(memory) = memory {
-        memory.create_draft(id.to_hex())?;
-    } else {
-        fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&path)
-            .and_then(|file| file.sync_all())?;
-    }
-    Ok(path)
 }
 
 pub(super) enum InputReader {
@@ -54,15 +36,7 @@ impl InputReader {
         id: &BlobId,
         start: u64,
     ) -> Result<Self, ObjectError> {
-        if let Some(memory) = &catalog.0.memory {
-            let mut reader = memory.open(&id.to_hex())?;
-            reader.seek(io::SeekFrom::Start(start))?;
-            Ok(Self::Memory(reader))
-        } else {
-            let mut file = tokio::fs::File::open(stage_path(&catalog.0.data_dir, id)).await?;
-            file.seek(io::SeekFrom::Start(start)).await?;
-            Ok(Self::Disk(file))
-        }
+        catalog.0.backend.open_input(id, start).await
     }
 
     pub(super) async fn read_exact(&mut self, bytes: &mut [u8]) -> Result<(), ObjectError> {
@@ -79,11 +53,6 @@ impl InputReader {
 pub(super) enum Output {
     Disk(tokio::fs::File),
     Memory(crate::storage::memory::Draft),
-}
-
-enum ReadAccess {
-    WriteOnly,
-    ReadWrite,
 }
 
 impl Output {
@@ -109,26 +78,7 @@ impl Output {
         offset: u64,
         read: ReadAccess,
     ) -> Result<Self, ObjectError> {
-        if let Some(memory) = &catalog.0.memory {
-            return memory
-                .draft(&id.to_hex(), offset)
-                .map(Self::Memory)
-                .map_err(object_unavailable);
-        }
-        let path = stage_path(&catalog.0.data_dir, id);
-        let mut file = tokio::fs::OpenOptions::new()
-            .read(matches!(read, ReadAccess::ReadWrite))
-            .write(true)
-            .open(path)
-            .await?;
-        if file.metadata().await?.len() < offset {
-            return Err(object_unavailable("acknowledged upload prefix is missing"));
-        }
-        file.set_len(offset).await?;
-        #[cfg(test)]
-        fault::truncated(&catalog.0.data_dir, &file.metadata().await?);
-        file.seek(io::SeekFrom::Start(offset)).await?;
-        Ok(Self::Disk(file))
+        catalog.0.backend.open_output(id, offset, read).await
     }
 
     pub(super) async fn write(&mut self, bytes: &[u8]) -> Result<(), ObjectError> {

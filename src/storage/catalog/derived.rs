@@ -75,31 +75,29 @@ pub(crate) enum TransferKind {
 /// Unconsumed handles clean their staging link; `begin_derived` transfers ownership to SQLite.
 pub(crate) struct DerivedSource {
     pub object: ObjectRecord,
-    path: Option<PathBuf>,
-    memory: Option<std::sync::Arc<crate::storage::memory::Store>>,
+    backend: Option<super::BlobBackend>,
     id: BlobId,
     _activity: std::sync::Arc<super::Activity>,
 }
 
 impl Drop for DerivedSource {
     fn drop(&mut self) {
-        if let Some(memory) = &self.memory
-            && let Err(error) = memory.remove(&self.id.to_hex())
+        if let Some(backend) = &self.backend
+            && let Err(error) = backend.remove_pin(&self.id)
         {
-            crate::diagnostics::emit(
-                crate::diagnostics::LogLevel::Warn,
-                "derived_cleanup_deferred",
-                serde_json::json!({"message":format!("deferred RAM source cleanup: {error}")}),
-            );
-        }
-        if let Some(path) = &self.path
-            && let Err(error) = objects::unlink(path)
-        {
-            crate::diagnostics::emit(
-                crate::diagnostics::LogLevel::Warn,
-                "derived_cleanup_deferred",
-                serde_json::json!({"message":format!("deferred derived source cleanup: {error}")}),
-            );
+            if backend.is_memory() {
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Warn,
+                    "derived_cleanup_deferred",
+                    serde_json::json!({"message":format!("deferred RAM source cleanup: {error}")}),
+                );
+            } else {
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Warn,
+                    "derived_cleanup_deferred",
+                    serde_json::json!({"message":format!("deferred derived source cleanup: {error}")}),
+                );
+            }
         }
     }
 }
@@ -491,8 +489,7 @@ impl Catalog {
             ));
         }
         let activity = std::sync::Arc::new(self.activity()?);
-        let data_dir = self.0.data_dir.clone();
-        let memory = self.0.memory.clone();
+        let backend = self.0.backend.clone();
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             sources
@@ -518,18 +515,10 @@ impl Catalog {
                     })?;
                     super::customer_keys::check(&object, key)?;
                     let id = random_id()?;
-                    let path = if let Some(memory) = &memory {
-                        memory.pin(&original.to_hex(), id.to_hex())?;
-                        None
-                    } else {
-                        let path = stage_path(&data_dir, &id);
-                        fs::hard_link(objects::blob_path(&data_dir, &original), &path)?;
-                        Some(path)
-                    };
+                    backend.pin(&original, &id)?;
                     Ok(DerivedSource {
                         object,
-                        path,
-                        memory: memory.clone(),
+                        backend: Some(backend.clone()),
                         id,
                         _activity: activity.clone(),
                     })
@@ -587,8 +576,7 @@ impl Catalog {
         }
         let total = derived_total(&segments, max_bytes)?;
         let permit = self.admit_object_upload()?;
-        let data_dir = self.0.data_dir.clone();
-        let memory = self.0.memory.clone();
+        let backend = self.0.backend.clone();
         let created = unix_millis(self.0.clock.now())?;
         let deadline = created
             .checked_add(if ephemeral {
@@ -611,13 +599,11 @@ impl Catalog {
                 if count >= MAX_TRANSFERS_PER_KIND {
                     return Err(object_unavailable("derived transfer limit reached"));
                 }
-                let path = transfer_io::create_empty(&data_dir, memory.as_ref(), &id)?;
+                backend.create_draft(&id)?;
                 let mut preserve = false;
                 let result = (|| {
                     #[cfg(unix)]
-                    if memory.is_none() {
-                        objects::sync_dir(&data_dir.join("staging"))?;
-                    }
+                    backend.sync_staging_dir()?;
                     let transaction = sql::immediate(connection)?;
                     sql::exec(
                         &transaction,
@@ -658,24 +644,18 @@ impl Catalog {
                 match result {
                     Ok(transfer) => {
                         for segment in &mut segments {
-                            segment.source.path = None;
-                            segment.source.memory = None;
+                            segment.source.backend = None;
                         }
                         Ok(transfer)
                     }
                     Err(error) => {
                         if preserve {
                             for segment in &mut segments {
-                                segment.source.path = None;
-                                segment.source.memory = None;
+                                segment.source.backend = None;
                             }
                             return Err(error);
                         }
-                        if let Some(memory) = &memory {
-                            memory.remove_draft(&id.to_hex())?;
-                        } else {
-                            objects::unlink(&path)?;
-                        }
+                        backend.remove_draft(&id)?;
                         Err(error)
                     }
                 }
@@ -726,12 +706,11 @@ impl Catalog {
         crate::task::spawn_supervised("derived-transfer", async move {
             let (_permit, _guard) = (permit, guard);
             let query = id;
-            let data_dir = catalog.0.data_dir.clone();
-            let memory = catalog.0.memory.clone();
+            let backend = catalog.0.backend.clone();
             let now = unix_millis(catalog.0.clock.now())?;
             let (mut progress, mut hasher, sources) = catalog.run_upload(move |connection| {
                 let (progress, hasher) = transfer(connection, &query, now)?;
-                if memory.is_none() { restore_stage(&data_dir, &query)?; }
+                backend.restore_draft(&query)?;
                 Ok((progress, hasher, inputs(connection, &query)?))
             }).await?;
             let mut output = transfer_io::Output::open(&catalog, &id, progress.offset).await?;
@@ -754,7 +733,7 @@ impl Catalog {
                     hasher.update(&buffer[..length]);
                     progress.offset += length as u64;
                     remaining -= length as u64;
-                    if catalog.0.memory.is_some() { tokio::task::yield_now().await; }
+                    if catalog.0.backend.is_memory() { tokio::task::yield_now().await; }
                 }
             }
             output.finish(&catalog).await?;
@@ -837,8 +816,9 @@ impl Catalog {
         crate::task::spawn_supervised("derived-publication", async move {
             let (_permit, _guard) = (permit, guard);
             let query = id;
+            #[cfg(test)]
             let data_dir = catalog.0.data_dir.clone();
-            let memory = catalog.0.memory.clone();
+            let backend = catalog.0.backend.clone();
             let clock = catalog.0.clock.clone();
             let principals = catalog.0.principals.get().cloned();
             let result = catalog.run_upload_admitted(execution, move |connection| {
@@ -846,14 +826,13 @@ impl Catalog {
                 let sources = inputs(connection, &query)?;
                 if progress.offset != progress.total { return Err(ObjectError::DerivedTransferIncomplete); }
                 let Hashes { md5, crc32c } = hasher.finish();
-                if let Some(memory) = &memory {
-                    memory.publish_draft(&query.to_hex())?;
-                } else {
-                restore_stage(&data_dir, &query)?;
-                let stage = stage_path(&data_dir, &query);
+                if !backend.is_memory() {
+                backend.restore_draft(&query)?;
                 #[cfg(test)]
                 fault::hit(&data_dir, Step::BeforePublish).map_err(object_unavailable)?;
-                objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query))?;
+                }
+                backend.publish_draft(&query)?;
+                if !backend.is_memory() {
                 #[cfg(test)]
                 fault::hit(&data_dir, Step::AfterPublish).map_err(object_unavailable)?;
                 }
@@ -897,17 +876,17 @@ impl Catalog {
                 sql::exec(&transaction, "DELETE FROM derived_inputs WHERE transfer_id = ?1", [&query])?;
                 sql::exec(&transaction, "DELETE FROM derived_transfers WHERE id = ?1", [&query])?;
                 let committed = objects::commit_publication(transaction);
-                if let Some(memory) = &memory {
+                if backend.is_memory() {
                     // An ambiguous SQL commit must not discard a published blob or leak its pins.
                     let retained: bool = sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)", [&query])?;
                     if !retained {
-                        for source in &sources { memory.remove(&source.id.to_hex())?; }
-                        memory.remove_draft(&query.to_hex())?;
+                        for source in &sources { backend.remove_pin(&source.id)?; }
+                        backend.finish_draft(&query)?;
                     }
                 }
                 committed?;
-                if memory.is_none() { for source in sources {
-                    if let Err(error) = objects::unlink(&stage_path(&data_dir, &source.id)) {
+                if !backend.is_memory() { for source in sources {
+                    if let Err(error) = backend.remove_pin(&source.id) {
                         crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred derived source cleanup: {error}")}));
                     }
                 }
@@ -929,12 +908,9 @@ impl Catalog {
 
     async fn cleanup_derived(&self, id: &BlobId) -> Result<(), ObjectError> {
         let id = *id;
-        let data_dir = self.0.data_dir.clone();
-        let memory = self.0.memory.clone();
-        self.run_upload(move |connection| {
-            cleanup_record_with_memory(connection, &data_dir, memory.as_deref(), &id)
-        })
-        .await
+        let backend = self.0.backend.clone();
+        self.run_upload(move |connection| cleanup_record_storage(connection, &backend, &id))
+            .await
     }
 
     pub(crate) async fn cancel_derived(&self, id: &BlobId) -> Result<(), ObjectError> {
@@ -1033,13 +1009,16 @@ fn cleanup_record(
     data_dir: &Path,
     id: &BlobId,
 ) -> Result<(), ObjectError> {
-    cleanup_record_with_memory(connection, data_dir, None, id)
+    cleanup_record_storage(
+        connection,
+        &super::BlobBackend::Disk(data_dir.to_owned()),
+        id,
+    )
 }
 
-fn cleanup_record_with_memory(
+fn cleanup_record_storage(
     connection: &Connection,
-    data_dir: &Path,
-    memory: Option<&crate::storage::memory::Store>,
+    backend: &super::BlobBackend,
     id: &BlobId,
 ) -> Result<(), ObjectError> {
     let exists: bool = sql::scalar(
@@ -1051,18 +1030,10 @@ fn cleanup_record_with_memory(
         return Err(ObjectError::DerivedTransferNotFound);
     }
     for source in inputs(connection, id)? {
-        if let Some(memory) = memory {
-            memory.remove(&source.id.to_hex())?;
-        } else {
-            objects::unlink(&stage_path(data_dir, &source.id))?;
-        }
+        backend.remove_pin(&source.id)?;
     }
-    if let Some(memory) = memory {
-        memory.remove_draft(&id.to_hex())?;
-    } else {
-        objects::unlink(&stage_path(data_dir, id))?;
-    }
-    objects::discard_unreferenced_blob(connection, data_dir, memory, id)?;
+    backend.remove_draft(id)?;
+    backend.discard_unreferenced(connection, id)?;
     discard_record(connection, id)
 }
 
@@ -1082,11 +1053,8 @@ fn discard_record(connection: &Connection, id: &BlobId) -> Result<(), ObjectErro
 }
 
 fn restore_stage(data_dir: &Path, id: &BlobId) -> Result<PathBuf, ObjectError> {
-    let stage = stage_path(data_dir, id);
-    if !stage.try_exists()? {
-        fs::rename(objects::blob_path(data_dir, id), &stage)?;
-    }
-    Ok(stage)
+    super::BlobBackend::Disk(data_dir.to_owned()).restore_draft(id)?;
+    Ok(stage_path(data_dir, id))
 }
 
 #[expect(
@@ -2043,7 +2011,7 @@ mod tests {
         let (catalog, path) = setup().await;
         put(&catalog, "source", b"bytes").await;
         let source = source(&catalog, "source").await;
-        let snapshot = source.path.clone().unwrap();
+        let snapshot = source.id.staging_path(&path);
         let transfer = catalog
             .begin_derived(vec![source.whole()], 5)
             .await
@@ -2068,7 +2036,7 @@ mod tests {
         put(&catalog, "source", b"bytes").await;
         put(&catalog, "copy", b"old").await;
         let source = source(&catalog, "source").await;
-        let snapshot = source.path.clone().unwrap();
+        let snapshot = source.id.staging_path(&path);
         let transfer = catalog
             .begin_derived(vec![source.whole()], 5)
             .await

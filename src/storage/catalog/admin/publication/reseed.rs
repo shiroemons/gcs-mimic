@@ -354,7 +354,7 @@ fn commit(
     let clock = batch.admin.catalog.0.clock.as_ref();
     check_guards(&transaction, mode, clock)?;
     let epoch = if matches!(mode, SeedMode::Replace) {
-        let reclamation = if batch.admin.catalog.0.memory.is_some() {
+        let reclamation = if batch.admin.catalog.0.backend.is_memory() {
             super::super::reset::Reclamation::ClearMemory
         } else {
             super::super::reset::Reclamation::Journal
@@ -428,16 +428,20 @@ fn commit(
     {
         return Err(error.into());
     }
-    if matches!(mode, SeedMode::Replace)
-        && let Some(memory) = &batch.admin.catalog.0.memory
-    {
+    if matches!(mode, SeedMode::Replace) && batch.admin.catalog.0.backend.is_memory() {
         // Only the bounded prepared namespace is indexed; a full old catalog needs no growing deletion journal.
         let selected: Vec<_> = batch
             .entries
             .iter()
             .filter_map(|entry| entry.staged.id.map(BlobId::to_hex))
             .collect();
-        if let Err(error) = memory.retain_ids(&selected.iter().map(String::as_str).collect()) {
+        if let Err(error) = batch
+            .admin
+            .catalog
+            .0
+            .backend
+            .retain_memory_ids(&selected.iter().map(String::as_str).collect())
+        {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Error,
                 "seed_cleanup_deferred",

@@ -343,11 +343,7 @@ impl Catalog {
                 objects::commit_publication(transaction)?;
                 Ok(())
             })();
-            if let Err(error) = maintenance::drain_storage(
-                connection,
-                &catalog.0.data_dir,
-                catalog.0.memory.as_deref(),
-            ) {
+            if let Err(error) = maintenance::drain_storage(connection, &catalog.0.backend) {
                 catalog.multipart_cleanup_failed(&error);
             }
             result

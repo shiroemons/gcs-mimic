@@ -93,7 +93,9 @@ pub(crate) use objects::{
 };
 pub(crate) use soft_delete::RestoreAccess;
 
+mod blob_backend;
 mod derived;
+use blob_backend::BlobBackend;
 mod transfer_io;
 #[cfg(test)]
 pub(crate) use derived::DerivedTransfer;
@@ -457,7 +459,7 @@ struct Inner {
     default_soft_delete_retention: AtomicU64,
     notification_attempts: Arc<Semaphore>,
     data_dir: PathBuf,
-    memory: Option<Arc<super::memory::Store>>,
+    backend: BlobBackend,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<std::collections::HashSet<String>>,
     derived_wake: Notify,
@@ -1045,8 +1047,11 @@ impl Catalog {
                 pubsub_endpoint: OnceLock::new(),
                 default_soft_delete_retention: AtomicU64::new(0),
                 notification_attempts: Arc::new(Semaphore::new(1)),
+                backend: match memory_limits {
+                    Some((bytes, _)) => BlobBackend::Memory(super::memory::Store::new(bytes)),
+                    None => BlobBackend::Disk(data_dir.clone()),
+                },
                 data_dir,
-                memory: memory_limits.map(|(bytes, _)| super::memory::Store::new(bytes)),
                 clock,
                 session_writers: Mutex::new(Default::default()),
                 derived_wake: Notify::new(),
@@ -1079,11 +1084,7 @@ impl Catalog {
 
     pub fn is_healthy(&self) -> bool {
         !self.0.resources.is_poisoned()
-            && self
-                .0
-                .memory
-                .as_ref()
-                .is_none_or(|memory| memory.is_healthy())
+            && self.0.backend.is_healthy()
             && !self.0.session_writers.is_poisoned()
             && !self.0.admission.is_closed()
             && !self.0.admin_uploads.is_closed()
@@ -1186,9 +1187,7 @@ impl Catalog {
                     if let Some(lock) = lock {
                         lock.release()?;
                     }
-                    if let Some(memory) = &inner.memory {
-                        memory.clear()?;
-                    }
+                    inner.backend.clear_memory()?;
                 }
                 Ok(())
             })
