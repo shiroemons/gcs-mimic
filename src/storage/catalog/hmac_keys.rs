@@ -113,6 +113,30 @@ impl From<CatalogError> for HmacKeyError {
     }
 }
 
+impl std::fmt::Display for HmacKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => f.write_str("HMAC key not found"),
+            Self::PreconditionFailed => f.write_str("HMAC key precondition failed"),
+            Self::DeleteActive => {
+                f.write_str("active HMAC key must be deactivated before deletion")
+            }
+            Self::Deleted => f.write_str("HMAC key is deleted"),
+            Self::LimitReached => f.write_str("HMAC key limit reached"),
+            Self::Catalog(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for HmacKeyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Catalog(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
 impl From<rusqlite::Error> for HmacKeyError {
     fn from(error: rusqlite::Error) -> Self {
         Self::Catalog(error.into())
@@ -225,11 +249,9 @@ impl Catalog {
                 access_id = generate_access_id()?;
             }
             let secret = generate_secret()?;
-            const INSERT: &str = "INSERT INTO hmac_keys (access_id, project, service_account_email, secret, state, time_created, updated, revision)
-                     VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5, 1)";
-            sql::exec(&transaction, INSERT, params![access_id, project, email, secret, now])?;
-            let record = select(&transaction, &project, &access_id)?
-                .ok_or_else(|| unavailable("inserted HMAC key is missing"))?;
+            const INSERT: &str = concat!("INSERT INTO hmac_keys (access_id, project, service_account_email, secret, state, time_created, updated, revision)
+                     VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5, 1) RETURNING ", hmac_columns!());
+            let record = sql::row(&transaction, INSERT, params![access_id, project, email, secret, now], record)?;
             transaction.commit()?;
             Ok(CreatedHmacKey { record, secret })
         })
@@ -307,10 +329,8 @@ impl Catalog {
             if current.state == HmacKeyState::Deleted {
                 return Err(HmacKeyError::Deleted);
             }
-            sql::exec(&transaction,
-                    "UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3", params![state, now, access_id])?;
-            let record = select(&transaction, &project, &access_id)?
-                .ok_or_else(|| unavailable("updated HMAC key is missing"))?;
+            let record = sql::row(&transaction,
+                    concat!("UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3 RETURNING ", hmac_columns!()), params![state, now, access_id], record)?;
             transaction.commit()?;
             Ok(record)
         })
@@ -349,6 +369,18 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::test_support::TestDir;
+
+    #[test]
+    fn catalog_failure_preserves_its_error_chain() {
+        let error = HmacKeyError::from(CatalogError::Io(
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "key catalog denied").into(),
+        ));
+        assert!(crate::error::causes(&error).any(|cause| cause.is::<std::io::Error>()));
+        assert!(
+            crate::error::causes(&error)
+                .any(|cause| cause.to_string().contains("key catalog denied"))
+        );
+    }
 
     #[tokio::test]
     async fn signing_lookup_never_caches_state_or_exposes_secrets_in_debug() {
