@@ -154,10 +154,13 @@ pub(crate) struct Limits {
     entries: u64,
 }
 const MAX_RETAINED_BYTES: u64 = 1 << 40;
+const MAX_RETAINED_ENTRIES: u64 = 1_000_000;
 
 impl Limits {
     pub(crate) fn new(bytes: u64, entries: u64) -> Result<Self, Error> {
-        if !(1..=MAX_RETAINED_BYTES).contains(&bytes) || !(1..=1_000_000).contains(&entries) {
+        if !(1..=MAX_RETAINED_BYTES).contains(&bytes)
+            || !(1..=MAX_RETAINED_ENTRIES).contains(&entries)
+        {
             return Err(AdminError::Invalid("invalid write-back limits".into()).into());
         }
         Ok(Self { bytes, entries })
@@ -303,19 +306,8 @@ pub(crate) struct Writeback {
 mod unpublished;
 impl RootLease {
     pub(crate) async fn writeback(&self, limits: Limits) -> Result<Writeback, Error> {
-        let permit = self
-            .catalog()
-            .wait_admin(
-                self.catalog().0.writeback_execution.clone(),
-                tokio::time::Instant::now() + WAIT_TIMEOUT,
-            )
-            .await?;
         let lease = self.clone();
-        owned(async move {
-            let _permit = permit;
-            lease.writeback_inner(limits).await
-        })
-        .await
+        serialized(self, async move { lease.writeback_inner(limits).await }).await
     }
     async fn writeback_inner(&self, limits: Limits) -> Result<Writeback, Error> {
         let root = self.status().root_id.as_bytes();
@@ -674,20 +666,7 @@ impl Writeback {
         F: std::future::Future<Output = Result<T, Error>> + Send + 'static,
     {
         let this = self.clone();
-        let permit = self
-            .lease
-            .catalog()
-            .wait_admin(
-                self.lease.catalog().0.writeback_execution.clone(),
-                tokio::time::Instant::now() + WAIT_TIMEOUT,
-            )
-            .await?;
-        // Cancellation can release a waiting request, but never an executing file/SQL transition.
-        owned(async move {
-            let _permit = permit;
-            operation(this).await
-        })
-        .await
+        serialized(&self.lease, async move { operation(this).await }).await
     }
     /// Keeps the selected workspace descriptor and root/catalog leases through worker drain.
     /// The closure must finish its work before returning; directory descriptors must not escape it.
@@ -1192,6 +1171,25 @@ fn advance(
     usage.progress = Some(fence);
     Ok(())
 }
+async fn serialized<T: Send + 'static>(
+    lease: &RootLease,
+    future: impl std::future::Future<Output = Result<T, Error>> + Send + 'static,
+) -> Result<T, Error> {
+    let permit = lease
+        .catalog()
+        .wait_admin(
+            lease.catalog().0.writeback_execution.clone(),
+            tokio::time::Instant::now() + WAIT_TIMEOUT,
+        )
+        .await?;
+    // Cancellation can release a waiting request, but never an executing file/SQL transition.
+    owned(async move {
+        let _permit = permit;
+        future.await
+    })
+    .await
+}
+
 async fn owned<T: Send + 'static>(
     future: impl std::future::Future<Output = Result<T, Error>> + Send + 'static,
 ) -> Result<T, Error> {

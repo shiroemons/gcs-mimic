@@ -123,6 +123,8 @@ mod tests {
         assert_eq!(BlobId::parse(&generated.to_hex()), Some(generated));
         for invalid in [
             "",
+            "a",
+            "../../protected",
             &"0".repeat(31),
             &"0".repeat(33),
             &"A".repeat(32),

@@ -34,6 +34,8 @@ const ACCESS_ID_PREFIX: &str = "GOOG1E";
 const ACCESS_ID_RANDOM_CHARS: usize = 55;
 /// 30 random bytes encode to the documented 40-character base64 secret without padding.
 const SECRET_BYTES: usize = 30;
+// HMAC secrets must remain 40 base64 characters without padding.
+const _: () = assert!(SECRET_BYTES % 3 == 0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum HmacKeyState {

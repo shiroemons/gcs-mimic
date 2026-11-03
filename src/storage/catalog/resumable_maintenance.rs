@@ -78,12 +78,9 @@ fn unlink(path: &Path) -> Result<(), CatalogError> {
 pub(super) fn clean_session_files(
     connection: &rusqlite::Connection,
     data_dir: &Path,
-    blob_id: &str,
+    blob_id: &BlobId,
 ) -> Result<(), CatalogError> {
-    let blob_id = blob_id
-        .parse::<BlobId>()
-        .map_err(|error| unavailable(rusqlite::types::FromSqlError::Other(Box::new(error))))?;
-    clean_session_storage(connection, data_dir, None, &blob_id)
+    clean_session_storage(connection, data_dir, None, blob_id)
 }
 
 pub(super) fn clean_session_storage(
@@ -382,25 +379,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn malformed_session_blob_ids_cannot_select_cleanup_or_recovery_paths() {
+    fn typed_session_cleanup_and_recovery_preserve_unrelated_files() {
         let dir = crate::test_support::TestDir::new();
         let data_dir = dir.0.join("data");
         fs::create_dir_all(data_dir.join("staging")).unwrap();
         let protected = dir.0.join("protected");
         fs::write(&protected, b"keep").unwrap();
         let connection = Connection::open_in_memory().unwrap();
-        for id in ["", "a", "../../protected", &"A".repeat(32), &"é".repeat(16)] {
-            let cleanup = clean_session_files(&connection, &data_dir, id).unwrap_err();
-            let recovery = id
-                .parse::<BlobId>()
-                .map_err(|error| unavailable(rusqlite::types::FromSqlError::Other(Box::new(error))))
-                .and_then(|id| {
-                    super::super::resumable_recovery::recover_prefix(&connection, &data_dir, &id, 0)
-                })
-                .unwrap_err();
-            assert!(cleanup.to_string().contains("invalid opaque blob ID"));
-            assert!(recovery.to_string().contains("invalid opaque blob ID"));
-            assert_eq!(fs::read(&protected).unwrap(), b"keep");
-        }
+        connection.execute_batch("CREATE TABLE objects(blob_id TEXT); CREATE TABLE pending_blob_deletions(blob_id TEXT);").unwrap();
+        let id: BlobId = "0".repeat(32).parse().unwrap();
+        let stage = id.staging_path(&data_dir);
+        fs::write(&stage, b"old").unwrap();
+        clean_session_files(&connection, &data_dir, &id).unwrap();
+        assert!(!stage.exists());
+        assert_eq!(fs::read(&protected).unwrap(), b"keep");
+        fs::write(&stage, b"prefix-tail").unwrap();
+        super::super::resumable_recovery::recover_prefix(&connection, &data_dir, &id, 6).unwrap();
+        assert_eq!(fs::read(&stage).unwrap(), b"prefix");
+        assert_eq!(fs::read(&protected).unwrap(), b"keep");
     }
 }
