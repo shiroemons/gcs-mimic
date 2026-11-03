@@ -113,7 +113,7 @@ requires newly signed URLs, never rewriting an existing signature.
 
 ## Hermetic acceptance cases
 
-All following tests live in `tests/signed_browser_http.rs`, run in the strict
+All following tests live in `tests/it_xml_auth/signed_browser_http.rs`, run in the strict
 local profile and exercise both path-style and virtual-host routing. They use
 `tests/common` process/directory helpers and the existing public test RSA fixture.
 No Google, ADC, metadata server, browser or external DNS is involved.

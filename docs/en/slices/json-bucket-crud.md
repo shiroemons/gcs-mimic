@@ -322,7 +322,7 @@ The wire cases are `bkt_http_crud_metadata_conditions_and_errors`,
 `bkt_http_concurrent_duplicates_restart_and_exclusive_directory` and
 `bkt_http_failed_recovery_never_reports_ready`. They complement the exhaustive adapter
 unit cases; NotEmpty is unreachable without objects and only its error mapping is tested.
-`tests/foundation.rs` now supplies isolated catalogs and no longer expects bucket list to
+`tests/it_process/foundation.rs` now supplies isolated catalogs and no longer expects bucket list to
 return 404; probes and unrelated routes retain their previous assertions.
 
 `scripts/sdk-go.sh` passes with Go 1.27.3, storage v1.69.0 and API v0.306.0 (HTTP JSON).

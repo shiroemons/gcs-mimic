@@ -1,4 +1,5 @@
 use crate::common;
+use common::http::Body;
 
 use common::TestDir;
 use serde_json::Value;
@@ -57,7 +58,7 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
             connection.write_all(request.as_bytes()).unwrap();
-            common::read_http_response(&mut BufReader::new(connection), false).unwrap();
+            common::read_http_response(&mut BufReader::new(connection), Body::Expected).unwrap();
         }
         for (method, path, body) in [
             (
@@ -80,7 +81,8 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
                 .unwrap();
             write!(connection, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
             let response =
-                common::read_http_response(&mut BufReader::new(connection), false).unwrap();
+                common::read_http_response(&mut BufReader::new(connection), Body::Expected)
+                    .unwrap();
             let response = String::from_utf8(response).unwrap();
             assert!(response.starts_with("HTTP/1.1 200"), "{response}");
             if method == "GET" {
@@ -168,7 +170,7 @@ fn keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns() {
             .get_mut()
             .write_all(b"GET /_internal/health HTTP/1.1\r\nHost: localhost\r\n\r\n")
             .unwrap();
-        common::read_http_response(&mut connection, false).unwrap();
+        common::read_http_response(&mut connection, Body::Expected).unwrap();
         connection
     };
     // Waiting for the next request uses the keep-alive timeout, not the header deadline.

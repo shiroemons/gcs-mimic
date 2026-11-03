@@ -1,4 +1,5 @@
 use crate::common;
+use common::http::Body;
 use common::{CleanEnv, TestDir};
 use gcs_mimic::storage::admin::{BucketName, Origin};
 use gcs_mimic::{
@@ -159,7 +160,7 @@ fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
                 b"GET /_internal/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
             )
             .unwrap();
-        let response = common::read_http_response(&mut health, false).unwrap();
+        let response = common::read_http_response(&mut health, Body::Expected).unwrap();
         assert!(response.starts_with(b"HTTP/1.1 200"));
         // TIME_WAIT stays with the side that closes first; waiting for the server's
         // close keeps it on the listener port that the bind_wait check reuses.
@@ -344,9 +345,15 @@ fn stream(address: SocketAddr) -> TcpStream {
 fn request(address: SocketAddr, request: &str) -> String {
     let mut stream = stream(address);
     stream.write_all(request.as_bytes()).unwrap();
-    let response =
-        common::read_http_response(&mut BufReader::new(stream), request.starts_with("HEAD "))
-            .unwrap();
+    let response = common::read_http_response(
+        &mut BufReader::new(stream),
+        if request.starts_with("HEAD ") {
+            Body::Head
+        } else {
+            Body::Expected
+        },
+    )
+    .unwrap();
     String::from_utf8(response).unwrap()
 }
 
@@ -618,7 +625,8 @@ fn dual_listener_connection_cap_counts_tls_handshakes_and_shutdown_closes_both()
         std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
     ));
     http.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    let response = common::read_http_response(&mut BufReader::new(&mut http), false).unwrap();
+    let response =
+        common::read_http_response(&mut BufReader::new(&mut http), Body::Expected).unwrap();
     let response = String::from_utf8(response).unwrap();
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     let mut handshake = stream(primary);
@@ -939,8 +947,12 @@ async fn rejects_bodies_and_oversized_or_malformed_headers() {
 /// Sends one request on a persistent connection and reads its framed response.
 fn exchange(connection: &mut BufReader<TcpStream>, request: &[u8]) -> String {
     connection.get_mut().write_all(request).unwrap();
-    let head = request.starts_with(b"HEAD ");
-    String::from_utf8(common::read_http_response(connection, head).unwrap()).unwrap()
+    let body = if request.starts_with(b"HEAD ") {
+        Body::Head
+    } else {
+        Body::Expected
+    };
+    String::from_utf8(common::read_http_response(connection, body).unwrap()).unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1055,7 +1067,8 @@ async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
     second
         .set_read_timeout(Some(Duration::from_secs(2)))
         .unwrap();
-    let response = common::read_http_response(&mut BufReader::new(&mut second), false).unwrap();
+    let response =
+        common::read_http_response(&mut BufReader::new(&mut second), Body::Expected).unwrap();
     assert!(response.starts_with(b"HTTP/1.1 200"));
     let mut idle = stream(address);
     idle.write_all(b"GET /_internal/health HTTP/1.1\r\n")

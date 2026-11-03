@@ -3,6 +3,7 @@ mod admin_fixture_metadata;
 mod admin_reseed;
 mod admin_reset;
 use crate::common;
+use common::http::Body;
 
 use common::TestDir;
 use common::effects::{Reply, request};
@@ -66,7 +67,8 @@ impl Server {
             ),
             wire,
         );
-        let response = common::read_http_response(&mut BufReader::new(stream), false).unwrap();
+        let response =
+            common::read_http_response(&mut BufReader::new(stream), Body::Expected).unwrap();
         let start = response
             .windows(4)
             .position(|value| value == b"\r\n\r\n")
@@ -152,7 +154,8 @@ impl Server {
             &format!("{headers}Connection: close\r\n"),
             body,
         );
-        let response = common::read_http_response(&mut BufReader::new(stream), false).unwrap();
+        let response =
+            common::read_http_response(&mut BufReader::new(stream), Body::Expected).unwrap();
         String::from_utf8_lossy(&response)
             .split_whitespace()
             .nth(1)
@@ -548,7 +551,7 @@ fn direct_fixture_progress_renews_inactivity_without_disabling_the_deadline() {
         stream.write_all(b"chunk").unwrap();
     }
     stream.write_all(suffix).unwrap();
-    let response = common::read_http_response(&mut BufReader::new(stream), false).unwrap();
+    let response = common::read_http_response(&mut BufReader::new(stream), Body::Expected).unwrap();
     assert!(
         response.starts_with(b"HTTP/1.1 200"),
         "{}",
@@ -636,7 +639,8 @@ fn endpoint_changes_preserve_media_multipart_and_copy_replay_identity() {
             .unwrap();
         write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nX-Goog-Gcs-Idempotency-Token: multipart-token\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
         stream.write_all(body).unwrap();
-        let response = common::read_http_response(&mut BufReader::new(stream), false).unwrap();
+        let response =
+            common::read_http_response(&mut BufReader::new(stream), Body::Expected).unwrap();
         let response = String::from_utf8(response).unwrap();
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         serde_json::from_str::<Value>(response.split_once("\r\n\r\n").unwrap().1).unwrap()
@@ -938,7 +942,7 @@ fn config_update_during_upload_retains_the_requests_original_endpoint_snapshot()
         .configure("http://new.invalid:9876", "public.invalid")
         .expect(200);
     upload.get_mut().write_all(b"stream").unwrap();
-    let response = common::read_http_response(&mut upload, false).unwrap();
+    let response = common::read_http_response(&mut upload, Body::Expected).unwrap();
     let response = String::from_utf8_lossy(&response);
     let (_, body) = response.split_once("\r\n\r\n").unwrap();
     let value: Value = serde_json::from_str(body).unwrap();

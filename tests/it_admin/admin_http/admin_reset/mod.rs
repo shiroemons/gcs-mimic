@@ -190,7 +190,7 @@ fn reset_rejects_active_upload_without_changing_existing_bytes() {
         b"original"
     );
     reader.get_mut().write_all(b"hello").unwrap();
-    let reply = common::read_http_response(&mut reader, false).unwrap();
+    let reply = common::read_http_response(&mut reader, Body::Expected).unwrap();
     assert!(reply.starts_with(b"HTTP/1.1 200"));
     drop(reader);
     server

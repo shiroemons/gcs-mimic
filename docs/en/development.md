@@ -318,6 +318,9 @@ and it prints every occurrence. There is no baseline. The only exceptions are:
   mapping, in `src/storage/failure.rs`. A definition anywhere else fails, and
   so does a second one in that file or a missing one.
 
+The two `#[path]` attributes in `tests/common` are test-only exceptions that keep
+fixtures shared with unit tests in a single source.
+
 The gate prints how many text-rule findings suppression comments silenced,
 per rule, and fails on any invalid or stale comment; the compiler checks
 `#[expect]` itself.

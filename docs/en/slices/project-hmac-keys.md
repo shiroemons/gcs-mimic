@@ -116,13 +116,13 @@ HMAC keys and provider verification of the local error choices.
 
 Results are recorded in `compatibility/features.json` for the six rows.
 
-- `cargo test --locked --test project_resources_http`: lifecycle, state rules,
+- `cargo test --locked --test it_json project_resources_http::`: lifecycle, state rules,
   etags, restart, listing filters, paging, limit, service agent and strict
   authorization.
 - `cargo test --locked --lib hmac_keys` and `cargo test --locked --lib json::projects`:
   generated shapes, schema migration, concurrent limit and etag races, routing,
   query and body validation, page-token binding and service agent format.
-- `cargo test --locked --test unsupported_http` and `--lib server::unsupported`:
+- `cargo test --locked --test it_admin unsupported_http::` and `--lib server::unsupported`:
   the six methods leave the unsupported-route inventory; other routes still fail
   fast.
 - `just check-sdk`: `TestHMACKeysAndServiceAccount` (Go) and

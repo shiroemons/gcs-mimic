@@ -1,5 +1,6 @@
 use crate::common;
 use crate::common::process::declare_server;
+use common::http::Body;
 
 use common::TestDir;
 use common::process::write_request;
@@ -68,8 +69,8 @@ impl Server {
             &format!("Content-Type: application/json\r\n{headers}"),
             body.as_bytes(),
         );
-        let raw =
-            common::read_http_response(&mut BufReader::new(stream), method == "HEAD").unwrap();
+        let raw = common::read_http_response(&mut BufReader::new(stream), Body::for_method(method))
+            .unwrap();
         let end = raw
             .windows(4)
             .position(|bytes| bytes == b"\r\n\r\n")

@@ -1,4 +1,5 @@
 use crate::common;
+use common::http::Body;
 
 use common::TestDir;
 use common::ingress::{Server, gzip};
@@ -360,7 +361,7 @@ fn multipart_gzip_disconnect_and_absolute_deadline_cancel_unvalidated_streams() 
         await_staging(&dir, 1);
         if timeout {
             let mut reader = BufReader::new(client);
-            let reply = common::read_http_response(&mut reader, false).unwrap();
+            let reply = common::read_http_response(&mut reader, Body::Expected).unwrap();
             let reply = std::str::from_utf8(&reply).unwrap();
             assert!(reply.starts_with("HTTP/1.1 408"), "{reply}");
         } else {

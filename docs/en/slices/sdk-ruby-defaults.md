@@ -44,7 +44,7 @@ Go 1.27.3 and cloud.google.com/go/storage v1.70.0.
 ## Verification
 
 The standalone compose validation suite now runs as
-`cargo test --locked --offline --test contracts compose_validation`.
+`cargo test --locked --offline --test it_admin compose_validation`.
 The commands below retain the binary names used for the recorded results.
 
 Acceptance was recorded before implementation. On 2026-10-27, the unmodified

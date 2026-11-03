@@ -1,4 +1,5 @@
 use crate::common;
+use common::http::Body;
 
 use common::TestDir;
 use gcs_mimic::{
@@ -472,7 +473,8 @@ fn request(address: &str, path: &str, token: bool) -> (u16, Vec<u8>) {
         "GET {path} HTTP/1.1\r\nHost: localhost\r\n{authorization}\r\n"
     )
     .unwrap();
-    let response = common::read_http_response(&mut std::io::BufReader::new(socket), false).unwrap();
+    let response =
+        common::read_http_response(&mut std::io::BufReader::new(socket), Body::Expected).unwrap();
     let end = response
         .windows(4)
         .position(|bytes| bytes == b"\r\n\r\n")

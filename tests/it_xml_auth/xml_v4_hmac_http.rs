@@ -1,6 +1,7 @@
 use crate::common;
 use crate::common::process::declare_server;
 use common::TestDir;
+use common::http::Body;
 mod xml_v2_hmac;
 mod xml_v4_streaming;
 
@@ -39,7 +40,7 @@ impl Server {
             .unwrap();
         stream.write_all(wire.as_bytes()).unwrap();
         let mut reader = BufReader::new(stream);
-        let mut bytes = common::read_http_response(&mut reader, method == "HEAD").unwrap();
+        let mut bytes = common::read_http_response(&mut reader, Body::for_method(method)).unwrap();
         reader.read_to_end(&mut bytes).unwrap();
         let boundary = bytes
             .windows(4)

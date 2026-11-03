@@ -1,4 +1,5 @@
 use crate::common;
+use common::http::Body;
 
 use common::effects::{Reply, request};
 use serde_json::{Value, json};
@@ -279,7 +280,7 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
     let mut stream = TcpStream::connect(&server.address).unwrap();
     write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=memory\r\nContent-Length: {}\r\n{AUTH}Connection: close\r\n\r\n", multipart.len()).unwrap();
     stream.write_all(multipart).unwrap();
-    let response = common::read_http_response(&mut BufReader::new(stream), false).unwrap();
+    let response = common::read_http_response(&mut BufReader::new(stream), Body::Expected).unwrap();
     assert!(
         response.starts_with(b"HTTP/1.1 200 "),
         "{}",

@@ -109,7 +109,7 @@ power-loss-model cases cover before/after commit and the new unlink/sync seams.
 The existing power-loss model does not undo unlinks; these cases do not establish
 complete power-loss namespace durability.
 
-Wire tests in `tests/admin_reset/mod.rs` cover default-off/confirmation errors,
+Wire tests in `tests/it_admin/admin_http/admin_reset/mod.rs` cover default-off/confirmation errors,
 session invalidation, stale generation and policy identity after recreation,
 restart, an active `100 Continue` upload, strict manager/IAM separation and active
 sync refusal with preserved external bytes. All execute offline on loopback.

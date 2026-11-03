@@ -83,7 +83,7 @@ cleanup and restart use the existing publication/recovery protocol.
 
 ## Acceptance and verification
 
-The acceptance tests are in `tests/admin_http.rs`:
+The acceptance tests are in `tests/it_admin/admin_http.rs`:
 
 | Test | Observable contract |
 | --- | --- |

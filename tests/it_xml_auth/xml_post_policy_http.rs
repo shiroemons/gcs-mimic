@@ -1,6 +1,7 @@
 use crate::common;
 use crate::common::process::declare_server;
 use common::TestDir;
+use common::http::Body;
 
 use common::effects::Reply;
 use common::process::{http_command, write_request};
@@ -107,7 +108,7 @@ impl Server {
             &body,
         );
         let mut reader = BufReader::new(stream);
-        let mut raw = common::read_http_response(&mut reader, false).unwrap();
+        let mut raw = common::read_http_response(&mut reader, Body::Expected).unwrap();
         reader.read_to_end(&mut raw).unwrap();
         let split = raw.windows(4).position(|part| part == b"\r\n\r\n").unwrap();
         let head = std::str::from_utf8(&raw[..split]).unwrap();

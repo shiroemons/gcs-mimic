@@ -209,7 +209,7 @@ Same-profile full-resource round trips are covered explicitly.
 The [historical integration evidence](../evidence/bucket-metadata-put.md) records
 the original omission-reset policy's Rust/Go, reference, container and guide runs.
 Those heavy runs do not establish the revised omission-preserving behavior.
-HTTP cases are in tests/bucket_http.rs; clock/rollback cases in src/storage/catalog_tests.rs;
+HTTP cases are in tests/it_json/bucket_http.rs; clock/rollback cases in src/storage/catalog_tests.rs;
 transaction-time authorization cases in src/storage/catalog.rs.
 No real-cloud differential run or complete-method compatibility claim belongs
 to this slice.

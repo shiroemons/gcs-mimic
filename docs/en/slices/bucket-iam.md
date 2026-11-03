@@ -161,8 +161,8 @@ preserve the existing policy, its etag, object data and bucket metadata.
 | Existing cross-project recreation and missing-bucket races | `auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden`, `operations_recheck_the_authorized_project_after_bucket_recreation`, `missing_bucket_access_reauthorizes_against_the_actual_project` |
 | Existing overwrite concurrency and preconditions | `auth_http_concurrent_creates_without_delete_have_one_winner`, `forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create` |
 
-The HTTP cases live in `tests/auth_http/iam.rs`, using the existing
-`tests/auth_http.rs` server and `tests/common` process helpers. The deterministic
+The HTTP cases live in `tests/it_xml_auth/auth_http/iam.rs`, using the existing
+`tests/it_xml_auth/auth_http.rs` server and `tests/common` process helpers. The deterministic
 revocation test retains a previously authorized access, revokes its binding,
 then proves each catalog operation and a prepared upload reject it. The HTTP
 race permits a read selected before revocation to finish, and checks every

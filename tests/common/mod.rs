@@ -62,21 +62,13 @@ pub(crate) fn downgrade_object_schema(connection: &rusqlite::Connection) {
 
 /// Reads one HTTP/1.1 response as raw bytes, including any 1xx interim responses
 /// before it. The status, Content-Length or chunked encoding frames it, because a
-/// client on a persistent connection cannot wait for the server to close; `head`
-/// marks a response to HEAD, which carries no body.
+/// client on a persistent connection cannot wait for the server to close. Responses
+/// without framing are read until EOF; `Body::Head` suppresses the response body.
 pub(crate) fn read_http_response(
     reader: &mut impl BufRead,
-    head: bool,
+    body: http::Body,
 ) -> std::io::Result<Vec<u8>> {
-    http::read_eof(
-        reader,
-        if head {
-            http::Body::Head
-        } else {
-            http::Body::Expected
-        },
-    )
-    .map(|response| response.raw)
+    http::read_eof(reader, body).map(|response| response.raw)
 }
 
 /// macOS reports a peer close during transfer as a reset or broken pipe where

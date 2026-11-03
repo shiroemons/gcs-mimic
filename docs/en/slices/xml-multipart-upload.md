@@ -135,7 +135,7 @@ acceptance tests pass.
 
 ## Verification
 
-The native wire corpus is `tests/xml_multipart_http.rs`. It covers sparse ordered
+The native wire corpus is `tests/it_xml_auth/xml_multipart_http.rs`. It covers sparse ordered
 assembly, overwrite of a part, part and upload pagination, delimiter continuation,
 metadata/CRC-only responses, restart, checksum and malformed-operation rejection,
 strict permissions and forbidden overwrites, CSEK, holds, bucket recreation and

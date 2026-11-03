@@ -191,7 +191,7 @@ Verification on the contract check date, using the committed Rust 1.99.1 pin:
 | `cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings` | PASS |
 | `cargo +1.99.1 xtask dependencies check` | PASS: compiler, direct libraries, SDK and pinned container inputs CURRENT |
 
-The executable HTTP cases are in `tests/bucket_http.rs`; the injected-clock and
+The executable HTTP cases are in `tests/it_json/bucket_http.rs`; the injected-clock and
 rollback case is in `src/storage/catalog_tests.rs`; the stale-authorization case is in
 `src/storage/catalog.rs`. Route/Allow coverage in `src/json/tests.rs` also now
 recognizes PATCH while PUT remains unavailable.

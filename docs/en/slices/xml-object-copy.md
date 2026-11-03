@@ -76,7 +76,7 @@ or composite metadata. This preserves existing XML ETag semantics.
 
 ## Acceptance
 
-`tests/xml_storage_http.rs` exercises the following wire behavior:
+`tests/it_xml_auth/xml_storage_http.rs` exercises the following wire behavior:
 
 | Test | Behavior |
 | --- | --- |

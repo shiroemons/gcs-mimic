@@ -45,7 +45,7 @@ not resolve or broaden those API claims.
 ## Acceptance cases
 
 Test identifiers below are the exact integration test function names in
-`tests/seed.rs`, unless a different source is specified.
+`tests/it_import_seed/seed.rs`, unless a different source is specified.
 
 | ID | Acceptance behavior | Test identifier | Result |
 | --- | --- | --- | --- |
@@ -70,7 +70,7 @@ Test identifiers below are the exact integration test function names in
 | seed-extension | Pinned extension MIME, literal percent names, unchanged source bytes/mtime/permissions; an API object at an OS metadata name survives replay | `extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart` | PASS on macOS ARM64 |
 | seed-compose | Read-only fixture mount; up --wait; replay over API changes across stop/start and recreate; deleted fixture buckets reappear; fresh volume seeds | `container-seed-lifecycle`: `scripts/smoke-containers.sh` seeded section | PENDING final-source execution: the script already asserts replay; the new atomic publication contract still needs its final combined gate |
 
-`tests/import_filesystem.rs::filesystem_import_preserves_source_identity_and_skips_later_seed`
+`tests/it_import_seed/import_filesystem.rs::filesystem_import_preserves_source_identity_and_skips_later_seed`
 also verifies that replaying an empty fixture root over an imported catalog leaves
 every imported object and generation untouched, and that a missing configured
 root fails instead of being skipped.
