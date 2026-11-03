@@ -439,6 +439,7 @@ impl Inputs {
         for alias in aliases.values() {
             let overridden = self.entries.iter().any(|native| {
                 native.kind == InputKind::Native
+                    && !native.key.starts_with("FAKE_GCS_")
                     && native.source == alias.source
                     && native.name == alias.name
                     && native.value != alias.value
@@ -784,6 +785,25 @@ mod tests {
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|s| (*s).into()).collect()
+    }
+
+    #[test]
+    fn unknown_legacy_names_do_not_count_as_native_override_targets() {
+        for (key, overridden) in [("FAKE_GCS_LISTEN", false), ("GCS_MIMIC_LISTEN", true)] {
+            let env = BTreeMap::from([
+                ("FAKE_GCS_HOST".into(), "0.0.0.0".into()),
+                (key.into(), "127.0.0.1:4443".into()),
+            ]);
+            let report = crate::config::Config::preflight(&[], &env);
+            assert!(!report.diagnostics.is_err());
+            assert_eq!(
+                emitted(&report.diagnostics).contains("overrides GCS_MIMIC_LISTEN"),
+                overridden
+            );
+            if !overridden {
+                assert!(emitted(&report.diagnostics).contains("FAKE_GCS_LISTEN"));
+            }
+        }
     }
 
     /// Every error and warning as the emitted JSON lines.
