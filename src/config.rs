@@ -1226,6 +1226,7 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix
 mod tests {
     use super::test_support::{assert_precedence, assert_rejected};
     use super::*;
+    use crate::test_support::TestDir;
 
     #[test]
     fn strict_admin_requires_an_instance_principal_and_hosts_are_validated() {
@@ -1264,7 +1265,6 @@ mod tests {
             assert!(Config::load(&args, &BTreeMap::new()).is_err(), "{value}");
         }
     }
-    use crate::test_support::TestDir;
 
     #[test]
     fn legacy_json_members_remain_ignored_without_environment_warnings() {
