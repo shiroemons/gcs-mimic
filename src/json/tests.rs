@@ -24,6 +24,12 @@ fn parsed_bucket_projection_keeps_profile_defaults_and_explicit_overrides() {
     for (profile, method, query, expected) in [
         (CompatProfile::Native, Method::GET, "", Projection::NoAcl),
         (CompatProfile::Native, Method::PATCH, "", Projection::Full),
+        (
+            CompatProfile::Native,
+            Method::PATCH,
+            "predefinedAcl=private",
+            Projection::Full,
+        ),
         (CompatProfile::Native, Method::PUT, "", Projection::NoAcl),
         (
             CompatProfile::Native,
@@ -35,6 +41,18 @@ fn parsed_bucket_projection_keeps_profile_defaults_and_explicit_overrides() {
             CompatProfile::Native,
             Method::PUT,
             "predefinedDefaultObjectAcl=private",
+            Projection::Full,
+        ),
+        (
+            CompatProfile::LegacyEmulator,
+            Method::GET,
+            "",
+            Projection::NoAcl,
+        ),
+        (
+            CompatProfile::LegacyEmulator,
+            Method::PUT,
+            "predefinedAcl=private",
             Projection::Full,
         ),
         (
@@ -65,6 +83,19 @@ fn parsed_bucket_projection_keeps_profile_defaults_and_explicit_overrides() {
                 operation.projection(),
                 selected,
                 "{profile:?} {method} {uri}"
+            );
+        }
+    }
+    for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
+        for method in [Method::POST, Method::GET] {
+            let uri: Uri = "/storage/v1/b?project=project".parse().unwrap();
+            let operation = route_with_profile(&method, &uri, profile, "project")
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                operation.projection(),
+                Projection::NoAcl,
+                "{profile:?} {method}"
             );
         }
     }

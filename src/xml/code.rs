@@ -3,7 +3,8 @@ use hyper::StatusCode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum XmlCode {
-    InvalidArgument(StatusCode),
+    InvalidArgument,
+    Forwarded(ForwardedStatus),
     InvalidAuthentication,
     AuthenticationRequired,
     InvalidAccessKeyId,
@@ -39,11 +40,32 @@ pub(super) enum XmlCode {
     Csek(CsekError),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ForwardedStatus(StatusCode);
+
 impl XmlCode {
+    pub(super) fn forwarded(status: StatusCode) -> Self {
+        debug_assert!(!matches!(
+            status,
+            StatusCode::UNAUTHORIZED
+                | StatusCode::FORBIDDEN
+                | StatusCode::NOT_FOUND
+                | StatusCode::REQUEST_TIMEOUT
+                | StatusCode::PRECONDITION_FAILED
+                | StatusCode::RANGE_NOT_SATISFIABLE
+                | StatusCode::SERVICE_UNAVAILABLE
+        ));
+        if status == StatusCode::BAD_REQUEST {
+            Self::InvalidArgument
+        } else {
+            Self::Forwarded(ForwardedStatus(status))
+        }
+    }
+
     pub(super) fn status(self) -> StatusCode {
         match self {
             // The JSON adapter also forwards otherwise unmapped statuses under this code.
-            Self::InvalidArgument(status) => status,
+            Self::Forwarded(ForwardedStatus(status)) => status,
             Self::AuthenticationRequired => StatusCode::UNAUTHORIZED,
             Self::InvalidAccessKeyId
             | Self::SignatureDoesNotMatch
@@ -58,13 +80,29 @@ impl XmlCode {
             Self::PreconditionFailed => StatusCode::PRECONDITION_FAILED,
             Self::InvalidRange => StatusCode::RANGE_NOT_SATISFIABLE,
             Self::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-            _ => StatusCode::BAD_REQUEST,
+            Self::InvalidArgument
+            | Self::InvalidAuthentication
+            | Self::ExpiredToken
+            | Self::InvalidPart
+            | Self::InvalidPartOrder
+            | Self::MalformedXml
+            | Self::InvalidDigest
+            | Self::BadDigest
+            | Self::ExcessHeaderValues
+            | Self::UnexpectedContent
+            | Self::MetadataTooLarge
+            | Self::CrcMismatch
+            | Self::EntityTooLarge
+            | Self::IncompleteBody
+            | Self::InvalidPolicyDocument
+            | Self::EntityTooSmall
+            | Self::Csek(_) => StatusCode::BAD_REQUEST,
         }
     }
 
     pub(super) fn as_str(self) -> &'static str {
         match self {
-            Self::InvalidArgument(_) => "InvalidArgument",
+            Self::InvalidArgument | Self::Forwarded(_) => "InvalidArgument",
             Self::InvalidAuthentication => "InvalidAuthentication",
             Self::AuthenticationRequired => "AuthenticationRequired",
             Self::InvalidAccessKeyId => "InvalidAccessKeyId",

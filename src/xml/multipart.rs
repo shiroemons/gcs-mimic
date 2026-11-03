@@ -165,18 +165,14 @@ fn request_headers(
 }
 
 fn storage_error(error: storage::Error, ctx: ObjectCtx<'_>) -> Error {
-    let code = match &error {
+    let code = match error {
+        storage::Error::Object(error) => return put::storage_error(error, ctx.caller),
         storage::Error::NoSuchUpload => XmlCode::NoSuchUpload,
         storage::Error::InvalidPart => XmlCode::InvalidPart,
         storage::Error::InvalidPartOrder => XmlCode::InvalidPartOrder,
-        storage::Error::PartTooSmall | storage::Error::Object(_) => {
-            XmlCode::InvalidArgument(StatusCode::BAD_REQUEST)
-        }
+        storage::Error::PartTooSmall => XmlCode::InvalidArgument,
         storage::Error::Busy => XmlCode::ServiceUnavailable,
     };
-    if let storage::Error::Object(error) = error {
-        return put::storage_error(error, ctx.caller);
-    }
     Error::new(code, error.to_string())
 }
 

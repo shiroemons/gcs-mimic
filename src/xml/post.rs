@@ -900,7 +900,7 @@ mod tests {
     }
 
     fn details(error: Error) -> (StatusCode, &'static str, String) {
-        (error.status, error.code.as_str(), error.message)
+        (error.status(), error.code.as_str(), error.message)
     }
 
     #[test]
@@ -1221,7 +1221,7 @@ mod tests {
         ] {
             let error = plan(&form(&pairs, filename), "b").err();
             assert_eq!(
-                error.map(|error| error.status),
+                error.map(|error| error.status()),
                 Some(StatusCode::BAD_REQUEST),
                 "{pairs:?}"
             );
@@ -1290,7 +1290,7 @@ mod tests {
             "--b\r\nContent-Type: text/plain\r\n\r\na\r\n--b--\r\n",
         ] {
             assert_eq!(
-                parse_form(body).await.unwrap_err().status,
+                parse_form(body).await.unwrap_err().status(),
                 StatusCode::BAD_REQUEST
             );
         }

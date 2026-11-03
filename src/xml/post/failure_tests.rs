@@ -279,7 +279,7 @@ async fn policy_variants_keep_old_objects_after_write_flush_and_sync_failures() 
                 .err()
                 .unwrap();
             assert_eq!(
-                error.status,
+                error.status(),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "{step:?}: {error:?}"
             );
@@ -310,7 +310,7 @@ async fn hmac_policy_backend_failure_retains_cause_and_never_returns_anonymous()
         let error = authenticate(&fixture.state, &HeaderMap::new(), &fields, version)
             .await
             .unwrap_err();
-        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
         let failure = match variant {
             Variant::V4Hmac => fixture
                 .state

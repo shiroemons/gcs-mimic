@@ -182,7 +182,7 @@ async fn signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resourc
         fault::arm(&fixture.dir.0, step, skip, Fault::Io(io::ErrorKind::Other));
         let failure = fixture.upload(&vec![b'n'; 256 * 1024]).await.err().unwrap();
         assert_eq!(
-            failure.status,
+            failure.status(),
             StatusCode::SERVICE_UNAVAILABLE,
             "{step:?}: {failure:?}"
         );
@@ -241,7 +241,7 @@ async fn streaming_key_lookup_failure_keeps_its_backend_cause() {
     let fixture = Fixture::new().await;
     fixture.state.catalog.close().await.unwrap();
     let error = fixture.upload(b"no publication").await.err().unwrap();
-    assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
     // Verification retains the typed catalog error even when that error has no nested source.
     let request = fixture.request(b"no publication");
     let failure = fixture

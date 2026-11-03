@@ -110,7 +110,12 @@ impl BucketRequest {
                 params.projection
             }
             Self::List(params) => params.projection,
-            _ => Projection::NoAcl,
+            Self::LockRetentionPolicy { .. }
+            | Self::Delete { .. }
+            | Self::GetIam { .. }
+            | Self::SetIam { .. }
+            | Self::TestIam { .. }
+            | Self::GetStorageLayout { .. } => Projection::NoAcl,
         }
     }
 }
@@ -461,7 +466,9 @@ fn parse(
         (&Method::GET | &Method::PATCH | &Method::PUT, Some(bucket)) => {
             let predefined = query.contains_key("predefinedAcl")
                 || query.contains_key("predefinedDefaultObjectAcl");
-            // Native PATCH defaults to full; native PUT does so only with a predefined ACL.
+            // Recorded 2026-10-31: native PATCH without projection returned acl, defaultObjectAcl
+            // and owner; PUT did so only with predefined ACL parameters. Insert/get default to
+            // noAcl. The legacy profile retains its earlier PUT-only full default.
             let default_projection = if (profile == CompatProfile::LegacyEmulator
                 && *method == Method::PUT)
                 || (profile == CompatProfile::Native

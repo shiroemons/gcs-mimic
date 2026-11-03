@@ -193,7 +193,6 @@ pub(crate) struct ReadRequest {
 
 #[derive(Debug)]
 pub(crate) struct Error {
-    pub status: StatusCode,
     code: XmlCode,
     message: String,
     /// The optional `Details` element, which Cloud Storage uses to name a missing object.
@@ -228,16 +227,19 @@ impl ErrorBody {
 
 impl Error {
     fn invalid(message: impl Into<String>) -> Self {
-        Self::new(XmlCode::InvalidArgument(StatusCode::BAD_REQUEST), message)
+        Self::new(XmlCode::InvalidArgument, message)
     }
 
     fn new(code: XmlCode, message: impl Into<String>) -> Self {
         Self {
-            status: code.status(),
             code,
             message: message.into(),
             details: None,
         }
+    }
+
+    pub(crate) fn status(&self) -> StatusCode {
+        self.code.status()
     }
 
     /// Names the requested object in a missing-object error, as Cloud Storage does.
@@ -289,7 +291,7 @@ impl Error {
             ErrorBody::Omit => Bytes::new(),
             ErrorBody::Include => Bytes::from(body),
         });
-        *response.status_mut() = self.status;
+        *response.status_mut() = self.status();
         let headers = response.headers_mut();
         headers.insert("content-length", content_length);
         headers.insert(
@@ -335,7 +337,7 @@ impl From<JsonError> for Error {
             StatusCode::SERVICE_UNAVAILABLE => XmlCode::ServiceUnavailable,
             _ => match error.kind {
                 json::ErrorKind::Csek(error) => XmlCode::Csek(error),
-                _ => XmlCode::InvalidArgument(error.status),
+                _ => XmlCode::forwarded(error.status),
             },
         };
         let message = if error.is_missing_object() {

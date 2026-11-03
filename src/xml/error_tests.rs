@@ -50,7 +50,7 @@ fn xml_codes_preserve_exceptional_statuses_and_spelling() {
         StatusCode::GATEWAY_TIMEOUT,
     ] {
         let error = Error::from(JsonError::new(status, "other", "message"));
-        assert_eq!(error.status, status);
+        assert_eq!(error.status(), status);
         assert_eq!(error.code.as_str(), "InvalidArgument");
     }
 }
