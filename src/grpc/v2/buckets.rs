@@ -558,6 +558,13 @@ mod tests {
     use tonic::Code;
 
     #[test]
+    fn bucket_errors_request_credentials_from_anonymous_callers() {
+        let anonymous = catalog_error(CatalogError::Forbidden, Some(Caller::Anonymous));
+        let generic = Status::from(CatalogError::Forbidden);
+        assert_eq!(anonymous.code(), Code::Unauthenticated);
+        assert_eq!(generic.code(), Code::PermissionDenied);
+    }
+    #[test]
     fn project_name_takes_back_rendered_numbers_and_rejects_the_placeholder() {
         // A numeric ID renders as itself, so the client can pass it back unchanged.
         assert_eq!(project_name("projects/123").unwrap(), "123");

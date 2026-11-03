@@ -982,8 +982,12 @@ impl Storage {
                 offset: lease.session.offset,
                 total: lease.session.total,
             };
-            let (offset, data, written) =
-                resumable_piece(&mut message, persisted, position, self.max_object_bytes)?;
+            let ResumablePiece {
+                offset,
+                data,
+                written,
+                length,
+            } = resumable_piece(&mut message, persisted, position, self.max_object_bytes)?;
             if message.finish_write
                 && end == EndOfStream::Required
                 && stream.next().await.transpose()?.is_some()
@@ -996,9 +1000,7 @@ impl Storage {
             let (catalog_wait, _wait) = watch::channel(false);
             let chunk = ResumableChunk {
                 start: offset,
-                length: u64::try_from(data.content.len()).map_err(|_| {
-                    Status::out_of_range("write_offset plus content length overflows")
-                })?,
+                length,
                 total: persisted.total.or(message.finish_write.then_some(written)),
                 finalize: message.finish_write,
                 open_end: false,
@@ -1158,6 +1160,13 @@ struct Persisted {
     total: Option<u64>,
 }
 
+struct ResumablePiece {
+    offset: u64,
+    data: pb::ChecksummedData,
+    written: u64,
+    length: u64,
+}
+
 /// A non-resumable write and where its replies go.
 struct SingleWrite<'a> {
     spec: pb::WriteObjectSpec,
@@ -1219,13 +1228,13 @@ fn check_resumable_message(
 }
 
 /// Validates one resumable message's offset, data checksum and size against the persisted
-/// session, returning its offset, data and the session size after it is written.
+/// session, retaining the checked length for the catalog write.
 fn resumable_piece(
     message: &mut pb::BidiWriteObjectRequest,
     persisted: Persisted,
     position: MessagePosition,
     max_object_bytes: u64,
-) -> Result<(u64, pb::ChecksummedData, u64), Status> {
+) -> Result<ResumablePiece, Status> {
     let offset = u64::try_from(message.write_offset).map_err(|_| {
         Status::out_of_range("write_offset must be nonnegative; query the persisted offset")
     })?;
@@ -1241,11 +1250,11 @@ fn resumable_piece(
         None => pb::ChecksummedData::default(),
     };
     verify_crc32c(&data)?;
-    let end = u64::try_from(data.content.len())
+    let (length, end) = u64::try_from(data.content.len())
         .ok()
-        .and_then(|length| offset.checked_add(length))
-        .ok_or_else(|| Status::out_of_range("write_offset plus content length overflows"))?
-        .max(persisted.offset);
+        .and_then(|length| offset.checked_add(length).map(|end| (length, end)))
+        .ok_or_else(|| Status::out_of_range("write_offset plus content length overflows"))?;
+    let end = end.max(persisted.offset);
     if end > max_object_bytes {
         return Err(Status::resource_exhausted(
             "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
@@ -1259,7 +1268,12 @@ fn resumable_piece(
             "Written bytes do not match object_size; start a new upload with the correct size",
         ));
     }
-    Ok((offset, data, end))
+    Ok(ResumablePiece {
+        offset,
+        data,
+        written: end,
+        length,
+    })
 }
 
 /// Streams a non-resumable write's messages to the upload consumer, validating offsets,
@@ -1370,6 +1384,18 @@ mod tests {
     use crate::storage::test_fixtures::{PERMISSIVE, live};
     use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
     use std::sync::Arc;
+
+    #[test]
+    fn object_errors_keep_the_v2_unsupported_metadata_wording() {
+        let metadata = object_status(ObjectError::UnsupportedMetadata("test_setting".into()));
+        let generic = Status::from(ObjectError::UnsupportedMetadata("test_setting".into()));
+        assert_eq!(metadata.code(), tonic::Code::Unimplemented);
+        assert_eq!(
+            metadata.message(),
+            "gcs-mimic does not support gRPC unsupported metadata change: test_setting; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+        );
+        assert_ne!(metadata.message(), generic.message());
+    }
 
     async fn setup(strict: bool) -> (TestDir, Storage) {
         let dir = TestDir::new();
