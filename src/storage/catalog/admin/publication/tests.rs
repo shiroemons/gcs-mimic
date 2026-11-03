@@ -56,6 +56,7 @@ async fn cleanup_snapshot(power_loss: bool, synced: bool) {
     } else {
         catalog.0.backend.remove(&id).unwrap();
     }
+    // This explicit trigger snapshots cleanup, independently of publication transactions.
     fault::hit(&dir.0, Step::AfterCommit).unwrap();
     assert_eq!(catalog.pending_faults(), 0);
     let path = id.blob_path(&snapshot.0);
@@ -86,6 +87,44 @@ async fn cleanup_unlink_is_volatile_until_directory_sync() {
 async fn cleanup_directory_sync_survives_crash_and_power_loss() {
     for power_loss in [false, true] {
         cleanup_snapshot(power_loss, true).await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cleanup_directory_sync_failure_reaches_discard_and_drop() {
+    use crate::storage::catalog::fault::{Fault, Step};
+    for explicit in [true, false] {
+        let (dir, catalog, admin, _, _) = setup().await;
+        let staged = admin
+            .stage_from_file(
+                source(&dir.0, b"private bytes"),
+                ExpectedHashes::default(),
+                1024,
+            )
+            .await
+            .unwrap();
+        let id = staged.id.unwrap();
+        catalog.0.backend.publish_draft(&id).unwrap();
+        catalog.inject(Step::AdminCleanupSync, 0, Fault::Io(io::ErrorKind::Other));
+        if explicit {
+            let error = staged.discard().await.unwrap_err();
+            assert_eq!(
+                crate::error::causes(&error)
+                    .find_map(|cause| cause.downcast_ref::<io::Error>())
+                    .unwrap()
+                    .kind(),
+                io::ErrorKind::Other
+            );
+        } else {
+            drop(staged);
+        }
+        catalog.close().await.unwrap();
+        assert_eq!(catalog.pending_faults(), 0);
+        assert!(!id.blob_path(&dir.0).exists());
+        let recovered = Catalog::open(&dir.0).await.unwrap();
+        assert_eq!(blob_count(&dir.0), 0);
+        recovered.close().await.unwrap();
     }
 }
 

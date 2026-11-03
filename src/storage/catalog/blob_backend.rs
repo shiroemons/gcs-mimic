@@ -222,6 +222,8 @@ impl BlobBackend {
             && let Some(shard) = id.blob_path(root).parent()
             && shard.exists()
         {
+            #[cfg(test)]
+            hit_io(root, super::fault::Step::AdminCleanupSync)?;
             objects::sync_dir(shard)?;
         }
         Ok(())

@@ -113,6 +113,9 @@ pub(crate) enum Step {
     /// A removed entry must not reappear after its directory sync.
     #[cfg(unix)]
     SessionCleanupSynced,
+    /// Before syncing an admin cleanup's blob-directory unlink.
+    #[cfg(unix)]
+    AdminCleanupSync,
     /// After the staged file is durable, before it is renamed into `blobs/`.
     BeforePublish,
     /// After the rename and shard sync, before the catalog transaction.
