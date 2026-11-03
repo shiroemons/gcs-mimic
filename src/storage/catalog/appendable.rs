@@ -59,6 +59,35 @@ PRAGMA user_version = 34;";
 
 const COPY_CHUNK: usize = 64 * 1024;
 
+/// Only appendable state can construct an identity reserved before its bytes arrived.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ReservedGeneration {
+    generation: super::admin::Generation,
+    time_created: SystemTime,
+    updated: SystemTime,
+}
+
+impl ReservedGeneration {
+    fn from_record(record: &ObjectRecord) -> Result<Self, ObjectError> {
+        Ok(Self {
+            generation: super::admin::Generation::new(record.generation)
+                .map_err(object_unavailable)?,
+            time_created: record.time_created,
+            updated: record.updated,
+        })
+    }
+
+    pub(super) fn generation(self) -> super::admin::Generation {
+        self.generation
+    }
+    pub(super) fn time_created(self) -> SystemTime {
+        self.time_created
+    }
+    pub(super) fn updated(self) -> SystemTime {
+        self.updated
+    }
+}
+
 /// Runs at catalog open, before requests: resolves interrupted finalizations, rows of deleted
 /// buckets and data files that never received a row.
 #[expect(
@@ -613,12 +642,7 @@ impl AppendWriter {
             return Err(AppendError::Superseded);
         }
         let catalog = self.catalog.clone();
-        let identity = super::admin::ImportedIdentity::new(
-            super::admin::Generation::new(self.record.generation).map_err(object_unavailable)?,
-            self.record.time_created,
-            self.record.updated,
-        )
-        .map_err(object_unavailable)?;
+        let identity = ReservedGeneration::from_record(&self.record)?;
         let permit = catalog.admit_object_upload()?;
         let (tx, rx) = mpsc::channel(2);
         let data = self.file.clone();
@@ -666,7 +690,7 @@ impl AppendWriter {
             rx,
             permit,
             super::admin::PublishMode::Replace,
-            super::objects::PublishIdentity::Imported(identity),
+            super::objects::PublishIdentity::Reserved(identity),
             super::objects::OwnerAssignment::Preserve(self.record.owner.clone()),
         );
         let (copied, published) = tokio::join!(producer, publish);

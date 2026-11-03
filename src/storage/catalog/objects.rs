@@ -810,6 +810,7 @@ pub(super) enum PublishIdentity {
     Assigned,
     /// Admin publication validates imported identities against their request before admission.
     Imported(super::admin::ImportedIdentity),
+    Reserved(super::appendable::ReservedGeneration),
 }
 
 impl PublishIdentity {
@@ -820,6 +821,7 @@ impl PublishIdentity {
                 GenerationAssignment::Automatic,
                 GenerationAssignment::Imported,
             ),
+            Self::Reserved(reserved) => GenerationAssignment::Imported(reserved.generation()),
         }
     }
 
@@ -827,6 +829,7 @@ impl PublishIdentity {
         match self {
             Self::Assigned => None,
             Self::Imported(identity) => Some((identity.time_created(), identity.updated())),
+            Self::Reserved(reserved) => Some((reserved.time_created(), reserved.updated())),
         }
     }
 
