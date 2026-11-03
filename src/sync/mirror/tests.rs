@@ -1,9 +1,10 @@
 #![expect(
     clippy::unwrap_used,
-    reason = "Tests fail at the input that violates an assertion"
+    reason = "Clippy does not exempt platform-gated test modules; fixture unwraps must fail the test"
 )]
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::sync::test_support::hooked_worker;
 use crate::{
     clock::SystemClock,
     object::UploadChunk,
@@ -69,24 +70,12 @@ async fn publish_origin(
 }
 
 async fn live_fixture() -> (TestDir, TestDir, Catalog, BucketName, RootLease) {
-    let data = TestDir::new();
-    let tree = TestDir::new();
-    let catalog = Catalog::open(&data.0).await.unwrap();
-    let bucket = BucketName::new("test-bucket").unwrap();
-    catalog
-        .admin(Origin::Api)
-        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
-        .await
-        .unwrap();
-    let config = Config {
-        data_dir: data.0.clone(),
-        sync_dir: Some(tree.0.clone()),
-        ..Default::default()
-    };
-    let root = crate::sync::preflight(&catalog, &config)
-        .await
-        .unwrap()
-        .unwrap();
+    live_fixture_with("test-bucket").await
+}
+
+async fn live_fixture_with(name: &str) -> (TestDir, TestDir, Catalog, BucketName, RootLease) {
+    let bucket = BucketName::new(name).unwrap();
+    let (data, tree, catalog, root, _) = crate::sync::test_support::fixture(Some(&bucket)).await;
     (data, tree, catalog, bucket, root)
 }
 
@@ -327,7 +316,7 @@ async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore
 
 #[tokio::test]
 async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ack() {
-    use std::{sync::Arc, time::Duration};
+    use std::time::Duration;
     for phase in ["prepare", "arm", "durable", "ack"] {
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         publish_origin(&catalog, &bucket, b"same", Origin::Api).await;
@@ -338,19 +327,12 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
             .await
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(Hook {
-            phase: "idle",
-            entered: Default::default(),
-            release: Default::default(),
-        });
         let worker_catalog = catalog.clone();
         let worker_root = root.clone();
-        let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+        let (hook, worker) = hooked_worker(&EXPORT_HOOK, "idle", async move {
             run_live(&worker_catalog, &worker_root, &mut stopping).await
-        }));
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
-            .await
-            .unwrap();
+        })
+        .await;
         crate::storage::sync_state::writeback::inject_live_export_failure(
             root.status().root_id,
             phase,
@@ -517,7 +499,7 @@ async fn live_export_identical_observation_preserves_edits_before_durable_and_ac
 
 #[tokio::test]
 async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buckets_progressing() {
-    use std::{sync::Arc, time::Duration};
+    use std::time::Duration;
     for moved in [false, true] {
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         let other = BucketName::new("zz-other").unwrap();
@@ -527,19 +509,12 @@ async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buck
             .await
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(Hook {
-            phase: "idle,after-prepare",
-            entered: Default::default(),
-            release: Default::default(),
-        });
         let worker_catalog = catalog.clone();
         let worker_root = root.clone();
-        let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+        let (hook, worker) = hooked_worker(&EXPORT_HOOK, "idle,after-prepare", async move {
             run_live(&worker_catalog, &worker_root, &mut stopping).await
-        }));
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
-            .await
-            .unwrap();
+        })
+        .await;
         let path = tree.0.join("test-bucket/object");
         std::fs::write(&path, b"same").unwrap();
         publish_origin(&catalog, &bucket, b"same", Origin::Api).await;
@@ -587,24 +562,17 @@ async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buck
 #[cfg(unix)]
 #[tokio::test]
 async fn live_export_retries_file_and_parent_permissions_without_advancing_the_cursor() {
-    use std::{os::unix::fs::PermissionsExt, sync::Arc, time::Duration};
+    use std::{os::unix::fs::PermissionsExt, time::Duration};
     for parent in [false, true] {
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         publish_origin(&catalog, &bucket, b"before", Origin::Api).await;
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(Hook {
-            phase: "idle,retry",
-            entered: Default::default(),
-            release: Default::default(),
-        });
         let worker_catalog = catalog.clone();
         let worker_root = root.clone();
-        let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+        let (hook, worker) = hooked_worker(&EXPORT_HOOK, "idle,retry", async move {
             run_live(&worker_catalog, &worker_root, &mut stopping).await
-        }));
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
-            .await
-            .unwrap();
+        })
+        .await;
         let path = tree.0.join(if parent {
             "test-bucket"
         } else {
@@ -653,7 +621,7 @@ async fn live_export_retries_file_and_parent_permissions_without_advancing_the_c
 
 #[tokio::test]
 async fn live_export_bucket_incarnation_races_keep_other_buckets_progressing() {
-    use std::{sync::Arc, time::Duration};
+    use std::time::Duration;
     for phase in ["before-binding", "after-binding", "after-get-path"] {
         for recreate in [false, true] {
             let (_data, tree, catalog, bucket, root) = live_fixture().await;
@@ -671,19 +639,12 @@ async fn live_export_bucket_incarnation_races_keep_other_buckets_progressing() {
                 "after-binding" => "idle,after-binding",
                 _ => "idle,after-get-path",
             };
-            let hook = Arc::new(Hook {
-                phase: phases,
-                entered: Default::default(),
-                release: Default::default(),
-            });
             let worker_catalog = catalog.clone();
             let worker_root = root.clone();
-            let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+            let (hook, worker) = hooked_worker(&EXPORT_HOOK, phases, async move {
                 run_live(&worker_catalog, &worker_root, &mut stopping).await
-            }));
-            tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
-                .await
-                .unwrap();
+            })
+            .await;
             let record = publish_origin(&catalog, &bucket, b"obsolete", Origin::Api).await;
             publish_origin(&catalog, &other, b"other", Origin::Api).await;
             hook.release.notify_one();
@@ -744,42 +705,19 @@ async fn live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_
     };
     use std::time::Duration;
     for gap in [false, true] {
-        let data = TestDir::new();
-        let tree = TestDir::new();
-        let catalog = Catalog::open(&data.0).await.unwrap();
-        let bucket = BucketName::new("test-bucket").unwrap();
-        catalog
-            .admin(Origin::Api)
-            .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
-            .await
-            .unwrap();
-        let config = Config {
-            data_dir: data.0.clone(),
-            sync_dir: Some(tree.0.clone()),
-            ..Default::default()
-        };
-        let root = crate::sync::preflight(&catalog, &config)
-            .await
-            .unwrap()
-            .unwrap();
+        let (data, tree, catalog, bucket, root) = live_fixture().await;
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(Hook {
-            phase: "idle",
-            entered: Default::default(),
-            release: Default::default(),
-        });
         let count = Arc::new(AtomicUsize::new(0));
         let worker_catalog = catalog.clone();
         let worker_root = root.clone();
-        let worker = tokio::spawn(EXPORT_HOOK.scope(
-            hook.clone(),
+        let (hook, worker) = hooked_worker(
+            &EXPORT_HOOK,
+            "idle",
             LIVE_EXPORTS.scope(count.clone(), async move {
                 run_live(&worker_catalog, &worker_root, &mut stopping).await
             }),
-        ));
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
-            .await
-            .unwrap();
+        )
+        .await;
         for n in 0..300 {
             publish_origin(&catalog, &bucket, n.to_string().as_bytes(), Origin::Api).await;
         }
@@ -816,7 +754,7 @@ async fn live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_
 
 #[tokio::test]
 async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack() {
-    use std::{sync::Arc, time::Duration};
+    use std::time::Duration;
     for (phase, remove) in [
         ("copy", false),
         ("install", false),
@@ -847,19 +785,12 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             .unwrap()
             .unwrap();
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
-        let hook = Arc::new(Hook {
-            phase: "idle",
-            entered: Default::default(),
-            release: Default::default(),
-        });
         let worker_catalog = catalog.clone();
         let worker_root = root.clone();
-        let mut worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+        let (hook, mut worker) = hooked_worker(&EXPORT_HOOK, "idle", async move {
             run_live(&worker_catalog, &worker_root, &mut stopping).await
-        }));
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
-            .await
-            .unwrap();
+        })
+        .await;
         crate::storage::sync_state::writeback::inject_live_export_failure(
             root.status().root_id,
             phase,

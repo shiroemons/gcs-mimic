@@ -9,6 +9,13 @@ fn parse(args: &[&str]) -> io::Result<Options> {
     Options::parse(&args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>())
 }
 
+fn parse_cmd(args: &[&str]) -> io::Result<Options> {
+    let (command, options) = args.split_first().unwrap();
+    let mut args = vec![*command, "--endpoint", "http://127.0.0.1:4443"];
+    args.extend_from_slice(options);
+    parse(&args)
+}
+
 #[test]
 fn timeout_durations_preserve_cli_units_bounds_and_leading_plus() {
     for (value, fix) in [
@@ -20,13 +27,7 @@ fn timeout_durations_preserve_cli_units_bounds_and_leading_plus() {
         ),
         ("+5s", None),
     ] {
-        let result = parse(&[
-            "status",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--timeout",
-            value,
-        ]);
+        let result = parse_cmd(&["status", "--timeout", value]);
         if let Some(fix) = fix {
             assert!(result.err().unwrap().to_string().contains(fix), "{value}");
         } else {
@@ -38,57 +39,25 @@ fn timeout_durations_preserve_cli_units_bounds_and_leading_plus() {
 #[test]
 fn approval_requires_an_explicit_exact_revision() {
     let revision = "0123456789abcdef0123456789abcdef";
-    let options = parse(&[
-        "approve",
-        "--endpoint",
-        "http://127.0.0.1:4443",
-        "--revision",
-        revision,
-    ])
-    .unwrap();
+    let options = parse_cmd(&["approve", "--revision", revision]).unwrap();
     assert_eq!(options.path, "/_internal/sync/approve");
     assert_eq!(options.body, Some(json!({"deletion_set":revision})));
     for args in [
-        vec!["approve", "--endpoint", "http://127.0.0.1:4443"],
-        vec![
-            "approve",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--revision",
-            "all",
-        ],
-        vec![
-            "rescan",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--revision",
-            revision,
-        ],
-        vec![
-            "status",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--cursor",
-            "x",
-        ],
-        vec!["stop", "--endpoint", "http://127.0.0.1:4443"],
+        vec!["approve"],
+        vec!["approve", "--revision", "all"],
+        vec!["rescan", "--revision", revision],
+        vec!["status", "--cursor", "x"],
+        vec!["stop"],
     ] {
-        assert!(parse(&args).is_err(), "{args:?}");
+        assert!(parse_cmd(&args).is_err(), "{args:?}");
     }
-    assert_eq!(
-        parse(&["rescan", "--endpoint", "http://127.0.0.1:4443"])
-            .unwrap()
-            .body,
-        Some(json!({}))
-    );
+    assert_eq!(parse_cmd(&["rescan"]).unwrap().body, Some(json!({})));
 }
 
 #[test]
 fn pages_preserve_opaque_cursors_without_query_injection() {
-    let options = parse(&[
+    let options = parse_cmd(&[
         "deletions",
-        "--endpoint",
-        "http://127.0.0.1:4443",
         "--revision",
         "0123456789abcdef0123456789abcdef",
         "--cursor",
@@ -103,7 +72,7 @@ fn pages_preserve_opaque_cursors_without_query_injection() {
             .ends_with("&cursor=x%26revision%3Dy%2B%2F&limit=2")
     );
     assert!(options.body.is_none());
-    assert!(parse(&["deletions", "--endpoint", "http://127.0.0.1:4443"]).is_err());
+    assert!(parse_cmd(&["deletions"]).is_err());
     assert!(
         parse(&[
             "status",
@@ -119,53 +88,25 @@ fn pages_preserve_opaque_cursors_without_query_injection() {
 #[test]
 fn findings_require_their_session_bound_revision() {
     let revision = "0123456789abcdef0123456789abcdef0123456789abcdef";
-    let page = parse(&[
-        "findings",
-        "--endpoint",
-        "http://127.0.0.1:4443",
-        "--revision",
-        revision,
-    ])
-    .unwrap();
+    let page = parse_cmd(&["findings", "--revision", revision]).unwrap();
     assert_eq!(
         page.path,
         format!("/_internal/sync?view=findings&revision={revision}")
     );
-    assert!(
-        parse(&[
-            "findings",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--revision",
-            &revision[..32]
-        ])
-        .is_err()
-    );
-    assert!(
-        parse(&[
-            "approve",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--revision",
-            revision
-        ])
-        .is_err()
-    );
+    assert!(parse_cmd(&["findings", "--revision", &revision[..32]]).is_err());
+    assert!(parse_cmd(&["approve", "--revision", revision]).is_err());
 }
 
 #[test]
 fn conflicts_keep_their_own_endpoint_revision_and_opaque_cursor() {
-    let origin = "http://127.0.0.1:4443";
     assert_eq!(
-        parse(&["conflicts", "--endpoint", origin]).unwrap().path,
+        parse_cmd(&["conflicts"]).unwrap().path,
         "/_internal/sync/conflicts"
     );
     let revision = "0123456789abcdef0123456789abcdef";
     assert_eq!(
-        parse(&[
+        parse_cmd(&[
             "conflicts",
-            "--endpoint",
-            origin,
             "--revision",
             revision,
             "--cursor",
@@ -177,20 +118,17 @@ fn conflicts_keep_their_own_endpoint_revision_and_opaque_cursor() {
         .path,
         format!("/_internal/sync/conflicts?revision={revision}&cursor=a%26b&limit=2")
     );
-    assert!(parse(&["conflicts", "--endpoint", origin, "--limit", "257"]).is_err());
+    assert!(parse_cmd(&["conflicts", "--limit", "257"]).is_err());
 }
 
 #[test]
 fn canonical_control_flags_map_to_the_exact_wire_contract() {
-    let origin = "http://127.0.0.1:4443";
     let revision = "0123456789abcdef0123456789abcdef";
-    let options = parse(&["approve", "--endpoint", origin, "--deletion-set", revision]).unwrap();
+    let options = parse_cmd(&["approve", "--deletion-set", revision]).unwrap();
     assert_eq!(options.body, Some(json!({"deletion_set":revision})));
     assert!(
-        parse(&[
+        parse_cmd(&[
             "approve",
-            "--endpoint",
-            origin,
             "--deletion-set",
             revision,
             "--revision",
@@ -198,48 +136,25 @@ fn canonical_control_flags_map_to_the_exact_wire_contract() {
         ])
         .is_err()
     );
-    let options = parse(&[
-        "status",
-        "--view",
-        "deletions",
-        "--endpoint",
-        origin,
-        "--revision",
-        revision,
-    ])
-    .unwrap();
+    let options = parse_cmd(&["status", "--view", "deletions", "--revision", revision]).unwrap();
     assert_eq!(
         options.path,
         format!("/_internal/sync?view=deletions&revision={revision}")
     );
-    let options = parse(&["wait", "--endpoint", origin, "--timeout", "10s"]).unwrap();
+    let options = parse_cmd(&["wait", "--timeout", "10s"]).unwrap();
     assert_eq!(options.body, Some(json!({"timeout_ms":10000})));
     assert_eq!(options.timeout, Duration::from_secs(11));
     for value in ["0ms", "61s", "1.5s", "18446744073709551615s"] {
-        assert!(parse(&["wait", "--endpoint", origin, "--timeout", value]).is_err());
+        assert!(parse_cmd(&["wait", "--timeout", value]).is_err());
     }
-    assert!(
-        parse(&[
-            "wait",
-            "--endpoint",
-            origin,
-            "--timeout",
-            "1s",
-            "--timeout-ms",
-            "1000"
-        ])
-        .is_err()
-    );
+    assert!(parse_cmd(&["wait", "--timeout", "1s", "--timeout-ms", "1000"]).is_err());
 }
 
 #[test]
 fn resolution_requires_exclusive_targets_and_matching_confirmation() {
-    let origin = "http://127.0.0.1:4443";
     let id = "0123456789abcdef0123456789abcdef";
     let base = [
         "resolve",
-        "--endpoint",
-        origin,
         "--revision",
         id,
         "--action",
@@ -249,7 +164,7 @@ fn resolution_requires_exclusive_targets_and_matching_confirmation() {
     ];
     let mut args = base.to_vec();
     args.extend(["--conflict", id, "--expected-generation", "0"]);
-    let options = parse(&args).unwrap();
+    let options = parse_cmd(&args).unwrap();
     assert_eq!(options.path, "/_internal/sync/resolve");
     assert_eq!(
         options.body,
@@ -258,16 +173,16 @@ fn resolution_requires_exclusive_targets_and_matching_confirmation() {
         )
     );
     args.extend(["--recovery", id]);
-    assert!(parse(&args).is_err());
+    assert!(parse_cmd(&args).is_err());
     for confirmation in [
         "--confirm-backup-verified",
         "--confirm-discard-without-backup",
     ] {
         let mut args = base.to_vec();
         args.extend(["--recovery", id, "--target-identity", id]);
-        assert!(parse(&args).is_err());
+        assert!(parse_cmd(&args).is_err());
         args.extend([confirmation, id]);
-        let body = parse(&args).unwrap().body.unwrap();
+        let body = parse_cmd(&args).unwrap().body.unwrap();
         assert_eq!(body["recovery_id"], id);
         assert_eq!(
             body["confirmation"],
@@ -280,44 +195,19 @@ fn resolution_requires_exclusive_targets_and_matching_confirmation() {
         assert!(body.get("conflict_id").is_none());
         assert!(body.get("expected_generation").is_none());
         *args.last_mut().unwrap() = "ffffffffffffffffffffffffffffffff";
-        assert!(parse(&args).is_err());
+        assert!(parse_cmd(&args).is_err());
     }
-    assert!(parse(&base).is_err());
+    assert!(parse_cmd(&base).is_err());
 }
 
 #[test]
 fn waits_send_the_bounded_budget_and_allow_time_for_the_error_response() {
-    let options = parse(&[
-        "wait",
-        "--endpoint",
-        "http://127.0.0.1:4443",
-        "--timeout-ms",
-        "25",
-    ])
-    .unwrap();
+    let options = parse_cmd(&["wait", "--timeout-ms", "25"]).unwrap();
     assert_eq!(options.body, Some(json!({"timeout_ms":25})));
     assert_eq!(options.path, "/_internal/sync/wait");
     assert_eq!(options.timeout, Duration::from_millis(1025));
-    assert!(
-        parse(&[
-            "wait",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--timeout-ms",
-            "0"
-        ])
-        .is_err()
-    );
-    assert!(
-        parse(&[
-            "wait",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--timeout-ms",
-            "60001"
-        ])
-        .is_err()
-    );
+    assert!(parse_cmd(&["wait", "--timeout-ms", "0"]).is_err());
+    assert!(parse_cmd(&["wait", "--timeout-ms", "60001"]).is_err());
 }
 
 #[test]
@@ -354,26 +244,8 @@ fn local_endpoints_reject_credential_redirect_and_metadata_targets() {
     ] {
         assert!(!local_address(value.parse().unwrap()));
     }
-    assert!(
-        parse(&[
-            "status",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--ca-cert",
-            "unused"
-        ])
-        .is_err()
-    );
-    assert!(
-        parse(&[
-            "status",
-            "--endpoint",
-            "http://127.0.0.1:4443",
-            "--timeout-ms",
-            "60001"
-        ])
-        .is_err()
-    );
+    assert!(parse_cmd(&["status", "--ca-cert", "unused"]).is_err());
+    assert!(parse_cmd(&["status", "--timeout-ms", "60001"]).is_err());
 }
 
 fn mock_response(response: Vec<u8>) -> (io::Result<(StatusCode, Value)>, String) {

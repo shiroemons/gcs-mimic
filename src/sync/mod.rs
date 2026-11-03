@@ -6,6 +6,8 @@ mod deletion;
 mod ingest;
 pub mod mapping;
 mod mirror;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod test_support;
 pub use mirror::{Reconciliation, Task, reconcile, start};
 
 #[cfg(test)]
