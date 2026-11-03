@@ -48,6 +48,13 @@ mod tests;
 pub(crate) enum Step {
     /// Before probing a failed or rolled-back publication's reference.
     DiscardProbe,
+    /// Before unlinking a journaled blob.
+    ReclaimUnlink,
+    /// After unlinking a shard's blobs, before its directory sync.
+    #[cfg(unix)]
+    ReclaimSync,
+    /// After durable removal, before committing journal removal.
+    ReclaimForget,
     TransferAccepted,
     TransferComplete,
     TransferCompleted,

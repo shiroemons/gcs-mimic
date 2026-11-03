@@ -474,15 +474,21 @@ pub(super) fn reclaim(
     }
     let path = id.blob_path(data_dir);
     let shard = blob_shard(&path)?;
+    #[cfg(test)]
+    fault::hit(data_dir, Step::ReclaimUnlink).map_err(object_unavailable)?;
     unlink(&path)?;
     #[cfg(unix)]
     if shard.exists() {
+        #[cfg(test)]
+        fault::hit(data_dir, Step::ReclaimSync).map_err(object_unavailable)?;
         sync_dir(shard)?;
     }
     // Windows has no directory fsync; the shard is still resolved so both platforms reject
     // the same malformed blob paths.
     #[cfg(not(unix))]
     let _ = shard;
+    #[cfg(test)]
+    fault::hit(data_dir, Step::ReclaimForget).map_err(object_unavailable)?;
     sql::exec(
         connection,
         "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
@@ -2637,6 +2643,8 @@ impl Catalog {
                             [&id],
                         )?;
                     }
+                    #[cfg(test)]
+                    fault::hit(&fault::database_dir(&transaction), Step::ReclaimForget).map_err(object_unavailable)?;
                     transaction.commit().map_err(object_unavailable)
                 })
                 .await?;

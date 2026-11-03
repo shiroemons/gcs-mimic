@@ -1,6 +1,104 @@
 use super::*;
 use crate::{storage::test_fixtures::bucket, test_support::TestDir};
 
+#[cfg(unix)]
+use crate::storage::catalog::fault::{Crash, Fault};
+
+#[cfg(unix)]
+async fn retired_blob(data: &Path) -> (Catalog, BlobId) {
+    use crate::storage::test_fixtures::{body, permissive_upload};
+    let catalog = Catalog::open(data).await.unwrap();
+    catalog
+        .insert_bucket(bucket("bucket", "project"))
+        .await
+        .unwrap();
+    catalog
+        .put_object(
+            permissive_upload("bucket", "object", 1000),
+            body(vec![Bytes::from_static(b"old")]),
+        )
+        .await
+        .unwrap();
+    let old = catalog
+        .run_upload(|connection| Ok(lookup(connection, "bucket", "object")?.unwrap().blob))
+        .await
+        .unwrap();
+    fault::arm(
+        data,
+        Step::ReclaimUnlink,
+        0,
+        Fault::Io(io::ErrorKind::Other),
+    );
+    catalog
+        .put_object(
+            permissive_upload("bucket", "object", 1000),
+            body(vec![Bytes::from_static(b"new")]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(fault::pending(data), 0);
+    assert_eq!(pending(data), 1);
+    (catalog, old)
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn reclamation_crash_and_power_loss_finish_each_deletion_boundary() {
+    for crash in Crash::ALL {
+        for step in [Step::ReclaimUnlink, Step::ReclaimSync, Step::ReclaimForget] {
+            let data = TestDir::new();
+            let snapshot = TestDir::new();
+            let (catalog, old) = retired_blob(&data.0).await;
+            fault::arm(&data.0, step, 0, crash.fault(snapshot.0.clone()));
+            catalog.reclaim_pending().await.unwrap();
+            assert_eq!(fault::pending(&data.0), 0, "{crash:?} {step:?}");
+            assert_eq!(pending(&snapshot.0), 1);
+            let survives = step == Step::ReclaimUnlink
+                || (step == Step::ReclaimSync && *crash == Crash::PowerLoss);
+            assert_eq!(
+                old.blob_path(&snapshot.0).exists(),
+                survives,
+                "{crash:?} {step:?}"
+            );
+            assert_eq!(fault::catalog_thread_io(&data.0), 0);
+            catalog.close().await.unwrap();
+            let recovered = Catalog::open(&snapshot.0).await.unwrap();
+            assert_eq!(pending(&snapshot.0), 0);
+            assert!(!old.blob_path(&snapshot.0).exists());
+            let (_, mut reader) = recovered
+                .open_object(
+                    crate::storage::test_fixtures::live("bucket", "object"),
+                    Default::default(),
+                    crate::storage::test_fixtures::PERMISSIVE,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                crate::storage::test_fixtures::read_all(&mut reader).await,
+                b"new"
+            );
+            recovered.close().await.unwrap();
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn failed_reclamation_sync_and_forget_leave_the_journal_retryable() {
+    for step in [Step::ReclaimUnlink, Step::ReclaimSync, Step::ReclaimForget] {
+        let data = TestDir::new();
+        let (catalog, old) = retired_blob(&data.0).await;
+        fault::arm(&data.0, step, 0, Fault::Io(io::ErrorKind::Other));
+        assert!(catalog.reclaim_pending().await.is_err());
+        assert_eq!(fault::pending(&data.0), 0);
+        assert_eq!(pending(&data.0), 1);
+        catalog.reclaim_pending().await.unwrap();
+        assert_eq!(pending(&data.0), 0);
+        assert!(!old.blob_path(&data.0).exists());
+        catalog.close().await.unwrap();
+    }
+}
+
 async fn journaled_catalog(data: &Path) -> Catalog {
     let catalog = Catalog::open(data).await.unwrap();
     catalog

@@ -44,7 +44,12 @@ impl BlobBackend {
         for id in ids {
             let path = id.blob_path(root);
             let shard = objects::blob_shard(&path)?.to_owned();
-            match objects::unlink(&path) {
+            let result = (|| {
+                #[cfg(test)]
+                hit_io(root, super::fault::Step::ReclaimUnlink)?;
+                objects::unlink(&path)
+            })();
+            match result {
                 Ok(()) => shards.entry(shard).or_default().push(id),
                 Err(error) => {
                     crate::diagnostics::emit(
@@ -59,16 +64,21 @@ impl BlobBackend {
         let mut removed = Vec::new();
         for (shard, ids) in shards {
             #[cfg(unix)]
-            if shard.exists()
-                && let Err(error) = objects::sync_dir(&shard)
-            {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Warn,
-                    "blob_reclaim_deferred",
-                    serde_json::json!({"message":format!("deferred blob reclaim directory: {error}")}),
-                );
-                failure = Some(object_unavailable(error));
-                continue;
+            if shard.exists() {
+                let result = (|| {
+                    #[cfg(test)]
+                    hit_io(root, super::fault::Step::ReclaimSync)?;
+                    objects::sync_dir(&shard)
+                })();
+                if let Err(error) = result {
+                    crate::diagnostics::emit(
+                        crate::diagnostics::LogLevel::Warn,
+                        "blob_reclaim_deferred",
+                        serde_json::json!({"message":format!("deferred blob reclaim directory: {error}")}),
+                    );
+                    failure = Some(object_unavailable(error));
+                    continue;
+                }
             }
             #[cfg(not(unix))]
             let _ = shard;
@@ -445,7 +455,7 @@ fn unlink_synced(path: &Path, #[cfg(all(test, unix))] data_dir: &Path) -> io::Re
     Ok(())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 fn hit_io(data_dir: &Path, step: super::fault::Step) -> io::Result<()> {
     super::fault::hit(data_dir, step).map_err(|error| match error {
         super::fault::Injected::Io(error) => error,
