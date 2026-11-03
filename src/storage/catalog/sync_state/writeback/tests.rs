@@ -1129,7 +1129,7 @@ async fn writeback_sqlite_enospc_keeps_displaced_bytes_and_retry_captures_actual
     }).await.unwrap();
     assert_eq!(
         writeback.inspect(armed.token.clone()).await.unwrap_err(),
-        Error::Admin(AdminError::DiskFull)
+        Error::Admin(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into()))
     );
     assert_eq!(
         writeback

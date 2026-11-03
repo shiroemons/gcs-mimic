@@ -176,6 +176,46 @@ pub(crate) fn sync_dir(path: &std::path::Path) -> io::Result<()> {
     File::open(path)?.sync_all()
 }
 
+#[derive(Debug)]
+pub(crate) enum CloneFailure {
+    NotCreated(FsError),
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos")),
+        expect(
+            dead_code,
+            reason = "only supported clone platforms can create a destination before failure"
+        )
+    )]
+    Created(FsError),
+}
+
+impl From<io::Error> for CloneFailure {
+    fn from(error: io::Error) -> Self {
+        Self::NotCreated(error.into())
+    }
+}
+
+impl std::fmt::Display for CloneFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotCreated(error) | Self::Created(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for CloneFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::NotCreated(error) | Self::Created(error) => Some(error),
+        }
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+thread_local! {
+    static FAIL_CLONE_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 #[cfg_attr(
     windows,
     expect(
@@ -338,7 +378,7 @@ pub(crate) fn clone_into(
     src: &File,
     directory: &File,
     name: &std::ffi::OsStr,
-) -> Result<(), FsError> {
+) -> Result<(), CloneFailure> {
     validate_name(name)?;
     if !src.metadata()?.is_file() {
         return Err(
@@ -356,38 +396,53 @@ pub(crate) fn clone_into(
                 libc::fclonefileat(src.as_raw_fd(), directory.as_raw_fd(), name.as_ptr(), 0)
             } == 0
             {
-                open_at(directory, &name, FileOpen::Existing)?.sync_all()?;
+                #[cfg(test)]
+                if FAIL_CLONE_SYNC.replace(false) {
+                    return Err(CloneFailure::Created(
+                        io::Error::from(io::ErrorKind::Other).into(),
+                    ));
+                }
+                open_at(directory, &name, FileOpen::Existing)
+                    .and_then(|file| file.sync_all())
+                    .map_err(|error| CloneFailure::Created(error.into()))?;
                 return Ok(());
             }
             let error = io::Error::last_os_error();
             if !copy_fallback(&error) {
                 return Err(error.into());
             }
-            Err(FsError::Unsupported)
+            Err(CloneFailure::NotCreated(FsError::Unsupported))
         }
         #[cfg(target_os = "linux")]
         {
             let dst = open_at(directory, &name, FileOpen::CreateNew)?;
+            #[cfg(test)]
+            if FAIL_CLONE_SYNC.replace(false) {
+                return Err(CloneFailure::Created(
+                    io::Error::from(io::ErrorKind::Other).into(),
+                ));
+            }
             // SAFETY: FICLONE receives the two live regular-file descriptors, with a new empty target.
             if unsafe { libc::ioctl(dst.as_raw_fd(), libc::FICLONE as _, src.as_raw_fd()) } == 0 {
-                dst.sync_all()?;
+                dst.sync_all()
+                    .map_err(|error| CloneFailure::Created(error.into()))?;
                 return Ok(());
             }
             let error = io::Error::last_os_error();
             if !copy_fallback(&error) {
-                return Err(error.into());
+                return Err(CloneFailure::Created(error.into()));
             }
             // SAFETY: only this call owns the newly created target; the component and directory are live.
             if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
-                return Err(io::Error::last_os_error().into());
+                return Err(CloneFailure::Created(io::Error::last_os_error().into()));
             }
-            Err(FsError::Unsupported)
+            Err(CloneFailure::NotCreated(FsError::Unsupported))
         }
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = directory;
-        Err(FsError::Unsupported)
+        Err(CloneFailure::NotCreated(FsError::Unsupported))
     }
 }
 
@@ -404,8 +459,18 @@ pub(crate) fn clone_or_copy_into(
 ) -> Result<CopyMethod, FsError> {
     match clone_into(src, directory, name) {
         Ok(()) => return Ok(CopyMethod::Clone),
-        Err(FsError::Unsupported) => (),
-        Err(error) => return Err(error),
+        Err(CloneFailure::NotCreated(FsError::Unsupported)) => (),
+        Err(CloneFailure::NotCreated(error)) => return Err(error),
+        Err(CloneFailure::Created(error)) => {
+            if let Err(cleanup) = unlink_file_at(directory, name) {
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Error,
+                    "clone_cleanup_failed",
+                    serde_json::json!({"message": cleanup.to_string()}),
+                );
+            }
+            return Err(error);
+        }
     }
     #[cfg(unix)]
     {
@@ -881,6 +946,34 @@ pub(crate) fn read_source_metadata<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn clone_failure_preserves_created_ownership_and_copy_wrapper_cleans_it() {
+        let directory = crate::test_support::TestDir::new();
+        std::fs::write(directory.0.join("source"), b"source").unwrap();
+        let source = File::open(directory.0.join("source")).unwrap();
+        let root = File::open(&directory.0).unwrap();
+        FAIL_CLONE_SYNC.set(true);
+        assert!(matches!(
+            clone_into(&source, &root, "clone".as_ref()),
+            Err(CloneFailure::Created(_))
+        ));
+        assert!(directory.0.join("clone").exists());
+        unlink_file_at(&root, "clone".as_ref()).unwrap();
+        FAIL_CLONE_SYNC.set(true);
+        assert!(clone_or_copy_into(&source, &root, "copy".as_ref()).is_err());
+        assert!(!directory.0.join("copy").exists());
+        std::fs::write(directory.0.join("existing"), b"other owner").unwrap();
+        assert!(matches!(
+            clone_into(&source, &root, "existing".as_ref()),
+            Err(CloneFailure::NotCreated(_))
+        ));
+        assert_eq!(
+            std::fs::read(directory.0.join("existing")).unwrap(),
+            b"other owner"
+        );
+    }
 
     #[test]
     fn source_metadata_reads_only_into_the_dedicated_buffer() {

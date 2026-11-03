@@ -255,7 +255,7 @@ pub struct Publication {
 #[derive(Debug, PartialEq, Eq)]
 pub enum AdminError {
     Busy { retry_after: Duration },
-    DiskFull,
+    DiskFull(IoCause),
     Closed,
     Precondition,
     Hold,
@@ -276,7 +276,7 @@ impl fmt::Display for AdminError {
         f.write_str("administrative operation: ")?;
         match self {
             Self::Busy { retry_after } => write!(f, "Busy {{ retry_after: {retry_after:?} }}"),
-            Self::DiskFull => f.write_str("DiskFull"),
+            Self::DiskFull(_) => f.write_str("DiskFull"),
             Self::Closed => f.write_str("Closed"),
             Self::Precondition => f.write_str("Precondition"),
             Self::Hold => f.write_str("Hold"),
@@ -303,7 +303,7 @@ impl std::error::Error for AdminError {
             Self::BodyAborted(cause) | Self::Backend(cause) | Self::Corrupt(cause) => {
                 cause.source()
             }
-            Self::Io(cause) => cause.source(),
+            Self::Io(cause) | Self::DiskFull(cause) => cause.source(),
             _ => None,
         }
     }
@@ -321,7 +321,7 @@ impl AdminError {
 
     fn from_io(cause: IoCause) -> Self {
         if cause.kind() == io::ErrorKind::StorageFull {
-            Self::DiskFull
+            Self::DiskFull(cause)
         } else {
             Self::Io(cause)
         }

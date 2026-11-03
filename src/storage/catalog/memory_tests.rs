@@ -558,7 +558,7 @@ async fn exhaust_catalog_pages(admin: &admin::Admin) {
             .await
         {
             Ok(_) => {}
-            Err(AdminError::DiskFull) => {
+            Err(AdminError::DiskFull(_)) => {
                 exhausted = true;
                 break;
             }
