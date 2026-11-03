@@ -241,6 +241,15 @@ pub(crate) enum Stop {
     ConflictCapacity,
     IoFailure,
 }
+sql::text_enum!(pub(crate) Stop, "invalid synchronization writeback state", {
+    Ready => "Ready", RecoveryRequired => "RecoveryRequired", ProtectedBody => "ProtectedBody",
+    ConflictCapacity => "ConflictCapacity", IoFailure => "IoFailure",
+});
+impl serde::Serialize for Stop {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
 #[derive(Clone, Debug)]
 pub(crate) struct Status {
     pub reserved_bytes: u128,
@@ -450,13 +459,7 @@ pub(super) fn observation(
 ) -> Result<super::observation::WritebackSummary, Error> {
     let value = status(connection, root)?;
     Ok(super::observation::WritebackSummary {
-        state: match value.stop {
-            Stop::Ready => "Ready",
-            Stop::RecoveryRequired => "RecoveryRequired",
-            Stop::ProtectedBody => "ProtectedBody",
-            Stop::ConflictCapacity => "ConflictCapacity",
-            Stop::IoFailure => "IoFailure",
-        },
+        state: value.stop,
         reserved_bytes: value.reserved_bytes + value.conflicts.reserved_bytes,
         retained_bytes: value.retained_bytes + value.conflicts.retained_bytes,
         entries: value.entries + value.conflicts.entries - value.captured_entries,

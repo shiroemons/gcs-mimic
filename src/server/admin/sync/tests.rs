@@ -775,10 +775,45 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
 }
 
 #[tokio::test]
+async fn unknown_stored_pause_reasons_fail_status_and_findings_with_service_unavailable() {
+    let fixture = Fixture::new(false).await;
+    let status = fixture.status().await;
+    let findings = format!(
+        "/_internal/sync?view=findings&revision={}",
+        status["findings_revision"].as_str().unwrap()
+    );
+    {
+        let connection =
+            rusqlite::Connection::open(fixture._data.0.join("catalog.sqlite3")).unwrap();
+        connection
+            .execute("UPDATE sync_observations SET paused_reason='bogus'", [])
+            .unwrap();
+    }
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+    assert!(matches!(
+        root.observation().await,
+        Err(RootError::Admin(
+            crate::storage::admin::AdminError::Corrupt(_)
+        ))
+    ));
+    for path in ["/_internal/sync", findings.as_str()] {
+        let response = fixture
+            .request("GET", path, b"", None)
+            .await
+            .unwrap_err()
+            .into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body(response).await["error"]["message"], busy().message);
+    }
+    drop(root);
+    fixture.finish().await;
+}
+
+#[tokio::test]
 async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
     let fixture = Fixture::new(false).await;
     let (registration, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
-    root.observation_pause(Some("operator-review".into()))
+    root.observation_pause(Some(PauseReason::ObserverFailure))
         .await
         .unwrap();
     let status = fixture.status().await;
@@ -790,12 +825,12 @@ async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
     assert_eq!(page["total_count"], 1);
     assert_eq!(page["items"][0]["category"], "root-stop");
     assert_eq!(page["items"][0]["reason"], "Paused");
-    assert_eq!(page["items"][0]["detail_code"], "operator-review");
+    assert_eq!(page["items"][0]["detail_code"], "observer-failure");
     assert_eq!(page["items"][0]["scope"], "root");
     assert!(page["items"][0]["finding_id"].is_string());
     assert!(page["items"][0]["remedy"].is_string());
     assert!(page["next_cursor"].is_null());
-    root.observation_pause(Some("changed-in-place".into()))
+    root.observation_pause(Some(PauseReason::IoFailure))
         .await
         .unwrap();
     assert_eq!(

@@ -15,6 +15,8 @@ pub(in crate::storage) const SCHEMA: &str = include_str!("observation/schema.sql
 
 mod stops;
 pub(crate) use stops::PathStop;
+mod types;
+pub(crate) use types::{FindingCategory, PauseReason};
 
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct Summary {
@@ -25,14 +27,14 @@ pub(crate) struct Summary {
     pub pending_writeback: u64,
     pub path_stops: u64,
     pub unresolved_conflicts: u64,
-    pub paused_reason: Option<String>,
-    pub scan_stop: Option<String>,
+    pub paused_reason: Option<PauseReason>,
+    pub scan_stop: Option<PauseReason>,
     pub writeback: Option<WritebackSummary>,
 }
 
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct WritebackSummary {
-    pub state: &'static str,
+    pub state: writeback::Stop,
     pub reserved_bytes: u128,
     pub retained_bytes: u128,
     pub entries: u64,
@@ -50,7 +52,7 @@ pub(crate) struct Item {
     pub kind: i64,
     #[serde(skip)]
     pub ordinal: i64,
-    pub category: String,
+    pub category: FindingCategory,
     pub bucket: Option<String>,
     pub object: Option<String>,
     pub bucket_incarnation: Option<String>,
@@ -93,9 +95,13 @@ sql::integer_enum!(RecoveryPhase, { Protected => 0, DiscardAccepted => 1 });
 mod codec_tests;
 
 fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
-    let category: String = row.get(2)?;
-    let reason: String = row.get(7)?;
-    let recovery = if category == "writeback" && reason == "protected" {
+    let category = row.get(2)?;
+    let reason = if category == FindingCategory::RootStop {
+        row.get::<_, PauseReason>(7)?.as_str().to_owned()
+    } else {
+        row.get::<_, String>(7)?
+    };
+    let recovery = if category == FindingCategory::Writeback && reason == "protected" {
         let bytes: Vec<u8> = row.get(12)?;
         let observed: RetainedProjection = serde_json::from_slice(&bytes)
             .map_err(|error| sql::conversion_error(12, rusqlite::types::Type::Blob, error))?;
@@ -198,13 +204,10 @@ impl RootLease {
             .map_err(RootError::from)
     }
 
-    pub(crate) async fn observation_pause(&self, reason: Option<String>) -> Result<(), RootError> {
-        if reason
-            .as_ref()
-            .is_some_and(|value| value.is_empty() || value.len() > 4096)
-        {
-            return Err(AdminError::Invalid("invalid synchronization stop reason".into()).into());
-        }
+    pub(crate) async fn observation_pause(
+        &self,
+        reason: Option<PauseReason>,
+    ) -> Result<(), RootError> {
         let root = self.status().root_id.as_bytes();
         self.catalog().run_admin(move |connection| {
             let updated=sql::exec(connection, "UPDATE sync_observations SET revision=revision+1,paused_reason=?2 WHERE root_id=?1 AND paused_reason IS NOT ?2", params![root,reason])?;
@@ -219,9 +222,9 @@ impl RootLease {
         deferred: u64,
     ) -> Result<(), RootError> {
         let reason = if unrepresentable > 0 {
-            Some("SourceUnrepresentable")
+            Some(PauseReason::SourceUnrepresentable)
         } else if deferred > 0 {
-            Some("SourceChanging")
+            Some(PauseReason::SourceChanging)
         } else {
             None
         };

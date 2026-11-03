@@ -1,53 +1,53 @@
-use crate::storage::sync_state::observation::{Item, WritebackSummary};
+use crate::storage::sync_state::observation::{FindingCategory, Item, WritebackSummary};
 use serde_json::{Value, json};
 
 pub(super) fn value(item: &Item, prefix: &str, quota: Option<&WritebackSummary>) -> Value {
-    let (reason, remedy) = match (item.category.as_str(), item.reason.as_str()) {
-        ("root-stop", "SourceUnrepresentable") => (
+    let (reason, remedy) = match (item.category, item.reason.as_str()) {
+        (FindingCategory::RootStop, "SourceUnrepresentable") => (
             "SourceUnrepresentable",
             "Inspect source-tree diagnostics; preserve unsafe or unmappable entries, repair their representation and rescan",
         ),
-        ("root-stop", "SourceChanging") => (
+        (FindingCategory::RootStop, "SourceChanging") => (
             "SourceChanging",
             "Finish or stop external writers, restore source access and rescan",
         ),
-        ("root-stop", "ConflictCapacity") => (
+        (FindingCategory::RootStop, "ConflictCapacity") => (
             "ConflictCapacity",
             "Inspect retained conflicts and protected work, resolve exact revisions within quota, then rescan",
         ),
-        ("root-stop", "IoFailure") => (
+        (FindingCategory::RootStop, "IoFailure") => (
             "IoFailure",
             "Free disk space or restore access without deleting pending data, inspect retained work and rescan",
         ),
-        ("root-stop", "RecoveryRequired") => (
+        (FindingCategory::RootStop, "RecoveryRequired") => (
             "RecoveryRequired",
             "Inspect protected workspace entries; preserve them before an exact confirmed recovery discard or registered conflict transfer",
         ),
-        ("mapping", "collision") => (
+        (FindingCategory::Mapping, "collision") => (
             "Conflict",
             "Preserve the edited file; inspect conflicts or restore the previously exported bytes, then rescan",
         ),
-        ("mapping", _) => (
+        (FindingCategory::Mapping, _) => (
             "Unrepresentable",
             "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes",
         ),
-        ("path-stop", "ProtectedDeletion") => (
+        (FindingCategory::PathStop, "ProtectedDeletion") => (
             "ProtectedDeletion",
             "Release the API hold or retention through a supported operation, then delete the restored file again",
         ),
-        ("path-stop", "SourceChanging") => (
+        (FindingCategory::PathStop, "SourceChanging") => (
             "SourceChanging",
             "Finish or stop the external writer, then rescan or wait for a stable snapshot",
         ),
-        ("path-stop", _) => (
+        (FindingCategory::PathStop, _) => (
             "IoFailure",
             "Restore file permissions or free disk space, preserve pending bytes and request a rescan",
         ),
-        ("writeback", _) => (
+        (FindingCategory::Writeback, _) => (
             "RecoveryRequired",
             "Preserve the workspace and current target; inspect this exact pending operation before recovery or explicit disposal",
         ),
-        ("conflict", _) => (
+        (FindingCategory::Conflict, _) => (
             "Conflict",
             "Inspect the retained conflict revision, then restore with the current expected generation or explicitly discard that revision",
         ),
@@ -57,7 +57,7 @@ pub(super) fn value(item: &Item, prefix: &str, quota: Option<&WritebackSummary>)
         ),
     };
     let mut value = json!({"finding_id":format!("{}{:02x}{:016x}",&prefix[..64],item.kind,item.ordinal),"category":item.category,
-        "reason":reason,"scope":if item.category=="root-stop" {"root"} else {"path"},
+        "reason":reason,"scope":if item.category==FindingCategory::RootStop {"root"} else {"path"},
         "bucket":item.bucket,"object":item.object,"bucket_incarnation":item.bucket_incarnation,"generation":item.generation,
         "owner_project":item.owner_project,"detail_code":item.reason,"remedy":remedy,"operation_id":item.operation_id,
         "conflict_id":item.conflict_id,"conflict_revision":item.conflict_revision});

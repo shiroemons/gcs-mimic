@@ -276,7 +276,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                     serde_json::json!({"reason":error.to_string(),"remedy":"Preserve pending data, correct the reported condition and request an explicit rescan"}),
                 );
                 if let Err(error) =
-                    runtime.block_on(root.observation_pause(Some(pause_reason(&error).into())))
+                    runtime.block_on(root.observation_pause(Some(pause_reason(&error))))
                 {
                     diagnostics::emit(
                         LogLevel::Error,
@@ -566,7 +566,8 @@ struct Initialized {
     writeback: Writeback,
 }
 
-fn pause_reason(error: &io::Error) -> &'static str {
+fn pause_reason(error: &io::Error) -> crate::storage::sync_state::observation::PauseReason {
+    use crate::storage::sync_state::observation::PauseReason;
     for cause in std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |cause| {
         cause
             .downcast_ref::<io::Error>()
@@ -584,22 +585,22 @@ fn pause_reason(error: &io::Error) -> &'static str {
             cause.downcast_ref::<writeback::Error>(),
             Some(writeback::Error::Capacity)
         ) {
-            return "ConflictCapacity";
+            return PauseReason::ConflictCapacity;
         }
         if matches!(
             cause.downcast_ref::<writeback::Error>(),
             Some(writeback::Error::RecoveryRequired | writeback::Error::Protected)
         ) {
-            return "RecoveryRequired";
+            return PauseReason::RecoveryRequired;
         }
         if matches!(
             cause.downcast_ref::<AdminError>(),
             Some(AdminError::DiskFull | AdminError::Io(_))
         ) {
-            return "IoFailure";
+            return PauseReason::IoFailure;
         }
     }
-    "observer-failure"
+    PauseReason::ObserverFailure
 }
 
 async fn initialize_live(
