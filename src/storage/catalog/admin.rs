@@ -529,19 +529,15 @@ impl Admin {
             .await
     }
 
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "marks the startup seed complete once"
-    )]
     pub(crate) async fn finish_seed(&self) -> Result<(), AdminError> {
         self.catalog
             .run_admin(|connection| {
-                let transaction = connection.transaction()?;
-                transaction.execute(
+                sql::exec(
+                    connection,
                     "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
                     [],
                 )?;
-                transaction.commit().map_err(unavailable)
+                Ok(())
             })
             .await
     }
@@ -550,7 +546,11 @@ impl Admin {
         &self,
         record: BucketDefinition,
     ) -> Result<EnsureBucket, AdminError> {
-        Ok(self.ensure_buckets(vec![record]).await?.remove(0))
+        self.ensure_buckets(vec![record])
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| AdminError::Backend("missing ensured bucket".into()))
     }
 
     pub(crate) async fn ensure_buckets(

@@ -23,6 +23,21 @@ async fn setup() -> (TestDir, Catalog, Admin) {
     (dir, catalog, admin)
 }
 
+#[tokio::test]
+async fn reset_classifies_every_catalog_table() {
+    let (_dir, catalog, _admin) = setup().await;
+    catalog.run::<_, CatalogError>(|connection| {
+        let tables = connection.prepare_cached("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")?.query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let retained = ["object_generation", "bucket_generation", "policy_revision", "catalog_identity", "change_journal_state", "notification_outbox_state", "pending_blob_deletions"];
+        let cascaded = ["acl_bucket_entries", "acl_object_entries", "bucket_notifications", "bucket_notification_ids"];
+        let cleared = CLEAR.iter().filter_map(|statement| statement.strip_prefix("DELETE FROM ").or_else(|| statement.strip_prefix("UPDATE ").and_then(|value| value.split_whitespace().next()))).collect::<Vec<_>>();
+        let unclassified = tables.iter().filter(|table| !cleared.contains(&table.as_str()) && !retained.contains(&table.as_str()) && !cascaded.contains(&table.as_str())).collect::<Vec<_>>();
+        assert!(unclassified.is_empty(), "tables missing reset policy: {unclassified:?}");
+        Ok(())
+    }).await.unwrap();
+    catalog.close().await.unwrap();
+}
+
 async fn bucket(admin: &Admin) {
     admin
         .ensure_bucket(

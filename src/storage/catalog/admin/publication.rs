@@ -869,6 +869,10 @@ fn publish_entry(
     grant: &AdminGrant,
     clock: &dyn Clock,
 ) -> Result<ObjectRecord, ObjectError> {
+    let now = clock.now();
+    now.duration_since(std::time::UNIX_EPOCH)
+        .map_err(objects_error)?;
+    let micros = super::super::unix_micros(now)?;
     validate_staged_entry(entry)?;
     if let Some(binding) = &entry.staged.sync_resolution {
         super::super::sync_state::conflicts::validate_restore(transaction, binding)?;
@@ -894,7 +898,7 @@ fn publish_entry(
             .map(GenerationCondition::conditions)
             .unwrap_or_default(),
         delete_permission,
-        clock.now(),
+        now,
     )?;
     let staged = &entry.staged;
     if staged.import_identity.is_some()
@@ -918,10 +922,6 @@ fn publish_entry(
         record_staged_state(transaction, staged, &record)?;
         return Ok(record);
     }
-    let now = clock.now();
-    now.duration_since(std::time::UNIX_EPOCH)
-        .map_err(objects_error)?;
-    let micros = super::super::unix_micros(now)?;
     let time = super::super::system_time_micros(micros)?;
     let id = staged
         .id
