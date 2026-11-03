@@ -132,7 +132,9 @@ impl CopyReplay {
         )?;
         self.replay
             .check_incarnation(connection, &self.destination_bucket)?;
-        let incarnation: String = bucket_incarnation(connection, &self.source_bucket)?;
+        let incarnation: String = bucket_incarnation(connection, &self.source_bucket)
+            .optional()?
+            .ok_or(ObjectError::PreconditionFailed)?;
         if incarnation != self.source_incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -333,7 +335,15 @@ pub(super) fn capacity(connection: &Connection, now: i64) -> Result<(), ObjectEr
         "DELETE FROM upload_replays WHERE deadline <= ?1",
         [now],
     )?;
-    let count: i64 = sql::scalar(connection, "SELECT count(*) FROM upload_replays", [])?;
+    check_capacity(connection, now)
+}
+
+fn check_capacity(connection: &Connection, now: i64) -> Result<(), ObjectError> {
+    let count: i64 = sql::scalar(
+        connection,
+        "SELECT count(*) FROM upload_replays WHERE deadline > ?1",
+        [now],
+    )?;
     if count >= CAPACITY {
         return Err(objects::object_unavailable(
             "Upload replay capacity reached; retry after retained requests expire",
@@ -534,7 +544,7 @@ impl Catalog {
                 };
                 let now = unix_micros(clock.now())?;
                 if replay.cached(&transaction, now)?.is_none() {
-                    capacity(&transaction, now)?;
+                    check_capacity(&transaction, now)?;
                     let previous = objects::lookup(&transaction, &bucket, &name)?;
                     objects::check_publication(
                         previous.as_ref(),
@@ -562,6 +572,72 @@ mod tests {
     use super::*;
     use crate::object::ObjectMetadataUpdate;
     use std::collections::BTreeMap;
+
+    #[tokio::test]
+    async fn copy_replay_reports_a_removed_source_bucket_as_a_precondition() {
+        let catalog = Catalog::open_memory_for_server(
+            1024,
+            1024 * 1024,
+            Arc::new(crate::clock::SystemClock),
+            super::super::admin::LocalAdmin::Disabled,
+        )
+        .await
+        .unwrap();
+        for name in ["source", "destination"] {
+            catalog
+                .insert_bucket(crate::storage::test_fixtures::bucket(name, "project"))
+                .await
+                .unwrap();
+        }
+        let replay = catalog
+            .prepare_copy_replay(
+                "destination",
+                "target",
+                Default::default(),
+                &BucketAccess::Permissive,
+                CopyReplaySource {
+                    bucket: "source",
+                    name: "object",
+                    generation: Some(1),
+                    access: &BucketAccess::Permissive,
+                },
+                ReplayInvocation {
+                    token: Some("invocation"),
+                    request: "copy",
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        catalog
+            .run::<_, CatalogError>(|connection| {
+                sql::exec(
+                    connection,
+                    "DELETE FROM bucket_incarnations WHERE bucket='source'",
+                    [],
+                )?;
+                sql::exec(connection, "DELETE FROM buckets WHERE name='source'", [])?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            catalog.copy_replay_record(&replay).await,
+            Err(ObjectError::PreconditionFailed)
+        );
+        catalog.close().await.unwrap();
+    }
+
+    #[test]
+    fn advisory_capacity_counts_only_unexpired_rows_without_writing() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE upload_replays(deadline INTEGER); INSERT INTO upload_replays VALUES (1), (3); CREATE TEMP TRIGGER reject_replay_delete BEFORE DELETE ON upload_replays BEGIN SELECT RAISE(ABORT, 'advisory must not delete'); END;").unwrap();
+        check_capacity(&connection, 2).unwrap();
+        assert_eq!(
+            sql::scalar::<i64>(&connection, "SELECT count(*) FROM upload_replays", []).unwrap(),
+            2
+        );
+    }
 
     #[test]
     fn completion_decoding_and_startup_reject_corrupt_enums_and_json() {
