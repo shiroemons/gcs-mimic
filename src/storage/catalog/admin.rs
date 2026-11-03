@@ -260,6 +260,7 @@ pub enum AdminError {
     Closed,
     Precondition,
     Hold,
+    SeedProjectMismatch,
     SourceChanged { fields: Vec<String> },
     Corrupt(String),
     Io(io::ErrorKind),
@@ -273,6 +274,9 @@ pub enum AdminError {
 }
 impl fmt::Display for AdminError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if matches!(self, Self::SeedProjectMismatch) {
+            return f.write_str("administrative operation: Invalid(\"existing seed bucket belongs to another project\")");
+        }
         write!(f, "administrative operation: {self:?}")
     }
 }
