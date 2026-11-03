@@ -1,5 +1,42 @@
 use super::*;
 
+#[test]
+fn hold_update_states_keep_their_stored_json_presence() {
+    for (hold, expected) in [
+        (None, json!(null)),
+        (Some(false), json!(false)),
+        (Some(true), json!(true)),
+    ] {
+        let mut options = populated_options();
+        options.metadata.event_based_hold = hold;
+        options.metadata.temporary_hold = hold;
+        let encoded = encode_options(&options);
+        assert_eq!(
+            encoded["metadata"].get("eventBasedHold"),
+            Some(&expected),
+            "{hold:?}"
+        );
+        assert_eq!(
+            encoded["metadata"].get("temporaryHold"),
+            Some(&expected),
+            "{hold:?}"
+        );
+        assert_eq!(decode_options(&encoded).unwrap(), options, "{hold:?}");
+        if hold.is_none() {
+            let mut absent = encoded;
+            absent["metadata"]
+                .as_object_mut()
+                .unwrap()
+                .remove("eventBasedHold");
+            absent["metadata"]
+                .as_object_mut()
+                .unwrap()
+                .remove("temporaryHold");
+            assert_eq!(decode_options(&absent).unwrap(), options, "omitted holds");
+        }
+    }
+}
+
 pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
     let identity = crate::auth::Identity::from_upload_snapshot(&json!({"id":"uploader","projects":{"project":["storage.objects.create","storage.objects.delete"]}})).unwrap();
     ResumableOptions {

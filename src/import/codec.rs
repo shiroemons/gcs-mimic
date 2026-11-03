@@ -332,6 +332,34 @@ pub(crate) fn is_unset_time(input: &str) -> Result<bool, &'static str> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn snapshot_acl_and_storage_class_keep_source_spelling() {
+        for class in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ] {
+            let input = format!(
+                r#"{{"StorageClass":"{class}","ACL":[{{"Entity":"allUsers","Role":"READER"}}]}}"#
+            );
+            let attrs: ObjectAttrs = serde_json::from_str(&input).unwrap();
+            let encoded = serde_json::to_value(&attrs).unwrap();
+            assert_eq!(encoded["StorageClass"], class, "{class}");
+            assert_eq!(encoded["ACL"][0]["Role"], "READER", "{class}");
+            let entries = acl(attrs.acl.as_deref(), crate::acl::AclKind::Object)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::to_string(&entries).unwrap(),
+                r#"[{"entity":"allUsers","role":"READER"}]"#,
+                "{class}"
+            );
+        }
+    }
     #[test]
     fn bucket_versioning_distinguishes_absent_and_false_without_accepting_null() {
         for (input, expected) in [

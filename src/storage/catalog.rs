@@ -2135,6 +2135,71 @@ mod tests {
     use super::*;
     use crate::storage::test_fixtures::PERMISSIVE;
 
+    #[tokio::test]
+    async fn acl_and_storage_class_keep_catalog_text() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        for (index, class) in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let name = format!("bucket-{index}");
+            let mut record = crate::storage::test_fixtures::bucket(&name, "project");
+            record.storage_class = class.into();
+            catalog.insert_bucket(record).await.unwrap();
+            for role in ["READER", "WRITER", "OWNER"] {
+                catalog
+                    .change_acl(
+                        crate::acl::AclTarget::Bucket(name.clone()),
+                        acl::AclChange::Upsert {
+                            entity: "allUsers".into(),
+                            role: Some(role.into()),
+                        },
+                        PERMISSIVE,
+                    )
+                    .await
+                    .unwrap();
+                let selected = name.clone();
+                let stored = catalog
+                    .run(move |connection| {
+                        let class: String = sql::scalar(
+                            connection,
+                            "SELECT storage_class FROM buckets WHERE name=?1",
+                            [&selected],
+                        )?;
+                        let entries: String = sql::scalar(
+                            connection,
+                            "SELECT entries FROM acl_bucket_entries WHERE bucket=?1 AND scope='bucket'",
+                            [&selected],
+                        )?;
+                        Ok::<_, CatalogError>((class, entries))
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(stored.0, class, "{class} {role}");
+                let entries: serde_json::Value = serde_json::from_str(&stored.1).unwrap();
+                assert_eq!(
+                    entries
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|entry| entry["entity"] == "allUsers")
+                        .unwrap(),
+                    &serde_json::json!({"entity":"allUsers","role":role}),
+                    "{class} {role}"
+                );
+            }
+        }
+        catalog.close().await.unwrap();
+    }
+
     /// Shutdown must not look like overload: only a full catalog asks the client to retry.
     #[tokio::test]
     async fn a_closed_catalog_reports_closed_and_a_full_one_reports_its_limit() {

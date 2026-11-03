@@ -155,6 +155,29 @@ mod tests {
     use crate::json::{self, Projection};
 
     #[test]
+    fn storage_class_and_holds_keep_legacy_wire_values() {
+        let mut record = crate::grpc::test_support::object_record("bucket", std::time::UNIX_EPOCH);
+        for class in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ] {
+            record.storage_class = class.into();
+            for (hold, expected) in [(None, false), (Some(false), false), (Some(true), true)] {
+                record.event_based_hold = hold;
+                record.temporary_hold = hold;
+                let output = object(&record).unwrap();
+                assert_eq!(output.storage_class, class, "{class} {hold:?}");
+                assert_eq!(output.event_based_hold, Some(expected), "{class} {hold:?}");
+                assert_eq!(output.temporary_hold, expected, "{class} {hold:?}");
+            }
+        }
+    }
+
+    #[test]
     fn md5_hash_matches_json_visibility() {
         let record = crate::grpc::test_support::object_record(
             "example-bucket",

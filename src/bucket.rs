@@ -382,6 +382,38 @@ pub(crate) fn validate_storage_class(storage_class: &str) -> Result<(), CatalogE
     }
 }
 
+#[test]
+fn storage_class_validation_keeps_exact_errors() {
+    for class in [
+        "STANDARD",
+        "NEARLINE",
+        "COLDLINE",
+        "ARCHIVE",
+        "MULTI_REGIONAL",
+        "DURABLE_REDUCED_AVAILABILITY",
+    ] {
+        assert!(validate_storage_class(class).is_ok(), "{class}");
+    }
+    for class in ["REGIONAL", "RAPID"] {
+        assert_eq!(
+            validate_storage_class(class),
+            Err(CatalogError::UnsupportedMetadata(
+                "storageClass requires a region or zone".into()
+            )),
+            "{class}"
+        );
+    }
+    for class in ["standard", "", "UNKNOWN", " STANDARD"] {
+        assert_eq!(
+            validate_storage_class(class),
+            Err(CatalogError::InvalidMetadata(
+                "The storage class you specified is not valid.".into()
+            )),
+            "{class}"
+        );
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum CatalogError {
     AuthenticationAlreadyConfigured,

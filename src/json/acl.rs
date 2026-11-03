@@ -414,6 +414,36 @@ pub(crate) fn add_object_acl_fields(resource: &mut Value, base_url: &str, acl: &
 mod tests {
     use super::*;
 
+    #[test]
+    fn acl_role_errors_keep_validation_order_and_text() {
+        for (kind, input, expected) in [
+            (
+                AclKind::Bucket,
+                r#"[{"entity":"allUsers","role":"reader"}]"#,
+                "Invalid value for: reader is not a valid value",
+            ),
+            (
+                AclKind::Object,
+                r#"[{"entity":"allUsers","role":"WRITER"}]"#,
+                "Invalid value for: WRITER is not a valid value",
+            ),
+            (
+                AclKind::Bucket,
+                r#"[{"entity":"bad","role":"bad"}]"#,
+                "Scope text \"bad\" is not valid.",
+            ),
+            (
+                AclKind::Bucket,
+                r#"[{"entity":"allUsers","role":1}]"#,
+                "ACL must be an array of objects with entity and role strings",
+            ),
+        ] {
+            let error = parse_entries(&serde_json::from_str(input).unwrap(), kind).unwrap_err();
+            assert_eq!(error.status, hyper::StatusCode::BAD_REQUEST, "{input}");
+            assert_eq!(error.message, expected, "{input}");
+        }
+    }
+
     fn route(method: Method, path: &str) -> Option<Result<AclRequest, JsonError>> {
         route_acl(&method, &path.parse().unwrap(), CompatProfile::Native)
     }
