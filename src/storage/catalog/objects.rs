@@ -291,10 +291,6 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
-pub(super) fn blob_path(data_dir: &Path, id: &BlobId) -> PathBuf {
-    id.blob_path(data_dir)
-}
-
 #[cfg(unix)]
 pub(super) fn sync_dir(path: &Path) -> io::Result<()> {
     crate::fsutil::sync_dir(path)?;
@@ -336,7 +332,13 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
                 fault::dir_created(shard);
                 #[cfg(unix)]
                 if let Err(error) = sync_dir(blobs) {
-                    fs::remove_dir(shard)?;
+                    if let Err(cleanup) = fs::remove_dir(shard) {
+                        crate::diagnostics::emit(
+                            crate::diagnostics::LogLevel::Warn,
+                            "blob_shard_cleanup_deferred",
+                            serde_json::json!({"message": cleanup.to_string()}),
+                        );
+                    }
                     return Err(error);
                 }
             }
@@ -454,7 +456,7 @@ pub(super) fn reclaim(
             "deletion journal references a live blob".into(),
         ));
     }
-    let path = blob_path(data_dir, id);
+    let path = id.blob_path(data_dir);
     let shard = blob_shard(&path)?;
     unlink(&path)?;
     #[cfg(unix)]
@@ -503,22 +505,25 @@ pub(super) fn recover(
 }
 
 /// Removes staging entries no active upload or derived transfer still owns.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a recovery scan that runs once at open"
-)]
 fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
     for entry in fs::read_dir(data_dir.join("staging"))? {
         let entry = entry?;
         if os_metadata(&entry) {
             continue;
         }
-        let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1) OR EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0))?;
+        let retained: bool = sql::scalar(
+            connection,
+            "SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1) OR EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id = ?1)",
+            [entry.file_name().to_string_lossy().as_ref()],
+        )?;
         if retained {
             continue;
         }
         unlink(&entry.path()).map_err(|error| {
-            object_unavailable(format!("staging entry {}: {error}", entry.path().display()))
+            object_unavailable(crate::storage::failure::BackendCause::with_source(
+                format!("staging entry {}: {error}", entry.path().display()),
+                error,
+            ))
         })?;
     }
     #[cfg(unix)]
@@ -541,11 +546,10 @@ fn drain_deletion_journal(connection: &Connection, data_dir: &Path) -> Result<()
         }
         for id in ids {
             reclaim(connection, data_dir, &id).map_err(|error| {
-                let reason = match error {
-                    ObjectError::Unavailable(reason) => reason,
-                    error => error.to_string().into(),
-                };
-                object_unavailable(format!("deletion journal blob {id}: {reason}"))
+                object_unavailable(crate::storage::failure::BackendCause::with_source(
+                    format!("deletion journal blob {id}: {error}"),
+                    error,
+                ))
             })?;
         }
     }
@@ -567,7 +571,7 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
             return Ok(());
         }
         for (id, size) in rows {
-            let path = blob_path(data_dir, &id);
+            let path = id.blob_path(data_dir);
             let metadata = fs::symlink_metadata(&path).map_err(|error| {
                 ObjectError::Unavailable(crate::storage::failure::BackendCause::with_source(
                     format!("referenced blob {id}: {error}"),
@@ -607,9 +611,12 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
                 object_unavailable(format!("invalid blob ID {}", blob.path().display()))
             })?;
             let id = id.parse::<BlobId>().map_err(|error| {
-                object_unavailable(format!("blob entry {}: {error}", blob.path().display()))
+                object_unavailable(crate::storage::failure::BackendCause::with_source(
+                    format!("blob entry {}: {error}", blob.path().display()),
+                    error,
+                ))
             })?;
-            let expected = blob_path(data_dir, &id);
+            let expected = id.blob_path(data_dir);
             if expected != blob.path() {
                 return Err(object_unavailable(format!(
                     "blob in wrong shard {}",
@@ -620,7 +627,10 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
             let referenced: bool = blob_referenced(connection, &id)?;
             if !referenced {
                 unlink(&blob.path()).map_err(|error| {
-                    object_unavailable(format!("blob entry {}: {error}", blob.path().display()))
+                    object_unavailable(crate::storage::failure::BackendCause::with_source(
+                        format!("blob entry {}: {error}", blob.path().display()),
+                        error,
+                    ))
                 })?;
             }
         }
@@ -643,7 +653,6 @@ pub(super) enum ReaderData {
     Memory(super::super::memory::Reader),
 }
 
-#[cfg(test)]
 impl ReaderData {
     async fn stream_position(&mut self) -> io::Result<u64> {
         match self {
@@ -701,15 +710,16 @@ impl ObjectReader {
     }
 
     /// Reads up to `limit` leading bytes and rewinds, so a caller can classify the content
-    /// before choosing response headers. Valid only on a reader that has not been advanced;
+    /// before choosing response headers. The selected range and current position are preserved;
     /// it reads one bounded chunk, never the whole object.
     pub(crate) async fn peek_prefix(&mut self, limit: usize) -> io::Result<Bytes> {
+        let offset = self.file.stream_position().await?;
         let remaining = self.remaining;
         let prefix = match self.next_chunk().await? {
             Some(bytes) => bytes.slice(..bytes.len().min(limit)),
             None => Bytes::new(),
         };
-        self.set_range(0, remaining).await?;
+        self.set_range(offset, remaining).await?;
         Ok(prefix)
     }
 
@@ -780,7 +790,7 @@ struct UploadCommit {
     access: BucketAccess,
     principals: Option<super::principals::Profile>,
     mode: super::admin::PublishMode,
-    identity: Option<super::admin::ImportedIdentity>,
+    identity: PublishIdentity,
     owner: OwnerAssignment,
     replay: Option<super::upload_replay::UploadReplay>,
     clock: Arc<dyn Clock>,
@@ -792,6 +802,41 @@ pub(super) enum OwnerAssignment {
     Request,
     Preserve(Option<crate::object::owner::ObjectOwner>),
     Unknown,
+}
+
+/// The authority that fixes a publication's generation and timestamps.
+#[derive(Clone, Copy)]
+pub(super) enum PublishIdentity {
+    Assigned,
+    /// Admin publication validates imported identities against their request before admission.
+    Imported(super::admin::ImportedIdentity),
+}
+
+impl PublishIdentity {
+    fn assignment(self) -> GenerationAssignment {
+        match self {
+            Self::Assigned => GenerationAssignment::Automatic,
+            Self::Imported(identity) => identity.generation().map_or(
+                GenerationAssignment::Automatic,
+                GenerationAssignment::Imported,
+            ),
+        }
+    }
+
+    fn timestamps(self) -> Option<(std::time::SystemTime, std::time::SystemTime)> {
+        match self {
+            Self::Assigned => None,
+            Self::Imported(identity) => Some((identity.time_created(), identity.updated())),
+        }
+    }
+
+    fn checks_past_retention(self) -> bool {
+        matches!(self, Self::Assigned)
+    }
+
+    fn retires_appendable(self) -> bool {
+        !matches!(self, Self::Assigned)
+    }
 }
 
 impl UploadCommit {
@@ -823,13 +868,13 @@ impl UploadCommit {
                 crc32c: self.body.crc32c,
             },
         );
-        if self.identity.is_none() {
+        if self.identity.checks_past_retention() {
             self.metadata.reject_past_retention(time)?;
         }
         self.metadata.clone().apply(&mut record)?;
-        if let Some(identity) = self.identity {
-            record.time_created = identity.time_created();
-            record.updated = identity.updated();
+        if let Some((created, updated)) = self.identity.timestamps() {
+            record.time_created = created;
+            record.updated = updated;
         }
         Ok(record)
     }
@@ -840,14 +885,15 @@ impl UploadCommit {
         let transaction = sql::immediate(connection)?;
         let (storage_class, delete_permission) =
             authorized_bucket(&transaction, &self.bucket, &self.access)?;
-        let fingerprint = self.fingerprint();
-        let replay_now = unix_micros(self.clock.now())?;
-        if let Some(replay) = &self.replay {
+        let now = self.clock.now();
+        let micros = unix_micros(now)?;
+        let fingerprint = self.replay.as_ref().map(|_| self.fingerprint());
+        if let (Some(replay), Some(fingerprint)) = (&self.replay, &fingerprint) {
             replay.check_incarnation(&transaction, &self.bucket)?;
-            if let Some(record) = replay.replay(&transaction, replay_now, &fingerprint)? {
+            if let Some(record) = replay.replay(&transaction, micros, fingerprint)? {
                 return Ok(record);
             }
-            super::upload_replay::capacity(&transaction, replay_now)?;
+            super::upload_replay::capacity(&transaction, micros)?;
         }
         let storage_class = super::bucket_autoclass::object_storage_class(
             &transaction,
@@ -859,12 +905,7 @@ impl UploadCommit {
             Catalog::bucket_settings_in_transaction(&transaction, &self.bucket)?;
         let previous = lookup(&transaction, &self.bucket, &self.name)?;
         // Rechecked under the write lock so a concurrent create cannot be overwritten.
-        check_publication(
-            previous.as_ref(),
-            self.conditions,
-            delete_permission,
-            self.clock.now(),
-        )?;
+        check_publication(previous.as_ref(), self.conditions, delete_permission, now)?;
         let body = &self.body;
         if skip_same(
             self.mode,
@@ -877,12 +918,10 @@ impl UploadCommit {
                 .map(|stored| stored.record)
                 .ok_or(ObjectError::ObjectNotFound);
         }
-        let now = self.clock.now();
-        if self.identity.is_none() {
+        if self.identity.checks_past_retention() {
             now.duration_since(std::time::UNIX_EPOCH)
                 .map_err(object_unavailable)?;
         }
-        let micros = unix_micros(now)?;
         let time = system_time_micros(micros)?;
         let defaults = PublicationDefaults {
             storage_class,
@@ -905,12 +944,7 @@ impl UploadCommit {
             versioning,
             NewVersion {
                 blob_id: self.blob_id,
-                assignment: self
-                    .identity
-                    .and_then(|value| value.generation())
-                    .map_or(GenerationAssignment::Automatic, |value| {
-                        GenerationAssignment::Imported(value)
-                    }),
+                assignment: self.identity.assignment(),
                 micros,
                 origin: super::change_journal::origin(&self.access),
                 notification_mode: NotificationMode::for_access(&self.access),
@@ -924,11 +958,11 @@ impl UploadCommit {
             },
         )?;
         self.finish_metadata(&transaction, &record)?;
-        if let Some(replay) = &self.replay {
+        if let (Some(replay), Some(fingerprint)) = (&self.replay, &fingerprint) {
             replay.store(
                 &transaction,
-                replay_now,
-                &fingerprint,
+                micros,
+                fingerprint,
                 &record,
                 &self.access,
                 None,
@@ -950,7 +984,7 @@ impl UploadCommit {
             record,
         )?;
         // Only a reserved generation can match an appendable row.
-        if self.identity.is_some() {
+        if self.identity.retires_appendable() {
             super::appendable::retire_published(transaction, record, self.backend)?;
         }
         Ok(())
@@ -965,11 +999,10 @@ impl Catalog {
         limit: usize,
         access: &BucketAccess,
     ) -> Result<ObjectListPage, ObjectError> {
-        if !(1..=1000).contains(&limit) {
-            return Err(object_unavailable(
-                "object list limit must be between 1 and 1000",
-            ));
-        }
+        debug_assert!(
+            (1..=1000).contains(&limit),
+            "adapters validate object list limits"
+        );
         let access = access.clone();
         let clock = self.0.clock.clone();
         let soft_deleted = query.soft_deleted;
@@ -1090,7 +1123,11 @@ impl Catalog {
 
     pub(crate) fn admit_object_upload(&self) -> Result<UploadGuard, ObjectError> {
         let activity = self.activity()?;
-        let mut uploads = self.0.uploads.lock().map_err(object_unavailable)?;
+        let mut uploads = self
+            .0
+            .uploads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if uploads.closed || !self.is_healthy() {
             return Err(object_unavailable(
                 crate::storage::failure::BackendFailure::CatalogClosed,
@@ -1116,7 +1153,7 @@ impl Catalog {
             body,
             permit,
             super::admin::PublishMode::Replace,
-            None,
+            PublishIdentity::Assigned,
             OwnerAssignment::Request,
         )
         .await
@@ -1128,7 +1165,7 @@ impl Catalog {
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
         mut permit: UploadGuard,
         mode: super::admin::PublishMode,
-        identity: Option<super::admin::ImportedIdentity>,
+        identity: PublishIdentity,
         owner: OwnerAssignment,
     ) -> Result<ObjectRecord, ObjectError> {
         let ObjectUpload {
@@ -1200,15 +1237,20 @@ impl Catalog {
             if result.is_ok() {
                 catalog.reclaim_after_commit().await;
             }
-            if result.is_err()
+            let needs_discard = result.is_err()
                 || has_replay
                 || matches!(
                     mode,
                     super::admin::PublishMode::SkipIfSameHash
                         | super::admin::PublishMode::InheritAndSkipIfSameHash
-                )
+                );
+            if needs_discard && let Err(error) = catalog.discard_unreferenced_stage(stage, id).await
             {
-                catalog.discard_unreferenced_stage(stage, id).await?;
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Warn,
+                    "upload_cleanup_deferred",
+                    serde_json::json!({"message": format!("deferred upload cleanup: {error}")}),
+                );
             }
             result
         })
@@ -1224,6 +1266,9 @@ impl Catalog {
         let backend = self.0.backend.clone();
         // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
         self.run_upload(move |connection| {
+            #[cfg(all(test, unix))]
+            fault::hit(&fault::database_dir(connection), Step::AdminCleanupSync)
+                .map_err(object_unavailable)?;
             if !backend.is_memory() {
                 unlink(&stage)?;
             }
@@ -1333,13 +1378,7 @@ impl Catalog {
                     entries,
                     &access,
                     principals.as_ref(),
-                ).map_err(|error| match error {
-                    CatalogError::Forbidden => ObjectError::Forbidden,
-                    CatalogError::PublicAccessPrevention => ObjectError::PublicAccessPrevention,
-                    CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
-                    CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason),
-                    error => object_unavailable(error),
-                })?;
+                ).map_err(crate::storage::failure::object_access_error)?;
             }
             let previous_retention = record.retention;
             let previous_event_hold = record.event_based_hold;
@@ -1550,18 +1589,7 @@ pub(super) enum UploadSink {
     Memory(super::super::memory::Stage),
 }
 
-pub(super) async fn write_body(
-    file: &mut UploadSink,
-    expected: ExpectedHashes,
-    max_bytes: u64,
-    body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
-    cancellation: oneshot::Receiver<()>,
-    catalog: &Catalog,
-) -> Result<(u64, [u8; 16], u32, [u8; 32]), ObjectError> {
-    write_stream(file, expected, max_bytes, body, cancellation, catalog).await
-}
-
-async fn write_stream(
+pub(super) async fn write_stream(
     file: &mut UploadSink,
     mut expected: ExpectedHashes,
     max_bytes: u64,
@@ -2108,11 +2136,8 @@ pub(super) fn authorized_bucket(
     )
     .optional()?
     .ok_or(ObjectError::BucketNotFound)?;
-    let delete_permission =
-        super::check_access(connection, bucket, &project, access).map_err(|error| match error {
-            CatalogError::Forbidden => ObjectError::Forbidden,
-            error => object_unavailable(error),
-        })?;
+    let delete_permission = super::check_access(connection, bucket, &project, access)
+        .map_err(crate::storage::failure::object_access_error)?;
     Ok((storage_class, delete_permission))
 }
 
@@ -2690,6 +2715,136 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::UNIX_EPOCH;
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn upload_cleanup_failure_preserves_success_and_precondition_error() {
+        let data = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&data.0).await.unwrap();
+        create_bucket(&catalog, "project").await;
+        let original = put(&catalog, "object", b"body").await;
+        fault::arm(
+            &data.0,
+            Step::AdminCleanupSync,
+            0,
+            fault::Fault::Io(io::ErrorKind::Other),
+        );
+        let result = catalog
+            .put_object_with_mode(
+                permissive_upload("bucket", "object", 1000),
+                body(b"body"),
+                catalog.admit_object_upload().unwrap(),
+                super::super::admin::PublishMode::SkipIfSameHash,
+                PublishIdentity::Assigned,
+                OwnerAssignment::Request,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, original);
+        assert_eq!(fault::pending(&data.0), 0);
+        let mut upload = permissive_upload("bucket", "object", 1000);
+        upload.conditions.if_generation_match = Some(0);
+        fault::arm(
+            &data.0,
+            Step::AdminCleanupSync,
+            0,
+            fault::Fault::Io(io::ErrorKind::Other),
+        );
+        assert_eq!(
+            catalog
+                .put_object_prechecked(upload, body(b"new"), catalog.admit_object_upload().unwrap())
+                .await,
+            Err(ObjectError::PreconditionFailed)
+        );
+        assert_eq!(fault::pending(&data.0), 0);
+        for step in [Step::BodyWrite, Step::BodyFlush, Step::BodySync] {
+            fault::arm(
+                &data.0,
+                step,
+                0,
+                fault::Fault::Io(io::ErrorKind::StorageFull),
+            );
+            fault::arm(
+                &data.0,
+                Step::AdminCleanupSync,
+                0,
+                fault::Fault::Io(io::ErrorKind::PermissionDenied),
+            );
+            let error = catalog
+                .put_object_prechecked(
+                    permissive_upload("bucket", "object", 1000),
+                    body(b"new"),
+                    catalog.admit_object_upload().unwrap(),
+                )
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, ObjectError::Io(ref cause) if cause.kind() == io::ErrorKind::StorageFull),
+                "{step:?}: {error}"
+            );
+            assert_eq!(fault::pending(&data.0), 0, "{step:?}");
+        }
+        assert_eq!(
+            catalog
+                .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+                .await
+                .unwrap(),
+            original
+        );
+        catalog.close().await.unwrap();
+        let recovered = Catalog::open(&data.0).await.unwrap();
+        assert_eq!(fs::read_dir(data.0.join("staging")).unwrap().count(), 0);
+        recovered.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn upload_publication_reads_the_clock_once() {
+        struct CountingClock(AtomicUsize);
+        impl Clock for CountingClock {
+            fn now(&self) -> std::time::SystemTime {
+                UNIX_EPOCH
+                    + std::time::Duration::from_secs(
+                        1 + self.0.fetch_add(1, Ordering::Relaxed) as u64,
+                    )
+            }
+        }
+        let data = crate::test_support::TestDir::new();
+        let clock = Arc::new(CountingClock(AtomicUsize::new(0)));
+        let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+            .await
+            .unwrap();
+        create_bucket(&catalog, "project").await;
+        clock.0.store(0, Ordering::Relaxed);
+        let record = catalog
+            .put_object_prechecked(
+                permissive_upload("bucket", "object", 1000),
+                body(b"body"),
+                catalog.admit_object_upload().unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(clock.0.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            record.time_created,
+            UNIX_EPOCH + std::time::Duration::from_secs(1)
+        );
+        catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn poisoned_upload_counter_remains_usable() {
+        let data = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&data.0).await.unwrap();
+        let other = catalog.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = other.0.uploads.lock().unwrap();
+            panic!("injected upload counter poison");
+        })
+        .join();
+        drop(catalog.admit_object_upload().unwrap());
+        assert!(catalog.is_healthy());
+        catalog.close().await.unwrap();
+    }
+
     /// # Safety
     /// `counter` must point to a live, aligned AtomicUsize whenever SQLite can invoke this callback.
     #[expect(
@@ -2800,6 +2955,8 @@ mod tests {
         assert!(reader.next_chunk().await.unwrap().is_none());
         assert_eq!(reader.file.stream_position().await.unwrap(), size);
         reader.set_range(size - 3, 2).await.unwrap();
+        assert_eq!(reader.peek_prefix(1).await.unwrap(), b"e"[..]);
+        assert_eq!(reader.file.stream_position().await.unwrap(), size - 3);
         assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"en"[..]);
         assert!(reader.next_chunk().await.unwrap().is_none());
         assert_eq!(reader.file.stream_position().await.unwrap(), size - 1);
@@ -2828,7 +2985,7 @@ mod tests {
         let mut file = UploadSink::Disk(tokio::fs::File::open(&blob.0).await.unwrap());
         let body = crate::storage::test_fixtures::body(vec![Bytes::from_static(b"tail")]);
         let (_cancel, cancellation) = oneshot::channel();
-        let result = write_body(
+        let result = write_stream(
             &mut file,
             ExpectedHashes::default(),
             1024,

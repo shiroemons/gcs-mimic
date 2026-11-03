@@ -26,16 +26,17 @@ pub(super) fn purge_expired(
     now: i64,
 ) -> Result<(), ObjectError> {
     let transaction = sql::immediate(connection)?;
-    sql::exec(
-        &transaction,
-        "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100",
-        params![bucket, now],
-    )?;
-    sql::exec(
-        &transaction,
-        "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100)",
-        params![bucket, now],
-    )?;
+    let ids = transaction.prepare_cached(
+        "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time, name, generation LIMIT 100) RETURNING blob_id",
+    )?.query_map(params![bucket, now], |row| row.get::<_, crate::storage::BlobId>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for id in ids {
+        sql::exec(
+            &transaction,
+            "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",
+            [id],
+        )?;
+    }
     transaction.commit().map_err(object_unavailable)
 }
 
@@ -238,6 +239,16 @@ mod tests {
             INSERT INTO objects SELECT 'bucket', 'item', n, printf('%032x',n), 1, 10 FROM entries;
             INSERT INTO objects VALUES('other','item',202,'other',1,10),('bucket','later',203,'later',1,20);").unwrap();
         purge_expired(&mut connection, "bucket", 10).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM objects JOIN pending_blob_deletions USING(blob_id)",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
         let remaining: i64 = connection
             .query_row("SELECT count(*) FROM objects", [], |row| row.get(0))
             .unwrap();
@@ -262,6 +273,43 @@ mod tests {
                     .get::<_, i64>(0))
                 .unwrap(),
             pending
+        );
+    }
+
+    #[test]
+    fn soft_delete_expiry_journals_exactly_the_deleted_rows() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE objects(bucket TEXT, name TEXT, generation INTEGER, blob_id TEXT PRIMARY KEY, soft_delete_time INTEGER, hard_delete_time INTEGER);
+            CREATE TABLE pending_blob_deletions(blob_id TEXT PRIMARY KEY);
+            WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 201)
+            INSERT INTO objects SELECT 'bucket', 'item', n, printf('%032x',n), 1, 10 FROM entries;
+            CREATE TRIGGER change_expiry AFTER INSERT ON pending_blob_deletions BEGIN UPDATE objects SET hard_delete_time=20 WHERE blob_id=NEW.blob_id; END;").unwrap();
+        purge_expired(&mut connection, "bucket", 10).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM objects JOIN pending_blob_deletions USING(blob_id)",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM objects", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            101
+        );
+        connection.execute_batch("CREATE TRIGGER reject_journal BEFORE INSERT ON pending_blob_deletions BEGIN SELECT RAISE(ABORT,'journal rejected'); END;").unwrap();
+        assert!(purge_expired(&mut connection, "bucket", 10).is_err());
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM objects", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            101
         );
     }
 }

@@ -1030,12 +1030,7 @@ pub(in crate::storage::catalog) fn apply_acl(
             access,
             None,
         )
-        .map_err(|error| match error {
-            CatalogError::Forbidden => ObjectError::Forbidden,
-            CatalogError::PublicAccessPrevention => ObjectError::PublicAccessPrevention,
-            CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
-            error => objects_error(error),
-        })?;
+        .map_err(crate::storage::failure::object_access_error)?;
     }
     Ok(())
 }

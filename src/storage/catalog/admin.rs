@@ -753,7 +753,10 @@ impl Admin {
                     _activity: activity,
                 },
                 request.mode,
-                identity,
+                identity.map_or(
+                    objects::PublishIdentity::Assigned,
+                    objects::PublishIdentity::Imported,
+                ),
                 if identity.is_some() {
                     objects::OwnerAssignment::Unknown
                 } else {

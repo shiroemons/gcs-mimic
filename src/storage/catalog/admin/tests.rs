@@ -358,7 +358,10 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
             let transaction = connection.transaction().unwrap();
             for index in 0..140 {
                 let id = format!("{index:032x}");
-                let path = objects::blob_path(&data_dir, &id.parse().unwrap());
+                let path = id
+                    .parse::<crate::storage::BlobId>()
+                    .unwrap()
+                    .blob_path(&data_dir);
                 fs::create_dir_all(path.parent().unwrap()).unwrap();
                 fs::write(path, b"retired").unwrap();
                 transaction
