@@ -3,104 +3,25 @@
 
 use std::{fs::File, io};
 
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix as imp;
+#[cfg(not(unix))]
+mod unsupported;
+pub(crate) use imp::{create_regular_at, directory_at, unlink_file_at};
+pub use imp::{
+    directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
+};
+#[cfg(not(unix))]
+use unsupported as imp;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CopyMethod {
     Clone,
     #[cfg(target_os = "linux")]
     CopyFileRange,
     ReadWrite,
-}
-
-/// Returns an exact-spelling keyset page without following directory entries.
-#[cfg_attr(
-    unix,
-    expect(
-        unsafe_code,
-        reason = "openat, fdopendir and readdir have no safe std equivalent for a pinned descriptor"
-    )
-)]
-pub fn directory_names_after(
-    directory: &File,
-    after: Option<&std::ffi::OsStr>,
-    limit: usize,
-) -> io::Result<Vec<std::ffi::OsString>> {
-    if !(1..=256).contains(&limit) {
-        return Err(io::ErrorKind::InvalidInput.into());
-    }
-    #[cfg(unix)]
-    {
-        use std::{
-            ffi::{CStr, OsString},
-            os::{fd::AsRawFd, unix::ffi::OsStrExt},
-        };
-        // SAFETY: the descriptor is live and the literal is a terminated relative directory name.
-        let fd = unsafe {
-            libc::openat(
-                directory.as_raw_fd(),
-                c".".as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-            )
-        };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: fd is newly owned; fdopendir takes it only on success.
-        let stream = unsafe { libc::fdopendir(fd) };
-        if stream.is_null() {
-            let error = io::Error::last_os_error();
-            // SAFETY: fdopendir failed, leaving this descriptor owned here.
-            unsafe {
-                libc::close(fd);
-            }
-            return Err(error);
-        }
-        struct Directory(*mut libc::DIR);
-        impl Drop for Directory {
-            fn drop(&mut self) {
-                // SAFETY: this guard uniquely owns the live directory stream.
-                unsafe {
-                    libc::closedir(self.0);
-                }
-            }
-        }
-        let stream = Directory(stream);
-        let mut names = std::collections::BTreeSet::new();
-        let mut inspected = 0;
-        loop {
-            clear_errno();
-            // SAFETY: stream remains live and iteration is confined to this thread.
-            let entry = unsafe { libc::readdir(stream.0) };
-            if entry.is_null() {
-                let error = io::Error::last_os_error();
-                if error.raw_os_error().is_some_and(|code| code != 0) {
-                    return Err(error);
-                }
-                break;
-            }
-            // SAFETY: readdir returned a live entry with a NUL-terminated name until the next call.
-            let bytes = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
-            if matches!(bytes, b"." | b"..") {
-                continue;
-            }
-            inspected += 1;
-            if inspected > 10_000 || bytes.len() > 4096 {
-                return Err(io::ErrorKind::InvalidData.into());
-            }
-            let name = std::ffi::OsStr::from_bytes(bytes);
-            if after.is_none_or(|after| name > after) {
-                names.insert(OsString::from(name));
-                if names.len() > limit {
-                    names.pop_last();
-                }
-            }
-        }
-        Ok(names.into_iter().collect())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (directory, after);
-        Err(io::ErrorKind::Unsupported.into())
-    }
 }
 
 /// `readdir` signals both the end of the stream and a failure with a null entry and sets
@@ -139,66 +60,6 @@ fn clear_errno() {
     }
 }
 
-/// Checks effective write access to the pinned directory without creating an entry.
-#[cfg_attr(
-    unix,
-    expect(
-        unsafe_code,
-        reason = "faccessat on a pinned descriptor has no safe std equivalent"
-    )
-)]
-pub fn directory_writable(directory: &File) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: the live descriptor and terminated dot name select the pinned directory.
-        if unsafe {
-            libc::faccessat(
-                directory.as_raw_fd(),
-                c".".as_ptr(),
-                libc::W_OK,
-                libc::AT_EACCESS,
-            )
-        } != 0
-        {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = directory;
-        Err(io::ErrorKind::Unsupported.into())
-    }
-}
-
-/// Removes one descriptor-relative name without following a symlink destination.
-#[cfg_attr(
-    unix,
-    expect(
-        unsafe_code,
-        reason = "unlinkat on a pinned descriptor has no safe std equivalent"
-    )
-)]
-pub(crate) fn unlink_file_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
-    validate_name(name)?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        let name = component(name)?;
-        // SAFETY: a validated single component is relative to the live directory descriptor.
-        if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        directory.sync_all()
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = directory;
-        Err(io::ErrorKind::Unsupported.into())
-    }
-}
-
 pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
@@ -210,103 +71,11 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
     options.open(path)
 }
 
-/// Pins the selected directory without following a replacement symlink.
-pub fn open_directory_nofollow(path: &std::path::Path) -> io::Result<File> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        // Trailing separators/dots otherwise make the OS follow a final symlink.
-        let path: std::path::PathBuf = path.components().collect();
-        std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(path)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        Err(io::ErrorKind::Unsupported.into())
-    }
-}
-
-/// Opens only a regular single-component entry under the pinned directory.
-pub fn open_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<File> {
-    #[cfg(unix)]
-    {
-        open_at(directory, &component(name)?, FileOpen::Existing)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (directory, name);
-        Err(io::ErrorKind::Unsupported.into())
-    }
-}
-
-pub(crate) fn create_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<File> {
-    #[cfg(unix)]
-    {
-        open_at(directory, &component(name)?, FileOpen::CreateNew)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (directory, name);
-        Err(io::ErrorKind::Unsupported.into())
-    }
-}
-
 /// Whether a directory helper may create a missing directory or must find an existing one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DirectoryOpen {
     Existing,
     CreateIfMissing,
-}
-
-/// Opens a single directory component, creating it only when explicitly requested.
-#[cfg_attr(
-    unix,
-    expect(
-        unsafe_code,
-        reason = "mkdirat and openat on a pinned descriptor have no safe std equivalent"
-    )
-)]
-pub(crate) fn directory_at(
-    directory: &File,
-    name: &std::ffi::OsStr,
-    open: DirectoryOpen,
-) -> io::Result<File> {
-    #[cfg(unix)]
-    {
-        use std::os::fd::{AsRawFd, FromRawFd};
-        let name = component(name)?;
-        if open == DirectoryOpen::CreateIfMissing {
-            // SAFETY: name is one validated component under the live directory descriptor.
-            let result = unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o700) };
-            if result != 0 {
-                let error = io::Error::last_os_error();
-                if error.kind() != io::ErrorKind::AlreadyExists {
-                    return Err(error);
-                }
-            }
-        }
-        // SAFETY: name is terminated and the parent descriptor remains live.
-        let fd = unsafe {
-            libc::openat(
-                directory.as_raw_fd(),
-                name.as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            )
-        };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: successful openat transfers exactly one owned descriptor.
-        Ok(unsafe { File::from_raw_fd(fd) })
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (directory, name, open);
-        Err(io::ErrorKind::Unsupported.into())
-    }
 }
 
 /// Walks an exact relative spelling without following redirects; creation syncs each parent.
