@@ -150,6 +150,29 @@ pub(crate) enum Fault {
     PowerLoss(PathBuf),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Crash {
+    Abort,
+    #[cfg(unix)]
+    PowerLoss,
+}
+
+impl Crash {
+    pub(crate) const ALL: &[Self] = &[
+        Self::Abort,
+        #[cfg(unix)]
+        Self::PowerLoss,
+    ];
+
+    pub(crate) fn fault(self, path: PathBuf) -> Fault {
+        match self {
+            Self::Abort => Fault::Snapshot(path),
+            #[cfg(unix)]
+            Self::PowerLoss => Fault::PowerLoss(path),
+        }
+    }
+}
+
 struct Armed {
     data_dir: PathBuf,
     step: Step,

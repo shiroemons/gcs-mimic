@@ -31,8 +31,15 @@ fn blob_count(dir: &std::path::Path) -> usize {
 }
 
 #[cfg(unix)]
-async fn cleanup_snapshot(power_loss: bool, synced: bool) {
-    use crate::storage::catalog::fault::{self, Fault, Step};
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DirectorySync {
+    Pending,
+    Complete,
+}
+
+#[cfg(unix)]
+async fn cleanup_snapshot(crash: crate::storage::catalog::fault::Crash, sync: DirectorySync) {
+    use crate::storage::catalog::fault::{self, Crash, Step};
     let (dir, catalog, admin, _, _) = setup().await;
     let staged = admin
         .stage_from_file(
@@ -45,48 +52,51 @@ async fn cleanup_snapshot(power_loss: bool, synced: bool) {
     let id = staged.id.unwrap();
     catalog.0.backend.publish_draft(&id).unwrap();
     let snapshot = crate::test_support::TestDir::new();
-    let fault = if power_loss {
-        Fault::PowerLoss(snapshot.0.clone())
-    } else {
-        Fault::Snapshot(snapshot.0.clone())
-    };
-    catalog.inject(Step::AfterCommit, 0, fault);
-    if synced {
+    catalog.inject(Step::AfterCommit, 0, crash.fault(snapshot.0.clone()));
+    if sync == DirectorySync::Complete {
         cleanup(&catalog, id).await.unwrap();
     } else {
         catalog.0.backend.remove(&id).unwrap();
     }
     // This explicit trigger snapshots cleanup, independently of publication transactions.
     fault::hit(&dir.0, Step::AfterCommit).unwrap();
-    assert_eq!(catalog.pending_faults(), 0);
+    assert_eq!(catalog.pending_faults(), 0, "{crash:?} {sync:?}");
     let path = id.blob_path(&snapshot.0);
     let exists = path.exists();
     let bytes = exists.then(|| fs::read(&path).unwrap());
     staged.discard().await.unwrap();
     catalog.close().await.unwrap();
-    assert_eq!(exists, power_loss && !synced);
+    assert_eq!(
+        exists,
+        crash == Crash::PowerLoss && sync == DirectorySync::Pending,
+        "{crash:?} {sync:?}"
+    );
     if let Some(bytes) = bytes {
-        assert_eq!(bytes, b"private bytes");
+        assert_eq!(bytes, b"private bytes", "{crash:?} {sync:?}");
     }
     let recovered = Catalog::open(&snapshot.0).await.unwrap();
-    assert_eq!(blob_count(&snapshot.0), 0);
-    assert_eq!(fs::read_dir(snapshot.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(blob_count(&snapshot.0), 0, "{crash:?} {sync:?}");
+    assert_eq!(
+        fs::read_dir(snapshot.0.join("staging")).unwrap().count(),
+        0,
+        "{crash:?} {sync:?}"
+    );
     recovered.close().await.unwrap();
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn cleanup_unlink_is_volatile_until_directory_sync() {
-    for power_loss in [false, true] {
-        cleanup_snapshot(power_loss, false).await;
+    for &crash in crate::storage::catalog::fault::Crash::ALL {
+        cleanup_snapshot(crash, DirectorySync::Pending).await;
     }
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn cleanup_directory_sync_survives_crash_and_power_loss() {
-    for power_loss in [false, true] {
-        cleanup_snapshot(power_loss, true).await;
+    for &crash in crate::storage::catalog::fault::Crash::ALL {
+        cleanup_snapshot(crash, DirectorySync::Complete).await;
     }
 }
 
