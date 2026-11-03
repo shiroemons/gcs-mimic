@@ -150,26 +150,6 @@ impl Catalog {
         .await
     }
 
-    pub(crate) async fn authorize_object_snapshot(
-        &self,
-        record: &ObjectRecord,
-        access: &BucketAccess,
-    ) -> Result<(), ObjectError> {
-        let record = record.clone();
-        let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            authorize_generation(
-                &transaction,
-                &record.bucket,
-                &record.name,
-                record.generation,
-                &access,
-            )
-        })
-        .await
-    }
-
     /// The bucket's project is verified in the same call that resolves the generation and
     /// opens its blob, so the returned reader never belongs to an unauthorized bucket.
     /// Callers without a customer-supplied key cannot open objects encrypted with one.

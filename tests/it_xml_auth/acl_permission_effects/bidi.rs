@@ -135,7 +135,7 @@ async fn bidi_read_handle_reauthorizes_fixed_generation_for_each_new_rpc() {
 }
 
 #[tokio::test]
-async fn bidi_read_iam_handle_keeps_its_opened_snapshot_after_generation_deletion() {
+async fn bidi_read_iam_handle_rejects_a_removed_generation() {
     let data = TestDir::new();
     let inputs = TestDir::new();
     let server = Server::start(&data, &inputs, "disk");
@@ -159,6 +159,7 @@ async fn bidi_read_iam_handle_keeps_its_opened_snapshot_after_generation_deletio
     assert_eq!(denied.0, "7");
     assert!(denied.2.is_empty());
     let resumed = read(&server, "admin", Some(&handle)).await;
-    assert_eq!(resumed.0, "0");
-    assert_eq!(resumed.2, body);
+    assert_eq!(resumed.0, "5");
+    assert!(resumed.2.is_empty());
+    assert_eq!(read(&server, "admin", Some(&handle)).await.0, "9");
 }

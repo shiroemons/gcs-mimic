@@ -1447,6 +1447,17 @@
       "required_resolution": "Observe Cloud Storage for a read_mask of only checksums.md5_hash on a composed object (and for the ReadObject metadata. form), then match the result."
     },
     {
+      "id": "SPEC-GRPC-READ-HANDLES",
+      "title": "Read handle lifetime and behavior after generation removal need provider evidence",
+      "status": "OPEN",
+      "affected_features": ["RPC-STORAGE-016", "BEHAVIOR-RPC-004"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-03",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Local read handles contain bucket/name/generation, the issued size bound and owning project, not readers or blob reservations. The local FIFO holds at most 1024 handles for ten minutes of the injected clock. Resume reopens and authorizes that generation; deletion or nonversioned replacement returns NOT_FOUND and removes the handle, while an active stream retains its original reader. An expired, evicted or removed handle returns FAILED_PRECONDITION. Appendable handles keep their issued size after later flush/finalization. The provider lifetime, capacity and removed-generation behavior have not been observed.",
+      "required_resolution": "Obtain authoritative clarification or authorized provider evidence for expiry and removed-generation reconnection before claiming provider-exact read-handle behavior. Keep the local lifetime, status and resource limits explicit."
+    },
+    {
       "id": "LOCAL-RETENTION-WINDOWS-TICK",
       "title": "Object retention times keep only whole 100 ns ticks on Windows",
       "status": "OPEN",
