@@ -54,10 +54,10 @@ async fn setup_with_clock(
     catalog
 }
 
-fn body(end: BodyEnd) -> mpsc::Receiver<Result<UploadChunk, std::io::Error>> {
+fn body(bytes: &'static [u8], end: BodyEnd) -> mpsc::Receiver<Result<UploadChunk, std::io::Error>> {
     let (sender, receiver) = mpsc::channel(2);
     sender
-        .try_send(Ok(UploadChunk::Data(Bytes::from_static(b"data"))))
+        .try_send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
         .unwrap();
     if matches!(end, BodyEnd::Complete) {
         sender.try_send(Ok(UploadChunk::End)).unwrap();
@@ -76,7 +76,7 @@ async fn put(
                 conditions: condition,
                 ..permissive_upload("test-bucket", "value", 1024)
             },
-            body(end),
+            body(b"data", end),
         )
         .await
 }
@@ -585,7 +585,7 @@ async fn ram_full_catalog_resets_many_objects_without_growing_a_deletion_journal
                 &bucket,
                 &admin::ObjectName::new(format!("object-{index:04}")).unwrap(),
                 publication(1024),
-                body(BodyEnd::Complete),
+                body(b"data", BodyEnd::Complete),
             )
             .await
             .unwrap();

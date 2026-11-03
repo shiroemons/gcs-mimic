@@ -27,14 +27,6 @@ async fn part(
     let lease = catalog
         .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
         .await?;
-    let (sender, body) = mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
-        .unwrap();
-    if matches!(end, BodyEnd::Complete) {
-        sender.try_send(Ok(UploadChunk::End)).unwrap();
-    }
-    drop(sender);
     catalog
         .put_xml_part(
             lease,
@@ -43,7 +35,7 @@ async fn part(
                 expected: Default::default(),
                 max_bytes: 1024,
             },
-            body,
+            body(bytes, end),
         )
         .await
 }
