@@ -182,16 +182,7 @@ fn generate_access_id() -> Result<String, CatalogError> {
 }
 
 fn generate_secret() -> Result<String, CatalogError> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes = random_bytes::<SECRET_BYTES>()?;
-    let mut secret = String::with_capacity(SECRET_BYTES / 3 * 4);
-    for chunk in bytes.as_chunks::<3>().0 {
-        let value = u32::from(chunk[0]) << 16 | u32::from(chunk[1]) << 8 | u32::from(chunk[2]);
-        for shift in [18, 12, 6, 0] {
-            secret.push(char::from(ALPHABET[(value >> shift & 63) as usize]));
-        }
-    }
-    Ok(secret)
+    Ok(crate::base64::encode(&random_bytes::<SECRET_BYTES>()?))
 }
 
 impl Catalog {
