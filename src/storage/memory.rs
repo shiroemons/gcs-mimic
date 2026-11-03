@@ -12,6 +12,7 @@ use std::{
 
 const CHUNK_OVERHEAD: u64 = 128;
 const BLOCK_SIZE: u64 = 64 * 1024;
+static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
 struct Budget {
     limit: u64,
@@ -94,6 +95,7 @@ impl Drop for Reservation {
 }
 
 pub(super) struct Store {
+    pub(super) id: u64,
     budget: Arc<Budget>,
     blobs: Mutex<HashMap<String, Arc<Blob>>>,
     drafts: Mutex<HashMap<String, Box<Stage>>>,
@@ -119,6 +121,7 @@ pub(super) struct Stage {
 impl Store {
     pub(super) fn new(limit: u64) -> Arc<Self> {
         Arc::new(Self {
+            id: NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed),
             budget: Arc::new(Budget {
                 limit,
                 used: AtomicU64::new(0),
@@ -417,6 +420,15 @@ impl Seek for Reader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn store_ids_remain_unique_after_stores_are_dropped() {
+        let mut ids = std::collections::HashSet::new();
+        for _ in 0..1024 {
+            let store = Store::new(1024);
+            assert!(ids.insert(store.id));
+        }
+    }
 
     #[test]
     fn retained_namespace_preserves_new_blobs_and_charges_old_reader_references() {
