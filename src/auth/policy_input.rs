@@ -101,10 +101,7 @@ pub(crate) fn validate_member(member: &str) -> Result<(), PolicyInputError> {
     };
     let (kind, id) = member.split_once(':').ok_or_else(unknown_type)?;
     if matches!(kind, "projectOwner" | "projectEditor" | "projectViewer") {
-        return if id.is_empty()
-            || id.len() > 256
-            || id.chars().any(|c| c.is_control() || c.is_whitespace())
-        {
+        return if !super::valid_project_id(id) {
             Err(PolicyInputError::InvalidInput(
                 "Invalid convenience project".into(),
             ))
@@ -126,6 +123,28 @@ pub(crate) fn validate_member(member: &str) -> Result<(), PolicyInputError> {
             PolicyInputError::UnsupportedInput("federated principal".into()),
         ),
         _ => Err(unknown_type()),
+    }
+}
+
+#[test]
+fn convenience_members_and_json_queries_share_project_identifier_rules() {
+    for (project, valid) in [
+        ("project".to_owned(), true),
+        ("é".into(), true),
+        ("a".repeat(256), true),
+        ("".into(), false),
+        ("a".repeat(257), false),
+        ("has space".into(), false),
+        ("has\tcontrol".into(), false),
+    ] {
+        assert_eq!(super::valid_project_id(&project), valid);
+        assert_eq!(crate::json::validate_project(&project).is_ok(), valid);
+        for prefix in ["projectOwner", "projectEditor", "projectViewer"] {
+            assert_eq!(
+                validate_member(&format!("{prefix}:{project}")).is_ok(),
+                valid
+            );
+        }
     }
 }
 
