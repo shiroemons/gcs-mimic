@@ -29,18 +29,9 @@ If-Range remains unsupported. Repeated Range fields are ignored by both JSON and
 XML; one multi-range field keeps JSON 501 and XML 400. This is a documented local
 choice, with range classification kept at each adapter's original evaluation point.
 
-Native verification uses `CARGO_BUILD_JOBS=4`:
+Mixed-condition error/header details and provider-specific XML validator
+precedence remain unverified local RFC choices.
 
-- `cargo test --lib http_conditions:: -- --test-threads=4`: 4 passed.
-- `cargo test --lib server::xml_read::tests -- --test-threads=4`: 2 passed,
-  exercising real in-process routing, uploads, public IAM, path-style and virtual
-  GET/HEAD 304, selected headers, If-Match precedence and encrypted HEAD without
-  a key while GET still requires its data key.
-- `cargo test --lib json:: -- --test-threads=4`: 120 passed, including Range
-  classification and existing JSON conditions.
+## Verification
 
-Socket tests additionally cover denied callers, historical generations, signed
-requests, response overrides and preserved negative write/list conditions.
-They require execution outside the restricted sandbox; no provider differential,
-SDK suite or container run is claimed. Mixed-condition error/header details and
-provider-specific XML validator precedence remain unverified local RFC choices.
+Not run: SDK suites, container builds and provider differential tests.

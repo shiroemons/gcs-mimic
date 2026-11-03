@@ -7,6 +7,9 @@
 IPリテラル、1ラベルのサービス名、予約されたローカルDNS接尾辞は許可します。
 通常のcurl、Go facade、sync CLIは変更せずに使えます。
 `admin_allowed_hosts`はポートを含まないDNS名をカンマで区切って最大32件指定します。
+Kubernetesの短縮名（`gcs-mimic.my-namespace`、`gcs-mimic.my-namespace.svc`）や
+独自のクラスタードメインは明示的な追加が必要です。
+例: `--admin-allowed-hosts gcs-mimic.my-namespace.svc`。
 
 permissiveでは認証がなく、JSON APIのCORSは任意のOriginを許可します。
 ループバックだけで待ち受けても、ブラウザーで開いた悪意あるページから
@@ -15,7 +18,8 @@ permissiveでは認証がなく、JSON APIのCORSは任意のOriginを許可し�
 
 HTTPバッチ（BEHAVIOR-COMMON-008）は、サーバーごとに最大2本です。
 要求を読み始める前に枠を確保し、応答本文の消費または切断まで保持します。
-満杯の場合は本文を読まずにJSONの503 backendErrorを返すため、空いた後に再試行できます。
+満杯の場合は本文を読まずに順番を待ち、枠が空くと処理を開始します。
+待機はobject_request_timeout_msの期限内に限り、期限超過時はJSONの503 backendErrorを返します。
 要求・応答の各10,000,000バイト上限は維持します。これはプロセス全体のRSS上限ではありません。
 外側の認証情報は各partで上書きでき、認可はpartごとに評価します。
 [英語の契約](../en/slices/http-batch.md)も参照してください。
@@ -40,9 +44,6 @@ JSON mediaの304応答では、任意ヘッダーの欠落によるpanicを避�
 resumable URLのソート、legacyバケット応答と接続タイマーの確保を整理しました。
 性能やメモリ使用量の改善値は測定していません。
 
-2026-11-03の型検査、対象の単体テスト、production lint、整形検査は成功しました。
-ただし、既存のupload-frameソケットテスト1件は、サンドボックスがlocalhostのbindを
-`Operation not permitted`で拒否したため失敗しています。
-ソケット動作はサンドボックス外での検証が必要です。
-SDK・コンテナ・実際のGoogle Cloudへの検証は実行していません。
-コマンドと件数は[英語の検証記録](../en/slices/http-adapter-boundaries.md)を参照してください。
+## 検証
+
+未実施: SDK、コンテナ、provider differential。

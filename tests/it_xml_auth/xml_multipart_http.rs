@@ -41,6 +41,7 @@ fn begin(server: &Server, name: &str, auth: &str) -> String {
 
 #[test]
 fn multipart_memory_capacity_failures_are_reported_without_publishing_a_part() {
+    // Simultaneous producer/catalog failures are covered by the upload driver tests.
     let dir = TestDir::new();
     let server = Server::start(&dir, &["--backend", "memory", "--memory-max-bytes", "260"]);
     bucket(&server, "");
