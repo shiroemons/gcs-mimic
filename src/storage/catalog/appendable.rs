@@ -168,7 +168,7 @@ struct Slot {
     owner: Option<String>,
 }
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 enum Namespace {
     Disk(PathBuf),
     Memory(crate::storage::memory::StoreId),

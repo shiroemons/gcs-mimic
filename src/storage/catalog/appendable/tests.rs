@@ -38,7 +38,8 @@ async fn retained_memory_slots_do_not_alias_a_replacement_catalog() {
     drop(first);
     let replacement = open().await.unwrap();
     let replacement_slot = SlotHandle::new(&replacement, "bucket", "object");
-    assert!(first_slot.key != replacement_slot.key);
+    // This checks catalog separation; the StoreId key type prevents address-based aliasing.
+    assert_ne!(first_slot.key, replacement_slot.key);
     assert!(!Arc::ptr_eq(&first_slot.slot, &replacement_slot.slot));
     replacement.close().await.unwrap();
 }
