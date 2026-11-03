@@ -1,20 +1,16 @@
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
-    auth::{Auth, Registry},
-    clock::{Clock, SystemClock},
-    config::{Config, EndpointSnapshot},
-    server::{DeadlineWatch, ObjectActivity, RequestBody},
+    server::{DeadlineWatch, RequestBody},
     storage::{
         Catalog,
         fault::{self, Fault, Step},
     },
-    test_support::TestDir,
+    xml::test_support::SignedUploadFixture as Fixture,
 };
 use ring::hmac;
 use serde_json::json;
-use std::{sync::Arc, time::Duration};
-use tokio::sync::watch;
+use std::time::Duration;
 
 const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-private.pem");
 const PUBLIC: &str = include_str!("../../../fixtures/signing/test-only-public.pem");
@@ -27,64 +23,7 @@ enum Variant {
     V2Hmac,
 }
 
-struct Fixture {
-    state: State,
-    config: Config,
-    endpoints: EndpointSnapshot,
-    activity: watch::Sender<ObjectActivity>,
-    access_id: String,
-    secret: String,
-    dir: TestDir,
-}
-
 impl Fixture {
-    async fn new() -> Self {
-        let dir = TestDir::new();
-        let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-        let catalog = Catalog::open_for_server(
-            &dir.0,
-            clock.clone(),
-            crate::storage::admin::LocalAdmin::Disabled,
-        )
-        .await
-        .unwrap();
-        let auth=Auth::strict(Registry::parse(json!({"identities":[{"id":"signer@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"local":["roles/storage.admin"]}}]}).to_string().as_bytes()).unwrap());
-        catalog.configure_authentication(&auth).await.unwrap();
-        catalog
-            .insert_bucket(
-                json::parse_insert(br#"{"name":"bucket"}"#, "local", clock.now()).unwrap(),
-            )
-            .await
-            .unwrap();
-        let key = catalog
-            .create_hmac_key("local", "signer@example.invalid")
-            .await
-            .unwrap();
-        let config = Config {
-            max_object_bytes: 1024 * 1024,
-            ..Config::default()
-        };
-        let endpoints = EndpointSnapshot {
-            api_base_url: "http://localhost".into(),
-            public_base_url: None,
-            xml_virtual_host_domains: Vec::new(),
-        };
-        let (activity, _) = watch::channel(ObjectActivity::default());
-        Self {
-            state: State {
-                clock,
-                api_base_url: "http://localhost".into(),
-                ..State::for_test(catalog, auth)
-            },
-            config,
-            endpoints,
-            activity,
-            access_id: key.record.access_id,
-            secret: key.secret,
-            dir,
-        }
-    }
-
     fn fields(&self, variant: Variant) -> BTreeMap<String, String> {
         let date = signature::timestamp(self.state.clock.now()).unwrap();
         let scope = format!("{}/auto/storage/goog4_request", &date[..8]);
@@ -260,7 +199,7 @@ async fn policy_variants_keep_old_objects_after_write_flush_and_sync_failures() 
         Variant::V2Rsa,
         Variant::V2Hmac,
     ] {
-        let fixture = Fixture::new().await;
+        let fixture = Fixture::new(Some(PUBLIC)).await;
         assert_eq!(
             fixture.post(variant, b"old").await.unwrap().status(),
             StatusCode::NO_CONTENT
@@ -302,7 +241,7 @@ async fn policy_variants_keep_old_objects_after_write_flush_and_sync_failures() 
 #[tokio::test]
 async fn hmac_policy_backend_failure_retains_cause_and_never_returns_anonymous() {
     use std::error::Error as _;
-    let fixture = Fixture::new().await;
+    let fixture = Fixture::new(Some(PUBLIC)).await;
     fixture.state.catalog.close().await.unwrap();
     for variant in [Variant::V4Hmac, Variant::V2Hmac] {
         let fields = fixture.fields(variant);
