@@ -1,5 +1,12 @@
 # HTTP request compression and method override
 
+The listener retries peer-specific accept failures immediately. Resource
+exhaustion pauses acceptance for 10 ms, doubling to at most one second, while
+shutdown and completed connections continue to be processed. A successful
+accept resets the delay. Invalid/closed listener errors remain fatal and drain
+the server. `accept_failed` logs the first resource failure and
+`accept_recovered` logs recovery without repeated failure spam.
+
 ## Contract and scope
 
 The JSON API accepts transport gzip on metadata requests under /storage/v1/.

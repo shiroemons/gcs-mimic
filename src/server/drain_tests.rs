@@ -2,7 +2,8 @@ use super::*;
 use crate::test_support::TestDir;
 
 #[tokio::test]
-async fn listener_failure_drains_background_work_before_catalog_close() {
+#[cfg(unix)]
+async fn fatal_listener_failure_drains_background_work_before_catalog_close() {
     let data = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
     let state = Arc::new(State {
@@ -13,9 +14,9 @@ async fn listener_failure_drains_background_work_before_catalog_close() {
     let checked = Arc::new(AtomicBool::new(false));
     let drained = checked.clone();
     let owner = catalog.clone();
-    let result = FORCE_LISTENER_ERROR
+    let result = ACCEPT_FAULTS
         .scope(
-            true,
+            Arc::new(std::sync::Mutex::new([libc::EBADF].into())),
             serve_with_tls_and_drain(
                 vec![(listener, None)],
                 Config::default(),
@@ -54,6 +55,59 @@ async fn health(address: std::net::SocketAddr) -> String {
         .expect("the server closes or answers the connection")
         .ok();
     String::from_utf8_lossy(&reply).into_owned()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn exhausted_accepts_pause_and_keep_serving() {
+    let data = TestDir::new();
+    let state = Arc::new(State::for_test(
+        Catalog::open(&data.0).await.unwrap(),
+        Auth::permissive(),
+    ));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (stop, shutdown) = tokio::sync::oneshot::channel();
+    let faults = Arc::new(std::sync::Mutex::new(
+        [libc::EMFILE, libc::EMFILE, libc::EMFILE, libc::ECONNABORTED].into(),
+    ));
+    let server = tokio::spawn(ACCEPT_FAULTS.scope(
+        faults,
+        serve(listener, Config::default(), state, async {
+            shutdown.await.map_err(io::Error::other)
+        }),
+    ));
+    assert!(health(address).await.starts_with("HTTP/1.1 200"));
+    stop.send(()).unwrap();
+    server.await.unwrap().unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn exhausted_accept_pause_still_honors_shutdown() {
+    let data = TestDir::new();
+    let state = Arc::new(State::for_test(
+        Catalog::open(&data.0).await.unwrap(),
+        Auth::permissive(),
+    ));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let faults = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(
+        vec![libc::EMFILE; 128],
+    )));
+    let result = tokio::time::timeout(
+        Duration::from_millis(200),
+        ACCEPT_FAULTS.scope(
+            faults,
+            serve(listener, Config::default(), state, async {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                Ok(())
+            }),
+        ),
+    )
+    .await;
+    result
+        .expect("accept backoff must not block shutdown")
+        .unwrap();
 }
 
 #[tokio::test]

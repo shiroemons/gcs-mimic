@@ -90,7 +90,7 @@ pub(crate) use context::{DeadlineWatch, ObjectCtx, RequestCtx};
 pub(crate) use ingress::RequestBody;
 
 #[cfg(test)]
-tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
+tokio::task_local! { static ACCEPT_FAULTS: Arc<std::sync::Mutex<std::collections::VecDeque<i32>>>; }
 #[cfg(test)]
 tokio::task_local! { static FORCE_HANDLER_PANIC: Arc<AtomicBool>; }
 
@@ -490,33 +490,38 @@ async fn serve_transports(
     let max_connections = config.max_connections;
     let mut connections = JoinSet::new();
     let mut next_listener = 0;
+    let pause = tokio::time::sleep(Duration::ZERO);
+    tokio::pin!(pause);
+    let mut paused = false;
+    let mut backoff = transport::AcceptBackoff::default();
     tokio::pin!(shutdown);
     let signal_result = loop {
         tokio::select! {
             result = &mut shutdown => break result,
+            () = &mut pause, if paused => paused = false,
             Some(result) = connections.join_next(), if !connections.is_empty() => {
                 if let Err(error) = result {
                     report_connection_task_failure(&error);
                 }
                 full.send_replace(connections.len() >= max_connections);
             }
-            incoming = std::future::poll_fn(|cx| {
-                #[cfg(test)]
-                if FORCE_LISTENER_ERROR.try_with(|enabled| *enabled).unwrap_or(false) {
-                    return std::task::Poll::Ready(Err(io::Error::other("injected listener failure")));
-                }
-                for offset in 0..listeners.len() {
-                    let index = (next_listener + offset) % listeners.len();
-                    if let std::task::Poll::Ready(result) = listeners[index].0.poll_accept(cx) {
-                        return std::task::Poll::Ready(result.map(|stream| (index, stream)));
-                    }
-                }
-                std::task::Poll::Pending
-            }), if connections.len() < config.max_connections => {
+            incoming = std::future::poll_fn(|cx| poll_incoming(&listeners, next_listener, cx)), if connections.len() < config.max_connections && !paused => {
                 let (index, stream) = match incoming {
                     Ok(incoming) => incoming,
-                    Err(error) => break Err(error),
+                    Err((index, error)) => {
+                        next_listener = (index + 1) % listeners.len();
+                        match transport::classify(&error) {
+                            transport::AcceptFailure::Fatal => break Err(error),
+                            transport::AcceptFailure::Connection => {},
+                            transport::AcceptFailure::Exhausted => {
+                                pause.as_mut().reset(tokio::time::Instant::now() + backoff.exhausted(&error));
+                                paused = true;
+                            }
+                        }
+                        continue;
+                    }
                 };
+                backoff.accepted();
                 next_listener = (index + 1) % listeners.len();
                 let state = state.clone();
                 let stopping = stop.subscribe();
@@ -566,6 +571,32 @@ async fn serve_transports(
         ),
         state.catalog.close().await.map_err(io::Error::other),
     )
+}
+
+fn poll_incoming(
+    listeners: &[(transport::Listener, Option<tokio_rustls::TlsAcceptor>)],
+    next: usize,
+    cx: &mut std::task::Context<'_>,
+) -> std::task::Poll<Result<(usize, transport::Stream), (usize, io::Error)>> {
+    #[cfg(test)]
+    if let Some(code) = ACCEPT_FAULTS
+        .try_with(|faults| faults.lock().unwrap().pop_front())
+        .ok()
+        .flatten()
+    {
+        return std::task::Poll::Ready(Err((next, io::Error::from_raw_os_error(code))));
+    }
+    for offset in 0..listeners.len() {
+        let index = (next + offset) % listeners.len();
+        if let std::task::Poll::Ready(result) = listeners[index].0.poll_accept(cx) {
+            return std::task::Poll::Ready(
+                result
+                    .map(|stream| (index, stream))
+                    .map_err(|error| (index, error)),
+            );
+        }
+    }
+    std::task::Poll::Pending
 }
 
 async fn serve_http(
