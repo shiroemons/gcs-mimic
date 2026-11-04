@@ -31,7 +31,13 @@ fn combine_sources(
     clock: &dyn Clock,
     destination: &mut DerivedDestination,
 ) -> Result<SourceKeys, ObjectError> {
-    let class = sources[0].object.storage_class;
+    let class = sources
+        .first()
+        .ok_or_else(|| {
+            ObjectError::InvalidDerivedArgument("Compose requires at least one source".into())
+        })?
+        .object
+        .storage_class;
     let mut crc = 0;
     let mut count = 0_i64;
     let mut keys = BTreeSet::new();

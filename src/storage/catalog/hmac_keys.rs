@@ -195,6 +195,10 @@ fn random_bytes<const N: usize>() -> Result<[u8; N], CatalogError> {
     Ok(bytes)
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "masking with 31 bounds the index within the 32-byte base32 alphabet"
+)]
 fn generate_access_id() -> Result<String, CatalogError> {
     // 256 is a multiple of 32, so masking each byte draws base32 characters without bias.
     const ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";

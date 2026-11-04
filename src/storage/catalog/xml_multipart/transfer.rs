@@ -248,17 +248,24 @@ impl Catalog {
                 if self.0.admission.is_closed() {
                     return Err(object_unavailable("catalog is closing").into());
                 }
-                let length = buffer.len().min(remaining as usize);
-                let n = input.read(&mut buffer[..length]).await?;
+                let length = usize::try_from(remaining.min(buffer.len() as u64))
+                    .map_err(object_unavailable)?;
+                let bytes = buffer
+                    .get_mut(..length)
+                    .ok_or_else(|| object_unavailable("invalid multipart buffer length"))?;
+                let n = input.read(bytes).await?;
                 if n == 0 {
                     return Err(object_unavailable("multipart part is truncated").into());
                 }
-                part_hash.update(&buffer[..n]);
-                hasher.update(&buffer[..n]);
+                let bytes = bytes
+                    .get(..n)
+                    .ok_or_else(|| object_unavailable("invalid multipart read length"))?;
+                part_hash.update(bytes);
+                hasher.update(bytes);
                 #[cfg(test)]
                 super::super::fault::hit(&self.0.data_dir, super::super::fault::Step::BodyWrite)
                     .map_err(object_unavailable)?;
-                file.write(&buffer[..n]).await?;
+                file.write(bytes).await?;
                 remaining -= n as u64;
                 if self.0.backend.is_memory() {
                     tokio::task::yield_now().await;

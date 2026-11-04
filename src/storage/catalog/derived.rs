@@ -1002,12 +1002,13 @@ impl Catalog {
                 skip = 0;
                 while remaining > 0 {
                     if catalog.0.admission.is_closed() { return Err(object_unavailable("catalog is closing")); }
-                    let length = remaining.min(BUFFER_SIZE as u64) as usize;
-                    input.read_exact(&mut buffer[..length]).await?;
+                    let length = usize::try_from(remaining.min(BUFFER_SIZE as u64)).map_err(object_unavailable)?;
+                    let bytes = buffer.get_mut(..length).ok_or_else(|| object_unavailable("invalid derived buffer length"))?;
+                    input.read_exact(bytes).await?;
                     #[cfg(test)]
                     fault::hit(&catalog.0.data_dir, Step::BodyWrite).map_err(object_unavailable)?;
-                    output.write(&buffer[..length]).await?;
-                    hasher.update(&buffer[..length]);
+                    output.write(bytes).await?;
+                    hasher.update(bytes);
                     progress.offset += length as u64;
                     remaining -= length as u64;
                     if catalog.0.backend.is_memory() { tokio::task::yield_now().await; }
@@ -1394,9 +1395,13 @@ pub(super) fn recover(
             let mut remaining = progress.offset;
             let mut buffer = [0; BUFFER_SIZE];
             while remaining > 0 {
-                let length = remaining.min(BUFFER_SIZE as u64) as usize;
-                std::io::Read::read_exact(&mut output, &mut buffer[..length])?;
-                hasher.update(&buffer[..length]);
+                let length = usize::try_from(remaining.min(BUFFER_SIZE as u64))
+                    .map_err(object_unavailable)?;
+                let bytes = buffer
+                    .get_mut(..length)
+                    .ok_or_else(|| object_unavailable("invalid derived buffer length"))?;
+                std::io::Read::read_exact(&mut output, bytes)?;
+                hasher.update(bytes);
                 remaining -= length as u64;
             }
             if hasher.finish() != saved_hash.finish() {

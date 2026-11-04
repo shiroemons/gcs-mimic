@@ -660,7 +660,8 @@ impl AppendWriter {
                 .map_err(io::Error::other)??;
             let mut remaining = size;
             while remaining > 0 {
-                let length = remaining.min(COPY_READ_LIMIT as u64) as usize;
+                let length = usize::try_from(remaining.min(COPY_READ_LIMIT as u64))
+                    .map_err(io::Error::other)?;
                 let (reader, mut bytes) = crate::task::run_blocking("append-reader", move || {
                     let mut bytes = vec![0; length];
                     file.read_exact(&mut bytes)?;

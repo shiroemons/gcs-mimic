@@ -327,6 +327,9 @@ fn stage_file(
             if size > max_bytes {
                 return Err(AdminError::TooLarge);
             }
+            let bytes = buffer
+                .get(..count)
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
             if !cloned {
                 #[cfg(test)]
                 super::super::fault::hit(
@@ -337,9 +340,9 @@ fn stage_file(
                     super::super::fault::Step::BodyWrite,
                 )
                 .map_err(objects_error)?;
-                target.write_all(&buffer[..count])?;
+                target.write_all(bytes)?;
             }
-            hasher.update(&buffer[..count]);
+            hasher.update(bytes);
             #[cfg(test)]
             COPY_HOOK.with_borrow_mut(|hook| {
                 if let Some(hook) = hook.take() {
@@ -695,8 +698,11 @@ fn stage_memory(
             .checked_add(count as u64)
             .filter(|size| *size <= max_bytes)
             .ok_or(AdminError::TooLarge)?;
-        stage.write(&buffer[..count])?;
-        hasher.update(&buffer[..count]);
+        let bytes = buffer
+            .get(..count)
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
+        stage.write(bytes)?;
+        hasher.update(bytes);
     }
     changed(before, fsutil::stat_identity(source).map_err(fs_error)?)?;
     let hashes = hasher.finish();
@@ -850,7 +856,9 @@ fn commit_batch(
             &transaction,
             &import.binding,
             import.cursor,
-            &import.elements[..results.len()],
+            import.elements.get(..results.len()).ok_or_else(|| {
+                ObjectError::Corrupt("missing import publication elements".into())
+            })?,
             &results.iter().map(Result::is_ok).collect::<Vec<_>>(),
         )?;
     }

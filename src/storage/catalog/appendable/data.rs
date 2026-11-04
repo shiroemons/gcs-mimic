@@ -98,7 +98,9 @@ impl Data {
                         if written == 0 {
                             return Err(io::ErrorKind::WriteZero.into());
                         }
-                        bytes = &bytes[written..];
+                        bytes = bytes
+                            .get(written..)
+                            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
                         offset += written as u64;
                     }
                     Ok(())

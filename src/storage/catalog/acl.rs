@@ -835,15 +835,15 @@ impl Catalog {
                     {
                         return Err(CatalogError::PublicAccessPrevention.into());
                     }
-                    let position = state.entries.iter().position(|entry| entry.entity == entity);
-                    let role = match (role, position) {
+                    let existing = state.entries.iter_mut().find(|entry| entry.entity == entity);
+                    let role = match (role, existing.as_deref()) {
                         (Some(role), _) => role,
-                        (None, Some(index)) => state.entries[index].role,
+                        (None, Some(entry)) => entry.role,
                         (None, None) => return Err(AclError::RoleRequired),
                     };
                     let entry = AclEntry { entity, role };
-                    match position {
-                        Some(index) => state.entries[index] = entry.clone(),
+                    match existing {
+                        Some(existing) => *existing = entry.clone(),
                         None => {
                             if state.entries.len() >= MAX_ENTRIES {
                                 return Err(AclError::TooManyEntries);
