@@ -7,6 +7,8 @@ use crate::{bucket::CatalogError, storage::failure::unavailable};
 use rusqlite::Connection;
 use std::{path::Path, time::Duration};
 
+const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(1);
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ResetOutcome {
@@ -17,34 +19,33 @@ pub(crate) struct ResetOutcome {
 
 impl Admin {
     pub(crate) async fn reset(&self) -> Result<ResetOutcome, AdminError> {
-        let exclusive = self
+        let deadline = tokio::time::Instant::now() + QUIESCENCE_TIMEOUT;
+        let admission = self
             .catalog
-            .0
-            .activity
-            .clone()
-            .try_write_owned()
-            .map_err(|_| AdminError::Busy {
-                retry_after: Duration::from_secs(1),
-            })?;
-        if !self.catalog.is_healthy() {
-            return Err(AdminError::Closed);
-        }
-        let execution = self
-            .catalog
-            .0
-            .execution
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| AdminError::Busy {
-                retry_after: Duration::from_secs(1),
-            })?;
+            .wait_admin(self.catalog.0.admin_reads.clone(), deadline)
+            .await?;
+        let (exclusive, execution) = loop {
+            let execution = self
+                .catalog
+                .wait_admin(self.catalog.0.execution.clone(), deadline)
+                .await?;
+            // Queuing a writer would reject the nested SQL read leases needed by draining uploads.
+            if let Ok(exclusive) = self.catalog.0.activity.clone().try_write_owned() {
+                break (exclusive, execution);
+            }
+            drop(execution);
+            tokio::time::sleep_until(
+                deadline.min(tokio::time::Instant::now() + Duration::from_millis(10)),
+            )
+            .await;
+        };
         let inner = self.catalog.0.clone();
         self.catalog
             .0
             .executor
             .run(move || {
                 // Cancellation cannot release admission while the owned transaction/cleanup runs.
-                let (_exclusive, _execution) = (exclusive, execution);
+                let (_admission, _exclusive, _execution) = (admission, exclusive, execution);
                 let result = inner.with_connection(|connection| reset(connection, &inner.backend));
                 inner.maintenance_wake.notify_one();
                 match result {
