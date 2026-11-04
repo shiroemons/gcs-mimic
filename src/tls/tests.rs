@@ -5,6 +5,38 @@
 
 use super::*;
 
+#[test]
+fn server_identity_errors_retain_the_io_cause_and_distinguish_input_settings() {
+    use std::error::Error as _;
+    for (error, setting) in [
+        (
+            ServerIdentityError::Certificate(io::Error::from(io::ErrorKind::NotFound)),
+            "tls_cert",
+        ),
+        (
+            ServerIdentityError::PrivateKey(io::Error::from(io::ErrorKind::PermissionDenied)),
+            "tls_key",
+        ),
+    ] {
+        assert_eq!(error.setting(), setting);
+        assert!(
+            error
+                .source()
+                .unwrap()
+                .downcast_ref::<io::Error>()
+                .is_some()
+        );
+        let wrapped = io::Error::other(error);
+        assert!(
+            wrapped
+                .get_ref()
+                .unwrap()
+                .downcast_ref::<ServerIdentityError>()
+                .is_some()
+        );
+    }
+}
+
 const BASIC_CONSTRAINTS: &[u8] = &[0x55, 0x1d, 0x13];
 const KEY_USAGE: &[u8] = &[0x55, 0x1d, 0x0f];
 const SUBJECT_KEY_ID: &[u8] = &[0x55, 0x1d, 0x0e];

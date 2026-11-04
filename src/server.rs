@@ -427,7 +427,7 @@ pub async fn serve(
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
     let config = config.into();
-    let acceptor = tls::load_server(&config)?;
+    let acceptor = tls::load_server(&config).map_err(io::Error::other)?;
     serve_with_tls(vec![(listener, acceptor)], config, state, shutdown).await
 }
 

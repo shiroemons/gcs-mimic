@@ -317,8 +317,8 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
             Ok(value) => acceptor = value,
             Err(error) => report.diagnostics.errors.push(Diagnostic::new(
                 DiagnosticSource::Tls,
-                "tls_cert",
-                format!("Cannot load TLS identity: {error}"),
+                error.setting(),
+                format!("Cannot load TLS identity: {error}; {}", error.repair()),
             )),
         }
     }

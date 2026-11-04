@@ -1223,7 +1223,7 @@ fn startup_diagnostics_aggregate_independent_inputs_and_material_without_side_ef
         ("cli", "--config"),
         ("cli", "--worker-threads"),
         ("environment", "GCS_MIMIC_MAX_CONNECTIONS"),
-        ("tls", "tls_cert"),
+        ("tls", "tls_key"),
         ("identity", "identity_file"),
     ] {
         assert!(has(&events[1], source, key), "{source}/{key}: {text}");
@@ -1317,6 +1317,57 @@ fn startup_preserves_safe_identity_and_tls_error_details() {
     assert!(text.contains("identities[0]: duplicate token"), "{text}");
     assert!(text.contains("exactly one private key"), "{text}");
     assert!(!text.contains("secret-token"), "{text}");
+}
+
+#[test]
+fn startup_tls_file_failures_identify_the_setting_and_repair() {
+    let root = TestDir::new();
+    let cert = root.0.join("cert.pem");
+    let key = root.0.join("key.pem");
+    fs::write(&cert, include_str!("../../src/tls/development-cert.pem")).unwrap();
+    for (cert, key, setting, repair) in [
+        (
+            root.0.join("missing-cert.pem"),
+            key,
+            "tls_cert",
+            "PEM certificate chain",
+        ),
+        (
+            cert,
+            root.0.join("missing-key.pem"),
+            "tls_key",
+            "PEM private key",
+        ),
+    ] {
+        let output = common::server_command()
+            .clean_env()
+            .args(["serve", "--tls-cert"])
+            .arg(cert)
+            .arg("--tls-key")
+            .arg(key)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        let events = text
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        let report = events
+            .iter()
+            .find(|event| event["level"] == "error")
+            .unwrap();
+        let error = report["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|error| error["source"] == "tls")
+            .unwrap();
+        assert_eq!(error["key"], setting, "{report}");
+        let fix = error["fix"].as_str().unwrap();
+        assert!(fix.contains(repair) && fix.contains("1 MiB"), "{report}");
+    }
 }
 
 #[test]
