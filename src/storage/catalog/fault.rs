@@ -114,6 +114,8 @@ pub(crate) enum Step {
     /// Before syncing the multipart staging directory after reclamation (Unix only, like the sync).
     #[cfg(unix)]
     MultipartReclaimSync,
+    /// After durable multipart removal, before deleting its journal rows.
+    MultipartReclaimForget,
     /// Before one write of body bytes to the staged file.
     BodyWrite,
     /// Before the flush that reports tokio's background tail write.

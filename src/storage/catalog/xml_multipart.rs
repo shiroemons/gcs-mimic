@@ -321,9 +321,9 @@ impl Catalog {
 
     pub(crate) async fn abort_xml_multipart(&self, lease: Lease) -> Result<(), Error> {
         let catalog = self.clone();
-        self.run(move |connection| {
-            let transaction = sql::immediate(connection).map_err(object_unavailable)?;
-            let result = (|| -> Result<(), Error> {
+        let result = self
+            .run(move |connection| {
+                let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 active(
                     &transaction,
                     &lease.upload.target,
@@ -333,13 +333,12 @@ impl Catalog {
                 maintenance::retire(&transaction, &lease.upload.target.id)?;
                 objects::commit_publication(transaction)?;
                 Ok(())
-            })();
-            if let Err(error) = maintenance::drain_storage(connection, &catalog.0.backend) {
-                catalog.multipart_cleanup_failed(error);
-            }
-            result
-        })
-        .await
+            })
+            .await;
+        if let Err(error) = self.drain_xml_multipart().await {
+            self.multipart_cleanup_failed(error);
+        }
+        result
     }
 
     fn multipart_cleanup_failed(&self, error: ObjectError) {

@@ -101,6 +101,79 @@ async fn old_object(catalog: &Catalog) {
         .unwrap();
 }
 
+async fn deletion_count(catalog: &Catalog) -> u64 {
+    catalog
+        .run_upload(|connection| {
+            crate::storage::catalog::sql::scalar(
+                connection,
+                "SELECT count(*) FROM xml_multipart_deletions",
+                [],
+            )
+            .map_err(object_unavailable)
+        })
+        .await
+        .unwrap()
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn multipart_reclamation_leaves_catalog_available_and_syncs_the_batch_once() {
+    let (dir, catalog) = setup(Arc::new(SystemClock)).await;
+    let target = begin(&catalog).await;
+    for number in 1..=3 {
+        put(&catalog, &target, number, b"part").await.unwrap();
+    }
+    let before = super::super::fault::catalog_thread_io(&dir.0);
+    let (entered, blocked) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    catalog.inject(
+        Step::MultipartReclaimSync,
+        0,
+        Fault::Block {
+            entered: Arc::new(std::sync::Mutex::new(Some(entered))),
+            release: Arc::new(std::sync::Mutex::new(released)),
+        },
+    );
+    let lease = catalog
+        .lease_xml_multipart(target, BucketAccess::Permissive)
+        .await
+        .unwrap();
+    let worker = catalog.clone();
+    let abort = tokio::spawn(async move { worker.abort_xml_multipart(lease).await });
+    tokio::time::timeout(Duration::from_secs(5), blocked)
+        .await
+        .unwrap()
+        .unwrap();
+    // A second sync would fail; all unlinks in this batch need only the blocked sync.
+    catalog.inject(
+        Step::MultipartReclaimSync,
+        0,
+        Fault::Io(io::ErrorKind::PermissionDenied),
+    );
+    let count = tokio::time::timeout(Duration::from_secs(5), deletion_count(&catalog)).await;
+    release.send(()).unwrap();
+    abort.await.unwrap().unwrap();
+    assert_eq!(count.unwrap(), 3);
+    assert_eq!(deletion_count(&catalog).await, 0);
+    assert_eq!(catalog.pending_faults(), 1);
+    assert_eq!(super::super::fault::catalog_thread_io(&dir.0), before);
+    let target = begin(&catalog).await;
+    put(&catalog, &target, 1, b"next").await.unwrap();
+    let lease = catalog
+        .lease_xml_multipart(target, BucketAccess::Permissive)
+        .await
+        .unwrap();
+    catalog.abort_xml_multipart(lease).await.unwrap();
+    assert_eq!(catalog.pending_faults(), 0);
+    assert_eq!(deletion_count(&catalog).await, 1);
+    catalog
+        .maintain_xml_multipart(unix_millis(SystemClock.now()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(deletion_count(&catalog).await, 0);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn part_eof_lease_serialization_and_reset_busy_preserve_state() {
     let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
@@ -201,9 +274,13 @@ async fn part_durable_step_failures_keep_prior_part_and_cleanup_after_restart() 
 async fn abort_commits_before_deferred_cleanup_and_recovery_retries_its_journal() {
     // The staging directory sync, and its fault step, exist only on Unix.
     #[cfg(unix)]
-    let steps = [Step::MultipartReclaim, Step::MultipartReclaimSync];
+    let steps = [
+        Step::MultipartReclaim,
+        Step::MultipartReclaimSync,
+        Step::MultipartReclaimForget,
+    ];
     #[cfg(not(unix))]
-    let steps = [Step::MultipartReclaim];
+    let steps = [Step::MultipartReclaim, Step::MultipartReclaimForget];
     for step in steps {
         let (dir, catalog) = setup(Arc::new(SystemClock)).await;
         let target = begin(&catalog).await;
@@ -215,6 +292,7 @@ async fn abort_commits_before_deferred_cleanup_and_recovery_retries_its_journal(
             .unwrap();
         catalog.abort_xml_multipart(lease).await.unwrap();
         assert_eq!(catalog.pending_faults(), 0);
+        assert_eq!(deletion_count(&catalog).await, 1, "{step:?}");
         assert!(matches!(
             catalog
                 .list_xml_parts(target, BucketAccess::Permissive, 0, 1000)
@@ -224,6 +302,7 @@ async fn abort_commits_before_deferred_cleanup_and_recovery_retries_its_journal(
         catalog.close().await.unwrap();
         let reopened = Catalog::open(&dir.0).await.unwrap();
         assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+        assert_eq!(deletion_count(&reopened).await, 0);
         reopened.close().await.unwrap();
     }
 }
@@ -237,6 +316,7 @@ async fn abort_commit_and_reclaim_crash_snapshots_never_resurrect_retired_parts(
             Step::AfterCommit,
             Step::MultipartReclaim,
             Step::MultipartReclaimSync,
+            Step::MultipartReclaimForget,
         ] {
             let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
             let target = begin(&catalog).await;
