@@ -1275,7 +1275,7 @@ fn invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures() {
     assert_eq!(errors.len(), 3, "{text}");
     for (source, key) in [
         ("cli", "--tls-handshake-timeout-ms"),
-        ("tls", "tls_cert"),
+        ("tls", "tls_key"),
         ("identity", "identity_file"),
     ] {
         assert!(
