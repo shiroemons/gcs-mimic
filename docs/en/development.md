@@ -722,6 +722,17 @@ superseded observations and cleanup. The output passes the same redaction leak
 guard as an ordinary recording. `--out` may name the base file for an in-place
 update after review.
 
+A new case file has no recording in the reference yet, so a full replay
+reports it as an error. Record only the new case and pass `--add-new`, which
+appends partial cases the base lacks after the existing cases; without it an
+unknown case ID is refused, so a mistyped filter cannot add a case silently.
+Every other rule above still applies:
+
+```sh
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  partial.json --add-new --out merged-reference.json
+```
+
 Other options: `--cases DIR` (default `compatibility/differential/cases`),
 `--filter TEXT` (case ids containing the text), `--out DIR` (default a
 temporary directory outside the repository), `--binary PATH` (skip the build),
