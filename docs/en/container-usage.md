@@ -213,7 +213,8 @@ generations, with hashes, shortly after the change; no restart is needed.
 Deleting a file deletes its live object, subject to holds and retention. When at
 least 100 objects would go and they are more than half of the tree, the deletion
 guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until the exact
-set is approved with `gcs-mimic sync approve`. Deleting a bucket directory
+set is approved with `gcs-mimic sync approve`. Recent automatic deletions also
+count toward this threshold across split scans. Deleting a bucket directory
 keeps the bucket, and deleting a bucket through the API keeps its directory.
 When both the API and a file changed the same object, neither overwrites the
 other; the conflict is retained and listed by `gcs-mimic sync conflicts` for
@@ -236,6 +237,10 @@ directory. In strict mode, sync controls require project-owner authority through
 the local identity registry. Sync runs on Linux and macOS; on other platforms the
 directory cannot be watched, so the server reports the failure and does not
 become ready.
+
+Directory metadata, ownership and extended-attribute changes revalidate read and
+search access. An inaccessible subtree keeps synchronization readiness down until
+access is repaired and observation recovers.
 
 Exported files and directories are private to the server user (modes `0600` and
 `0700`). Docker Desktop maps ownership on bind mounts, so the files are readable
