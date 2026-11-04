@@ -58,14 +58,16 @@ pub async fn import(
         "seeding",
         serde_json::json!({}),
     );
-    let result = import_directory(&admin, config, clock, root, SeedMode::Merge).await;
+    let result = import_directory(&admin, config, clock, root, SeedMode::Merge, None).await;
     result.map_err(|error| SeedError::Import(Box::new(error)))
 }
 
+/// Waiting for in-flight catalog work ends by `wait_limit` with a no-changes `Busy`.
 pub(crate) async fn reseed(
     admin: &Admin,
     config: &Config,
     clock: &dyn Clock,
+    wait_limit: tokio::time::Instant,
 ) -> Result<SeedOutcome, SeedError> {
     let root = config.seed_dir.as_ref().ok_or(SeedError::MissingRoot)?;
     let mode = match config.backend {
@@ -75,7 +77,7 @@ pub(crate) async fn reseed(
     let admin = admin
         .clone()
         .with_notification_mode(crate::notification::NotificationMode::Suppress);
-    import_directory(&admin, config, clock, root, mode).await
+    import_directory(&admin, config, clock, root, mode, Some(wait_limit)).await
 }
 
 fn walk_error(error: WalkError) -> SeedError {
@@ -130,6 +132,7 @@ async fn import_directory(
     clock: &dyn Clock,
     root: &Path,
     mode: SeedMode,
+    wait_limit: Option<tokio::time::Instant>,
 ) -> Result<SeedOutcome, SeedError> {
     let inspected = tokio::fs::symlink_metadata(root).await?;
     if !inspected.file_type().is_dir() {
@@ -137,7 +140,7 @@ async fn import_directory(
     }
     #[cfg(test)]
     tests::injected_source_swap(root);
-    let batch = catalog.seed_batch()?;
+    let batch = catalog.seed_batch_until(wait_limit).await?;
     #[cfg(unix)]
     let source_root = batch.open_root(root.to_owned(), inspected).await?;
     let root = tokio::fs::canonicalize(root).await?;

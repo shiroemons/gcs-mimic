@@ -982,18 +982,7 @@ fn config_update_during_upload_retains_the_requests_original_endpoint_snapshot()
     let dir = TestDir::new();
     let server = Server::start(&dir, &["--admin-enabled", "true"]);
     server.populate();
-    let mut upload = TcpStream::connect(&server.address).unwrap();
-    upload
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .unwrap();
-    write!(upload, "POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=slow HTTP/1.1\r\nHost: localhost\r\nContent-Length: 6\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n").unwrap();
-    let mut upload = BufReader::new(upload);
-    let mut interim = String::new();
-    upload.read_line(&mut interim).unwrap();
-    assert!(interim.starts_with("HTTP/1.1 100"), "{interim}");
-    interim.clear();
-    upload.read_line(&mut interim).unwrap();
-    assert_eq!(interim, "\r\n");
+    let mut upload = pending_media_upload(&server, "slow", b"stream".len());
     server
         .configure("http://new.invalid:9876", "public.invalid")
         .expect(200);
@@ -1096,3 +1085,21 @@ fn strict_config_authorization_and_raw_signed_host_survive_public_host_updates()
 }
 
 declare_server!(graceful);
+
+/// Opens a media upload to `test-bucket` and stops after `100 Continue`, so the server holds
+/// an admitted upload lease until the caller writes `length` body bytes.
+fn pending_media_upload(server: &Server, name: &str, length: usize) -> BufReader<TcpStream> {
+    let mut upload = TcpStream::connect(&server.address).unwrap();
+    upload
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    write!(upload, "POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name={name} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {length}\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n").unwrap();
+    let mut upload = BufReader::new(upload);
+    let mut interim = String::new();
+    upload.read_line(&mut interim).unwrap();
+    assert!(interim.starts_with("HTTP/1.1 100"), "{interim}");
+    interim.clear();
+    upload.read_line(&mut interim).unwrap();
+    assert_eq!(interim, "\r\n");
+    upload
+}

@@ -14,7 +14,7 @@ use std::fs;
 #[tokio::test]
 async fn seed_project_mismatch_preserves_the_existing_diagnostic() {
     let (_dir, catalog, admin, _, _) = setup().await;
-    let mut batch = admin.seed_batch().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
     batch
         .bucket(
             BucketDefinition::default_for(
@@ -80,7 +80,7 @@ async fn atomic_seed_late_invalid_metadata_rolls_back_buckets_objects_and_alloca
         .publish_object(&bucket, &name, request(None), body(b"old"))
         .await
         .unwrap();
-    let mut batch = admin.seed_batch().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
     batch
         .bucket(
             BucketDefinition::default_for(
@@ -138,7 +138,7 @@ async fn atomic_seed_readers_identity_unrelated_objects_and_commit_recovery() {
         .unwrap();
     let identity = catalog.sync_state().catalog_id().await.unwrap();
     let (_, mut reader) = admin.open_object(&bucket, &name, None).await.unwrap();
-    let mut batch = admin.seed_batch().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
     batch.bucket(super::tests::bucket()).unwrap();
     add(&mut batch, &dir.0, "object", b"new").await;
     catalog.inject(Step::AfterCommit, 0, Fault::Io(io::ErrorKind::Other));
@@ -170,11 +170,15 @@ async fn atomic_seed_cancellation_and_concurrent_admission_preserve_old_namespac
         .publish_object(&bucket, &name, request(None), body(b"old"))
         .await
         .unwrap();
-    let mut batch = admin.seed_batch().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
     for index in 0..300 {
         add(&mut batch, &dir.0, &format!("new-{index}"), b"new").await;
     }
-    assert!(matches!(admin.seed_batch(), Err(AdminError::Busy { .. })));
+    let limit = tokio::time::Instant::now() + Duration::from_millis(50);
+    assert!(matches!(
+        admin.seed_batch_until(Some(limit)).await,
+        Err(AdminError::Busy { .. })
+    ));
     assert!(matches!(admin.reset().await, Err(AdminError::Busy { .. })));
     drop(batch);
     // Close waits on the shared batch ownership until the one cleanup task has drained all entries.
@@ -206,7 +210,7 @@ async fn atomic_seed_write_flush_sync_and_commit_failures_keep_committed_bytes()
             .publish_object(&bucket, &name, request(None), body(b"old"))
             .await
             .unwrap();
-        let mut batch = admin.seed_batch().unwrap();
+        let mut batch = admin.seed_batch().await.unwrap();
         if matches!(step, Step::BodyFlush | Step::BodySync) {
             catalog.inject(step, 0, Fault::Io(io::ErrorKind::StorageFull));
             let path = dir.0.join("source");
@@ -257,13 +261,13 @@ async fn atomic_seed_power_loss_and_process_crash_snapshots_recover_whole_namesp
     ] {
         for &crash in Crash::ALL {
             let (dir, catalog, admin, _, _) = setup().await;
-            let mut initial = admin.seed_batch().unwrap();
+            let mut initial = admin.seed_batch().await.unwrap();
             add(&mut initial, &dir.0, "object", b"old").await;
             initial.commit(SeedMode::Merge).await.unwrap();
             let snapshot = TestDir::new();
             let path = snapshot.0.join("snapshot");
             catalog.inject(step, 0, crash.fault(path.clone()));
-            let mut batch = admin.seed_batch().unwrap();
+            let mut batch = admin.seed_batch().await.unwrap();
             add(&mut batch, &dir.0, "object", b"new").await;
             add(&mut batch, &dir.0, "second", b"new").await;
             batch.commit(SeedMode::Merge).await.unwrap();
@@ -314,7 +318,7 @@ async fn atomic_ram_reseed_reserves_old_and_new_and_keeps_open_readers() {
         .unwrap();
     let identity = catalog.sync_state().catalog_id().await.unwrap();
     let (_, mut reader) = admin.open_object(&target, &name, None).await.unwrap();
-    let mut batch = admin.seed_batch().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
     batch.bucket(bucket()).unwrap();
     add(&mut batch, &dir.0, "replacement", b"new").await;
     let counts = batch.commit(SeedMode::Replace).await.unwrap();
@@ -335,7 +339,7 @@ async fn atomic_ram_reseed_reserves_old_and_new_and_keeps_open_readers() {
             > old.generation
     );
     assert_eq!(bytes(&admin, "replacement").await, b"new");
-    let mut batch = admin.seed_batch().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
     let path = dir.0.join("large");
     fs::write(&path, [7; 2048]).unwrap();
     let mut large = request(None);
@@ -403,7 +407,7 @@ async fn atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespa
         .publish_object(&bucket, &name, request(None), body(b"old"))
         .await
         .unwrap();
-    let mut batch = admin.seed_batch().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
     add(&mut batch, &dir.0, "object", b"new").await;
     let entry = batch.entries.pop().unwrap();
     batch
@@ -429,16 +433,104 @@ async fn atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespa
         .unwrap();
     drop(drain);
     assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
-    let mut batch = admin.seed_batch().unwrap();
+    let limit = tokio::time::Instant::now() + Duration::from_millis(200);
+    let mut batch = admin.seed_batch_until(Some(limit)).await.unwrap();
     add(&mut batch, &dir.0, "object", b"new").await;
     let upload = catalog.admit_object_upload().unwrap();
     assert!(matches!(
-        batch.commit(SeedMode::Merge).await,
-        Err(AdminError::Busy { .. })
+        tokio::time::timeout(Duration::from_secs(3), batch.commit(SeedMode::Merge))
+            .await
+            .unwrap(),
+        Err(AdminError::Busy { retry_after }) if retry_after == Duration::from_secs(1)
     ));
+    assert!(tokio::time::Instant::now() >= limit);
     drop(upload);
     assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
     assert_eq!(bytes(&admin, "object").await, b"old");
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhile() {
+    let (dir, catalog, admin, bucket, name) = setup().await;
+    let old = admin
+        .publish_object(&bucket, &name, request(None), body(b"old"))
+        .await
+        .unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
+    add(&mut batch, &dir.0, "object", b"new").await;
+    // A prepared entry lets commit reach the exclusive wait without file work in between.
+    let entry = batch.entries.pop().unwrap();
+    batch
+        .entries
+        .push(prepare_entry(catalog.clone(), entry).await.unwrap());
+    let upload = catalog.admit_object_upload().unwrap();
+    let mut commit = std::pin::pin!(batch.commit(SeedMode::Merge));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut commit)
+            .await
+            .is_err()
+    );
+    assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
+    drop(upload);
+    let counts = tokio::time::timeout(Duration::from_secs(3), commit)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((counts.objects, counts.replaced), (0, 1));
+    assert_eq!(bytes(&admin, "object").await, b"new");
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn seed_admission_waits_for_a_competing_batch_to_finish() {
+    let (_dir, catalog, admin, _bucket, _name) = setup().await;
+    let first = admin.seed_batch().await.unwrap();
+    let mut second = std::pin::pin!(admin.seed_batch());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut second)
+            .await
+            .is_err()
+    );
+    drop(first);
+    let second = tokio::time::timeout(Duration::from_secs(3), second)
+        .await
+        .unwrap()
+        .unwrap();
+    drop(second);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_seed_waits_release_admission_and_allow_reset() {
+    let (dir, catalog, admin, _bucket, _name) = setup().await;
+    let waiters = catalog.0.admin_waiters.available_permits();
+    let first = admin.seed_batch().await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), admin.seed_batch())
+            .await
+            .is_err()
+    );
+    drop(first);
+    let mut batch = admin.seed_batch().await.unwrap();
+    add(&mut batch, &dir.0, "object", b"new").await;
+    let entry = batch.entries.pop().unwrap();
+    batch
+        .entries
+        .push(prepare_entry(catalog.clone(), entry).await.unwrap());
+    let upload = catalog.admit_object_upload().unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), batch.commit(SeedMode::Merge))
+            .await
+            .is_err()
+    );
+    drop(upload);
+    assert_eq!(catalog.0.admin_waiters.available_permits(), waiters);
+    // Cancelled waits leave no lease behind, so an exclusive reset can still proceed.
+    tokio::time::timeout(Duration::from_secs(3), admin.reset())
+        .await
+        .unwrap()
+        .unwrap();
     catalog.close().await.unwrap();
 }
 
@@ -452,7 +544,7 @@ async fn atomic_seed_protected_and_importing_namespaces_roll_back_new_buckets_an
         .await
         .unwrap();
     for mode in [SeedMode::Merge, SeedMode::Replace] {
-        let mut batch = admin.seed_batch().unwrap();
+        let mut batch = admin.seed_batch().await.unwrap();
         batch
             .bucket(
                 BucketDefinition::default_for(
@@ -481,7 +573,7 @@ async fn atomic_seed_protected_and_importing_namespaces_roll_back_new_buckets_an
         );
         assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
     }
-    let mut unchanged = admin.seed_batch().unwrap();
+    let mut unchanged = admin.seed_batch().await.unwrap();
     add(&mut unchanged, &dir.0, "object", b"old").await;
     assert_eq!(
         unchanged.commit(SeedMode::Merge).await.unwrap().unchanged,
@@ -500,7 +592,7 @@ async fn atomic_seed_protected_and_importing_namespaces_roll_back_new_buckets_an
         .await
         .unwrap();
     let admin = importing.admin(Origin::Seed);
-    let mut batch = admin.seed_batch().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
     batch.bucket(super::tests::bucket()).unwrap();
     assert!(matches!(
         batch.commit(SeedMode::Merge).await,
@@ -563,7 +655,7 @@ async fn atomic_ram_reseed_replaces_a_full_catalog_without_growing_a_deletion_jo
         }
     }
     assert!(full);
-    let mut batch = admin.seed_batch().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
     batch.bucket(bucket()).unwrap();
     add(&mut batch, &source.0, "replacement", b"new").await;
     batch.commit(SeedMode::Replace).await.unwrap();

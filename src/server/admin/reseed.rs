@@ -14,9 +14,15 @@ pub(super) async fn respond(
     ctx: RequestCtx<'_>,
     authorized: super::Authorized,
 ) -> Response<Full<Bytes>> {
-    reseed(request, ctx, authorized)
+    let mut response = reseed(request, ctx, authorized)
         .await
-        .unwrap_or_else(JsonError::into_response)
+        .unwrap_or_else(JsonError::into_response);
+    if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+        response
+            .headers_mut()
+            .insert("retry-after", hyper::header::HeaderValue::from_static("1"));
+    }
+    response
 }
 
 async fn reseed(
@@ -55,10 +61,14 @@ async fn reseed(
         ));
     }
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
+    let clock = ctx.state.clock.as_ref();
+    let config = ctx.config;
+    let ctx = ctx.object(None, deadline);
+    // Expiry before exclusive ownership can still confirm that reseed made no changes.
+    let wait_limit = deadline.min(tokio::time::Instant::now() + ctx.catalog_timeout());
     let outcome = ctx
-        .object(None, deadline)
         .await_catalog(async {
-            crate::seed::reseed(&admin, ctx.config, ctx.state.clock.as_ref())
+            crate::seed::reseed(&admin, config, clock, wait_limit)
                 .await
                 .map_err(|error| failure(&error))
         })
@@ -83,6 +93,9 @@ fn failure(error: &SeedError) -> JsonError {
         SeedError::Admin(AdminError::Invalid(_) | AdminError::SeedProjectMismatch) => {
             JsonError::invalid_argument("Invalid fixture state; reseed made no changes")
         }
+        SeedError::Admin(AdminError::Busy { .. }) => JsonError::service_unavailable(
+            "Reseed made no changes because catalog work, an unpublished body or another publication is active; retry after it completes",
+        ),
         _ => JsonError::service_unavailable(
             "Reseed failed; inspect local fixture/storage diagnostics and retry",
         ),
@@ -169,9 +182,14 @@ mod tests {
             seed_dir: Some(source.0.clone()),
             ..Default::default()
         };
-        let error = crate::seed::reseed(&admin, &config, &SystemClock)
-            .await
-            .unwrap_err();
+        let error = crate::seed::reseed(
+            &admin,
+            &config,
+            &SystemClock,
+            tokio::time::Instant::now() + std::time::Duration::from_secs(1),
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(
             error,
             SeedError::Admin(AdminError::SeedProjectMismatch)

@@ -28,14 +28,29 @@ pub(crate) struct SeedBatch {
     request: Arc<OwnedSemaphorePermit>,
     runtime: tokio::runtime::Handle,
     metadata_bytes: usize,
+    wait_limit: Option<tokio::time::Instant>,
+}
+
+/// A caller with its own budget (an HTTP request) supplies a limit so that waiting ends as a
+/// retryable no-changes `Busy` before the caller gives up; startup waits like other publication.
+fn wait_deadline(limit: Option<tokio::time::Instant>) -> tokio::time::Instant {
+    limit.unwrap_or_else(|| tokio::time::Instant::now() + WAIT_TIMEOUT)
 }
 
 impl Admin {
-    pub(crate) fn seed_batch(&self) -> Result<SeedBatch, AdminError> {
+    #[cfg(test)]
+    pub(crate) async fn seed_batch(&self) -> Result<SeedBatch, AdminError> {
+        self.seed_batch_until(None).await
+    }
+
+    pub(crate) async fn seed_batch_until(
+        &self,
+        wait_limit: Option<tokio::time::Instant>,
+    ) -> Result<SeedBatch, AdminError> {
         if self.catalog.sync_controls()?.is_some() {
             return Err(AdminError::Precondition);
         }
-        let activity = self.catalog.activity()?;
+        // The request slot bounds queued publication callers, so it is refused rather than awaited.
         let request = Arc::new(
             self.catalog
                 .0
@@ -46,11 +61,13 @@ impl Admin {
         );
         let admission = self
             .catalog
-            .0
-            .publication_batch
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| busy())?;
+            .wait_admin(
+                self.catalog.0.publication_batch.clone(),
+                wait_deadline(wait_limit),
+            )
+            .await?;
+        // Taken after the wait so that a waiting seed never holds back an exclusive reset.
+        let activity = self.catalog.activity()?;
         Ok(SeedBatch {
             admin: self.clone(),
             buckets: Vec::new(),
@@ -61,6 +78,7 @@ impl Admin {
             request,
             runtime: tokio::runtime::Handle::current(),
             metadata_bytes: 0,
+            wait_limit,
         })
     }
 }
@@ -199,18 +217,11 @@ impl SeedBatch {
                 .push(prepare_entry(catalog.clone(), entry).await?);
         }
         std::mem::swap(&mut self.entries, &mut self.prepared);
-        let execution =
-            tokio::time::timeout(WAIT_TIMEOUT, catalog.0.execution.clone().acquire_owned())
-                .await
-                .map_err(|_| busy())?
-                .map_err(|_| AdminError::Closed)?;
+        // The batch's own read lease would otherwise keep the exclusive gate from ever opening.
         self.activity.take();
-        let exclusive = catalog
-            .0
-            .activity
-            .clone()
-            .try_write_owned()
-            .map_err(|_| busy())?;
+        let (exclusive, execution) = catalog
+            .wait_exclusive(wait_deadline(self.wait_limit))
+            .await?;
         let inner = catalog.0.clone();
         let (outcome, mut batch) = catalog
             .0

@@ -1,5 +1,88 @@
 use super::*;
 
+fn seeded_server(data: &TestDir, source: &TestDir, catalog_wait_ms: &str) -> Server {
+    std::fs::create_dir(source.0.join("test-bucket")).unwrap();
+    std::fs::write(source.0.join("test-bucket/value"), b"seed").unwrap();
+    let server = Server::start(
+        data,
+        &[
+            "--admin-enabled",
+            "true",
+            "--seed-dir",
+            source.0.to_str().unwrap(),
+            "--catalog-wait-timeout-ms",
+            catalog_wait_ms,
+        ],
+    );
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=value",
+            "",
+            b"API edit",
+        )
+        .json_ok();
+    server
+}
+
+fn finish_upload(mut upload: BufReader<TcpStream>) {
+    upload.get_mut().write_all(b"hello").unwrap();
+    let reply = common::read_http_response(&mut upload, Body::Expected).unwrap();
+    assert!(reply.starts_with(b"HTTP/1.1 200"));
+}
+
+#[test]
+fn reseed_waits_for_an_active_upload_and_then_replays_fixtures() {
+    let (data, source) = (TestDir::new(), TestDir::new());
+    let server = seeded_server(&data, &source, "30000");
+    let upload = pending_media_upload(&server, "pending", b"hello".len());
+    let replay = std::thread::scope(|scope| {
+        let reseed = scope.spawn(|| server.request("POST", "/_internal/reseed", "", b""));
+        // Reseed must still be waiting when the upload completes; an immediate refusal fails here.
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!reseed.is_finished());
+        finish_upload(upload);
+        reseed.join().unwrap()
+    });
+    assert_eq!(replay.json_ok()["outcome"], "imported");
+    assert_eq!(
+        server
+            .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
+            .body,
+        b"seed"
+    );
+}
+
+#[test]
+fn reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active() {
+    let (data, source) = (TestDir::new(), TestDir::new());
+    let server = seeded_server(&data, &source, "500");
+    let upload = pending_media_upload(&server, "pending", b"hello".len());
+    let busy = server.request("POST", "/_internal/reseed", "", b"");
+    busy.expect(503);
+    assert_eq!(busy.headers["retry-after"], "1");
+    assert_eq!(
+        busy.json()["error"]["message"],
+        "Reseed made no changes because catalog work, an unpublished body or another publication is active; retry after it completes"
+    );
+    assert_eq!(
+        server
+            .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
+            .body,
+        b"API edit"
+    );
+    finish_upload(upload);
+    server
+        .request("POST", "/_internal/reseed", "", b"")
+        .json_ok();
+    assert_eq!(
+        server
+            .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
+            .body,
+        b"seed"
+    );
+}
+
 #[test]
 fn disk_reseed_suppresses_only_fixture_events_and_keeps_runtime_delivery_selection() {
     let data = TestDir::new();
