@@ -64,6 +64,10 @@ pub(super) fn build(root: &File) -> io::Result<Native> {
     Ok(native)
 }
 impl Native {
+    #[cfg(test)]
+    pub(super) fn duplicate_queue(&self) -> io::Result<OwnedFd> {
+        self.queue.try_clone()
+    }
     #[expect(
         unsafe_code,
         reason = "inotify has no standard-library queue constructor"
@@ -74,8 +78,9 @@ impl Native {
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }
-        // SAFETY: the successful syscall transferred one newly owned descriptor.
         Ok(Self {
+            // SAFETY: inotify_init1 above returned a valid, unowned fd; this transfers
+            // ownership exactly once to the value responsible for closing it.
             queue: unsafe { OwnedFd::from_raw_fd(fd) },
             count: 0,
         })

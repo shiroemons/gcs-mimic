@@ -20,6 +20,48 @@ pub(super) enum Quiet {
     Capped,
 }
 impl DirectoryWatch {
+    fn record(&mut self, change: Change) -> io::Result<()> {
+        self.generation = self
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("native observation generation exhausted"))?;
+        let now = tokio::time::Instant::now();
+        let settle = Duration::from_millis(super::super::SETTLE_MS);
+        if let Some(pending) = &mut self.pending {
+            if change == Change::Structure {
+                pending.change = change;
+            }
+            pending.quiet = now + settle;
+        } else {
+            self.pending = Some(Pending {
+                change,
+                quiet: now + settle,
+                limit: now + settle * 10,
+            });
+        }
+        Ok(())
+    }
+    pub(super) fn poll_changes(&mut self) -> io::Result<bool> {
+        if let Some(change) = self.watch.try_changed()? {
+            self.record(change)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+    pub(super) fn history_scan(&mut self, quiet: Quiet) -> HistoryScan<'_> {
+        let generation = self.poll_changes().map(|_| {
+            if quiet == Quiet::Established && self.pending.is_none() {
+                Some(self.generation)
+            } else {
+                None
+            }
+        });
+        HistoryScan {
+            watcher: self,
+            generation,
+        }
+    }
     pub(super) fn continue_quiet(&mut self) {
         let now = tokio::time::Instant::now();
         let settle = Duration::from_millis(super::super::SETTLE_MS);
@@ -30,33 +72,27 @@ impl DirectoryWatch {
         });
     }
     pub(super) async fn next_observation(&mut self) -> io::Result<Observed> {
-        let settle = Duration::from_millis(super::super::SETTLE_MS);
         if self.pending.is_none() {
             let change = self.watch.changed().await?;
-            let now = tokio::time::Instant::now();
-            self.pending = Some(Pending {
-                change,
-                quiet: now + settle,
-                limit: now + settle * 10,
-            });
+            self.record(change)?;
             return Ok(Observed::Pending);
         }
         loop {
             let pending = self
                 .pending
-                .as_mut()
+                .as_ref()
                 .ok_or_else(|| io::Error::other("missing pending observation"))?;
+            let deadline = pending.quiet.min(pending.limit);
             tokio::select! {
                 change=self.watch.changed()=>{
-                    if change?==Change::Structure {pending.change=Change::Structure;}
-                    pending.quiet=tokio::time::Instant::now()+settle;
+                    self.record(change?)?;
                     // A continuously readable native queue must still let the actor poll control requests.
                     tokio::task::yield_now().await;
                 }
-                ()=tokio::time::sleep_until(pending.quiet.min(pending.limit))=>{
+                ()=tokio::time::sleep_until(deadline)=>{
+                    let pending=self.pending.take().ok_or_else(||io::Error::other("missing pending observation"))?;
                     let change=pending.change;
                     let quiet=if pending.quiet<=pending.limit {Quiet::Established} else {Quiet::Capped};
-                    self.pending=None;
                     return Ok(Observed::Settled(change,quiet));
                 }
             }
@@ -64,20 +100,72 @@ impl DirectoryWatch {
     }
 }
 
-pub(super) async fn reset_history(
+pub(super) struct HistoryScan<'a> {
+    watcher: &'a mut DirectoryWatch,
+    generation: io::Result<Option<u64>>,
+}
+impl HistoryScan<'_> {
+    pub(super) async fn reset(
+        self,
+        root: &RootLease,
+        summary: &Reconciliation,
+    ) -> Result<(), RootError> {
+        let generation = self.generation?;
+        self.watcher.poll_changes()?;
+        if generation == Some(self.watcher.generation)
+            && self.watcher.pending.is_none()
+            && summary.baseline_complete
+            && !summary.interrupted
+            && summary.deferred == 0
+            && summary.unrepresentable == 0
+        {
+            root.reset_empty_deletion_history().await?;
+        }
+        Ok(())
+    }
+    pub(super) async fn finish(self, root: &RootLease, summary: &Reconciliation) {
+        #[cfg(test)]
+        export_checkpoint("history-scanned").await;
+        if let Err(error) = self.reset(root, summary).await {
+            diagnostics::emit(
+                LogLevel::Warn,
+                "sync_history_reset_failed",
+                serde_json::json!({"reason":crate::error::Report(&error).to_string()}),
+            );
+        }
+    }
+}
+
+pub(super) async fn refresh(
     root: &RootLease,
-    quiet: Quiet,
-    summary: &Reconciliation,
+    watcher: &mut DirectoryWatch,
+    quiet: &mut Quiet,
+    publication: &mut Option<crate::storage::sync_state::observation::Publication>,
+    controls: &Controls,
 ) -> io::Result<()> {
-    if quiet == Quiet::Established
-        && summary.baseline_complete
-        && !summary.interrupted
-        && summary.deferred == 0
-        && summary.unrepresentable == 0
-    {
-        root.reset_empty_deletion_history()
-            .await
-            .map_err(io::Error::other)?;
+    let changed = watcher.poll_changes()?;
+    if watcher.pending.is_some() {
+        if changed || *quiet == Quiet::Established {
+            *quiet = Quiet::Unverified;
+        }
+        controls.changing();
+        let started = publication.is_none();
+        if started {
+            *publication = Some(
+                root.begin_observation_publication()
+                    .await
+                    .map_err(io::Error::other)?,
+            );
+        }
+        if changed || started {
+            root.invalidate_deletions()
+                .await
+                .map_err(io::Error::other)?;
+            #[cfg(test)]
+            if started {
+                export_checkpoint("observation-invalidated").await;
+            }
+        }
     }
     Ok(())
 }
@@ -85,6 +173,25 @@ pub(super) async fn reset_history(
 #[derive(Default)]
 pub(super) struct Controls(std::collections::VecDeque<Command>);
 impl Controls {
+    pub(super) fn changing(&self) {
+        for request in &self.0 {
+            if let Command::Wait { settling, .. } = request {
+                settling.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+    }
+    pub(super) fn running(
+        &mut self,
+        request: Command,
+        stopping: &tokio::sync::watch::Receiver<bool>,
+    ) -> Option<Command> {
+        if *stopping.borrow() {
+            self.0.push_front(request);
+            None
+        } else {
+            Some(request)
+        }
+    }
     pub(super) fn stop(&mut self) {
         for request in self.0.drain(..) {
             match request {
@@ -98,7 +205,12 @@ impl Controls {
                 Command::Rescan { reply, .. } => {
                     let _ = reply.send(Err(io::ErrorKind::Interrupted.into()));
                 }
-                _ => {}
+                Command::Approve { reply, .. } => {
+                    let _ = reply.send(Err(io::ErrorKind::Interrupted.into()));
+                }
+                Command::Resolve { reply, .. } => {
+                    let _ = reply.send(Err(AdminError::Closed.into()));
+                }
             }
         }
     }

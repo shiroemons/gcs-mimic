@@ -1,6 +1,11 @@
 //! Test-only local input fixtures shared by unit and wire tests.
 
-use std::path::{Path, PathBuf};
+use rusqlite::{Connection, types::Value};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 pub(crate) struct TestDir(pub PathBuf);
 
@@ -24,6 +29,96 @@ impl TestDir {
 /// removed since the listing counts as empty.
 pub(crate) fn live_len(path: &Path) -> u64 {
     std::fs::metadata(path).map_or(0, |metadata| metadata.len())
+}
+
+#[derive(Debug)]
+pub(crate) struct UploadCleanup {
+    pub active: usize,
+    pub staging: usize,
+    pub blobs: usize,
+    pub objects: usize,
+    pub pending: usize,
+    pub derived: usize,
+}
+
+pub(crate) fn upload_files(dir: &Path, directory: &str) -> usize {
+    fs::read_dir(dir.join(directory))
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                fs::read_dir(path).unwrap().count()
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+impl UploadCleanup {
+    pub(crate) fn observe(dir: &Path, active: usize) -> Self {
+        let connection = Connection::open(dir.join("catalog.sqlite3")).unwrap();
+        let count = |sql| connection.query_row(sql, [], |row| row.get(0)).unwrap();
+        Self {
+            active,
+            staging: upload_files(dir, "staging"),
+            blobs: upload_files(dir, "blobs"),
+            objects: count("SELECT count(*) FROM objects"),
+            pending: count("SELECT count(*) FROM pending_blob_deletions"),
+            derived: count("SELECT count(*) FROM derived_transfers"),
+        }
+    }
+
+    pub(crate) fn is_complete(&self) -> bool {
+        self.active == 0
+            && self.staging == 0
+            && self.blobs == self.objects
+            && self.pending == 0
+            && self.derived == 0
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct StoredObjects {
+    objects: Vec<Vec<Value>>,
+    generation: i64,
+    bodies: BTreeMap<String, Vec<u8>>,
+}
+
+impl StoredObjects {
+    pub(crate) fn read(dir: &Path) -> Self {
+        let connection = Connection::open(dir.join("catalog.sqlite3")).unwrap();
+        let mut statement = connection
+            .prepare("SELECT * FROM objects ORDER BY bucket,name,generation")
+            .unwrap();
+        let columns = statement.column_count();
+        let objects = statement
+            .query_map([], |row| {
+                (0..columns).map(|column| row.get(column)).collect()
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let mut statement = connection.prepare("SELECT blob_id FROM objects").unwrap();
+        let bodies = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|id| {
+                let id = id.unwrap();
+                let bytes = fs::read(dir.join("blobs").join(&id[..2]).join(&id)).unwrap();
+                (id, bytes)
+            })
+            .collect();
+        Self {
+            objects,
+            generation: connection
+                .query_row("SELECT last_generation FROM object_generation", [], |row| {
+                    row.get(0)
+                })
+                .unwrap(),
+            bodies,
+        }
+    }
 }
 
 /// Blocking catalog threads can close their files just after a test returns, and

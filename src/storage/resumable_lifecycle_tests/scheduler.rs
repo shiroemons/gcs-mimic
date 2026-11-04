@@ -1,5 +1,7 @@
 use super::*;
-use crate::storage::catalog::fault::{self, Fault, Step};
+use crate::storage::catalog::fault;
+#[cfg(unix)]
+use crate::storage::catalog::fault::{Fault, Step};
 
 struct CountingClock {
     now: Mutex<SystemTime>,
@@ -92,6 +94,7 @@ async fn expired_busy_session_wakes_scheduler_when_its_writer_is_released() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn failed_cleanup_retries_after_writer_release_without_another_request() {
     let dir = TestDir::new();
     let clock = Arc::new(CountingClock::new());

@@ -1,5 +1,7 @@
 use super::*;
-use crate::{config::Scheme, test_support::TestDir};
+#[cfg(unix)]
+use crate::config::Scheme;
+use crate::test_support::TestDir;
 
 #[tokio::test]
 #[cfg(unix)]

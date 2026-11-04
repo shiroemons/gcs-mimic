@@ -29,7 +29,7 @@ use std::{
 
 #[cfg(test)]
 use super::Hook;
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 use crate::storage::sync_state::writeback::Limits;
 #[cfg(test)]
 tokio::task_local! { static EXPORT_HOOK: std::sync::Arc<Hook>; }
@@ -85,6 +85,7 @@ struct DirectoryWatch {
     // Vnode descriptors must close before the lease can release exclusive root ownership.
     _root: RootLease,
     pending: Option<observation::Pending>,
+    generation: u64,
 }
 
 impl DirectoryWatch {
@@ -101,6 +102,7 @@ impl DirectoryWatch {
             watch: crate::source_tree::watch::Watch::new(native)?,
             _root: lease,
             pending: None,
+            generation: 0,
         })
     }
 
@@ -118,7 +120,10 @@ impl DirectoryWatch {
                 return Ok(());
             }
             match Self::new(root).await {
-                Ok(watcher) => {
+                Ok(mut watcher) => {
+                    self.poll_changes()?;
+                    watcher.generation = self.generation;
+                    watcher.pending = self.pending.take();
                     *self = watcher;
                     health.pass_succeeded();
                     return Ok(());
@@ -441,6 +446,7 @@ async fn run_live_config(
     }
     let mut quiet = observation::Quiet::Unverified;
     while !*stopping.borrow() {
+        observation::refresh(root, &mut watcher, &mut quiet, &mut publication, controls).await?;
         let request = controls.ready(&watcher, quiet).or_else(|| {
             if controls.available() {
                 requests.try_recv().ok()
@@ -452,9 +458,9 @@ async fn run_live_config(
             let Some(request) = controls.admit(request, &watcher, quiet) else {
                 continue;
             };
-            if *stopping.borrow() {
+            let Some(request) = controls.running(request, stopping) else {
                 break;
-            }
+            };
             LiveControl {
                 catalog,
                 root,
@@ -465,7 +471,7 @@ async fn run_live_config(
                 baseline_complete: &mut baseline_complete,
                 cursor: &mut cursor,
             }
-            .handle(request, quiet)
+            .handle(request, quiet, &mut watcher)
             .await?;
             continue;
         }
@@ -506,11 +512,12 @@ async fn run_live_config(
                             quiet=settled;
                             if observed==crate::source_tree::watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
                             if *stopping.borrow() {break}
+                            let history=watcher.history_scan(quiet);
                             let summary=ingest_external(catalog,root,config,&writeback,stopping,&mut ingest_complete,&mut baseline_complete).await?;
-                            observation::reset_history(root,quiet,&summary).await?;
+                            history.finish(root,&summary).await;
                             publication.take();
                             if quiet==observation::Quiet::Capped {
-                                watcher.continue_quiet();
+                                if watcher.pending.is_none() {watcher.continue_quiet();}
                                 publication=Some(root.begin_observation_publication().await.map_err(io::Error::other)?);
                                 root.invalidate_deletions().await.map_err(io::Error::other)?;
                             }
@@ -522,8 +529,8 @@ async fn run_live_config(
                 ()=controls.expired()=>{controls.expire(root,config).await?;}
                 Some(request) = requests.recv(), if controls.available() => {
                     let Some(request)=controls.admit(request,&watcher,quiet) else {continue};
-                    if *stopping.borrow() { break }
-                    LiveControl {catalog,root,config,writeback:&writeback,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request,quiet).await?;
+                    let Some(request)=controls.running(request,stopping) else {break};
+                    LiveControl {catalog,root,config,writeback:&writeback,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request,quiet,&mut watcher).await?;
                 }
                 result = catalog.wait_for_changes(cursor) => { result.map_err(io::Error::other)?; }
             }
@@ -731,6 +738,8 @@ async fn initialize_live(
         let _ = request.reply.send(Ok(summary));
         writeback = writeback.with_root(root).map_err(io::Error::other)?;
     }
+    #[cfg(test)]
+    export_checkpoint("observation-ready").await;
     Ok(Initialized {
         cursor,
         watcher,
@@ -864,13 +873,16 @@ impl LiveControl<'_> {
         Ok(summary)
     }
 
-    fn handle(
-        &mut self,
+    fn handle<'a>(
+        &'a mut self,
         request: Command,
         quiet: observation::Quiet,
-    ) -> impl Future<Output = io::Result<()>> + '_ {
+        watcher: &'a mut DirectoryWatch,
+    ) -> impl Future<Output = io::Result<()>> + 'a {
         // The single worker boxes one control future to bound nested reconciliation stack use.
         Box::pin(async move {
+            let history = matches!(&request, Command::Wait { .. } | Command::Rescan { .. })
+                .then(|| watcher.history_scan(quiet));
             let identity = match &request {
                 Command::Rescan { identity, .. }
                 | Command::Approve { identity, .. }
@@ -897,19 +909,18 @@ impl LiveControl<'_> {
                 baseline_complete: self.baseline_complete,
                 cursor: self.cursor,
             };
-            control.handle_authorized_quiet(request, quiet).await
+            control.handle_with_history(request, history).await
         })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     async fn handle_authorized(&mut self, request: Command) -> io::Result<()> {
-        self.handle_authorized_quiet(request, observation::Quiet::Unverified)
-            .await
+        self.handle_with_history(request, None).await
     }
-    async fn handle_authorized_quiet(
+    async fn handle_with_history(
         &mut self,
         request: Command,
-        quiet: observation::Quiet,
+        history: Option<observation::HistoryScan<'_>>,
     ) -> io::Result<()> {
         match request {
             Command::Resolve {
@@ -940,8 +951,10 @@ impl LiveControl<'_> {
                 {
                     Ok(()) => match self.wait(deadline).await {
                         Ok(result) => {
-                            if let Some(summary) = &result.reconciliation {
-                                observation::reset_history(self.root, quiet, summary).await?;
+                            if let (Some(history), Some(summary)) =
+                                (history, &result.reconciliation)
+                            {
+                                history.finish(self.root, summary).await;
                             }
                             Ok(result)
                         }
@@ -959,7 +972,9 @@ impl LiveControl<'_> {
                 {
                     Ok(()) => match self.rescan().await {
                         Ok(summary) => {
-                            observation::reset_history(self.root, quiet, &summary).await?;
+                            if let Some(history) = history {
+                                history.finish(self.root, &summary).await;
+                            }
                             Ok(summary)
                         }
                         Err(error) => Err(error),

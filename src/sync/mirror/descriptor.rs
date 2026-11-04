@@ -23,8 +23,10 @@ pub(super) fn retrying(error: &std::io::Error, delay: std::time::Duration) {
 
 pub(super) fn diagnostic(
     error: &(dyn Error + 'static),
-    mut details: serde_json::Value,
+    details: serde_json::Value,
 ) -> serde_json::Value {
+    #[cfg(unix)]
+    let mut details = details;
     #[cfg(unix)]
     if crate::error::causes(error).any(|cause| {
         cause

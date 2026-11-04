@@ -37,6 +37,33 @@ fn timeout_durations_preserve_cli_units_bounds_and_leading_plus() {
 }
 
 #[test]
+fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
+    assert_eq!(
+        parse_cmd(&["rescan"]).unwrap().timeout,
+        Duration::from_secs(30)
+    );
+    assert_eq!(
+        parse_cmd(&["status"]).unwrap().timeout,
+        Duration::from_secs(10)
+    );
+    assert_eq!(
+        parse_cmd(&["wait"]).unwrap().timeout,
+        Duration::from_secs(11)
+    );
+    assert_eq!(
+        parse_cmd(&["rescan", "--timeout", "5s"]).unwrap().timeout,
+        Duration::from_secs(5)
+    );
+    assert_eq!(
+        parse_cmd(&["rescan", "--timeout-ms", "25"])
+            .unwrap()
+            .timeout,
+        Duration::from_millis(25)
+    );
+    assert!(HELP.contains("SourceChanging (409)"));
+}
+
+#[test]
 fn approval_requires_an_explicit_exact_revision() {
     let revision = "0123456789abcdef0123456789abcdef";
     let options = parse_cmd(&["approve", "--revision", revision]).unwrap();
