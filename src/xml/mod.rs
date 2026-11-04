@@ -161,11 +161,11 @@ pub(crate) fn normalize_legacy_headers(headers: &mut HeaderMap) -> Result<(), Er
         return Ok(());
     }
     let mut replacements = Vec::new();
-    for name in headers
-        .keys()
-        .filter(|name| name.as_str().starts_with("x-amz-"))
-    {
-        let suffix = &name.as_str()[6..];
+    for (name, suffix) in headers.keys().filter_map(|name| {
+        name.as_str()
+            .strip_prefix("x-amz-")
+            .map(|suffix| (name, suffix))
+    }) {
         if suffix == "date" || suffix == "project-id" || suffix.starts_with("meta-") {
             let target = HeaderName::from_bytes(format!("x-goog-{suffix}").as_bytes())
                 .map_err(|_| Error::unsupported(name.as_str()))?;
@@ -487,6 +487,10 @@ impl ObjectPath {
             crate::auth::signature::Resource::PathStyle
         }
     }
+    #[expect(
+        clippy::string_slice,
+        reason = "name_start is computed from a path suffix in select_object_with_endpoints, so it is in bounds at a UTF-8 boundary"
+    )]
     pub(crate) fn name(&self) -> &str {
         &self.uri.path()[self.name_start..]
     }
@@ -595,8 +599,11 @@ pub(crate) fn route(
         uri,
         name_start,
     } = selected?;
-    let name = &uri.path()[name_start..];
     Some((|| {
+        let name = uri
+            .path()
+            .get(name_start..)
+            .ok_or_else(|| Error::invalid("Invalid object path"))?;
         json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
         let mut query =
             crate::auth::signature::xml_query(uri.query().unwrap_or_default(), headers)?;

@@ -128,10 +128,12 @@ fn disposition(headers: &HeaderMap) -> Result<(String, Option<String>), Error> {
                 }
             }
             let end = end.ok_or_else(malformed)?;
-            (value, &tail[end + 1..])
+            (value, tail.get(end + 1..).ok_or_else(malformed)?)
         } else {
-            let end = tail.find(';').unwrap_or(tail.len());
-            (tail[..end].trim().to_owned(), &tail[end..])
+            let (value, rest) = tail
+                .split_at_checked(tail.find(';').unwrap_or(tail.len()))
+                .ok_or_else(malformed)?;
+            (value.trim().to_owned(), rest)
         };
         let target = match key.as_str() {
             "name" => &mut name,
@@ -215,7 +217,7 @@ fn expiration(raw: &str) -> Option<SystemTime> {
     }
     let micros = crate::import::codec::parse_timestamp(raw).ok()?;
     if micros >= 0 {
-        UNIX_EPOCH.checked_add(Duration::from_micros(micros as u64))
+        UNIX_EPOCH.checked_add(Duration::from_micros(micros.unsigned_abs()))
     } else {
         UNIX_EPOCH.checked_sub(Duration::from_micros(micros.unsigned_abs()))
     }
@@ -308,12 +310,15 @@ fn check_policy(
                     value.as_str().ok_or_else(unsupported)?,
                 )
             }
-            serde_json::Value::Array(items) if items.len() == 3 => {
-                let operator = items[0].as_str().ok_or_else(unsupported)?;
+            serde_json::Value::Array(items) => {
+                let [operator, field, expected] = items.as_slice() else {
+                    return Err(unsupported());
+                };
+                let operator = operator.as_str().ok_or_else(unsupported)?;
                 if operator.eq_ignore_ascii_case("content-length-range") {
-                    let (min, max) = items[1]
+                    let (min, max) = field
                         .as_u64()
-                        .zip(items[2].as_u64())
+                        .zip(expected.as_u64())
                         .filter(|(min, max)| min <= max)
                         .ok_or_else(unsupported)?;
                     if range.replace((min, max)).is_some() {
@@ -331,7 +336,7 @@ fn check_policy(
                 } else {
                     return Err(unsupported());
                 };
-                let field = items[1]
+                let field = field
                     .as_str()
                     .and_then(|field| field.strip_prefix('$'))
                     .filter(|field| !field.is_empty())
@@ -339,7 +344,7 @@ fn check_policy(
                 (
                     operator,
                     field.to_ascii_lowercase(),
-                    items[2].as_str().ok_or_else(unsupported)?,
+                    expected.as_str().ok_or_else(unsupported)?,
                 )
             }
             _ => return Err(unsupported()),
@@ -784,7 +789,11 @@ fn success_response(
     api_base_url: &str,
 ) -> Result<Response<ResponseBody>, Error> {
     let mut media = super::media_headers(record, super::CacheScope::Private)?;
-    let etag = media["etag"].to_str().unwrap_or_default().to_owned();
+    let etag = media
+        .get("etag")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
     let (status, body, content_type) = match success {
         Success::Redirect(_) => (StatusCode::SEE_OTHER, String::new(), None),
         Success::Status(StatusCode::CREATED) => (

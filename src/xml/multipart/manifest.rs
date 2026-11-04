@@ -46,7 +46,10 @@ impl Part {
     ) -> Result<Scope, Error> {
         Ok(match scope {
             Scope::Number => {
-                self.number = Some(integer(self.text.trim(), 1, 10000)? as u16);
+                self.number = Some(
+                    u16::try_from(integer(self.text.trim(), 1, 10000)?)
+                        .map_err(|_| Error::invalid("Multipart number is out of range"))?,
+                );
                 Scope::Part
             }
             Scope::Etag => {
