@@ -8,7 +8,9 @@ use tonic::{Request, Response, Status};
 
 fn require_caller(caller: Option<Caller<'_>>) -> Result<(), Status> {
     if matches!(caller, Some(Caller::Anonymous)) {
-        return Err(super::auth_error(crate::auth::AuthFailure::LoginRequired));
+        return Err(super::auth_error(
+            crate::auth::AuthFailure::LoginRequired.into(),
+        ));
     }
     Ok(())
 }
@@ -1116,8 +1118,8 @@ mod tests {
             )),
             1024,
         );
-        let admin = caller(&storage, "admin");
-        let viewer = caller(&storage, "reader");
+        let admin = caller(&storage, "admin").await;
+        let viewer = caller(&storage, "reader").await;
         for name in ["batch-readable", "batch-denied", "batch-uniform"] {
             storage
                 .create_bucket(Request::new(create(name)), admin)
@@ -1408,19 +1410,25 @@ mod tests {
         storage
             .create_bucket(
                 Request::new(create("strict-acl")),
-                caller(&storage, "admin"),
+                caller(&storage, "admin").await,
             )
             .await
             .unwrap();
         let admin = storage
-            .get_bucket(Request::new(get("strict-acl")), caller(&storage, "admin"))
+            .get_bucket(
+                Request::new(get("strict-acl")),
+                caller(&storage, "admin").await,
+            )
             .await
             .unwrap()
             .into_inner();
         assert!(!admin.acl.is_empty());
         // Reading the bucket succeeds without the ACL for a caller that cannot read ACLs.
         let viewer = storage
-            .get_bucket(Request::new(get("strict-acl")), caller(&storage, "viewer"))
+            .get_bucket(
+                Request::new(get("strict-acl")),
+                caller(&storage, "viewer").await,
+            )
             .await
             .unwrap()
             .into_inner();
@@ -1436,7 +1444,10 @@ mod tests {
         );
         assert_code(
             storage
-                .update_bucket(Request::new(request.clone()), caller(&storage, "viewer"))
+                .update_bucket(
+                    Request::new(request.clone()),
+                    caller(&storage, "viewer").await,
+                )
                 .await,
             Code::PermissionDenied,
         );
@@ -1447,13 +1458,16 @@ mod tests {
             Code::Unauthenticated,
         );
         let unchanged = storage
-            .get_bucket(Request::new(get("strict-acl")), caller(&storage, "admin"))
+            .get_bucket(
+                Request::new(get("strict-acl")),
+                caller(&storage, "admin").await,
+            )
             .await
             .unwrap()
             .into_inner();
         assert_eq!(unchanged.acl, admin.acl);
         storage
-            .update_bucket(Request::new(request), caller(&storage, "admin"))
+            .update_bucket(Request::new(request), caller(&storage, "admin").await)
             .await
             .unwrap();
         storage.state.catalog.close().await.unwrap();
@@ -1480,13 +1494,16 @@ mod tests {
         storage
             .create_bucket(
                 Request::new(create("plain-bucket")),
-                caller(&storage, "editor"),
+                caller(&storage, "editor").await,
             )
             .await
             .unwrap();
         assert_code(
             storage
-                .create_bucket(Request::new(request.clone()), caller(&storage, "editor"))
+                .create_bucket(
+                    Request::new(request.clone()),
+                    caller(&storage, "editor").await,
+                )
                 .await,
             Code::PermissionDenied,
         );
@@ -1500,7 +1517,7 @@ mod tests {
                 .is_none()
         );
         let created = storage
-            .create_bucket(Request::new(request), caller(&storage, "admin"))
+            .create_bucket(Request::new(request), caller(&storage, "admin").await)
             .await
             .unwrap()
             .into_inner();
@@ -1522,13 +1539,16 @@ mod tests {
             Some(pb::bucket::ObjectRetention { enabled: true });
         assert_code(
             storage
-                .create_bucket(Request::new(request.clone()), caller(&storage, "admin"))
+                .create_bucket(
+                    Request::new(request.clone()),
+                    caller(&storage, "admin").await,
+                )
                 .await,
             Code::InvalidArgument,
         );
         request.enable_object_retention = true;
         storage
-            .create_bucket(Request::new(request), caller(&storage, "admin"))
+            .create_bucket(Request::new(request), caller(&storage, "admin").await)
             .await
             .unwrap();
         storage.state.catalog.close().await.unwrap();
@@ -1589,7 +1609,7 @@ mod tests {
                     .metadata_mut()
                     .insert("authorization", format!("Bearer {token}").parse().unwrap());
             }
-            let caller = storage.authenticate(&metadata).unwrap();
+            let caller = storage.authenticate(&metadata).await.unwrap();
             let result = storage
                 .create_bucket(Request::new(create("strict-bucket")), caller)
                 .await;
@@ -1608,7 +1628,7 @@ mod tests {
                     .metadata_mut()
                     .insert("authorization", format!("Bearer {token}").parse().unwrap());
             }
-            let caller = storage.authenticate(&metadata).unwrap();
+            let caller = storage.authenticate(&metadata).await.unwrap();
             let read = storage
                 .get_bucket(Request::new(get("strict-bucket")), caller)
                 .await;

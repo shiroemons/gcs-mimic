@@ -99,7 +99,7 @@ impl ObjectCtx<'_> {
     /// Authorizes `permission` on `bucket` for this request's caller.
     pub(crate) async fn authorize(
         &self,
-        permission: &str,
+        permission: crate::auth::Permission,
         bucket: &str,
     ) -> Result<BucketAccess, JsonError> {
         authorize_bucket(self.state, self.caller, permission, bucket).await

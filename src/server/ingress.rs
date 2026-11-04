@@ -106,7 +106,7 @@ pub(super) async fn decode_metadata(
             .is_some_and(|kind| kind == "multipart" || kind == "media")
         && request.headers().contains_key(CONTENT_ENCODING)
     {
-        return upload_gzip::request(request, ctx);
+        return upload_gzip::request(request, ctx).await;
     }
     let resumable_metadata = request.method() == Method::POST
         && request
@@ -136,11 +136,12 @@ pub(super) async fn decode_metadata(
     }
     ctx.state
         .auth
-        .authenticate_at(
+        .authenticate_request(
             request.headers(),
             request.uri().query(),
             ctx.state.clock.as_ref(),
         )
+        .await
         .map_err(JsonError::from)?;
     let (mut parts, mut body) = request.into_parts();
     if body.size_hint().lower() > BUCKET_BODY_LIMIT as u64 {

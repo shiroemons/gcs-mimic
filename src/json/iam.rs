@@ -41,7 +41,7 @@ pub(super) fn route_test_permissions(
 
 pub(crate) fn test_permissions_query(
     raw: Option<&str>,
-) -> Result<(Vec<String>, Fields), JsonError> {
+) -> Result<(Vec<crate::auth::Permission>, Fields), JsonError> {
     let raw = raw.unwrap_or_default();
     if raw.len() > 16 * 1024 {
         return Err(JsonError::invalid_parameter("Query exceeds 16 KiB"));
@@ -52,7 +52,7 @@ pub(crate) fn test_permissions_query(
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         if query::decode(key, query::Decoding::Form)? == "permissions" {
             let permission = query::decode(value, query::Decoding::Form)?;
-            check_testable_permission(&permission)?;
+            let permission = check_testable_permission(&permission)?;
             if !permissions.contains(&permission) {
                 permissions.push(permission);
             }
@@ -79,14 +79,10 @@ fn invalid(message: impl Into<String>) -> JsonError {
     JsonError::new(StatusCode::BAD_REQUEST, "invalid", message)
 }
 
-pub(crate) fn check_testable_permission(permission: &str) -> Result<(), JsonError> {
-    if matches!(
-        permission,
-        crate::auth::BUCKETS_CREATE | crate::auth::BUCKETS_LIST
-    ) {
-        return Err(invalid("Invalid argument."));
-    }
-    if crate::auth::Permission::try_from(permission).is_err() {
+pub(crate) fn check_testable_permission(
+    permission: &str,
+) -> Result<crate::auth::Permission, JsonError> {
+    let Ok(parsed) = crate::auth::Permission::try_from(permission) else {
         if PREDEFINED_ROLES
             .iter()
             .any(|(_, _, names)| names.contains(&permission))
@@ -98,8 +94,14 @@ pub(crate) fn check_testable_permission(permission: &str) -> Result<(), JsonErro
         return Err(invalid(format!(
             "{permission} is not a valid Google Cloud Storage permission."
         )));
+    };
+    if matches!(
+        parsed,
+        crate::auth::Permission::BucketsCreate | crate::auth::Permission::BucketsList
+    ) {
+        return Err(invalid("Invalid argument."));
     }
-    Ok(())
+    Ok(parsed)
 }
 
 impl From<PolicyInputError> for JsonError {

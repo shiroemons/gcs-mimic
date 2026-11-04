@@ -230,26 +230,35 @@ fn metadata(
 }
 
 impl Storage {
-    fn authenticate<T>(&self, request: &Request<T>) -> Result<Option<Caller<'_>>, Status> {
-        if request.metadata().contains_key("x-goog-request-params") {
-            return Err(unsupported(
-                "legacy routing metadata; put bucket and object in the request and omit x-goog-request-params",
-            ));
+    fn authenticate<T>(
+        &self,
+        request: &Request<T>,
+    ) -> impl Future<Output = Result<Option<Caller<'_>>, Status>> + Send {
+        let metadata = request.metadata().clone();
+        async move {
+            if metadata.contains_key("x-goog-request-params") {
+                return Err(unsupported(
+                    "legacy routing metadata; put bucket and object in the request and omit x-goog-request-params",
+                ));
+            }
+            if metadata.contains_key("x-goog-user-project") {
+                return Err(unsupported(
+                    "legacy billing metadata; omit x-goog-user-project",
+                ));
+            }
+            self.state
+                .auth
+                .authenticate_request(&metadata.into_headers(), None, self.state.clock.as_ref())
+                .await
+                .map_err(super::v2::auth_error)
         }
-        if request.metadata().contains_key("x-goog-user-project") {
-            return Err(unsupported(
-                "legacy billing metadata; omit x-goog-user-project",
-            ));
-        }
-        self.state.auth.authenticate_at(&request.metadata().clone().into_headers(), None, self.state.clock.as_ref())
-            .map_err(|_| Status::unauthenticated("Use a registered local token, for example authorization: Bearer local-admin-token with identity_file"))
     }
 
     async fn access(
         &self,
         caller: Option<Caller<'_>>,
         bucket: &str,
-        permission: &str,
+        permission: crate::auth::Permission,
     ) -> Result<BucketAccess, Status> {
         json::validate_bucket_name_for_profile(bucket, self.compat_profile)?;
         crate::server::authorize_bucket(&self.state, caller, permission, bucket)
@@ -261,7 +270,7 @@ impl Storage {
         &self,
         caller: Option<Caller<'_>>,
         project: &str,
-        permission: &str,
+        permission: crate::auth::Permission,
     ) -> Result<(), Status> {
         json::validate_project(project)?;
         if let Some(caller) = caller {
@@ -323,7 +332,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::GetBucketRequest>,
     ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -356,7 +365,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::DeleteBucketRequest>,
     ) -> Result<Response<()>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         conditions(ObjectConditions {
@@ -379,7 +388,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::InsertBucketRequest>,
     ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -411,7 +420,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::UpdateBucketRequest>,
     ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -467,7 +476,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::ListBucketsRequest>,
     ) -> Result<Response<pb::ListBucketsResponse>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -539,7 +548,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::GetObjectRequest>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -565,7 +574,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::DeleteObjectRequest>,
     ) -> Result<Response<()>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -589,7 +598,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::UpdateObjectRequest>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -614,7 +623,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::PatchObjectRequest>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -641,7 +650,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::ListObjectsRequest>,
     ) -> Result<Response<pb::ListObjectsResponse>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -690,7 +699,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<pb::ComposeObjectRequest>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -764,7 +773,7 @@ impl pb::storage_server::Storage for Storage {
         &self,
         request: Request<Streaming<pb::InsertObjectRequest>>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request)?;
+        let caller = self.authenticate(&request).await?;
         self.upload(request.into_inner(), caller)
             .await
             .map(Response::new)

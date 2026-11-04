@@ -12,6 +12,15 @@ impl Clock for SystemClock {
     }
 }
 
+pub(crate) fn system_time_from_unix_seconds(seconds: i64) -> Option<SystemTime> {
+    let duration = std::time::Duration::from_secs(seconds.unsigned_abs());
+    if seconds < 0 {
+        SystemTime::UNIX_EPOCH.checked_sub(duration)
+    } else {
+        SystemTime::UNIX_EPOCH.checked_add(duration)
+    }
+}
+
 #[cfg(test)]
 pub(crate) struct ManualClock(std::sync::Mutex<SystemTime>);
 

@@ -1,6 +1,5 @@
 # Configuration for the Clippy lints behind "Rust implementation guardrails" in AGENTS.md.
-# The thresholds and `disallowed-methods` apply to lints that only `cargo xtask lint` enables;
-# `disallowed-types` is checked by every Clippy run.
+# The thresholds and `disallowed-methods` apply to lints that only `cargo xtask lint` enables.
 
 # Long enough for a rustfmt-formatted handler with a match over its cases; the review
 # found request handlers of 250 to 800 lines that this rejects.
@@ -13,10 +12,8 @@ max-fn-params-bools = 0
 
 # Channel checks for a queued frame before it checks for a dropped sender, so a producer
 # that sends its last chunk and drops between those checks loses that chunk and the
-# response ends short of its Content-Length. Use crate::server::chunk_body instead.
-disallowed-types = [
-    { path = "http_body_util::Channel", reason = "loses the last frame when the sender drops mid-poll; use crate::server::chunk_body" },
-]
+# response ends short of its Content-Length. The channel feature stays disabled;
+# use crate::server::chunk_body instead.
 
 # `disallowed_methods` is allowed in `[workspace.lints]` and enabled only by `cargo xtask lint`
 # for production code, so tests may spawn tasks and run ad-hoc SQL freely. The supervised

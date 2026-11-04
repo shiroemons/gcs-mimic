@@ -676,7 +676,8 @@ async fn authenticate<'a>(
     let Some(policy) = fields.get("policy") else {
         return state
             .auth
-            .authenticate_at(headers, None, state.clock.as_ref())
+            .authenticate_request(headers, None, state.clock.as_ref())
+            .await
             .map_err(|error| Error::from(JsonError::from(error)));
     };
     if headers.contains_key("authorization") {

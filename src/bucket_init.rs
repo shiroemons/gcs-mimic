@@ -462,11 +462,20 @@ fn entry_ranges(seen: &[bool; BUCKET_LIMIT]) -> String {
     }
 }
 
-fn check_resource_size(bytes: &[u8]) -> Result<(), &'static str> {
+#[derive(Debug)]
+struct ResourceSizeError;
+
+impl std::fmt::Display for ResourceSizeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Encoded native resource exceeds 64 KiB; reduce it to at most 65,536 bytes after removing project.")
+    }
+}
+
+impl std::error::Error for ResourceSizeError {}
+
+fn check_resource_size(bytes: &[u8]) -> Result<(), ResourceSizeError> {
     if bytes.len() > ENTRY_LIMIT {
-        Err(
-            "Encoded native resource exceeds 64 KiB; reduce it to at most 65,536 bytes after removing project.",
-        )
+        Err(ResourceSizeError)
     } else {
         Ok(())
     }
@@ -1303,7 +1312,7 @@ fn check_entry(
     let encoded_limit = check_resource_size(encoded.as_bytes());
     let encoded_oversized = encoded_limit.is_err();
     if let Err(fix) = encoded_limit {
-        error(diagnostics, Reason::Limit, &key, fix);
+        error(diagnostics, Reason::Limit, &key, fix.to_string());
     }
     check_shape(&fields, &key, diagnostics)?;
     // Oversized entries are reported once; decoding their values would only add noise.
@@ -1347,7 +1356,7 @@ fn records(
                 &mut diagnostics,
                 Reason::Limit,
                 format!("buckets[{index}]"),
-                fix,
+                fix.to_string(),
             );
             continue;
         }
@@ -1997,7 +2006,9 @@ mod tests {
                 assert!(parsed(&format!(r#"{{"version":1,"buckets":[{entry}]}}"#)).is_ok());
             } else {
                 assert_eq!(
-                    check_resource_size(entry.as_bytes()).unwrap_err(),
+                    check_resource_size(entry.as_bytes())
+                        .unwrap_err()
+                        .to_string(),
                     "Encoded native resource exceeds 64 KiB; reduce it to at most 65,536 bytes after removing project."
                 );
             }

@@ -3,6 +3,7 @@ mod common;
 mod it_xml_auth {
     mod acl_permission_effects;
     mod auth_http;
+    mod sign_url_cli_http;
     mod signed_browser_http;
     mod xml_bucket_http;
     mod xml_multipart_http;

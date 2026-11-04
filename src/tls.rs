@@ -15,6 +15,54 @@ pub const DEVELOPMENT_CA_PEM: &str = include_str!("tls/development-ca.pem");
 const DEVELOPMENT_CERT_PEM: &[u8] = include_bytes!("tls/development-cert.pem");
 const DEVELOPMENT_KEY_PEM: &[u8] = include_bytes!("tls/development-key.pem");
 
+#[derive(Debug)]
+pub enum ServerIdentityError {
+    Certificate(io::Error),
+    PrivateKey(io::Error),
+    Identity(io::Error),
+}
+
+impl ServerIdentityError {
+    pub fn setting(&self) -> &'static str {
+        match self {
+            Self::Certificate(_) | Self::Identity(_) => "tls_cert",
+            Self::PrivateKey(_) => "tls_key",
+        }
+    }
+
+    pub fn repair(&self) -> &'static str {
+        match self {
+            Self::Certificate(_) => {
+                "provide a readable PEM certificate chain in tls_cert, at most 1 MiB, matching tls_key"
+            }
+            Self::PrivateKey(_) => {
+                "provide exactly one readable PEM private key in tls_key, at most 1 MiB, matching tls_cert"
+            }
+            Self::Identity(_) => {
+                "provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with a certificate chain and exactly one private key; use scheme=https or both"
+            }
+        }
+    }
+
+    fn cause(&self) -> &io::Error {
+        match self {
+            Self::Certificate(error) | Self::PrivateKey(error) | Self::Identity(error) => error,
+        }
+    }
+}
+
+impl std::fmt::Display for ServerIdentityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.cause().fmt(f)
+    }
+}
+
+impl std::error::Error for ServerIdentityError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.cause())
+    }
+}
+
 fn read_pem(path: &Path) -> io::Result<Vec<u8>> {
     crate::bounded_file::read(path, PEM_LIMIT).map_err(|error| match error {
         crate::bounded_file::ReadError::Io(error) => error,
@@ -37,39 +85,47 @@ fn certificates(bytes: &[u8]) -> io::Result<Vec<CertificateDer<'static>>> {
     Ok(certificates)
 }
 
-pub fn load_server(config: &Config) -> io::Result<Option<TlsAcceptor>> {
+pub fn load_server(config: &Config) -> Result<Option<TlsAcceptor>, ServerIdentityError> {
     if config.scheme == Scheme::Http {
         if config.tls_cert.is_some() || config.tls_key.is_some() {
-            return Err(io::Error::new(
+            return Err(ServerIdentityError::Identity(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "TLS files require scheme=https or both",
-            ));
+            )));
         }
         return Ok(None);
     }
     let (cert, key) = match (&config.tls_cert, &config.tls_key) {
         (None, None) => (DEVELOPMENT_CERT_PEM.to_vec(), DEVELOPMENT_KEY_PEM.to_vec()),
-        (Some(cert), Some(key)) => (read_pem(cert)?, read_pem(key)?),
+        (Some(cert), Some(key)) => (
+            read_pem(cert).map_err(ServerIdentityError::Certificate)?,
+            read_pem(key).map_err(ServerIdentityError::PrivateKey)?,
+        ),
         _ => {
-            return Err(io::Error::new(
+            return Err(ServerIdentityError::Identity(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "tls_cert and tls_key must be supplied together",
-            ));
+            )));
         }
     };
     let mut keys = PrivateKeyDer::pem_slice_iter(&key)
         .collect::<Result<Vec<_>, _>>()
-        .map_err(io::Error::other)?;
+        .map_err(io::Error::other)
+        .map_err(ServerIdentityError::PrivateKey)?;
     if keys.len() != 1 {
-        return Err(io::Error::new(
+        return Err(ServerIdentityError::PrivateKey(io::Error::new(
             io::ErrorKind::InvalidData,
             "TLS PEM file must contain exactly one private key",
-        ));
+        )));
     }
     let mut server = rustls::ServerConfig::builder()
         .with_no_client_auth()
-        .with_single_cert(certificates(&cert)?, keys.remove(0))
-        .map_err(io::Error::other)?;
+        .with_single_cert(
+            certificates(&cert).map_err(ServerIdentityError::Certificate)?,
+            keys.remove(0),
+        )
+        .map_err(io::Error::other)
+        .map_err(ServerIdentityError::Identity)?;
     server.alpn_protocols = vec![b"http/1.1".to_vec()];
     Ok(Some(TlsAcceptor::from(Arc::new(server))))
 }

@@ -109,7 +109,7 @@ pub(crate) enum BucketRequest {
     },
     TestIam {
         bucket: String,
-        permissions: Vec<String>,
+        permissions: Vec<crate::auth::Permission>,
     },
     /// `buckets.getStorageLayout`; `prefix` only scopes the permission check (see the parser).
     GetStorageLayout {

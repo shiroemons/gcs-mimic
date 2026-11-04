@@ -23,7 +23,7 @@ claims or exact reproduction of the reference's unrestricted handler.
 ## Readiness and Testcontainers
 
 `GET` and `HEAD /_internal/healthcheck` use the same readiness test as
-`/_internal/ready`: recovery and seeding must have completed, the catalog must
+its compatibility alias `/_internal/ready`: recovery and seeding must have completed, the catalog must
 remain healthy, background tasks must be running, and shutdown must not have
 revoked readiness. `/_internal/health` keeps its existing liveness behavior.
 Probe bodies return 413 and unsupported methods return 405 with `Allow`.
@@ -58,6 +58,10 @@ administration is enabled. Anonymous requests receive 401 and every other
 principal gets 403, including one with project `roles/storage.admin`.
 Permissive mode permits the enabled operation without a bearer token in either
 compatibility profile. This is a local management permission convention.
+
+An explicit `admin_principal` requires strict mode and enabled administration.
+It uses the registry ID's visible-ASCII format and must name a loaded identity;
+invalid combinations and unknown IDs fail before catalog creation or readiness.
 
 After discovering a dynamically mapped host port, update the advertised API
 endpoint and optional public authority before clients initiate uploads:

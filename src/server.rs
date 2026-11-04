@@ -427,7 +427,7 @@ pub async fn serve(
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
     let config = config.into();
-    let acceptor = tls::load_server(&config)?;
+    let acceptor = tls::load_server(&config).map_err(io::Error::other)?;
     serve_with_tls(vec![(listener, acceptor)], config, state, shutdown).await
 }
 
@@ -1050,7 +1050,7 @@ pub(crate) fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> J
 pub(crate) async fn authorize_bucket(
     state: &State,
     caller: Option<Caller<'_>>,
-    permission: &str,
+    permission: auth::Permission,
     bucket: &str,
 ) -> Result<BucketAccess, JsonError> {
     let Some(caller) = caller else {
@@ -1069,7 +1069,7 @@ pub(crate) async fn authorize_bucket(
 /// Authorize a project-scoped collection request such as buckets.insert or buckets.list.
 fn authorize_project(
     caller: Option<Caller<'_>>,
-    permission: &str,
+    permission: auth::Permission,
     project: &str,
 ) -> Result<(), JsonError> {
     match caller {

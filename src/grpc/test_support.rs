@@ -67,12 +67,12 @@ pub(super) fn registry(entries: &[(&str, &str, &str)]) -> Registry {
         .unwrap()
 }
 
-pub(super) fn caller<'a>(storage: &'a super::v2::Storage, token: &str) -> Option<Caller<'a>> {
+pub(super) async fn caller<'a>(storage: &'a super::v2::Storage, token: &str) -> Option<Caller<'a>> {
     let mut request = Request::new(());
     request
         .metadata_mut()
         .insert("authorization", format!("Bearer {token}").parse().unwrap());
-    storage.authenticate(&request).unwrap()
+    storage.authenticate(&request).await.unwrap()
 }
 
 #[track_caller]

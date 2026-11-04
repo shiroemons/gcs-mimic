@@ -598,11 +598,11 @@ async fn append_strict_requires_create_and_allows_viewer_reads() {
     request
         .metadata_mut()
         .insert("authorization", "Bearer admin".parse().unwrap());
-    let admin = storage.authenticate(&request).unwrap();
+    let admin = storage.authenticate(&request).await.unwrap();
     request
         .metadata_mut()
         .insert("authorization", "Bearer reader".parse().unwrap());
-    let reader = storage.authenticate(&request).unwrap();
+    let reader = storage.authenticate(&request).await.unwrap();
     let (result, responses) = append(&storage, vec![Ok(create("strict", b"secret"))], admin).await;
     result.unwrap();
     let generation = match responses[0].write_status.as_ref().unwrap() {

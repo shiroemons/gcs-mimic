@@ -6,6 +6,20 @@ use crate::{
     test_support::TestDir,
 };
 
+#[test]
+fn authentication_worker_failures_keep_their_source_and_unavailable_status() {
+    use std::error::Error as _;
+    let failure = || {
+        crate::auth::AuthError::Unavailable(crate::storage::failure::BackendCause::from_error(
+            std::io::Error::other("verifier failure"),
+        ))
+    };
+    let status = auth_error(failure());
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+    assert_eq!(status.source().unwrap().to_string(), "verifier failure");
+    assert_eq!(crate::json::JsonError::from(failure()).status.as_u16(), 503);
+}
+
 #[tokio::test]
 async fn grpc_auth_metadata_handoff() {
     let dir = TestDir::new();
@@ -20,7 +34,7 @@ async fn grpc_auth_metadata_handoff() {
         state: Arc::new(state),
         max_object_bytes: 1024 * 1024 * 1024,
     };
-    assert!(storage.authenticate(&request).unwrap().is_none());
+    assert!(storage.authenticate(&request).await.unwrap().is_none());
     state = Arc::try_unwrap(storage.state).ok().unwrap();
     state.auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"a@example.invalid","tokens":["tok-a"],"project_roles":{"p":["roles/storage.admin"]}}]}"#).unwrap());
     let storage = Storage {
@@ -28,10 +42,13 @@ async fn grpc_auth_metadata_handoff() {
         state: Arc::new(state),
         max_object_bytes: 1024 * 1024 * 1024,
     };
-    assert_code(storage.authenticate(&request), tonic::Code::Unauthenticated);
+    assert_code(
+        storage.authenticate(&request).await,
+        tonic::Code::Unauthenticated,
+    );
     request.metadata_mut().clear();
     assert!(matches!(
-        storage.authenticate(&request).unwrap(),
+        storage.authenticate(&request).await.unwrap(),
         Some(Caller::Anonymous)
     ));
     assert_code(
@@ -49,7 +66,7 @@ async fn grpc_auth_metadata_handoff() {
     request
         .metadata_mut()
         .insert("authorization", "Bearer tok-a".parse().unwrap());
-    let caller = storage.authenticate(&request).unwrap().unwrap();
+    let caller = storage.authenticate(&request).await.unwrap().unwrap();
     assert_eq!(caller.principal().unwrap().id(), "a@example.invalid");
     let error = storage.get_bucket(request, Some(caller)).await.unwrap_err();
     assert_eq!(error.code(), tonic::Code::InvalidArgument);

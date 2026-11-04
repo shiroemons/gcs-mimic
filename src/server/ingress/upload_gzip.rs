@@ -63,7 +63,7 @@ impl Body for DecodedBody {
     }
 }
 
-pub(super) fn request(
+pub(super) async fn request(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
 ) -> Result<Request<RequestBody>, JsonError> {
@@ -79,11 +79,12 @@ pub(super) fn request(
     }
     ctx.state
         .auth
-        .authenticate_at(
+        .authenticate_request(
             request.headers(),
             request.uri().query(),
             ctx.state.clock.as_ref(),
         )
+        .await
         .map_err(JsonError::from)?;
     let (mut parts, body) = request.into_parts();
     parts.headers.remove(CONTENT_ENCODING);

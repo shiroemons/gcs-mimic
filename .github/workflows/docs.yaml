@@ -3,7 +3,7 @@ on:
   # These paths are exactly the ones Foundation checks ignores, plus this
   # workflow's own inputs, so no documentation change goes unchecked.
   push:
-    branches: ['**']
+    branches: [main]
     paths:
       - '**/*.md'
       - 'docs/**'

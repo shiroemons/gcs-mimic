@@ -79,22 +79,13 @@ impl Streaming {
         }
         Self {
             key,
-            date: prepared
-                .message
-                .split('\n')
-                .nth(1)
-                .unwrap_or_default()
-                .into(),
+            date: prepared.date.clone(),
             scope: prepared.scope.clone(),
             previous: prepared.signature.clone(),
         }
     }
 
-    pub(crate) async fn verify_chunk(
-        &mut self,
-        hash: &[u8],
-        signature: &[u8],
-    ) -> Result<(), VerificationError> {
+    pub(crate) fn verify_chunk(&mut self, hash: &[u8], signature: &[u8]) -> Result<(), Failure> {
         let message = format!(
             "AWS4-HMAC-SHA256-PAYLOAD\n{}\n{}\n{}\n{}\n{}",
             self.date,
@@ -103,15 +94,9 @@ impl Streaming {
             encode_lower(digest::digest(&digest::SHA256, b"").as_ref()),
             encode_lower(hash)
         );
-        let key = self.key.clone();
-        let signature = signature.to_vec();
-        let previous = signature.clone();
-        if !verify::crypto_job(move || hmac::verify(&key, message.as_bytes(), &signature).is_ok())
-            .await?
-        {
-            return Err(Failure::Mismatch.into());
-        }
-        self.previous = previous;
+        hmac::verify(&self.key, message.as_bytes(), signature).map_err(|_| Failure::Mismatch)?;
+        self.previous.clear();
+        self.previous.extend_from_slice(signature);
         Ok(())
     }
 }
@@ -137,13 +122,9 @@ impl Auth {
         let verify::Key::Hmac(secret) = key else {
             return Err(Failure::Malformed.into());
         };
-        let state = verify::crypto_job(move || {
-            let state = Streaming::new(&secret, &prepared);
-            hmac::verify(&state.key, prepared.message.as_bytes(), &prepared.signature)
-                .map(|()| state)
-                .map_err(|_| Failure::Mismatch)
-        })
-        .await??;
+        let state = Streaming::new(&secret, &prepared);
+        hmac::verify(&state.key, prepared.message.as_bytes(), &prepared.signature)
+            .map_err(|_| Failure::Mismatch)?;
         Ok((caller, state))
     }
 }
@@ -200,14 +181,11 @@ mod tests {
             let hash = digest::digest(&digest::SHA256, &vec![b'a'; size]);
             state
                 .verify_chunk(hash.as_ref(), &unhex(signature).unwrap())
-                .await
                 .unwrap();
         }
         assert!(matches!(
-            state
-                .verify_chunk(digest::digest(&digest::SHA256, b"").as_ref(), &[0; 32])
-                .await,
-            Err(VerificationError::Signature(Failure::Mismatch))
+            state.verify_chunk(digest::digest(&digest::SHA256, b"").as_ref(), &[0; 32]),
+            Err(Failure::Mismatch)
         ));
     }
 }

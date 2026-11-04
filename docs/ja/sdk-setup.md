@@ -115,6 +115,12 @@ $storage = new StorageClient([
 
 ## 署名付きURLと認証
 
+- permissiveではV4資格情報の形式も検証しません。V2クエリは従来どおり形式だけを検査し、署名と期限は検証しません。
+- IAMとACLのユーザーメールはドメイン部だけ大文字小文字を区別しません。ローカル部とメール以外のIDは区別し、保存表記も変えません。Googleでのローカル部とACL重複の扱いは未確認です。
+- `admin_principal`を指定する場合はstrictと`admin_enabled=true`が必要で、IDは読み込むレジストリに存在する必要があります。
+- ローカルの静的トークンには、ドットで区切られた3つの部分を持つ値を登録できません。JWTとして扱われる形式のため、起動時に拒否します。
+- JWTとXML署名のRSA検証は、インスタンスごとに同じ並列数上限で実行します。匿名と静的トークンの認証は、この検証枠を待ちません。
+- `url sign --query NAME=VALUE`には署名用の予約名を指定できません。V2の`Expires`、`Signature`、`GoogleAccessId`も大文字小文字を区別せずに拒否します。
 - 署名付きURLは、SDKによって追加のオプションが必要です。たとえばPHPでは`bucketBoundHostname`が必要です。[署名付きURL（英語）](../en/signed-urls.md)と各SDKのテストのREADMEを参照してください。
 - これらの例は、すべてのリクエストを受け付ける既定のpermissiveプロファイルを使います。ローカルのbearer tokenと権限を検査するには[strict認証（英語）](../en/getting-started.md#strict-local-authentication)を参照してください。
 - HTTPSを使う場合は、[ローカルHTTPS（英語）](../en/local-https.md)の手順で開発用CAを信頼させます。

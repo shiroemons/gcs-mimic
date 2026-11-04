@@ -24963,6 +24963,12 @@
           ]
         },
         {
+          "id": "CORS-SERIALIZED-SIZE-BOUNDARY",
+          "description": "Validate JSON size with one bounded serialization: exactly 64 KiB is accepted and one byte more is rejected.",
+          "result": "PASS",
+          "test_ids": ["bucket::tests::cors_serialized_size_limit_is_inclusive"]
+        },
+        {
           "id": "BUCKET-CORS-EFFECT",
           "description": "Stored rules independently drive XML matching while JSON remains available; strict permission denial preserves settings.",
           "result": "PASS",
@@ -25020,9 +25026,11 @@
         "cors-memory-smoke",
         "signed_rules_change_between_preflight_and_actual_and_survive_restart",
         "signed-browser-strict-initial",
-        "signed-browser-strict-restart"
+        "signed-browser-strict-restart",
+        "bucket::tests::cors_serialized_size_limit_is_inclusive"
       ],
       "verification": [
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib bucket::tests","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["bucket::tests::cors_serialized_size_limit_is_inclusive"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -26692,12 +26700,13 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id": "CUSTOM-TIME-SET", "description": "Upload, PATCH and PUT accept RFC 3339 customTime; malformed values fail with 400.", "result": "PASS", "test_ids": ["custom_time_monotonic_updates_are_atomic", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog"]},
-        {"id": "CUSTOM-TIME-MONOTONIC", "description": "Equal/later instants succeed; clearing/backdating and omitted PUT fail atomically; PATCH omission preserves the value.", "result": "PASS", "test_ids": ["custom_time_monotonic_updates_are_atomic"]},
+        {"id": "CUSTOM-TIME-MONOTONIC", "description": "Equal/later instants succeed; clearing/backdating and omitted PUT fail atomically; PATCH omission preserves the value. Error displays preserve pre-epoch dates instead of reflecting them after 1970.", "result": "PASS", "test_ids": ["custom_time_monotonic_updates_are_atomic", "object::custom_time_tests::custom_time_errors_preserve_dates_before_the_epoch"]},
         {"id": "SDK-DEFAULT-CALLS", "description": "Go Writer/Update and Ruby create_file/custom_time= work with default SDK calls.", "result": "PASS", "test_ids": ["TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"]},
         {"id": "PROVIDER-WIRE", "description": "Exact null and failure wire parity remains pending under SPEC-OBJECT-HOLDS-CUSTOMTIME.", "result": "PENDING", "test_ids": []}
       ],
-      "test_ids": ["custom_time_monotonic_updates_are_atomic", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog", "TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"],
+      "test_ids": ["custom_time_monotonic_updates_are_atomic", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog", "TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time", "object::custom_time_tests::custom_time_errors_preserve_dates_before_the_epoch"],
       "verification": [
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib object::custom_time_tests","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["object::custom_time_tests::custom_time_errors_preserve_dates_before_the_epoch"]},
         {"command": "cargo test --locked --offline --test object_holds_customtime_http", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["custom_time_monotonic_updates_are_atomic", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog"]},
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"]}
       ],
@@ -41420,18 +41429,19 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "auth_mode=permissive is the default and is selected explicitly by CLI --auth-mode, GCS_MIMIC_AUTH_MODE or JSON auth_mode with the existing precedence. It ignores every Authorization header and credential query parameter and performs no permission checks; the ready event reports auth_mode. Permissive results are never counted as strict coverage. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
+      "notes": "auth_mode=permissive is the default and is selected explicitly by CLI --auth-mode, GCS_MIMIC_AUTH_MODE or JSON auth_mode with the existing precedence. It ignores Authorization credentials and performs no permission checks; historical XML V2 queries retain shape checks without signature or expiry verification, while V4 credential shape is ignored. The ready event reports auth_mode. Permissive results are never counted as strict coverage. Contract: docs/en/slices/strict-auth.md and docs/en/slices/xml-v4-signatures.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-001-DEFAULT",
-          "description": "Without auth settings the ready event reports auth_mode permissive without an identity count; anonymous, unknown bearer, Basic, GOOG4 and duplicate Authorization headers all create, read and upload successfully, and credential query parameters are ignored.",
+          "description": "Without auth settings the ready event reports auth_mode permissive without an identity count; anonymous, unknown bearer, Basic, GOOG4 and duplicate Authorization headers all create, read and upload successfully. Credentials are not verified; XML V2 queries retain their historical shape checks while V4 shape is ignored.",
           "result": "PASS",
           "test_ids": [
             "auth_http_permissive_ignores_any_authorization",
-            "auth::tests::strict_caller_resolution"
+            "auth::tests::strict_caller_resolution",
+            "auth::signature::tests::permissive_v4_ignores_shape_while_v2_retains_its_historical_validation"
           ]
         },
         {
@@ -41446,11 +41456,13 @@
       ],
       "test_ids": [
         "auth_http_permissive_ignores_any_authorization",
+        "auth::signature::tests::permissive_v4_ignores_shape_while_v2_retains_its_historical_validation",
         "auth::tests::strict_caller_resolution",
         "config::tests::authentication_profile_precedence_and_validation",
         "auth_http_startup_rejects_invalid_profiles_and_registries"
       ],
       "verification": [
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib permissive_v4_ignores_shape","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::signature::tests::permissive_v4_ignores_shape_while_v2_retains_its_historical_validation"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -41581,6 +41593,12 @@
           ]
         },
         {
+          "id": "STRICT-LOCAL-VERIFIER-AND-GRANTS",
+          "description": "Every bearer transport uses the per-server bounded RSA verifier; static tokens and anonymous resolution do not wait for crypto. Compact typed grants retain existing project HMAC management while bucket testIamPermissions rejects those untestable permissions. This establishes local resource/authorization behavior, not additional provider fidelity.",
+          "result": "PASS",
+          "test_ids": ["auth::jwt::tests::requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it", "auth::tests::compact_grants_preserve_hmac_key_management_permissions"]
+        },
+        {
           "id": "DESIGN-002-SIGNED-PUT",
           "description": "V4 RSA signed PUT uses local signer create/delete grants, shared atomic conditions and pre-body failure handling.",
           "result": "PASS",
@@ -41592,6 +41610,8 @@
       ],
       "test_ids": [
         "TestStrictAuthObjectCreator",
+        "auth::jwt::tests::requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it",
+        "auth::tests::compact_grants_preserve_hmac_key_management_permissions",
         "TestStrictAuthObjectViewer",
         "TestV4RSASignedDownload",
         "auth::tests::strict_caller_resolution",
@@ -41616,6 +41636,7 @@
         "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation"
       ],
       "verification": [
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib auth::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::jwt::tests::requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it","auth::tests::compact_grants_preserve_hmac_key_management_permissions"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -41787,7 +41808,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict mode loads a bounded (64 KiB) JSON identity registry once at startup: 1..=256 identities with a unique visible-ASCII id, 1..=16 registry-unique bearer tokens and optional project_roles (0..=64 validated project IDs, 1..=32 snapshot roles each). Unknown keys, unknown/basic roles and invalid limits fail startup without a partial load and without echoing tokens. The JSON format replaces the TOML proposal (gaps.json resolved item). The ready event reports the identity count. config/identities.json is a public local fixture mounted by compose.strict.yaml. Nothing contacts Google or the metadata server. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
+      "notes": "Strict mode loads a bounded (64 KiB) JSON identity registry once at startup: 1..=256 identities with a unique visible-ASCII id, 0..=16 registry-unique bearer tokens and optional project_roles (0..=64 validated project IDs, 1..=32 snapshot roles each). Unknown keys, unknown/basic roles, JWT-shaped tokens with three dot-separated segments and invalid limits fail startup without a partial load and without echoing tokens. The JSON format replaces the TOML proposal (gaps.json resolved item). The ready event reports the identity count. config/identities.json is a public local fixture mounted by compose.strict.yaml. Nothing contacts Google or the metadata server. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [
         "DESIGN-001"
       ],
@@ -41796,11 +41817,12 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-003-VALIDATION",
-          "description": "Malformed, non-object, oversized, empty or over-limit registries, unknown top-level/identity keys, invalid/duplicate ids, invalid/duplicate tokens, invalid projects, empty/duplicate/over-limit role lists and unknown or basic roles fail startup with an identity_file message, no readiness output and no catalog files; token values are never echoed; a file at exactly 64 KiB loads.",
+          "description": "Malformed, non-object, oversized, empty or over-limit registries, unknown top-level/identity keys, invalid/duplicate ids, invalid/duplicate or JWT-shaped tokens, invalid projects, empty/duplicate/over-limit role lists and unknown or basic roles fail startup with a specific identity_file reason, no readiness output and no catalog files; token values are never echoed; a file at exactly 64 KiB loads.",
           "result": "PASS",
           "test_ids": [
             "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
             "auth::tests::registry_file_read_is_bounded",
+            "startup_preserves_safe_identity_and_tls_error_details",
             "auth_http_startup_rejects_invalid_profiles_and_registries"
           ]
         },
@@ -41835,6 +41857,7 @@
       ],
       "test_ids": [
         "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+        "startup_preserves_safe_identity_and_tls_error_details",
         "auth::tests::registry_file_read_is_bounded",
         "auth_http_startup_rejects_invalid_profiles_and_registries",
         "auth::tests::strict_caller_resolution",
@@ -41845,6 +41868,7 @@
         "guide-compose-strict-auth"
       ],
       "verification": [
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --test it_process startup_preserves_safe_identity_and_tls_error_details","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["startup_preserves_safe_identity_and_tls_error_details"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -43262,6 +43286,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "USER-EMAIL-COMPARISON-BOUNDARY",
+          "description": "IAM and ACL user matching ignores ASCII domain case while preserving local-part/non-email case and stored spelling. Registry aliases differing only by domain case are rejected as ambiguous. Provider local-part/duplicate questions remain SPEC-PRINCIPAL-EMAIL-CASE.",
+          "result": "PASS",
+          "test_ids": ["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]
+        },
+        {
           "id": "OBJECT-ACL-READ-GRANT",
           "description": "A READER/OWNER object ACL entry for allUsers, allAuthenticatedUsers or a matching user- entity authorizes object metadata and media reads without bucket IAM, rechecked inside the read transaction.",
           "result": "PASS",
@@ -43355,6 +43385,7 @@
       ],
       "test_ids": [
         "object_acl_reads_are_generation_scoped_on_disk_and_memory",
+        "auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts",
         "public_acl_pap_uniform_access_and_restart_recheck_the_selected_generation",
         "object_acl_read_does_not_bypass_customer_key_validation",
         "grpc_object_acl_read_checks_selected_generation_and_revocation",
@@ -43402,6 +43433,7 @@
       ],
       "verification": [
         {"command":"cargo test --locked --offline --test acl_permission_effects","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/acl-permission-effects.md","test_ids":["grpc_object_acl_read_checks_selected_generation_and_revocation"]},
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib auth::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]},
         {"command":"CARGO_INCREMENTAL=0 cargo check --locked --offline; CARGO_INCREMENTAL=0 cargo test --locked --offline --test acl_permission_effects ::read:: -- --nocapture","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/acl-permission-effects.md","test_ids":["object_acl_reads_are_generation_scoped_on_disk_and_memory","public_acl_pap_uniform_access_and_restart_recheck_the_selected_generation","object_acl_read_does_not_bypass_customer_key_validation"]},
         {"command":"CARGO_INCREMENTAL=0 cargo test --locked --offline --test acl_permission_effects ::derived:: -- --nocapture; CARGO_INCREMENTAL=0 cargo test --locked --offline --lib copy_rechecks_source_object_acl_after_streaming_before_publication","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/acl-permission-effects.md","test_ids":["source_acl_copy_replay_keeps_original_generation_and_rechecks_current_controls","source_acl_authorizes_copy_compose_move_and_fixed_generation_rewrite","legacy_copy_completion_requires_iam_when_original_source_proof_is_absent","copy_rechecks_source_object_acl_after_streaming_before_publication"]},
         {"command":"CARGO_BUILD_JOBS=4 cargo test --test it_xml_auth acl_permission_effects::bidi:: -- --test-threads=2","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/acl-permission-effects.md","test_ids":["bidi_read_handle_reauthorizes_fixed_generation_for_each_new_rpc","bidi_read_iam_handle_rejects_a_removed_generation"]},
@@ -43418,7 +43450,7 @@
         {"command":"CARGO_INCREMENTAL=0 cargo test --locked --offline --lib storage::catalog::fault::tests:: -- --nocapture","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/acl-permission-effects.md","test_ids":["storage::catalog::fault::tests::overlapping_power_loss_arms_keep_their_own_baselines_and_all_seam_updates"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Named JSON OWNER permission/projection and upload/copy snapshot subsets pass; complete ownership propagation, resumable full completion, other protocol interactions, upload-snapshot authority ceilings/rebinding, group/domain/project-team matching and complete default/canned publication remain pending. UBLA ninety-day locking and the full publication matrix require separate acceptance. A legacy copy completion without source proof requires IAM; an ACL-only reader cannot replay it. Arbitrary local IDs without canonical user aliases preserve IAM grants and immutable ownership but do not invent ACL entities. Final integrated production lint, workspace, SDK/container and physical power-loss verification are separate."],
+      "known_deviations": ["Named JSON OWNER permission/projection and upload/copy snapshot subsets pass; complete ownership propagation, resumable full completion, other protocol interactions, upload-snapshot authority ceilings/rebinding, group/domain/project-team matching and complete default/canned publication remain pending. UBLA ninety-day locking and the full publication matrix require separate acceptance. A legacy copy completion without source proof requires IAM; an ACL-only reader cannot replay it. Arbitrary local IDs without canonical user aliases preserve IAM grants and immutable ownership but do not invent ACL entities. Final integrated production lint, workspace, SDK/container and physical power-loss verification are separate.", "SPEC-PRINCIPAL-EMAIL-CASE: IAM/ACL matching folds ASCII domain case only; local parts and non-email IDs remain case-sensitive, input spelling is preserved, and ambiguous registry aliases are rejected. Provider local-part behavior remains unverified."],
       "implemented_in": null,
       "last_verified": "2026-10-31"
     },
@@ -43516,12 +43548,13 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id": "UBLA-PREDEFINED-ACL", "description": "Bucket insert/PATCH/PUT predefinedAcl/predefinedDefaultObjectAcl and object insert/copy/rewrite/compose predefinedAcl/destinationPredefinedAcl return 400 with removal guidance under enabled UBLA, shared unsupported otherwise, without mutation.", "result": "PASS", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]},
+        {"id":"ACL-USER-COMPARISON-BOUNDARY","description":"The shared ACL user matcher folds ASCII domain case only; local-part/non-email case and byte-exact ACL duplicate detection remain unchanged under SPEC-PRINCIPAL-EMAIL-CASE.","result":"PASS","test_ids":["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]},
         {"id": "PREDEFINED-ACL-EFFECTS", "description": "Actual ACL permission effects and remaining ACL/UBLA/PAP interactions are pending for the next ACL slice.", "result": "PENDING", "test_ids": []}
       ],
-      "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"],
-      "verification": [{"command": "cargo test --test auth_http --locked --offline uniform_access", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]}],
+      "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections", "auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"],
+      "verification": [{"command": "cargo test --test auth_http --locked --offline uniform_access", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]}, {"command":"CARGO_BUILD_JOBS=4 cargo test --lib auth::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]}],
       "sdk_evidence": [],
-      "known_deviations": ["Real canned ACL grants remain pending; ACL CRUD and stored-entry preservation are separately scoped in json-acl. SPEC-UBLA-EDGES records local error reason/message/precedence; remaining ACL/UBLA/PAP interactions and initialization-file uniform access are excluded from this slice."],
+      "known_deviations": ["Real canned ACL grants remain pending; ACL CRUD and stored-entry preservation are separately scoped in json-acl. SPEC-UBLA-EDGES records local error reason/message/precedence; remaining ACL/UBLA/PAP interactions and initialization-file uniform access are excluded from this slice.", "SPEC-PRINCIPAL-EMAIL-CASE: ACL-entry duplicates retain byte-exact detection while user grants ignore only domain case; local-part matching and provider duplicate behavior remain unverified."],
       "implemented_in": "d17d6127202117aaf976aa5a2269f72aa928be41",
       "last_verified": "2026-10-27"
     },
@@ -44699,7 +44732,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "GOOG4-RSA-SHA256 query verification uses bounded registered RSA SPKI public keys, startup validation, scope parsing and tamper rejection. This cryptographic gate is separate from operation permissions, canonical field families and full XML error parity. SPEC-GO-SIGNER-PORT records the pinned SDK limitation. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Every proper nonempty subset of the six signing fields fails under public grants. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "GOOG4-RSA-SHA256 query verification uses bounded registered RSA SPKI public keys, startup validation, scope parsing and tamper rejection. This cryptographic gate is separate from operation permissions, canonical field families and full XML error parity. SPEC-GO-SIGNER-PORT records the pinned SDK limitation. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Every proper nonempty subset of the six signing fields fails under public grants. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Unit signing regressions now use the production XML verifier; a live strict process verifies CLI URLs. Current focused commands and integration boundaries: docs/en/evidence/authentication-foundation.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -44961,7 +44994,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Injected Clock enforces decimal 1..604800 seconds, exact Gregorian UTC timestamp, credential-day equality, the officially documented 900-second early skew and exclusive expiry. Exact wire wording/precedence remains DESIGN-044. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Injected Clock enforces decimal 1..604800 seconds, exact Gregorian UTC timestamp, credential-day equality, the officially documented 900-second early skew and exclusive expiry. Exact wire wording/precedence remains DESIGN-044. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Clock-boundary regressions now exercise the production XML verifier; focused commands and integration boundaries: docs/en/evidence/authentication-foundation.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -46145,7 +46178,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Signed GET/HEAD/PUT bind their exact method/resource; cross-method, changed bucket/object/generation and extra query fail before body reads without mutation. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md.",
+      "notes": "Signed GET/HEAD/PUT bind their exact method/resource; cross-method, changed bucket/object/generation and extra query fail before body reads without mutation. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Unit regressions now use the production XML verifier and retain negative method/resource cases; focused commands and integration boundaries: docs/en/evidence/authentication-foundation.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -46866,13 +46899,14 @@
           "description": "CLI output verifies for final HTTPS host:port, encoded object and repeated headers. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL.",
           "result": "PASS",
           "test_ids": [
+            "signing_cli_urls_verify_through_the_live_xml_route",
             "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
             "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
           ]
         },
         {
           "id": "DESIGN-045-OPTIONS",
-          "description": "Validate required/duplicate/unknown/unpaired options, forbidden headers, durations, methods, timestamps and private-key inputs; English help.",
+          "description": "Validate required/duplicate/unknown/unpaired options, forbidden headers, existing V2/V4 signature query names regardless of case, durations, methods, timestamps and private-key inputs; English help.",
           "result": "PASS",
           "test_ids": [
             "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
@@ -46915,11 +46949,19 @@
         "signed_journey (Docker/Compose)",
         "signed_journey (native)",
         "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+        "signing_cli_urls_verify_through_the_live_xml_route",
         "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
         "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
         "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs"
       ],
       "verification": [
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --test it_xml_auth signing_cli_urls_verify_through_the_live_xml_route",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/evidence/authentication-foundation.md",
+          "test_ids": ["signing_cli_urls_verify_through_the_live_xml_route"]
+        },
         {
           "command": "cargo test --workspace --locked --offline",
           "result": "PASS",
@@ -49959,6 +50001,12 @@
           ]
         },
         {
+          "id": "TLS-INPUT-DIAGNOSTICS",
+          "description": "Missing/unreadable or invalid PEM input identifies tls_cert or tls_key correctly, retains the I/O cause and gives setting-specific bounded PEM repair instructions before readiness.",
+          "result": "PASS",
+          "test_ids": ["startup_tls_file_failures_identify_the_setting_and_repair", "startup_preserves_safe_identity_and_tls_error_details", "tls::tests::server_identity_errors_retain_the_io_cause_and_distinguish_input_settings"]
+        },
+        {
           "id": "DESIGN-065-DEFAULT",
           "description": "Start HTTPS without certificate preparation using built-in public development credentials; export only the CA without side effects, reject one-sided overrides and isolate default/custom client trust.",
           "result": "PASS",
@@ -50000,6 +50048,9 @@
       "test_ids": [
         "wire_probes_clock_and_unimplemented_routes",
         "tls_configuration_precedence_and_validation",
+        "startup_tls_file_failures_identify_the_setting_and_repair",
+        "startup_preserves_safe_identity_and_tls_error_details",
+        "tls::tests::server_identity_errors_retain_the_io_cause_and_distinguish_input_settings",
         "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate",
         "tls_invalid_material_never_reaches_readiness_or_creates_data",
         "tls_trust_versions_streaming_urls_and_restart",
@@ -50013,6 +50064,8 @@
         "ruby_https_sdk_journey"
       ],
       "verification": [
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --test it_process startup_","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["startup_tls_file_failures_identify_the_setting_and_repair","startup_preserves_safe_identity_and_tls_error_details"]},
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib server_identity_errors","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["tls::tests::server_identity_errors_retain_the_io_cause_and_distinguish_input_settings"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -50476,12 +50529,15 @@
             "it_admin::admin_http::management_routes_refuse_page_initiated_requests_without_mutation"
           ]
         },
+        {"id":"ADMIN-PRINCIPAL-STARTUP-PROFILE","description":"Explicit admin_principal requires visible ASCII, strict authentication, enabled administration and a matching loaded registry ID; reject impossible or ignored combinations before readiness.","result":"PASS","test_ids":["config::tests::administrative_principals_require_a_strict_enabled_registry_profile","startup_rejects_an_administrative_principal_missing_from_the_registry"]},
         {"id": "admin-wire-isolation", "description": "Verify opt-in routes, separate strict authority, malformed requests, fixture metadata and isolated atomic reseed through HTTP.", "result": "PASS", "test_ids": ["admin-wire-isolation"]},
         {"id": "admin-reset-recovery", "description": "Verify reset activity exclusion and restart/crash/power-loss boundaries without bypassing shared publication.", "result": "PASS", "test_ids": ["admin-reset-recovery"]},
         {"id": "admin-final-integration", "description": "Run Go facade fixture/reset/reseed and final-source container workflows together.", "result": "PENDING", "test_ids": ["admin-final-integration"]}
       ],
-      "test_ids": ["server::admin::guard::tests::local_host_classification_does_not_accept_public_lookalikes", "server::admin::guard::tests::management_authority_rejects_duplicates_and_prefers_uri_authority", "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate", "it_admin::admin_http::management_routes_refuse_page_initiated_requests_without_mutation", "admin-wire-isolation", "admin-reset-recovery", "admin-final-integration"],
+      "test_ids": ["server::admin::guard::tests::local_host_classification_does_not_accept_public_lookalikes", "server::admin::guard::tests::management_authority_rejects_duplicates_and_prefers_uri_authority", "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate", "it_admin::admin_http::management_routes_refuse_page_initiated_requests_without_mutation", "admin-wire-isolation", "admin-reset-recovery", "admin-final-integration", "config::tests::administrative_principals_require_a_strict_enabled_registry_profile", "startup_rejects_an_administrative_principal_missing_from_the_registry"],
       "verification": [
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib config::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["config::tests::administrative_principals_require_a_strict_enabled_registry_profile"]},
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --test it_process startup_","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["startup_rejects_an_administrative_principal_missing_from_the_registry"]},
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --lib server::admin:: -- --test-threads=4",
           "result": "PASS",
@@ -50844,6 +50900,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "VERIFIER-BUDGET-AND-SUPERVISOR-CANCELLATION",
+          "description": "Per-server cryptographic budgets bound active blocking jobs without sharing a global queue. Aborting a restarting supervisor drops its active run rather than detaching it.",
+          "result": "PASS",
+          "test_ids": ["auth::signature::verify::tests::verifier_budgets_bound_jobs_and_do_not_share_a_global_queue", "task::tests::aborting_supervision_drops_its_active_run"]
+        },
+        {
           "id": "DESIGN-071-BUCKET",
           "description": "HTTP admission/deadlines/async and blocking threads remain capped; catalog admits 32 operations, executes one blocking job and returns 503 on saturation.",
           "result": "PASS",
@@ -50927,6 +50989,8 @@
       ],
       "test_ids": [
         "storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit",
+        "auth::signature::verify::tests::verifier_budgets_bound_jobs_and_do_not_share_a_global_queue",
+        "task::tests::aborting_supervision_drops_its_active_run",
         "connection_limit_deadline_and_shutdown_release_idle_clients",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
         "cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup",
@@ -50952,6 +51016,8 @@
         "sdk-tests/ruby/https.rb"
       ],
       "verification": [
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib auth::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::signature::verify::tests::verifier_budgets_bound_jobs_and_do_not_share_a_global_queue"]},
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib task::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["task::tests::aborting_supervision_drops_its_active_run"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",

@@ -5,6 +5,29 @@ use crate::acl::Entity;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// Only the domain is DNS-case-insensitive; the local part retains its provider-defined case.
+pub(crate) fn same_principal_email(a: &str, b: &str) -> bool {
+    match (a.rsplit_once('@'), b.rsplit_once('@')) {
+        (Some((local_a, domain_a)), Some((local_b, domain_b))) => {
+            local_a == local_b && domain_a.eq_ignore_ascii_case(domain_b)
+        }
+        (None, None) => a == b,
+        _ => false,
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct EmailKey(String);
+
+impl EmailKey {
+    fn new(raw: &str) -> Self {
+        Self(match raw.rsplit_once('@') {
+            Some((local, domain)) => format!("{local}@{}", domain.to_ascii_lowercase()),
+            None => raw.to_owned(),
+        })
+    }
+}
+
 fn natural_entity(id: &str) -> Option<String> {
     let entity = format!("user-{id}");
     matches!(
@@ -15,7 +38,18 @@ fn natural_entity(id: &str) -> Option<String> {
 }
 
 /// A creator address must be a canonical ACL user email, so `user-EMAIL` is a valid entity.
-pub(crate) fn validate_local_creator_email(email: &str) -> Result<(), &'static str> {
+#[derive(Debug)]
+pub(crate) struct InvalidCreatorEmail;
+
+impl std::fmt::Display for InvalidCreatorEmail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("must be an email address such as name@example.test")
+    }
+}
+
+impl std::error::Error for InvalidCreatorEmail {}
+
+pub(crate) fn validate_local_creator_email(email: &str) -> Result<(), InvalidCreatorEmail> {
     let entity = format!("user-{email}");
     if email.len() > 254
         || !matches!(
@@ -23,7 +57,7 @@ pub(crate) fn validate_local_creator_email(email: &str) -> Result<(), &'static s
             Ok(crate::acl::Entity::UserEmail(_))
         )
     {
-        return Err("must be an email address such as name@example.test");
+        return Err(InvalidCreatorEmail);
     }
     Ok(())
 }
@@ -59,7 +93,10 @@ pub(super) fn validate_aliases(identities: &[Identity]) -> Result<(), RegistryEr
             .into_iter()
             .flatten()
         {
-            if owners.insert(entity, index).is_some_and(|old| old != index) {
+            if owners
+                .insert(EmailKey::new(&entity), index)
+                .is_some_and(|old| old != index)
+            {
                 return Err(RegistryError::Invalid {
                     entry: Some(index),
                     reason:
@@ -78,12 +115,12 @@ impl Identity {
     }
 
     pub(crate) fn matches_acl_user(&self, user: &str) -> bool {
-        self.id == user
+        same_principal_email(&self.id, user)
             || self
                 .acl_entity
                 .as_deref()
                 .and_then(|entity| entity.strip_prefix("user-"))
-                == Some(user)
+                .is_some_and(|alias| same_principal_email(alias, user))
     }
 }
 
@@ -92,6 +129,53 @@ mod tests {
     use super::*;
     use crate::auth::Registry;
     use serde_json::json;
+
+    #[test]
+    fn email_domains_match_without_folding_local_ids_or_local_parts() {
+        let registry = Registry::parse(br#"{"identities":[{"id":"alice@Example.COM","tokens":[]},{"id":"local:admin","tokens":[]}]}"#).unwrap();
+        let identity = &registry.identities[0];
+        assert!(identity.matches_acl_user("alice@example.com"));
+        assert!(!identity.matches_acl_user("Alice@example.com"));
+        assert!(!registry.identities[1].matches_acl_user("LOCAL:admin"));
+        for (member, allowed) in [
+            ("user:alice@EXAMPLE.com", true),
+            ("user:Alice@example.com", false),
+        ] {
+            let policy = crate::auth::Policy {
+                bindings: vec![crate::auth::Binding {
+                    role: "roles/storage.objectViewer".into(),
+                    members: vec![member.into()],
+                }],
+                etag: None,
+            };
+            assert_eq!(
+                policy.allows(
+                    Some(identity),
+                    crate::auth::OBJECTS_GET,
+                    crate::auth::PublicAccess::Allowed
+                ),
+                allowed
+            );
+        }
+        assert!(Registry::parse(br#"{"identities":[{"id":"a@Example.com","tokens":[]},{"id":"a@example.com","tokens":[]}]}"#).is_err());
+        assert!(Registry::parse(br#"{"identities":[{"id":"A@example.com","tokens":[]},{"id":"a@example.com","tokens":[]}]}"#).is_ok());
+        let entries = crate::acl::parse_entries(
+            crate::acl::AclKind::Object,
+            vec![
+                crate::acl::AclEntryInput {
+                    entity: "user-a@Example.com".into(),
+                    role: "READER".into(),
+                },
+                crate::acl::AclEntryInput {
+                    entity: "user-a@example.com".into(),
+                    role: "READER".into(),
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].entity, "user-a@Example.com");
+    }
 
     #[test]
     fn aliases_preserve_local_ids_without_fabricating_canonical_entities() {

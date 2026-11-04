@@ -141,6 +141,7 @@ async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
     headers.insert("authorization", "Bearer strict".parse().unwrap());
     let identity = auth
         .authenticate(&headers, None)
+        .await
         .unwrap()
         .unwrap()
         .principal()

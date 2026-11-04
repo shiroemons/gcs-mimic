@@ -39,7 +39,7 @@ fn signed(url: &str, method: &Method, headers: HeaderMap) -> String {
     .unwrap()
 }
 
-fn verify(
+async fn verify(
     url: &str,
     method: &Method,
     mut headers: HeaderMap,
@@ -49,9 +49,79 @@ fn verify(
     if !headers.contains_key("host") {
         headers.insert("host", uri.authority().unwrap().as_str().parse().unwrap());
     }
-    let auth = auth();
-    auth.authenticate_signed(method, &uri, &headers, &Fixed(now))
-        .map(|caller| caller.unwrap().principal().unwrap().id().to_owned())
+    verify_with_auth(&auth(), method, &uri, &headers, now)
+        .await
+        .map(Option::unwrap)
+}
+
+async fn verify_with_auth(
+    auth: &Auth,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    now: SystemTime,
+) -> Result<Option<String>, Failure> {
+    let dir = crate::test_support::TestDir::new();
+    let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
+    let result = match auth
+        .authenticate_xml_resource(
+            &catalog,
+            method,
+            uri,
+            headers,
+            &Fixed(now),
+            &Resource::PathStyle,
+        )
+        .await
+    {
+        Ok(caller) => Ok(caller.map(|caller| caller.principal().unwrap().id().to_owned())),
+        Err(VerificationError::Signature(failure)) => Err(failure),
+        Err(error) => panic!("verifier unavailable: {error}"),
+    };
+    catalog.close().await.unwrap();
+    result
+}
+
+#[tokio::test]
+async fn permissive_v4_ignores_shape_while_v2_retains_its_historical_validation() {
+    let auth = Auth::permissive();
+    for query in ["X-Goog-Date=broken", "X-Amz-Signature=garbage"] {
+        assert_eq!(
+            verify_with_auth(
+                &auth,
+                &Method::GET,
+                &format!("/bucket/object?{query}").parse().unwrap(),
+                &HeaderMap::new(),
+                UNIX_EPOCH
+            )
+            .await,
+            Ok(None)
+        );
+    }
+    assert_eq!(
+        verify_with_auth(
+            &auth,
+            &Method::GET,
+            &"/bucket/object?Expires=broken".parse().unwrap(),
+            &HeaderMap::new(),
+            UNIX_EPOCH
+        )
+        .await,
+        Err(Failure::Malformed)
+    );
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", "GOOG1 ignored:ignored".parse().unwrap());
+    assert_eq!(
+        verify_with_auth(
+            &auth,
+            &Method::GET,
+            &"/bucket/object?Expires=broken".parse().unwrap(),
+            &headers,
+            UNIX_EPOCH
+        )
+        .await,
+        Err(Failure::Malformed)
+    );
 }
 
 fn v2_signed(
@@ -82,8 +152,8 @@ fn v2_signed(
     )
 }
 
-#[test]
-fn v2_multipart_signatures_bind_upload_and_part_subresources() {
+#[tokio::test]
+async fn v2_multipart_signatures_bind_upload_and_part_subresources() {
     let now = UNIX_EPOCH + Duration::from_secs(1000);
     for (method, path, changed) in [
         (
@@ -109,7 +179,7 @@ fn v2_multipart_signatures_bind_upload_and_part_subresources() {
     ] {
         let signed = v2_signed(method.as_str(), path, "1060", "", "", "");
         assert_eq!(
-            verify(&signed, &method, HeaderMap::new(), now),
+            verify(&signed, &method, HeaderMap::new(), now).await,
             Ok(SIGNER.into())
         );
         assert_eq!(
@@ -118,7 +188,8 @@ fn v2_multipart_signatures_bind_upload_and_part_subresources() {
                 &method,
                 HeaderMap::new(),
                 now
-            ),
+            )
+            .await,
             Err(Failure::Mismatch)
         );
     }
@@ -139,17 +210,18 @@ fn v2_multipart_signatures_bind_upload_and_part_subresources() {
             &Method::PUT,
             HeaderMap::new(),
             now
-        ),
+        )
+        .await,
         Ok(SIGNER.into())
     );
 }
 
-#[test]
-fn v2_binds_versions_subresource_and_value_while_ordinary_list_filters_are_unsigned() {
+#[tokio::test]
+async fn v2_binds_versions_subresource_and_value_while_ordinary_list_filters_are_unsigned() {
     let now = UNIX_EPOCH + Duration::from_secs(1000);
     let plain = v2_signed("GET", "/bucket", "1060", "", "", "");
     assert_eq!(
-        verify(&plain, &Method::GET, HeaderMap::new(), now),
+        verify(&plain, &Method::GET, HeaderMap::new(), now).await,
         Ok(SIGNER.into())
     );
     assert_eq!(
@@ -158,20 +230,21 @@ fn v2_binds_versions_subresource_and_value_while_ordinary_list_filters_are_unsig
             &Method::GET,
             HeaderMap::new(),
             now
-        ),
+        )
+        .await,
         Err(Failure::Mismatch)
     );
     for resource in ["/bucket?versions", "/bucket?versions=true"] {
         let signed = v2_signed("GET", resource, "1060", "", "", "");
         assert_eq!(
-            verify(&signed, &Method::GET, HeaderMap::new(), now),
+            verify(&signed, &Method::GET, HeaderMap::new(), now).await,
             Ok(SIGNER.into())
         );
         let removed = signed
             .replace("versions=true&", "")
             .replace("versions&", "");
         assert_eq!(
-            verify(&removed, &Method::GET, HeaderMap::new(), now),
+            verify(&removed, &Method::GET, HeaderMap::new(), now).await,
             Err(Failure::Mismatch)
         );
         let changed = if resource.ends_with("=true") {
@@ -180,7 +253,7 @@ fn v2_binds_versions_subresource_and_value_while_ordinary_list_filters_are_unsig
             signed.replace("versions&", "versions=true&")
         };
         assert_eq!(
-            verify(&changed, &Method::GET, HeaderMap::new(), now),
+            verify(&changed, &Method::GET, HeaderMap::new(), now).await,
             Err(Failure::Mismatch)
         );
     }
@@ -190,13 +263,14 @@ fn v2_binds_versions_subresource_and_value_while_ordinary_list_filters_are_unsig
             &Method::GET,
             HeaderMap::new(),
             now
-        ),
+        )
+        .await,
         Ok(SIGNER.into())
     );
 }
 
-#[test]
-fn v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers() {
+#[tokio::test]
+async fn v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers() {
     let now = UNIX_EPOCH + Duration::from_secs(1000);
     let path = "/bucket/a%20b+%25//object";
     let url = v2_signed(
@@ -214,25 +288,25 @@ fn v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers() {
     headers.append("x-goog-meta-a", "three".parse().unwrap());
     headers.insert("x-goog-meta-z", "last".parse().unwrap());
     assert_eq!(
-        verify(&url, &Method::PUT, headers.clone(), now),
+        verify(&url, &Method::PUT, headers.clone(), now).await,
         Ok(SIGNER.into())
     );
     for name in ["content-md5", "content-type", "x-goog-meta-a"] {
         let mut changed = headers.clone();
         changed.remove(name);
         assert_eq!(
-            verify(&url, &Method::PUT, changed, now),
+            verify(&url, &Method::PUT, changed, now).await,
             Err(Failure::Mismatch)
         );
         let mut changed = headers.clone();
         changed.insert(name, "changed".parse().unwrap());
         assert_eq!(
-            verify(&url, &Method::PUT, changed, now),
+            verify(&url, &Method::PUT, changed, now).await,
             Err(Failure::Mismatch)
         );
     }
     assert_eq!(
-        verify(&url, &Method::GET, headers.clone(), now),
+        verify(&url, &Method::GET, headers.clone(), now).await,
         Err(Failure::Mismatch)
     );
     assert_eq!(
@@ -241,7 +315,8 @@ fn v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers() {
             &Method::PUT,
             headers.clone(),
             now
-        ),
+        )
+        .await,
         Err(Failure::Mismatch)
     );
     assert_eq!(
@@ -250,7 +325,8 @@ fn v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers() {
             &Method::PUT,
             headers,
             now
-        ),
+        )
+        .await,
         Err(Failure::UnknownSigner)
     );
     let get = v2_signed("GET", path, "1060", "", "", "");
@@ -263,7 +339,8 @@ fn v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers() {
             &Method::GET,
             HeaderMap::new(),
             now
-        ),
+        )
+        .await,
         Ok(SIGNER.into())
     );
 }
@@ -290,12 +367,14 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
             ] {
                 assert!(is_signed(bad.parse::<Uri>().unwrap().query()));
                 assert!(matches!(
-                    auth.authenticate_signed(
+                    verify_with_auth(
+                        &auth,
                         &Method::GET,
                         &bad.parse().unwrap(),
                         &HeaderMap::new(),
-                        &Fixed(now)
-                    ),
+                        now
+                    )
+                    .await,
                     Err(Failure::Malformed)
                 ));
             }
@@ -308,7 +387,8 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
                 &Method::GET,
                 HeaderMap::new(),
                 now
-            ),
+            )
+            .await,
             Err(Failure::Malformed)
         );
     }
@@ -318,7 +398,8 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
             &Method::GET,
             HeaderMap::new(),
             now + Duration::from_secs(59)
-        ),
+        )
+        .await,
         Ok(SIGNER.into())
     );
     assert_eq!(
@@ -327,7 +408,8 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
             &Method::GET,
             HeaderMap::new(),
             now + Duration::from_secs(60)
-        ),
+        )
+        .await,
         Err(Failure::Expired)
     );
     let expired = v2_signed("GET", "/bucket/object", "0", "", "", "");
@@ -336,10 +418,16 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
             .parse()
             .unwrap();
     assert!(
-        Auth::default()
-            .authenticate_signed(&Method::GET, &invalid, &HeaderMap::new(), &Fixed(now))
-            .unwrap()
-            .is_none()
+        verify_with_auth(
+            &Auth::default(),
+            &Method::GET,
+            &invalid,
+            &HeaderMap::new(),
+            now
+        )
+        .await
+        .unwrap()
+        .is_none()
     );
     let auth = auth();
     let dir = crate::test_support::TestDir::new();
@@ -362,8 +450,8 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
     assert!(String::from_utf8_lossy(&body).contains("<Code>ExpiredToken</Code>"));
 }
 
-#[test]
-fn signed_time_boundaries_use_the_injected_clock_and_documented_skew() {
+#[tokio::test]
+async fn signed_time_boundaries_use_the_injected_clock_and_documented_skew() {
     let now = parse_timestamp(DATE).unwrap();
     let url = signed(
         "http://localhost:4443/bucket/object",
@@ -376,7 +464,7 @@ fn signed_time_boundaries_use_the_injected_clock_and_documented_skew() {
         now + Duration::from_secs(59),
     ] {
         assert_eq!(
-            verify(&url, &Method::GET, HeaderMap::new(), at),
+            verify(&url, &Method::GET, HeaderMap::new(), at).await,
             Ok(SIGNER.into())
         );
     }
@@ -386,7 +474,8 @@ fn signed_time_boundaries_use_the_injected_clock_and_documented_skew() {
             &Method::GET,
             HeaderMap::new(),
             now - Duration::from_secs(901)
-        ),
+        )
+        .await,
         Err(Failure::NotYetValid)
     );
     assert_eq!(
@@ -395,7 +484,8 @@ fn signed_time_boundaries_use_the_injected_clock_and_documented_skew() {
             &Method::GET,
             HeaderMap::new(),
             now + Duration::from_secs(60)
-        ),
+        )
+        .await,
         Err(Failure::Expired)
     );
     for date in [
@@ -424,27 +514,31 @@ fn signed_time_boundaries_use_the_injected_clock_and_documented_skew() {
     }
 }
 
-#[test]
-fn delete_signatures_bind_method_host_raw_path_and_generation() {
+#[tokio::test]
+async fn delete_signatures_bind_method_host_raw_path_and_generation() {
     let now = parse_timestamp(DATE).unwrap();
     let url = signed(
         "https://localhost:4443/bucket/a%2Fb?generation=123",
         &Method::DELETE,
         HeaderMap::new(),
     );
-    assert!(verify(&url, &Method::DELETE, HeaderMap::new(), now).is_ok());
+    assert!(
+        verify(&url, &Method::DELETE, HeaderMap::new(), now)
+            .await
+            .is_ok()
+    );
     for changed in [
         url.replace("a%2Fb", "a/b"),
         url.replace("generation=123", "generation=124"),
         url.replace("localhost:4443", "other.invalid:4443"),
     ] {
         assert_eq!(
-            verify(&changed, &Method::DELETE, HeaderMap::new(), now),
+            verify(&changed, &Method::DELETE, HeaderMap::new(), now).await,
             Err(Failure::Mismatch)
         );
     }
     assert_eq!(
-        verify(&url, &Method::GET, HeaderMap::new(), now),
+        verify(&url, &Method::GET, HeaderMap::new(), now).await,
         Err(Failure::Mismatch)
     );
     assert!(
@@ -488,8 +582,8 @@ fn delete_signatures_bind_method_host_raw_path_and_generation() {
     );
 }
 
-#[test]
-fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
+#[tokio::test]
+async fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
     let now = parse_timestamp(DATE).unwrap();
     let mut headers = HeaderMap::new();
     headers.insert("x-required", "value".parse().unwrap());
@@ -498,7 +592,11 @@ fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
         &Method::GET,
         headers.clone(),
     );
-    assert!(verify(&url, &Method::GET, headers.clone(), now).is_ok());
+    assert!(
+        verify(&url, &Method::GET, headers.clone(), now)
+            .await
+            .is_ok()
+    );
     for changed in [
         url.replace("/bucket/", "/other-bucket/"),
         url.replace("/object?", "/other?"),
@@ -509,25 +607,25 @@ fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
         url.replace("localhost:4443", "localhost:4444"),
     ] {
         assert_eq!(
-            verify(&changed, &Method::GET, headers.clone(), now),
+            verify(&changed, &Method::GET, headers.clone(), now).await,
             Err(Failure::Mismatch),
             "{changed}"
         );
     }
     for method in [Method::HEAD, Method::PUT, Method::DELETE] {
         assert_eq!(
-            verify(&url, &method, headers.clone(), now),
+            verify(&url, &method, headers.clone(), now).await,
             Err(Failure::Mismatch)
         );
     }
     headers.insert("x-required", "changed".parse().unwrap());
     assert_eq!(
-        verify(&url, &Method::GET, headers.clone(), now),
+        verify(&url, &Method::GET, headers.clone(), now).await,
         Err(Failure::Mismatch)
     );
     headers.remove("x-required");
     assert_eq!(
-        verify(&url, &Method::GET, headers, now),
+        verify(&url, &Method::GET, headers, now).await,
         Err(Failure::Mismatch)
     );
     let (prefix, signature) = url.rsplit_once('=').unwrap();
@@ -539,21 +637,21 @@ fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
     let mut headers = HeaderMap::new();
     headers.insert("x-required", "value".parse().unwrap());
     assert_eq!(
-        verify(&changed, &Method::GET, headers.clone(), now),
+        verify(&changed, &Method::GET, headers.clone(), now).await,
         Err(Failure::Mismatch)
     );
     assert_eq!(
-        verify(&format!("{prefix}=zz"), &Method::GET, headers.clone(), now),
+        verify(&format!("{prefix}=zz"), &Method::GET, headers.clone(), now).await,
         Err(Failure::Malformed)
     );
     assert_eq!(
-        verify(&format!("{prefix}=0"), &Method::GET, headers, now),
+        verify(&format!("{prefix}=0"), &Method::GET, headers, now).await,
         Err(Failure::Malformed)
     );
 }
 
-#[test]
-fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
+#[tokio::test]
+async fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
     let now = parse_timestamp(DATE).unwrap();
     let url = signed(
         "http://localhost/bucket/object",
@@ -568,7 +666,6 @@ fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
         url.replace("X-Goog-Expires=60", "X-Goog-Expires=18446744073709551616"),
         url.replace("%2F20261023%2F", "%2F20261022%2F"),
         url.replace("%2Fstorage%2F", "%2Fwrong%2F"),
-        url.replace("GOOG4-RSA-SHA256", "GOOG4-HMAC-SHA256"),
         url.replace("X-Goog-SignedHeaders=host", "X-Goog-SignedHeaders=Host"),
         url.replace("X-Goog-SignedHeaders=host", "X-Goog-SignedHeaders=range"),
         format!("{url}&X-Goog-Date={DATE}"),
@@ -576,11 +673,22 @@ fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
         format!("{url}&x=%ZZ"),
     ] {
         assert_eq!(
-            verify(&changed, &Method::GET, HeaderMap::new(), now),
+            verify(&changed, &Method::GET, HeaderMap::new(), now).await,
             Err(Failure::Malformed),
             "{changed}"
         );
     }
+    // HMAC is supported, but an RSA principal name is not a registered HMAC access ID.
+    assert_eq!(
+        verify(
+            &url.replace("GOOG4-RSA-SHA256", "GOOG4-HMAC-SHA256"),
+            &Method::GET,
+            HeaderMap::new(),
+            now
+        )
+        .await,
+        Err(Failure::UnknownSigner)
+    );
     for parameter in PARAMETERS {
         let (base, query) = url.split_once('?').unwrap();
         let query = query
@@ -594,7 +702,8 @@ fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
                 &Method::GET,
                 HeaderMap::new(),
                 now
-            ),
+            )
+            .await,
             Err(Failure::Malformed)
         );
     }
@@ -609,7 +718,7 @@ fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
     })
     .unwrap();
     assert_eq!(
-        verify(&unknown, &Method::GET, HeaderMap::new(), now),
+        verify(&unknown, &Method::GET, HeaderMap::new(), now).await,
         Err(Failure::UnknownSigner)
     );
     for expires in [0, 604801, u64::MAX] {
@@ -641,7 +750,41 @@ fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
 }
 
 #[test]
-fn raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions() {
+fn signer_rejects_every_existing_signature_parameter_including_encoded_v2_names() {
+    for parameter in PARAMETERS
+        .iter()
+        .chain(AWS_PARAMETERS)
+        .chain(V2_PARAMETERS)
+        .flat_map(|name| {
+            [
+                name.to_ascii_lowercase(),
+                name.to_ascii_uppercase(),
+                (*name).to_owned(),
+            ]
+        })
+        .chain(["%45xpires".into()])
+    {
+        assert!(is_signed(Some(&format!("{parameter}=x"))));
+        assert!(
+            matches!(
+                sign_url(SignUrlRequest {
+                    url: &format!("http://localhost/bucket/object?{parameter}=x"),
+                    method: &Method::GET,
+                    signer: SIGNER,
+                    private_key: PRIVATE,
+                    expires: 60,
+                    now: parse_timestamp(DATE).unwrap(),
+                    headers: HeaderMap::new(),
+                }),
+                Err(SigningError::ExistingSigningParameters)
+            ),
+            "{parameter}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions() {
     let now = parse_timestamp(DATE).unwrap();
     for path in [
         "/bucket/a%2Fb",
@@ -657,7 +800,9 @@ fn raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions
             HeaderMap::new(),
         );
         assert!(
-            verify(&url, &Method::HEAD, HeaderMap::new(), now).is_ok(),
+            verify(&url, &Method::HEAD, HeaderMap::new(), now)
+                .await
+                .is_ok(),
             "{url}"
         );
         assert!(url.contains("a=%2F&z=hello%20world"));
@@ -668,10 +813,14 @@ fn raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions
     let url = signed("http://localhost/bucket/o", &Method::GET, headers);
     let mut equivalent = HeaderMap::new();
     equivalent.insert("X-Reviewer", "jane doe,john".parse().unwrap());
-    assert!(verify(&url, &Method::GET, equivalent.clone(), now).is_ok());
+    assert!(
+        verify(&url, &Method::GET, equivalent.clone(), now)
+            .await
+            .is_ok()
+    );
     equivalent.insert("x-reviewer", "john,jane doe".parse().unwrap());
     assert_eq!(
-        verify(&url, &Method::GET, equivalent, now),
+        verify(&url, &Method::GET, equivalent, now).await,
         Err(Failure::Mismatch)
     );
     assert_eq!(canonical_path("/bucket/a%2fb").unwrap(), "/bucket/a%2fb");
@@ -686,12 +835,13 @@ fn canonical_headers_match_the_official_published_example() {
     headers.insert("content-type", "text/plain".parse().unwrap());
     headers.append("x-goog-meta-reviewer", "jane".parse().unwrap());
     headers.append("x-goog-meta-reviewer", "john".parse().unwrap());
-    let canonical = canonical_request(
+    let canonical = canonical_with_payload(
         &Method::GET,
         &"/example-bucket/tabby.jpeg".parse().unwrap(),
         &headers,
         &BTreeMap::new(),
         "content-type;host;x-goog-meta-reviewer",
+        "UNSIGNED-PAYLOAD",
     )
     .unwrap();
     assert_eq!(
@@ -709,12 +859,13 @@ fn canonical_query_sorts_decoded_names_before_encoding() {
         ("+".into(), "+".into()),
         ("é".into(), "日".into()),
     ]);
-    let canonical = canonical_request(
+    let canonical = canonical_with_payload(
         &Method::GET,
         &"/bucket/o?a=a+b&%2B=%2B&%C3%A9=%E6%97%A5".parse().unwrap(),
         &headers,
         &query,
         "host",
+        "UNSIGNED-PAYLOAD",
     )
     .unwrap();
     assert_eq!(
@@ -723,8 +874,8 @@ fn canonical_query_sorts_decoded_names_before_encoding() {
     );
 }
 
-#[test]
-fn signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority() {
+#[tokio::test]
+async fn signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority() {
     let now = parse_timestamp(DATE).unwrap();
     for (base, expected) in [
         ("http://localhost:80", "http://localhost/"),
@@ -733,11 +884,15 @@ fn signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_aut
     ] {
         let url = signed(&format!("{base}/bucket/o"), &Method::GET, HeaderMap::new());
         assert!(url.starts_with(expected), "{url}");
-        assert!(verify(&url, &Method::GET, HeaderMap::new(), now).is_ok());
+        assert!(
+            verify(&url, &Method::GET, HeaderMap::new(), now)
+                .await
+                .is_ok()
+        );
         let mut headers = HeaderMap::new();
         headers.insert("host", base.split_once("://").unwrap().1.parse().unwrap());
         assert_eq!(
-            verify(&url, &Method::GET, headers, now),
+            verify(&url, &Method::GET, headers, now).await,
             Err(Failure::Mismatch)
         );
     }
@@ -750,13 +905,14 @@ fn signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_aut
             &Method::GET,
             headers,
             now
-        ),
+        )
+        .await,
         Err(Failure::Mismatch)
     );
 }
 
-#[test]
-fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() {
+#[tokio::test]
+async fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() {
     let now = parse_timestamp(DATE).unwrap();
     for payload in [
         "UNSIGNED-PAYLOAD",
@@ -766,12 +922,13 @@ fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() 
         headers.insert("x-goog-content-sha256", payload.parse().unwrap());
         let mut canonical_headers = headers.clone();
         canonical_headers.insert("host", "localhost".parse().unwrap());
-        let canonical = canonical_request(
+        let canonical = canonical_with_payload(
             &Method::PUT,
             &"http://localhost/bucket/o".parse().unwrap(),
             &canonical_headers,
             &BTreeMap::new(),
             "host;x-goog-content-sha256",
+            "UNSIGNED-PAYLOAD",
         )
         .unwrap();
         assert_eq!(
@@ -781,15 +938,19 @@ fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() 
             )
         );
         let url = signed("http://localhost/bucket/o", &Method::GET, headers.clone());
-        assert!(verify(&url, &Method::GET, headers.clone(), now).is_ok());
+        assert!(
+            verify(&url, &Method::GET, headers.clone(), now)
+                .await
+                .is_ok()
+        );
         headers.insert("x-goog-content-sha256", "0".repeat(64).parse().unwrap());
         assert_eq!(
-            verify(&url, &Method::GET, headers.clone(), now),
+            verify(&url, &Method::GET, headers.clone(), now).await,
             Err(Failure::Mismatch)
         );
         headers.insert("x-goog-content-sha256", "changed".parse().unwrap());
         assert_eq!(
-            verify(&url, &Method::GET, headers, now),
+            verify(&url, &Method::GET, headers, now).await,
             Err(Failure::Malformed)
         );
     }
@@ -797,7 +958,7 @@ fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() 
     let mut headers = HeaderMap::new();
     headers.insert("x-goog-if-generation-match", "1".parse().unwrap());
     assert_eq!(
-        verify(&url, &Method::GET, headers, now),
+        verify(&url, &Method::GET, headers, now).await,
         Err(Failure::Malformed)
     );
     for signed in ["host;host", "x-required;host", "HOST", ""] {
@@ -810,7 +971,8 @@ fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() 
                 &Method::GET,
                 HeaderMap::new(),
                 now
-            ),
+            )
+            .await,
             Err(Failure::Malformed)
         );
     }

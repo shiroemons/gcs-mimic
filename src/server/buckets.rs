@@ -217,7 +217,7 @@ async fn authorize(
 /// so the caller is authenticated here and the catalog checks the project-level grant.
 fn soft_deleted_access(
     caller: Option<Caller<'_>>,
-    permission: &str,
+    permission: auth::Permission,
 ) -> Result<BucketAccess, JsonError> {
     let Some(caller) = caller else {
         return Ok(BucketAccess::Permissive);
@@ -229,8 +229,7 @@ fn soft_deleted_access(
     };
     Ok(BucketAccess::Policy {
         identity,
-        permission: auth::Permission::try_from(permission)
-            .map_err(|error| CatalogError::InvalidMetadata(error.into()))?,
+        permission,
         project: None,
     })
 }
@@ -323,7 +322,7 @@ async fn lock_retention_policy(
 async fn test_iam_permissions(
     ctx: BucketCtx<'_>,
     bucket: &str,
-    permissions: Vec<String>,
+    permissions: Vec<auth::Permission>,
 ) -> Result<Value, JsonError> {
     // This method requires no permission; existence is independent of policy visibility.
     ctx.state
@@ -332,7 +331,7 @@ async fn test_iam_permissions(
         .await?;
     let mut granted = Vec::new();
     for permission in permissions {
-        match authorize_bucket(ctx.state, ctx.caller, &permission, bucket).await {
+        match authorize_bucket(ctx.state, ctx.caller, permission, bucket).await {
             Ok(access)
                 if ctx
                     .state
@@ -340,7 +339,7 @@ async fn test_iam_permissions(
                     .has_bucket_permission(bucket, &access)
                     .await? =>
             {
-                granted.push(permission)
+                granted.push(permission.as_str())
             }
             Ok(_) => {}
             Err(error) if error.status == StatusCode::FORBIDDEN => {}

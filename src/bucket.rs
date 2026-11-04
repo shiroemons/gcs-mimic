@@ -140,25 +140,6 @@ pub(crate) fn bucket_location(value: &str) -> Result<(&'static str, &'static str
     ))
 }
 
-#[test]
-fn official_bucket_location_names_and_types() {
-    for (names, kind) in [
-        (REGIONS, "region"),
-        (DUAL_REGIONS, "dual-region"),
-        (MULTI_REGIONS, "multi-region"),
-    ] {
-        for name in names {
-            assert_eq!(
-                bucket_location(&name.to_ascii_lowercase()).ok(),
-                Some((*name, kind))
-            );
-        }
-    }
-    for invalid in ["MARS-CENTRAL1", "US-CENTRAL1-A", "AU", "", " US"] {
-        assert!(bucket_location(invalid).is_err());
-    }
-}
-
 /// Bucket metadata persisted by the catalog. Protocol adapters derive wire fields from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BucketRecord {
@@ -362,21 +343,16 @@ pub(crate) fn cors_value(rules: &[CorsRule]) -> serde_json::Value {
 }
 
 pub(crate) fn validate_cors(rules: &[CorsRule]) -> Result<(), CatalogError> {
-    let mut bytes = 2usize;
+    if rules.len() > 64 * 1024 / 3 {
+        return Err(CatalogError::InvalidMetadata(
+            "Bucket CORS exceeds 64 KiB".into(),
+        ));
+    }
     for rule in rules {
-        bytes = bytes.saturating_add(3);
-        for value in rule
-            .origin
+        if [&rule.origin, &rule.method, &rule.response_header]
             .iter()
-            .chain(&rule.method)
-            .chain(&rule.response_header)
+            .any(|values| values.len() > 32 * 1024)
         {
-            bytes = bytes.saturating_add(value.len()).saturating_add(3);
-        }
-        if rule.max_age_seconds.is_some() {
-            bytes = bytes.saturating_add(18);
-        }
-        if bytes > 64 * 1024 {
             return Err(CatalogError::InvalidMetadata(
                 "Bucket CORS exceeds 64 KiB".into(),
             ));
@@ -402,12 +378,31 @@ pub(crate) fn validate_cors(rules: &[CorsRule]) -> Result<(), CatalogError> {
             ));
         }
     }
-    if cors_value(rules).to_string().len() > 64 * 1024 {
+    if serde_json::to_writer(CorsSize(0), &cors_value(rules)).is_err() {
         return Err(CatalogError::InvalidMetadata(
             "Bucket CORS exceeds 64 KiB".into(),
         ));
     }
     Ok(())
+}
+
+struct CorsSize(usize);
+
+impl std::io::Write for CorsSize {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 = self.0.saturating_add(bytes.len());
+        if self.0 > 64 * 1024 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::FileTooLarge,
+                "CORS exceeds 64 KiB",
+            ));
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Which half of a label pair is validated; only keys must start with a letter.
@@ -472,38 +467,6 @@ pub(crate) fn public_access_prevention(value: &str) -> Result<bool, CatalogError
     }
 }
 
-#[test]
-fn storage_class_validation_keeps_exact_errors() {
-    for class in [
-        "STANDARD",
-        "NEARLINE",
-        "COLDLINE",
-        "ARCHIVE",
-        "MULTI_REGIONAL",
-        "DURABLE_REDUCED_AVAILABILITY",
-    ] {
-        assert!(validate_storage_class(class).is_ok(), "{class}");
-    }
-    for class in ["REGIONAL", "RAPID"] {
-        assert_eq!(
-            validate_storage_class(class),
-            Err(CatalogError::Metadata(
-                crate::metadata_error::MetadataError::StorageClassRequiresLocation
-            )),
-            "{class}"
-        );
-    }
-    for class in ["standard", "", "UNKNOWN", " STANDARD"] {
-        assert_eq!(
-            validate_storage_class(class),
-            Err(CatalogError::InvalidMetadata(
-                "The storage class you specified is not valid.".into()
-            )),
-            "{class}"
-        );
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum CatalogError {
     AuthenticationAlreadyConfigured,
@@ -529,6 +492,75 @@ pub enum CatalogError {
         supported: i64,
     },
     Unavailable(BackendCause),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cors_serialized_size_limit_is_inclusive() {
+        let mut rule = CorsRule {
+            origin: vec!["x".into()],
+            ..Default::default()
+        };
+        let overhead = cors_value(&[rule.clone()]).to_string().len() - 1;
+        rule.origin[0] = "x".repeat(64 * 1024 - overhead);
+        assert!(validate_cors(&[rule.clone()]).is_ok());
+        rule.origin[0].push('x');
+        assert!(validate_cors(&[rule]).is_err());
+    }
+
+    #[test]
+    fn official_bucket_location_names_and_types() {
+        for (names, kind) in [
+            (REGIONS, "region"),
+            (DUAL_REGIONS, "dual-region"),
+            (MULTI_REGIONS, "multi-region"),
+        ] {
+            for name in names {
+                assert_eq!(
+                    bucket_location(&name.to_ascii_lowercase()).ok(),
+                    Some((*name, kind))
+                );
+            }
+        }
+        for invalid in ["MARS-CENTRAL1", "US-CENTRAL1-A", "AU", "", " US"] {
+            assert!(bucket_location(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn storage_class_validation_keeps_exact_errors() {
+        for class in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ] {
+            assert!(validate_storage_class(class).is_ok(), "{class}");
+        }
+        for class in ["REGIONAL", "RAPID"] {
+            assert_eq!(
+                validate_storage_class(class),
+                Err(CatalogError::Metadata(
+                    crate::metadata_error::MetadataError::StorageClassRequiresLocation
+                )),
+                "{class}"
+            );
+        }
+        for class in ["standard", "", "UNKNOWN", " STANDARD"] {
+            assert_eq!(
+                validate_storage_class(class),
+                Err(CatalogError::InvalidMetadata(
+                    "The storage class you specified is not valid.".into()
+                )),
+                "{class}"
+            );
+        }
+    }
 }
 
 impl fmt::Display for CatalogError {

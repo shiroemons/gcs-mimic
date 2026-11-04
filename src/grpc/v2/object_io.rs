@@ -1953,7 +1953,7 @@ mod tests {
     #[tokio::test]
     async fn grpc_derived_writes_return_owner_and_acl() {
         let (_dir, storage) = setup(true).await;
-        let admin = fixtures::caller(&storage, "admin");
+        let admin = fixtures::caller(&storage, "admin").await;
         let bucket = "projects/_/buckets/grpc-io";
         let pb::bidi_write_object_response::WriteStatus::Resource(source) =
             write_as(&storage, vec![message("source", b"data")], admin)
@@ -2058,8 +2058,8 @@ mod tests {
     #[tokio::test]
     async fn grpc_derived_write_views_respect_acl_permissions_and_uniform_access() {
         let (_dir, storage) = setup(true).await;
-        let admin = fixtures::caller(&storage, "admin");
-        let user = fixtures::caller(&storage, "user");
+        let admin = fixtures::caller(&storage, "admin").await;
+        let user = fixtures::caller(&storage, "user").await;
         let bucket = "projects/_/buckets/grpc-io";
         write_as(&storage, vec![message("source", b"data")], admin)
             .await
@@ -2124,7 +2124,7 @@ mod tests {
         request
             .metadata_mut()
             .insert("authorization", "Bearer admin".parse().unwrap());
-        let admin = storage.authenticate(&request).unwrap();
+        let admin = storage.authenticate(&request).await.unwrap();
         let written = storage
             .receive_write(
                 &mut tonic::codegen::tokio_stream::iter([Ok(message("written", b"hello"))]),
@@ -2175,7 +2175,7 @@ mod tests {
         request
             .metadata_mut()
             .insert("authorization", "Bearer admin".parse().unwrap());
-        let admin = storage.authenticate(&request).unwrap();
+        let admin = storage.authenticate(&request).await.unwrap();
         storage
             .receive_write(
                 &mut tonic::codegen::tokio_stream::iter([Ok(message("masked", b"masked"))]),
@@ -2253,7 +2253,7 @@ mod tests {
         request
             .metadata_mut()
             .insert("authorization", "Bearer reader".parse().unwrap());
-        let reader = storage.authenticate(&request).unwrap();
+        let reader = storage.authenticate(&request).await.unwrap();
         let viewed = get(fixtures::mask(&ALL_OBJECT_FIELDS), reader)
             .await
             .unwrap()
@@ -2713,7 +2713,7 @@ mod tests {
         request
             .metadata_mut()
             .insert("authorization", "Bearer admin".parse().unwrap());
-        let admin = storage.authenticate(&request).unwrap();
+        let admin = storage.authenticate(&request).await.unwrap();
         storage
             .receive_write(
                 &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"private"))]),
@@ -2726,7 +2726,7 @@ mod tests {
         request
             .metadata_mut()
             .insert("authorization", "Bearer reader".parse().unwrap());
-        let reader = storage.authenticate(&request).unwrap();
+        let reader = storage.authenticate(&request).await.unwrap();
         assert_code(
             storage
                 .receive_write(
@@ -2948,11 +2948,11 @@ mod tests {
         request
             .metadata_mut()
             .insert("authorization", "Bearer admin".parse().unwrap());
-        let admin = storage.authenticate(&request).unwrap();
+        let admin = storage.authenticate(&request).await.unwrap();
         request
             .metadata_mut()
             .insert("authorization", "Bearer reader".parse().unwrap());
-        let reader = storage.authenticate(&request).unwrap();
+        let reader = storage.authenticate(&request).await.unwrap();
         let upload = start(&storage, "strict", admin).await;
         storage
             .receive_write(

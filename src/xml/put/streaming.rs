@@ -230,8 +230,7 @@ async fn signed(
         reader.crlf().await?;
         verifier
             .verify_chunk(hash.finish().as_ref(), &signature)
-            .await
-            .map_err(super::super::signature_error)?;
+            .map_err(|error| super::super::signature_error(error.into()))?;
         if length == 0 {
             if total != decoded || reader.fill().await? {
                 return Err(malformed());

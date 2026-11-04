@@ -33,6 +33,17 @@ pub const DEFAULT_LOCAL_CREATOR_EMAIL: &str = "local-user@gcs-mimic.invalid";
 const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InvalidChoice(pub(crate) &'static str);
+
+impl std::fmt::Display for InvalidChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for InvalidChoice {}
+
 macro_rules! string_enum {
     ($(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
@@ -64,12 +75,12 @@ macro_rules! string_enum {
         }
 
         impl std::str::FromStr for $name {
-            type Err = String;
+            type Err = $crate::config::InvalidChoice;
 
             fn from_str(value: &str) -> Result<Self, Self::Err> {
                 match value {
                     $($value => Ok(Self::$variant),)+
-                    _ => Err($error.into()),
+                    _ => Err($crate::config::InvalidChoice($error)),
                 }
             }
         }
@@ -248,6 +259,8 @@ impl Default for Config {
 }
 
 impl Config {
+    pub const HEALTHCHECK_PATH: &str = "/_internal/healthcheck";
+
     pub fn healthcheck_url(&self) -> String {
         let listen = loopback_if_unspecified(self.effective_listen_http().unwrap_or(self.listen));
         let scheme = if self.scheme == Scheme::Both {
@@ -255,7 +268,7 @@ impl Config {
         } else {
             self.scheme
         };
-        format!("{}://{listen}/_internal/ready", scheme.as_str())
+        format!("{}://{listen}{}", scheme.as_str(), Self::HEALTHCHECK_PATH)
     }
 
     pub fn effective_listen_http(&self) -> Option<SocketAddr> {
@@ -702,9 +715,9 @@ fn apply_access_setting(
     match setting {
         Setting::AdminAllowedHosts => config.admin_allowed_hosts = admin_hosts(value)?,
         Setting::AdminPrincipal => {
-            if value.is_empty() || value.len() > 254 || value.chars().any(char::is_control) {
+            if !crate::auth::valid_principal_id(value) {
                 return Err(
-                    "admin_principal must be a nonempty local principal ID of at most 254 bytes"
+                    "admin_principal must be 1..=254 bytes of printable ASCII without whitespace, like identity ids"
                         .into(),
                 );
             }
@@ -764,11 +777,19 @@ fn apply_limit_setting(
     value: &str,
 ) -> Result<(), SettingFix> {
     let value = setting.integer(value)?;
+    let count = || {
+        usize::try_from(value).map_err(|_| {
+            SettingFix::from(format!(
+                "{} exceeds this platform's count limit",
+                setting.as_str()
+            ))
+        })
+    };
     match setting {
-        Setting::MaxConnections => config.max_connections = value as usize,
+        Setting::MaxConnections => config.max_connections = count()?,
         Setting::MaxObjectBytes => config.max_object_bytes = value,
-        Setting::WorkerThreads => config.worker_threads = value as usize,
-        Setting::MaxBlockingThreads => config.max_blocking_threads = value as usize,
+        Setting::WorkerThreads => config.worker_threads = count()?,
+        Setting::MaxBlockingThreads => config.max_blocking_threads = count()?,
         Setting::ConnectionTimeoutMs => config.connection_timeout_ms = value,
         Setting::KeepAliveTimeoutMs => config.keep_alive_timeout_ms = value,
         Setting::ObjectRequestTimeoutMs => config.object_request_timeout_ms = value,
@@ -849,13 +870,15 @@ impl ConfigurationReport {
             && let Err(error) =
                 crate::sync::validate_directory(root, &config.data_dir, config.seed_dir.as_deref())
         {
-            let input = &settings["sync_dir"];
+            let (source, key) = settings
+                .get("sync_dir")
+                .map_or((DiagnosticSource::Config, "sync_dir"), |input| {
+                    (input.source, input.key.as_str())
+                });
             self.invalid.insert("sync_dir".into());
-            self.diagnostics.errors.push(Diagnostic::new(
-                input.source,
-                &input.key,
-                error.to_string(),
-            ));
+            self.diagnostics
+                .errors
+                .push(Diagnostic::new(source, key, error.to_string()));
         }
         if config.compat_profile == CompatProfile::LegacyEmulator
             && let Some(input) = settings.get("default_location")
@@ -1066,6 +1089,25 @@ impl ConfigurationReport {
     fn check_auth(&mut self, settings: &Settings) {
         self.check_admin_auth(settings);
         let config = &self.config;
+        if let Some(input) = settings.get("admin_principal")
+            && !self.invalid.contains("admin_principal")
+        {
+            let fix = if config.auth_mode != AuthMode::Strict {
+                Some("admin_principal requires auth_mode=strict; remove it or select strict mode.")
+            } else if !config.admin_enabled {
+                Some(
+                    "admin_principal requires admin_enabled=true; enable administration or remove the principal setting.",
+                )
+            } else {
+                None
+            };
+            if let Some(fix) = fix {
+                self.diagnostics
+                    .errors
+                    .push(Diagnostic::new(input.source, &input.key, fix));
+                self.invalid.insert("admin_principal".into());
+            }
+        }
         // Reject mismatched profiles so a registry is never silently ignored or missing.
         match (config.auth_mode, &config.identity_file) {
             (AuthMode::Strict, None) if !self.invalid.contains("identity_file") => {
@@ -1263,6 +1305,48 @@ mod tests {
         ] {
             let args = ["--admin-allowed-hosts", value].map(str::to_owned);
             assert!(Config::load(&args, &BTreeMap::new()).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn administrative_principals_require_a_strict_enabled_registry_profile() {
+        for (args, message) in [
+            (vec!["--admin-principal", "admin"], "auth_mode=strict"),
+            (
+                vec![
+                    "--auth-mode",
+                    "strict",
+                    "--identity-file",
+                    "identities.json",
+                    "--admin-principal",
+                    "admin",
+                ],
+                "admin_enabled=true",
+            ),
+            (
+                vec![
+                    "--auth-mode",
+                    "strict",
+                    "--identity-file",
+                    "identities.json",
+                    "--admin-enabled",
+                    "true",
+                    "--admin-principal",
+                    "bad principal",
+                ],
+                "without whitespace",
+            ),
+        ] {
+            let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let error = Config::load(&args, &BTreeMap::new()).unwrap_err();
+            assert!(
+                error
+                    .errors
+                    .iter()
+                    .any(|error| error.key.contains("admin-principal")
+                        && error.fix.contains(message)),
+                "{error}"
+            );
         }
     }
 

@@ -82,7 +82,8 @@ pub(crate) async fn authenticate_target<'a>(
                 }
             })
     } else {
-        auth.authenticate_at(headers, uri.query(), clock)
+        auth.authenticate_request(headers, uri.query(), clock)
+            .await
             .map_err(|e| Error::from(JsonError::from(e)))
     }
 }

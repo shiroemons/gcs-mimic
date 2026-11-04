@@ -73,7 +73,10 @@ impl TryFrom<AdminRoute> for LocalRoute {
     }
 }
 
-fn authority(request: &Request<RequestBody>, ctx: RequestCtx<'_>) -> Result<Authorized, JsonError> {
+async fn authority(
+    request: &Request<RequestBody>,
+    ctx: RequestCtx<'_>,
+) -> Result<Authorized, JsonError> {
     let admin = ctx.state.catalog.local_admin().ok_or_else(|| {
         JsonError::new(
             StatusCode::NOT_FOUND,
@@ -81,11 +84,16 @@ fn authority(request: &Request<RequestBody>, ctx: RequestCtx<'_>) -> Result<Auth
             "Local administration is disabled at startup",
         )
     })?;
-    if let Some(caller) = ctx.state.auth.authenticate_at(
-        request.headers(),
-        request.uri().query(),
-        ctx.state.clock.as_ref(),
-    )? {
+    if let Some(caller) = ctx
+        .state
+        .auth
+        .authenticate_request(
+            request.headers(),
+            request.uri().query(),
+            ctx.state.clock.as_ref(),
+        )
+        .await?
+    {
         let principal = caller.principal()?;
         if ctx.config.admin_principal.as_deref() != Some(principal.id()) {
             return Err(auth::AuthFailure::Forbidden.into());
@@ -113,7 +121,7 @@ pub(super) async fn respond(
         Ok(route) => route,
         Err(SyncRoute) => return boxed(sync::respond(request, ctx).await),
     };
-    let authorized = match authority(&request, ctx) {
+    let authorized = match authority(&request, ctx).await {
         Ok(authorized) => authorized,
         Err(error) => return boxed(error.into_response()),
     };

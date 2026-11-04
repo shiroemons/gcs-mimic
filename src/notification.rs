@@ -7,6 +7,35 @@ use std::{collections::BTreeMap, fmt};
 mod event;
 pub(crate) mod publisher;
 
+#[derive(Debug)]
+pub(crate) enum NotificationDecodeError {
+    Json(serde_json::Error),
+    Shape,
+    Invalid(NotificationError),
+}
+
+impl fmt::Display for NotificationDecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid stored notification")
+    }
+}
+
+impl std::error::Error for NotificationDecodeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Json(error) => Some(error),
+            Self::Invalid(error) => Some(error),
+            Self::Shape => None,
+        }
+    }
+}
+
+impl From<NotificationDecodeError> for crate::storage::failure::BackendCause {
+    fn from(error: NotificationDecodeError) -> Self {
+        Self::from_error(error)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum NotificationMode {
     #[default]
@@ -150,35 +179,26 @@ impl NotificationConfig {
     }
 
     /// Re-validate stored rows so a corrupt catalog cannot render configurations the API rejects.
-    pub(crate) fn from_stored(stored: &str) -> Result<Self, &'static str> {
+    pub(crate) fn from_stored(stored: &str) -> Result<Self, NotificationDecodeError> {
+        use NotificationDecodeError::Shape;
         let value: serde_json::Value =
-            serde_json::from_str(stored).map_err(|_| "invalid stored notification")?;
-        let string = |key: &str| {
-            value[key]
-                .as_str()
-                .map(str::to_owned)
-                .ok_or("invalid stored notification")
-        };
+            serde_json::from_str(stored).map_err(NotificationDecodeError::Json)?;
+        let string = |key: &str| value[key].as_str().map(str::to_owned).ok_or(Shape);
         let event_types = value["event_types"]
             .as_array()
-            .ok_or("invalid stored notification")?
+            .ok_or(Shape)?
             .iter()
-            .map(|event| {
-                event
-                    .as_str()
-                    .map(str::to_owned)
-                    .ok_or("invalid stored notification")
-            })
+            .map(|event| event.as_str().map(str::to_owned).ok_or(Shape))
             .collect::<Result<Vec<_>, _>>()?;
         let custom_attributes = value["custom_attributes"]
             .as_object()
-            .ok_or("invalid stored notification")?
+            .ok_or(Shape)?
             .iter()
             .map(|(key, value)| {
                 value
                     .as_str()
                     .map(|value| (key.clone(), value.to_owned()))
-                    .ok_or("invalid stored notification")
+                    .ok_or(Shape)
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         let config = Self {
@@ -188,16 +208,17 @@ impl NotificationConfig {
             custom_attributes,
             object_name_prefix: string("object_name_prefix")?,
         };
-        let canonical =
-            normalize_topic(&config.topic).map_err(|_| "invalid stored notification")?;
-        if canonical != config.topic
-            || validate_payload_format(&config.payload_format).is_err()
-            || validate_event_types(&config.event_types).is_err()
-            || validate_custom_attributes(&config.custom_attributes).is_err()
-            || validate_object_name_prefix(&config.object_name_prefix).is_err()
-        {
-            return Err("invalid stored notification");
+        let canonical = normalize_topic(&config.topic).map_err(NotificationDecodeError::Invalid)?;
+        if canonical != config.topic {
+            return Err(Shape);
         }
+        validate_payload_format(&config.payload_format)
+            .map_err(NotificationDecodeError::Invalid)?;
+        validate_event_types(&config.event_types).map_err(NotificationDecodeError::Invalid)?;
+        validate_custom_attributes(&config.custom_attributes)
+            .map_err(NotificationDecodeError::Invalid)?;
+        validate_object_name_prefix(&config.object_name_prefix)
+            .map_err(NotificationDecodeError::Invalid)?;
         Ok(config)
     }
 }

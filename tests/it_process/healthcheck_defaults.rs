@@ -12,8 +12,11 @@ use std::{
 #[test]
 fn healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin() {
     for (listen, expected) in [
-        ("0.0.0.0:4443", "https://127.0.0.1:4443/_internal/ready"),
-        ("[::]:8443", "https://[::1]:8443/_internal/ready"),
+        (
+            "0.0.0.0:4443",
+            "https://127.0.0.1:4443/_internal/healthcheck",
+        ),
+        ("[::]:8443", "https://[::1]:8443/_internal/healthcheck"),
     ] {
         let mut config = Config {
             listen: listen.parse().unwrap(),
@@ -25,15 +28,15 @@ fn healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin() {
         config.listen_http = Some("[::]:8080".parse().unwrap());
         assert_eq!(
             config.healthcheck_url(),
-            "http://[::1]:8080/_internal/ready"
+            "http://[::1]:8080/_internal/healthcheck"
         );
         config.listen_http = None;
         assert_eq!(
             config.healthcheck_url(),
             if config.listen.is_ipv4() {
-                "http://127.0.0.1:8000/_internal/ready"
+                "http://127.0.0.1:8000/_internal/healthcheck"
             } else {
-                "http://[::1]:8000/_internal/ready"
+                "http://[::1]:8000/_internal/healthcheck"
             }
         );
     }
@@ -95,7 +98,7 @@ fn healthcheck_defaults_follow_http_https_both_and_changed_ports() {
         let address =
             std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), address.port());
         let url = format!(
-            "{}://{address}/_internal/ready",
+            "{}://{address}/_internal/healthcheck",
             if scheme == "https" { "https" } else { "http" }
         );
         let output = probe()
@@ -155,11 +158,11 @@ fn healthcheck_config_failure_explains_candidate_url_and_explicit_override() {
     assert!(!output.status.success());
     let error = String::from_utf8(output.stderr).unwrap();
     assert!(
-        error.contains("http://127.0.0.1:8080/_internal/ready"),
+        error.contains("http://127.0.0.1:8080/_internal/healthcheck"),
         "{error}"
     );
     assert!(
-        error.contains("--url http://127.0.0.1:8080/_internal/ready"),
+        error.contains("--url http://127.0.0.1:8080/_internal/healthcheck"),
         "{error}"
     );
 }

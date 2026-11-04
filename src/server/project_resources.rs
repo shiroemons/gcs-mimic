@@ -4,17 +4,17 @@ use super::{
     BUCKET_BODY_LIMIT, State, authorize_project, empty_response, json_response,
     validate_bodyless_post,
 };
-use crate::auth::{AuthFailure, Caller};
+use crate::auth::{AuthFailure, Caller, Permission};
 use crate::json::{self, Fields, JsonError, ProjectRequest};
 use crate::storage::hmac_keys::HmacKeyListQuery;
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Bytes};
 
-const HMAC_KEYS_CREATE: &str = "storage.hmacKeys.create";
-const HMAC_KEYS_DELETE: &str = "storage.hmacKeys.delete";
-const HMAC_KEYS_GET: &str = "storage.hmacKeys.get";
-const HMAC_KEYS_LIST: &str = "storage.hmacKeys.list";
-const HMAC_KEYS_UPDATE: &str = "storage.hmacKeys.update";
+const HMAC_KEYS_CREATE: Permission = Permission::HmacKeysCreate;
+const HMAC_KEYS_DELETE: Permission = Permission::HmacKeysDelete;
+const HMAC_KEYS_GET: Permission = Permission::HmacKeysGet;
+const HMAC_KEYS_LIST: Permission = Permission::HmacKeysList;
+const HMAC_KEYS_UPDATE: Permission = Permission::HmacKeysUpdate;
 
 /// `projects.serviceAccount.get` requires `resourcemanager.projects.get`, which no storage role
 /// snapshot carries; any local grant in the project stands in for project visibility.
