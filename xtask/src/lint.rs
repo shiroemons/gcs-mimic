@@ -119,8 +119,8 @@ const STRING_TYPES: [&str; 3] = ["String", "std::string::String", "alloc::string
 pub enum Mode {
     /// Enforce zero-tolerance rules and the host ratchet.
     Gate,
-    /// Print the current ratcheted counts without writing a file.
-    Baseline,
+    /// Print shared text counts, or Clippy counts for a target, without writing a file.
+    Baseline(Option<String>),
     /// Run only the Clippy pass for another target triple; text rules are target-independent
     /// and already ran with the host gate.
     Target(String),
@@ -173,22 +173,43 @@ impl Scan {
 pub fn mode(args: &[String]) -> Option<Mode> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         [] => Some(Mode::Gate),
-        ["--baseline"] => Some(Mode::Baseline),
-        ["--target", triple] if !triple.is_empty() && !triple.starts_with('-') => {
-            Some(Mode::Target(triple.to_owned()))
+        ["--baseline"] => Some(Mode::Baseline(None)),
+        ["--baseline", "--target", triple] if valid_target(triple) => {
+            Some(Mode::Baseline(Some(triple.to_owned())))
         }
+        ["--target", triple] if valid_target(triple) => Some(Mode::Target(triple.to_owned())),
         _ => None,
     }
+}
+
+fn valid_target(triple: &str) -> bool {
+    !triple.is_empty()
+        && !triple.starts_with('-')
+        && triple
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn host(root: &Path) -> Result<String> {
+    let version = crate::release::capture(Command::new("rustc").current_dir(root).arg("-vV"))?;
+    version
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .filter(|triple| valid_target(triple))
+        .map(str::to_owned)
+        .ok_or_else(|| "rustc -vV did not report a host triple".to_owned())
 }
 
 /// Runs the selected mode and returns whether it passed.
 pub fn run(root: &Path, mode: &Mode) -> Result<bool> {
     match mode {
         Mode::Gate => gate(root),
-        Mode::Target(triple) => target_gate(root, triple, &clippy(root, Some(triple))?),
-        Mode::Baseline => {
-            let mut findings = clippy(root, None)?;
-            findings.extend(scan_tree(root)?.findings);
+        Mode::Target(triple) => target_gate(root, triple, &clippy(root, triple)?),
+        Mode::Baseline(target) => {
+            let findings = match target {
+                Some(target) => clippy(root, target)?,
+                None => scan_tree(root)?.findings,
+            };
             print!("{}", ratchet::Baseline::from_findings(&findings).render());
             Ok(true)
         }
@@ -201,7 +222,7 @@ fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> 
         .filter(|finding| !ratchet::eligible(&finding.rule))
         .cloned()
         .collect();
-    let problems = ratchet::Baseline::load(root)?.check(findings, ratchet::Scope::Target);
+    let problems = ratchet::Baseline::load(root, Some(triple))?.check(findings);
     for finding in &violations {
         eprintln!("error: {}: {}:{}", finding.rule, finding.file, finding.line);
     }
@@ -209,7 +230,13 @@ fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> 
         eprintln!("error: {problem}");
     }
     if violations.is_empty() && problems.is_empty() {
-        println!("lint --target {triple}: 0 production Clippy violations");
+        let ratcheted_count = findings
+            .iter()
+            .filter(|finding| ratchet::eligible(&finding.rule))
+            .count();
+        println!(
+            "lint --target {triple}: 0 new production Clippy violations; {ratcheted_count} ratcheted findings"
+        );
     } else {
         eprintln!(
             "lint --target {triple} failed: {} production Clippy violations",
@@ -220,15 +247,18 @@ fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> 
 }
 
 fn gate(root: &Path) -> Result<bool> {
-    let mut findings = clippy(root, None)?;
+    let host = host(root)?;
+    // Pin the compiler target even when CARGO_BUILD_TARGET or local Cargo config selects another.
+    let mut findings = clippy(root, &host)?;
+    let mut ratchet_problems = ratchet::Baseline::load(root, Some(&host))?.check(&findings);
     let scan = scan_tree(root)?;
+    ratchet_problems.extend(ratchet::Baseline::load(root, None)?.check(&scan.findings));
     findings.extend(scan.findings);
     findings.sort();
     let ratcheted_count = findings
         .iter()
         .filter(|finding| ratchet::eligible(&finding.rule))
         .count();
-    let ratchet_problems = ratchet::Baseline::load(root)?.check(&findings, ratchet::Scope::Host);
     for problem in &ratchet_problems {
         eprintln!("error: {problem}");
     }
@@ -306,7 +336,7 @@ pub fn suppression_summary(suppressed: &[Finding]) -> String {
     }
 }
 
-fn clippy(root: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
+fn clippy(root: &Path, target: &str) -> Result<Vec<Finding>> {
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut command = Command::new(cargo);
     // `--lib --bins` leaves `cfg(test)` code uncompiled, so test helpers never count; xtask and
@@ -315,9 +345,7 @@ fn clippy(root: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
         .current_dir(root)
         .args(["clippy", "--package", "gcs-mimic", "--lib", "--bins"])
         .args(["--locked", "--offline", "--message-format=json"]);
-    if let Some(target) = target {
-        command.args(["--target", target]);
-    }
+    command.args(["--target", target]);
     command.arg("--");
     for lint in CLIPPY_LINTS.into_iter().chain(RATCHETED_CLIPPY_LINTS) {
         command.args(["-W", lint]);
@@ -1562,7 +1590,11 @@ struct ParseError(String);
     fn arguments_select_one_mode() {
         let args = |list: &[&str]| list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
         assert_eq!(mode(&args(&[])), Some(Mode::Gate));
-        assert_eq!(mode(&args(&["--baseline"])), Some(Mode::Baseline));
+        assert_eq!(mode(&args(&["--baseline"])), Some(Mode::Baseline(None)));
+        assert_eq!(
+            mode(&args(&["--baseline", "--target", "x86_64-pc-windows-msvc"])),
+            Some(Mode::Baseline(Some("x86_64-pc-windows-msvc".to_owned())))
+        );
         assert_eq!(
             mode(&args(&["--target", "x86_64-pc-windows-msvc"])),
             Some(Mode::Target("x86_64-pc-windows-msvc".to_owned()))
@@ -1575,6 +1607,8 @@ struct ParseError(String);
             &["--target"],
             &["--target", ""],
             &["--target", "--strict"],
+            &["--target", "../outside"],
+            &["--baseline", "--target", "../outside"],
             &["--target", "a", "--target", "b"],
         ] {
             assert_eq!(mode(&args(bad)), None);

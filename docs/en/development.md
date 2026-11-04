@@ -309,8 +309,9 @@ every target.
 runs it after workspace Clippy, so `just check` and Foundation CI run it too.
 It prints every rejected occurrence in server production code. Existing rules
 remain zero tolerance. Indexing, string slicing, potentially truncating or
-sign-losing casts and static-string errors use per-file counts in
-`xtask/lint-baseline.txt`; no new finding may increase those counts.
+sign-losing casts and static-string errors use per-file baseline counts;
+no new finding may increase those counts. Text rules share
+`xtask/lint-baseline.txt`; Clippy uses `xtask/lint-baseline.<triple>.txt`.
 The other exceptions are:
 
 - a reasoned `#[expect(<lint>, reason = "...")]` for a Clippy or rustc lint
@@ -402,19 +403,29 @@ separated by tabs. Blank lines and `#` comments are ignored. Counts belong to
 files rather than line numbers, so moving a line does not require an update.
 Unknown rules, duplicate pairs and malformed counts fail parsing.
 
-The host gate fails both increases and stale counts: lower a count as soon as
+Every gate fails both increases and stale counts: lower a count as soon as
 a finding is fixed, deleting the row at zero. Removed files are stale too.
-The target gate fails increases but permits lower counts caused by target
-configuration. Reasoned Clippy expectations and text suppressions are excluded
+The host gate selects the native compiler's triple and the shared text file;
+`--target` selects only that triple's Clippy file. Target-specific `cfg` counts
+cannot hide another target's regressions or create stale host entries.
+Reasoned Clippy expectations and text suppressions are excluded
 from the counts and remain subject to their existing staleness checks.
 
-`cargo xtask lint --baseline` prints sorted current counts to stdout and writes
-no files. To establish a reviewed baseline after integrating parallel changes:
+`cargo xtask lint --baseline` prints sorted shared text counts to stdout;
+`--baseline --target TRIPLE` prints only that triple's Clippy counts. Neither
+mode writes files. Establish each reviewed baseline once after integration:
 
 ```sh
 cargo xtask lint --baseline > xtask/lint-baseline.txt
+cargo xtask lint --baseline --target aarch64-apple-darwin > xtask/lint-baseline.aarch64-apple-darwin.txt
 cargo xtask lint
 ```
+
+Repeat the target command for `x86_64-pc-windows-msvc`,
+`x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl`, matching
+`scripts/check-cross.sh` and CI. Use its C compiler stub and target directory
+when the target cannot build natively. Do not regenerate unchanged baselines
+to hide a new finding; review and lower individual entries when fixing them.
 
 Review increases explicitly; ordinary fixes should only lower counts. A missing
 baseline fails the gate rather than silently accepting all existing findings.
