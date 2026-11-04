@@ -369,10 +369,7 @@ impl From<HmacKeyError> for JsonError {
                     crate::storage::hmac_keys::MAX_KEYS_PER_SERVICE_ACCOUNT
                 ),
             ),
-            HmacKeyError::Catalog(error) => match error {
-                crate::bucket::CatalogError::InvalidMetadata(reason) => Self::invalid(reason),
-                _ => Self::service_unavailable("HMAC key catalog is unavailable"),
-            },
+            HmacKeyError::Catalog(error) => error.into(),
         }
     }
 }
@@ -428,6 +425,50 @@ fn decode_list_token(token: &str, params: &HmacKeyListParams) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hmac_catalog_errors_keep_capacity_guidance_and_catalog_statuses() {
+        use crate::bucket::CatalogError;
+        use crate::storage::failure::BackendFailure;
+
+        for (cause, status, reason, message) in [
+            (
+                CatalogError::Io(std::io::ErrorKind::StorageFull.into()),
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                "Storage capacity exhausted;",
+            ),
+            (
+                CatalogError::Unavailable(BackendFailure::CatalogClosed.into()),
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                "Object storage is unavailable: catalog is closed;",
+            ),
+            (
+                CatalogError::InvalidMetadata("invalid metadata".into()),
+                StatusCode::BAD_REQUEST,
+                "invalid",
+                "invalid metadata",
+            ),
+            (
+                CatalogError::NotFound,
+                StatusCode::NOT_FOUND,
+                "notFound",
+                super::super::error::BUCKET_NOT_FOUND,
+            ),
+            (
+                CatalogError::Forbidden,
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "Forbidden",
+            ),
+        ] {
+            let error = JsonError::from(HmacKeyError::Catalog(cause));
+            assert_eq!(error.status, status);
+            assert_eq!(error.reason, reason);
+            assert!(error.message.starts_with(message), "{error:?}");
+        }
+    }
 
     fn route(method: Method, path: &str) -> Result<ProjectRequest, JsonError> {
         route_project(&method, &path.parse().unwrap())

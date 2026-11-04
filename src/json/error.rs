@@ -719,13 +719,15 @@ impl From<CatalogError> for JsonError {
             CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
                 Self::storage_capacity()
             }
-            CatalogError::Unavailable(_)
-            | CatalogError::AuthenticationAlreadyConfigured
-            | CatalogError::Io(_)
-            | CatalogError::Corrupt(_)
-            | CatalogError::NewerSchema { .. } => {
-                Self::service_unavailable("Bucket catalog is unavailable")
+            CatalogError::Unavailable(cause) => Self::backend(&cause),
+            CatalogError::Corrupt(cause) => {
+                let mut error = Self::backend(&cause);
+                error.message = "Bucket catalog is unavailable".into();
+                error
             }
+            error @ (CatalogError::AuthenticationAlreadyConfigured
+            | CatalogError::Io(_)
+            | CatalogError::NewerSchema { .. }) => Self::backend(&BackendCause::from_error(error)),
         }
     }
 }
@@ -907,9 +909,11 @@ impl From<ObjectError> for JsonError {
             ObjectError::Io(kind) => Self::service_unavailable(format!(
                 "Object storage is unavailable: storage I/O error ({kind}); check data directory permissions and available disk space"
             )),
-            ObjectError::Corrupt(_) => Self::service_unavailable(
-                "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
-            ),
+            ObjectError::Corrupt(cause) => {
+                let mut error = Self::backend(&cause);
+                error.message = "Object storage is unavailable: stored data is corrupt; restore a valid data directory".into();
+                error
+            },
         }
     }
 }
@@ -1057,12 +1061,16 @@ mod tests {
                 .lines()
                 .map(|line| serde_json::from_str(line).unwrap())
                 .collect();
-            assert_eq!(events.len(), 6);
+            assert_eq!(events.len(), 15);
             assert!(events.iter().all(|event| {
                 event["event"] == "object_backend_failure" && event["level"] == "error"
             }));
             assert_eq!(events[1]["cause"], "database is locked");
             assert_eq!(events[2]["cause"], "Permission denied");
+            assert_eq!(events[6]["cause"], "database is locked");
+            assert_eq!(events[7]["cause"], "invalid opaque blob ID");
+            assert_eq!(events[11]["cause"], "Acknowledged upload prefix is missing");
+            assert_eq!(events[13]["cause"], "database is locked");
             return;
         }
         for cause in [
@@ -1114,16 +1122,85 @@ mod tests {
                 "Object storage is unavailable: internal storage failure (private backend details withheld)"
             );
         }
+        use crate::storage::hmac_keys::HmacKeyError;
+        let internal = "Object storage is unavailable: internal storage failure (private backend details withheld)";
+        let catalog = "Bucket catalog is unavailable";
+        let corrupt =
+            "Object storage is unavailable: stored data is corrupt; restore a valid data directory";
+        for (error, expected) in [
+            (
+                JsonError::from(CatalogError::Unavailable(
+                    "database is locked: /secret token=private".into(),
+                )),
+                internal,
+            ),
+            (
+                JsonError::from(CatalogError::Corrupt(
+                    "invalid opaque blob ID: /secret token=private".into(),
+                )),
+                catalog,
+            ),
+            (
+                JsonError::from(CatalogError::Io(
+                    std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "Permission denied: /secret token=private",
+                    )
+                    .into(),
+                )),
+                internal,
+            ),
+            (
+                JsonError::from(CatalogError::AuthenticationAlreadyConfigured),
+                internal,
+            ),
+            (
+                JsonError::from(CatalogError::NewerSchema {
+                    version: 99,
+                    supported: 50,
+                }),
+                internal,
+            ),
+            (
+                JsonError::from(ObjectError::Corrupt(
+                    "Acknowledged upload prefix is missing: /secret token=private".into(),
+                )),
+                corrupt,
+            ),
+            (
+                JsonError::from(ObjectError::Corrupt("/secret token=private".into())),
+                corrupt,
+            ),
+            (
+                JsonError::from(HmacKeyError::Catalog(CatalogError::Unavailable(
+                    "database is locked: /secret token=private".into(),
+                ))),
+                internal,
+            ),
+            (
+                JsonError::from(HmacKeyError::Catalog(CatalogError::Corrupt(
+                    "/secret token=private".into(),
+                ))),
+                catalog,
+            ),
+        ] {
+            assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(error.reason, "backendError");
+            assert_eq!(error.message, expected);
+        }
     }
 
     #[tokio::test]
-    async fn unavailable_catalog_keeps_bucket_guidance() {
+    async fn unavailable_catalog_keeps_typed_guidance_and_safe_envelope() {
         use http_body_util::BodyExt;
 
         for cause in [
             BackendCause::from("catalog is closed"),
             BackendCause::from(BackendFailure::CatalogClosed),
         ] {
+            let message = cause.failure().and_then(BackendFailure::guidance).unwrap_or(
+                "Object storage is unavailable: internal storage failure (private backend details withheld)",
+            );
             let response = JsonError::from(CatalogError::Unavailable(cause)).into_response();
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(
@@ -1136,9 +1213,14 @@ mod tests {
             );
             assert_eq!(response.headers()[header::PRAGMA], "no-cache");
             assert_eq!(response.headers().len(), 3);
+            let expected = json!({"error": {
+                "code": 503,
+                "message": message,
+                "errors": [{"message": message, "domain": "global", "reason": "backendError"}]
+            }});
             assert_eq!(
                 response.into_body().collect().await.unwrap().to_bytes(),
-                "{\n  \"error\": {\n    \"code\": 503,\n    \"message\": \"Bucket catalog is unavailable\",\n    \"errors\": [\n      {\n        \"message\": \"Bucket catalog is unavailable\",\n        \"domain\": \"global\",\n        \"reason\": \"backendError\"\n      }\n    ]\n  }\n}"
+                serde_json::to_string_pretty(&expected).unwrap()
             );
         }
     }
