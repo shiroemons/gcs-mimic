@@ -398,10 +398,10 @@
     },
     {
       "ecosystem": "npm", "manifest": "sdk-tests/node/package.json",
-      "checked_at_utc": "2026-10-30T05:11:58Z",
+      "checked_at_utc": "2026-11-04T10:21:58Z",
       "direct_dependencies": [
         {"name": "@google-cloud/storage", "current": "8.4.0", "license": "Apache-2.0", "unpacked_bytes": 1688266},
-        {"name": "google-auth-library", "current": "11.3.2", "license": "Apache-2.0", "unpacked_bytes": 784244, "purpose": "OAuth2Client holding a static access token for token-authorized journeys; already a transitive dependency of the Storage SDK, declared directly because the suite imports it."}
+        {"name": "google-auth-library", "current": "11.3.3", "license": "Apache-2.0", "unpacked_bytes": 784370, "purpose": "OAuth2Client holding a static access token for token-authorized journeys; already a transitive dependency of the Storage SDK, declared directly because the suite imports it."}
       ],
       "source_urls": ["https://registry.npmjs.org/@google-cloud/storage", "https://registry.npmjs.org/google-auth-library", "https://github.com/googleapis/google-cloud-node/tree/main/handwritten/storage", "https://github.com/googleapis/google-auth-library-nodejs"],
       "resolution_constraints": "Development-only official SDK suite; exact direct pins and npm integrity lock installed with npm ci --ignore-scripts. The lock resolves the same package graph as the scorecard lock. The suite requires Node >=24; both packages declare Node >=22. Daily detection checks stable releases of each direct pin including new majors."
