@@ -87,7 +87,8 @@ fn resumable_protocol_path(
             .ok()
             .flatten();
     if selected.is_some_and(|object| {
-        object.bucket != "resumable" || object.name() != &uri.path()["/resumable/".len()..]
+        object.bucket != "resumable"
+            || Some(object.name()) != uri.path().strip_prefix("/resumable/")
     }) {
         return None;
     }

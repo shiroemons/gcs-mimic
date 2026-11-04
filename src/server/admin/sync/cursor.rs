@@ -27,19 +27,23 @@ impl SyncCursor {
         match suffix.len() {
             16 => Ok(Self::Deletions(number(suffix)?)),
             18 => {
-                let kind = number(&suffix[..2])?;
+                let (kind, ordinal) = suffix.split_at_checked(2).ok_or_else(stale)?;
+                let kind = number(kind)?;
                 if kind > 4 {
                     return Err(stale());
                 }
                 Ok(Self::Findings {
                     kind,
-                    ordinal: number(&suffix[2..])?,
+                    ordinal: number(ordinal)?,
                 })
             }
-            48 => Ok(Self::Conflicts {
-                revision: suffix[..32].into(),
-                ordinal: number(&suffix[32..])?,
-            }),
+            48 => {
+                let (revision, ordinal) = suffix.split_at_checked(32).ok_or_else(stale)?;
+                Ok(Self::Conflicts {
+                    revision: revision.into(),
+                    ordinal: number(ordinal)?,
+                })
+            }
             _ => Err(stale()),
         }
     }
