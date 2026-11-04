@@ -45,6 +45,20 @@ twice with exponential backoff. Persistent failure pauses intake and lowers
 readiness while retaining the root and control queue. An authorized explicit
 rescan after repair must complete registration and reconciliation before
 restoring readiness. Shutdown interrupts backoff and releases the root.
+macOS directory inode metadata, ownership and extended-attribute notifications
+all require a fresh access check; an ownership-only event can revoke access
+without a separate inode-metadata notification. The flag-classification regression
+fails when ownership is omitted, and regular-file ownership events still use the
+content observation path.
+
+The ownership, live permission-retry and cleanup regressions pass together (4 tests):
+
+```bash
+CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- \
+  directory_ownership_changes_require_access_revalidation native_watch_permission_retry \
+  cleanup_waits_for_owned_work compose_copy_and_rewrite_failures_are_classified --test-threads=4
+```
+
 Unsupported setup and capacity errors never produce a partially watched
 healthy tree. The permission regression test repairs the tree at an explicit
 retry barrier rather than racing a wall-clock timeout.
