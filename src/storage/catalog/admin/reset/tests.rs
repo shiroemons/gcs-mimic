@@ -270,7 +270,7 @@ async fn reset_waits_for_in_flight_catalog_work_before_clearing_state() {
 }
 
 #[tokio::test]
-async fn reset_wait_allows_existing_uploads_to_finish_their_catalog_work() {
+async fn reset_wait_allows_catalog_reads_while_upload_lease_is_active() {
     let (_dir, catalog, admin) = setup().await;
     let upload = catalog.admit_object_upload().unwrap();
     let mut reset = std::pin::pin!(admin.reset());
@@ -289,6 +289,47 @@ async fn reset_wait_allows_existing_uploads_to_finish_their_catalog_work() {
     drop(upload);
     assert_eq!(reset.await.unwrap().buckets, 1);
     catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset() {
+    let (_dir, catalog, admin) = setup().await;
+    let upload = catalog.admit_object_upload().unwrap();
+    let reads = catalog.0.admin_reads.available_permits();
+    let waiters = catalog.0.admin_waiters.available_permits();
+    for hold_execution in [false, true] {
+        let held = hold_execution.then(|| catalog.0.execution.clone().try_acquire_owned().unwrap());
+        let execution = catalog.0.execution.available_permits();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), admin.reset())
+                .await
+                .is_err()
+        );
+        assert_eq!(catalog.0.admin_reads.available_permits(), reads);
+        assert_eq!(catalog.0.admin_waiters.available_permits(), waiters);
+        assert_eq!(catalog.0.execution.available_permits(), execution);
+        drop(held);
+    }
+    assert!(
+        admin
+            .get_bucket(&BucketName::new("reset-bucket").unwrap())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    drop(upload);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(3), admin.reset())
+            .await
+            .unwrap()
+            .unwrap()
+            .buckets,
+        1
+    );
+    tokio::time::timeout(Duration::from_secs(3), catalog.close())
+        .await
+        .unwrap()
+        .unwrap();
 }
 
 #[tokio::test]

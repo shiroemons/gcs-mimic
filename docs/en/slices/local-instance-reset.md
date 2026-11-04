@@ -63,8 +63,11 @@ admission, resumable/rewrite/derived writers, unconsumed derived sources, staged
 administrative files, appendable writers and asynchronous reclamation retain
 leases while unpublished bytes or cleanup can still affect state. Reset uses the
 bounded administrative admission and execution queues with a shared one-second
-deadline. It retries the exclusive activity lease every 10 ms, releasing execution
-between attempts. It never queues a writer: existing uploads and maintenance must
+deadline, capped by the HTTP catalog wait budget and remaining request deadline.
+Expiry before exclusive ownership returns the same no-changes Busy response even
+when `catalog_wait_timeout_ms` is shorter than one second. It retries the exclusive
+activity lease every 10 ms, releasing execution between attempts. It never queues
+a writer: existing uploads and maintenance must
 still be able to acquire read leases for their remaining catalog jobs. No activity
 or execution lease is held while sleeping. New activity cannot enter once reset
 owns the exclusive lease. Saturated administrative admission also returns busy.
@@ -123,7 +126,9 @@ validates and stages the complete configured fixture tree before publishing it.
 
 Storage tests in `src/storage/catalog/admin/reset/tests.rs` hold a running catalog
 job until reset is waiting, then release it and verify the reset succeeds. They
-also verify that waiting for an upload lease permits its remaining SQL work.
+also verify that catalog reads can acquire leases while reset waits for an upload
+lease. Cancelling reset during retry sleep or execution admission restores its
+administrative permits; normal catalog reads, a later reset and close succeed.
 The existing tests exercise revision and
 catalog-identity preservation, open-reader completion, busy upload/source leases,
 new-activity rejection under the exclusive lease, incomplete-import refusal,
@@ -135,15 +140,19 @@ complete power-loss namespace durability.
 Wire tests in `tests/it_admin/admin_http/admin_reset/mod.rs` cover default-off/confirmation errors,
 session invalidation, stale generation and policy identity after recreation,
 restart, an active `100 Continue` upload, strict manager/IAM separation and active
-sync refusal with preserved external bytes. All execute offline on loopback.
+sync refusal with preserved external bytes. The active-upload case also runs with
+a 500 ms catalog wait budget, preserving the no-changes message, `Retry-After: 1`,
+existing bytes and the upload's ability to finish. All execute offline on loopback.
 
 Verification on 2026-11-04: `cargo check --locked --tests` passed;
-`cargo test --locked --lib storage::catalog::admin::reset` passed all ten cases.
+`cargo test --locked --lib storage::catalog::admin::reset` passed all eleven cases.
 The two new waiting cases failed against immediate reset refusal before the fix.
 `cargo test --locked --test it_admin admin_reset` passed twenty consecutive runs,
-four cases per run (80 passing executions), including the strict-manager reset
-and active-upload 503 with `Retry-After: 1`. Full `cargo test --locked` passed
-2,324 cases with one existing opt-in Pub/Sub test ignored and no failures.
+five cases per run (100 passing executions), including the strict-manager reset
+and active-upload 503 with `Retry-After: 1` under both default and 500 ms budgets.
+The short-budget case detects the former incorrect unknown-outcome message.
+Full `cargo test --locked` passed
+2,326 cases with one existing opt-in Pub/Sub test ignored and no failures.
 `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets --locked -- -D warnings` and
 `cargo xtask lint` passed with zero new production findings and zero ratcheted

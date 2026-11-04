@@ -165,8 +165,25 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
 
 #[test]
 fn reset_rejects_active_upload_without_changing_existing_bytes() {
+    assert_active_upload_reset("30000");
+}
+
+#[test]
+fn reset_short_catalog_wait_reports_no_changes() {
+    assert_active_upload_reset("500");
+}
+
+fn assert_active_upload_reset(catalog_wait_ms: &str) {
     let dir = TestDir::new();
-    let server = Server::start(&dir, &["--admin-enabled", "true"]);
+    let server = Server::start(
+        &dir,
+        &[
+            "--admin-enabled",
+            "true",
+            "--catalog-wait-timeout-ms",
+            catalog_wait_ms,
+        ],
+    );
     server.populate();
     let mut stream = TcpStream::connect(&server.address).unwrap();
     stream
@@ -183,6 +200,10 @@ fn reset_rejects_active_upload_without_changing_existing_bytes() {
     let busy = server.request("POST", "/_internal/reset", "", CONFIRM);
     busy.expect(503);
     assert_eq!(busy.headers["retry-after"], "1");
+    assert_eq!(
+        busy.json()["error"]["message"],
+        "Reset made no changes because catalog work or an unpublished body is active; retry after it completes"
+    );
     assert_eq!(
         server
             .request("GET", &format!("{OBJECT}?alt=media"), "", b"")

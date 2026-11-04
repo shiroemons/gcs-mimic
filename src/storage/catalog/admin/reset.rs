@@ -18,8 +18,17 @@ pub(crate) struct ResetOutcome {
 }
 
 impl Admin {
+    #[cfg(test)]
     pub(crate) async fn reset(&self) -> Result<ResetOutcome, AdminError> {
-        let deadline = tokio::time::Instant::now() + QUIESCENCE_TIMEOUT;
+        self.reset_until(tokio::time::Instant::now() + QUIESCENCE_TIMEOUT)
+            .await
+    }
+
+    pub(crate) async fn reset_until(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<ResetOutcome, AdminError> {
+        let deadline = deadline.min(tokio::time::Instant::now() + QUIESCENCE_TIMEOUT);
         let admission = self
             .catalog
             .wait_admin(self.catalog.0.admin_reads.clone(), deadline)
