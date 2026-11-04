@@ -80,10 +80,11 @@ impl Catalog {
                 if !referenced {
                     sql::exec(connection, "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)", [id])?;
                 }
-                Ok(())
+                maintenance::pending(connection)
             }).await;
             let cleanup = match cleanup {
-                Ok(()) => catalog.drain_xml_multipart().await.map(|_| ()),
+                Ok(true) => catalog.drain_xml_multipart().await.map(|_| ()),
+                Ok(false) => Ok(()),
                 Err(error) => Err(error),
             };
             if let Err(error) = cleanup {catalog.multipart_cleanup_failed(error);}

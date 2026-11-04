@@ -116,6 +116,41 @@ async fn deletion_count(catalog: &Catalog) -> u64 {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn new_parts_skip_reclamation_but_replacements_reclaim_the_retired_bytes() {
+    let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
+    let target = begin(&catalog).await;
+    let held = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
+    let first = tokio::time::timeout(Duration::from_secs(5), put(&catalog, &target, 1, b"old"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(deletion_count(&catalog).await, 0);
+    let worker = catalog.clone();
+    let replacing = target.clone();
+    let replacement =
+        tokio::spawn(async move { put(&worker, &replacing, 1, b"replacement").await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while deletion_count(&catalog).await == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!replacement.is_finished());
+    drop(held);
+    let replaced = tokio::time::timeout(Duration::from_secs(5), replacement)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_ne!(replaced.etag, first.etag);
+    assert_eq!(deletion_count(&catalog).await, 0);
+    complete(&catalog, &target, &replaced.etag).await.unwrap();
+    assert_eq!(bytes(&catalog).await, b"replacement");
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_abort_reclaims_every_batch_without_another_request() {
     let (dir, catalog) = setup(Arc::new(SystemClock)).await;
     let target = begin(&catalog).await;

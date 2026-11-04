@@ -85,7 +85,7 @@ fn forget(connection: &Connection, ids: &[BlobId]) -> Result<(), ObjectError> {
     Ok(())
 }
 
-fn pending(connection: &Connection) -> Result<bool, ObjectError> {
+pub(super) fn pending(connection: &Connection) -> Result<bool, ObjectError> {
     sql::scalar(
         connection,
         "SELECT EXISTS(SELECT 1 FROM xml_multipart_deletions)",
