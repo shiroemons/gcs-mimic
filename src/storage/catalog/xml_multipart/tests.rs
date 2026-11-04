@@ -115,6 +115,78 @@ async fn deletion_count(catalog: &Catalog) -> u64 {
         .unwrap()
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelled_abort_reclaims_every_batch_without_another_request() {
+    let (dir, catalog) = setup(Arc::new(SystemClock)).await;
+    let target = begin(&catalog).await;
+    for number in 1..=33 {
+        put(&catalog, &target, number, b"retired").await.unwrap();
+    }
+    let held = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
+    let (entered, committed) = tokio::sync::oneshot::channel();
+    let (release, blocked) = std::sync::mpsc::channel();
+    catalog.inject(
+        Step::AfterCommit,
+        0,
+        Fault::Block {
+            entered: Arc::new(std::sync::Mutex::new(Some(entered))),
+            release: Arc::new(std::sync::Mutex::new(blocked)),
+        },
+    );
+    let lease = catalog
+        .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+        .await
+        .unwrap();
+    let worker = catalog.clone();
+    let request = tokio::spawn(async move { worker.abort_xml_multipart(lease).await });
+    tokio::time::timeout(Duration::from_secs(5), committed)
+        .await
+        .unwrap()
+        .unwrap();
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    release.send(()).unwrap();
+    assert_eq!(deletion_count(&catalog).await, 33);
+    assert!(matches!(
+        catalog
+            .list_xml_parts(target, BucketAccess::Permissive, 0, 1000)
+            .await,
+        Err(Error::NoSuchUpload)
+    ));
+    // Leave one batch for the scheduler after the owned abort drains its first batch.
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        catalog.0.maintenance_wake.notified(),
+    )
+    .await
+    .unwrap();
+    drop(held);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while catalog.active_uploads() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(deletion_count(&catalog).await, 1);
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        catalog.0.maintenance_wake.notified(),
+    )
+    .await
+    .unwrap();
+    catalog.start_resumable_maintenance();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while deletion_count(&catalog).await != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    catalog.close().await.unwrap();
+}
+
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multipart_reclamation_leaves_catalog_available_and_syncs_the_batch_once() {

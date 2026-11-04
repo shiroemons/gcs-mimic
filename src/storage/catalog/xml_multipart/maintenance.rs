@@ -149,37 +149,42 @@ impl Catalog {
         let catalog = self.clone();
         crate::task::spawn_supervised("multipart-reclamation", async move {
             let (_activity, _permit) = (activity, permit);
-            if catalog.0.backend.is_memory() {
+            let pending = if catalog.0.backend.is_memory() {
                 let backend = catalog.0.backend.clone();
-                return catalog
-                    .run_upload(move |connection| drain_memory(connection, &backend))
-                    .await;
-            }
-            let ids = catalog
-                .run_upload(|connection| pending_ids(connection))
-                .await?;
-            if !ids.is_empty() {
-                let data_dir = catalog.0.data_dir.clone();
-                let ids = crate::task::run_blocking("multipart-reclamation", move || {
-                    reclaim_disk(&data_dir, &ids)?;
-                    Ok::<_, ObjectError>(ids)
-                })
-                .await??;
                 catalog
-                    .run_upload(move |connection| {
-                        #[cfg(test)]
-                        super::super::fault::hit(
-                            &super::super::fault::database_dir(connection),
-                            super::super::fault::Step::MultipartReclaimForget,
-                        )
-                        .map_err(object_unavailable)?;
-                        let transaction = sql::immediate(connection)?;
-                        forget(&transaction, &ids)?;
-                        transaction.commit().map_err(object_unavailable)
-                    })
+                    .run_upload(move |connection| drain_memory(connection, &backend))
+                    .await?
+            } else {
+                let ids = catalog
+                    .run_upload(|connection| pending_ids(connection))
                     .await?;
+                if !ids.is_empty() {
+                    let data_dir = catalog.0.data_dir.clone();
+                    let ids = crate::task::run_blocking("multipart-reclamation", move || {
+                        reclaim_disk(&data_dir, &ids)?;
+                        Ok::<_, ObjectError>(ids)
+                    })
+                    .await??;
+                    catalog
+                        .run_upload(move |connection| {
+                            #[cfg(test)]
+                            super::super::fault::hit(
+                                &super::super::fault::database_dir(connection),
+                                super::super::fault::Step::MultipartReclaimForget,
+                            )
+                            .map_err(object_unavailable)?;
+                            let transaction = sql::immediate(connection)?;
+                            forget(&transaction, &ids)?;
+                            transaction.commit().map_err(object_unavailable)
+                        })
+                        .await?;
+                }
+                catalog.run_upload(|connection| pending(connection)).await?
+            };
+            if pending {
+                catalog.0.maintenance_wake.notify_one();
             }
-            catalog.run_upload(|connection| pending(connection)).await
+            Ok(pending)
         })
         .await?
     }
