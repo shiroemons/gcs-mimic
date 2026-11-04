@@ -79,7 +79,7 @@ pub(super) async fn respond(
         &project,
         ctx.state.clock.now(),
         ctx.config.compat_profile,
-        "US",
+        &ctx.state.default_location,
     )?;
     record.object_retention_enabled = enabled;
     ctx.state

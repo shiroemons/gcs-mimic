@@ -76,8 +76,10 @@ rejected; this endpoint changes no state.
 
 `PUT /BUCKET` or configured bucket-host `PUT /` creates a bucket. The adapter
 requires a validated project header and strict `storage.buckets.create` permission
-before reading metadata. Empty bodies use US and STANDARD, independently of the
-JSON fixture/default-location configuration. `CreateBucketConfiguration` accepts
+before reading metadata. Omitted locations use the configured `default_location`
+(US by default), shared with JSON creation and fixture defaults; the storage class
+defaults to STANDARD. An explicit location overrides this emulator setting.
+`CreateBucketConfiguration` accepts
 `LocationConstraint` and `StorageClass` in either order. Shared bucket parsing
 validates the names, location and class before the existing atomic insertion.
 Success returns 200 without a body; conflicting names return 409
@@ -128,6 +130,11 @@ shared state transitions and policy, including explicit signer access under PAP.
 
 ## Verification
 
+The configured-location regression on 2026-11-04 passed `cargo check --locked`
+and `cargo test --locked --test it_xml_auth xml_bucket_http` (15 passed).
+Empty bodies and XML without a location use EUROPE-WEST1 when configured;
+an explicit US overrides it, and invalid locations cannot create a bucket.
+
 `cargo check --locked`, `cargo check --locked --test xml_bucket_http` and
 `cargo test --locked --test xml_bucket_http` (**13 passed**) passed.
 The final shared-reader reuse also passed `cargo test --locked --lib xml::`
@@ -153,6 +160,7 @@ gate is not recorded as passing; integration owns its completion.
 | `xml_head_bucket_checks_access_and_sends_no_body_on_success_or_error` | Path/trailing slash/virtual host, one decode, missing bucket, permission denials, raw signed path, bodyless success/errors, reserved internal route |
 | `xml_service_returns_the_official_first_thousand_bucket_limit` | 1000/1001 boundary, lexical first 1000, bounded multi-page traversal |
 | `xml_bucket_create_delete_defaults_fields_conflicts_nonempty_and_restart` | XML creation defaults, one decode, location/class, duplicate/nonempty/missing errors, bodyless deletion, restart |
+| `xml_bucket_creation_uses_configured_default_and_preserves_explicit_location` | Configured default for empty bodies and omitted XML locations, explicit override, invalid-location rejection without publication |
 | `xml_bucket_create_rejects_invalid_bounded_metadata_without_creating` | Malformed XML/declarations/root, invalid names/locations/classes/headers/durations, unsupported fields/query, oversized body and no publication |
 | `xml_bucket_strict_creation_retention_signed_body_and_deletion_permissions` | Project creation/delete permissions, virtual-host creation, retention enablement/policy effects, V4 signed SHA256 mismatch and success, signed bucket deletion |
 | `xml_delete_object_enforces_generation_metageneration_versioning_and_signed_binding` | Selected generations, stale match conditions, delete denials, signature method/Host/raw-path/query binding, noncurrent generations, missing-object XML and restart |
