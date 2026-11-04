@@ -51241,6 +51241,12 @@
           "test_ids": ["changes_during_a_scan_preserve_history_and_guard_the_next_deletion_wave", "queued_native_events_cannot_reuse_an_old_quiet_flag_for_history_reset", "history_reset_failure_keeps_its_cause_and_answers_wait_and_rescan", "explicit_rescan_requires_verified_quiet_before_clearing_history", "stopping_after_dequeue_retains_the_request_until_its_stopped_reply", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines"]
         },
         {
+          "id": "sync-directory-access-revalidation",
+          "description": "macOS directory inode metadata, ownership and xattr events require access revalidation; ownership-only notifications cannot bypass it. Regular-file ownership changes remain content observations. The live permission test drains its startup journal fence before chmod and retains the original five-second unhealthy-observer and shutdown assertions. Scope: docs/en/slices/continuous-directory-observation.md.",
+          "result": "PASS",
+          "test_ids": ["directory_ownership_changes_require_access_revalidation", "native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root"]
+        },
+        {
           "id": "sync-installed-body-durability",
           "description": "Durable always verifies installed body hashes, including same-inode/size edits with restored mtime; acknowledgement checks the complete recorded stat instead of hashing again. Reusing private copy hashes cannot establish the installed bytes after namespace exposure. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
@@ -51627,6 +51633,8 @@
         "explicit_rescan_requires_verified_quiet_before_clearing_history",
         "stopping_after_dequeue_retains_the_request_until_its_stopped_reply",
         "rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines",
+        "directory_ownership_changes_require_access_revalidation",
+        "native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root",
         "delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes",
         "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval",
         "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling",
@@ -51910,6 +51918,13 @@
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/sync-cli.md",
           "test_ids": ["rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- directory_ownership_changes_require_access_revalidation native_watch_permission_retry cleanup_waits_for_owned_work compose_copy_and_rewrite_failures_are_classified --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["directory_ownership_changes_require_access_revalidation", "native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",

@@ -141,6 +141,21 @@ fn ignored(root: &[u8], path: &[u8]) -> bool {
     crate::sync::mapping::is_reserved_root_entry(std::ffi::OsStr::from_bytes(name))
 }
 
+fn needs_access_check(flags: u32) -> bool {
+    // Ownership may revoke access without a separate inode-metadata notification.
+    flags & 0x2f != 0 || flags & 0x20000 != 0 && flags & 0xc400 != 0
+}
+
+#[test]
+fn directory_ownership_changes_require_access_revalidation() {
+    assert!(needs_access_check(0x20000 | 0x4000));
+    assert!(needs_access_check(0x20000 | 0x400));
+    assert!(needs_access_check(0x20000 | 0x8000));
+    assert!(needs_access_check(0x1));
+    assert!(!needs_access_check(0x10000 | 0x4000));
+    assert!(!needs_access_check(0x20000 | 0x1000));
+}
+
 #[expect(
     unsafe_code,
     reason = "FSEvents supplies valid path and flag arrays for the duration of each callback"
@@ -169,7 +184,7 @@ unsafe extern "C" fn callback(
             continue;
         }
         // Overflow/root changes need a fresh stream; directory permission changes require a fresh access check.
-        if flags & 0x2f != 0 || flags & 0x20000 != 0 && flags & 0x8400 != 0 {
+        if needs_access_check(flags) {
             context.structure.store(true, Ordering::Release);
         }
         notify = true;
