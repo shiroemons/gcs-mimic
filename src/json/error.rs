@@ -6,7 +6,7 @@ use crate::{
 };
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::fmt;
 
 /// The `Cache-Control` Cloud Storage sends with JSON API errors and media downloads.
@@ -66,7 +66,7 @@ fn missing_colon(text: &str) -> Option<(String, String, usize)> {
         // At the end of the input the quoted context starts at the key (recorded for `{oops`).
         None => Some((
             "Unexpected end of string. Expected : between key:value pair.".to_owned(),
-            chars[key_start..].iter().collect(),
+            chars.iter().skip(key_start).collect(),
             chars.len() - key_start,
         )),
     }
@@ -507,10 +507,14 @@ impl JsonError {
     }
 
     pub(crate) fn value(&self) -> Value {
-        let mut item = json!({"message": self.message, "domain": "global", "reason": self.reason});
+        let mut item = Map::from_iter([
+            ("message".into(), json!(self.message)),
+            ("domain".into(), "global".into()),
+            ("reason".into(), self.reason.into()),
+        ]);
         if let Some(location) = self.location {
-            item["locationType"] = location.kind.into();
-            item["location"] = location.name.into();
+            item.insert("locationType".into(), location.kind.into());
+            item.insert("location".into(), location.name.into());
         }
         json!({"error": {"code": self.status.as_u16(), "message": self.message, "errors": [item]}})
     }

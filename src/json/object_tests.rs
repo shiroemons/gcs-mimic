@@ -5,6 +5,33 @@ use serde_json::json;
 use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
+fn revision_etags_preserve_varint_boundaries_and_signed_wire_encoding() {
+    for (revision, encoded) in [
+        (0, vec![0x00]),
+        (127, vec![0x7f]),
+        (128, vec![0x80, 0x01]),
+        (255, vec![0xff, 0x01]),
+        (256, vec![0x80, 0x02]),
+        (
+            i64::MAX,
+            vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
+        ),
+        (
+            -1,
+            vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01],
+        ),
+    ] {
+        let mut bucket = vec![0x08];
+        bucket.extend_from_slice(&encoded);
+        assert_eq!(revision_etag(None, revision), base64(&bucket));
+        let mut object = bucket;
+        object.push(0x10);
+        object.extend_from_slice(&encoded);
+        assert_eq!(revision_etag(Some(revision), revision), base64(&object));
+    }
+}
+
+#[test]
 fn range_classification_is_shared_and_ignores_repeated_fields() {
     for (value, expected) in [
         ("bytes=0-1,3-4", RangeRequest::Multiple("bytes=0-1,3-4")),

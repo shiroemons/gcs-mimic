@@ -23,7 +23,7 @@ impl ObjectMetadataRequest {
             }
             let same_integer = matches!(key.as_str(), "generation" | "metageneration" | "size")
                 && value.as_u64().is_some_and(|number| {
-                    resource[key].as_str() == Some(number.to_string().as_str())
+                    resource.get(key).and_then(Value::as_str) == Some(number.to_string().as_str())
                 });
             let same_owner = key == "owner"
                 && record
@@ -129,7 +129,7 @@ fn parse_metadata(
 fn unchanged_fields(body: &Map<String, Value>) -> Result<Map<String, Value>, JsonError> {
     let mut unchanged = Map::new();
     // shortcut: changed output-only and unknown inputs need legacy service evidence; accept only identical resource values.
-    for key in body.keys() {
+    for (key, value) in body {
         if matches!(
             key.as_str(),
             "kind"
@@ -158,7 +158,7 @@ fn unchanged_fields(body: &Map<String, Value>) -> Result<Map<String, Value>, Jso
                 | "restoreToken"
                 | "customerEncryption"
         ) {
-            unchanged.insert(key.clone(), body[key].clone());
+            unchanged.insert(key.clone(), value.clone());
             continue;
         }
         if !matches!(

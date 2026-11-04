@@ -258,34 +258,43 @@ pub(crate) fn notification_resource(
 ) -> Value {
     let id = record.id.to_string();
     let config = &record.config;
-    let mut value = json!({
-        "kind": "storage#notification",
-        "id": id,
-        "selfLink": format!(
-            "{}/storage/v1/b/{}/notificationConfigs/{id}",
-            base_url.trim_end_matches('/'),
-            encode_segment(bucket)
+    let mut value = Map::from_iter([
+        ("kind".into(), "storage#notification".into()),
+        ("id".into(), json!(id)),
+        (
+            "selfLink".into(),
+            json!(format!(
+                "{}/storage/v1/b/{}/notificationConfigs/{id}",
+                base_url.trim_end_matches('/'),
+                encode_segment(bucket)
+            )),
         ),
-        "topic": config.topic,
-        "payload_format": config.payload_format,
-        "etag": id,
-    });
+        ("topic".into(), json!(config.topic)),
+        ("payload_format".into(), json!(config.payload_format)),
+        ("etag".into(), json!(id)),
+    ]);
     if !config.event_types.is_empty() {
-        value["event_types"] = json!(config.event_types);
+        value.insert("event_types".into(), json!(config.event_types));
     }
     if !config.custom_attributes.is_empty() {
-        value["custom_attributes"] = Value::Object(
-            config
-                .custom_attributes
-                .iter()
-                .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
-                .collect::<Map<_, _>>(),
+        value.insert(
+            "custom_attributes".into(),
+            Value::Object(
+                config
+                    .custom_attributes
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
+                    .collect::<Map<_, _>>(),
+            ),
         );
     }
     if !config.object_name_prefix.is_empty() {
-        value["object_name_prefix"] = config.object_name_prefix.as_str().into();
+        value.insert(
+            "object_name_prefix".into(),
+            config.object_name_prefix.as_str().into(),
+        );
     }
-    value
+    Value::Object(value)
 }
 
 pub(crate) fn notification_list(
@@ -293,14 +302,17 @@ pub(crate) fn notification_list(
     bucket: &str,
     base_url: &str,
 ) -> Value {
-    let mut value = json!({"kind": "storage#notifications"});
+    let mut value = Map::from_iter([("kind".into(), "storage#notifications".into())]);
     if !records.is_empty() {
-        value["items"] = records
-            .iter()
-            .map(|record| notification_resource(record, bucket, base_url))
-            .collect();
+        value.insert(
+            "items".into(),
+            records
+                .iter()
+                .map(|record| notification_resource(record, bucket, base_url))
+                .collect(),
+        );
     }
-    value
+    Value::Object(value)
 }
 
 /// Cloud Storage's rejection of a topic the service agent cannot see (recorded 2026-10-31). The
