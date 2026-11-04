@@ -82,7 +82,7 @@ impl Message<'_> {
             };
             attributes.insert(key.into(), generation.to_string());
         }
-        let mut message = json!({"attributes": attributes});
+        let mut message = serde_json::Map::from_iter([("attributes".into(), json!(attributes))]);
         if config.payload_format == "JSON_API_V1" {
             let mut payload =
                 crate::json::object_resource(self.object, "", crate::json::Projection::NoAcl)
@@ -92,12 +92,17 @@ impl Message<'_> {
                 // shift_remove keeps the recorded order of the remaining fields.
                 fields.shift_remove("selfLink");
                 fields.shift_remove("mediaLink");
+                if matches!(self.event, Event::Delete | Event::Archive) {
+                    fields.insert(
+                        "timeDeleted".into(),
+                        Value::String(crate::json::timestamp(self.time).map_err(invalid_time)?),
+                    );
+                }
             }
-            if matches!(self.event, Event::Delete | Event::Archive) {
-                payload["timeDeleted"] =
-                    Value::String(crate::json::timestamp(self.time).map_err(invalid_time)?);
-            }
-            message["data"] = Value::String(crate::json::base64(payload.to_string().as_bytes()));
+            message.insert(
+                "data".into(),
+                Value::String(crate::json::base64(payload.to_string().as_bytes())),
+            );
         }
         Ok(json!({"messages": [message]}).to_string())
     }

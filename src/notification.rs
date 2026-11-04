@@ -183,14 +183,25 @@ impl NotificationConfig {
         use NotificationDecodeError::Shape;
         let value: serde_json::Value =
             serde_json::from_str(stored).map_err(NotificationDecodeError::Json)?;
-        let string = |key: &str| value[key].as_str().map(str::to_owned).ok_or(Shape);
-        let event_types = value["event_types"]
+        let value = value.as_object().ok_or(Shape)?;
+        let string = |key: &str| {
+            value
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .ok_or(Shape)
+        };
+        let event_types = value
+            .get("event_types")
+            .ok_or(Shape)?
             .as_array()
             .ok_or(Shape)?
             .iter()
             .map(|event| event.as_str().map(str::to_owned).ok_or(Shape))
             .collect::<Result<Vec<_>, _>>()?;
-        let custom_attributes = value["custom_attributes"]
+        let custom_attributes = value
+            .get("custom_attributes")
+            .ok_or(Shape)?
             .as_object()
             .ok_or(Shape)?
             .iter()
@@ -249,7 +260,7 @@ pub(crate) fn normalize_topic(topic: &str) -> Result<String, NotificationError> 
     }
     // Pub/Sub resource-name rules for topic IDs.
     if !(3..=255).contains(&name.len())
-        || !name.as_bytes()[0].is_ascii_alphabetic()
+        || !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
         || name.starts_with("goog")
         || !name
             .bytes()
@@ -273,7 +284,7 @@ pub(crate) fn validate_event_types(events: &[String]) -> Result<(), Notification
         if !EVENT_TYPES.contains(&event.as_str()) {
             return Err(NotificationError::InvalidEventType(event.clone()));
         }
-        if events[..index].contains(event) {
+        if events.iter().take(index).any(|previous| previous == event) {
             return Err(NotificationError::DuplicateEventType(event.clone()));
         }
     }
