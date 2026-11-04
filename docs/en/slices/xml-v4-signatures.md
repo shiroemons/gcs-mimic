@@ -23,6 +23,10 @@ The official Rust stable manifest still identifies 1.99.1, dated 2026-10-15, wit
 
 ## Request and identity boundaries
 
+Permissive mode does not validate V4 credential shape. It retains the historical
+V2 query-shape checks without verifying signatures or expiry; this asymmetry
+preserves the recorded local permissive contract.
+
 Google RSA and HMAC use `GOOG4-RSA-SHA256` and `GOOG4-HMAC-SHA256`, Google parameter/date/hash prefixes and `<date>/<location>/storage/goog4_request`. AWS-compatible HMAC uses `AWS4-HMAC-SHA256`, consistently `X-Amz-` parameters and `x-amz-date`/`x-amz-content-sha256`, with `<date>/<location>/s3/aws4_request`. These XML credentials never authenticate JSON, OAuth or bearer requests.
 
 Query credentials require exactly one algorithm, credential, date, expiry, signed-header list and signature. The expiry is 1–604800 seconds, usable from 900 seconds early until strictly before expiry. Header signatures require unique Credential, SignedHeaders and Signature fields, one matching date header, matching scope day and an explicit content-sha256 header. Header time bounds include both endpoints of the documented 15-minute interval. Missing/unknown fields, mixed versions/prefixes and simultaneous query/header credentials fail closed in strict mode.

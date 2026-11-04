@@ -200,7 +200,7 @@ fn authorize(
         } => {
             if identity
                 .as_ref()
-                .is_some_and(|identity| identity.allows(permission.as_str(), project))
+                .is_some_and(|identity| identity.allows(*permission, project))
             {
                 Ok(())
             } else {

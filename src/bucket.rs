@@ -56,8 +56,8 @@ impl FromStr for StorageClass {
             "ARCHIVE" => Ok(Self::Archive),
             "MULTI_REGIONAL" => Ok(Self::MultiRegional),
             "DURABLE_REDUCED_AVAILABILITY" => Ok(Self::DurableReducedAvailability),
-            "REGIONAL" | "RAPID" => Err(CatalogError::UnsupportedMetadata(
-                "storageClass requires a region or zone".into(),
+            "REGIONAL" | "RAPID" => Err(CatalogError::Metadata(
+                crate::metadata_error::MetadataError::StorageClassRequiresLocation,
             )),
             _ => Err(CatalogError::InvalidMetadata(
                 "The storage class you specified is not valid.".into(),
@@ -140,25 +140,6 @@ pub(crate) fn bucket_location(value: &str) -> Result<(&'static str, &'static str
     ))
 }
 
-#[test]
-fn official_bucket_location_names_and_types() {
-    for (names, kind) in [
-        (REGIONS, "region"),
-        (DUAL_REGIONS, "dual-region"),
-        (MULTI_REGIONS, "multi-region"),
-    ] {
-        for name in names {
-            assert_eq!(
-                bucket_location(&name.to_ascii_lowercase()).ok(),
-                Some((*name, kind))
-            );
-        }
-    }
-    for invalid in ["MARS-CENTRAL1", "US-CENTRAL1-A", "AU", "", " US"] {
-        assert!(bucket_location(invalid).is_err());
-    }
-}
-
 /// Bucket metadata persisted by the catalog. Protocol adapters derive wire fields from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BucketRecord {
@@ -212,6 +193,7 @@ pub(crate) struct BucketMetadataUpdate {
     /// An echoed `objectRetention` value; it must match the stored state.
     pub object_retention_enabled: Option<bool>,
     pub labels: Option<Option<BTreeMap<String, Option<String>>>>,
+    pub(crate) labels_mode: crate::object::MapMode,
     pub storage_class: Option<StorageClass>,
     pub autoclass: Option<autoclass::AutoclassUpdate>,
     pub versioning_enabled: Option<bool>,
@@ -241,6 +223,7 @@ impl BucketMetadataUpdate {
             lock_retention_policy,
             object_retention_enabled,
             labels,
+            labels_mode: _,
             storage_class,
             autoclass,
             versioning_enabled,
@@ -360,21 +343,16 @@ pub(crate) fn cors_value(rules: &[CorsRule]) -> serde_json::Value {
 }
 
 pub(crate) fn validate_cors(rules: &[CorsRule]) -> Result<(), CatalogError> {
-    let mut bytes = 2usize;
+    if rules.len() > 64 * 1024 / 3 {
+        return Err(CatalogError::InvalidMetadata(
+            "Bucket CORS exceeds 64 KiB".into(),
+        ));
+    }
     for rule in rules {
-        bytes = bytes.saturating_add(3);
-        for value in rule
-            .origin
+        if [&rule.origin, &rule.method, &rule.response_header]
             .iter()
-            .chain(&rule.method)
-            .chain(&rule.response_header)
+            .any(|values| values.len() > 32 * 1024)
         {
-            bytes = bytes.saturating_add(value.len()).saturating_add(3);
-        }
-        if rule.max_age_seconds.is_some() {
-            bytes = bytes.saturating_add(18);
-        }
-        if bytes > 64 * 1024 {
             return Err(CatalogError::InvalidMetadata(
                 "Bucket CORS exceeds 64 KiB".into(),
             ));
@@ -400,12 +378,31 @@ pub(crate) fn validate_cors(rules: &[CorsRule]) -> Result<(), CatalogError> {
             ));
         }
     }
-    if cors_value(rules).to_string().len() > 64 * 1024 {
+    if serde_json::to_writer(CorsSize(0), &cors_value(rules)).is_err() {
         return Err(CatalogError::InvalidMetadata(
             "Bucket CORS exceeds 64 KiB".into(),
         ));
     }
     Ok(())
+}
+
+struct CorsSize(usize);
+
+impl std::io::Write for CorsSize {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 = self.0.saturating_add(bytes.len());
+        if self.0 > 64 * 1024 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::FileTooLarge,
+                "CORS exceeds 64 KiB",
+            ));
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Which half of a label pair is validated; only keys must start with a letter.
@@ -432,35 +429,41 @@ pub(crate) fn validate_storage_class(storage_class: &str) -> Result<StorageClass
     storage_class.parse()
 }
 
-#[test]
-fn storage_class_validation_keeps_exact_errors() {
-    for class in [
-        "STANDARD",
-        "NEARLINE",
-        "COLDLINE",
-        "ARCHIVE",
-        "MULTI_REGIONAL",
-        "DURABLE_REDUCED_AVAILABILITY",
-    ] {
-        assert!(validate_storage_class(class).is_ok(), "{class}");
-    }
-    for class in ["REGIONAL", "RAPID"] {
-        assert_eq!(
-            validate_storage_class(class),
-            Err(CatalogError::UnsupportedMetadata(
-                "storageClass requires a region or zone".into()
-            )),
-            "{class}"
-        );
-    }
-    for class in ["standard", "", "UNKNOWN", " STANDARD"] {
-        assert_eq!(
-            validate_storage_class(class),
-            Err(CatalogError::InvalidMetadata(
-                "The storage class you specified is not valid.".into()
-            )),
-            "{class}"
-        );
+pub(crate) fn validate_update_storage_class(class: &str) -> Result<StorageClass, CatalogError> {
+    validate_storage_class(class).map_err(|error| match error {
+        CatalogError::InvalidMetadata(_) => CatalogError::Metadata(
+            crate::metadata_error::MetadataError::InvalidUpdateStorageClass(class.into()),
+        ),
+        error => error,
+    })
+}
+
+pub(crate) const SOFT_DELETE_RANGE_MESSAGE: &str =
+    "Soft delete policy must have a retention duration between 3 days and 90 days.";
+pub(crate) const RETENTION_RANGE_MESSAGE: &str =
+    "Retention policy must have a retention period greater than 0 and less than 100 years.";
+
+pub(crate) fn soft_delete_retention(seconds: i64) -> Result<u64, CatalogError> {
+    u64::try_from(seconds)
+        .ok()
+        .filter(|value| *value == 0 || (604800..=7776000).contains(value))
+        .ok_or_else(|| CatalogError::InvalidMetadata(SOFT_DELETE_RANGE_MESSAGE.into()))
+}
+
+pub(crate) fn retention_period(seconds: i64) -> Result<u64, CatalogError> {
+    u64::try_from(seconds)
+        .ok()
+        .filter(|value| (1..3_155_760_000).contains(value))
+        .ok_or_else(|| CatalogError::InvalidMetadata(RETENTION_RANGE_MESSAGE.into()))
+}
+
+pub(crate) fn public_access_prevention(value: &str) -> Result<bool, CatalogError> {
+    match value {
+        "enforced" => Ok(true),
+        "inherited" => Ok(false),
+        _ => Err(CatalogError::InvalidMetadata(format!(
+            "Invalid value for: {value} is not a valid value"
+        ))),
     }
 }
 
@@ -479,6 +482,7 @@ pub enum CatalogError {
     RetentionPolicyLocked(u64),
     RetentionPolicyNotSet,
     InvalidMetadata(String),
+    Metadata(crate::metadata_error::MetadataError),
     UnsupportedMetadata(String),
     Io(IoCause),
     Corrupt(BackendCause),
@@ -488,6 +492,75 @@ pub enum CatalogError {
         supported: i64,
     },
     Unavailable(BackendCause),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cors_serialized_size_limit_is_inclusive() {
+        let mut rule = CorsRule {
+            origin: vec!["x".into()],
+            ..Default::default()
+        };
+        let overhead = cors_value(&[rule.clone()]).to_string().len() - 1;
+        rule.origin[0] = "x".repeat(64 * 1024 - overhead);
+        assert!(validate_cors(&[rule.clone()]).is_ok());
+        rule.origin[0].push('x');
+        assert!(validate_cors(&[rule]).is_err());
+    }
+
+    #[test]
+    fn official_bucket_location_names_and_types() {
+        for (names, kind) in [
+            (REGIONS, "region"),
+            (DUAL_REGIONS, "dual-region"),
+            (MULTI_REGIONS, "multi-region"),
+        ] {
+            for name in names {
+                assert_eq!(
+                    bucket_location(&name.to_ascii_lowercase()).ok(),
+                    Some((*name, kind))
+                );
+            }
+        }
+        for invalid in ["MARS-CENTRAL1", "US-CENTRAL1-A", "AU", "", " US"] {
+            assert!(bucket_location(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn storage_class_validation_keeps_exact_errors() {
+        for class in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ] {
+            assert!(validate_storage_class(class).is_ok(), "{class}");
+        }
+        for class in ["REGIONAL", "RAPID"] {
+            assert_eq!(
+                validate_storage_class(class),
+                Err(CatalogError::Metadata(
+                    crate::metadata_error::MetadataError::StorageClassRequiresLocation
+                )),
+                "{class}"
+            );
+        }
+        for class in ["standard", "", "UNKNOWN", " STANDARD"] {
+            assert_eq!(
+                validate_storage_class(class),
+                Err(CatalogError::InvalidMetadata(
+                    "The storage class you specified is not valid.".into()
+                )),
+                "{class}"
+            );
+        }
+    }
 }
 
 impl fmt::Display for CatalogError {
@@ -518,6 +591,7 @@ impl fmt::Display for CatalogError {
                 formatter,
                 "unsupported catalog schema version {version}; this release supports schema {supported} and older"
             ),
+            Self::Metadata(error) => error.fmt(formatter),
             Self::InvalidMetadata(reason) | Self::UnsupportedMetadata(reason) => {
                 formatter.write_str(reason)
             }
@@ -531,6 +605,7 @@ impl std::error::Error for CatalogError {
         match self {
             Self::Io(cause) => cause.source(),
             Self::Corrupt(cause) | Self::Unavailable(cause) => cause.source(),
+            Self::Metadata(error) => Some(error),
             _ => None,
         }
     }

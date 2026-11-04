@@ -41,7 +41,7 @@ gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It ta
 
 ## Rust implementation guardrails
 
-Run `cargo xtask lint` (also run by `just check` and CI) before pushing; any finding in production code fails it. Silence a finding only with a written reason; the checks and exception syntax are in `docs/en/development.md` ("Production lint gate"). Each rule states why.
+Run `cargo xtask lint` (also run by `just check` and CI) before pushing; any new finding in production code fails it. Ratcheted rules must match the shared or selected-target `xtask/lint-baseline*.txt` counts on the pinned compiler; current-stable Clippy count decreases warn instead of failing. Silence a finding only with a written reason; the checks and exception syntax are in `docs/en/development.md` ("Production lint gate"). Each rule states why.
 
 - No `unwrap()` in production; `expect()` only for a proven invariant, under `#[expect(clippy::expect_used, reason = "...")]`. A panic reachable from a request drops the connection or crashes a task.
 - Silence lints with `#[expect(lint, reason = "...")]`, never `#[allow]`. An expectation fails once its lint stops firing, so a stale exception cannot outlive its reason.
@@ -58,7 +58,7 @@ Run `cargo xtask lint` (also run by `just check` and CI) before pushing; any fin
 - Use `prepare_cached` with static SQL on request paths: Clippy rejects rusqlite's `Connection::execute`, `query_row`, `query_one` and `prepare`, and `text::format_sql` rejects built SQL. Re-preparing per request wastes CPU and built SQL invites injection. Code that no API request reaches, directly or through a wakeup it triggers (open, migration, startup, background-only workers), keeps them under a reasoned `#[expect(clippy::disallowed_methods)]`; the maintenance sweep is not such code, because resumable, rewrite and derived requests wake it.
 - Run blocking I/O and CPU-heavy work only on the bounded blocking pools. Blocking an async worker stalls every connection it serves.
 - Stream object bodies with bounded buffers. Unbounded buffering makes memory grow with request size.
-- Feed producer-driven bodies through `crate::server::chunk_body`, never `http_body_util::Channel` (disallowed in `clippy.toml`). `Channel` can drop the last queued frame when the sender drops mid-poll, truncating a response.
+- Feed producer-driven bodies through `crate::server::chunk_body`, never `http_body_util::Channel` (its dependency feature is disabled). `Channel` can drop the last queued frame when the sender drops mid-poll, truncating a response.
 - Flush a `tokio::fs::File` before `sync_all()` or `sync_data()`. tokio finishes the last write in the background and the sync does not report its error, so a failed tail write would publish a short file as durable.
 - Test each changed durable write path for a failed write and a failed flush or sync, and each new publish, rename or fsync step for a crash and a `Fault::PowerLoss` snapshot followed by restart and recovery, through the seam in `src/storage/catalog/fault.rs` (`objects::make_durable`, `objects::sync_dir`). Ordinary tests never hit these failures; the failed-tail-write bug surfaced only through a flaky test. A `Fault::Snapshot` crash keeps unsynced bytes like a process abort, so only a power-loss snapshot makes a missing fsync fail. The model covers only seamed steps: renames, unlinks and new-file entries made outside the seam (such as the restore-to-staging renames in recovery) are not modeled, and a truncation counts only where it calls `fault::truncated`.
 

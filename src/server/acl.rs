@@ -22,7 +22,7 @@ enum AclAccess {
     Write,
 }
 
-fn permission(kind: AclKind, access: AclAccess) -> &'static str {
+fn permission(kind: AclKind, access: AclAccess) -> auth::Permission {
     match (kind, access) {
         (AclKind::Object, AclAccess::Read) => auth::OBJECTS_GET_IAM,
         (AclKind::Object, AclAccess::Write) => auth::OBJECTS_SET_IAM,

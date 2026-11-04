@@ -114,6 +114,7 @@ impl Server {
             .args(options)
             .output()
             .unwrap();
+        let value: Value = serde_json::from_slice(&stdout).unwrap();
         assert_eq!(
             status.success(),
             success,
@@ -121,8 +122,31 @@ impl Server {
             String::from_utf8_lossy(&stdout),
             String::from_utf8_lossy(&stderr)
         );
-        serde_json::from_slice(&stdout).unwrap()
+        value
     }
+}
+
+#[test]
+fn live_cli_wait_after_writing_observes_bytes_without_retrying() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let mut server = Server::start(&data, Some(&tree));
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/body"), b"fresh body").unwrap();
+    let waited = server.cli("wait", &["--timeout", "10s"], true);
+    assert_eq!(waited["completed"], true);
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/body?alt=media",
+                None,
+                b""
+            )
+            .body,
+        b"fresh body"
+    );
+    server.stop();
 }
 
 impl Drop for Server {

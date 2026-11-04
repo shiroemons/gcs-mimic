@@ -33,6 +33,7 @@ async fn run_live(
         },
         stopping,
         &mut receiver,
+        &mut observation::Controls::default(),
     )
     .await
 }
@@ -81,17 +82,203 @@ async fn live_fixture_with(name: &str) -> (TestDir, TestDir, Catalog, BucketName
 }
 
 #[tokio::test]
+async fn external_inventory_defers_unreadable_children_without_stopping_other_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    let blocked = tree.0.join("test-bucket/blocked");
+    fs::create_dir(&blocked).unwrap();
+    fs::write(blocked.join("hidden"), b"hidden").unwrap();
+    fs::write(tree.0.join("test-bucket/working"), b"working").unwrap();
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    let counts = external_files(&root, &root.sync_admin(), Interrupt::new(&stopping)).await;
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(counts.unwrap(), (1, 0, 1));
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls() {
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    for index in 0..100 {
+        fs::write(tree.0.join(format!("test-bucket/{index:03}")), b"body").unwrap();
+    }
+    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let (commands, mut requests) = tokio::sync::mpsc::channel(2);
+    let worker_root = root.clone();
+    let worker_catalog = catalog.clone();
+    let hook = std::sync::Arc::new(Hook {
+        phase: "idle,observation-invalidated",
+        entered: Default::default(),
+        release: Default::default(),
+    });
+    let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+        let mut controls = observation::Controls::default();
+        let result = run_live_config(
+            LiveRun {
+                catalog: &worker_catalog,
+                root: &worker_root,
+                config: &Config::default(),
+                health: &crate::task::TaskHealth::default(),
+                resume: None,
+            },
+            &mut stopping,
+            &mut requests,
+            &mut controls,
+        )
+        .await;
+        controls.stop();
+        result
+    }));
+    tokio::time::timeout(Duration::from_secs(60), hook.entered.notified())
+        .await
+        .unwrap();
+    for index in 0..12 {
+        fs::remove_file(tree.0.join(format!("test-bucket/{index:03}"))).unwrap();
+    }
+    hook.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        .await
+        .unwrap();
+    let observed = tokio::time::timeout(Duration::from_millis(500), root.observation())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(observed.tracked_objects, 100);
+    let (reply, mut waiting) = tokio::sync::oneshot::channel();
+    commands
+        .send(Command::Wait {
+            deadline: tokio::time::Instant::now() + Duration::from_secs(30),
+            settling: Default::default(),
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    let (reply, approved) = tokio::sync::oneshot::channel();
+    commands
+        .send(Command::Approve {
+            revision: "00000000000000000000000000000000".into(),
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    hook.release.notify_one();
+    let error = tokio::time::timeout(Duration::from_millis(500), approved)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert!(crate::error::causes(&error).any(|cause| matches!(
+        cause.downcast_ref::<AdminError>(),
+        Some(AdminError::Precondition)
+    )));
+    assert!(matches!(
+        waiting.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
+    tokio::time::timeout(Duration::from_secs(5), hook.entered.notified())
+        .await
+        .unwrap();
+    assert_eq!(root.observation().await.unwrap().tracked_objects, 100);
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
+    fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+    hook.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        .await
+        .unwrap();
+    let set = root.deletion_set().await.unwrap().unwrap();
+    assert!(set.guarded);
+    assert_eq!(set.candidate_count, 100);
+    assert_eq!(root.observation().await.unwrap().tracked_objects, 100);
+    assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
+    stop.send(true).unwrap();
+    hook.release.notify_one();
+    worker.await.unwrap().unwrap();
+    assert!(matches!(
+        waiting.await.unwrap().unwrap().reason,
+        crate::sync::control::WaitReason::Stopped
+            | crate::sync::control::WaitReason::DeletionApproval
+    ));
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes() {
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    for index in 0..100 {
+        fs::write(tree.0.join(format!("test-bucket/{index:03}")), b"body").unwrap();
+    }
+    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let worker_root = root.clone();
+    let worker_catalog = catalog.clone();
+    let hook = std::sync::Arc::new(Hook {
+        phase: "observation-ready,observation-invalidated",
+        entered: Default::default(),
+        release: Default::default(),
+    });
+    let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+        run_live(&worker_catalog, &worker_root, &mut stopping).await
+    }));
+    tokio::time::timeout(Duration::from_secs(60), hook.entered.notified())
+        .await
+        .unwrap();
+    fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+    let writeback = root.default_writeback().await.unwrap();
+    let mut gate = BaselineGate::Allowed;
+    let mut complete = true;
+    ingest_external(
+        &catalog,
+        &root,
+        &Config::default(),
+        &writeback,
+        &stop.subscribe(),
+        &mut gate,
+        &mut complete,
+    )
+    .await
+    .unwrap();
+    let before = root.deletion_set().await.unwrap().unwrap();
+    assert!(before.guarded);
+    assert_eq!(before.candidate_count, 100);
+
+    // The native deletion event was queued while the explicit scan completed.
+    hook.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        .await
+        .unwrap();
+    assert!(root.deletion_set().await.unwrap().is_none());
+    let (summary, during) = root
+        .published_observation_for(
+            crate::storage::sync_state::authority::ControlAuthority::Permissive,
+        )
+        .await
+        .unwrap();
+    assert!(summary.baseline_complete);
+    let during = during.unwrap();
+    assert_eq!(during.revision, before.revision);
+    assert_eq!(during.candidate_count, 100);
+    stop.send(true).unwrap();
+    hook.release.notify_one();
+    worker.await.unwrap().unwrap();
+    drop(writeback);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metadata_unchanged() {
     for (held, tracked) in [(false, false), (false, true), (true, false), (true, true)] {
         let (data, tree, catalog, bucket, root) = live_fixture().await;
         publish_origin(&catalog, &bucket, b"old API", Origin::Api).await;
         if tracked {
-            assert!(
-                reconcile(&catalog, &root, &Config::default())
-                    .await
-                    .unwrap()
-                    .baseline_complete
-            );
+            assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
         } else {
             fs::create_dir(tree.0.join("test-bucket")).unwrap();
         }
@@ -134,9 +321,7 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
         .await
         .unwrap();
         assert_eq!(root.observation().await.unwrap().mapping_findings, 1);
-        let summary = reconcile(&catalog, &root, &Config::default())
-            .await
-            .unwrap();
+        let summary = reconcile(&catalog, &root).await.unwrap();
         assert_eq!(summary.conflicting, 1);
         assert_eq!(summary.exported, 1);
         assert_eq!(root.observation().await.unwrap().mapping_findings, 0);
@@ -176,13 +361,7 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
             .unwrap(),
             b"external saved body"
         );
-        assert_eq!(
-            reconcile(&catalog, &root, &Config::default())
-                .await
-                .unwrap()
-                .identical,
-            1
-        );
+        assert_eq!(reconcile(&catalog, &root).await.unwrap().identical, 1);
         assert_eq!(
             root.conflict_page(
                 None,
@@ -231,9 +410,7 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
 async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore() {
     let (data, tree, catalog, bucket, root) = live_fixture().await;
     let original = publish_origin(&catalog, &bucket, b"old API", Origin::Api).await;
-    reconcile(&catalog, &root, &Config::default())
-        .await
-        .unwrap();
+    reconcile(&catalog, &root).await.unwrap();
     fs::write(
         tree.0.join("test-bucket/object"),
         b"retained external bytes",
@@ -256,9 +433,7 @@ async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore
         )
         .await
         .unwrap();
-    let summary = reconcile(&catalog, &root, &Config::default())
-        .await
-        .unwrap();
+    let summary = reconcile(&catalog, &root).await.unwrap();
     assert_eq!(summary.conflicting, 1);
     assert_eq!(root.observation().await.unwrap().mapping_findings, 0);
     assert!(!tree.0.join("test-bucket/object").exists());
@@ -744,14 +919,28 @@ async fn live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_
             std::fs::read(tree.0.join("test-bucket/object")).unwrap(),
             b"299"
         );
-        hook.release.notify_one();
-        assert!(
-            tokio::time::timeout(Duration::from_millis(100), hook.entered.notified())
-                .await
-                .is_err()
-        );
+        // Native observation can enqueue our export's own event before becoming quiet.
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                hook.release.notify_one();
+                if tokio::time::timeout(Duration::from_millis(100), hook.entered.notified())
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                assert_eq!(count.load(Ordering::SeqCst), 1);
+            }
+        })
+        .await
+        .unwrap();
         stop.send_replace(true);
-        worker.await.unwrap().unwrap();
+        hook.release.notify_one();
+        tokio::time::timeout(Duration::from_secs(10), worker)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
         drop(root);
         catalog.close().await.unwrap();
     }
@@ -849,12 +1038,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             let pending = recovering.page(0, 256).await.unwrap();
             assert_eq!(pending.len(), 1);
             assert_eq!(
-                fs::read(
-                    tree.0
-                        .join(mapping::WORKSPACE)
-                        .join(pending[0].workspace_entry.name())
-                )
-                .unwrap(),
+                fs::read(tree.0.join(mapping::WORKSPACE).join(pending[0].token.id())).unwrap(),
                 b"before"
             );
             recovering.recover_pending().await.unwrap();
@@ -1026,14 +1210,24 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
             release: tokio::sync::Notify::new(),
         });
         let name = ObjectName::new("object").unwrap();
-        let output = (!identical).then(|| PathBuf::from("test-bucket/object"));
+        let mut summary = Reconciliation::default();
         let (result, ()) = tokio::join!(
             EXPORT_HOOK.scope(
                 hook.clone(),
-                export(&admin, &writeback, &bucket, &name, output, &record, fence)
+                reconcile_live_object(
+                    &catalog,
+                    &root,
+                    &writeback,
+                    &bucket,
+                    &name,
+                    fence,
+                    &mut summary
+                )
             ),
             async {
-                hook.entered.notified().await;
+                tokio::time::timeout(Duration::from_secs(5), hook.entered.notified())
+                    .await
+                    .unwrap();
                 match action {
                     "overwrite" => {
                         publish(&catalog, &bucket, b"new-api").await;
@@ -1055,7 +1249,11 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
                 hook.release.notify_one();
             }
         );
-        assert!(!result.unwrap(), "{phase} {action}");
+        result.unwrap();
+        assert!(
+            summary.deferred > 0 || summary.conflicting > 0,
+            "{phase} {action}"
+        );
         assert_eq!(
             writeback.status().await.unwrap().stop,
             Stop::Ready,
@@ -1063,7 +1261,26 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
         );
         assert!(writeback.page(0, 256).await.unwrap().is_empty());
         if action.starts_with("external") {
-            assert_eq!(std::fs::read(&path).unwrap(), b"external");
+            let conflicts = root
+                .conflict_page(
+                    None,
+                    0,
+                    256,
+                    crate::storage::sync_state::authority::ControlAuthority::Permissive,
+                )
+                .await
+                .unwrap();
+            assert_eq!(conflicts.items.len(), 1, "{phase} {action}");
+            assert_eq!(
+                std::fs::read(
+                    data.0
+                        .join("sync-conflicts")
+                        .join(&conflicts.items[0].conflict_id)
+                )
+                .unwrap(),
+                b"external"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), b"api");
         }
         if action == "overwrite" {
             let (_, reader) = admin.open_object(&bucket, &name, None).await.unwrap();
@@ -1080,7 +1297,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
             .await
             .unwrap()
             .unwrap();
-        reconcile(&catalog, &root, &config).await.unwrap();
+        reconcile(&catalog, &root).await.unwrap();
         drop(root);
         catalog.close().await.unwrap();
     }
@@ -1347,22 +1564,117 @@ async fn shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition() 
 }
 
 #[tokio::test]
+async fn failed_explicit_rescan_records_the_pause_before_replying() {
+    use crate::storage::sync_state::observation::PauseReason;
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    reconcile(&catalog, &root).await.unwrap();
+    let writeback = root.default_writeback().await.unwrap();
+    let workspace = tree.0.join(mapping::WORKSPACE);
+    fs::rename(&workspace, tree.0.join("retained-workspace")).unwrap();
+    fs::create_dir(&workspace).unwrap();
+    let config = Config::default();
+    let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let mut gate = BaselineGate::Allowed;
+    let mut baseline = true;
+    let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let mut control = LiveControl {
+        catalog: &catalog,
+        root: &root,
+        config: &config,
+        writeback: &writeback,
+        stopping: &stopping,
+        ingest_complete: &mut gate,
+        baseline_complete: &mut baseline,
+        cursor: &mut cursor,
+    };
+    let (reply, result) = tokio::sync::oneshot::channel();
+    let error = control
+        .handle_authorized(Command::Rescan {
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(pause_reason(&error), PauseReason::RecoveryRequired);
+    assert!(result.await.unwrap().is_err());
+    assert_eq!(
+        root.observation().await.unwrap().paused_reason,
+        Some(PauseReason::RecoveryRequired)
+    );
+    drop(writeback);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[test]
+fn only_typed_transient_io_failures_are_retried() {
+    assert!(!retryable(&writeback::Error::Admin(AdminError::Io(
+        io::Error::other("permanent corruption").into()
+    ))));
+    for errno in [libc::EMFILE, libc::ENFILE, libc::EAGAIN] {
+        let error = writeback::Error::Admin(io::Error::from_raw_os_error(errno).into());
+        assert!(retryable(&error));
+        assert!(is_transient(&io::Error::other(error)));
+    }
+}
+
+#[tokio::test]
+async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    reconcile(&catalog, &root).await.unwrap();
+    fs::write(tree.0.join("test-bucket/new-source"), b"unsettled").unwrap();
+    let config = Config::default();
+    let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let mut gate = BaselineGate::Allowed;
+    let mut baseline = true;
+    let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let writeback = root.default_writeback().await.unwrap();
+    let mut control = LiveControl {
+        catalog: &catalog,
+        root: &root,
+        config: &config,
+        writeback: &writeback,
+        stopping: &stopping,
+        ingest_complete: &mut gate,
+        baseline_complete: &mut baseline,
+        cursor: &mut cursor,
+    };
+    let result = tokio::time::timeout(
+        Duration::from_millis(500),
+        control.wait(tokio::time::Instant::now() + Duration::from_millis(50)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result.reason, crate::sync::control::WaitReason::Timeout);
+    assert!(result.reconciliation.unwrap().interrupted);
+    assert!(matches!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &ObjectName::new("new-source").unwrap(), None)
+            .await,
+        Err(AdminError::NotFound)
+    ));
+    assert_eq!(gate, BaselineGate::Deferred);
+    drop(writeback);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes() {
     let (_data, tree, catalog, bucket, root) = live_fixture().await;
     catalog.enable_change_journal().await.unwrap();
     let config = Config::default();
-    assert!(
-        reconcile(&catalog, &root, &config)
-            .await
-            .unwrap()
-            .baseline_complete
-    );
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
     let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
     publish_origin(&catalog, &bucket, b"captured", Origin::Api).await;
     let mut gate = BaselineGate::Allowed;
     let mut baseline = true;
     let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let writeback = root.default_writeback().await.unwrap();
     let mut control = LiveControl {
+        writeback: &writeback,
         catalog: &catalog,
         root: &root,
         config: &config,
@@ -1383,12 +1695,14 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
         entered: tokio::sync::Notify::new(),
         release: tokio::sync::Notify::new(),
     });
-    let (result, ()) = EXPORT_HOOK
+    let result = EXPORT_HOOK
         .scope(hook.clone(), async {
-            tokio::join!(
-                control.wait(tokio::time::Instant::now() + Duration::from_secs(10)),
-                async {
-                    hook.entered.notified().await;
+            let work=control.wait(tokio::time::Instant::now() + Duration::from_secs(10));
+            tokio::pin!(work);
+            tokio::select! {
+                result=&mut work=>panic!("wait finished before its fence checkpoint: {:?}",result.map(|value|value.reason)),
+                result=tokio::time::timeout(Duration::from_secs(5),hook.entered.notified())=>{result.unwrap();}
+            }
                     let other = BucketName::new("later-bucket").unwrap();
                     catalog
                         .admin(Origin::Api)
@@ -1398,13 +1712,12 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
                         .await
                         .unwrap();
                     publish_origin(&catalog, &other, b"after capture", Origin::Api).await;
-                    hook.release.notify_one();
-                }
-            )
+            hook.release.notify_one();
+            work.await
         })
         .await;
     let result = result.unwrap();
-    assert!(result.completed, "{}", result.reason);
+    assert!(result.completed, "{:?}", result.reason);
     assert!(!result.timed_out);
     assert!(
         result.journal_fence.unwrap().sequence
@@ -1421,6 +1734,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
         b"captured"
     );
     assert!(!tree.0.join("later-bucket/object").exists());
+    drop(writeback);
     drop(root);
     catalog.close().await.unwrap();
 }
@@ -1500,7 +1814,7 @@ fn only_contention_and_timeouts_are_transient() {
         wrapped(AdminError::Forbidden),
         wrapped(AdminError::Corrupt("catalog row".into())),
         wrapped(AdminError::Closed),
-        wrapped(AdminError::DiskFull),
+        wrapped(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
         io::Error::from(io::ErrorKind::PermissionDenied),
         io::Error::other("injected live sync failure"),
     ] {
@@ -1525,6 +1839,8 @@ fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
             None,
         )),
         io::Error::other(io::Error::from(io::ErrorKind::Interrupted)),
+        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::EMFILE))),
+        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::ENFILE))),
     ] {
         let nested = io::Error::other(error);
         assert!(is_transient(&nested), "{nested:?}");
@@ -1545,7 +1861,7 @@ fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
             PauseReason::RecoveryRequired,
         ),
         (
-            io::Error::other(AdminError::DiskFull),
+            io::Error::other(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
             PauseReason::IoFailure,
         ),
         (
@@ -1555,6 +1871,20 @@ fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
     ] {
         assert_eq!(pause_reason(&io::Error::other(error)), reason);
     }
+}
+
+#[test]
+fn writeback_retries_resource_pressure_without_retrying_unclassified_failures() {
+    for error in [
+        io::Error::from_raw_os_error(libc::EMFILE),
+        io::Error::from_raw_os_error(libc::ENFILE),
+        io::ErrorKind::TimedOut.into(),
+    ] {
+        assert!(retryable(&writeback::Error::Admin(error.into())));
+    }
+    assert!(!retryable(&writeback::Error::Admin(AdminError::Io(
+        io::Error::other("invalid state").into()
+    ))));
 }
 
 #[test]
@@ -1598,7 +1928,27 @@ async fn a_mirror_stopped_by_shutdown_stays_ready() {
 async fn native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root() {
     use std::{os::unix::fs::PermissionsExt, time::Duration};
     let (_data, tree, catalog, task) = started_mirror(None).await;
-    task.rescan().await.unwrap();
+    // Drain startup exports before attributing an unhealthy observer to the permission change.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let (reply, response) = tokio::sync::oneshot::channel();
+    task.rescan
+        .send(Command::Wait {
+            deadline,
+            settling: Default::default(),
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout_at(deadline, response)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .reason,
+        crate::sync::control::WaitReason::Ready
+    );
     let bucket = tree.0.join("test-bucket");
     std::fs::set_permissions(&bucket, std::fs::Permissions::from_mode(0o0)).unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {

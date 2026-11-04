@@ -2,16 +2,17 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Scope: DESIGN-072 and DESIGN-074, both remain PARTIAL. Runtime mirror,
-configuration, watching, conflict registration and controls remain pending.
+Scope: DESIGN-072 and DESIGN-074, both remain PARTIAL. The shared interfaces
+are used by the runtime mirror, observation and conflict controls; platform and
+complete parent-feature acceptance remain separate.
 
 ## Acceptance contract
 
 - Copy from immutable opened blobs into the tracked workspace, then replace
   through source and destination directory descriptors. Preserve displaced
   entries at their workspace names, including identity conflicts. Sync both
-  parents before returning success; private write-back receipts remain the only
-  route to committing synchronized state/progress after durability checks.
+  parents before returning success; the live export Durable phase precedes
+  conditional acknowledgement of synchronization state and intent removal.
 - Create intermediate directories relative to the leased root with no-follow
   opens, rejecting absolute paths, dot segments, symlinks and special entries.
   Sync newly created directories and their parents. Unsupported exchange
@@ -43,21 +44,24 @@ a full reconciliation must restart from zero to observe updates before a cursor.
 All six existing mapping reasons round-trip, including `Ignored`; mapping remains
 the adapter's decision and ordinary API names are never changed to fit disk paths.
 
-Within `Writeback::file_job`, call `fsutil::clone_or_copy_into` using the opened
-`ObjectReader::into_file().await` descriptor and the pending workspace name.
-Open/create the target parent with `fsutil::directory_path_at(root, relative,
-create)`, then use `fsutil::durable_replace_between(workspace, pending_name,
-parent, target_name, expected_identity)`. The existing `durable_replace` keeps
-its same-directory behavior. Linux uses `RENAME_NOREPLACE`/`RENAME_EXCHANGE`;
+The live export worker uses `fsutil::clone_or_copy_into` with the opened
+`ObjectReader::into_file().await` descriptor and opaque workspace name.
+Installation traverses the target parent through `sync::tree::parent`, checking
+actual spelling and no-follow identities, then uses
+`fsutil::durable_replace_between(workspace, pending_name, parent, target_name,
+expected_identity)`. Inspection opens existing parents without creating or
+syncing them; installation creates missing parents after arming and syncs the
+full ancestor chain so a failed prior creation sync remains retryable.
+Linux uses `RENAME_NOREPLACE`/`RENAME_EXCHANGE`;
 macOS uses `RENAME_EXCL`/`RENAME_SWAP`. Cross-directory replacement on Windows
 and exchange on unsupported Unix platforms return Unsupported. The working-tree
 root adapter already requires supported Unix directory ownership.
 
-An occupied workspace after exchange is retained by the existing inspect/
-Protected protocol and cannot receive a successful completion receipt. Runtime
-conflict transfer, retained-body cleanup and recovery remain pending; this API
-does not implement or bypass them. Ancestor substitution must still be detected
-by the future mirror orchestration, in addition to no-follow traversal.
+An occupied workspace after exchange is retained by the production inspection/
+Protected protocol and cannot be acknowledged as complete. Runtime recovery and
+conflict transfer preserve those bytes and their actual charge until explicit
+resolution. Ancestor substitution is checked by descriptor identity in addition
+to no-follow traversal.
 
 Directory descriptors pin selected inodes. Callers must use the root lease and
 descriptor-relative traversal, revalidate the selected ancestors before/after
@@ -70,7 +74,19 @@ upgrading; restore the complete backup with its matching executable to roll back
 Executables supporting at most schema 20 reject schema 21. Do not edit
 `user_version` to downgrade. No Google API contract or open Google gap changes.
 
-## Verification
+## Current validation
+
+The production export/recovery tests replace the former test-only receipt state
+machine. Coverage includes retained copies across paired crash/power-loss
+snapshots, failed parent sync, actual SQLite FULL, stale/held inputs, failed ack
+transactions and cancelled work across separate handles. The current contract
+and entry points are in [shared writeback](shared-sync-writeback.md).
+
+## Historical verification
+
+The commands and counts below describe the earlier primitive-interface
+checkpoint, rather than evidence that its retired receipt state machine is used
+by the current runtime.
 
 On 2026-10-25, macOS ARM64, Rust 1.99.1, the following passed 45 tests:
 
@@ -84,8 +100,6 @@ New behavioral coverage:
 
 - `export_directory_walk_rejects_redirects_and_unsafe_components`
 - `export_replace_between_directories_retains_displaced_entries`
-- `writeback_export_cross_directory_publication_precedes_state_and_retains_displacement`
-- `writeback_export_parent_sync_failure_cannot_commit_state`
 - `sync_findings_idempotent_pages_conditional_removal_and_restart`
 - `sync_findings_reject_foreign_bindings_and_stale_incarnations`
 - `sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback`

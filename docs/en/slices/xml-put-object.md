@@ -66,3 +66,31 @@ generation-match condition and do not replay earlier responses.
 Go storage v1.70.0 writes through JSON rather than XML PUT. Rust raw HTTP wire
 tests therefore exercise this XML operation directly; another Go HTTP client
 would repeat the same contract without adding official SDK coverage.
+
+Cleanup acceptance joins owned work before interpreting empty filesystem and SQL
+inventories. The process-based XML tests shut down normally, then require zero
+staging entries and deletion-journal rows, exact blob/object counts and unchanged
+object rows, generation allocator and body bytes. Further wire checks restart the
+server with the required settings; the aborted-slot reuse assertion still runs on
+the original live server before shutdown. Derived fault tests use the same
+inventory predicate after uploads and session writers release their ownership.
+
+`cleanup_waits_for_owned_work_before_its_first_journal_entry` blocks the existing
+DiscardProbe fault seam after unlinking staging but before creating a deletion
+journal row. Files and SQL counts already look complete while one upload is still
+active; omitting the ownership check makes the test fail deterministically. The
+focused production-path cleanup cases pass (2 tests):
+
+```bash
+CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- \
+  cleanup_waits_for_owned_work compose_copy_and_rewrite_failures_are_classified --test-threads=2
+```
+
+All 13 XML PUT cases also pass:
+
+```bash
+CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_xml_auth xml_put -- --test-threads=4
+```
+
+These strengthen local test synchronization without
+changing the wire contract or establishing physical power-loss evidence.

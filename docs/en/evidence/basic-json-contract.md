@@ -2,6 +2,10 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+Historical comparison records retain the old unknown-route body; since November
+2026 these routes return the Google JSON 404 error envelope with
+`Content-Type: application/json; charset=UTF-8`.
+
 Verified on **2026-10-23** against the [frozen basic local profile](../slices/basic-json-contract.md).
 The integrated test source is `b309f9c2a50483885b362a053eefa74129de8f52`.
 Application code, dependency manifests/lockfiles, SDK tests and comparison tooling

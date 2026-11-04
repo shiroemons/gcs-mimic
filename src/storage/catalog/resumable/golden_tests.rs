@@ -59,6 +59,7 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
     ResumableOptions {
         content_type: "text/plain".into(),
         metadata: ObjectMetadataUpdate {
+            metadata_mode: crate::object::MapMode::Merge,
             acl: None,
             predefined_acl: Some(crate::acl::PredefinedObjectAcl::parse("publicRead").unwrap()),
             replace: true,

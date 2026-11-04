@@ -105,9 +105,16 @@ async fn legacy_reconciliation_preserves_existing_iam_bindings_and_permission_un
             let union = policies::read_policy(&transaction, "bucket").unwrap();
             assert!(union.allows(
                 Some(&identity),
-                "storage.managedFolders.update",
+                crate::auth::OBJECTS_CREATE,
                 crate::auth::PublicAccess::Allowed
             ));
+            // Reconciliation must also preserve snapshot grants outside modeled operations.
+            assert!(union.bindings.iter().any(|binding| {
+                binding.members.contains(&"user:reader".to_owned())
+                    && crate::auth::roles::permissions(&binding.role).is_some_and(|permissions| {
+                        permissions.contains(&"storage.managedFolders.update")
+                    })
+            }));
             let owner = crate::auth::roles::permissions("roles/storage.legacyBucketOwner").unwrap();
             for permission in
                 crate::auth::roles::permissions("roles/storage.legacyBucketWriter").unwrap()

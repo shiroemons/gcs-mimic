@@ -462,11 +462,20 @@ fn entry_ranges(seen: &[bool; BUCKET_LIMIT]) -> String {
     }
 }
 
-fn check_resource_size(bytes: &[u8]) -> Result<(), &'static str> {
+#[derive(Debug)]
+struct ResourceSizeError;
+
+impl std::fmt::Display for ResourceSizeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Encoded native resource exceeds 64 KiB; reduce it to at most 65,536 bytes after removing project.")
+    }
+}
+
+impl std::error::Error for ResourceSizeError {}
+
+fn check_resource_size(bytes: &[u8]) -> Result<(), ResourceSizeError> {
     if bytes.len() > ENTRY_LIMIT {
-        Err(
-            "Encoded native resource exceeds 64 KiB; reduce it to at most 65,536 bytes after removing project.",
-        )
+        Err(ResourceSizeError)
     } else {
         Ok(())
     }
@@ -478,8 +487,10 @@ fn check_resource_size(bytes: &[u8]) -> Result<(), &'static str> {
 struct Document {
     #[serde(rename = "version")]
     _version: u64,
-    project: Option<String>,
-    buckets: Vec<Entry>,
+    #[serde(rename = "project")]
+    _project: Option<String>,
+    #[serde(rename = "buckets")]
+    _buckets: Vec<Entry>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1071,7 +1082,7 @@ pub async fn apply(
 
 fn initialization_failure(error: &AdminError) -> std::io::Error {
     let reason = match error {
-        AdminError::DiskFull => "disk full",
+        AdminError::DiskFull(_) => "disk full",
         AdminError::Busy { .. } => "administrative admission timed out",
         AdminError::Closed => "catalog closed",
         AdminError::Corrupt(_) => "catalog corrupt",
@@ -1199,6 +1210,7 @@ pub(crate) fn parse(
     }
     let now = clock.now();
     let mut names = BTreeMap::new();
+    let mut checked = Vec::new();
     for (_, raw) in root.0.iter().filter(|(key, _)| key == "buckets") {
         let Some(entries) = array(raw) else {
             error(
@@ -1224,13 +1236,26 @@ pub(crate) fn parse(
             continue;
         }
         for (index, raw) in entries.iter().take(BUCKET_LIMIT).enumerate() {
-            check_entry(raw, index, now, &mut names, &mut diagnostics)?;
+            if let Some(entry) = check_entry(raw, index, now, &mut names, &mut diagnostics)? {
+                checked.push(entry);
+            }
         }
     }
     if diagnostics.is_err() {
         return Err(diagnostics.finish());
     }
-    records(bytes, seed_project, now, default_location, diagnostics)
+    let inherited = find("project")
+        .map(value)
+        .transpose()?
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| seed_project.to_owned());
+    records(checked, &inherited, now, default_location, diagnostics)
+}
+
+struct CheckedEntry {
+    index: usize,
+    project: Option<String>,
+    resource: Value,
 }
 
 /// Checks one bucket entry, recording the first index that uses each bucket name.
@@ -1240,7 +1265,7 @@ fn check_entry(
     now: SystemTime,
     names: &mut BTreeMap<String, usize>,
     diagnostics: &mut Collected,
-) -> Result<(), Diagnostics> {
+) -> Result<Option<CheckedEntry>, Diagnostics> {
     let key = format!("buckets[{index}]");
     let raw_oversized = raw.get().len() > ENTRY_LIMIT;
     if raw_oversized {
@@ -1258,7 +1283,7 @@ fn check_entry(
             &key,
             "Expected a bucket object; use {\"name\":\"example-bucket\"}.",
         );
-        return Ok(());
+        return Ok(None);
     };
     let mut resource = value(raw)?;
     for (_, raw) in fields.0.iter().filter(|(field, _)| field == "name") {
@@ -1279,42 +1304,47 @@ fn check_entry(
             }
         }
     }
-    if let Some(object) = resource.as_object_mut() {
-        object.remove("project");
-    }
+    let project = resource
+        .as_object_mut()
+        .and_then(|object| object.remove("project"))
+        .and_then(|value| value.as_str().map(str::to_owned));
     let encoded = resource.to_string();
     let encoded_limit = check_resource_size(encoded.as_bytes());
     let encoded_oversized = encoded_limit.is_err();
     if let Err(fix) = encoded_limit {
-        error(diagnostics, Reason::Limit, &key, fix);
+        error(diagnostics, Reason::Limit, &key, fix.to_string());
     }
     check_shape(&fields, &key, diagnostics)?;
     // Oversized entries are reported once; decoding their values would only add noise.
     if !raw_oversized && !encoded_oversized {
         check_values(&fields, &key, now, diagnostics)?;
     }
-    Ok(())
+    Ok(Some(CheckedEntry {
+        index,
+        project,
+        resource,
+    }))
 }
 
 /// Builds the bucket records of a document whose entries all passed validation.
 fn records(
-    bytes: &[u8],
-    seed_project: &str,
+    entries: Vec<CheckedEntry>,
+    inherited: &str,
     now: SystemTime,
     default_location: &str,
     mut diagnostics: Collected,
 ) -> Result<Vec<BucketRecord>, Diagnostics> {
     let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
-    let document: Document = serde_json::from_slice(bytes).map_err(|_| {
-        failure(
-            "$",
-            "Invalid initializer schema; use version 1 with native bucket resources.",
-        )
-    })?;
-    let inherited = document.project.as_deref().unwrap_or(seed_project);
-    let mut records = Vec::with_capacity(document.buckets.len());
-    for (index, mut entry) in document.buckets.into_iter().enumerate() {
-        let project = entry.project.take().unwrap_or_else(|| inherited.to_owned());
+    let mut records = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let index = entry.index;
+        let project = entry.project.unwrap_or_else(|| inherited.to_owned());
+        let entry: Entry = serde_json::from_value(entry.resource).map_err(|_| {
+            failure(
+                "$",
+                "Invalid initializer schema; use version 1 with native bucket resources.",
+            )
+        })?;
         let encoded = serde_json::to_vec(&entry).map_err(|_| {
             failure(
                 "$",
@@ -1326,7 +1356,7 @@ fn records(
                 &mut diagnostics,
                 Reason::Limit,
                 format!("buckets[{index}]"),
-                fix,
+                fix.to_string(),
             );
             continue;
         }
@@ -1976,7 +2006,9 @@ mod tests {
                 assert!(parsed(&format!(r#"{{"version":1,"buckets":[{entry}]}}"#)).is_ok());
             } else {
                 assert_eq!(
-                    check_resource_size(entry.as_bytes()).unwrap_err(),
+                    check_resource_size(entry.as_bytes())
+                        .unwrap_err()
+                        .to_string(),
                     "Encoded native resource exceeds 64 KiB; reduce it to at most 65,536 bytes after removing project."
                 );
             }

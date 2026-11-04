@@ -10,6 +10,17 @@ CancelResumableWriteはオブジェクト入出力の契約に含まれます。
 Storage v1の移行プロファイルは[その契約](grpc-v1-legacy.md)を参照してください。
 
 [英語の契約と検証](../en/slices/grpc-v2-foundation.md)が正本です。
+
+ルーティングメタデータの変更を統合する前に、既存のGo・RustのgRPCハーネスを実行します。
+
+```sh
+CARGO_BUILD_JOBS=4 env -u GCS_MIMIC_GO_TEST_RUN GCS_MIMIC_SDK_SCHEME=http \
+  bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust
+```
+
+起動スクリプトがGo用のpermissive・strictエンドポイントとRust用のGCS_MIMIC_GRPC_ENDPOINTを設定します。
+追加のRustスイートを動かすため、Goのフィルターは解除します。
+これはRustワークスペースのテストとは別のSDKゲートであり、文書更新だけでは実行済みになりません。
 BEHAVIOR-RPC-005とDESIGN-082はPARTIALのままです。
 RPC-STORAGE-001〜024の状態は変えず、受け口の追加だけをnotesに記録します。
 

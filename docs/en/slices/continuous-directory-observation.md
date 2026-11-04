@@ -9,15 +9,17 @@ Parent feature status remains governed by the feature ledger.
 
 An enabled sync directory now observes native notifications and sends every
 notification through the existing complete bounded ingestion rescan. Linux uses
-inotify directory watches; macOS uses kqueue vnode watches for directories and
-regular files so an in-place write is observable. Atomic file replacement,
+inotify directory watches; macOS uses one FSEvents stream for the root, including
+per-file events so an in-place write is observable. Atomic file replacement,
 new nested directories, renames, attribute changes and disappearance all cause
 reconciliation. Disappearance alone does not authorize deleting API objects.
 
 The existing supervised sync worker owns observation. It waits on native queue
 readiness, catalog changes, explicit rescan or shutdown; no periodic scan or
 idle polling timer is introduced. New watches are registered before scanning,
-and the old queue stays alive until its replacement is complete. A notification
+and the old queue stays alive until its replacement is complete. Content events
+reuse the current watch set; structural changes rebuild Linux registrations.
+A notification
 that arrives during registration or reconciliation causes another pass. Linux
 queue overflow and coalesced names follow the same full-rescan path rather than
 attempting a partial replay of unreliable event names.
@@ -29,10 +31,11 @@ Marker/root validation surrounds file jobs and rescans and precedes ingestion
 publication. The existing generation/incarnation conditions, streaming hashes,
 metadata inheritance and equal-hash suppression remain shared.
 
-Each watch set admits at most 1022 entries: directories on Linux and both
-directories and regular files on macOS. Traversal reuses those descriptors
-instead of cloning a separate directory stack. Even while old and new sets
-overlap, watchers use at most 2048 descriptors, including queues and a candidate.
+Linux admits at most 1022 watched directories and retains one inotify descriptor
+per set; registration closes each temporary directory descriptor immediately.
+macOS FSEvents uses a two-descriptor notification pipe rather than a descriptor
+for each file, and requires a local filesystem. Traversal processes 256-entry
+pages and caps depth and inspected entries instead of retaining a whole tree.
 The operating system's actual descriptor limit still applies; the application
 does not raise it. Exceeding capacity, unsupported watch setup or a permanently
 unwatched subtree fails visibly and keeps readiness off.
@@ -42,6 +45,20 @@ twice with exponential backoff. Persistent failure pauses intake and lowers
 readiness while retaining the root and control queue. An authorized explicit
 rescan after repair must complete registration and reconciliation before
 restoring readiness. Shutdown interrupts backoff and releases the root.
+macOS directory inode metadata, ownership and extended-attribute notifications
+all require a fresh access check; an ownership-only event can revoke access
+without a separate inode-metadata notification. The flag-classification regression
+fails when ownership is omitted, and regular-file ownership events still use the
+content observation path.
+
+The ownership, live permission-retry and cleanup regressions pass together (4 tests):
+
+```bash
+CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- \
+  directory_ownership_changes_require_access_revalidation native_watch_permission_retry \
+  cleanup_waits_for_owned_work compose_copy_and_rewrite_failures_are_classified --test-threads=4
+```
+
 Unsupported setup and capacity errors never produce a partially watched
 healthy tree. The permission regression test repairs the tree at an explicit
 retry barrier rather than racing a wall-clock timeout.
@@ -50,16 +67,80 @@ retry barrier rather than racing a wall-clock timeout.
 
 `GET /_internal/sync` exposes the active catalog/root, runtime session, durable
 findings revision, baseline, combined conflict/workspace quota and pending
-deletion revision. Revision-bound `view=findings` and `view=deletions` use keyset
-pages of at most 256 entries and 256 KiB. A terminal page has a null cursor;
+deletion revision. The writeback summary omits the former always-null `journal_sequence`
+and `journal_epoch`; the wait response's `journal_fence` carries its actual fence.
+Revision-bound `view=findings` and `view=deletions` use keyset pages of at most
+256 entries and 256 KiB. A terminal page has a null cursor;
 mutation, foreign sessions and restart reject stale cursors with 409. Root
 source findings cover unmappable entries without inventing a bucket/object or
 returning host paths. A repaired complete scan clears that finding.
 
+While the observer rebuilds deletion membership, status retains its last complete
+deletion set instead of exposing an intermediate Ready state. The published value
+is cloned under a short lock; readers never wait for the scan. Every read still
+checks current management authority and the journal fence. Revision-bound pages
+and approval use the current database, so a stale published revision cannot
+authorize deletion. Safety findings, retained-workspace observations and their
+revisions always refresh from the current transaction. Completion or failure
+releases the previous deletion snapshot.
+
+Native notifications also coalesce through a one-second quiet interval with a
+ten-second cap. Further events restart quiet without starving control requests;
+rescan queues until quiet or its cap, while status, approval and resolution
+remain available. Approval and resolution return busy if the bounded control queue
+is full. A capped scan starts another quiet interval and retains waiting
+barriers; it does not establish quiet for wait or history reset. Wait reports
+SourceChanging only if its own deadline arrives
+while still settling. Schema 50 retains automatic
+deletion history across scans and restart, so the absolute and percentage guard
+cannot be reset by splitting one operation into smaller scans. During an operation
+longer than the quiet cap, earlier deletions below the cumulative threshold may
+already have committed; approval cannot undo them. A complete zero-candidate scan
+after established quiet resets history, whether automatic or explicit. A capped,
+interrupted or incomplete scan, or one with remaining candidates, cannot reset it.
+The actor drains queued native notifications before starting and after completing
+the scan. Reset requires the same event generation at both boundaries and no
+pending notification; events read at either boundary remain queued for observation.
+Reset failures retain history and log their cause while preserving the completed
+wait or rescan response and the observer's running state.
+The scan-continuity regression pauses after a zero-candidate scan, deletes the
+remaining 60 of 120 original files, and waits for native queue readiness before
+allowing reset. It retains the first 60 automatic deletions and guards the next
+60 candidates. Removing the completion check fails deterministically with zero
+retained deletions instead of 60. Separate cases cover a queued event with a
+stale quiet flag, an unverified explicit rescan and reset failure with its cause
+and both control responses intact.
+See the
+[deletion contract](directory-synchronization.md#external-deletion-and-approval).
+
+Native macOS regression evidence covers a 50-object root deleting and recreating
+20 objects six times, with a restart after the third cycle. Automatic native
+scans clear history only after a complete zero-candidate quiet observation;
+the test fails when the automatic reset is disabled. Separate tests retain
+12/88 split-deletion approval across restart, preserve history for a capped
+zero-candidate scan, and keep pending candidates from resetting history.
+The racy-clean regression counts staging calls directly and requires zero, then
+changes the body and requires one staging call as a positive control.
+The single-request HTTP/CLI tests contain no SourceChanging retry loop.
+The live-actor control test queues wait while settling and requires a stale
+approval response within 500 ms while retaining the wait's reply.
+Queued controls remain owned through observer failure and recovery. A queued
+rescan can recover retained work instead of losing its response sender when a
+background scan pauses; a retried worker reestablishes quiet for pending waits.
+
 The live actor accepts bounded rescan, approval, wait and resolution commands.
+Wait claims catalog activity before authorization's database wait. Authorization
+and bounded request-body preparation share the configured catalog-wait budget;
+after authorized input is parsed, the requested timeout bounds observation.
+Permission checks still precede body validation. A request-scoped guard releases
+activity on success, invalid input, preparation timeout or cancellation.
+Descriptor exhaustion diagnostics include the current soft/hard descriptor limits
+and a `ulimit -n` remedy without changing the process limits at startup.
 Wait captures a source scan and finite journal fence; later unrelated API writes
 do not extend it. Its explicit deadline is independent of connection inactivity
-timeouts. A waiting observer's timeout or disconnection does not cancel owned
+timeouts. A deadline interrupts settling and stops between bounded scan or
+export steps. It does not mark an incomplete scan complete or approve deletion.
+A waiting observer's timeout or disconnection does not cancel owned
 file or catalog work. Persistent I/O, capacity and recovery stops keep inspection
 and explicit disposal available. No idle retry loop runs while paused.
 
@@ -134,6 +215,6 @@ The code handles a reported overflow by rebuilding and scanning; that does not
 prove every filesystem will deliver every notification.
 
 No new dependency was added. The adapter uses the pinned libc and Tokio graph.
-References: Apple's [kqueue manual](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kqueue.2.html)
+References: Apple's [FSEvents reference](https://developer.apple.com/documentation/coreservices/file_system_events)
 and the Linux [inotify manual](https://man7.org/linux/man-pages/man7/inotify.7.html).
 No resource benchmark or performance improvement is claimed.

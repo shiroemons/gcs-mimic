@@ -350,7 +350,7 @@ async fn atomic_ram_reseed_reserves_old_and_new_and_keeps_open_readers() {
             )
             .await
             .unwrap_err(),
-        AdminError::DiskFull
+        AdminError::DiskFull(io::ErrorKind::StorageFull.into())
     );
     drop(batch);
     assert_eq!(bytes(&admin, "replacement").await, b"new");
@@ -555,7 +555,7 @@ async fn atomic_ram_reseed_replaces_a_full_catalog_without_growing_a_deletion_jo
             .collect();
         match admin.ensure_bucket(definition).await {
             Ok(_) => {}
-            Err(AdminError::DiskFull) => {
+            Err(AdminError::DiskFull(_)) => {
                 full = true;
                 break;
             }

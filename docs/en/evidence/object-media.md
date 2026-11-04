@@ -72,6 +72,17 @@ is asserted by the runtime wire tests. The complete guide was not rerun against 
   case explicitly when elevated privileges permit unlink; a linux/arm64 root-container
   [execution](object-media-root.txt) prints `SKIP: read-only shard permits unlink (for example when running as root)`
   and exits 0. The independent startup obstruction case remains runnable as root.
+- On 2026-11-04, targeted storage tests also preserve replay/unchanged success and
+  precondition/hash/size/write failures when upload cleanup fails. Reclamation abort
+  and modeled power-loss snapshots cover unlink, shard sync and journal removal;
+  restore snapshots cover pin/publication and commit boundaries. Reopening preserves
+  live bytes and finishes eligible journal entries. More than one page of live journal
+  conflicts cannot starve eligible deletions, and startup drains eligible rows before
+  reporting a live conflict. Session cleanup and restore retain ownership across
+  disconnect/close; catalog-thread I/O counters cover their unlink/sync paths.
+  Original I/O causes and object/entry context remain available in recovery errors.
+  These are fault-seam tests; no physical host power loss or new process-kill execution
+  is claimed, and deletion-journal insertion is not a newly tested crash boundary.
 - Schema v3 persists the generation high-water mark across deletion/restart/backward clocks.
   Object-free v1 migrates directly to v3 transactionally; unreleased v2 is rejected.
   Under the directory lock, WAL-free rejection uses an escaped immutable read-only URI,

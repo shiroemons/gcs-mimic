@@ -30,6 +30,39 @@ mod cursor;
 mod findings;
 use cursor::SyncCursor;
 
+struct ControlActivity<'a>(RequestCtx<'a>);
+impl Drop for ControlActivity<'_> {
+    fn drop(&mut self) {
+        self.0.finish_object_request();
+    }
+}
+
+async fn authorize_controls(
+    request: &Request<RequestBody>,
+    root: &RootLease,
+    identity: Option<Identity>,
+    ctx: RequestCtx<'_>,
+) -> Result<tokio::time::Instant, JsonError> {
+    let deadline = tokio::time::Instant::now()
+        + std::time::Duration::from_millis(ctx.config.catalog_wait_timeout_ms);
+    let authorize = async {
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+        tests::authorization_wait_checkpoint(ctx.activity).await;
+        root.authorize_controls(ctx.config.seed_project.clone(), identity)
+            .await
+            .map_err(|error| root_error(&error))
+    };
+    if request.method() == Method::POST && request.uri().path() == "/_internal/sync/wait" {
+        crate::server::begin_catalog_wait_until(ctx.activity, Some(deadline)).await;
+        tokio::time::timeout_at(deadline, authorize)
+            .await
+            .map_err(|_| busy())??;
+    } else {
+        authorize.await?;
+    }
+    Ok(deadline)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Approve {
@@ -59,6 +92,7 @@ async fn control(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
+    let _activity = ControlActivity(ctx);
     let (registration, root) = ctx
         .state
         .catalog
@@ -76,16 +110,15 @@ async fn control(
         .clone()
         .try_acquire_owned()
         .map_err(|_| busy())?;
-    let caller =
-        ctx.state
-            .auth
-            .authenticate_at(request.headers(), None, ctx.state.clock.as_ref())?;
+    let caller = ctx
+        .state
+        .auth
+        .authenticate_request(request.headers(), None, ctx.state.clock.as_ref())
+        .await?;
     let identity = caller
         .map(|caller| caller.principal().cloned())
         .transpose()?;
-    root.authorize_controls(ctx.config.seed_project.clone(), identity.clone())
-        .await
-        .map_err(|error| root_error(&error))?;
+    let preparation_deadline = authorize_controls(&request, &root, identity.clone(), ctx).await?;
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     tests::authorization_checkpoint().await;
     let path = request.uri().path();
@@ -140,7 +173,9 @@ async fn control(
         "/_internal/sync/approve" | "/_internal/sync/rescan" => {
             mutate(request, registration, identity, ctx).await
         }
-        "/_internal/sync/wait" => wait(request, registration, identity, ctx).await,
+        "/_internal/sync/wait" => {
+            wait(request, registration, identity, ctx, preparation_deadline).await
+        }
         _ => Err(JsonError::new(
             StatusCode::NOT_FOUND,
             "notFound",
@@ -154,13 +189,19 @@ async fn wait(
     registration: Registration,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
+    preparation_deadline: tokio::time::Instant,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     if request.uri().query().is_some() {
         return Err(JsonError::invalid_argument(
             "Synchronization waits do not accept query parameters",
         ));
     }
-    let bytes = json::read_body(request.into_body(), 64 * 1024).await?;
+    let bytes = tokio::time::timeout_at(
+        preparation_deadline,
+        json::read_body(request.into_body(), 64 * 1024),
+    )
+    .await
+    .map_err(|_| busy())??;
     let value: Wait = serde_json::from_slice(&bytes).map_err(|_| {
         JsonError::invalid_argument("Send an empty JSON object or timeout_ms from 1 through 60000")
     })?;
@@ -174,20 +215,28 @@ async fn wait(
     // The bounded handler deadline replaces connection inactivity while the server observes work.
     crate::server::begin_catalog_wait_until(ctx.activity, Some(deadline)).await;
     let (reply, receive) = tokio::sync::oneshot::channel();
+    let settling = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     registration
         .sender
         .try_send(Command::Wait {
             deadline,
+            settling: settling.clone(),
             reply,
             identity,
         })
         .map_err(|_| busy())?;
     let observed = tokio::time::timeout_at(deadline, receive).await;
-    ctx.finish_object_request();
     let result = match observed {
         Ok(result) => result
             .map_err(|_| busy())?
             .map_err(|error| control_error(&error))?,
+        Err(_) if settling.load(std::sync::atomic::Ordering::Acquire) => {
+            crate::sync::control::WaitResult::result(
+                crate::sync::control::WaitReason::SourceChanging,
+                None,
+                None,
+            )
+        }
         Err(_) => crate::sync::control::WaitResult::timeout(),
     };
     let mut response = bounded(&json!(result))?;
@@ -248,7 +297,7 @@ async fn mutate(
         let summary = observe(ctx, receive)
             .await?
             .map_err(|error| control_error(&error))?;
-        json!({"operation_id":crate::hashing::encode_lower(&operation),"completed":true,"reconciliation":summary})
+        json!({"operation_id":crate::hashing::encode_lower(&operation),"completed":!summary.source_changing && !summary.interrupted,"reason":summary.source_changing.then_some(crate::sync::control::WaitReason::SourceChanging),"reconciliation":summary})
     };
     let mut response = bounded(&value)?;
     *response.status_mut() = StatusCode::ACCEPTED;
@@ -265,7 +314,6 @@ async fn observe<T>(
         receive,
     )
     .await;
-    ctx.finish_object_request();
     result.map_err(|_| busy())?.map_err(|_| busy())
 }
 
@@ -356,10 +404,18 @@ async fn status(
         let Some(last) = recoveries.last() else { break };
         after = last.ordinal;
     }
-    let observation = root
-        .observation_for(authority.clone())
-        .await
-        .map_err(|error| root_error(&error))?;
+    let (observation, published_set) = if page.view == View::Findings || page.revision.is_some() {
+        (
+            root.observation_for(authority.clone())
+                .await
+                .map_err(|error| root_error(&error))?,
+            None,
+        )
+    } else {
+        root.published_observation_for(authority.clone())
+            .await
+            .map_err(|error| root_error(&error))?
+    };
     let findings_revision = format!("{session}{:016x}", observation.revision);
     if page.view == View::Findings {
         if page.revision.as_deref() != Some(&findings_revision) {
@@ -367,10 +423,13 @@ async fn status(
         }
         return findings_page(&root, page, &findings_revision, &observation, authority).await;
     }
-    let set = root
-        .deletion_set_for(authority.clone())
-        .await
-        .map_err(|error| root_error(&error))?;
+    let set = if page.revision.is_some() {
+        root.deletion_set_for(authority.clone())
+            .await
+            .map_err(|error| root_error(&error))?
+    } else {
+        published_set
+    };
     let ids = root.status();
     if let Some(revision) = &page.revision {
         let set = set
@@ -524,7 +583,7 @@ fn admin_error(error: &AdminError) -> Option<JsonError> {
         AdminError::Forbidden => crate::auth::AuthFailure::Forbidden.into(),
         AdminError::Precondition => stale(),
         AdminError::Corrupt(cause) => crate::object::ObjectError::Corrupt(cause.clone()).into(),
-        AdminError::DiskFull => JsonError::new(
+        AdminError::DiskFull(_) => JsonError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "disk_full",
             "Free disk space without deleting synchronization data, then retry",

@@ -6,8 +6,8 @@
 use super::RequestBody as Incoming;
 use super::{
     DeadlineWatch, RequestCtx, ResponseBody, State, acl, anonymous_error, boxed, buckets,
-    empty_response, notifications, objects, probe_or_unknown, project_resources, resumable,
-    rewrite, unsupported, xml_read,
+    empty_response, notifications, objects, probe, project_resources, resumable, rewrite,
+    unknown_route, unsupported, xml_read,
 };
 use crate::{
     auth::Caller,
@@ -129,17 +129,9 @@ async fn route(
         }
     };
     if selected.is_none()
-        && (matches!(
-            request.uri().path(),
-            "/_internal/config"
-                | "/_internal/objects"
-                | "/_internal/reset"
-                | "/_internal/reseed"
-                | "/_internal/delete_all"
-        ) || request.uri().path() == "/_internal/sync"
-            || request.uri().path().starts_with("/_internal/sync/"))
+        && let Some(route) = super::admin::AdminRoute::parse(request.uri().path())
     {
-        return super::admin::respond(request, ctx).await;
+        return super::admin::respond(route, request, ctx).await;
     }
     if selected.is_none() && request.uri().path() == "/batch/storage/v1" {
         return super::batch::respond(request, ctx).await;
@@ -372,6 +364,7 @@ async fn respond_routed(
     if is_unsupported_protocol_upload(&request) {
         return boxed(
             authenticate(&request, ctx.state)
+                .await
                 .and_then(|_| Err(json::unsupported_upload_type()))
                 .unwrap_or_else(JsonError::into_response),
         );
@@ -388,7 +381,7 @@ async fn respond_routed(
     if selected.is_none()
         && let Some(route) = unsupported::route(method, uri)
     {
-        return respond_unsupported(&request, ctx.state, route);
+        return respond_unsupported(&request, ctx.state, route).await;
     }
     // POST Object targets the bucket itself and authenticates from form fields in the body.
     if let Some(object) = selected.as_ref().filter(|object| {
@@ -439,21 +432,21 @@ async fn respond_routed(
     if let Some(parsed) = json::route_with_profile(method, uri, profile, &ctx.config.seed_project) {
         return respond_bucket(request, ctx, profile, parsed).await;
     }
-    boxed(probe_or_unknown(&request, ctx.state))
+    boxed(probe(&request, ctx.state).unwrap_or_else(|| unknown_route().into_response()))
 }
 
-fn authenticate<'a>(
-    request: &Request<Incoming>,
+fn authenticate<'a, 'r>(
+    request: &'r Request<Incoming>,
     state: &'a State,
-) -> Result<Option<Caller<'a>>, JsonError> {
-    state
-        .auth
-        .authenticate_at(
-            request.headers(),
-            request.uri().query(),
-            state.clock.as_ref(),
-        )
-        .map_err(JsonError::from)
+) -> impl Future<Output = Result<Option<Caller<'a>>, JsonError>> + Send + use<'a, 'r> {
+    let (headers, query) = (request.headers(), request.uri().query());
+    async move {
+        state
+            .auth
+            .authenticate_request(headers, query, state.clock.as_ref())
+            .await
+            .map_err(JsonError::from)
+    }
 }
 
 async fn respond_acl(
@@ -462,29 +455,32 @@ async fn respond_acl(
     parsed: Result<json::acl::AclRequest, JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result =
-        match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => acl::respond(
-                request,
-                operation,
-                caller,
-                state,
-                &ctx.endpoints.api_base_url,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
+    let result = match authenticate(&request, state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)))
+    {
+        Ok((operation, caller)) => acl::respond(
+            request,
+            operation,
+            caller,
+            state,
+            &ctx.endpoints.api_base_url,
+        )
+        .await
+        .map_err(|error| anonymous_error(error, caller)),
+        Err(error) => Err(error),
+    };
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
-fn respond_unsupported(
+async fn respond_unsupported(
     request: &Request<Incoming>,
     state: &State,
     route: &str,
 ) -> Response<ResponseBody> {
     boxed(
         authenticate(request, state)
+            .await
             .and_then(|_| {
                 Err(JsonError::unsupported_message(
                     format!("gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."),
@@ -500,20 +496,22 @@ async fn respond_notifications(
     parsed: Result<(json::notifications::NotificationRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result =
-        match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok(((operation, fields), caller)) => notifications::respond(
-                request,
-                operation,
-                fields,
-                caller,
-                state,
-                &ctx.endpoints.api_base_url,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
+    let result = match authenticate(&request, state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)))
+    {
+        Ok(((operation, fields), caller)) => notifications::respond(
+            request,
+            operation,
+            fields,
+            caller,
+            state,
+            &ctx.endpoints.api_base_url,
+        )
+        .await
+        .map_err(|error| anonymous_error(error, caller)),
+        Err(error) => Err(error),
+    };
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
@@ -626,7 +624,9 @@ async fn respond_rewrite(
     ctx: RequestCtx<'_>,
     parsed: Result<json::rewrite::RewriteRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let parsed = authenticate(&request, ctx.state).and_then(|caller| parsed.map(|op| (op, caller)));
+    let parsed = authenticate(&request, ctx.state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let result = match parsed {
         Ok((operation, caller)) => {
@@ -645,7 +645,9 @@ async fn respond_json_object(
     ctx: RequestCtx<'_>,
     parsed: Result<ObjectRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let parsed = authenticate(&request, ctx.state).and_then(|caller| parsed.map(|op| (op, caller)));
+    let parsed = authenticate(&request, ctx.state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)));
     let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
     // The object a missing-object error names: only operations whose path selects one.
     let target = match &parsed {
@@ -705,20 +707,22 @@ async fn respond_project(
     parsed: Result<(json::ProjectRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result =
-        match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok(((operation, fields), caller)) => project_resources::respond(
-                request,
-                operation,
-                fields,
-                caller,
-                state,
-                &ctx.endpoints.api_base_url,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
+    let result = match authenticate(&request, state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)))
+    {
+        Ok(((operation, fields), caller)) => project_resources::respond(
+            request,
+            operation,
+            fields,
+            caller,
+            state,
+            &ctx.endpoints.api_base_url,
+        )
+        .await
+        .map_err(|error| anonymous_error(error, caller)),
+        Err(error) => Err(error),
+    };
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
@@ -729,20 +733,22 @@ async fn respond_bucket(
     parsed: Result<json::BucketRequest, JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result =
-        match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => buckets::respond(
-                request,
-                operation,
-                caller,
-                state,
-                profile,
-                &ctx.endpoints.api_base_url,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
+    let result = match authenticate(&request, state)
+        .await
+        .and_then(|caller| parsed.map(|op| (op, caller)))
+    {
+        Ok((operation, caller)) => buckets::respond(
+            request,
+            operation,
+            caller,
+            state,
+            profile,
+            &ctx.endpoints.api_base_url,
+        )
+        .await
+        .map_err(|error| anonymous_error(error, caller)),
+        Err(error) => Err(error),
+    };
     let response = result
         .map_err(|error| legacy_bucket_error(error, profile))
         .unwrap_or_else(JsonError::into_response);
@@ -773,14 +779,15 @@ fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonErro
 async fn legacy_bucket_body(response: Response<Full<Bytes>>) -> Response<Full<Bytes>> {
     let (mut parts, body) = response.into_parts();
     let Ok(collected) = body.collect().await;
-    let mut bytes = collected.to_bytes().to_vec();
+    let bytes = collected.to_bytes();
+    let mut bytes = bytes.try_into_mut().unwrap_or_else(bytes::BytesMut::from);
     if !bytes.ends_with(b"\n") {
-        bytes.push(b'\n');
+        bytes.extend_from_slice(b"\n");
     }
     parts
         .headers
         .insert("content-type", HeaderValue::from_static("application/json"));
-    Response::from_parts(parts, Full::new(Bytes::from(bytes)))
+    Response::from_parts(parts, Full::new(bytes.freeze()))
 }
 
 #[cfg(test)]
@@ -801,5 +808,8 @@ mod tests {
             cors_lookup_failure("bucket", &known)["cause"],
             "database is locked"
         );
+        let leaky = CatalogError::Io(std::io::Error::other("secret catalog filename").into());
+        let fields = cors_lookup_failure("bucket", &leaky);
+        assert!(!fields["cause"].as_str().unwrap().contains("secret"));
     }
 }

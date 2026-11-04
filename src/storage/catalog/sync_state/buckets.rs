@@ -41,7 +41,7 @@ impl RootLease {
         name: &BucketName,
         mut create: Option<BucketRecord>,
     ) -> Result<bool, RootError> {
-        self.file_job(|_| Ok(())).await?;
+        self.revalidate().await?;
         let lease = self.clone();
         let root = self.status().root_id.as_bytes();
         let name = name.as_str().to_owned();
@@ -88,7 +88,7 @@ impl RootLease {
         name: String,
         incarnation: String,
     ) -> Result<(), RootError> {
-        self.file_job(|_| Ok(())).await?;
+        self.revalidate().await?;
         let root = self.status().root_id.as_bytes();
         let lease = self.clone();
         self.catalog()

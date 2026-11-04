@@ -8,6 +8,35 @@ use tonic::{Code, Status};
 const NOT_MODIFIED: &str =
     "The resource you requested has not been modified according to the condition you specified.";
 
+/// Reader failures keep the storage classification and record the underlying I/O cause.
+pub(super) fn read_failure(error: std::io::Error) -> Status {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Error,
+        "grpc_object_read_failure",
+        serde_json::json!({"cause": error.to_string()}),
+    );
+    super::object_io::object_status(crate::storage::failure::object_unavailable(error))
+}
+
+pub(super) fn list_query_status(error: crate::storage::ListQueryError) -> Status {
+    use crate::storage::ListQueryError;
+    Status::invalid_argument(match error {
+        ListQueryError::SoftDeletedWithVersions => {
+            "soft_deleted=true cannot be combined with versions=true; omit versions"
+        }
+        ListQueryError::FoldersAsPrefixesNeedSlash => {
+            "include_folders_as_prefixes requires delimiter=/; use include_folders_as_prefixes=true and delimiter=/"
+        }
+        ListQueryError::GlobNeedsSlashDelimiter => {
+            "match_glob requires delimiter=/ or no delimiter; use match_glob=**/*.txt and delimiter=/"
+        }
+    })
+}
+
+pub(super) fn glob_status(error: &crate::match_glob::GlobError) -> Status {
+    Status::invalid_argument(error.message("match_glob"))
+}
+
 impl From<crate::object::ObjectError> for Status {
     fn from(error: crate::object::ObjectError) -> Self {
         Self::from(crate::json::JsonError::from(error))
@@ -16,6 +45,11 @@ impl From<crate::object::ObjectError> for Status {
 
 impl From<crate::bucket::CatalogError> for Status {
     fn from(error: crate::bucket::CatalogError) -> Self {
+        if matches!(error, crate::bucket::CatalogError::NotEmpty) {
+            return Status::failed_precondition(
+                "Bucket is not empty; delete its objects and versions before deleting the bucket",
+            );
+        }
         Self::from(crate::json::JsonError::from(error))
     }
 }
@@ -23,6 +57,24 @@ impl From<crate::bucket::CatalogError> for Status {
 impl From<crate::auth::AuthFailure> for Status {
     fn from(error: crate::auth::AuthFailure) -> Self {
         Self::from(crate::json::JsonError::from(error))
+    }
+}
+
+impl From<crate::auth::policy_input::PolicyInputError> for Status {
+    fn from(error: crate::auth::policy_input::PolicyInputError) -> Self {
+        match error {
+            crate::auth::policy_input::PolicyInputError::InvalidInput(message) => {
+                Status::invalid_argument(message)
+            }
+            crate::auth::policy_input::PolicyInputError::UnsupportedInput(message) => {
+                unsupported_with_remedy(
+                    format!(
+                        "gcs-mimic does not support IAM policy {message}; omit it, for example use roles/storage.objectViewer with user: members"
+                    ),
+                    "Omit the unsupported IAM policy input; use roles/storage.objectViewer with user: members",
+                )
+            }
+        }
     }
 }
 
@@ -44,7 +96,7 @@ impl From<crate::json::JsonError> for Status {
             413 | 429 => Status::resource_exhausted(error.message),
             416 => Status::out_of_range(error.message),
             499 => Status::cancelled(error.message),
-            501 => unsupported(&error.message),
+            501 => unsupported_message(error.message),
             503 => Status::unavailable(error.message),
             504 => Status::deadline_exceeded(error.message),
             _ => Status::internal(error.message),
@@ -66,7 +118,7 @@ pub(crate) fn anonymous(status: Status, caller: Option<crate::auth::Caller<'_>>)
 
 pub(super) fn unsupported_for(method: &str, caller: Option<crate::auth::Caller<'_>>) -> Status {
     if matches!(caller, Some(crate::auth::Caller::Anonymous)) {
-        return super::auth_error(crate::auth::AuthFailure::InvalidCredentials);
+        return super::auth_error(crate::auth::AuthFailure::InvalidCredentials.into());
     }
     unsupported(method)
 }
@@ -80,16 +132,20 @@ pub(crate) fn unsupported(method: &str) -> Status {
 
 /// JSON unsupported messages already include a remedy and must not be wrapped again.
 fn unsupported_message(message: String) -> Status {
+    unsupported_with_remedy(
+        message,
+        "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event",
+    )
+}
+
+fn unsupported_with_remedy(message: String, remedy: &str) -> Status {
     let info = ErrorInfo {
         // Preserve the existing unsupported JSON contract's reason and domain.
         reason: "badRequest".into(),
         domain: "global".into(),
         metadata: [
             ("service".into(), "gcs-mimic".into()),
-            (
-                "remedy".into(),
-                "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event".into(),
-            ),
+            ("remedy".into(), remedy.into()),
         ]
         .into(),
     };
@@ -160,6 +216,30 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_iam_inputs_offer_supported_policy_members() {
+        use crate::auth::policy_input::{validate_member, validate_role};
+        for error in [
+            validate_role("roles/owner").unwrap_err(),
+            validate_member("group:team@example.invalid").unwrap_err(),
+        ] {
+            let status = Status::from(error);
+            assert_eq!(status.code(), Code::Unimplemented);
+            assert!(status.message().contains("omit it"));
+            assert!(
+                status
+                    .message()
+                    .contains("roles/storage.objectViewer with user: members")
+            );
+            assert!(!status.message().contains("JSON API"));
+            let rpc = rpc_status(&status);
+            assert_eq!(rpc.message, status.message());
+            let info = ErrorInfo::decode(rpc.details[0].value.as_slice()).unwrap();
+            assert!(!info.metadata["remedy"].contains("JSON API"));
+            assert!(info.metadata["remedy"].contains("Omit"));
+        }
+    }
+
+    #[test]
     fn unsupported_errors_keep_their_details() {
         let status = unsupported("example");
         assert_eq!(status.code(), Code::Unimplemented);
@@ -210,7 +290,7 @@ mod tests {
                     "notImplemented",
                     "Unsupported object option",
                 ),
-                "gcs-mimic does not support gRPC Unsupported object option; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event.",
+                "Unsupported object option",
             ),
         ] {
             let actual = Status::from(error);
@@ -236,6 +316,8 @@ mod tests {
 
     #[test]
     fn precondition_failures_use_the_grpc_wording() {
+        let not_empty = Status::from(crate::bucket::CatalogError::NotEmpty);
+        assert_eq!(not_empty.code(), Code::FailedPrecondition);
         let failed = Status::from(crate::object::ObjectError::PreconditionFailed);
         assert_eq!(failed.code(), Code::FailedPrecondition);
         assert_eq!(failed.message(), crate::json::PRECONDITION_NOT_HELD);
@@ -266,7 +348,8 @@ mod tests {
         assert_eq!(info.reason, "GRPC_INVALID_BUCKET");
         assert_eq!(info.domain, ERROR_DOMAIN);
 
-        let object = crate::grpc::v2::names::object_name("projects/_/buckets/b", "").unwrap_err();
+        let object =
+            crate::grpc::v2::names::object_name("projects/_/buckets/bucket", "").unwrap_err();
         assert_eq!(object.message(), "No object name");
         let detail = &rpc_status(&object).details[0];
         let violations = BadRequest::decode(detail.value.as_slice()).unwrap();

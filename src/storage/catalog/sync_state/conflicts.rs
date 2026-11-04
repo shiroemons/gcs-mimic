@@ -10,7 +10,7 @@ use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     fsutil::{self, FileIdentity},
-    hashing::{Hasher, Hashes},
+    hashing::Hashes,
     object::{ObjectError, ObjectRecord},
     storage::{
         admin::{AdminError, Generation, ObjectName, WAIT_TIMEOUT},
@@ -303,22 +303,10 @@ enum HashMode {
 fn observe(file: &File, hash: HashMode) -> Result<Observation, Error> {
     let before = fsutil::stat_identity(file)?;
     let hashes = if matches!(hash, HashMode::Body) {
-        let mut hasher = Hasher::default();
-        let mut offset = 0;
-        let mut buffer = [0; 65_536];
-        while offset < before.size {
-            let count = fsutil::read_at(
-                file,
-                &mut buffer[..(before.size - offset).min(65_536) as usize],
-                offset,
-            )?;
-            if count == 0 {
-                return Err(Error::TargetChanged);
-            }
-            hasher.update(&buffer[..count]);
-            offset += count as u64;
+        match fsutil::hash_exact(file, before.size, |_| Ok::<_, io::Error>(()))? {
+            fsutil::HashOutcome::Complete(hashes) => Some(hashes),
+            _ => return Err(Error::TargetChanged),
         }
-        Some(hasher.finish())
     } else {
         None
     };

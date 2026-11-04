@@ -78,6 +78,12 @@ impl From<String> for Fix {
     }
 }
 
+impl From<crate::config::InvalidChoice> for Fix {
+    fn from(error: crate::config::InvalidChoice) -> Self {
+        Self(error.to_string())
+    }
+}
+
 impl From<&str> for Fix {
     fn from(fix: &str) -> Self {
         Self(fix.to_owned())

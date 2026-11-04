@@ -4,6 +4,12 @@
 
 [日本語](../ja/fake-gcs-server-configuration.md)
 
+Native management Host exceptions use `admin_allowed_hosts` (CLI
+`--admin-allowed-hosts`, environment `GCS_MIMIC_ADMIN_ALLOWED_HOSTS`): up to 32
+comma-separated DNS names, without ports. Local service/IP/reserved names and
+configured endpoint hosts are already allowed. Browser-originated management
+requests remain forbidden; see [HTTP boundaries](slices/http-adapter-boundaries.md).
+
 Checked on **2026-10-24** against fake-gcs-server **v1.56.1**, commit
 `896ece51e49eed0946089f3089f6343855c0d106`. The executable reads the following
 **19** environment variables. They are explicit settings, not a rule that turns

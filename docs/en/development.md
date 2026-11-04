@@ -307,8 +307,12 @@ every target.
 `cargo xtask lint` enforces the Rust implementation guardrails in
 [AGENTS.md](../../AGENTS.md#rust-implementation-guardrails). `scripts/check.sh`
 runs it after workspace Clippy, so `just check` and Foundation CI run it too.
-It is a zero-tolerance gate over server production code: any finding fails,
-and it prints every occurrence. There is no baseline. The only exceptions are:
+It prints every rejected occurrence in server production code. Existing rules
+remain zero tolerance. Indexing, string slicing, potentially truncating or
+sign-losing casts and static-string errors use per-file baseline counts;
+no new finding may increase those counts. Text rules share
+`xtask/lint-baseline.txt`; Clippy uses `xtask/lint-baseline.<triple>.txt`.
+The other exceptions are:
 
 - a reasoned `#[expect(<lint>, reason = "...")]` for a Clippy or rustc lint
   (see [below](#expect-for-restriction-lints));
@@ -355,8 +359,11 @@ cannot express.
 | `clippy::allow_attributes_without_reason` | `#[allow]` or `#[expect]` without a `reason`. |
 | `clippy::allow_attributes` | Any `#[allow]`; use `#[expect]`, which fails once the lint stops firing. |
 | `clippy::disallowed_methods` | The methods listed in `clippy.toml`: unsupervised spawns (`tokio::spawn`, `tokio::task::spawn`, `tokio::task::spawn_local`, `tokio::task::spawn_blocking`, `Handle::spawn_blocking`, `Runtime::spawn_blocking`, `Handle::spawn`, `Runtime::spawn`, `std::thread::spawn`, `std::thread::Builder::spawn`) outside `src/task.rs`, and rusqlite's `Connection::execute`, `query_row`, `query_one` and `prepare`, which prepare their SQL on every call. Calls through a `Transaction` resolve to the `Connection` methods; `Statement` methods from `prepare_cached`, `execute_batch`, `JoinSet::spawn` and scoped threads are not listed. |
+| `clippy::indexing_slicing`, `clippy::string_slice` | Potential panics from indexing and slicing; per-file ratchet. |
+| `clippy::cast_possible_truncation`, `clippy::cast_sign_loss` | Silent truncation and sign loss; per-file ratchet. Casts do not themselves panic. |
 | `text::path_attribute` | `#[path]` module attributes. |
-| `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`. |
+| `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`, plus associated `type Err = String` and `type Error = String`. |
+| `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types; per-file ratchet. |
 | `text::string_error_variant` | Tuple variants `Backend(String)`, `BodyAborted(String)`, `Database(String)`, `Internal(String)`, `Io(String)`, `Other(String)`, `Sqlite(String)`, `Storage(String)` or `Unavailable(String)` in an enum named `*Error`. |
 | `text::stringified_error` | `map_err(\|e\| Path(e.to_string()))` or `map_err(\|e\| Path(format!(".. {e}")))` whose only argument stringifies the error. |
 | `text::unavailable_helper` | `fn unavailable` outside `src/storage/failure.rs`, or not exactly one there. |
@@ -382,6 +389,57 @@ reports a socket write followed by a file sync. `text::string_error_variant`
 checks only the listed variant names, so a variant that names rejected client
 input, such as `InvalidTopic(String)`, may keep its message. Review still
 applies the written rules where the tool cannot.
+
+New error types must not be `&'static str`, even for rejected client input:
+strings do not implement `Error` and cannot preserve a cause chain. Use a
+typed error with `Display` and `Error`; it may hold a static message.
+The unused `http-body-util` channel feature is disabled. Producer-driven
+response bodies use `server::chunk_body` to preserve the final queued frame.
+
+#### Per-file ratchet
+
+Each baseline row is `rule`, repository-relative file and positive count,
+separated by tabs. Blank lines and `#` comments are ignored. Counts belong to
+files rather than line numbers, so moving a line does not require an update.
+Unknown rules, duplicate pairs and malformed counts fail parsing.
+
+Every gate fails increases. The compiler pinned by `rust-toolchain.toml`
+also rejects stale Clippy counts: lower a count as soon as a finding is fixed,
+deleting the row at zero. Removed files are stale too. Other compiler releases
+and `RUSTUP_TOOLCHAIN=stable` (including its host-qualified spelling) warn on
+Clippy decreases, because their diagnostics can differ from the pin. Shared
+text counts always reject staleness. CI retains pinned and current-stable lanes.
+The host gate selects the native compiler's triple and the shared text file;
+`--target` selects only that triple's Clippy file. Target-specific `cfg` counts
+cannot hide another target's regressions or create stale host entries.
+It omits `--target` to reuse native build artifacts; run the host gate with
+Cargo's native default target, and use `--target TRIPLE` for cross builds.
+Reasoned Clippy expectations and text suppressions are excluded
+from the counts and remain subject to their existing staleness checks.
+
+`cargo xtask lint --baseline` prints sorted shared text counts to stdout;
+`--baseline --target TRIPLE` prints only that triple's Clippy counts. Neither
+mode writes files. Establish each reviewed baseline once after integration:
+
+```sh
+cargo xtask lint --baseline > xtask/lint-baseline.txt
+cargo xtask lint --baseline --target aarch64-apple-darwin > xtask/lint-baseline.aarch64-apple-darwin.txt
+cargo xtask lint
+```
+
+Repeat the target command for `x86_64-pc-windows-msvc`,
+`x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl`, matching
+`scripts/check-cross.sh` and CI. Use its C compiler stub and target directory
+when the target cannot build natively. Do not regenerate unchanged baselines
+to hide a new finding; review and lower individual entries when fixing them.
+
+Committed Clippy baselines cover macOS ARM64, Windows MSVC, Linux GNU x86-64
+and Linux musl x86-64. A different host still runs Clippy and the shared text
+rules: a missing target file is an empty baseline, so every ratcheted finding
+fails as new. Establish its file with `--baseline --target TRIPLE` after
+reviewing those findings; no other target's counts are substituted. The shared
+text baseline is required. Review increases explicitly; ordinary fixes should
+only lower counts.
 
 #### Reasoned suppressions
 
@@ -459,6 +517,30 @@ and `#[cfg(test)]` modules, but not helper functions of integration tests.
    `clippy::` prefix) under `[workspace.lints.clippy]`.
 2. Remove it from `CLIPPY_LINTS` in `xtask/src/lint.rs`.
 3. Run `just check`.
+
+## Protobuf generation checks
+
+Foundation CI checks `src/grpc/proto/SHA256SUMS` and exercises the offline
+hash/drift rejection fixture. Daily dependency CI installs the digest-pinned
+compiler from `src/grpc/codegen/protoc.json`, regenerates v1 then v2 into a
+temporary directory and compares it with committed generated Rust. It also
+compares the compiler pin with the latest stable official protobuf release.
+Generation and compiler checks use `!cancelled()` alongside the SDK fetch and
+dependency detector, so a failed compiler check does not skip dependency detection.
+Each failed step still fails the job; cancellation stops the remaining checks.
+Ordinary application and release builds still require no protoc.
+
+```sh
+bash scripts/test-grpc-codegen.sh
+CARGO_BUILD_JOBS=4 bash scripts/check-grpc-codegen.sh
+cargo run --locked --offline -p grpc-codegen -- --out-dir <output-directory>
+```
+
+Use protoc 36.2, whose version and Linux/macOS archive SHA-256 values were verified
+against the [official release](https://github.com/protocolbuffers/protobuf/releases/tag/v36.2)
+on 2026-11-04. Update the pin and regenerate when daily freshness detects a newer
+stable compiler. This checks local source integrity and regeneration drift;
+automatic discovery of upstream API schema changes remains pending.
 
 ## Direct verification commands
 

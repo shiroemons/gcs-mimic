@@ -241,7 +241,8 @@ impl TaskHealth {
 /// Runs a long-lived loop and restarts it after a panic, with exponential backoff.
 ///
 /// `start` builds the next run; returning `None` stops supervision, for example once the owner
-/// has closed. A run that returns normally or is cancelled is not restarted. After a panic,
+/// has closed. A run that returns normally is not restarted. Aborting supervision drops its
+/// current run; dropping the handle alone detaches supervision as with any Tokio task. After a panic,
 /// `health` stays down until a pass of a replacement run calls [`TaskHealth::pass_succeeded`],
 /// so a run that panics again right after starting never looks healthy in between. The first
 /// run starts healthy: its owner has just opened and recovered the state the loop maintains.
@@ -258,10 +259,14 @@ where
         let mut delay = RESTART_DELAY_MIN;
         while let Some(run) = start() {
             let started = tokio::time::Instant::now();
-            match spawn_supervised(name, run).await {
-                Ok(()) => break,
-                Err(error) if error.is_cancelled() => break,
-                Err(_) => {}
+            if (CatchPanic {
+                name,
+                future: Box::pin(run),
+            })
+            .await
+            .is_ok()
+            {
+                break;
             }
             health.mark_restarting();
             if started.elapsed() >= RESTART_DELAY_MAX {
@@ -284,6 +289,37 @@ where
 }
 
 /// Polls the boxed future inside `catch_unwind` so a panic is reported before Tokio stores it.
+struct CatchPanic<F> {
+    name: &'static str,
+    future: Pin<Box<F>>,
+}
+
+type PanicPayload = Box<dyn Any + Send>;
+
+fn poll_catching<F: Future>(
+    name: &'static str,
+    mut future: Pin<&mut F>,
+    context: &mut Context<'_>,
+) -> Poll<Result<F::Output, PanicPayload>> {
+    match catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(context))) {
+        Ok(Poll::Pending) => Poll::Pending,
+        Ok(Poll::Ready(value)) => Poll::Ready(Ok(value)),
+        Err(payload) => {
+            report_panic(name, payload.as_ref());
+            Poll::Ready(Err(payload))
+        }
+    }
+}
+
+impl<F: Future> Future for CatchPanic<F> {
+    type Output = Result<F::Output, PanicPayload>;
+
+    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        poll_catching(this.name, this.future.as_mut(), context)
+    }
+}
+
 struct Supervised<F> {
     name: &'static str,
     future: Pin<Box<F>>,
@@ -306,15 +342,14 @@ impl<F: Future> Future for Supervised<F> {
     fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<F::Output> {
         let this = &mut *self;
         // The future is never polled again after it panics, so observing it mid-unwind is harmless.
-        match catch_unwind(AssertUnwindSafe(|| this.future.as_mut().poll(context))) {
-            Ok(Poll::Pending) => Poll::Pending,
-            Ok(ready) => {
+        match poll_catching(this.name, this.future.as_mut(), context) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Ok(value)) => {
                 this.finished = true;
-                ready
+                Poll::Ready(value)
             }
-            Err(payload) => {
+            Poll::Ready(Err(payload)) => {
                 this.finished = true;
-                report_panic(this.name, payload.as_ref());
                 resume_unwind(payload)
             }
         }
@@ -324,7 +359,7 @@ impl<F: Future> Future for Supervised<F> {
 impl<F> Drop for Supervised<F> {
     fn drop(&mut self) {
         // Aborts and runtime shutdown drop unfinished tasks; shutdown makes this routine.
-        if !self.finished {
+        if !self.finished && crate::diagnostics::enabled(crate::diagnostics::LogLevel::Debug) {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Debug,
                 "background_task_cancelled",
@@ -518,6 +553,34 @@ pub(crate) mod tests {
         assert_eq!(runs.load(Ordering::SeqCst), 2);
         assert_eq!(reported_panics(NAME), ["first-pass fixture panic 0"]);
         supervisor.abort();
+        assert!(supervisor.await.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn aborting_supervision_drops_its_active_run() {
+        struct Dropped(Arc<AtomicBool>);
+        impl Drop for Dropped {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+        let dropped = Arc::new(AtomicBool::new(false));
+        let observed = dropped.clone();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let mut started = Some(started);
+        let supervisor = spawn_restarting("test-abort-run", TaskHealth::default(), move || {
+            let started = started.take()?;
+            let guard = Dropped(observed.clone());
+            Some(async move {
+                let _guard = guard;
+                started.send(()).unwrap();
+                std::future::pending::<()>().await;
+            })
+        });
+        ready.await.unwrap();
+        supervisor.abort();
+        assert!(supervisor.await.unwrap_err().is_cancelled());
+        assert!(dropped.load(Ordering::Acquire));
     }
 
     #[test]

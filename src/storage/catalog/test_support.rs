@@ -89,8 +89,13 @@ pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
         .unwrap();
 }
 
+pub(crate) fn downgrade_deletion_history_schema(connection: &rusqlite::Connection) {
+    connection.execute_batch("DROP TRIGGER IF EXISTS sync_deletion_history_root_insert; DROP TRIGGER IF EXISTS sync_deletion_history_baseline; DROP TABLE IF EXISTS sync_deletion_history;").unwrap();
+}
+
 /// Drops the schema 48 hold-state columns when present; their CHECKs name the hold columns.
 pub(crate) fn drop_hold_state_columns(connection: &rusqlite::Connection) {
+    downgrade_deletion_history_schema(connection);
     for table in ["buckets", "soft_deleted_buckets"] {
         let present: bool = connection
             .query_row(

@@ -1105,7 +1105,8 @@ fn auth_http_startup_rejects_invalid_profiles_and_registries() {
                 event["diagnostics"][0]["fix"]
                     .as_str()
                     .unwrap()
-                    .contains("readable valid registry")
+                    .contains(message),
+                "{case}: {stderr}"
             );
         }
         // The registry is checked before the catalog is created or the listener is bound.

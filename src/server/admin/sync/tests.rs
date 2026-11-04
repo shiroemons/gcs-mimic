@@ -8,7 +8,7 @@ use crate::{
     storage::{
         Catalog,
         admin::{BucketDefinition, BucketName, Generation, ObjectName, Origin},
-        sync_state::writeback::{Kind, Limits, Writeback},
+        sync_state::writeback::{Limits, Writeback},
     },
     test_support::TestDir,
 };
@@ -21,7 +21,7 @@ fn nested_io_control_errors_keep_status_and_text() {
         RootError::Admin(crate::storage::admin::AdminError::Forbidden),
         RootError::Admin(crate::storage::admin::AdminError::Precondition),
         RootError::Admin(crate::storage::admin::AdminError::Corrupt("corrupt".into())),
-        RootError::Admin(AdminError::DiskFull),
+        RootError::Admin(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
         RootError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into())),
         RootError::InUse,
     ] {
@@ -98,6 +98,99 @@ struct AuthorizationHook {
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
 }
+#[derive(Default)]
+struct AuthorizationWaitHook {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+    observer: std::sync::Mutex<Option<tokio::sync::watch::Receiver<ObjectActivity>>>,
+}
+tokio::task_local! {static AUTHORIZATION_WAIT_HOOK:Arc<AuthorizationWaitHook>;}
+pub(super) async fn authorization_wait_checkpoint(
+    activity: &tokio::sync::watch::Sender<ObjectActivity>,
+) {
+    if let Ok(hook) = AUTHORIZATION_WAIT_HOOK.try_with(Arc::clone) {
+        *hook.observer.lock().unwrap() = Some(activity.subscribe());
+        hook.entered.notify_one();
+        hook.release.notified().await;
+    }
+}
+
+#[tokio::test]
+async fn wait_authorization_deadline_and_cancellation_release_activity() {
+    enum End {
+        Deadline,
+        Cancel,
+    }
+    for end in [End::Deadline, End::Cancel] {
+        let mut fixture = Fixture::new(Tree::Empty).await;
+        fixture.config.catalog_wait_timeout_ms = match end {
+            End::Deadline => 20,
+            End::Cancel => 30_000,
+        };
+        let hook = Arc::new(AuthorizationWaitHook::default());
+        let timeout = match end {
+            End::Deadline => Duration::from_millis(500),
+            End::Cancel => Duration::from_millis(20),
+        };
+        let result = tokio::time::timeout(
+            timeout,
+            AUTHORIZATION_WAIT_HOOK.scope(
+                hook.clone(),
+                fixture.request_once("POST", "/_internal/sync/wait", b"{}", None),
+            ),
+        )
+        .await;
+        match end {
+            End::Deadline => assert_eq!(
+                result.unwrap().unwrap_err().status,
+                StatusCode::SERVICE_UNAVAILABLE
+            ),
+            End::Cancel => assert!(result.is_err()),
+        }
+        let observer = hook.observer.lock().unwrap().take().unwrap();
+        assert!(!observer.borrow().awaiting_catalog);
+        assert!(observer.borrow().deadline.is_none());
+        fixture.finish().await;
+    }
+}
+
+#[tokio::test]
+async fn wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    let mut observations = Vec::new();
+    for payload in [&b"{}"[..], &b"{"[..]] {
+        let hook = Arc::new(AuthorizationWaitHook::default());
+        let (result, (claimed, bounded, observer)) = AUTHORIZATION_WAIT_HOOK
+            .scope(hook.clone(), async {
+                tokio::join!(
+                    fixture.request_once("POST", "/_internal/sync/wait", payload, None),
+                    async {
+                        hook.entered.notified().await;
+                        let observer = hook.observer.lock().unwrap().take().unwrap();
+                        let (claimed, bounded) = {
+                            let progress = observer.borrow();
+                            (progress.awaiting_catalog, progress.deadline.is_some())
+                        };
+                        hook.release.notify_one();
+                        (claimed, bounded, observer)
+                    }
+                )
+            })
+            .await;
+        if payload == b"{}" {
+            assert_eq!(result.unwrap().status(), StatusCode::OK)
+        } else {
+            assert_eq!(result.unwrap_err().status, StatusCode::BAD_REQUEST)
+        }
+        observations.push((claimed, bounded, observer.borrow().awaiting_catalog));
+    }
+    fixture.finish().await;
+    for (claimed, bounded, active) in observations {
+        assert!(claimed);
+        assert!(bounded);
+        assert!(!active);
+    }
+}
 tokio::task_local! {static AUTHORIZATION_HOOK:Arc<AuthorizationHook>;}
 pub(super) async fn authorization_checkpoint() {
     if let Ok(hook) = AUTHORIZATION_HOOK.try_with(Arc::clone) {
@@ -150,6 +243,7 @@ struct Fixture {
 
 enum Tree {
     Empty,
+    EmptyBucket,
     LongNames,
 }
 
@@ -167,6 +261,9 @@ impl Fixture {
     async fn new(shape: Tree) -> Self {
         let data = TestDir::new();
         let tree = TestDir::new();
+        if matches!(shape, Tree::EmptyBucket) {
+            fs::create_dir(tree.0.join("test-bucket")).unwrap();
+        }
         if matches!(shape, Tree::LongNames) {
             let component = format!("{}{}", "a".repeat(100), "\"".repeat(100));
             let prefix = tree
@@ -213,6 +310,16 @@ impl Fixture {
         &self,
         method: &str,
         path: &str,
+        payload: &[u8],
+        token: Option<&str>,
+    ) -> Result<Response<Full<Bytes>>, JsonError> {
+        self.request_once(method, path, payload, token).await
+    }
+
+    async fn request_once(
+        &self,
+        method: &str,
+        path: &str,
         body: &[u8],
         token: Option<&str>,
     ) -> Result<Response<Full<Bytes>>, JsonError> {
@@ -252,6 +359,19 @@ impl Fixture {
         .await
     }
 
+    async fn wait_for_deletions(&self, count: u64) {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                if self.status().await["pending_deletion_count"] == count {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
     async fn armed_workspace(&self, bytes: &[u8]) -> ArmedWorkspace {
         fs::create_dir(self.tree.0.join("test-bucket")).unwrap();
         fs::write(self.tree.0.join("test-bucket/body"), b"API winner").unwrap();
@@ -283,21 +403,18 @@ impl Fixture {
             .await
             .unwrap()
             .fence;
-        let pending = writeback
-            .prepare(
-                &bucket,
-                &name,
-                Generation::new(winner.generation).unwrap(),
-                Kind::Publish,
-                fence,
-            )
-            .await
-            .unwrap();
-        let pending = writeback.arm(pending.token).await.unwrap();
-        let id = pending.workspace_entry.name().to_owned();
+        let pending = crate::storage::sync_state::writeback::armed_observation(
+            &writeback,
+            &bucket,
+            &name,
+            Generation::new(winner.generation).unwrap(),
+            fence,
+        )
+        .await;
+        let id = pending.token.id().to_owned();
         let path = self.tree.0.join(crate::sync::mapping::WORKSPACE).join(&id);
         fs::write(&path, bytes).unwrap();
-        writeback.inspect(pending.token).await.unwrap();
+        writeback.recover_pending().await.unwrap();
         ArmedWorkspace {
             root,
             writeback,
@@ -951,17 +1068,18 @@ async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
 
 #[tokio::test]
 async fn protected_findings_pages_cover_every_target_with_a_final_null_cursor() {
-    let fixture = Fixture::new(Tree::Empty).await;
+    // A bucket exported during pagination can legitimately invalidate the findings revision.
+    let fixture = Fixture::new(Tree::EmptyBucket).await;
+    let waited = body(
+        fixture
+            .request("POST", "/_internal/sync/wait", b"{}", None)
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(waited["reason"], "Ready");
     let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
-    let owner = fixture.config.seed_project.clone();
     let bucket = BucketName::new("test-bucket").unwrap();
-    fixture
-        .state
-        .catalog
-        .admin(Origin::Api)
-        .ensure_bucket(BucketDefinition::default_for(&bucket, &owner, &SystemClock).unwrap())
-        .await
-        .unwrap();
     let binding = fixture
         .state
         .catalog
@@ -1248,9 +1366,124 @@ async fn strict_control_authority_precedes_body_parsing_and_requires_each_explic
 }
 
 #[tokio::test]
+async fn rescan_during_native_quiet_waits_for_a_completed_scan() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
+    fs::write(fixture.tree.0.join("test-bucket/body"), b"pending").unwrap();
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while root.deletion_set().await.unwrap().is_some() {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        fixture.request_once("POST", "/_internal/sync/rescan", b"{}", None),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result.status(), StatusCode::ACCEPTED);
+    let result = body(result).await;
+    assert_eq!(result["completed"], true);
+    assert!(result["reason"].is_null());
+    drop(root);
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn wait_during_native_quiet_reports_source_changing_only_at_its_deadline() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
+    fs::write(fixture.tree.0.join("test-bucket/body"), b"pending").unwrap();
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while root.deletion_set().await.unwrap().is_some() {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let started = tokio::time::Instant::now();
+    let response = fixture
+        .request(
+            "POST",
+            "/_internal/sync/wait",
+            br#"{"timeout_ms":50}"#,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(50));
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(body(response).await["reason"], "SourceChanging");
+    drop(root);
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval()
+{
+    let fixture = Fixture::new(Tree::LongNames).await;
+    fs::remove_dir_all(fixture.tree.0.join("test-bucket")).unwrap();
+    fixture.task.rescan().await.unwrap();
+    let before = fixture.status().await;
+    assert_eq!(before["state"], "DeletionApproval");
+    let revision = before["pending_deletion_revision"].as_str().unwrap();
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+
+    // Inject the exact interval between a delayed native event's invalidation and its completed scan.
+    let publication = root.begin_observation_publication().await.unwrap();
+    root.invalidate_deletions().await.unwrap();
+    let during = tokio::time::timeout(Duration::from_secs(1), fixture.status())
+        .await
+        .unwrap();
+    assert_eq!(during["state"], "DeletionApproval");
+    assert_eq!(
+        during["pending_deletion_revision"],
+        before["pending_deletion_revision"]
+    );
+    assert_eq!(
+        during["pending_deletion_count"],
+        before["pending_deletion_count"]
+    );
+    assert!(
+        during["observation"]["revision"].as_i64().unwrap()
+            > before["observation"]["revision"].as_i64().unwrap()
+    );
+    assert_eq!(
+        during["observation"]["tracked_objects"],
+        before["observation"]["tracked_objects"]
+    );
+    assert_eq!(
+        status_of(
+            fixture
+                .request(
+                    "POST",
+                    "/_internal/sync/approve",
+                    &serde_json::to_vec(&json!({"deletion_set":revision})).unwrap(),
+                    None
+                )
+                .await
+        ),
+        StatusCode::CONFLICT
+    );
+    drop(publication);
+    fixture.task.rescan().await.unwrap();
+    let completed = fixture.status().await;
+    assert_eq!(completed["state"], "DeletionApproval");
+    assert_ne!(
+        completed["pending_deletion_revision"],
+        before["pending_deletion_revision"]
+    );
+    drop(root);
+    fixture.finish().await;
+}
+
+#[tokio::test]
 async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all_members() {
     let fixture = Fixture::new(Tree::LongNames).await;
     fs::remove_dir_all(fixture.tree.0.join("test-bucket")).unwrap();
+    // Pagination starts after the native observer has published the removal's completed scan.
+    fixture.wait_for_deletions(300).await;
     let response = fixture
         .request("POST", "/_internal/sync/rescan", b"{}", None)
         .await
@@ -1344,16 +1577,7 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
         ),
         StatusCode::CONFLICT
     );
-    tokio::time::timeout(Duration::from_secs(20), async {
-        loop {
-            if fixture.status().await["pending_deletion_count"] == 0 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
+    fixture.wait_for_deletions(0).await;
     assert!(fixture.tree.0.join("test-bucket").is_dir());
     fixture.finish().await;
 }

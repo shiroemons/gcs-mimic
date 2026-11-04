@@ -302,7 +302,9 @@ mod tests {
 
     async fn clean(catalog: &Catalog, path: &std::path::Path, id: &crate::storage::BlobId) {
         tokio::time::timeout(Duration::from_secs(5), async {
-            while catalog.get_derived(id).await != Err(ObjectError::DerivedTransferNotFound) {
+            while catalog.get_derived(id).await != Err(ObjectError::DerivedTransferNotFound)
+                || fs::read_dir(path.join("staging")).unwrap().count() != 0
+            {
                 tokio::task::yield_now().await;
             }
         })
@@ -464,7 +466,7 @@ mod tests {
         );
         let mut headers = hyper::HeaderMap::new();
         headers.insert("authorization", "Bearer token".parse().unwrap());
-        let caller = auth.authenticate(&headers, None).unwrap().unwrap();
+        let caller = auth.authenticate(&headers, None).await.unwrap().unwrap();
         let access = catalog
             .bucket_access("bucket", Some(caller.principal().unwrap()), OBJECTS_GET)
             .await
@@ -538,7 +540,7 @@ mod tests {
         );
         let mut headers = hyper::HeaderMap::new();
         headers.insert("authorization", "Bearer token".parse().unwrap());
-        let caller = auth.authenticate(&headers, None).unwrap().unwrap();
+        let caller = auth.authenticate(&headers, None).await.unwrap().unwrap();
         catalog
             .set_policy(
                 "bucket",

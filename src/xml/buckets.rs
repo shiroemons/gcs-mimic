@@ -121,7 +121,7 @@ fn project(headers: &HeaderMap) -> Result<&str, Error> {
 
 fn authorize_project(
     caller: Option<auth::Caller<'_>>,
-    permission: &str,
+    permission: auth::Permission,
     project: &str,
 ) -> Result<(), Error> {
     if let Some(caller) = caller {
@@ -178,7 +178,7 @@ fn validate_headers(headers: &HeaderMap) -> Result<(), Error> {
     }) {
         return Err(Error::unsupported(key.as_str()));
     }
-    let conditions = super::headers(headers, super::UnknownGoogHeaders::Reject)?;
+    let conditions = super::headers(headers, super::HeaderPolicy::Strict)?;
     if conditions != ObjectConditions::default()
         || headers.contains_key("range")
         || crate::csek::has_headers(headers, crate::csek::DESTINATION_PREFIX).is_some()

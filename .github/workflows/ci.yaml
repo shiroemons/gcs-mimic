@@ -4,7 +4,7 @@ on:
   # the same scripts/check-docs.sh that check.sh runs here. Release workflows
   # call this workflow directly, which these filters do not affect.
   push:
-    branches: ['**']
+    branches: [main]
     paths-ignore: ['**/*.md', 'docs/**']
   pull_request:
     paths-ignore: ['**/*.md', 'docs/**']
@@ -49,10 +49,16 @@ jobs:
           key: ${{ matrix.toolchain }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: bash scripts/test-check.sh
+      - name: Verify pinned gRPC protobuf sources
+        run: sha256sum --check src/grpc/proto/SHA256SUMS
+      - run: bash scripts/test-grpc-codegen.sh
       - run: bash sdk-scorecard/test-score.sh
       # The cross job type-checks the other targets in parallel; serially they
       # added about 3.5 minutes to this job.
-      - run: bash scripts/check.sh
+      # RUSTUP_TOOLCHAIN=stable makes Clippy count decreases warnings; the
+      # exact pinned compiler requires baseline reductions to be recorded.
+      - name: Check with pinned or current-stable lint counts
+        run: bash scripts/check.sh
         env:
           GCSM_CHECK_CROSS: '0'
   cross:
@@ -78,7 +84,8 @@ jobs:
           key: cross-${{ matrix.toolchain }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fetch --locked
-      - run: bash scripts/check-cross.sh
+      - name: Cross-check with pinned or current-stable lint counts
+        run: bash scripts/check-cross.sh
   # Runtime behavior differs by OS (socket resets, timing, file APIs); run one
   # target per OS family on every push instead of only at tag time. Release
   # workflows skip it because their test matrix tests every target natively.

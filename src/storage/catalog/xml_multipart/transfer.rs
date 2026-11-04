@@ -51,7 +51,7 @@ impl Catalog {
             let id=blob;
             let mut file=catalog.0.backend.stage(&id).await?;
             let result=async {
-                let (size,md5,crc32c,_)=objects::write_body(&mut file,request.expected,budget,body,cancellation,&catalog).await?;
+                let (size,md5,crc32c,_)=objects::write_stream(&mut file,request.expected,budget,body,cancellation,&catalog).await?;
                 #[cfg(test)]
                 let data_dir=catalog.0.data_dir.clone();
                 let target=lease.upload.target.clone();
@@ -83,7 +83,7 @@ impl Catalog {
                 }
                 maintenance::drain_storage(connection,&backend)?;
                 Ok(())
-            }).await {catalog.multipart_cleanup_failed(&error);}
+            }).await {catalog.multipart_cleanup_failed(error);}
             drop(lease);
             result
         }).await.map_err(object_unavailable)?
@@ -132,7 +132,7 @@ impl Catalog {
                     })
                     .await
                 {
-                    catalog.multipart_cleanup_failed(&cleanup);
+                    catalog.multipart_cleanup_failed(cleanup);
                 }
                 return Err(error);
             }
@@ -178,7 +178,7 @@ impl Catalog {
                 })
                 .await
             {
-                catalog.multipart_cleanup_failed(&error);
+                catalog.multipart_cleanup_failed(error);
             }
             drop(lease);
             match result {

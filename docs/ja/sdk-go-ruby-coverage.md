@@ -122,6 +122,11 @@ SDK スイートに加えて、スイート外の SDK メソッドを呼ぶ一�
 | includeTrailingDelimiter・fields 指定 | ✅ | — | Ruby は未確認 |
 | includeFoldersAsPrefixes | — | — | delimiter=/ のときだけ受け付ける。ローカルのバケットはフォルダーを持たないため、一覧は指定なしと同じ。gcloud storage ls が送る。Go・Ruby の SDK テストでは未確認 |
 
+2026-11-04追記: エミュレーターの `matchGlob` 一覧は、一致しない候補を1ページで4096件まで調べます。
+上限に達すると空ページにも継続トークンを返すため、`nextPageToken` がなくなるまで続けてください。
+[公式仕様](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list)も空の継続ページを認めていますが、この走査上限はローカルの選択です。
+検証は[一覧の契約](../en/slices/sdk-list-glob.md)に記載したRustテストで行い、SDKスイートは再実行していません。
+
 ### 署名・認証・通信
 
 | 領域 | Go | Ruby | 備考 |

@@ -76,6 +76,32 @@ pub(crate) struct SyncFingerprint {
     pub crc32c: u32,
     pub racy: bool,
 }
+impl SyncFingerprint {
+    pub(crate) fn matches_identity(&self, identity: crate::fsutil::FileIdentity) -> bool {
+        self.size == identity.size
+            && self.inode == identity.inode
+            && self.mtime_ns == identity.modified_ns
+            && self.ctime_ns == identity.changed_ns
+    }
+    pub(crate) fn observed(
+        identity: crate::fsutil::FileIdentity,
+        hashes: crate::hashing::Hashes,
+        observed_ns: i128,
+    ) -> Self {
+        // Two seconds covers the coarsest supported HFS+/FAT timestamp granularity.
+        let racy = observed_ns.saturating_sub(identity.modified_ns.max(identity.changed_ns))
+            < 2_000_000_000;
+        Self {
+            size: identity.size,
+            mtime_ns: identity.modified_ns,
+            ctime_ns: identity.changed_ns,
+            inode: identity.inode,
+            md5: hashes.md5,
+            crc32c: hashes.crc32c,
+            racy,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyncBinding {
@@ -177,10 +203,7 @@ pub(super) fn matching(
     bucket: &str,
 ) -> Result<(), ObjectError> {
     if let Some(scope) = &binding.control {
-        scope.authorize(connection).map_err(|error| match error {
-            CatalogError::Forbidden => ObjectError::Forbidden,
-            error => ObjectError::from(error),
-        })?;
+        scope.authorize(connection).map_err(ObjectError::from)?;
     }
     let incarnation: Option<String> = bucket_incarnation(connection, bucket).optional()?;
     if binding.catalog != catalog_id(connection)?
@@ -273,7 +296,7 @@ const SELECT_BY_PATH: &str = concat!(
 const SELECT_PAGE: &str = concat!(
     "SELECT ",
     sync_columns!(),
-    " FROM sync_objects INDEXED BY sync_objects_path WHERE path > ?1 AND bucket = ?2 AND incarnation = ?3 ORDER BY path LIMIT ?4"
+    " FROM sync_objects INDEXED BY sync_objects_path WHERE path > ?1 AND bucket = ?2 AND incarnation = ?3 AND path < ?5 ORDER BY path LIMIT ?4"
 );
 const SELECT_BY_NAME: &str = concat!(
     "SELECT ",
@@ -390,6 +413,7 @@ impl SyncState {
         if !(1..=MAX_PAGE).contains(&limit) || (!after.is_empty() && !valid_path(&after)) {
             return Err(AdminError::Invalid("invalid synchronization page".into()));
         }
+        let after = after.max(format!("{}/", binding.bucket));
         self.0
             .run_admin_with_error(move |connection| {
                 matching(connection, &binding, &binding.bucket)?;
@@ -397,7 +421,13 @@ impl SyncState {
                     .prepare_cached(SELECT_PAGE)
                     .map_err(super::objects::object_unavailable)?
                     .query_map(
-                        params![after, binding.bucket, binding.incarnation, limit],
+                        params![
+                            after,
+                            binding.bucket,
+                            binding.incarnation,
+                            limit,
+                            format!("{}0", binding.bucket)
+                        ],
                         read_record,
                     )
                     .map_err(super::objects::object_unavailable)?

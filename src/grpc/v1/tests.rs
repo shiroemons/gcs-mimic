@@ -9,6 +9,32 @@ use crate::{
 };
 use std::time::{Duration, UNIX_EPOCH};
 
+#[test]
+fn typed_object_metadata_keeps_replace_resets_and_patch_omissions() {
+    for mode in [json::WriteMode::Patch, json::WriteMode::Replace] {
+        let update = metadata(pb::Object::default(), mode).unwrap();
+        assert_eq!(update.replace, mode == json::WriteMode::Replace);
+        assert_eq!(
+            update.content_type,
+            (mode == json::WriteMode::Replace).then_some(None)
+        );
+        assert_eq!(update.metadata.is_some(), mode == json::WriteMode::Replace);
+        assert_eq!(update.event_based_hold, None);
+        assert_eq!(update.temporary_hold, None);
+    }
+    let update = metadata(
+        pb::Object {
+            event_based_hold: Some(false),
+            temporary_hold: true,
+            ..Default::default()
+        },
+        json::WriteMode::Patch,
+    )
+    .unwrap();
+    assert_eq!(update.event_based_hold, Some(false));
+    assert_eq!(update.temporary_hold, Some(true));
+}
+
 fn bucket(name: &str, project: &str) -> BucketRecord {
     BucketRecord {
         time_created: UNIX_EPOCH + Duration::from_secs(1),
@@ -59,7 +85,7 @@ fn names(response: &pb::ListBucketsResponse) -> Vec<&str> {
 }
 
 #[tokio::test]
-async fn nonempty_bucket_deletion_keeps_each_grpc_versions_wording() {
+async fn nonempty_bucket_deletion_uses_the_shared_grpc_status() {
     use crate::grpc::generated::google::storage::v2::{
         self as v2_pb, storage_server::Storage as V2Storage,
     };
@@ -88,7 +114,7 @@ async fn nonempty_bucket_deletion_keeps_each_grpc_versions_wording() {
     );
     assert_eq!(
         legacy.message(),
-        "Bucket is not empty; delete objects and versions first"
+        "Bucket is not empty; delete its objects and versions before deleting the bucket"
     );
     let modern = fixtures::storage_with(storage.state.clone(), 1024);
     let modern = assert_code(

@@ -6,6 +6,9 @@
 
 use super::{Error, ObjectPath, XmlCode, put::storage_error};
 use crate::server::RequestBody as Incoming;
+use crate::server::upload_drive::{
+    CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
+};
 use crate::{
     auth::{
         self, Caller,
@@ -27,10 +30,8 @@ use hyper::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::mpsc;
 
 mod policy;
 use policy::Version;
@@ -456,7 +457,8 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
     } else {
         key.clone()
     };
-    json::validate_object_name(&name)?;
+    crate::object::name::validate(&name)
+        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
     let success = success_action(fields)?;
     let mut selected = HeaderMap::new();
     if let Some(value) = fields.get("content-type") {
@@ -640,7 +642,7 @@ pub(crate) async fn respond(
         ))
         .await
         .map_err(|error| storage_error(error, caller))?;
-    let (sender, receiver) = mpsc::channel(2);
+    let (sender, receiver) = upload_channel();
     let upload = state.catalog.put_object_prechecked(
         ObjectUpload {
             bucket: &bucket,
@@ -674,7 +676,8 @@ async fn authenticate<'a>(
     let Some(policy) = fields.get("policy") else {
         return state
             .auth
-            .authenticate_at(headers, None, state.clock.as_ref())
+            .authenticate_request(headers, None, state.clock.as_ref())
+            .await
             .map_err(|error| Error::from(JsonError::from(error)));
     };
     if headers.contains_key("authorization") {
@@ -721,7 +724,7 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
     parser: &mut json::Multipart<B>,
     ctx: ObjectCtx<'_>,
     upload: impl std::future::Future<Output = Result<ObjectRecord, ObjectError>>,
-    sender: mpsc::Sender<Result<UploadChunk, io::Error>>,
+    sender: UploadSender,
     limits: FileLimits,
 ) -> Result<ObjectRecord, Error> {
     let FileLimits {
@@ -730,7 +733,6 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
     } = limits;
     let caller = ctx.caller;
     let max_bytes = ctx.config.max_object_bytes;
-    tokio::pin!(upload);
     let streaming = async {
         let mut size = 0_u64;
         while let Some(bytes) = parser.next_chunk().await? {
@@ -745,8 +747,8 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
                 ));
             }
             if sender.send(Ok(UploadChunk::Data(bytes))).await.is_err() {
-                // The catalog's own failure is reported by the select below.
-                return Ok(());
+                // The upload driver preserves the catalog's original failure.
+                return Ok(UploadEnd::Eof);
             }
         }
         if !parser.closed() {
@@ -766,31 +768,14 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
             ));
         }
         parser.finish().await?;
-        Ok(())
+        Ok(UploadEnd::Eof)
     };
-    let record = tokio::select! {
-        result = &mut upload => result.map_err(|error| storage_error(error, caller))?,
-        result = streaming => {
-            if let Err(error) = result {
-                let _ = sender.send(Err(io::Error::other(error.message.clone()))).await;
-                drop(sender);
-                // Await cleanup so a rejected form never leaves a partial object behind.
-                match ctx.await_catalog(upload).await {
-                    Ok(_) | Err(ObjectError::BodyAborted(_)) => {}
-                    Err(storage) => return Err(storage_error(storage, caller)),
-                }
-                return Err(error);
-            }
-            ctx.await_catalog(async {
-                let _ = sender.send(Ok(UploadChunk::End)).await;
-                drop(sender);
-                upload.await
-            })
-            .await
-            .map_err(|error| storage_error(error, caller))?
-        }
-    };
-    Ok(record)
+    drive_upload(CatalogWait::Upload(ctx), upload, &sender, streaming)
+        .await
+        .map_err(|error| match error {
+            DriveError::Upload(error) => storage_error(error, caller),
+            DriveError::Producer(error) => error,
+        })
 }
 
 fn success_response(

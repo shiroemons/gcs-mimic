@@ -3,18 +3,47 @@
 use super::{RequestBody, RequestCtx, ResponseBody, boxed};
 use crate::json::{self, JsonError};
 use http_body_util::{BodyExt, Full};
+use hyper::body::{Frame, SizeHint};
 use hyper::{
     HeaderMap, Method, Request, Response, StatusCode,
     body::{Body, Bytes},
     header::{CONTENT_TYPE, HeaderValue},
 };
+use std::{
+    convert::Infallible,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tokio::sync::Semaphore;
+
+struct BatchBody {
+    body: Full<Bytes>,
+    _admission: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl Body for BatchBody {
+    type Data = Bytes;
+    type Error = Infallible;
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
+        Pin::new(&mut self.body).poll_frame(cx)
+    }
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+    fn size_hint(&self) -> SizeHint {
+        self.body.size_hint()
+    }
+}
 
 mod parse;
 
 const REQUEST_LIMIT: usize = 10_000_000;
 const RESPONSE_LIMIT: usize = 10_000_000;
 const PART_RESPONSE_LIMIT: usize = 512 * 1024;
+pub(super) const BATCH_CONCURRENCY: usize = 2;
 const BOUNDARY: &str = "gcs_mimic_batch_response";
 const RESPONSE_CONTENT_TYPE: HeaderValue =
     HeaderValue::from_static("multipart/mixed; boundary=gcs_mimic_batch_response");
@@ -34,15 +63,15 @@ pub(super) async fn respond(
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
     match execute(request, ctx).await {
-        Ok(response) => boxed(response),
+        Ok(response) => response.map(|body| body.map_err(|never| match never {}).boxed_unsync()),
         Err(error) => boxed(error.into_response()),
     }
 }
 
-async fn execute(
-    request: Request<RequestBody>,
+async fn execute<B: Body<Data = Bytes> + Unpin>(
+    request: Request<B>,
     ctx: RequestCtx<'_>,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<BatchBody>, JsonError> {
     if request.method() != Method::POST {
         return Err(invalid("Batch requests require POST /batch/storage/v1"));
     }
@@ -50,6 +79,16 @@ async fn execute(
     if request.headers().contains_key("content-encoding") {
         return Err(invalid("Compressed batch envelopes are unsupported"));
     }
+    let deadline = ctx.start_object_deadline(super::DeadlineWatch::CatalogOnly);
+    let admission =
+        tokio::time::timeout_at(deadline, ctx.state.pools.batches.clone().acquire_owned())
+            .await
+            .map_err(|_| {
+                JsonError::service_unavailable(
+                    "Timed out waiting for batch capacity; retry after an active response finishes",
+                )
+            })?
+            .map_err(|_| JsonError::service_unavailable("Batch admission is unavailable"))?;
     let (outer, mut body) = request.into_parts();
     if body.size_hint().lower() >= REQUEST_LIMIT as u64 {
         return Err(too_large());
@@ -98,7 +137,10 @@ async fn execute(
         append_response(&mut output, part.id.as_deref(), response, cap).await;
     }
     output.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
-    let mut response = Response::new(Full::new(Bytes::from(output)));
+    let mut response = Response::new(BatchBody {
+        body: Full::new(Bytes::from(output)),
+        _admission: admission,
+    });
     response
         .headers_mut()
         .insert(CONTENT_TYPE, RESPONSE_CONTENT_TYPE);
@@ -217,6 +259,121 @@ async fn append_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn batch_admission_bounds_envelopes_before_reading_the_body() {
+        use crate::{
+            auth::Auth,
+            config::Config,
+            server::{ObjectActivity, State},
+            storage::Catalog,
+        };
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        use std::time::Duration;
+        use tonic::codegen::tokio_stream::StreamExt;
+        let dir = crate::test_support::TestDir::new();
+        let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
+        let config = Config::default();
+        let endpoints = config
+            .runtime_endpoints
+            .snapshot(&config, "http://localhost")
+            .unwrap();
+        let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
+        let ctx = RequestCtx {
+            state: &state,
+            config: &config,
+            endpoints: &endpoints,
+            activity: &activity,
+        };
+        let request = |read: Arc<AtomicBool>| {
+            let frame = Ok::<_, Infallible>(Frame::data(Bytes::from_static(
+                b"--test\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\nGET /storage/v1/b?project=local HTTP/1.1\r\n\r\n\r\n--test--\r\n",
+            )));
+            let stream = tonic::codegen::tokio_stream::iter([frame]).map(move |frame| {
+                read.store(true, Ordering::Release);
+                frame
+            });
+            Request::builder()
+                .method("POST")
+                .uri("/batch/storage/v1")
+                .header("content-type", "multipart/mixed; boundary=test")
+                .body(http_body_util::StreamBody::new(stream))
+                .unwrap()
+        };
+        let permits = state
+            .pools
+            .batches
+            .clone()
+            .acquire_many_owned(2)
+            .await
+            .unwrap();
+        let read = Arc::new(AtomicBool::new(false));
+        let waiting = execute(request(read.clone()), ctx);
+        tokio::pin!(waiting);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), &mut waiting)
+                .await
+                .is_err()
+        );
+        assert!(!read.load(Ordering::Acquire));
+        drop(permits);
+        let response = waiting.await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(read.load(Ordering::Acquire));
+        drop(response);
+
+        let short = Config {
+            object_request_timeout_ms: 1,
+            ..config.clone()
+        };
+        let permits = state
+            .pools
+            .batches
+            .clone()
+            .acquire_many_owned(2)
+            .await
+            .unwrap();
+        let read = Arc::new(AtomicBool::new(false));
+        assert_eq!(
+            execute(
+                request(read.clone()),
+                RequestCtx {
+                    config: &short,
+                    ..ctx
+                }
+            )
+            .await
+            .err()
+            .unwrap()
+            .status,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert!(!read.load(Ordering::Acquire));
+        drop(permits);
+        state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn batch_response_holds_capacity_until_consumed_or_dropped() {
+        let pool = std::sync::Arc::new(Semaphore::new(1));
+        for consume in [true, false] {
+            let admission = pool.clone().acquire_owned().await.unwrap();
+            let body = BatchBody {
+                body: Full::new(Bytes::from_static(b"response")),
+                _admission: admission,
+            };
+            assert!(pool.clone().try_acquire_owned().is_err());
+            if consume {
+                assert_eq!(body.collect().await.unwrap().to_bytes(), b"response"[..]);
+            } else {
+                drop(body);
+            }
+            assert_eq!(pool.available_permits(), 1);
+        }
+    }
 
     #[test]
     fn response_content_type_matches_the_body_boundary() {

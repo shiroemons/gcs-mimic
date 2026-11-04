@@ -109,6 +109,7 @@ fn parse_metadata(
             content_language: string(body, "contentLanguage")?,
             cache_control: string(body, "cacheControl")?,
             metadata,
+            metadata_mode: crate::object::MapMode::Merge,
             temporary_hold: hold(body, "temporaryHold"),
             custom_time: string(body, "customTime")?,
             event_based_hold: hold(body, "eventBasedHold"),

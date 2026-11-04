@@ -9,13 +9,15 @@ pub enum SeedContentType {
 }
 
 impl FromStr for SeedContentType {
-    type Err = String;
+    type Err = crate::config::InvalidChoice;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "octet-stream" => Ok(Self::OctetStream),
             "extension" => Ok(Self::Extension),
-            _ => Err("seed_content_type must be octet-stream or extension".into()),
+            _ => Err(crate::config::InvalidChoice(
+                "seed_content_type must be octet-stream or extension",
+            )),
         }
     }
 }

@@ -10,6 +10,7 @@ use crate::{
 };
 use ring::hmac;
 use serde_json::json;
+use std::io;
 use std::time::Duration;
 
 const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-private.pem");

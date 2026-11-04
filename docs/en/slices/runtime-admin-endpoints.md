@@ -23,7 +23,7 @@ claims or exact reproduction of the reference's unrestricted handler.
 ## Readiness and Testcontainers
 
 `GET` and `HEAD /_internal/healthcheck` use the same readiness test as
-`/_internal/ready`: recovery and seeding must have completed, the catalog must
+its compatibility alias `/_internal/ready`: recovery and seeding must have completed, the catalog must
 remain healthy, background tasks must be running, and shutdown must not have
 revoked readiness. `/_internal/health` keeps its existing liveness behavior.
 Probe bodies return 413 and unsupported methods return 405 with `Allow`.
@@ -53,10 +53,15 @@ gcs-mimic serve --scheme http --admin-enabled true
 `GCS_MIMIC_ADMIN_ENABLED=true` and JSON `"admin_enabled": true` provide the
 same setting with CLI > environment > JSON > default precedence. It does not
 change authentication mode. A disabled route returns 404. In strict mode the
-caller additionally needs `storage.buckets.update` in `seed_project`; anonymous
-requests receive 401 and a registered reader without that permission gets 403.
+caller must match `admin_principal`; startup requires that setting when strict
+administration is enabled. Anonymous requests receive 401 and every other
+principal gets 403, including one with project `roles/storage.admin`.
 Permissive mode permits the enabled operation without a bearer token in either
 compatibility profile. This is a local management permission convention.
+
+An explicit `admin_principal` requires strict mode and enabled administration.
+It uses the registry ID's visible-ASCII format and must name a loaded identity;
+invalid combinations and unknown IDs fail before catalog creation or readiness.
 
 After discovering a dynamically mapped host port, update the advertised API
 endpoint and optional public authority before clients initiate uploads:
@@ -67,8 +72,8 @@ curl --fail -X PUT -H 'Content-Type: application/json' \
   http://localhost:49152/_internal/config
 ```
 
-For strict mode add the registered administrative bearer token and configure
-its project grants to match `seed_project`. Port 49152 is an example; use the
+For strict mode set `--admin-principal ID` and use that registered principal's
+bearer token. Port 49152 is an example; use the
 actual mapped port. The successful response is an empty HTTP 200.
 
 - `externalUrl` is an absolute HTTP(S) base URL. An optional proxy path is preserved and trailing slashes are normalized. Credentials, query, fragment, malformed authorities and port zero are rejected. Host and forwarded headers never select this value.
@@ -81,6 +86,11 @@ actual mapped port. The successful response is an empty HTTP 200.
 - Listener addresses, TLS identities, IAM/ACL/PAP state and stored objects are unchanged. Strict signatures still bind the raw original method, Host, path and headers. Constructing or changing an endpoint grants no access.
 - Existing resumable session paths remain valid through any reachable endpoint; future initiations advertise the new endpoint. Completion responses use their own request's snapshot. A proxy prefix requires the proxy to strip that prefix before forwarding.
 - Changes are process-local. Restart restores CLI/environment/file settings and preserves stored objects. This slice does not persist administrative URL changes.
+
+Management requests with Origin or Sec-Fetch-Site other than `none` return 403;
+unapproved public DNS hosts return 421. Tools keep the existing content types
+and body formats. Additional names use `admin_allowed_hosts`; see the
+[HTTP boundary](http-adapter-boundaries.md).
 
 ## Acceptance and verification
 

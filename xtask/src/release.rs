@@ -43,7 +43,7 @@ fn grpc_rust_supplied(package: &Value) -> Result<bool> {
     Ok(true)
 }
 
-fn capture(command: &mut Command) -> Result<String> {
+pub(crate) fn capture(command: &mut Command) -> Result<String> {
     let output = command.output().map_err(|e| e.to_string())?;
     if !output.status.success() {
         return Err(format!(

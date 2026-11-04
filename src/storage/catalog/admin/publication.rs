@@ -26,6 +26,22 @@ thread_local! {
 }
 
 type FileJob = Box<dyn FnOnce() + Send>;
+thread_local! { static IN_FILE_JOB: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+#[derive(Debug)]
+struct NestedFileJob;
+impl std::fmt::Display for NestedFileJob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("file worker job started another file worker job")
+    }
+}
+impl std::error::Error for NestedFileJob {}
+struct InFileJob;
+impl Drop for InFileJob {
+    fn drop(&mut self) {
+        IN_FILE_JOB.set(false);
+    }
+}
 
 const FILE_WORKER: &str = "publication-file";
 
@@ -74,6 +90,9 @@ impl FileWorkers {
         &self,
         job: impl FnOnce() -> Result<T, E> + Send + 'static,
     ) -> Result<T, E> {
+        if IN_FILE_JOB.get() {
+            return Err(AdminError::backend(NestedFileJob).into());
+        }
         let permit = self
             .slots
             .clone()
@@ -84,6 +103,8 @@ impl FileWorkers {
         self.sender
             .try_send(Box::new(move || {
                 let _permit = permit;
+                IN_FILE_JOB.set(true);
+                let _mark = InFileJob;
                 // A panicking job must neither end its worker, which would shrink the pool for
                 // every later job, nor leave its caller without a reply.
                 let result = crate::task::catch_job(FILE_WORKER, job)
@@ -229,110 +250,134 @@ fn changed(before: fsutil::FileIdentity, after: fsutil::FileIdentity) -> Result<
     }
 }
 
+#[derive(Debug)]
+enum StageFailure {
+    NotCreated(AdminError),
+    Created(AdminError),
+}
+
 fn stage_file(
     source: &File,
     stage: &Path,
     expected: ExpectedHashes,
     max_bytes: u64,
-) -> Result<(u64, crate::hashing::Hashes), AdminError> {
-    if !source.metadata()?.is_file() {
-        return Err(AdminError::Invalid("expected a regular source file".into()));
-    }
-    let before = fsutil::stat_identity(source).map_err(fs_error)?;
-    if before.size > max_bytes {
-        return Err(AdminError::TooLarge);
-    }
-    let parent = stage
-        .parent()
-        .ok_or_else(|| AdminError::Invalid("missing staging directory".into()))?;
-    let name = stage
-        .file_name()
-        .ok_or_else(|| AdminError::Invalid("missing staging name".into()))?;
-    let mut hasher = Hasher::default();
-    let mut size = 0u64;
-    let mut buffer = [0; 64 * 1024];
-    let clone = || fsutil::clone_into(source, &fsutil::open_directory(parent)?, name);
-    #[cfg(test)]
-    let cloned = if FORCE_COPY.get() {
-        Err(fsutil::FsError::Unsupported)
-    } else {
-        clone()
-    };
-    #[cfg(not(test))]
-    let cloned = clone();
-    let cloned = match cloned {
-        Ok(()) => true,
-        Err(fsutil::FsError::Unsupported) => false,
-        Err(error) => return Err(fs_error(error)),
-    };
-    let mut target = if cloned {
-        File::open(stage)?
-    } else {
-        OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(stage)?
-    };
-    loop {
-        let count = if cloned {
-            target.read(&mut buffer)
-        } else {
-            fsutil::read_at(source, &mut buffer, size)
-        };
-        let count = match count {
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            result => result?,
-        };
-        if count == 0 {
-            break;
+) -> Result<(u64, crate::hashing::Hashes), StageFailure> {
+    let mut created = false;
+    let result = (|| {
+        if !source.metadata()?.is_file() {
+            return Err(AdminError::Invalid("expected a regular source file".into()));
         }
-        size = size.checked_add(count as u64).ok_or(AdminError::TooLarge)?;
-        if size > max_bytes {
+        let before = fsutil::stat_identity(source).map_err(fs_error)?;
+        if before.size > max_bytes {
             return Err(AdminError::TooLarge);
         }
-        if !cloned {
-            #[cfg(test)]
-            super::super::fault::hit(
-                stage
-                    .parent()
-                    .and_then(Path::parent)
-                    .ok_or_else(|| AdminError::Invalid("missing data directory".into()))?,
-                super::super::fault::Step::BodyWrite,
-            )
-            .map_err(objects_error)?;
-            target.write_all(&buffer[..count])?;
-        }
-        hasher.update(&buffer[..count]);
+        let parent = stage
+            .parent()
+            .ok_or_else(|| AdminError::Invalid("missing staging directory".into()))?;
+        let name = stage
+            .file_name()
+            .ok_or_else(|| AdminError::Invalid("missing staging name".into()))?;
+        let mut hasher = Hasher::default();
+        let mut size = 0u64;
+        let mut buffer = [0; 64 * 1024];
+        let clone = || fsutil::clone_into(source, &fsutil::open_directory(parent)?, name);
         #[cfg(test)]
-        COPY_HOOK.with_borrow_mut(|hook| {
-            if let Some(hook) = hook.take() {
-                hook();
+        let cloned = if FORCE_COPY.get() {
+            Err(fsutil::CloneFailure::NotCreated(
+                fsutil::FsError::Unsupported,
+            ))
+        } else {
+            clone()
+        };
+        #[cfg(not(test))]
+        let cloned = clone();
+        let cloned = match cloned {
+            Ok(()) => true,
+            Err(fsutil::CloneFailure::NotCreated(fsutil::FsError::Unsupported)) => false,
+            Err(fsutil::CloneFailure::NotCreated(error)) => return Err(fs_error(error)),
+            Err(fsutil::CloneFailure::Created(error)) => {
+                created = true;
+                return Err(fs_error(error));
             }
-        });
-    }
-    #[cfg(test)]
-    let data_dir = stage
-        .parent()
-        .and_then(Path::parent)
-        .ok_or_else(|| AdminError::Invalid("missing data directory".into()))?;
-    #[cfg(test)]
-    super::super::fault::hit(data_dir, super::super::fault::Step::BodyFlush)
-        .map_err(objects_error)?;
-    target.flush()?;
-    #[cfg(test)]
-    super::super::fault::hit(data_dir, super::super::fault::Step::BodySync)
-        .map_err(objects_error)?;
-    target.sync_all()?;
-    #[cfg(test)]
-    super::super::fault::file_synced(data_dir, &target.metadata()?);
-    changed(before, fsutil::stat_identity(source).map_err(fs_error)?)?;
-    let hashes = hasher.finish();
-    if expected.md5.is_some_and(|md5| md5 != hashes.md5)
-        || expected.crc32c.is_some_and(|crc| crc != hashes.crc32c)
-    {
-        return Err(AdminError::Checksum);
-    }
-    Ok((size, hashes))
+        };
+        let mut target = if cloned {
+            created = true;
+            File::open(stage)?
+        } else {
+            OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(stage)?
+        };
+        created = true;
+        loop {
+            let count = if cloned {
+                target.read(&mut buffer)
+            } else {
+                fsutil::read_at(source, &mut buffer, size)
+            };
+            let count = match count {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                result => result?,
+            };
+            if count == 0 {
+                break;
+            }
+            size = size.checked_add(count as u64).ok_or(AdminError::TooLarge)?;
+            if size > max_bytes {
+                return Err(AdminError::TooLarge);
+            }
+            if !cloned {
+                #[cfg(test)]
+                super::super::fault::hit(
+                    stage
+                        .parent()
+                        .and_then(Path::parent)
+                        .ok_or_else(|| AdminError::Invalid("missing data directory".into()))?,
+                    super::super::fault::Step::BodyWrite,
+                )
+                .map_err(objects_error)?;
+                target.write_all(&buffer[..count])?;
+            }
+            hasher.update(&buffer[..count]);
+            #[cfg(test)]
+            COPY_HOOK.with_borrow_mut(|hook| {
+                if let Some(hook) = hook.take() {
+                    hook();
+                }
+            });
+        }
+        #[cfg(test)]
+        let data_dir = stage
+            .parent()
+            .and_then(Path::parent)
+            .ok_or_else(|| AdminError::Invalid("missing data directory".into()))?;
+        #[cfg(test)]
+        super::super::fault::hit(data_dir, super::super::fault::Step::BodyFlush)
+            .map_err(objects_error)?;
+        target.flush()?;
+        #[cfg(test)]
+        super::super::fault::hit(data_dir, super::super::fault::Step::BodySync)
+            .map_err(objects_error)?;
+        target.sync_all()?;
+        #[cfg(test)]
+        super::super::fault::file_synced(data_dir, &target.metadata()?);
+        changed(before, fsutil::stat_identity(source).map_err(fs_error)?)?;
+        let hashes = hasher.finish();
+        if expected.md5.is_some_and(|md5| md5 != hashes.md5)
+            || expected.crc32c.is_some_and(|crc| crc != hashes.crc32c)
+        {
+            return Err(AdminError::Checksum);
+        }
+        Ok((size, hashes))
+    })();
+    result.map_err(|error| {
+        if created {
+            StageFailure::Created(error)
+        } else {
+            StageFailure::NotCreated(error)
+        }
+    })
 }
 
 impl super::super::BlobBackend {
@@ -343,9 +388,10 @@ impl super::super::BlobBackend {
         id: BlobId,
         expected: ExpectedHashes,
         max_bytes: u64,
-    ) -> Result<Result<(u64, crate::hashing::Hashes), AdminError>, AdminError> {
+    ) -> Result<Result<(u64, crate::hashing::Hashes), StageFailure>, AdminError> {
         match self {
-            Self::Memory(memory) => Ok(stage_memory(memory, source, id, expected, max_bytes)),
+            Self::Memory(memory) => Ok(stage_memory(memory, source, id, expected, max_bytes)
+                .map_err(StageFailure::NotCreated)),
             Self::Disk(root) => {
                 let stage = id.staging_path(root);
                 if id.blob_path(root).try_exists()? || stage.try_exists()? {
@@ -387,9 +433,9 @@ async fn cleanup(catalog: &Catalog, id: BlobId) -> Result<(), AdminError> {
 }
 
 impl Admin {
-    pub(crate) async fn stage_from_file(
+    pub(crate) async fn stage_from_file<S: std::borrow::Borrow<File> + Send + 'static>(
         &self,
-        source: File,
+        source: S,
         expected: ExpectedHashes,
         max_bytes: u64,
     ) -> Result<StagedObject, AdminError> {
@@ -429,7 +475,7 @@ impl Admin {
             let result = catalog
                 .0
                 .file_workers
-                .run(move || backend.stage_admin_file(&source, id, expected, max_bytes))
+                .run(move || backend.stage_admin_file(source.borrow(), id, expected, max_bytes))
                 .await?;
             handle.id = Some(id);
             match result {
@@ -439,10 +485,11 @@ impl Admin {
                     handle.published = catalog.0.backend.is_memory();
                     Ok(handle)
                 }
-                Err(error) => {
-                    if error == AdminError::Io(io::ErrorKind::AlreadyExists.into()) {
-                        handle.id = None;
-                    }
+                Err(StageFailure::NotCreated(error)) => {
+                    handle.id = None;
+                    Err(error)
+                }
+                Err(StageFailure::Created(error)) => {
                     handle.cleanup().await?;
                     Err(error)
                 }
@@ -814,7 +861,7 @@ fn commit_batch(
 
 fn objects_error_admin(error: AdminError) -> ObjectError {
     match error {
-        AdminError::DiskFull => ObjectError::Io(io::ErrorKind::StorageFull.into()),
+        AdminError::DiskFull(cause) => ObjectError::Io(cause),
         AdminError::Io(cause) => ObjectError::Io(cause),
         AdminError::Corrupt(cause) => ObjectError::Corrupt(cause),
         error => ObjectError::Unavailable(BackendCause::from_error(error)),
@@ -869,6 +916,10 @@ fn publish_entry(
     grant: &AdminGrant,
     clock: &dyn Clock,
 ) -> Result<ObjectRecord, ObjectError> {
+    let now = clock.now();
+    now.duration_since(std::time::UNIX_EPOCH)
+        .map_err(objects_error)?;
+    let micros = super::super::unix_micros(now)?;
     validate_staged_entry(entry)?;
     if let Some(binding) = &entry.staged.sync_resolution {
         super::super::sync_state::conflicts::validate_restore(transaction, binding)?;
@@ -876,15 +927,9 @@ fn publish_entry(
     let access = BucketAccess::Admin(grant.clone());
     let bucket = entry.bucket.as_str();
     let name = entry.name.as_str();
-    let (storage_class, delete_permission) =
-        objects::authorized_bucket(transaction, bucket, &access)?;
-    let storage_class = super::super::bucket_autoclass::object_storage_class(
-        transaction,
-        bucket,
-        entry.request.metadata.storage_class,
-        storage_class,
-    )?;
-    let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(transaction, bucket)?;
+    let (_, delete_permission) = objects::authorized_bucket(transaction, bucket, &access)?;
+    let publication = objects::BucketPublication::load(transaction, bucket)?;
+    let storage_class = publication.storage_class(entry.request.metadata.storage_class);
     let previous = objects::lookup(transaction, bucket, name)?;
     objects::check_publication(
         previous.as_ref(),
@@ -894,7 +939,7 @@ fn publish_entry(
             .map(GenerationCondition::conditions)
             .unwrap_or_default(),
         delete_permission,
-        clock.now(),
+        now,
     )?;
     let staged = &entry.staged;
     if staged.import_identity.is_some()
@@ -918,10 +963,6 @@ fn publish_entry(
         record_staged_state(transaction, staged, &record)?;
         return Ok(record);
     }
-    let now = clock.now();
-    now.duration_since(std::time::UNIX_EPOCH)
-        .map_err(objects_error)?;
-    let micros = super::super::unix_micros(now)?;
     let time = super::super::system_time_micros(micros)?;
     let id = staged
         .id
@@ -930,7 +971,7 @@ fn publish_entry(
     let defaults = objects::PublicationDefaults {
         storage_class,
         time,
-        event_based_hold: staged.import_identity.is_none() && default_hold,
+        event_based_hold: staged.import_identity.is_none() && publication.default_event_hold,
         owner: if staged.import_identity.is_some() {
             None
         } else {
@@ -945,7 +986,7 @@ fn publish_entry(
     let (mut record, _, ()) = objects::publish_in_transaction(
         transaction,
         previous.as_ref(),
-        versioning,
+        &publication,
         objects::NewVersion {
             blob_id: *id,
             assignment: staged
@@ -1030,12 +1071,7 @@ pub(in crate::storage::catalog) fn apply_acl(
             access,
             None,
         )
-        .map_err(|error| match error {
-            CatalogError::Forbidden => ObjectError::Forbidden,
-            CatalogError::PublicAccessPrevention => ObjectError::PublicAccessPrevention,
-            CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
-            error => objects_error(error),
-        })?;
+        .map_err(objects::acl_update_error)?;
     }
     Ok(())
 }

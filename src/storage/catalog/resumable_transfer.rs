@@ -298,30 +298,19 @@ impl Catalog {
             Ok(changed)
         }).await?;
         if changed == 1 {
-            let backend = self.0.backend.clone();
             let blob_id = lease.session.blob_id;
-            let cleanup = self
-                .run_upload(move |connection| {
-                    super::resumable_maintenance::clean_session_storage(
-                        connection, &backend, &blob_id,
-                    )
-                    .map_err(object_unavailable)
-                })
-                .await;
+            let cleanup = self.clean_session_storage(&lease.guard, blob_id).await;
             if let Err(error) = cleanup {
-                *self
-                    .0
-                    .maintenance_error
-                    .lock()
-                    .unwrap_or_else(|poison| poison.into_inner()) = Some(error.to_string());
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
                     "upload_cleanup_deferred",
                     serde_json::json!({"message":format!("invalid upload cleanup failed; maintenance will retry: {error}")}),
                 );
+                self.record_maintenance_error(Some(
+                    crate::storage::failure::BackendCause::from_error(error),
+                ));
             }
         }
-        self.0.maintenance_wake.notify_one();
         Ok(())
     }
 
@@ -359,16 +348,10 @@ impl Catalog {
             move |connection: &mut rusqlite::Connection| -> Result<Value, ResumableError> {
                 let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 check_session_publishable(&transaction, &session, clock.now())?;
-                let (storage_class, delete_permission) =
+                let (_, delete_permission) =
                     authorized_bucket(&transaction, &session.bucket, &options.access)?;
-                let storage_class = super::bucket_autoclass::object_storage_class(
-                    &transaction,
-                    &session.bucket,
-                    options.metadata.storage_class,
-                    storage_class,
-                )?;
-                let (versioning, default_hold) =
-                    Catalog::bucket_settings_in_transaction(&transaction, &session.bucket)?;
+                let bucket = objects::BucketPublication::load(&transaction, &session.bucket)?;
+                let storage_class = bucket.storage_class(options.metadata.storage_class);
                 let previous = lookup(&transaction, &session.bucket, &session.name)?;
                 check_publication(
                     previous.as_ref(),
@@ -384,7 +367,7 @@ impl Catalog {
                 let defaults = objects::PublicationDefaults {
                     storage_class,
                     time,
-                    event_based_hold: default_hold,
+                    event_based_hold: bucket.default_event_hold,
                     owner: Some(super::object_owner::for_publication(
                         &transaction,
                         &session.bucket,
@@ -395,7 +378,7 @@ impl Catalog {
                 let (_, _retired, resource) = objects::publish_in_transaction(
                     &transaction,
                     previous.as_ref(),
-                    versioning,
+                    &bucket,
                     objects::NewVersion {
                         blob_id: session.blob_id,
                         assignment: objects::GenerationAssignment::Automatic,

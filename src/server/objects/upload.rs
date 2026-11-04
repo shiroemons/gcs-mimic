@@ -2,6 +2,9 @@
 
 use super::{Written, idempotency_token};
 use crate::server::RequestBody as Incoming;
+use crate::server::upload_drive::{
+    CatalogWait, UploadEnd, UploadSender, drive_upload, upload_channel,
+};
 use crate::{
     bucket::BucketAccess,
     csek::CustomerKey,
@@ -15,10 +18,7 @@ use hyper::{
     HeaderMap, Request,
     body::{Body, Bytes},
 };
-use std::{future::Future, io};
-use tokio::sync::mpsc;
-
-type ChunkSender = mpsc::Sender<Result<UploadChunk, io::Error>>;
+use std::future::Future;
 
 fn content_length(headers: &HeaderMap) -> Option<u64> {
     headers
@@ -78,7 +78,7 @@ pub(super) async fn insert(
         &mut permit,
     ))
     .await?;
-    let (sender, body) = mpsc::channel(2);
+    let (sender, body) = upload_channel();
     let acl_snapshot = permit.replay_acl_snapshot();
     let upload = ctx.state.catalog.put_object_prechecked(
         ObjectUpload {
@@ -98,23 +98,14 @@ pub(super) async fn insert(
         body,
         permit,
     );
-    tokio::pin!(upload);
-    let record = tokio::select! {
-        result = &mut upload => result?,
-        result = stream_upload(request.into_body(), &sender, max_bytes, ctx.activity, None) => {
-            if let Err(error) = result {
-                if sender.send(Err(io::Error::other(error.to_string()))).await.is_err() {
-                    return Err(upload.await.err().unwrap_or(error).into());
-                }
-                return Err(error.into());
-            }
-            ctx.await_catalog(async {
-                let _ = sender.send(Ok(UploadChunk::End)).await;
-                drop(sender);
-                upload.await
-            }).await?
-        }
+    let producer = async {
+        stream_upload(request.into_body(), &sender, max_bytes, ctx.activity, None)
+            .await
+            .map(|()| UploadEnd::Eof)
     };
+    let record = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
+        .await
+        .map_err(|error| error.into_error::<JsonError>())?;
     Ok(Written {
         value: json::object_resource_keyed(
             &record,
@@ -215,7 +206,7 @@ pub(super) async fn multipart(
     }
     // A part without a type stores none unless the metadata names one.
     let content_type = part_type.unwrap_or_default();
-    let (sender, body) = mpsc::channel(2);
+    let (sender, body) = upload_channel();
     let acl_snapshot = permit.replay_acl_snapshot();
     let upload = catalog.put_object_prechecked(
         ObjectUpload {
@@ -249,11 +240,10 @@ async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
     ctx: ObjectCtx<'_>,
     multipart: &mut json::Multipart<B>,
     upload: impl Future<Output = Result<ObjectRecord, ObjectError>>,
-    sender: ChunkSender,
+    sender: UploadSender,
     expected: ExpectedHashes,
 ) -> Result<ObjectRecord, JsonError> {
     let max_bytes = ctx.config.max_object_bytes;
-    tokio::pin!(upload);
     let streaming = async {
         let mut size = 0_u64;
         while let Some(bytes) = multipart.next_chunk().await? {
@@ -262,35 +252,14 @@ async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
                 .filter(|size| *size <= max_bytes)
                 .ok_or_else(|| JsonError::from(ObjectError::TooLarge))?;
             if sender.send(Ok(UploadChunk::Data(bytes))).await.is_err() {
-                return Ok::<_, JsonError>(expected);
+                return Ok::<_, JsonError>(UploadEnd::EofWithHashes(expected));
             }
         }
         let expected = multipart.checksums(expected).await?;
         multipart.finish().await?;
-        Ok(expected)
+        Ok(UploadEnd::EofWithHashes(expected))
     };
-    let record = tokio::select! {
-        result = &mut upload => result?,
-        result = streaming => {
-            let expected = match result {
-                Ok(expected) => expected,
-                Err(error) => {
-                    let _ = sender.send(Err(io::Error::other(error.to_string()))).await;
-                    drop(sender);
-                    // Await cleanup before returning a framing error to the client.
-                    match ctx.await_catalog(upload).await {
-                        Ok(_) | Err(ObjectError::BodyAborted(_)) => {},
-                        Err(storage_error) => return Err(storage_error.into()),
-                    }
-                    return Err(error);
-                }
-            };
-            ctx.await_catalog(async {
-                let _ = sender.send(Ok(UploadChunk::EndWithHashes(expected))).await;
-                drop(sender);
-                upload.await
-            }).await?
-        }
-    };
-    Ok(record)
+    drive_upload(CatalogWait::Upload(ctx), upload, &sender, streaming)
+        .await
+        .map_err(|error| error.into_error::<JsonError>())
 }

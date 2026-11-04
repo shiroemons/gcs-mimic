@@ -21,11 +21,14 @@ const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait --endpoint http(s):
        gcs-mimic sync resolve --endpoint URL --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
        gcs-mimic sync resolve --endpoint URL --recovery ID --revision REV --target-identity ID --action discard --operation-id ID --confirm-backup-verified ID
 
-Options: --ca-cert PATH, --token-file PATH, --timeout 10s (1ms..60s).
-The numeric --timeout-ms form also accepts 1..60000 (default 10000).
+Options: --ca-cert PATH, --token-file PATH, --timeout Nms|Ns (1ms..60s).
+The numeric --timeout-ms form also accepts 1..60000. Rescan defaults to 30s;
+other controls default to 10s. Explicit timeout values replace these defaults.
 For wait, N is the server's fixed-fence observation budget; the client adds one
-second to receive the result. Deadline (408) and stopped work (409) fail.
-The endpoint must be a local HTTP(S) origin with an explicit port. HTTPS verifies
+second to receive the result. Deadline (408), stopped work (409), and
+SourceChanging (409) when still settling at the wait deadline fail.
+The endpoint must be a loopback or private-network HTTP(S) origin with an explicit port.
+Use HTTPS outside loopback to protect the token. HTTPS verifies
 the embedded development CA or the supplied CA and the endpoint hostname.
 The token file contains one local bearer token (at most 8192 bytes), overriding
 the CLI-only GCS_MIMIC_SYNC_TOKEN environment variable when set.
@@ -122,7 +125,11 @@ impl Options {
         } else {
             values
                 .remove("--timeout-ms")
-                .unwrap_or("10000")
+                .unwrap_or(if command == "rescan" {
+                    "30000"
+                } else {
+                    "10000"
+                })
                 .parse::<u64>()
                 .ok()
                 .filter(|n| (1..=60000).contains(n))
@@ -294,10 +301,7 @@ impl Options {
                     bytes.extend_from_slice(&data);
                 }
             }
-            Ok((
-                status,
-                serde_json::from_slice(&bytes).map_err(io::Error::other)?,
-            ))
+            Ok((status, response_json(status, &bytes)?))
         };
         // Driving both futures locally avoids an unobserved connection task.
         let (_, response) = tokio::try_join!(
@@ -306,6 +310,34 @@ impl Options {
         )?;
         Ok(response)
     }
+}
+
+#[derive(Debug)]
+struct NonJsonResponse {
+    status: StatusCode,
+    cause: serde_json::Error,
+}
+impl std::fmt::Display for NonJsonResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Synchronization endpoint returned HTTP {} with a non-JSON body",
+            self.status
+        )
+    }
+}
+impl std::error::Error for NonJsonResponse {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.cause)
+    }
+}
+fn response_json(status: StatusCode, bytes: &[u8]) -> io::Result<Value> {
+    serde_json::from_slice(bytes).map_err(|cause| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            NonJsonResponse { status, cause },
+        )
+    })
 }
 
 fn option_values(args: &[String]) -> io::Result<BTreeMap<&str, &str>> {

@@ -1,7 +1,8 @@
-//! Zero-tolerance code-quality gate for the server's production code.
+//! Production code-quality gate with zero-tolerance and per-file ratcheted rules.
 //!
 //! `cargo xtask lint` runs Clippy on the server library and binaries with [`CLIPPY_LINTS`] and
-//! applies the text rules to production files. Any finding fails the gate. The only exceptions
+//! applies the text rules to production files. New findings fail; ratcheted rules may keep only
+//! their recorded per-file counts. The other exceptions
 //! are reasoned suppressions (`#[expect(lint, reason = "..")]` for Clippy and rustc lints,
 //! `// xtask-lint: allow(text::..) -- reason` for text rules) and the one shared error-mapping
 //! helper in [`SHARED_HELPER_FILE`]. `--target <triple>` repeats the Clippy pass for another
@@ -9,6 +10,8 @@
 //! cannot express; prefer a Clippy lint or `clippy.toml` entry for anything new.
 
 use serde_json::Value;
+
+mod ratchet;
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
@@ -36,6 +39,16 @@ pub const CLIPPY_LINTS: [&str; 9] = [
     "clippy::disallowed_methods",
 ];
 
+pub const RATCHETED_CLIPPY_LINTS: [&str; 4] = [
+    "clippy::indexing_slicing",
+    "clippy::string_slice",
+    "clippy::cast_possible_truncation",
+    "clippy::cast_sign_loss",
+];
+
+const STATIC_STR_ERROR: &str = "text::static_str_error";
+pub const RATCHETED_TEXT_RULES: [&str; 1] = [STATIC_STR_ERROR];
+
 const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 
 /// The only file that may define `fn unavailable`, the shared storage error mapping.
@@ -52,7 +65,7 @@ const STRINGIFIED_ERROR: &str = "text::stringified_error";
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 8] = [
+pub const TEXT_RULES: [&str; 9] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
@@ -61,6 +74,7 @@ pub const TEXT_RULES: [&str; 8] = [
     SYNC_WITHOUT_FLUSH,
     STRING_ERROR_VARIANT,
     STRINGIFIED_ERROR,
+    STATIC_STR_ERROR,
 ];
 
 const SUPPRESSION_MARKER: &str = "xtask-lint:";
@@ -103,8 +117,10 @@ const STRING_TYPES: [&str; 3] = ["String", "std::string::String", "alloc::string
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// Fail on any production finding.
+    /// Enforce zero-tolerance rules and the host ratchet.
     Gate,
+    /// Print shared text counts, or Clippy counts for a target, without writing a file.
+    Baseline(Option<String>),
     /// Run only the Clippy pass for another target triple; text rules are target-independent
     /// and already ran with the host gate.
     Target(String),
@@ -157,10 +173,58 @@ impl Scan {
 pub fn mode(args: &[String]) -> Option<Mode> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         [] => Some(Mode::Gate),
-        ["--target", triple] if !triple.is_empty() && !triple.starts_with('-') => {
-            Some(Mode::Target(triple.to_owned()))
+        ["--baseline"] => Some(Mode::Baseline(None)),
+        ["--baseline", "--target", triple] if valid_target(triple) => {
+            Some(Mode::Baseline(Some(triple.to_owned())))
         }
+        ["--target", triple] if valid_target(triple) => Some(Mode::Target(triple.to_owned())),
         _ => None,
+    }
+}
+
+fn valid_target(triple: &str) -> bool {
+    !triple.is_empty()
+        && !triple.starts_with('-')
+        && triple
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+struct Compiler {
+    host: String,
+    stale: ratchet::StaleCounts,
+}
+
+impl Compiler {
+    fn load(root: &Path) -> Result<Self> {
+        let version = crate::release::capture(Command::new("rustc").current_dir(root).arg("-vV"))?;
+        let manifest = fs::read_to_string(root.join("rust-toolchain.toml"))
+            .map_err(|error| format!("rust-toolchain.toml: {error}"))?;
+        let pin = crate::dependencies::scalar(&manifest, "channel")?;
+        Self::parse(&version, &pin, env::var("RUSTUP_TOOLCHAIN").ok().as_deref())
+    }
+
+    fn parse(version: &str, pin: &str, toolchain: Option<&str>) -> Result<Self> {
+        let field = |name: &str| {
+            version
+                .lines()
+                .find_map(|line| line.strip_prefix(name))
+                .ok_or_else(|| format!("rustc -vV did not report {name}"))
+        };
+        let host = field("host: ")?;
+        if !valid_target(host) {
+            return Err("rustc -vV reported an invalid host triple".into());
+        }
+        let current_stable = toolchain.is_some_and(|name| name.split('-').next() == Some("stable"));
+        let stale = if field("release: ")? == pin && !current_stable {
+            ratchet::StaleCounts::Reject
+        } else {
+            ratchet::StaleCounts::Warn
+        };
+        Ok(Self {
+            host: host.to_owned(),
+            stale,
+        })
     }
 }
 
@@ -168,30 +232,61 @@ pub fn mode(args: &[String]) -> Option<Mode> {
 pub fn run(root: &Path, mode: &Mode) -> Result<bool> {
     match mode {
         Mode::Gate => gate(root),
-        Mode::Target(triple) => Ok(target_gate(triple, &clippy(root, Some(triple))?)),
+        Mode::Target(triple) => target_gate(root, triple, &clippy(root, Some(triple))?),
+        Mode::Baseline(target) => {
+            let findings = match target {
+                Some(target) => clippy(root, Some(target))?,
+                None => scan_tree(root)?.findings,
+            };
+            print!("{}", ratchet::Baseline::from_findings(&findings).render());
+            Ok(true)
+        }
     }
 }
 
-fn target_gate(triple: &str, violations: &[Finding]) -> bool {
-    for finding in violations {
+fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> {
+    let violations: Vec<_> = findings
+        .iter()
+        .filter(|finding| !ratchet::eligible(&finding.rule))
+        .cloned()
+        .collect();
+    let problems = ratchet::Baseline::load(root, Some(triple))?.check(findings);
+    let problems = ratchet::report(problems, Compiler::load(root)?.stale);
+    for finding in &violations {
         eprintln!("error: {}: {}:{}", finding.rule, finding.file, finding.line);
     }
-    if violations.is_empty() {
-        println!("lint --target {triple}: 0 production Clippy violations");
+    if violations.is_empty() && problems.is_empty() {
+        let ratcheted_count = findings
+            .iter()
+            .filter(|finding| ratchet::eligible(&finding.rule))
+            .count();
+        println!(
+            "lint --target {triple}: 0 new production Clippy violations; {ratcheted_count} ratcheted findings"
+        );
     } else {
         eprintln!(
             "lint --target {triple} failed: {} production Clippy violations",
-            violations.len()
+            violations.len() + problems.len()
         );
     }
-    violations.is_empty()
+    Ok(violations.is_empty() && problems.is_empty())
 }
 
 fn gate(root: &Path) -> Result<bool> {
+    let compiler = Compiler::load(root)?;
     let mut findings = clippy(root, None)?;
+    let problems = ratchet::Baseline::load(root, Some(&compiler.host))?.check(&findings);
+    let mut ratchet_problems = ratchet::report(problems, compiler.stale);
     let scan = scan_tree(root)?;
+    let problems = ratchet::Baseline::load(root, None)?.check(&scan.findings);
+    ratchet_problems.extend(ratchet::report(problems, ratchet::StaleCounts::Reject));
     findings.extend(scan.findings);
     findings.sort();
+    let ratcheted_count = findings
+        .iter()
+        .filter(|finding| ratchet::eligible(&finding.rule))
+        .count();
+    findings.retain(|finding| !ratchet::eligible(&finding.rule));
     let suppressions = suppression_summary(&scan.suppressed);
     for problem in &scan.problems {
         eprintln!(
@@ -209,13 +304,18 @@ fn gate(root: &Path) -> Result<bool> {
     if let Some(message) = &missing_helper {
         eprintln!("error: {message}");
     }
-    let passed = violations.is_empty() && missing_helper.is_none() && scan.problems.is_empty();
+    let passed = violations.is_empty()
+        && missing_helper.is_none()
+        && scan.problems.is_empty()
+        && ratchet_problems.is_empty();
     if passed {
-        println!("lint: 0 production violations; {suppressions}");
+        println!(
+            "lint: 0 new production violations; {ratcheted_count} ratcheted findings; {suppressions}"
+        );
     } else {
         eprintln!(
             "lint failed: {} production violations, {} suppression problems; {suppressions}",
-            violations.len() + usize::from(missing_helper.is_some()),
+            violations.len() + usize::from(missing_helper.is_some()) + ratchet_problems.len(),
             scan.problems.len()
         );
         eprintln!(
@@ -260,7 +360,7 @@ pub fn suppression_summary(suppressed: &[Finding]) -> String {
     }
 }
 
-fn clippy(root: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
+fn clippy_command(root: &Path, target: Option<&str>) -> Command {
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut command = Command::new(cargo);
     // `--lib --bins` leaves `cfg(test)` code uncompiled, so test helpers never count; xtask and
@@ -273,10 +373,14 @@ fn clippy(root: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
         command.args(["--target", target]);
     }
     command.arg("--");
-    for lint in CLIPPY_LINTS {
+    for lint in CLIPPY_LINTS.into_iter().chain(RATCHETED_CLIPPY_LINTS) {
         command.args(["-W", lint]);
     }
-    let output = command
+    command
+}
+
+fn clippy(root: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
+    let output = clippy_command(root, target)
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| format!("cargo clippy: {e}"))?;
@@ -294,7 +398,23 @@ fn clippy(root: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
             output.status
         ));
     }
+    if !compiled_server(&stdout) {
+        return Err("cargo clippy did not check the server; use a native Cargo default target or an explicit --target TRIPLE".into());
+    }
     Ok(clippy_findings(&stdout))
+}
+
+fn compiled_server(stream: &str) -> bool {
+    stream
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .any(|value| {
+            value["reason"] == "compiler-artifact"
+                && matches!(
+                    value["target"]["name"].as_str(),
+                    Some("gcs_mimic" | "gcs-mimic")
+                )
+        })
 }
 
 /// Extracts curated lint findings on production files from a `--message-format=json` stream.
@@ -313,7 +433,7 @@ pub fn clippy_findings(stream: &str) -> Vec<Finding> {
         let Some(code) = message["code"]["code"].as_str() else {
             continue;
         };
-        if !CLIPPY_LINTS.contains(&code) {
+        if !CLIPPY_LINTS.contains(&code) && !RATCHETED_CLIPPY_LINTS.contains(&code) {
             continue;
         }
         let Some(span) = message["spans"]
@@ -573,11 +693,23 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
             if returns.is_some_and(string_error_result) {
                 add(STRING_ERROR_RESULT, offset);
             }
+            if returns.is_some_and(static_str_error_result) {
+                add(STATIC_STR_ERROR, offset);
+            }
         }
     }
     for offset in words(masked, "type") {
-        if alias(masked, offset).is_some_and(string_error_result) {
-            add(STRING_ERROR_RESULT, offset);
+        if let Some((name, ty)) = alias(masked, offset) {
+            let associated_error = matches!(name, "Err" | "Error");
+            let compact: String = ty.chars().filter(|c| !c.is_whitespace()).collect();
+            if string_error_result(ty)
+                || (associated_error && STRING_TYPES.contains(&compact.as_str()))
+            {
+                add(STRING_ERROR_RESULT, offset);
+            }
+            if static_str_error_result(ty) || (associated_error && compact == "&'staticstr") {
+                add(STATIC_STR_ERROR, offset);
+            }
         }
     }
     for offset in words(masked, "format") {
@@ -899,7 +1031,7 @@ fn signature(masked: &str, offset: usize) -> Option<(&str, Option<&str>)> {
 }
 
 /// The aliased type of a `type Name<..> = Type;` item at `offset` in masked text.
-fn alias(masked: &str, offset: usize) -> Option<&str> {
+fn alias(masked: &str, offset: usize) -> Option<(&str, &str)> {
     let bytes = masked.as_bytes();
     let mut i = skip_space(bytes, offset + 4);
     let start = i;
@@ -909,11 +1041,12 @@ fn alias(masked: &str, offset: usize) -> Option<&str> {
     if i == start {
         return None;
     }
+    let name = &masked[start..i];
     i = skip_space(bytes, i);
     if bytes.get(i) == Some(&b'<') {
         i = skip_space(bytes, close_group(bytes, i)?);
     }
-    (bytes.get(i) == Some(&b'=')).then(|| type_until(masked, i + 1))
+    (bytes.get(i) == Some(&b'=')).then(|| (name, type_until(masked, i + 1)))
 }
 
 /// Type text from `start` up to a depth-zero `{`, `;` or `where`.
@@ -941,6 +1074,14 @@ fn type_until(masked: &str, start: usize) -> &str {
 
 /// Whether a type is `Result<T, String>` under any path.
 fn string_error_result(ty: &str) -> bool {
+    result_error_is(ty, &STRING_TYPES)
+}
+
+fn static_str_error_result(ty: &str) -> bool {
+    result_error_is(ty, &["&'staticstr"])
+}
+
+fn result_error_is(ty: &str, errors: &[&str]) -> bool {
     let ty: String = ty.chars().filter(|c| !c.is_whitespace()).collect();
     let Some(open) = ty.find('<') else {
         return false;
@@ -965,11 +1106,7 @@ fn string_error_result(ty: &str) -> bool {
         }
     }
     args.push(&inner[start..]);
-    args.len() == 2
-        && matches!(
-            args[1],
-            b"String" | b"std::string::String" | b"alloc::string::String"
-        )
+    args.len() == 2 && errors.iter().any(|error| args[1] == error.as_bytes())
 }
 
 /// Whether the `format` at `offset` is `format!` whose first argument is an SQL statement.
@@ -1203,6 +1340,56 @@ pub fn test_lines(masked: &str) -> Vec<bool> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn compiler_pin_rejects_stale_counts_while_current_stable_only_warns() {
+        let version = "host: aarch64-apple-darwin\nrelease: 1.99.1\n";
+        assert_eq!(
+            Compiler::parse(version, "1.99.1", None).unwrap().stale,
+            ratchet::StaleCounts::Reject
+        );
+        for toolchain in ["stable", "stable-aarch64-apple-darwin"] {
+            assert_eq!(
+                Compiler::parse(version, "1.99.1", Some(toolchain))
+                    .unwrap()
+                    .stale,
+                ratchet::StaleCounts::Warn
+            );
+        }
+        assert_eq!(
+            Compiler::parse(version, "1.98.0", None).unwrap().stale,
+            ratchet::StaleCounts::Warn
+        );
+        assert!(Compiler::parse("host: ../bad\nrelease: 1.99.1", "1.99.1", None).is_err());
+        assert!(Compiler::parse("host: aarch64-apple-darwin", "1.99.1", None).is_err());
+    }
+
+    #[test]
+    fn native_clippy_reuses_default_artifacts_and_explicit_targets_stay_separate() {
+        let native = clippy_command(Path::new("."), None);
+        let args = native
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(!args.contains(&"--target"));
+        assert!(!args.contains(&"--config"));
+        let cross = clippy_command(Path::new("."), Some("x86_64-pc-windows-msvc"));
+        let args = cross
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            args.windows(2)
+                .any(|args| args == ["--target", "x86_64-pc-windows-msvc"])
+        );
+        assert!(!args.contains(&"--config"));
+        assert!(!compiled_server(
+            "{\"reason\":\"build-finished\",\"success\":true}"
+        ));
+        assert!(compiled_server(
+            "{\"reason\":\"compiler-artifact\",\"target\":{\"name\":\"gcs_mimic\"}}"
+        ));
+    }
+
     fn rules(file: &str, text: &str) -> Vec<(String, usize)> {
         scan_source(file, text)
             .findings
@@ -1285,6 +1472,22 @@ fn e() -> Result<Box<dyn Fn() -> u8>, std::string::String>;
                 (STRING_ERROR_RESULT.to_owned(), 10)
             ]
         );
+    }
+
+    #[test]
+    fn associated_string_errors_and_static_str_errors_are_detected() {
+        let text = "type Err = String;\ntype Error = std::string::String;\ntype Item = String;\ntype Output = String;\nfn a() -> Result<(), &'static str> {}\ntype B<T> = Result<T,&'static str>;\ntype Error = &'static str;\nfn c() -> Result<&'static str, Error> {}\nfn d() -> Option<&'static str> {}\nfn e() -> &'static str {}\n#[cfg(test)]\nmod tests { type Err = String; fn f() -> Result<(), &'static str> {} }\n";
+        let mut actual = rules("src/a.rs", text);
+        actual.sort();
+        let mut expected = vec![
+            (STRING_ERROR_RESULT.to_owned(), 1),
+            (STRING_ERROR_RESULT.to_owned(), 2),
+            (STATIC_STR_ERROR.to_owned(), 5),
+            (STATIC_STR_ERROR.to_owned(), 6),
+            (STATIC_STR_ERROR.to_owned(), 7),
+        ];
+        expected.sort();
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1483,6 +1686,11 @@ struct ParseError(String);
     fn arguments_select_one_mode() {
         let args = |list: &[&str]| list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
         assert_eq!(mode(&args(&[])), Some(Mode::Gate));
+        assert_eq!(mode(&args(&["--baseline"])), Some(Mode::Baseline(None)));
+        assert_eq!(
+            mode(&args(&["--baseline", "--target", "x86_64-pc-windows-msvc"])),
+            Some(Mode::Baseline(Some("x86_64-pc-windows-msvc".to_owned())))
+        );
         assert_eq!(
             mode(&args(&["--target", "x86_64-pc-windows-msvc"])),
             Some(Mode::Target("x86_64-pc-windows-msvc".to_owned()))
@@ -1495,6 +1703,8 @@ struct ParseError(String);
             &["--target"],
             &["--target", ""],
             &["--target", "--strict"],
+            &["--target", "../outside"],
+            &["--baseline", "--target", "../outside"],
             &["--target", "a", "--target", "b"],
         ] {
             assert_eq!(mode(&args(bad)), None);
@@ -1742,7 +1952,7 @@ let s = \"// xtask-lint: allow(text::nope)\";
             }
         }
         assert!(denied.contains(&"unreachable_pub"), "{denied:?}");
-        for lint in CLIPPY_LINTS {
+        for lint in CLIPPY_LINTS.into_iter().chain(RATCHETED_CLIPPY_LINTS) {
             let name = lint.trim_start_matches("clippy::");
             assert!(
                 !denied.contains(&name),

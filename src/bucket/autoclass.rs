@@ -38,8 +38,8 @@ fn invalid(reason: &str) -> CatalogError {
 pub(crate) fn validate_terminal_storage_class(class: &str) -> Result<(), CatalogError> {
     match class {
         "NEARLINE" | "ARCHIVE" => Ok(()),
-        _ => Err(invalid(
-            "Invalid autoclass.terminalStorageClass; use NEARLINE or ARCHIVE",
+        _ => Err(CatalogError::Metadata(
+            crate::metadata_error::MetadataError::AutoclassTerminal,
         )),
     }
 }
@@ -117,8 +117,8 @@ pub(crate) fn apply(
     }
     if !enabled {
         if update.terminal_storage_class.is_some() {
-            return Err(invalid(
-                "autoclass.terminalStorageClass requires autoclass.enabled=true",
+            return Err(CatalogError::Metadata(
+                crate::metadata_error::MetadataError::AutoclassDisabled,
             ));
         }
         return Ok((
@@ -181,16 +181,16 @@ pub(crate) fn validate_bucket(
         return Ok(());
     }
     if storage_class != AUTOCLASS_STORAGE_CLASS {
-        return Err(invalid(
-            "An Autoclass bucket's storageClass must be STANDARD; omit storageClass or use STANDARD",
+        return Err(CatalogError::Metadata(
+            crate::metadata_error::MetadataError::AutoclassStorageClass,
         ));
     }
     if lifecycle.iter().any(|rule| {
         rule["action"]["type"] == "SetStorageClass"
             || rule["condition"].get("matchesStorageClass").is_some()
     }) {
-        return Err(invalid(
-            "Autoclass cannot be combined with lifecycle SetStorageClass actions or matchesStorageClass conditions; remove those rules",
+        return Err(CatalogError::Metadata(
+            crate::metadata_error::MetadataError::AutoclassLifecycle,
         ));
     }
     Ok(())
@@ -246,10 +246,19 @@ mod tests {
             json!({"terminalStorageClass":1}),
             json!({"enabledd":true}),
         ] {
-            assert!(
-                matches!(parse_json(&bad), Err(CatalogError::InvalidMetadata(_))),
-                "{bad}"
-            );
+            let error = parse_json(&bad).unwrap_err();
+            if bad["terminalStorageClass"].is_string() {
+                assert_eq!(
+                    error,
+                    CatalogError::Metadata(crate::metadata_error::MetadataError::AutoclassTerminal)
+                );
+                assert_eq!(
+                    crate::json::JsonError::from(error).message,
+                    "Invalid autoclass.terminalStorageClass; use NEARLINE or ARCHIVE"
+                );
+            } else {
+                assert!(matches!(error, CatalogError::InvalidMetadata(_)), "{bad}");
+            }
         }
     }
 
@@ -333,7 +342,9 @@ mod tests {
                 },
                 at(20)
             ),
-            Err(CatalogError::InvalidMetadata(_))
+            Err(CatalogError::Metadata(
+                crate::metadata_error::MetadataError::AutoclassDisabled
+            ))
         ));
     }
 

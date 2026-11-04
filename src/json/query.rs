@@ -1,10 +1,29 @@
 use super::buckets::validate_bucket_name_for_profile;
-use super::{JsonError, decode_page_token, page_token::hex};
+use super::{JsonError, decode_page_token};
 use crate::{bucket::BucketConditions, config::CompatProfile};
 use hyper::{Method, StatusCode, Uri};
 use std::collections::BTreeMap;
 
 pub(crate) const MAX_QUERY_BYTES: usize = 16 * 1024;
+
+/// Reads an advisory parameter with the same decoding as the validating route parser.
+pub(crate) fn query_param<'a>(query: &'a str, name: &str) -> Option<std::borrow::Cow<'a, str>> {
+    fn component(raw: &str) -> Option<std::borrow::Cow<'_, str>> {
+        if raw.contains(['%', '+']) {
+            decode(raw, Decoding::Form)
+                .ok()
+                .map(std::borrow::Cow::Owned)
+        } else {
+            Some(std::borrow::Cow::Borrowed(raw))
+        }
+    }
+    query.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        (component(key)? == name)
+            .then(|| component(value))
+            .flatten()
+    })
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Projection {
@@ -90,7 +109,7 @@ pub(crate) enum BucketRequest {
     },
     TestIam {
         bucket: String,
-        permissions: Vec<String>,
+        permissions: Vec<crate::auth::Permission>,
     },
     /// `buckets.getStorageLayout`; `prefix` only scopes the permission check (see the parser).
     GetStorageLayout {
@@ -639,12 +658,7 @@ fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
 }
 
 pub(crate) fn validate_project(project: &str) -> Result<(), JsonError> {
-    if project.is_empty()
-        || project.len() > 256
-        || project
-            .chars()
-            .any(|character| character.is_control() || character.is_whitespace())
-    {
+    if !crate::auth::valid_project_id(project) {
         return Err(JsonError::invalid_parameter(
             "project must be a nonempty identifier of at most 256 bytes",
         ));
@@ -751,10 +765,11 @@ pub(crate) fn decode(raw: &str, decoding: Decoding) -> Result<String, JsonError>
     let mut input = raw.bytes();
     while let Some(byte) = input.next() {
         bytes.push(match byte {
-            b'%' => {
-                (hex(input.next().ok_or_else(invalid)?).ok_or_else(invalid)? << 4)
-                    | hex(input.next().ok_or_else(invalid)?).ok_or_else(invalid)?
-            }
+            b'%' => crate::hex::byte(&[
+                input.next().ok_or_else(invalid)?,
+                input.next().ok_or_else(invalid)?,
+            ])
+            .ok_or_else(invalid)?,
             b'+' if decoding == Decoding::Form => b' ',
             byte => byte,
         });

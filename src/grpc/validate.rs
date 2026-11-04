@@ -92,15 +92,7 @@ pub(super) fn merge_hashes(
     next: ExpectedHashes,
     message: &str,
 ) -> Result<ExpectedHashes, Status> {
-    if matches!((first.crc32c, next.crc32c), (Some(a), Some(b)) if a != b)
-        || matches!((first.md5, next.md5), (Some(a), Some(b)) if a != b)
-    {
-        return Err(Status::invalid_argument(message));
-    }
-    Ok(ExpectedHashes {
-        crc32c: next.crc32c.or(first.crc32c),
-        md5: next.md5.or(first.md5),
-    })
+    super::upload::merge_hashes(first, next).map_err(|_| Status::invalid_argument(message))
 }
 
 pub(super) fn resolve_range(size: u64, offset: i64, limit: i64) -> Option<(u64, u64)> {

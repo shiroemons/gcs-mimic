@@ -1,27 +1,47 @@
-//! Runtime verification owns only one admitted crypto job, never a catalog transaction.
+//! RSA verification uses an Auth-owned bounded blocking budget, never a catalog transaction.
+//! Bounded HMAC chains for streaming seeds and individual chunks run inline.
 
 use super::*;
 use crate::{
     bucket::CatalogError,
     storage::{Catalog, failure::BackendCause},
 };
+use std::{num::NonZeroUsize, sync::Arc};
 use tokio::sync::Semaphore;
 
-static VERIFIERS: Semaphore = Semaphore::const_new(1);
+#[derive(Clone, Debug)]
+pub(crate) struct Verifiers(Arc<Semaphore>);
 
-pub(super) async fn crypto_job<T: Send + 'static>(
-    job: impl FnOnce() -> T + Send + 'static,
-) -> Result<T, VerificationError> {
-    let permit = VERIFIERS
-        .acquire()
+impl Verifiers {
+    pub(crate) fn for_blocking_threads(threads: usize) -> Self {
+        Self::new(NonZeroUsize::new(threads / 2).unwrap_or(NonZeroUsize::MIN))
+    }
+
+    fn new(permits: NonZeroUsize) -> Self {
+        Self(Arc::new(Semaphore::new(permits.get())))
+    }
+
+    pub(crate) async fn run<T: Send + 'static>(
+        &self,
+        job: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, VerificationError> {
+        let permit = Arc::clone(&self.0)
+            .acquire_owned()
+            .await
+            .map_err(|error| VerificationError::Worker(BackendCause::from_error(error)))?;
+        crate::task::run_blocking("signature-verification", move || {
+            let _permit = permit;
+            job()
+        })
         .await
-        .map_err(|error| VerificationError::Worker(BackendCause::from_error(error)))?;
-    crate::task::run_blocking("xml-signature", move || {
-        let _permit = permit;
-        job()
-    })
-    .await
-    .map_err(|error| VerificationError::Worker(BackendCause::from_error(error)))
+        .map_err(|error| VerificationError::Worker(BackendCause::from_error(error)))
+    }
+}
+
+impl Default for Verifiers {
+    fn default() -> Self {
+        Self::new(NonZeroUsize::MIN)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -34,6 +54,7 @@ pub(super) enum Algorithm {
 
 pub(super) struct Prepared {
     pub signer: String,
+    pub date: String,
     pub algorithm: Algorithm,
     pub scope: String,
     pub message: String,
@@ -73,7 +94,7 @@ impl From<Failure> for VerificationError {
 }
 
 pub(super) enum Key {
-    Rsa(Vec<PublicKey>),
+    Rsa(Arc<[PublicKey]>),
     Hmac(String),
 }
 
@@ -91,6 +112,18 @@ impl Auth {
         clock: &dyn Clock,
         resource: &Resource,
     ) -> Result<Option<Caller<'a>>, VerificationError> {
+        enum SignatureKind {
+            V4,
+            V2Query,
+            V2Header,
+        }
+        let kind = if v2::is_v2(uri.query()) {
+            SignatureKind::V2Query
+        } else if v2::has_header(headers) {
+            SignatureKind::V2Header
+        } else {
+            SignatureKind::V4
+        };
         if headers
             .get("x-amz-content-sha256")
             .is_some_and(|value| value == STREAMING_PAYLOAD)
@@ -99,16 +132,16 @@ impl Auth {
             return Err(Failure::Malformed.into());
         }
         let Some(registry) = &self.registry else {
-            // Preserve the explicitly permissive profile; no strict failure reaches this branch.
-            if v2::is_v2(uri.query()) {
-                self.authenticate_v2(method, uri, headers, clock)?;
+            // Preserve historical V2 shape checks; permissive V4 credentials are ignored.
+            if matches!(kind, SignatureKind::V2Query) {
+                v2::validate_query_shape(uri)?;
             }
             return Ok(None);
         };
         v4::bounded(uri, headers)?;
-        let prepared = if v2::is_v2(uri.query()) || v2::has_header(headers) {
+        let prepared = if matches!(kind, SignatureKind::V2Query | SignatureKind::V2Header) {
             let mut prepared = v2::prepare_resource(method, uri, headers, clock.now(), resource)?;
-            prepared.algorithm = if !v2::has_header(headers)
+            prepared.algorithm = if matches!(kind, SignatureKind::V2Query)
                 && registry.signing_keys.contains_key(&prepared.signer)
             {
                 Algorithm::Rsa
@@ -128,7 +161,7 @@ impl Auth {
         prepared: v4::Prepared,
     ) -> Result<Caller<'a>, VerificationError> {
         let (caller, key) = self.verification_key(catalog, &prepared).await?;
-        if !crypto_job(move || verify(key, &prepared)).await? {
+        if !self.verifiers.run(move || verify(key, &prepared)).await? {
             return Err(Failure::Mismatch.into());
         }
         Ok(caller)
@@ -205,6 +238,52 @@ fn verify(key: Key, prepared: &v4::Prepared) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn verifier_budgets_bound_jobs_and_do_not_share_a_global_queue() {
+        let first = Verifiers::for_blocking_threads(2);
+        let second = Verifiers::for_blocking_threads(4);
+        let held = first.0.acquire().await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), first.run(|| ()))
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), second.run(|| 42))
+                .await
+                .unwrap()
+                .unwrap(),
+            42
+        );
+        drop(held);
+        first.run(|| ()).await.unwrap();
+        let (started, mut ready) = tokio::sync::mpsc::unbounded_channel();
+        let (release_a, wait_a) = std::sync::mpsc::channel();
+        let (release_b, wait_b) = std::sync::mpsc::channel();
+        let other = started.clone();
+        let a = second.run(move || {
+            started.send(()).unwrap();
+            wait_a.recv_timeout(Duration::from_secs(5)).unwrap();
+        });
+        let b = second.run(move || {
+            other.send(()).unwrap();
+            wait_b.recv_timeout(Duration::from_secs(5)).unwrap();
+        });
+        let release = async {
+            for _ in 0..2 {
+                tokio::time::timeout(Duration::from_secs(1), ready.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            }
+            release_a.send(()).unwrap();
+            release_b.send(()).unwrap();
+        };
+        let (a, b, ()) = tokio::join!(a, b, release);
+        a.unwrap();
+        b.unwrap();
+    }
 
     #[tokio::test]
     async fn legacy_hmac_lookup_failures_keep_the_catalog_cause_and_xml_503() {
@@ -352,6 +431,7 @@ mod tests {
     fn legacy_policy_hmac_sha1_matches_rfc2202_without_v4_derivation() {
         let mut prepared = Prepared {
             signer: String::new(),
+            date: String::new(),
             algorithm: Algorithm::LegacyHmacSha1,
             scope: String::new(),
             message: "what do ya want for nothing?".into(),

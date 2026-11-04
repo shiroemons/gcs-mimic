@@ -22,6 +22,10 @@ rejection are local safety choices. They are not provider-exact error claims.
 
 ## Request and authority
 
+All management operations reject browser-initiated requests with 403 and
+unapproved public DNS hosts with 421 before authorization or body reads.
+See [management request boundaries](http-adapter-boundaries.md).
+
 Enable local management explicitly with `--admin-enabled true`. Catalog open
 creates the private management capability; requests only use the stored grant.
 Strict mode also requires a registered bearer principal whose ID exactly matches

@@ -13,12 +13,14 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 pub(in crate::storage) const SCHEMA: &str = include_str!("observation/schema.sql");
 
+pub(super) mod publication;
+pub(crate) use publication::Publication;
 mod stops;
 pub(crate) use stops::PathStop;
 mod types;
 pub(crate) use types::{FindingCategory, FindingReason, PauseReason};
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub(crate) struct Summary {
     pub revision: i64,
     pub baseline_complete: bool,
@@ -32,7 +34,7 @@ pub(crate) struct Summary {
     pub writeback: Option<WritebackSummary>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub(crate) struct WritebackSummary {
     pub state: writeback::Stop,
     pub reserved_bytes: u128,
@@ -41,8 +43,6 @@ pub(crate) struct WritebackSummary {
     pub protected_entries: u64,
     pub max_bytes: u64,
     pub max_entries: u64,
-    pub journal_sequence: Option<u64>,
-    pub journal_epoch: Option<i64>,
     pub over_limit: bool,
 }
 
@@ -147,6 +147,64 @@ fn revision(connection: &Connection, root: [u8; 16]) -> Result<i64, CatalogError
     .map_err(unavailable)
 }
 
+fn read_summary(
+    connection: &Connection,
+    root: super::root::RootId,
+) -> Result<Summary, CatalogError> {
+    let revision = revision(connection, root.as_bytes())?;
+    let (
+        baseline_complete,
+        tracked_objects,
+        mapping_findings,
+        pending_writeback,
+        paused_reason,
+        path_stops,
+        unresolved_conflicts,
+        scan_stop,
+    ) = sql::row(
+        connection,
+        "SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1",
+        [root.as_bytes()],
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+            ))
+        },
+    )?;
+    let exists: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)",
+        [root.as_bytes()],
+    )?;
+    let writeback = if exists {
+        Some(
+            writeback::observation(connection, root)
+                .map_err(|error| unavailable(std::io::Error::other(error)))?,
+        )
+    } else {
+        None
+    };
+    Ok(Summary {
+        revision,
+        baseline_complete,
+        tracked_objects,
+        mapping_findings,
+        pending_writeback,
+        path_stops,
+        unresolved_conflicts,
+        paused_reason,
+        scan_stop,
+        writeback,
+    })
+}
+
 impl RootLease {
     pub(crate) async fn observation(&self) -> Result<Summary, RootError> {
         self.observation_for(self.authority()).await
@@ -157,15 +215,14 @@ impl RootLease {
         authority: super::authority::ControlAuthority,
     ) -> Result<Summary, RootError> {
         let root = self.status().root_id;
-        self.catalog().run_admin(move |connection| {
-            let tx=connection.transaction()?;
-            authority.authorize(&tx,root.as_bytes())?;
-            let revision=revision(&tx,root.as_bytes())?;
-            let (baseline_complete,tracked_objects,mapping_findings,pending_writeback,paused_reason,path_stops,unresolved_conflicts,scan_stop)=sql::row(&tx, "SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1", [root.as_bytes()],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)))?;
-            let exists:bool=sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)", [root.as_bytes()])?;
-            let writeback=if exists {Some(writeback::observation(&tx,root).map_err(|error|unavailable(std::io::Error::other(error)))?)} else {None};
-            Ok(Summary {revision,baseline_complete,tracked_objects,mapping_findings,pending_writeback,path_stops,unresolved_conflicts,paused_reason,scan_stop,writeback})
-        }).await.map_err(RootError::from)
+        self.catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction()?;
+                authority.authorize(&tx, root.as_bytes())?;
+                read_summary(&tx, root)
+            })
+            .await
+            .map_err(RootError::from)
     }
 
     #[cfg(all(test, unix))]

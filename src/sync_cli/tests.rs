@@ -37,6 +37,33 @@ fn timeout_durations_preserve_cli_units_bounds_and_leading_plus() {
 }
 
 #[test]
+fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
+    assert_eq!(
+        parse_cmd(&["rescan"]).unwrap().timeout,
+        Duration::from_secs(30)
+    );
+    assert_eq!(
+        parse_cmd(&["status"]).unwrap().timeout,
+        Duration::from_secs(10)
+    );
+    assert_eq!(
+        parse_cmd(&["wait"]).unwrap().timeout,
+        Duration::from_secs(11)
+    );
+    assert_eq!(
+        parse_cmd(&["rescan", "--timeout", "5s"]).unwrap().timeout,
+        Duration::from_secs(5)
+    );
+    assert_eq!(
+        parse_cmd(&["rescan", "--timeout-ms", "25"])
+            .unwrap()
+            .timeout,
+        Duration::from_millis(25)
+    );
+    assert!(HELP.contains("SourceChanging (409)"));
+}
+
+#[test]
 fn approval_requires_an_explicit_exact_revision() {
     let revision = "0123456789abcdef0123456789abcdef";
     let options = parse_cmd(&["approve", "--revision", revision]).unwrap();
@@ -283,6 +310,31 @@ fn wire_client_decodes_chunked_json_and_preserves_failure_status() {
     );
     let (result, _) = mock_response(b"HTTP/1.1 302 Found\r\nLocation: http://169.254.169.254/\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}".to_vec());
     assert_eq!(result.unwrap().0, StatusCode::FOUND);
+}
+
+#[test]
+fn non_json_responses_keep_the_status_without_echoing_the_body() {
+    for (status, body) in [
+        (
+            StatusCode::BAD_GATEWAY,
+            b"private proxy diagnostic".as_slice(),
+        ),
+        (StatusCode::NO_CONTENT, b"".as_slice()),
+    ] {
+        let error = response_json(status, body).unwrap_err();
+        assert!(error.to_string().contains(&status.to_string()));
+        assert!(!error.to_string().contains("private proxy diagnostic"));
+        let response = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<NonJsonResponse>()
+            .unwrap();
+        assert!(
+            std::error::Error::source(response)
+                .unwrap()
+                .is::<serde_json::Error>()
+        );
+    }
 }
 
 #[test]

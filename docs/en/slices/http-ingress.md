@@ -1,6 +1,18 @@
 # HTTP request compression and method override
 
+The listener retries peer-specific accept failures immediately. Resource
+exhaustion pauses acceptance for 10 ms, doubling to at most one second, while
+shutdown and completed connections continue to be processed. A successful
+accept resets the delay. Invalid/closed listener errors remain fatal and drain
+the server. `accept_failed` logs the first resource failure and
+`accept_recovered` logs recovery without repeated failure spam.
+
 ## Contract and scope
+
+Gzip metadata and upload jobs share a per-server decoder pool sized to
+`ceil(max_blocking_threads / 4)`, at least one. The default eight blocking
+threads allow two decoder jobs while leaving capacity for file/catalog I/O.
+Separate State instances do not share permits. No performance gain is claimed.
 
 The JSON API accepts transport gzip on metadata requests under /storage/v1/.
 It also decodes JSON metadata for exact POST requests to

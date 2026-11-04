@@ -1,8 +1,11 @@
 use super::*;
+#[cfg(unix)]
+use crate::config::Scheme;
 use crate::test_support::TestDir;
 
 #[tokio::test]
-async fn listener_failure_drains_background_work_before_catalog_close() {
+#[cfg(unix)]
+async fn fatal_listener_failure_drains_background_work_before_catalog_close() {
     let data = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
     let state = Arc::new(State {
@@ -13,9 +16,9 @@ async fn listener_failure_drains_background_work_before_catalog_close() {
     let checked = Arc::new(AtomicBool::new(false));
     let drained = checked.clone();
     let owner = catalog.clone();
-    let result = FORCE_LISTENER_ERROR
+    let result = ACCEPT_FAULTS
         .scope(
-            true,
+            Arc::new(std::sync::Mutex::new([libc::EBADF].into())),
             serve_with_tls_and_drain(
                 vec![(listener, None)],
                 Config::default(),
@@ -54,6 +57,80 @@ async fn health(address: std::net::SocketAddr) -> String {
         .expect("the server closes or answers the connection")
         .ok();
     String::from_utf8_lossy(&reply).into_owned()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn exhausted_accepts_pause_and_keep_serving() {
+    let data = TestDir::new();
+    let state = Arc::new(State::for_test(
+        Catalog::open(&data.0).await.unwrap(),
+        Auth::permissive(),
+    ));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (stop, shutdown) = tokio::sync::oneshot::channel();
+    let faults = Arc::new(std::sync::Mutex::new(
+        [libc::EMFILE, libc::EMFILE, libc::EMFILE, libc::ECONNABORTED].into(),
+    ));
+    let config = Config {
+        scheme: Scheme::Http,
+        ..Config::default()
+    };
+    let server = tokio::spawn(ACCEPT_FAULTS.scope(
+        faults,
+        serve(listener, config, state, async {
+            shutdown.await.map_err(io::Error::other)
+        }),
+    ));
+    let reply = health(address).await;
+    stop.send(()).unwrap();
+    server.await.unwrap().unwrap();
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply:?}");
+}
+
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn exhausted_accept_pause_still_honors_shutdown() {
+    const FAILURES: usize = 8;
+    let data = TestDir::new();
+    let state = Arc::new(State::for_test(
+        Catalog::open(&data.0).await.unwrap(),
+        Auth::permissive(),
+    ));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let faults = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(
+        vec![libc::EMFILE; FAILURES],
+    )));
+    let (stop, shutdown) = tokio::sync::oneshot::channel();
+    let (draining, drained) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(ACCEPT_FAULTS.scope(
+        faults.clone(),
+        serve_with_tls_and_drain(
+            vec![(listener, None)],
+            Config::default(),
+            state,
+            async { shutdown.await.map_err(io::Error::other) },
+            async move {
+                draining.send(tokio::time::Instant::now()).unwrap();
+                Ok(())
+            },
+        ),
+    ));
+    tokio::task::yield_now().await;
+    let mut backoff = transport::AcceptBackoff::default();
+    let error = io::Error::from_raw_os_error(libc::EMFILE);
+    for _ in 1..FAILURES {
+        tokio::time::advance(backoff.exhausted(&error)).await;
+        tokio::task::yield_now().await;
+    }
+    assert!(faults.lock().unwrap().is_empty());
+    let paused_for = backoff.exhausted(&error);
+    let shutdown_at = tokio::time::Instant::now();
+    stop.send(()).unwrap();
+    let drain_at = drained.await.unwrap();
+    server.await.unwrap().unwrap();
+    assert!(drain_at - shutdown_at < paused_for);
 }
 
 #[tokio::test]

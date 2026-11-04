@@ -192,7 +192,27 @@ const CLEAR: &[&str] = &[
     "UPDATE startup_seed SET complete = 0",
 ];
 
-fn reclaim(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
+#[cfg(test)]
+const RETAINED: &[&str] = &[
+    "object_generation",
+    "bucket_generation",
+    "policy_revision",
+    "catalog_identity",
+    "change_journal_state",
+    "notification_outbox_state",
+    "pending_blob_deletions",
+    "startup_seed",
+];
+#[cfg(test)]
+const CASCADED: &[&str] = &[
+    "sync_deletion_history",
+    "acl_bucket_entries",
+    "acl_object_entries",
+    "bucket_notifications",
+    "bucket_notification_ids",
+];
+
+fn reclaim(connection: &mut Connection, data_dir: &Path) -> Result<(), CatalogError> {
     loop {
         let ids = connection
             .prepare_cached(
@@ -203,7 +223,9 @@ fn reclaim(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError>
         if ids.is_empty() {
             return Ok(());
         }
-        for id in ids {
+        #[cfg(unix)]
+        let mut parents = std::collections::BTreeSet::new();
+        for id in &ids {
             for path in [
                 id.blob_path(data_dir),
                 id.staging_path(data_dir),
@@ -217,18 +239,27 @@ fn reclaim(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError>
                 if let Some(parent) = path.parent()
                     && parent.exists()
                 {
-                    #[cfg(test)]
-                    super::super::fault::hit(data_dir, super::super::fault::Step::ResetReclaimSync)
-                        .map_err(unavailable)?;
-                    objects::sync_dir(parent)?;
+                    parents.insert(parent.to_owned());
                 }
             }
+        }
+        #[cfg(unix)]
+        for parent in parents {
+            #[cfg(test)]
+            super::super::fault::hit(data_dir, super::super::fault::Step::ResetReclaimSync)
+                .map_err(unavailable)?;
+            objects::sync_dir(&parent)?;
+        }
+        // Journal removal follows every directory sync, so a partial page remains retryable.
+        let transaction = sql::immediate(connection)?;
+        for id in ids {
             sql::exec(
-                connection,
+                &transaction,
                 "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
                 [id],
             )?;
         }
+        transaction.commit()?;
     }
 }
 

@@ -11,6 +11,15 @@ mod acl_identity;
 pub(crate) use acl_identity::validate_local_creator_email;
 mod jwt;
 mod policy;
+pub(crate) mod policy_input;
+/// Shared identifier rules; adapters supply their own field names and error messages.
+pub(crate) fn valid_project_id(project: &str) -> bool {
+    !project.is_empty()
+        && project.len() <= 256
+        && !project
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
+}
 pub(crate) mod roles;
 pub mod signature;
 pub(crate) use policy::PublicAccess;
@@ -22,19 +31,19 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     path::Path,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 /// The documented 401 body cannot explain JWT setup failures, so log guidance once.
 static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);
 
-// Keeping this outside Permission preserves testIamPermissions and IAM-policy acceptance.
-pub(crate) const BUCKETS_ENABLE_OBJECT_RETENTION: &str = "storage.buckets.enableObjectRetention";
-
-// Optional constants serve call sites that authorize by permission name.
+// `untestable` excludes a permission from bucket testIamPermissions, not authorization.
 macro_rules! permissions {
-    ($($variant:ident $(($constant:ident))? => $name:literal),+ $(,)?) => {
-        $($(pub(crate) const $constant: &str = $name;)?)+
+    ($($variant:ident $(($constant:ident))? => $name:literal $([$untestable:ident])?),+ $(,)?) => {
+        $($(pub(crate) const $constant: Permission = Permission::$variant;)?)+
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub(crate) enum Permission {
@@ -42,6 +51,14 @@ macro_rules! permissions {
         }
 
         impl Permission {
+            pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            pub(crate) fn parse_testable(value: &str) -> Option<Self> {
+                match value { $($name => permissions!(@parsed Self::$variant $(, $untestable)?),)+ _ => None }
+            }
+
+            const fn bit(self) -> u32 { 1 << self as u32 }
+
             pub(crate) fn as_str(self) -> &'static str {
                 match self {
                     $(Self::$variant => $name),+
@@ -50,17 +67,30 @@ macro_rules! permissions {
         }
 
         impl TryFrom<&str> for Permission {
-            type Error = &'static str;
+            type Error = UnsupportedPermission;
 
             fn try_from(value: &str) -> Result<Self, Self::Error> {
-                match value {
-                    $($name => Ok(Self::$variant),)+
-                    _ => Err("unsupported permission"),
-                }
+                Self::parse_testable(value).ok_or(UnsupportedPermission)
             }
         }
+        impl fmt::Display for Permission {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.as_str()) }
+        }
     };
+    (@parsed $variant:path) => { Some($variant) };
+    (@parsed $variant:path, untestable) => { None };
 }
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct UnsupportedPermission;
+
+impl fmt::Display for UnsupportedPermission {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("unsupported permission")
+    }
+}
+
+impl std::error::Error for UnsupportedPermission {}
 
 permissions! {
     BucketsCreate(BUCKETS_CREATE) => "storage.buckets.create",
@@ -85,6 +115,51 @@ permissions! {
     MultipartAbort => "storage.multipartUploads.abort",
     MultipartList => "storage.multipartUploads.list",
     MultipartListParts => "storage.multipartUploads.listParts",
+    BucketsEnableObjectRetention(BUCKETS_ENABLE_OBJECT_RETENTION) => "storage.buckets.enableObjectRetention" [untestable],
+    HmacKeysCreate => "storage.hmacKeys.create" [untestable],
+    HmacKeysDelete => "storage.hmacKeys.delete" [untestable],
+    HmacKeysGet => "storage.hmacKeys.get" [untestable],
+    HmacKeysList => "storage.hmacKeys.list" [untestable],
+    HmacKeysUpdate => "storage.hmacKeys.update" [untestable],
+}
+
+const _: () = assert!(Permission::ALL.len() <= 32);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct PermissionSet(u32);
+
+impl PermissionSet {
+    fn contains(self, permission: Permission) -> bool {
+        self.0 & permission.bit() != 0
+    }
+    fn insert(&mut self, permission: Permission) {
+        self.0 |= permission.bit();
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ProjectGrant {
+    permissions: PermissionSet,
+    any_storage_permission: bool,
+    explicit_storage_admin: bool,
+}
+
+impl ProjectGrant {
+    fn grant(&mut self, permission: Permission) {
+        self.any_storage_permission = true;
+        self.permissions.insert(permission);
+    }
+}
+
+#[cfg(test)]
+impl FromIterator<Permission> for ProjectGrant {
+    fn from_iter<T: IntoIterator<Item = Permission>>(iter: T) -> Self {
+        let mut grant = Self::default();
+        for permission in iter {
+            grant.grant(permission);
+        }
+        grant
+    }
 }
 
 const MAX_REGISTRY_BYTES: u64 = 64 * 1024;
@@ -96,6 +171,7 @@ const MAX_PROJECTS: usize = 64;
 const MAX_ROLES: usize = 32;
 
 /// Query parameters that carry credentials in Google APIs (OAuth tokens and V2/V4 signatures).
+/// Unlike XML signing parameters this set includes OAuth tokens and excludes standalone Expires.
 /// Strict JSON/bearer authentication rejects them instead of falling back to anonymous access;
 /// the XML adapter dispatches supported V4 query credentials to the RSA verifier separately.
 const CREDENTIAL_QUERY_PARAMETERS: &[&str] = &[
@@ -149,19 +225,57 @@ impl fmt::Display for AuthFailure {
 
 impl std::error::Error for AuthFailure {}
 
+#[derive(Debug)]
+pub(crate) enum AuthError {
+    Failure(AuthFailure),
+    Unavailable(crate::storage::failure::BackendCause),
+}
+
+impl From<AuthFailure> for AuthError {
+    fn from(error: AuthFailure) -> Self {
+        Self::Failure(error)
+    }
+}
+
+impl fmt::Display for AuthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Failure(error) => error.fmt(f),
+            Self::Unavailable(_) => f.write_str("Authentication verifier unavailable"),
+        }
+    }
+}
+
+impl std::error::Error for AuthError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Failure(error) => Some(error),
+            Self::Unavailable(error) => Some(error),
+        }
+    }
+}
+
+enum Presented<'a> {
+    Anonymous,
+    Token(&'a Identity),
+    Jwt {
+        candidate: jwt::Candidate<'a>,
+        warn: bool,
+    },
+}
+
 /// A registered local principal with its project-scoped permissions expanded at load time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity {
     id: String,
     acl_entity: Option<String>,
-    permissions: BTreeMap<String, BTreeSet<&'static str>>,
-    explicit_storage_admin_projects: BTreeSet<String>,
+    projects: BTreeMap<String, ProjectGrant>,
 }
 
 impl Identity {
     pub(crate) fn upload_snapshot(&self) -> Value {
-        serde_json::json!({"id": self.id, "projects": self.permissions.iter().map(|(project, permissions)| {
-            (project.clone(), permissions.iter().filter(|p| matches!(**p, OBJECTS_CREATE | OBJECTS_DELETE)).copied().collect::<Vec<_>>())
+        serde_json::json!({"id": self.id, "projects": self.projects.iter().map(|(project, grant)| {
+            (project.clone(), [Permission::ObjectsCreate, Permission::ObjectsDelete].into_iter().filter(|permission| grant.permissions.contains(*permission)).map(Permission::as_str).collect::<Vec<_>>())
         }).collect::<BTreeMap<_, _>>()})
     }
 
@@ -178,11 +292,11 @@ impl Identity {
             .ok_or_else(invalid)?;
         let mut permissions = BTreeMap::new();
         for (project, entries) in projects {
-            let mut set = BTreeSet::new();
+            let mut set = ProjectGrant::default();
             for entry in entries.as_array().ok_or_else(invalid)? {
-                set.insert(match entry.as_str() {
-                    Some(OBJECTS_CREATE) => OBJECTS_CREATE,
-                    Some(OBJECTS_DELETE) => OBJECTS_DELETE,
+                set.grant(match entry.as_str() {
+                    Some("storage.objects.create") => OBJECTS_CREATE,
+                    Some("storage.objects.delete") => OBJECTS_DELETE,
                     _ => return Err(invalid()),
                 });
             }
@@ -191,8 +305,7 @@ impl Identity {
         Ok(Self {
             id,
             acl_entity: None,
-            permissions,
-            explicit_storage_admin_projects: BTreeSet::new(),
+            projects: permissions,
         })
     }
 
@@ -201,36 +314,38 @@ impl Identity {
     }
 
     pub(crate) fn has_explicit_storage_admin(&self, project: &str) -> bool {
-        self.explicit_storage_admin_projects.contains(project)
+        self.projects
+            .get(project)
+            .is_some_and(|grant| grant.explicit_storage_admin)
     }
 
     /// Whether any granted role in `project` contains `permission`.
-    pub(crate) fn allows(&self, permission: &str, project: &str) -> bool {
-        self.permissions
+    pub(crate) fn allows(&self, permission: Permission, project: &str) -> bool {
+        self.projects
             .get(project)
-            .is_some_and(|permissions| permissions.contains(permission))
+            .is_some_and(|grant| grant.permissions.contains(permission))
     }
 
     /// Whether any role is granted in `project`. The pinned snapshot keeps only `storage.*`
     /// permissions, so this stands in for project-level checks such as
     /// `resourcemanager.projects.get`.
     pub(crate) fn has_project_grant(&self, project: &str) -> bool {
-        self.permissions
+        self.projects
             .get(project)
-            .is_some_and(|permissions| !permissions.is_empty())
+            .is_some_and(|grant| grant.any_storage_permission)
     }
 
-    pub(crate) fn allows_anywhere(&self, permission: &str) -> bool {
-        self.permissions
+    pub(crate) fn allows_anywhere(&self, permission: Permission) -> bool {
+        self.projects
             .values()
-            .any(|permissions| permissions.contains(permission))
+            .any(|grant| grant.permissions.contains(permission))
     }
 
     /// Projects in which any granted role contains `permission`.
-    pub(crate) fn projects_allowing(&self, permission: &str) -> Vec<String> {
-        self.permissions
+    pub(crate) fn projects_allowing(&self, permission: Permission) -> Vec<String> {
+        self.projects
             .iter()
-            .filter(|(_, permissions)| permissions.contains(permission))
+            .filter(|(_, grant)| grant.permissions.contains(permission))
             .map(|(project, _)| project.clone())
             .collect()
     }
@@ -258,7 +373,7 @@ impl<'a> Caller<'a> {
     /// project; otherwise the caller cannot learn whether the bucket exists.
     pub(crate) fn authorize(
         self,
-        permission: &str,
+        permission: Permission,
         project: Option<&str>,
     ) -> Result<(), AuthFailure> {
         let identity = self.principal()?;
@@ -358,7 +473,7 @@ impl std::error::Error for RegistryError {
 pub struct Registry {
     identities: Vec<Identity>,
     tokens: HashMap<String, usize>,
-    signing_keys: HashMap<String, Vec<signature::PublicKey>>,
+    signing_keys: HashMap<String, Arc<[signature::PublicKey]>>,
     public_access_prevention_projects: Vec<String>,
 }
 
@@ -426,7 +541,7 @@ impl Registry {
                 .ok_or_else(|| error("missing required field: id".into()))?
                 .as_str()
                 .ok_or_else(|| error("id must be a string".into()))?;
-            if !visible_ascii(id, MAX_ID_BYTES) {
+            if !valid_principal_id(id) {
                 return Err(error(format!(
                     "id must be 1..={MAX_ID_BYTES} bytes of printable ASCII without whitespace"
                 )));
@@ -441,7 +556,7 @@ impl Registry {
                 return Err(error(format!("duplicate id: {id}")));
             }
             if let Some(keys) = entry.get("public_keys") {
-                signing_keys.insert(id.to_owned(), parse_public_keys(keys, index)?);
+                signing_keys.insert(id.to_owned(), parse_public_keys(keys, index)?.into());
             }
             let token_values = entry
                 .get("tokens")
@@ -463,6 +578,11 @@ impl Registry {
                         ))
                     })?;
                 // Never echo token values into startup errors or logs.
+                if jwt_shaped(token) {
+                    return Err(error(
+                        "tokens must not be JWT-shaped (three dot-separated segments)".into(),
+                    ));
+                }
                 if tokens.insert(token.to_owned(), index).is_some() {
                     return Err(error("duplicate token".into()));
                 }
@@ -474,10 +594,7 @@ impl Registry {
             identities.push(Identity {
                 id: id.to_owned(),
                 acl_entity: acl_identity::parse_entity(entry.get("acl_entity"), index)?,
-                permissions,
-                explicit_storage_admin_projects: explicit_storage_admin_projects(
-                    entry.get("project_roles"),
-                ),
+                projects: permissions,
             });
         }
         acl_identity::validate_aliases(&identities)?;
@@ -556,7 +673,7 @@ fn parse_public_keys(
 fn parse_project_roles(
     projects: &Value,
     index: usize,
-) -> Result<BTreeMap<String, BTreeSet<&'static str>>, RegistryError> {
+) -> Result<BTreeMap<String, ProjectGrant>, RegistryError> {
     let error = |reason: String| RegistryError::Invalid {
         entry: Some(index),
         reason,
@@ -585,7 +702,7 @@ fn parse_project_roles(
                 ))
             })?;
         let mut names = BTreeSet::new();
-        let granted: &mut BTreeSet<&'static str> = permissions.entry(project.clone()).or_default();
+        let granted: &mut ProjectGrant = permissions.entry(project.clone()).or_default();
         for role in role_values {
             let role = role
                 .as_str()
@@ -598,37 +715,31 @@ fn parse_project_roles(
                     "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
                 ))
             })?;
-            granted.extend(expanded.iter().copied());
+            granted.any_storage_permission |= !expanded.is_empty();
+            for permission in Permission::ALL {
+                if expanded.contains(&permission.as_str()) {
+                    granted.grant(*permission);
+                }
+            }
+            granted.explicit_storage_admin |= role == "roles/storage.admin";
         }
     }
     Ok(permissions)
-}
-
-// Read only after parse_project_roles has validated the bounded project/role inventory.
-fn explicit_storage_admin_projects(projects: Option<&Value>) -> BTreeSet<String> {
-    projects
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(|projects| projects.iter())
-        .filter(|(_, roles)| {
-            roles.as_array().is_some_and(|roles| {
-                roles
-                    .iter()
-                    .any(|role| role.as_str() == Some("roles/storage.admin"))
-            })
-        })
-        .map(|(project, _)| project.clone())
-        .collect()
 }
 
 fn visible_ascii(value: &str, max: usize) -> bool {
     (1..=max).contains(&value.len()) && value.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
 }
 
+pub(crate) fn valid_principal_id(value: &str) -> bool {
+    visible_ascii(value, MAX_ID_BYTES)
+}
+
 /// The active authentication profile. The default is permissive.
 #[derive(Debug, Default)]
 pub struct Auth {
     registry: Option<Registry>,
+    verifiers: signature::Verifiers,
     /// Permissive mode only: the ACL entity (`user-EMAIL`) recorded as creator of new objects.
     /// It never authorizes anything.
     local_creator_entity: Option<String>,
@@ -642,8 +753,15 @@ impl Auth {
     pub fn strict(registry: Registry) -> Self {
         Self {
             registry: Some(registry),
+            verifiers: Default::default(),
             local_creator_entity: None,
         }
+    }
+
+    /// Reserve half the runtime's blocking slots for cryptography; other work shares the pool.
+    pub fn with_verifier_budget(mut self, max_blocking_threads: usize) -> Self {
+        self.verifiers = signature::Verifiers::for_blocking_threads(max_blocking_threads);
+        self
     }
 
     /// Records `email` as the creator of objects written in permissive mode. Strict mode ignores
@@ -669,7 +787,7 @@ impl Auth {
         self.registry.as_ref().map(Registry::len)
     }
 
-    pub(crate) fn principals(&self) -> Option<&[Identity]> {
+    pub fn principals(&self) -> Option<&[Identity]> {
         self.registry
             .as_ref()
             .map(|registry| registry.identities.as_slice())
@@ -686,29 +804,58 @@ impl Auth {
     ///
     /// Returns `Ok(None)` in permissive mode, where no permission checks apply.
     #[cfg(test)]
-    pub(crate) fn authenticate(
+    pub(crate) async fn authenticate(
         &self,
         headers: &HeaderMap,
         query: Option<&str>,
     ) -> Result<Option<Caller<'_>>, AuthFailure> {
-        self.authenticate_at(headers, query, &crate::clock::SystemClock)
+        match self
+            .authenticate_request(headers, query, &crate::clock::SystemClock)
+            .await
+        {
+            Ok(caller) => Ok(caller),
+            Err(AuthError::Failure(failure)) => Err(failure),
+            Err(AuthError::Unavailable(error)) => panic!("credential verifier failed: {error}"),
+        }
     }
 
-    pub(crate) fn authenticate_at(
+    pub(crate) async fn authenticate_request(
         &self,
         headers: &HeaderMap,
         query: Option<&str>,
         clock: &dyn crate::clock::Clock,
-    ) -> Result<Option<Caller<'_>>, AuthFailure> {
+    ) -> Result<Option<Caller<'_>>, AuthError> {
         let Some(registry) = &self.registry else {
             return Ok(None);
         };
+        let identity = match Self::presented(registry, headers, query, clock)? {
+            Presented::Anonymous => return Ok(Some(Caller::Anonymous)),
+            Presented::Token(identity) => Some(identity),
+            Presented::Jwt { candidate, warn } => {
+                let identity = candidate.verify(&self.verifiers).await?;
+                if identity.is_none() && warn {
+                    warn_self_signed_jwt();
+                }
+                identity
+            }
+        };
+        identity
+            .map(|identity| Some(Caller::Principal(identity)))
+            .ok_or_else(|| AuthFailure::InvalidCredentials.into())
+    }
+
+    fn presented<'a>(
+        registry: &'a Registry,
+        headers: &HeaderMap,
+        query: Option<&str>,
+        clock: &dyn crate::clock::Clock,
+    ) -> Result<Presented<'a>, AuthFailure> {
         if query.is_some_and(has_credential_parameter) {
             return Err(AuthFailure::InvalidCredentials);
         }
         let mut values = headers.get_all(AUTHORIZATION).iter();
         let Some(value) = values.next() else {
-            return Ok(Some(Caller::Anonymous));
+            return Ok(Presented::Anonymous);
         };
         if values.next().is_some() {
             return Err(AuthFailure::InvalidCredentials);
@@ -722,30 +869,43 @@ impl Auth {
         }
         let token = token.trim_start_matches(' ');
         // Registry tokens are visible ASCII, so an empty or space-containing token never matches.
-        let identity = if token.split('.').count() == 3 {
+        if jwt_shaped(token) {
             // A registered token must never bypass verification of JWT-shaped credentials.
-            jwt::authenticate(registry, token, clock)
+            let warn = looks_like_jwt(token);
+            jwt::Candidate::parse(registry, token, clock)
+                .map(|candidate| Presented::Jwt { candidate, warn })
+                .ok_or_else(|| {
+                    if warn {
+                        warn_self_signed_jwt();
+                    }
+                    AuthFailure::InvalidCredentials
+                })
         } else {
+            // Randomized SipHash indexes local test tokens; HMAC verification uses ring's constant-time check.
             registry
                 .tokens
                 .get(token)
-                .map(|index| &registry.identities[*index])
-        };
-        identity
-            .map(|identity| Some(Caller::Principal(identity)))
-            .ok_or_else(|| {
-                if looks_like_jwt(token) && !WARNED_SELF_SIGNED_JWT.swap(true, Ordering::Relaxed) {
-                    crate::diagnostics::emit(
-                        crate::diagnostics::LogLevel::Warn,
-                        "auth_self_signed_jwt_rejected",
-                        serde_json::json!({
-                            "message": "strict authentication rejected a self-signed JWT; register its issuer and RSA public_keys in the identity file, use RS256 with matching issuer/subject, devstorage.full_control scope, no audience and a valid lifetime of at most one hour; the permissive profile remains available for unauthenticated local clients",
-                        }),
-                    );
-                }
-                AuthFailure::InvalidCredentials
-            })
+                .and_then(|index| registry.identities.get(*index))
+                .map(Presented::Token)
+                .ok_or(AuthFailure::InvalidCredentials)
+        }
     }
+}
+
+fn warn_self_signed_jwt() {
+    if !WARNED_SELF_SIGNED_JWT.swap(true, Ordering::Relaxed) {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Warn,
+            "auth_self_signed_jwt_rejected",
+            serde_json::json!({
+                "message": "strict authentication rejected a self-signed JWT; register its issuer and RSA public_keys in the identity file, use RS256 with matching issuer/subject, devstorage.full_control scope, no audience and a valid lifetime of at most one hour; the permissive profile remains available for unauthenticated local clients",
+            }),
+        );
+    }
+}
+
+fn jwt_shaped(token: &str) -> bool {
+    token.split('.').count() == 3
 }
 
 /// A JWT is three base64url segments; its header is JSON, which encodes to a leading `eyJ`.
@@ -805,6 +965,54 @@ mod tests {
     use crate::test_support::TestDir;
 
     #[test]
+    fn compact_grants_keep_project_membership_and_legacy_upload_snapshots() {
+        let registry = Registry::parse(br#"{"identities":[{"id":"hmac","tokens":[],"project_roles":{"project":["roles/storage.hmacKeyAdmin"]}}]}"#).unwrap();
+        let identity = &registry.identities[0];
+        assert!(identity.has_project_grant("project"));
+        assert!(!identity.allows(OBJECTS_GET, "project"));
+        let restored = Identity::from_upload_snapshot(
+            &serde_json::json!({"id":"legacy","projects":{"project":["storage.objects.create"]}}),
+        )
+        .unwrap();
+        assert!(restored.allows(OBJECTS_CREATE, "project"));
+        assert!(!restored.allows(OBJECTS_DELETE, "project"));
+        assert!(!restored.has_explicit_storage_admin("project"));
+        assert_eq!(
+            restored.upload_snapshot(),
+            serde_json::json!({"id":"legacy","projects":{"project":["storage.objects.create"]}})
+        );
+        assert!(Permission::parse_testable(BUCKETS_ENABLE_OBJECT_RETENTION.as_str()).is_none());
+        assert_eq!(
+            BUCKETS_ENABLE_OBJECT_RETENTION,
+            Permission::BucketsEnableObjectRetention
+        );
+    }
+
+    #[test]
+    fn compact_grants_preserve_hmac_key_management_permissions() {
+        let registry = Registry::parse(br#"{"identities":[{"id":"hmac","tokens":[],"project_roles":{"project":["roles/storage.hmacKeyAdmin"]}}]}"#).unwrap();
+        let identity = &registry.identities[0];
+        for permission in [
+            Permission::HmacKeysCreate,
+            Permission::HmacKeysDelete,
+            Permission::HmacKeysGet,
+            Permission::HmacKeysList,
+            Permission::HmacKeysUpdate,
+        ] {
+            assert!(identity.allows(permission, "project"), "{permission}");
+            assert!(Permission::parse_testable(permission.as_str()).is_none());
+            let query = format!("permissions={permission}");
+            let error = crate::json::test_permissions_query(Some(&query)).unwrap_err();
+            assert_eq!(error.status, hyper::StatusCode::BAD_REQUEST);
+            assert_eq!(error.reason, "badRequest");
+            let object_uri = format!("/storage/v1/b/bucket/o/object/iam/testPermissions?{query}")
+                .parse()
+                .unwrap();
+            assert!(crate::json::route_object(&hyper::Method::GET, &object_uri).is_none());
+        }
+    }
+
+    #[test]
     fn jwt_detection_requires_three_segments_and_a_json_header() {
         assert!(looks_like_jwt("eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJ4In0.c2ln"));
         for token in [
@@ -860,8 +1068,7 @@ mod tests {
         let identity = Identity {
             id: "local".into(),
             acl_entity: None,
-            permissions: BTreeMap::from([("project".into(), BTreeSet::from([BUCKETS_UPDATE]))]),
-            explicit_storage_admin_projects: BTreeSet::new(),
+            projects: BTreeMap::from([("project".into(), [BUCKETS_UPDATE].into_iter().collect())]),
         };
         let access = BucketAccess::Policy {
             identity: Some(identity),
@@ -967,16 +1174,18 @@ mod tests {
         catalog.insert_bucket(record).await.unwrap();
         for default_acl in [false, true] {
             for readable in [false, true] {
-                let mut permissions = BTreeSet::from([BUCKETS_UPDATE]);
+                let mut permissions = vec![BUCKETS_UPDATE];
                 if readable {
-                    permissions.insert(BUCKETS_GET_IAM);
+                    permissions.push(BUCKETS_GET_IAM);
                 }
                 let access = BucketAccess::Policy {
                     identity: Some(Identity {
                         id: "local".into(),
                         acl_entity: None,
-                        permissions: BTreeMap::from([("project".into(), permissions)]),
-                        explicit_storage_admin_projects: BTreeSet::new(),
+                        projects: BTreeMap::from([(
+                            "project".into(),
+                            permissions.into_iter().collect(),
+                        )]),
                     }),
                     permission: Permission::BucketsUpdate,
                     project: Some("project".into()),
@@ -1094,13 +1303,13 @@ mod tests {
             .await
             .unwrap();
         let mut registry = Registry::parse(br#"{"identities":[{"id":"reader","tokens":["reader"]},{"id":"writer","tokens":["writer"]}]}"#).unwrap();
-        registry.identities[0].permissions.insert(
+        registry.identities[0].projects.insert(
             "project".into(),
-            BTreeSet::from([OBJECTS_UPDATE, OBJECTS_GET_IAM]),
+            [OBJECTS_UPDATE, OBJECTS_GET_IAM].into_iter().collect(),
         );
-        registry.identities[1].permissions.insert(
+        registry.identities[1].projects.insert(
             "project".into(),
-            BTreeSet::from([OBJECTS_UPDATE, OBJECTS_SET_IAM]),
+            [OBJECTS_UPDATE, OBJECTS_SET_IAM].into_iter().collect(),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1256,15 +1465,11 @@ mod tests {
         )
         .unwrap();
         let identity = &registry.identities[0];
-        let all: BTreeSet<_> = roles::PREDEFINED_ROLES
-            .iter()
-            .flat_map(|(_, _, permissions)| permissions.iter().copied())
-            .collect();
         for (index, (_, _, permissions)) in roles::PREDEFINED_ROLES.iter().enumerate() {
-            for permission in &all {
+            for permission in Permission::ALL {
                 assert_eq!(
-                    identity.allows(permission, &projects[index]),
-                    permissions.contains(permission),
+                    identity.allows(*permission, &projects[index]),
+                    permissions.contains(&permission.as_str()),
                     "{index} {permission}"
                 );
             }
@@ -1285,8 +1490,11 @@ mod tests {
 
     #[test]
     fn notable_role_consequences_follow_the_snapshot() {
-        let has =
-            |role: &str, permission: &str| roles::permissions(role).unwrap().contains(&permission);
+        let has = |role: &str, permission: Permission| {
+            roles::permissions(role)
+                .unwrap()
+                .contains(&permission.as_str())
+        };
         assert!(!has("roles/storage.objectViewer", BUCKETS_GET));
         assert!(has("roles/storage.objectViewer", OBJECTS_GET));
         assert!(has("roles/storage.objectCreator", OBJECTS_CREATE));
@@ -1335,8 +1543,8 @@ mod tests {
         headers
     }
 
-    #[test]
-    fn strict_caller_resolution() {
+    #[tokio::test]
+    async fn strict_caller_resolution() {
         let auth = strict();
         let id = |result: Result<Option<Caller<'_>>, AuthFailure>| match result {
             Ok(Some(Caller::Principal(identity))) => Ok(Some(identity.id().to_owned())),
@@ -1344,10 +1552,12 @@ mod tests {
             Ok(None) => panic!("strict mode must resolve a caller"),
             Err(error) => Err(error),
         };
-        assert_eq!(id(auth.authenticate(&headers(&[]), None)), Ok(None));
+        assert_eq!(id(auth.authenticate(&headers(&[]), None).await), Ok(None));
         for value in [&b"Bearer tok-a"[..], b"bearer tok-b", b"BEARER   tok-a"] {
             assert_eq!(
-                id(auth.authenticate(&headers(&[value]), Some("project=p"))),
+                id(auth
+                    .authenticate(&headers(&[value]), Some("project=p"))
+                    .await),
                 Ok(Some("a@example.invalid".into())),
                 "{}",
                 String::from_utf8_lossy(value)
@@ -1367,14 +1577,16 @@ mod tests {
             b"Bearer \xfftok",
         ] {
             assert_eq!(
-                id(auth.authenticate(&headers(&[value]), None)),
+                id(auth.authenticate(&headers(&[value]), None).await),
                 Err(AuthFailure::InvalidCredentials),
                 "{}",
                 String::from_utf8_lossy(value)
             );
         }
         assert_eq!(
-            id(auth.authenticate(&headers(&[b"Bearer tok-a", b"Bearer tok-a"]), None)),
+            id(auth
+                .authenticate(&headers(&[b"Bearer tok-a", b"Bearer tok-a"]), None)
+                .await),
             Err(AuthFailure::InvalidCredentials)
         );
         for query in [
@@ -1393,25 +1605,29 @@ mod tests {
             "X-Amz-Signature=00",
         ] {
             assert_eq!(
-                id(auth.authenticate(&headers(&[b"Bearer tok-a"]), Some(query))),
+                id(auth
+                    .authenticate(&headers(&[b"Bearer tok-a"]), Some(query))
+                    .await),
                 Err(AuthFailure::InvalidCredentials),
                 "{query}"
             );
             assert_eq!(
-                id(auth.authenticate(&headers(&[]), Some(query))),
+                id(auth.authenticate(&headers(&[]), Some(query)).await),
                 Err(AuthFailure::InvalidCredentials),
                 "{query}"
             );
         }
         let permissive = Auth::permissive();
         assert!(matches!(
-            permissive.authenticate(&headers(&[b"Basic garbage", b"x"]), Some("access_token=x")),
+            permissive
+                .authenticate(&headers(&[b"Basic garbage", b"x"]), Some("access_token=x"))
+                .await,
             Ok(None)
         ));
     }
 
-    #[test]
-    fn registered_principal_without_tokens_does_not_gain_bearer_or_jwt_authentication() {
+    #[tokio::test]
+    async fn registered_principal_without_tokens_does_not_gain_bearer_or_jwt_authentication() {
         let registry = Registry::parse(
             br#"{"identities":[{"id":"hmac-only@example.test","tokens":[],"project_roles":{"local":["roles/storage.admin"]}}]}"#,
         )
@@ -1420,7 +1636,11 @@ mod tests {
         assert!(registry.tokens.is_empty());
         assert!(registry.signing_keys.is_empty());
         let auth = Auth::strict(registry);
-        let anonymous = auth.authenticate(&headers(&[]), None).unwrap().unwrap();
+        let anonymous = auth
+            .authenticate(&headers(&[]), None)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(matches!(anonymous, Caller::Anonymous));
         assert_eq!(anonymous.principal(), Err(AuthFailure::LoginRequired));
         for credential in [
@@ -1431,12 +1651,13 @@ mod tests {
             b"Bearer eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJobWFjLW9ubHlAZXhhbXBsZS50ZXN0In0.AA",
         ] {
             assert!(matches!(
-                auth.authenticate(&headers(&[credential]), None),
+                auth.authenticate(&headers(&[credential]), None).await,
                 Err(AuthFailure::InvalidCredentials)
             ));
         }
         assert!(matches!(
-            auth.authenticate(&headers(&[]), Some("X-Goog-Credential=unknown")),
+            auth.authenticate(&headers(&[]), Some("X-Goog-Credential=unknown"))
+                .await,
             Err(AuthFailure::InvalidCredentials)
         ));
     }
@@ -1504,6 +1725,11 @@ mod tests {
             ("empty token", valid(r#"{"id":"a","tokens":[""]}"#)),
             ("space token", valid(r#"{"id":"a","tokens":["a b"]}"#)),
             ("non-ascii token", valid(r#"{"id":"a","tokens":["tö"]}"#)),
+            (
+                "JWT-shaped token",
+                valid(r#"{"id":"a","tokens":["a.b.c"]}"#),
+            ),
+            ("empty JWT segments", valid(r#"{"id":"a","tokens":[".."]}"#)),
             (
                 "long token",
                 valid(&format!(r#"{{"id":"a","tokens":["{long_token}"]}}"#)),

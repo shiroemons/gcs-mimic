@@ -3,6 +3,8 @@ use super::*;
 
 #[cfg(test)]
 pub(super) mod faults;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) mod tests;
 #[cfg(test)]
 use crate::storage::catalog::fault::Step;
 
@@ -28,7 +30,7 @@ fn failure(root: RootId, phase: &str) -> Result<(), Error> {
         .find(|(selected, step, count)| *selected == root && *step == phase && *count > 0)
     {
         *count -= 1;
-        return Err(AdminError::DiskFull.into());
+        return Err(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into()).into());
     }
     Ok(())
 }
@@ -97,22 +99,10 @@ fn content_matches(file: &File, size: u64, md5: [u8; 16], crc32c: u32) -> Result
     if before.size != size {
         return Ok(false);
     }
-    let mut hash = Hasher::default();
-    let mut buffer = [0; 65_536];
-    let mut offset = 0;
-    while offset < size {
-        let count = fsutil::read_at(
-            file,
-            &mut buffer[..(size - offset).min(65_536) as usize],
-            offset,
-        )?;
-        if count == 0 {
-            return Ok(false);
-        }
-        hash.update(&buffer[..count]);
-        offset += count as u64;
-    }
-    let hashes = hash.finish();
+    let hashes = match fsutil::hash_exact(file, size, |_| Ok::<_, io::Error>(()))? {
+        fsutil::HashOutcome::Complete(hashes) => hashes,
+        _ => return Ok(false),
+    };
     Ok(before == fsutil::stat_identity(file)? && hashes.md5 == md5 && hashes.crc32c == crc32c)
 }
 
@@ -159,6 +149,12 @@ fn api_original(
         purpose,
         CopyPurpose::RestoreAbsent | CopyPurpose::ObserveProtected
     ) {
+        return Err(stale());
+    }
+    let complete: bool = c
+        .prepare_cached("SELECT complete FROM sync_roots WHERE root_id=?1")?
+        .query_row([item.token.root.as_bytes()], |row| row.get(0))?;
+    if !complete {
         return Err(stale());
     }
     let binding = SyncBinding {
@@ -220,7 +216,16 @@ fn install_target(
     source_device: Option<u64>,
 ) -> Result<bool, Error> {
     let current = target(root, &selected.path)?;
-    let directory = parent(root, &selected.path, ParentSync::Skip)?.ok_or_else(stale)?;
+    let parents = selected.path.rsplit_once('/').ok_or_else(stale)?.0;
+    let directory = crate::sync::tree::parent(
+        root,
+        std::path::Path::new(parents),
+        crate::sync::tree::ParentOpen::Create,
+    )
+    .map_err(|error| match error {
+        crate::sync::tree::ParentError::Io(error) => Error::from(error),
+        _ => stale(),
+    })?;
     let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
     let retained = entry(workspace, &selected.token.id)?;
     let already_installed = match staged {
@@ -255,8 +260,6 @@ fn install_target(
             }
             _ => return Ok(false),
         };
-        #[cfg(test)]
-        failure(selected.token.root, "install")?;
         let outcome = if selected.kind == Kind::Remove && current.is_none() {
             fsutil::ReplaceOutcome::Created
         } else if selected.kind == Kind::Publish {
@@ -406,7 +409,7 @@ impl Writeback {
             })
             .await?;
             if let Some(result) = operation.cancelling {
-                this.cancel_live_copy(&operation.item.clone()).await?;
+                this.cancel_live_copy(operation).await?;
                 return Ok(result);
             }
             if !operation.copied {
@@ -506,7 +509,7 @@ impl Writeback {
                 }
                 Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => {
                     operation.cancelling = Some(LiveResult::Obsolete);
-                    self.cancel_live_copy(&item).await?;
+                    self.cancel_live_copy(operation).await?;
                     return Ok(LiveResult::Obsolete);
                 }
                 Err(error) => return Err(error),
@@ -521,6 +524,8 @@ impl Writeback {
         let faults = self.fault_paths();
         let installed = self
             .fs(move |root, workspace| {
+                #[cfg(test)]
+                failure(selected.token.root, "install")?;
                 if observing {
                     return match target(root, &selected.path)? {
                         Some(file) => {
@@ -549,7 +554,7 @@ impl Writeback {
         match installed {
             Ok(false) => {
                 operation.cancelling = Some(LiveResult::Conflict);
-                self.cancel_live_copy(&item).await?;
+                self.cancel_live_copy(operation).await?;
                 return Ok(LiveResult::Conflict);
             }
             Ok(true) => operation.installed = true,
@@ -620,16 +625,21 @@ impl Writeback {
         #[cfg(test)]
         failure(item.token.root, "durable")?;
         let selected = item.clone();
+        let observed_ns = self.lease.observation_time_ns()?;
         let fp = match self
-            .fs(move |root, workspace| fingerprint(root, workspace, &selected))
+            .fs(move |root, workspace| fingerprint(root, workspace, &selected, observed_ns))
             .await
         {
             Ok(fp) => fp,
+            Err(Error::Protected) => {
+                operation.item = self.inspect_inner(item.token.clone()).await?;
+                return Err(Error::Protected);
+            }
             Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
                 if operation.observing =>
             {
                 operation.cancelling = Some(LiveResult::Conflict);
-                self.cancel_live_copy(&item).await?;
+                self.cancel_live_copy(operation).await?;
                 return Ok(LiveResult::Conflict);
             }
             Err(error) => return Err(error),
@@ -673,19 +683,20 @@ impl Writeback {
         let expected = fp.clone();
         let verified = self
             .fs(move |root, workspace| {
-                if fingerprint(root, workspace, &selected)? != expected {
-                    return Err(stale());
-                }
-                Ok(())
+                verify_fingerprint(root, workspace, &selected, expected.as_ref())
             })
             .await;
         match verified {
             Ok(()) => {}
+            Err(Error::Protected) => {
+                operation.item = self.inspect_inner(item.token.clone()).await?;
+                return Err(Error::Protected);
+            }
             Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
                 if operation.observing =>
             {
                 operation.cancelling = Some(LiveResult::Conflict);
-                self.cancel_live_copy(&item).await?;
+                self.cancel_live_copy(operation).await?;
                 return Ok(LiveResult::Conflict);
             }
             Err(error) => return Err(error),
@@ -730,16 +741,39 @@ impl Writeback {
         Ok(result)
     }
 
-    async fn cancel_live_copy(&self, item: &Pending) -> Result<(), Error> {
+    async fn cancel_live_copy(&self, operation: &mut LiveOperation) -> Result<(), Error> {
+        let item = operation.item.clone();
         let selected = item.clone();
-        self.fs(move |_, workspace| {
-            if selected.kind == Kind::Publish && entry(workspace, &selected.token.id)?.is_some() {
-                fsutil::unlink_file_at(workspace, selected.token.id.as_ref())?;
-                workspace.sync_all()?;
-            }
-            Ok(())
-        })
-        .await?;
+        let staged = operation.staged;
+        let cancelled = self
+            .fs(move |root, workspace| {
+                if let Some(staged) = staged
+                    && target(root, &selected.path)?
+                        .as_ref()
+                        .map(fsutil::stat_identity)
+                        .transpose()?
+                        .is_some_and(|identity| {
+                            identity.device == staged.device && identity.inode == staged.inode
+                        })
+                {
+                    return Err(Error::Protected);
+                }
+                if let Some(file) = entry(workspace, &selected.token.id)? {
+                    if selected.kind != Kind::Publish
+                        || staged != Some(fsutil::stat_identity(&file)?)
+                    {
+                        return Err(Error::Protected);
+                    }
+                    fsutil::unlink_file_at(workspace, selected.token.id.as_ref())?;
+                    workspace.sync_all()?;
+                }
+                Ok(())
+            })
+            .await;
+        if matches!(cancelled, Err(Error::Protected)) {
+            operation.item = self.inspect_inner(item.token.clone()).await?;
+        }
+        cancelled?;
         let selected = item.clone();
         self.db(move |c| {
             #[cfg(test)]

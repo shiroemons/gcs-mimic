@@ -18,7 +18,10 @@ fn administrative_diagnostics_keep_their_existing_messages() {
             },
             "administrative operation: Busy { retry_after: 2s }",
         ),
-        (AdminError::DiskFull, "administrative operation: DiskFull"),
+        (
+            AdminError::DiskFull(io::ErrorKind::StorageFull.into()),
+            "administrative operation: DiskFull",
+        ),
         (AdminError::Closed, "administrative operation: Closed"),
         (
             AdminError::Precondition,
@@ -93,14 +96,14 @@ fn administrative_failures_retain_io_and_corruption_causes() {
 }
 
 #[test]
-fn synchronization_diagnostics_keep_their_existing_messages() {
+fn synchronization_diagnostics_summarize_wrapped_causes() {
     use crate::storage::sync_state::{
         conflicts::Error as ConflictError, root::RootError, writeback::Error as WritebackError,
     };
     for (error, expected) in [
         (
             RootError::Admin(AdminError::Hold),
-            "synchronization root: Admin(Hold)",
+            "synchronization root: admin operation failed",
         ),
         (RootError::InUse, "synchronization root: InUse"),
         (RootError::Unsupported, "synchronization root: Unsupported"),
@@ -153,11 +156,11 @@ fn synchronization_diagnostics_keep_their_existing_messages() {
     for (error, expected) in [
         (
             WritebackError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into())),
-            "write-back: Admin(Io(PermissionDenied))",
+            "write-back: admin operation failed",
         ),
         (
             WritebackError::Root(RootError::InUse),
-            "write-back: Root(InUse)",
+            "write-back: root validation failed",
         ),
         (WritebackError::Capacity, "write-back: Capacity"),
         (
@@ -172,6 +175,18 @@ fn synchronization_diagnostics_keep_their_existing_messages() {
     ] {
         assert_eq!(error.to_string(), expected);
     }
+    let error = WritebackError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into()));
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<AdminError>()
+    );
+    let error = RootError::Admin(AdminError::Hold);
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .is::<AdminError>()
+    );
 }
 
 fn publication_blobs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
@@ -358,7 +373,10 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
             let transaction = connection.transaction().unwrap();
             for index in 0..140 {
                 let id = format!("{index:032x}");
-                let path = objects::blob_path(&data_dir, &id.parse().unwrap());
+                let path = id
+                    .parse::<crate::storage::BlobId>()
+                    .unwrap()
+                    .blob_path(&data_dir);
                 fs::create_dir_all(path.parent().unwrap()).unwrap();
                 fs::write(path, b"retired").unwrap();
                 transaction
@@ -528,10 +546,10 @@ fn admin_names_generations_and_permissions_are_validated() {
     assert!(Generation::new(-1).is_err());
     assert_eq!(Generation::new(i64::MAX).unwrap().get(), i64::MAX);
     assert_eq!(
-        crate::auth::Permission::try_from("storage.objects.get").unwrap(),
+        crate::auth::Permission::parse_testable("storage.objects.get").unwrap(),
         crate::auth::Permission::ObjectsGet
     );
-    assert!(crate::auth::Permission::try_from("storage.objects.typo").is_err());
+    assert!(crate::auth::Permission::parse_testable("storage.objects.typo").is_none());
     assert_eq!(WAIT_TIMEOUT, Duration::from_secs(30));
 }
 
@@ -1001,7 +1019,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
             )
             .await
             .unwrap_err(),
-        AdminError::DiskFull
+        AdminError::DiskFull(io::ErrorKind::StorageFull.into())
     );
     catalog
         .run(|connection| {
@@ -1023,7 +1041,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
         .collect();
     assert_eq!(
         admin.ensure_buckets(records).await.unwrap_err(),
-        AdminError::DiskFull
+        AdminError::DiskFull(io::ErrorKind::StorageFull.into())
     );
     assert!(
         admin
@@ -1219,7 +1237,9 @@ async fn admin_invalid_metadata_cannot_replace_a_readable_generation() {
                 body(b"bad")
             )
             .await,
-        Err(ObjectError::InvalidFixedMetadata(_))
+        Err(ObjectError::Metadata(
+            crate::metadata_error::MetadataError::FixedHeader(_)
+        ))
     ));
     catalog.close().await.unwrap();
 }
@@ -1461,4 +1481,16 @@ async fn disk_full_during_derived_retirement_preserves_the_same_transfer_and_byt
         b"new bytes"[..]
     );
     catalog.close().await.unwrap();
+}
+#[test]
+fn disk_full_preserves_the_original_io_error() {
+    let error = AdminError::from(io::Error::new(
+        io::ErrorKind::StorageFull,
+        "staging sync failed",
+    ));
+    let cause = crate::error::causes(&error)
+        .find_map(|cause| cause.downcast_ref::<io::Error>())
+        .unwrap();
+    assert_eq!(cause.kind(), io::ErrorKind::StorageFull);
+    assert_eq!(cause.to_string(), "staging sync failed");
 }

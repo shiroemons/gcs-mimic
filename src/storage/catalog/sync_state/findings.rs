@@ -68,7 +68,7 @@ impl RootLease {
         name: ObjectName,
         generation: Generation,
     ) -> Result<(), RootError> {
-        self.file_job(|_| Ok(())).await?;
+        self.revalidate().await?;
         let lease = self.clone();
         let root = self.status().root_id.as_bytes();
         self.catalog().run_admin(move |c| {
@@ -95,7 +95,7 @@ impl RootLease {
         generation: Generation,
         reason: Reason,
     ) -> Result<(), RootError> {
-        self.file_job(|_| Ok(())).await?;
+        self.revalidate().await?;
         let lease = self.clone();
         let root = self.status().root_id.as_bytes();
         self.catalog().run_admin_with_error(move |c| {
@@ -122,7 +122,7 @@ impl RootLease {
         if after < 0 || !(1..=super::MAX_PAGE).contains(&limit) {
             return Err(AdminError::Invalid("invalid finding page".into()).into());
         }
-        self.file_job(|_| Ok(())).await?;
+        self.revalidate().await?;
         let lease = self.clone();
         let status = self.status();
         self.catalog().run_admin(move |c| {
@@ -143,7 +143,7 @@ impl RootLease {
         {
             return Err(AdminError::Precondition.into());
         }
-        self.file_job(|_| Ok(())).await?;
+        self.revalidate().await?;
         let lease = self.clone();
         self.catalog().run_admin(move |c| {
             let _lease = lease;

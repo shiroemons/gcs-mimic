@@ -140,14 +140,14 @@ pub(super) fn check_access(
         let pap = policy_public_access(connection, bucket)?;
         if !identity
             .as_ref()
-            .is_some_and(|identity| identity.allows(permission.as_str(), project))
-            && !policy.allows(identity.as_ref(), permission.as_str(), pap)
+            .is_some_and(|identity| identity.allows(*permission, project))
+            && !policy.allows(identity.as_ref(), *permission, pap)
             && !super::acl::bucket_granted(
                 connection,
                 bucket,
                 project,
                 identity.as_ref(),
-                permission.as_str(),
+                *permission,
             )?
         {
             return Err(CatalogError::Forbidden);
@@ -210,12 +210,10 @@ impl Catalog {
         &self,
         bucket: &str,
         identity: impl Into<Option<&'a Identity>>,
-        permission: &str,
+        permission: crate::auth::Permission,
     ) -> Result<BucketAccess, CatalogError> {
         let bucket = bucket.to_owned();
         let identity = identity.into().cloned();
-        let permission = crate::auth::Permission::try_from(permission)
-            .map_err(|error| CatalogError::InvalidMetadata(error.into()))?;
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let project: Option<String> =
@@ -223,7 +221,7 @@ impl Catalog {
             if project.is_none()
                 && !identity
                     .as_ref()
-                    .is_some_and(|identity| identity.allows_anywhere(permission.as_str()))
+                    .is_some_and(|identity| identity.allows_anywhere(permission))
             {
                 return Err(CatalogError::Forbidden);
             }

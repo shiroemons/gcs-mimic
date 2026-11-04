@@ -136,9 +136,21 @@ impl CustomerKey {
         headers: &HeaderMap,
         prefix: &str,
     ) -> Result<Option<Self>, CsekError> {
-        let single = |suffix: &str, error: CsekError| {
-            let name = format!("{prefix}{suffix}");
-            let mut values = headers.get_all(name.as_str()).iter();
+        let [algorithm, key, sha256] = match prefix {
+            DESTINATION_PREFIX => [
+                "x-goog-encryption-algorithm",
+                "x-goog-encryption-key",
+                "x-goog-encryption-key-sha256",
+            ],
+            SOURCE_PREFIX => [
+                "x-goog-copy-source-encryption-algorithm",
+                "x-goog-copy-source-encryption-key",
+                "x-goog-copy-source-encryption-key-sha256",
+            ],
+            _ => return Err(CsekError::AlgorithmInvalid),
+        };
+        let single = |name: &str, error: CsekError| {
+            let mut values = headers.get_all(name).iter();
             let first = values.next();
             if values.next().is_some() {
                 return Err(error);
@@ -146,9 +158,9 @@ impl CustomerKey {
             Ok(first.map(|value| value.as_bytes().trim_ascii()))
         };
         Self::parse(
-            single("algorithm", CsekError::AlgorithmInvalid)?,
-            single("key", CsekError::KeyFormatInvalid)?,
-            single("key-sha256", CsekError::KeySha256Invalid)?,
+            single(algorithm, CsekError::AlgorithmInvalid)?,
+            single(key, CsekError::KeyFormatInvalid)?,
+            single(sha256, CsekError::KeySha256Invalid)?,
         )
     }
 }

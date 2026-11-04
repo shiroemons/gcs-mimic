@@ -136,7 +136,7 @@ fn response_fields(uri: &Uri, operation: &ObjectRequest) -> Result<json::Fields,
 }
 
 /// The permission an operation needs on the bucket its request names.
-fn required_permission(operation: &ObjectRequest) -> (&'static str, &str) {
+fn required_permission(operation: &ObjectRequest) -> (auth::Permission, &str) {
     match operation {
         ObjectRequest::Restore { target, .. } => (auth::OBJECTS_RESTORE, &target.bucket),
         ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.names.bucket),

@@ -30,6 +30,7 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
     server.stop();
     {
         let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+        common::downgrade_deletion_history_schema(&connection);
         // Older catalogs stored ACLs independently of their legacy IAM view.
         connection.execute("UPDATE acl_bucket_entries SET entries=?1 WHERE bucket='test-bucket' AND scope='bucket'", [json!([
             {"entity":"user-reader@example.test","role":"OWNER"},

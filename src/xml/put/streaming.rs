@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{auth::signature::Streaming, server::body_progress};
+use crate::{object::UploadChunk, server::upload_drive::UploadSender};
 use http_body_util::BodyExt;
 use ring::digest;
 
@@ -40,7 +41,7 @@ pub(super) fn stored_encoding(headers: &HeaderMap) -> Result<Option<Option<Strin
 
 pub(super) async fn upload(
     body: Incoming,
-    sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
+    sender: &UploadSender,
     ctx: ObjectCtx<'_>,
     streaming: Option<Streaming>,
     decoded: Option<u64>,
@@ -79,7 +80,7 @@ pub(super) async fn upload(
 
 async fn plain(
     body: Incoming,
-    sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
+    sender: &UploadSender,
     ctx: ObjectCtx<'_>,
     length: u64,
     expected: Option<[u8; 32]>,
@@ -193,7 +194,7 @@ impl Reader<'_> {
 
 async fn signed(
     mut reader: Reader<'_>,
-    sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
+    sender: &UploadSender,
     mut verifier: Streaming,
     decoded: u64,
 ) -> Result<(), Error> {
@@ -229,8 +230,7 @@ async fn signed(
         reader.crlf().await?;
         verifier
             .verify_chunk(hash.finish().as_ref(), &signature)
-            .await
-            .map_err(super::super::signature_error)?;
+            .map_err(|error| super::super::signature_error(error.into()))?;
         if length == 0 {
             if total != decoded || reader.fill().await? {
                 return Err(malformed());

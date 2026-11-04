@@ -1,10 +1,11 @@
 //! Durable project HMAC key metadata for `projects.hmacKeys`.
 //!
-//! Keys are project-scoped catalog rows, independent of buckets. Deleted keys stay listed in
+//! Keys are project-scoped catalog rows, independent of buckets. Retained deleted keys stay listed in
 //! the `DELETED` state, as the JSON API reports them through `showDeletedKeys`, but their
 //! secret is erased in the same transaction so that a later signature verifier cannot accept
 //! it. Each key carries its own revision; the etag encodes it, and conditional updates compare
 //! it inside the mutating transaction.
+//! Successful deletion bounds retained tombstones to the newest 128 per project.
 use super::{Catalog, CatalogError, system_time_millis, unavailable, unix_millis};
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -28,6 +29,7 @@ PRAGMA user_version = 32;";
 /// catalog counts them per project as well: the emulator does not know which project owns
 /// a service account, so a global count would let one project exhaust another's quota.
 pub(crate) const MAX_KEYS_PER_SERVICE_ACCOUNT: i64 = 10;
+const MAX_DELETED_KEYS_PER_PROJECT: i64 = 128;
 
 /// Service-account access IDs are 61 characters: the `GOOG1E` prefix and 55 characters.
 const ACCESS_ID_PREFIX: &str = "GOOG1E";
@@ -110,6 +112,30 @@ pub(crate) enum HmacKeyError {
 impl From<CatalogError> for HmacKeyError {
     fn from(error: CatalogError) -> Self {
         Self::Catalog(error)
+    }
+}
+
+impl std::fmt::Display for HmacKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => f.write_str("HMAC key not found"),
+            Self::PreconditionFailed => f.write_str("HMAC key precondition failed"),
+            Self::DeleteActive => {
+                f.write_str("active HMAC key must be deactivated before deletion")
+            }
+            Self::Deleted => f.write_str("HMAC key is deleted"),
+            Self::LimitReached => f.write_str("HMAC key limit reached"),
+            Self::Catalog(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for HmacKeyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Catalog(error) => Some(error),
+            _ => None,
+        }
     }
 }
 
@@ -225,11 +251,9 @@ impl Catalog {
                 access_id = generate_access_id()?;
             }
             let secret = generate_secret()?;
-            const INSERT: &str = "INSERT INTO hmac_keys (access_id, project, service_account_email, secret, state, time_created, updated, revision)
-                     VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5, 1)";
-            sql::exec(&transaction, INSERT, params![access_id, project, email, secret, now])?;
-            let record = select(&transaction, &project, &access_id)?
-                .ok_or_else(|| unavailable("inserted HMAC key is missing"))?;
+            const INSERT: &str = concat!("INSERT INTO hmac_keys (access_id, project, service_account_email, secret, state, time_created, updated, revision)
+                     VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5, 1) RETURNING ", hmac_columns!());
+            let record = sql::row(&transaction, INSERT, params![access_id, project, email, secret, now], record)?;
             transaction.commit()?;
             Ok(CreatedHmacKey { record, secret })
         })
@@ -307,10 +331,8 @@ impl Catalog {
             if current.state == HmacKeyState::Deleted {
                 return Err(HmacKeyError::Deleted);
             }
-            sql::exec(&transaction,
-                    "UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3", params![state, now, access_id])?;
-            let record = select(&transaction, &project, &access_id)?
-                .ok_or_else(|| unavailable("updated HMAC key is missing"))?;
+            let record = sql::row(&transaction,
+                    concat!("UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3 RETURNING ", hmac_columns!()), params![state, now, access_id], record)?;
             transaction.commit()?;
             Ok(record)
         })
@@ -338,6 +360,8 @@ impl Catalog {
             }
             sql::exec(&transaction,
                     "UPDATE hmac_keys SET state = 'DELETED', secret = NULL, updated = max(?1, time_created), revision = revision + 1 WHERE access_id = ?2", params![now, access_id])?;
+            sql::exec(&transaction,
+                "DELETE FROM hmac_keys WHERE access_id IN (SELECT access_id FROM hmac_keys WHERE project=?1 AND state='DELETED' ORDER BY updated DESC, access_id DESC LIMIT -1 OFFSET ?2)", params![project, MAX_DELETED_KEYS_PER_PROJECT])?;
             transaction.commit()?;
             Ok(())
         })
@@ -349,6 +373,125 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::test_support::TestDir;
+
+    #[tokio::test]
+    async fn deleted_key_retention_is_bounded_per_project_without_changing_live_quota() {
+        use std::{
+            sync::Arc,
+            time::{Duration, UNIX_EPOCH},
+        };
+        let clock = Arc::new(crate::clock::ManualClock::new(UNIX_EPOCH));
+        let catalog = Catalog::open_memory_for_server(
+            1024 * 1024,
+            1024 * 1024,
+            clock.clone(),
+            super::super::admin::LocalAdmin::Disabled,
+        )
+        .await
+        .unwrap();
+        let other = catalog
+            .create_hmac_key("other", "signer@example.invalid")
+            .await
+            .unwrap();
+        catalog
+            .update_hmac_key_state(
+                "other",
+                &other.record.access_id,
+                HmacKeyState::Inactive,
+                None,
+            )
+            .await
+            .unwrap();
+        catalog
+            .delete_hmac_key("other", &other.record.access_id)
+            .await
+            .unwrap();
+        let mut oldest = None;
+        for index in 0..=MAX_DELETED_KEYS_PER_PROJECT {
+            clock.set(UNIX_EPOCH + Duration::from_secs(index as u64));
+            let key = catalog
+                .create_hmac_key("project", "signer@example.invalid")
+                .await
+                .unwrap();
+            oldest.get_or_insert_with(|| key.record.access_id.clone());
+            catalog
+                .update_hmac_key_state(
+                    "project",
+                    &key.record.access_id,
+                    HmacKeyState::Inactive,
+                    None,
+                )
+                .await
+                .unwrap();
+            catalog
+                .delete_hmac_key("project", &key.record.access_id)
+                .await
+                .unwrap();
+        }
+        for _ in 0..MAX_KEYS_PER_SERVICE_ACCOUNT {
+            catalog
+                .create_hmac_key("project", "signer@example.invalid")
+                .await
+                .unwrap();
+        }
+        assert!(matches!(
+            catalog
+                .create_hmac_key("project", "signer@example.invalid")
+                .await,
+            Err(HmacKeyError::LimitReached)
+        ));
+        let page = catalog
+            .list_hmac_keys(HmacKeyListQuery {
+                project: "project".into(),
+                service_account_email: None,
+                show_deleted: true,
+                after: None,
+                limit: 1000,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            page.items
+                .iter()
+                .filter(|key| key.state == HmacKeyState::Deleted)
+                .count(),
+            MAX_DELETED_KEYS_PER_PROJECT as usize
+        );
+        assert_eq!(
+            page.items
+                .iter()
+                .filter(|key| key.state == HmacKeyState::Active)
+                .count(),
+            MAX_KEYS_PER_SERVICE_ACCOUNT as usize
+        );
+        assert!(matches!(
+            catalog
+                .get_hmac_key("project", oldest.as_deref().unwrap())
+                .await,
+            Err(HmacKeyError::NotFound)
+        ));
+        assert_eq!(
+            catalog
+                .get_hmac_key("other", &other.record.access_id)
+                .await
+                .unwrap()
+                .state,
+            HmacKeyState::Deleted
+        );
+        catalog.close().await.unwrap();
+    }
+
+    #[test]
+    fn catalog_failure_preserves_its_error_chain() {
+        let error = HmacKeyError::from(CatalogError::Io(
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "key catalog denied").into(),
+        ));
+        assert!(crate::error::causes(&error).any(|cause| cause.is::<std::io::Error>()));
+        assert!(
+            crate::error::causes(&error)
+                .any(|cause| cause.to_string().contains("key catalog denied"))
+        );
+    }
 
     #[tokio::test]
     async fn signing_lookup_never_caches_state_or_exposes_secrets_in_debug() {

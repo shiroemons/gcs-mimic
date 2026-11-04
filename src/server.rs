@@ -32,7 +32,7 @@ use std::{
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
-    sync::{mpsc, watch},
+    sync::{Semaphore, watch},
     task::JoinSet,
 };
 
@@ -40,6 +40,7 @@ pub use crate::grpc::v2::ReadHandles;
 pub use crate::xml::CorsWarnings;
 
 pub struct State {
+    pub pools: WorkPools,
     pub xml_cors_warned_buckets: CorsWarnings,
     pub grpc_read_handles: ReadHandles,
     pub ready: AtomicBool,
@@ -54,6 +55,7 @@ impl State {
     #[cfg(test)]
     pub(crate) fn for_test(catalog: Catalog, auth: Auth) -> Self {
         Self {
+            pools: WorkPools::default(),
             xml_cors_warned_buckets: Default::default(),
             grpc_read_handles: Default::default(),
             ready: AtomicBool::new(true),
@@ -74,6 +76,30 @@ impl State {
     }
 }
 
+/// Per-server admission for CPU work and buffered batch envelopes.
+#[derive(Clone)]
+pub struct WorkPools {
+    pub(crate) gzip_decoders: Arc<Semaphore>,
+    pub(crate) batches: Arc<Semaphore>,
+}
+
+impl WorkPools {
+    pub fn new(config: &Config) -> Self {
+        Self {
+            gzip_decoders: Arc::new(Semaphore::new(
+                config.max_blocking_threads.div_ceil(4).max(1),
+            )),
+            batches: Arc::new(Semaphore::new(batch::BATCH_CONCURRENCY)),
+        }
+    }
+}
+
+impl Default for WorkPools {
+    fn default() -> Self {
+        Self::new(&Config::default())
+    }
+}
+
 pub(crate) const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
 mod batch;
@@ -85,12 +111,13 @@ mod routing;
 mod transport;
 #[cfg(unix)]
 pub mod unix;
+pub(crate) mod upload_drive;
 mod xml_read;
 pub(crate) use context::{DeadlineWatch, ObjectCtx, RequestCtx};
 pub(crate) use ingress::RequestBody;
 
 #[cfg(test)]
-tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
+tokio::task_local! { static ACCEPT_FAULTS: Arc<std::sync::Mutex<std::collections::VecDeque<i32>>>; }
 #[cfg(test)]
 tokio::task_local! { static FORCE_HANDLER_PANIC: Arc<AtomicBool>; }
 
@@ -149,12 +176,17 @@ struct DeadlineReply {
     upload: bool,
 }
 
-fn has_body(request: &Request<Incoming>) -> bool {
-    let headers = request.headers();
+pub(crate) fn has_body(headers: &hyper::HeaderMap) -> bool {
     headers.contains_key(hyper::header::TRANSFER_ENCODING)
         || headers
             .get(hyper::header::CONTENT_LENGTH)
-            .is_some_and(|length| length != "0")
+            .is_some_and(|length| {
+                length
+                    .to_str()
+                    .ok()
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+                    .is_none_or(|length| length != 0)
+            })
 }
 
 impl DeadlineReply {
@@ -173,7 +205,7 @@ impl DeadlineReply {
         Self {
             xml,
             body: xml::ErrorBody::for_method(request.method()),
-            upload: has_body(request) && upload_route,
+            upload: has_body(headers) && upload_route,
         }
     }
 
@@ -395,7 +427,7 @@ pub async fn serve(
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
     let config = config.into();
-    let acceptor = tls::load_server(&config)?;
+    let acceptor = tls::load_server(&config).map_err(io::Error::other)?;
     serve_with_tls(vec![(listener, acceptor)], config, state, shutdown).await
 }
 
@@ -485,33 +517,38 @@ async fn serve_transports(
     let max_connections = config.max_connections;
     let mut connections = JoinSet::new();
     let mut next_listener = 0;
+    let pause = tokio::time::sleep(Duration::ZERO);
+    tokio::pin!(pause);
+    let mut paused = false;
+    let mut backoff = transport::AcceptBackoff::default();
     tokio::pin!(shutdown);
     let signal_result = loop {
         tokio::select! {
             result = &mut shutdown => break result,
+            () = &mut pause, if paused => paused = false,
             Some(result) = connections.join_next(), if !connections.is_empty() => {
                 if let Err(error) = result {
                     report_connection_task_failure(&error);
                 }
                 full.send_replace(connections.len() >= max_connections);
             }
-            incoming = std::future::poll_fn(|cx| {
-                #[cfg(test)]
-                if FORCE_LISTENER_ERROR.try_with(|enabled| *enabled).unwrap_or(false) {
-                    return std::task::Poll::Ready(Err(io::Error::other("injected listener failure")));
-                }
-                for offset in 0..listeners.len() {
-                    let index = (next_listener + offset) % listeners.len();
-                    if let std::task::Poll::Ready(result) = listeners[index].0.poll_accept(cx) {
-                        return std::task::Poll::Ready(result.map(|stream| (index, stream)));
-                    }
-                }
-                std::task::Poll::Pending
-            }), if connections.len() < config.max_connections => {
+            incoming = std::future::poll_fn(|cx| poll_incoming(&listeners, next_listener, cx)), if connections.len() < config.max_connections && !paused => {
                 let (index, stream) = match incoming {
                     Ok(incoming) => incoming,
-                    Err(error) => break Err(error),
+                    Err((index, error)) => {
+                        next_listener = (index + 1) % listeners.len();
+                        match transport::classify(&error) {
+                            transport::AcceptFailure::Fatal => break Err(error),
+                            transport::AcceptFailure::Connection => {},
+                            transport::AcceptFailure::Exhausted => {
+                                pause.as_mut().reset(tokio::time::Instant::now() + backoff.exhausted(&error));
+                                paused = true;
+                            }
+                        }
+                        continue;
+                    }
                 };
+                backoff.accepted();
                 next_listener = (index + 1) % listeners.len();
                 let state = state.clone();
                 let stopping = stop.subscribe();
@@ -561,6 +598,32 @@ async fn serve_transports(
         ),
         state.catalog.close().await.map_err(io::Error::other),
     )
+}
+
+fn poll_incoming(
+    listeners: &[(transport::Listener, Option<tokio_rustls::TlsAcceptor>)],
+    next: usize,
+    cx: &mut std::task::Context<'_>,
+) -> std::task::Poll<Result<(usize, transport::Stream), (usize, io::Error)>> {
+    #[cfg(test)]
+    if let Some(code) = ACCEPT_FAULTS
+        .try_with(|faults| faults.lock().unwrap().pop_front())
+        .ok()
+        .flatten()
+    {
+        return std::task::Poll::Ready(Err((next, io::Error::from_raw_os_error(code))));
+    }
+    for offset in 0..listeners.len() {
+        let index = (next + offset) % listeners.len();
+        if let std::task::Poll::Ready(result) = listeners[index].0.poll_accept(cx) {
+            return std::task::Poll::Ready(
+                result
+                    .map(|stream| (index, stream))
+                    .map_err(|error| (index, error)),
+            );
+        }
+    }
+    std::task::Poll::Pending
 }
 
 async fn serve_http(
@@ -632,6 +695,8 @@ async fn drain_connections(connections: &mut JoinSet<()>, deadline: Duration) ->
 mod deadline_claim_tests;
 #[cfg(test)]
 mod drain_tests;
+#[cfg(test)]
+mod protocol_tests;
 #[cfg(test)]
 mod upload_frame_tests;
 
@@ -776,7 +841,7 @@ impl ConnectionService {
             activity: activity.clone(),
             reads,
         };
-        let sent_body = has_body(&request);
+        let sent_body = has_body(request.headers());
         let endpoints = match config
             .runtime_endpoints
             .snapshot(&config, &state.api_base_url)
@@ -860,7 +925,8 @@ impl ConnectionWatch {
             keep_alive,
         } = self;
         let deadline = tokio::time::sleep(timeout);
-        tokio::pin!(deadline);
+        let object_deadline = tokio::time::sleep(timeout);
+        tokio::pin!(deadline, object_deadline);
         let mut current = ObjectActivity::default();
         let mut draining = false;
         let mut expiring = false;
@@ -873,7 +939,11 @@ impl ConnectionWatch {
             tokio::select! {
                 biased;
                 Ok(()) = progress.changed(), if !expiring => {
-                    current = *progress.borrow_and_update();
+                    let next = *progress.borrow_and_update();
+                    if next.deadline != current.deadline && let Some(at) = next.deadline {
+                        object_deadline.as_mut().reset(at);
+                    }
+                    current = next;
                     next_head = false;
                     // A finished request leaves the connection waiting for the next one.
                     let idle = served.load(Ordering::Acquire) && !active.load(Ordering::Acquire);
@@ -885,7 +955,7 @@ impl ConnectionWatch {
                         deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
                     }
                 },
-                _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if requesting && current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
+                _ = &mut object_deadline, if requesting && current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
                     if responded.load(Ordering::Acquire) { break; }
                     // A catalog wait that started after this branch was chosen pauses the deadline.
                     if !claim_expiry(&activity) { continue; }
@@ -980,7 +1050,7 @@ pub(crate) fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> J
 pub(crate) async fn authorize_bucket(
     state: &State,
     caller: Option<Caller<'_>>,
-    permission: &str,
+    permission: auth::Permission,
     bucket: &str,
 ) -> Result<BucketAccess, JsonError> {
     let Some(caller) = caller else {
@@ -999,7 +1069,7 @@ pub(crate) async fn authorize_bucket(
 /// Authorize a project-scoped collection request such as buckets.insert or buckets.list.
 fn authorize_project(
     caller: Option<Caller<'_>>,
-    permission: &str,
+    permission: auth::Permission,
     project: &str,
 ) -> Result<(), JsonError> {
     match caller {
@@ -1078,7 +1148,7 @@ async fn validate_bodyless_post(
 
 pub(crate) async fn stream_upload(
     mut body: RequestBody,
-    sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
+    sender: &upload_drive::UploadSender,
     max_bytes: u64,
     activity: &watch::Sender<ObjectActivity>,
     expected_sha256: Option<[u8; 32]>,
@@ -1154,13 +1224,17 @@ fn read_etag_not_modified(headers: &hyper::HeaderMap, etag: &str) -> Result<bool
 }
 
 fn not_modified_response(
-    etag: &hyper::header::HeaderValue,
-    cache_control: &hyper::header::HeaderValue,
+    etag: Option<&hyper::header::HeaderValue>,
+    cache_control: Option<&hyper::header::HeaderValue>,
 ) -> Response<Full<Bytes>> {
     let mut response = empty_response(StatusCode::NOT_MODIFIED);
     let headers = response.headers_mut();
-    headers.insert("etag", etag.clone());
-    headers.insert("cache-control", cache_control.clone());
+    if let Some(etag) = etag {
+        headers.insert("etag", etag.clone());
+    }
+    if let Some(cache_control) = cache_control {
+        headers.insert("cache-control", cache_control.clone());
+    }
     response
 }
 
@@ -1320,28 +1394,25 @@ fn insert_unsatisfied_content_range(headers: &mut hyper::HeaderMap, size: u64) {
     }
 }
 
-fn probe_or_unknown(request: &Request<RequestBody>, state: &State) -> Response<Full<Bytes>> {
+fn unknown_route() -> JsonError {
+    JsonError::new(StatusCode::NOT_FOUND, "notFound", "Route not found")
+}
+
+fn probe(request: &Request<RequestBody>, state: &State) -> Option<Response<Full<Bytes>>> {
     let path = request.uri().path();
     let internal = matches!(
         path,
         "/_internal/health" | "/_internal/ready" | "/_internal/healthcheck"
     );
-    let (status, body) = if !internal {
-        (
-            StatusCode::NOT_FOUND,
-            "{\"error\":\"route not implemented\"}".to_owned(),
-        )
-    } else if request.method() != Method::GET && request.method() != Method::HEAD {
+    if !internal {
+        return None;
+    }
+    let (status, body) = if request.method() != Method::GET && request.method() != Method::HEAD {
         (
             StatusCode::METHOD_NOT_ALLOWED,
             "{\"error\":\"method not allowed\"}".to_owned(),
         )
-    } else if request.headers().contains_key("transfer-encoding")
-        || request
-            .headers()
-            .get("content-length")
-            .is_some_and(|v| v != "0")
-    {
+    } else if has_body(request.headers()) {
         (
             StatusCode::PAYLOAD_TOO_LARGE,
             "{\"error\":\"probe bodies are not supported\"}".to_owned(),
@@ -1382,5 +1453,5 @@ fn probe_or_unknown(request: &Request<RequestBody>, state: &State) -> Response<F
             hyper::header::HeaderValue::from_static("GET, HEAD"),
         );
     }
-    response
+    Some(response)
 }

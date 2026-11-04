@@ -8,6 +8,9 @@ use ring::digest::{SHA256, digest};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::sync::{Arc, OnceLock};
 
+mod fingerprint;
+pub(super) use fingerprint::{UploadFingerprint, copy_fingerprint};
+
 pub(crate) type UploadAclSnapshot = Arc<OnceLock<Option<super::acl::ObjectAclSnapshot>>>;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -132,7 +135,9 @@ impl CopyReplay {
         )?;
         self.replay
             .check_incarnation(connection, &self.destination_bucket)?;
-        let incarnation: String = bucket_incarnation(connection, &self.source_bucket)?;
+        let incarnation: String = bucket_incarnation(connection, &self.source_bucket)
+            .optional()?
+            .ok_or(ObjectError::PreconditionFailed)?;
         if incarnation != self.source_incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -333,17 +338,21 @@ pub(super) fn capacity(connection: &Connection, now: i64) -> Result<(), ObjectEr
         "DELETE FROM upload_replays WHERE deadline <= ?1",
         [now],
     )?;
-    let count: i64 = sql::scalar(connection, "SELECT count(*) FROM upload_replays", [])?;
+    check_capacity(connection, now)
+}
+
+fn check_capacity(connection: &Connection, now: i64) -> Result<(), ObjectError> {
+    let count: i64 = sql::scalar(
+        connection,
+        "SELECT count(*) FROM upload_replays WHERE deadline > ?1",
+        [now],
+    )?;
     if count >= CAPACITY {
         return Err(objects::object_unavailable(
             "Upload replay capacity reached; retry after retained requests expire",
         ));
     }
     Ok(())
-}
-
-pub(super) fn fingerprint(value: &impl std::fmt::Debug) -> Vec<u8> {
-    hash(format!("upload-v1:{value:?}").as_bytes())
 }
 
 fn copy_source_generation(
@@ -454,7 +463,7 @@ impl Catalog {
             .ok_or_else(|| objects::object_unavailable("Missing copy replay binding"))?;
         Ok(Some(CopyReplay {
             replay,
-            fingerprint: fingerprint(&request),
+            fingerprint: copy_fingerprint(&request),
             source_bucket,
             source_name,
             source_generation,
@@ -534,7 +543,7 @@ impl Catalog {
                 };
                 let now = unix_micros(clock.now())?;
                 if replay.cached(&transaction, now)?.is_none() {
-                    capacity(&transaction, now)?;
+                    check_capacity(&transaction, now)?;
                     let previous = objects::lookup(&transaction, &bucket, &name)?;
                     objects::check_publication(
                         previous.as_ref(),
@@ -562,6 +571,72 @@ mod tests {
     use super::*;
     use crate::object::ObjectMetadataUpdate;
     use std::collections::BTreeMap;
+
+    #[tokio::test]
+    async fn copy_replay_reports_a_removed_source_bucket_as_a_precondition() {
+        let catalog = Catalog::open_memory_for_server(
+            1024,
+            1024 * 1024,
+            Arc::new(crate::clock::SystemClock),
+            super::super::admin::LocalAdmin::Disabled,
+        )
+        .await
+        .unwrap();
+        for name in ["source", "destination"] {
+            catalog
+                .insert_bucket(crate::storage::test_fixtures::bucket(name, "project"))
+                .await
+                .unwrap();
+        }
+        let replay = catalog
+            .prepare_copy_replay(
+                "destination",
+                "target",
+                Default::default(),
+                &BucketAccess::Permissive,
+                CopyReplaySource {
+                    bucket: "source",
+                    name: "object",
+                    generation: Some(1),
+                    access: &BucketAccess::Permissive,
+                },
+                ReplayInvocation {
+                    token: Some("invocation"),
+                    request: "copy",
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        catalog
+            .run::<_, CatalogError>(|connection| {
+                sql::exec(
+                    connection,
+                    "DELETE FROM bucket_incarnations WHERE bucket='source'",
+                    [],
+                )?;
+                sql::exec(connection, "DELETE FROM buckets WHERE name='source'", [])?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            catalog.copy_replay_record(&replay).await,
+            Err(ObjectError::PreconditionFailed)
+        );
+        catalog.close().await.unwrap();
+    }
+
+    #[test]
+    fn advisory_capacity_counts_only_unexpired_rows_without_writing() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE upload_replays(deadline INTEGER); INSERT INTO upload_replays VALUES (1), (3); CREATE TEMP TRIGGER reject_replay_delete BEFORE DELETE ON upload_replays BEGIN SELECT RAISE(ABORT, 'advisory must not delete'); END;").unwrap();
+        check_capacity(&connection, 2).unwrap();
+        assert_eq!(
+            sql::scalar::<i64>(&connection, "SELECT count(*) FROM upload_replays", []).unwrap(),
+            2
+        );
+    }
 
     #[test]
     fn completion_decoding_and_startup_reject_corrupt_enums_and_json() {
@@ -617,12 +692,9 @@ mod tests {
         }
     }
 
-    /// A replay token outlives a restart, and a restart can be an upgrade, so the fingerprint
-    /// of a request must not change with the JSON library's map ordering. Its input is typed
-    /// and ordered (`BTreeMap`), never a `serde_json::Map`; this golden value was recorded
-    /// before `serde_json` began preserving insertion order and must stay unchanged.
+    /// Replay identities survive restarts and upgrades; their versioned encoding is fixed.
     #[test]
-    fn fingerprint_is_stable_across_the_json_map_ordering_change() {
+    fn fingerprint_encoding_has_a_stable_golden_digest() {
         let metadata = ObjectMetadataUpdate {
             content_type: Some(Some("text/plain".into())),
             metadata: Some(Some(BTreeMap::from([
@@ -640,21 +712,38 @@ mod tests {
                     role: crate::acl::AclRole::Reader,
                 },
             ]),
-            ..Default::default()
+            override_unlocked_retention: crate::object::retention::UnlockedOverride::Requested,
+            ..super::super::resumable::golden_tests::populated_options().metadata
         };
-        let digest = fingerprint(&(
-            "bucket",
-            "name",
-            "text/plain",
-            &metadata,
-            ObjectConditions::default(),
-            5_u64,
-            [7_u8; 32],
-        ));
+        let request = UploadFingerprint {
+            bucket: "bucket",
+            name: "name",
+            content_type: "text/plain",
+            metadata: &metadata,
+            conditions: ObjectConditions {
+                if_generation_match: Some(7),
+                if_generation_not_match: Some(8),
+                if_metageneration_match: Some(9),
+                if_metageneration_not_match: Some(10),
+            },
+            size: 5,
+            sha256: [7; 32],
+        };
+        let digest = request.digest();
         let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
         assert_eq!(
             hex,
-            "efb78fcb6bc2c1dbe3cc0e0e0b4e797c09c5227c43717186eb9271699df8876f"
+            "9800c73b1029a34e7809af2ace71da8e6668531db720b33ce2f448732d4735d7"
+        );
+        let mut replace = metadata.clone();
+        replace.metadata_mode = crate::object::MapMode::Replace;
+        assert_ne!(
+            digest,
+            UploadFingerprint {
+                metadata: &replace,
+                ..request
+            }
+            .digest()
         );
     }
 }

@@ -5,7 +5,11 @@ use std::path::{Path, PathBuf};
 use crate::storage::admin::{BucketName, ObjectName};
 
 pub const MARKER: &str = ".gcs-mimic-sync.json";
+pub(crate) const MARKER_STAGING: &str = ".gcs-mimic-sync.json.staging";
 pub(crate) const WORKSPACE: &str = ".gcs-mimic-sync-work";
+pub(crate) fn is_reserved_root_entry(name: &std::ffi::OsStr) -> bool {
+    matches!(name.to_str(), Some(MARKER | MARKER_STAGING | WORKSPACE))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reason {
@@ -39,7 +43,7 @@ fn candidate(bucket: &BucketName, object: &ObjectName) -> Result<PathBuf, Reason
         if component.is_empty() || matches!(component, "." | "..") || component.contains('\0') {
             return Err(Reason::InvalidName);
         }
-        if matches!(component, MARKER | WORKSPACE) {
+        if is_reserved_root_entry(component.as_ref()) {
             return Err(Reason::Reserved);
         }
         // The catalog's sync-path validator rejects these on every platform; a
@@ -47,7 +51,8 @@ fn candidate(bucket: &BucketName, object: &ObjectName) -> Result<PathBuf, Reason
         if component.contains(['\\', ':']) {
             return Err(Reason::HostRestriction);
         }
-        if cfg!(windows) && windows_component_is_invalid(component) {
+        #[cfg(windows)]
+        if windows_component_is_invalid(component) {
             return Err(Reason::HostRestriction);
         }
         path.push(component);
@@ -65,11 +70,10 @@ fn candidate(bucket: &BucketName, object: &ObjectName) -> Result<PathBuf, Reason
 /// Decodes only the exact relative path spelling emitted by `name_to_path`.
 pub fn path_to_name(path: &Path) -> Result<(BucketName, ObjectName), Reason> {
     let raw = path.to_str().ok_or(Reason::InvalidName)?;
-    let text = if cfg!(windows) {
-        raw.replace('\\', "/")
-    } else {
-        raw.to_owned()
-    };
+    #[cfg(windows)]
+    let text = raw.replace('\\', "/");
+    #[cfg(not(windows))]
+    let text = raw;
     let (bucket, object) = text.split_once('/').ok_or(Reason::InvalidName)?;
     let bucket = BucketName::new(bucket).map_err(|_| Reason::InvalidName)?;
     let object = ObjectName::new(object).map_err(|_| Reason::InvalidName)?;
@@ -80,6 +84,7 @@ pub fn path_to_name(path: &Path) -> Result<(BucketName, ObjectName), Reason> {
     Ok((bucket, object))
 }
 
+#[cfg(windows)]
 fn windows_component_is_invalid(component: &str) -> bool {
     if component
         .chars()
@@ -161,7 +166,7 @@ mod tests {
                 PathMapping::Unrepresentable(Reason::InvalidName)
             );
         }
-        for component in [MARKER, WORKSPACE] {
+        for component in [MARKER, MARKER_STAGING, WORKSPACE] {
             for object in [component.to_owned(), format!("a/{component}/b")] {
                 assert_eq!(
                     mapping("demo-bucket", &object),
@@ -191,6 +196,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn windows_restrictions_cover_devices_and_special_components() {
         for component in [
             "CON", "con.txt", "COM1", "LPT9.log", "COM¹", "a:", "a\\b", "a?b", "a ", "a.",

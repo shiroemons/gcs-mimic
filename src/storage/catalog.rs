@@ -5,7 +5,7 @@ use crate::bucket::{
     UNIFORM_ACCESS_LOCK_PERIOD, cors_from_value, cors_value, valid_label, validate_cors,
 };
 use crate::clock::{Clock, SystemClock};
-use crate::storage::failure::{BackendFailure, unavailable};
+use crate::storage::failure::{BackendCause, BackendFailure, unavailable};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, types::Type};
 use std::{
     path::{Path, PathBuf},
@@ -84,18 +84,17 @@ mod md5_availability;
 mod object_hold;
 
 mod appendable;
-pub(crate) use appendable::{AppendError, AppendWriter};
+pub(crate) use appendable::{AppendError, AppendWriter, Finality};
 
 mod object_move;
 pub(crate) use object_move::{MoveAccess, MoveConditions, MoveNames};
+mod bucket_soft_delete;
 mod object_owner;
 mod objects;
-#[cfg(test)]
-pub(crate) use objects::Versioning;
-mod bucket_soft_delete;
 mod soft_delete;
 pub(crate) use objects::{
-    ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader, ObjectUpload,
+    FoldersAsPrefixes, ListQueryError, ObjectListCursor, ObjectListPage, ObjectListQuery,
+    ObjectReader, ObjectUpload,
 };
 pub(crate) use soft_delete::RestoreAccess;
 
@@ -131,7 +130,7 @@ pub(crate) mod acl;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = 49;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 50;
 const BUCKET_VERSIONING_PRESENCE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN versioning_configured INTEGER NOT NULL DEFAULT 0 CHECK(versioning_configured IN (0, 1));
 ALTER TABLE soft_deleted_buckets ADD COLUMN versioning_configured INTEGER NOT NULL DEFAULT 0 CHECK(versioning_configured IN (0, 1));
 PRAGMA user_version = 49;";
@@ -375,6 +374,7 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (47, objects::retention::SUB_MICRO_SCHEMA, None),
     (48, object_hold::SCHEMA, None),
     (49, BUCKET_VERSIONING_PRESENCE_SCHEMA, None),
+    (50, sync_state::deletions::history::SCHEMA, None),
 ];
 
 #[expect(
@@ -467,10 +467,10 @@ struct Inner {
     data_dir: PathBuf,
     backend: BlobBackend,
     clock: Arc<dyn Clock>,
-    session_writers: Mutex<std::collections::HashSet<String>>,
+    session_writers: Mutex<resumable::writers::SessionWriters>,
     derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
-    maintenance_error: Mutex<Option<String>>,
+    maintenance_error: Mutex<Option<BackendCause>>,
     maintenance_started: AtomicBool,
     maintenance_health: crate::task::TaskHealth,
     /// Workers started beside the catalog whose health readiness also reports. Each worker
@@ -638,16 +638,33 @@ struct UploadState {
     closed: bool,
 }
 
+/// The admission held through publication and cleanup.
+enum UploadSlot {
+    Counted(Catalog),
+    Admin {
+        _permit: tokio::sync::OwnedSemaphorePermit,
+    },
+}
+
 pub(crate) struct UploadGuard {
-    catalog: Option<Catalog>,
-    _admin: Option<tokio::sync::OwnedSemaphorePermit>,
+    slot: UploadSlot,
     replay: Option<upload_replay::UploadReplay>,
     _activity: Activity,
 }
 
+impl UploadGuard {
+    fn admin(permit: tokio::sync::OwnedSemaphorePermit, activity: Activity) -> Self {
+        Self {
+            slot: UploadSlot::Admin { _permit: permit },
+            replay: None,
+            _activity: activity,
+        }
+    }
+}
+
 impl Drop for UploadGuard {
     fn drop(&mut self) {
-        if let Some(catalog) = &self.catalog {
+        if let UploadSlot::Counted(catalog) = &self.slot {
             let mut uploads = catalog
                 .0
                 .uploads
@@ -874,6 +891,10 @@ const MIGRATIONS: &[(i64, Migration)] = &[
     ),
     (48, Migration::Statements(object_hold::SCHEMA)),
     (49, Migration::Statements(BUCKET_VERSIONING_PRESENCE_SCHEMA)),
+    (
+        50,
+        Migration::Statements(sync_state::deletions::history::SCHEMA),
+    ),
 ];
 
 /// Resets volatile state and completes crash recovery before the catalog serves requests.
@@ -936,6 +957,16 @@ fn recover_on_open(
 }
 
 impl Catalog {
+    #[cfg(test)]
+    pub(crate) fn active_uploads(&self) -> usize {
+        self.0.uploads.lock().unwrap().active
+    }
+
+    #[cfg(test)]
+    pub(crate) fn session_writers_idle(&self) -> bool {
+        self.0.session_writers.lock().unwrap().is_empty()
+    }
+
     fn activity(&self) -> Result<Activity, CatalogError> {
         self.0
             .activity
@@ -1385,7 +1416,7 @@ impl Catalog {
             validate_retention_expiration(&transaction, &record)?;
             bucket_autoclass::update(&transaction, &mut record, &update, clock.now())?;
             if let Some(labels) = update.labels.take() {
-                apply_labels(&mut record, labels, mode)?;
+                apply_labels(&mut record, labels, mode, update.labels_mode)?;
             }
             if record.labels.len() > 64 {
                 return Err(CatalogError::InvalidMetadata(
@@ -1434,28 +1465,6 @@ impl Catalog {
             Ok(record)
         })
         .await
-    }
-
-    /// Reads (versioning, default event-based hold) in the caller's mutation transaction.
-    pub(crate) fn bucket_settings_in_transaction(
-        transaction: &rusqlite::Transaction<'_>,
-        name: &str,
-    ) -> Result<(objects::Versioning, bool), CatalogError> {
-        sql::row(
-            transaction,
-            "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
-            [name],
-            |row| {
-                let versioning = if row.get(0)? {
-                    objects::Versioning::Enabled
-                } else {
-                    objects::Versioning::Disabled
-                };
-                Ok((versioning, row.get(1)?))
-            },
-        )
-        .optional()?
-        .ok_or(CatalogError::NotFound)
     }
 
     /// Reads the bucket and checks `access` against the owner observed by the same read.
@@ -1641,7 +1650,9 @@ fn apply_uniform_access(
         }
         (false, Some(locked_time)) => {
             if now >= locked_time {
-                return Err(CatalogError::InvalidMetadata("Uniform bucket-level access has been enabled for 90 consecutive days and cannot be disabled; keep uniformBucketLevelAccess.enabled=true".into()));
+                return Err(CatalogError::Metadata(
+                    crate::metadata_error::MetadataError::UniformAccessLocked,
+                ));
             }
             record.uniform_bucket_level_access_locked_time = None;
         }
@@ -1803,8 +1814,9 @@ fn apply_labels(
     record: &mut BucketRecord,
     labels: Option<std::collections::BTreeMap<String, Option<String>>>,
     mode: BucketWrite,
+    map_mode: crate::object::MapMode,
 ) -> Result<(), CatalogError> {
-    if mode == BucketWrite::Replace {
+    if mode == BucketWrite::Replace || map_mode == crate::object::MapMode::Replace {
         record.labels.clear();
     }
     let Some(labels) = labels else {
@@ -1813,7 +1825,8 @@ fn apply_labels(
     };
     for (key, value) in labels {
         // Library callers can bypass adapter validation.
-        if (mode == BucketWrite::Replace && value.is_none())
+        if ((mode == BucketWrite::Replace || map_mode == crate::object::MapMode::Replace)
+            && value.is_none())
             || !valid_label(&key, LabelPart::Key)
             || value
                 .as_deref()

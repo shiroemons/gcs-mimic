@@ -2,6 +2,8 @@
 //! Descriptor-based filesystem operations; OS-specific unsafe stays in this module.
 
 use std::{fs::File, io};
+mod hash;
+pub(crate) use hash::{HashOutcome, hash_exact};
 
 #[cfg(unix)]
 mod unix;
@@ -12,6 +14,7 @@ mod unsupported;
 #[cfg(not(unix))]
 use unsupported as imp;
 
+pub(crate) use imp::{child_directory, child_regular};
 pub(crate) use imp::{create_regular_at, directory_at, unlink_file_at};
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
@@ -77,6 +80,45 @@ pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
 pub(crate) enum DirectoryOpen {
     Existing,
     CreateIfMissing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "descriptor-relative directory creation is unsupported on this platform"
+    )
+)]
+pub(crate) enum Created {
+    Yes,
+    No,
+}
+
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "descriptor-relative child lookup is unsupported on this platform"
+    )
+)]
+pub(crate) enum Child {
+    Directory { file: File, created: Created },
+    Alias,
+    Missing,
+}
+
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "descriptor-relative regular-file lookup is unsupported on this platform"
+    )
+)]
+pub(crate) enum RegularChild {
+    File(File),
+    Alias,
+    Missing,
 }
 
 /// Walks an exact relative spelling without following redirects; creation syncs each parent.
@@ -174,6 +216,46 @@ pub(crate) enum ReplaceOutcome {
 #[cfg(unix)]
 pub(crate) fn sync_dir(path: &std::path::Path) -> io::Result<()> {
     File::open(path)?.sync_all()
+}
+
+#[derive(Debug)]
+pub(crate) enum CloneFailure {
+    NotCreated(FsError),
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos")),
+        expect(
+            dead_code,
+            reason = "only supported clone platforms can create a destination before failure"
+        )
+    )]
+    Created(FsError),
+}
+
+impl From<io::Error> for CloneFailure {
+    fn from(error: io::Error) -> Self {
+        Self::NotCreated(error.into())
+    }
+}
+
+impl std::fmt::Display for CloneFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotCreated(error) | Self::Created(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for CloneFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::NotCreated(error) | Self::Created(error) => Some(error),
+        }
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+thread_local! {
+    static FAIL_CLONE_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[cfg_attr(
@@ -338,7 +420,7 @@ pub(crate) fn clone_into(
     src: &File,
     directory: &File,
     name: &std::ffi::OsStr,
-) -> Result<(), FsError> {
+) -> Result<(), CloneFailure> {
     validate_name(name)?;
     if !src.metadata()?.is_file() {
         return Err(
@@ -356,38 +438,53 @@ pub(crate) fn clone_into(
                 libc::fclonefileat(src.as_raw_fd(), directory.as_raw_fd(), name.as_ptr(), 0)
             } == 0
             {
-                open_at(directory, &name, FileOpen::Existing)?.sync_all()?;
+                #[cfg(test)]
+                if FAIL_CLONE_SYNC.replace(false) {
+                    return Err(CloneFailure::Created(
+                        io::Error::from(io::ErrorKind::Other).into(),
+                    ));
+                }
+                open_at(directory, &name, FileOpen::Existing)
+                    .and_then(|file| file.sync_all())
+                    .map_err(|error| CloneFailure::Created(error.into()))?;
                 return Ok(());
             }
             let error = io::Error::last_os_error();
             if !copy_fallback(&error) {
                 return Err(error.into());
             }
-            Err(FsError::Unsupported)
+            Err(CloneFailure::NotCreated(FsError::Unsupported))
         }
         #[cfg(target_os = "linux")]
         {
             let dst = open_at(directory, &name, FileOpen::CreateNew)?;
+            #[cfg(test)]
+            if FAIL_CLONE_SYNC.replace(false) {
+                return Err(CloneFailure::Created(
+                    io::Error::from(io::ErrorKind::Other).into(),
+                ));
+            }
             // SAFETY: FICLONE receives the two live regular-file descriptors, with a new empty target.
             if unsafe { libc::ioctl(dst.as_raw_fd(), libc::FICLONE as _, src.as_raw_fd()) } == 0 {
-                dst.sync_all()?;
+                dst.sync_all()
+                    .map_err(|error| CloneFailure::Created(error.into()))?;
                 return Ok(());
             }
             let error = io::Error::last_os_error();
             if !copy_fallback(&error) {
-                return Err(error.into());
+                return Err(CloneFailure::Created(error.into()));
             }
             // SAFETY: only this call owns the newly created target; the component and directory are live.
             if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
-                return Err(io::Error::last_os_error().into());
+                return Err(CloneFailure::Created(io::Error::last_os_error().into()));
             }
-            Err(FsError::Unsupported)
+            Err(CloneFailure::NotCreated(FsError::Unsupported))
         }
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = directory;
-        Err(FsError::Unsupported)
+        Err(CloneFailure::NotCreated(FsError::Unsupported))
     }
 }
 
@@ -404,8 +501,18 @@ pub(crate) fn clone_or_copy_into(
 ) -> Result<CopyMethod, FsError> {
     match clone_into(src, directory, name) {
         Ok(()) => return Ok(CopyMethod::Clone),
-        Err(FsError::Unsupported) => (),
-        Err(error) => return Err(error),
+        Err(CloneFailure::NotCreated(FsError::Unsupported)) => (),
+        Err(CloneFailure::NotCreated(error)) => return Err(error),
+        Err(CloneFailure::Created(error)) => {
+            if let Err(cleanup) = unlink_file_at(directory, name) {
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Error,
+                    "clone_cleanup_failed",
+                    serde_json::json!({"message": cleanup.to_string()}),
+                );
+            }
+            return Err(error);
+        }
     }
     #[cfg(unix)]
     {
@@ -573,14 +680,100 @@ fn sync_replace_parent(directory: &File) -> io::Result<()> {
     directory.sync_all()
 }
 
-/// Retains displaced bytes under the source name; errors after rename require reconciliation.
-#[cfg_attr(
-    any(target_os = "linux", target_os = "macos"),
-    expect(
-        unsafe_code,
-        reason = "renameat2 and renameatx_np exchanges have no safe std equivalent"
-    )
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[derive(Clone, Copy)]
+enum RenameMode {
+    NoReplace,
+    Exchange,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[expect(
+    unsafe_code,
+    reason = "exclusive and exchange renames have no safe std equivalent"
 )]
+fn rename_at(
+    source_directory: libc::c_int,
+    source: &std::ffi::CStr,
+    destination_directory: libc::c_int,
+    destination: &std::ffi::CStr,
+    mode: RenameMode,
+) -> Result<(), FsError> {
+    // SAFETY: the C strings remain live and the descriptors belong to the caller or AT_FDCWD.
+    let result = unsafe {
+        #[cfg(target_os = "linux")]
+        {
+            // musl 1.2.5 has no renameat2 wrapper.
+            libc::syscall(
+                libc::SYS_renameat2,
+                source_directory,
+                source.as_ptr(),
+                destination_directory,
+                destination.as_ptr(),
+                match mode {
+                    RenameMode::NoReplace => libc::RENAME_NOREPLACE,
+                    RenameMode::Exchange => libc::RENAME_EXCHANGE,
+                },
+            )
+        }
+        #[cfg(target_os = "macos")]
+        {
+            libc::renameatx_np(
+                source_directory,
+                source.as_ptr(),
+                destination_directory,
+                destination.as_ptr(),
+                match mode {
+                    RenameMode::NoReplace => libc::RENAME_EXCL,
+                    RenameMode::Exchange => libc::RENAME_SWAP,
+                },
+            )
+        }
+    };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if matches!(
+        error.raw_os_error(),
+        Some(libc::ENOSYS | libc::ENOTSUP | libc::EINVAL)
+    ) {
+        return Err(FsError::Unsupported);
+    }
+    Err(error.into())
+}
+
+/// Refuses to replace an existing entry. A fallback crash may leave both names, which
+/// startup's staging recovery handles before admitting requests.
+#[cfg(unix)]
+pub(crate) fn rename_noreplace(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let source = std::ffi::CString::new(from.as_os_str().as_bytes())?;
+        let destination = std::ffi::CString::new(to.as_os_str().as_bytes())?;
+        match rename_at(
+            libc::AT_FDCWD,
+            &source,
+            libc::AT_FDCWD,
+            &destination,
+            RenameMode::NoReplace,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(FsError::Unsupported) => {}
+            Err(FsError::Io(error)) => return Err(error),
+        }
+    }
+    link_then_unlink(from, to)
+}
+
+#[cfg(unix)]
+fn link_then_unlink(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
+    std::fs::hard_link(from, to)?;
+    std::fs::remove_file(from)
+}
+
+/// Retains displaced bytes under the source name; errors after rename require reconciliation.
 pub(crate) fn durable_replace_between(
     source_directory: &File,
     staged_name: &std::ffi::OsStr,
@@ -612,49 +805,17 @@ pub(crate) fn durable_replace_between(
         };
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            // SAFETY: validated components are relative to their respective live directory descriptors.
-            let result = unsafe {
-                // musl 1.2.5 has no renameat2 wrapper, so the release musl archives call the syscall directly.
-                #[cfg(target_os = "linux")]
-                {
-                    libc::syscall(
-                        libc::SYS_renameat2,
-                        source_directory.as_raw_fd(),
-                        staged.as_ptr(),
-                        destination_directory.as_raw_fd(),
-                        destination.as_ptr(),
-                        if expected.is_some() {
-                            libc::RENAME_EXCHANGE
-                        } else {
-                            libc::RENAME_NOREPLACE
-                        },
-                    )
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    libc::renameatx_np(
-                        source_directory.as_raw_fd(),
-                        staged.as_ptr(),
-                        destination_directory.as_raw_fd(),
-                        destination.as_ptr(),
-                        if expected.is_some() {
-                            libc::RENAME_SWAP
-                        } else {
-                            libc::RENAME_EXCL
-                        },
-                    )
-                }
-            };
-            if result != 0 {
-                let error = io::Error::last_os_error();
-                if matches!(
-                    error.raw_os_error(),
-                    Some(libc::ENOSYS | libc::ENOTSUP | libc::EINVAL)
-                ) {
-                    return Err(FsError::Unsupported);
-                }
-                return Err(error.into());
-            }
+            rename_at(
+                source_directory.as_raw_fd(),
+                &staged,
+                destination_directory.as_raw_fd(),
+                &destination,
+                if expected.is_some() {
+                    RenameMode::Exchange
+                } else {
+                    RenameMode::NoReplace
+                },
+            )?;
             sync_replace_parent(source_directory)?;
             if !same_directory {
                 sync_replace_parent(destination_directory)?;
@@ -881,6 +1042,55 @@ pub(crate) fn read_source_metadata<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn exclusive_rename_and_link_fallback_preserve_existing_destinations() {
+        for rename in [rename_noreplace, link_then_unlink] {
+            let directory = crate::test_support::TestDir::new();
+            let source = directory.0.join("source");
+            let destination = directory.0.join("destination");
+            std::fs::write(&source, b"first").unwrap();
+            rename(&source, &destination).unwrap();
+            assert!(!source.exists());
+            assert_eq!(std::fs::read(&destination).unwrap(), b"first");
+            std::fs::write(&source, b"second").unwrap();
+            assert_eq!(
+                rename(&source, &destination).unwrap_err().kind(),
+                io::ErrorKind::AlreadyExists
+            );
+            assert_eq!(std::fs::read(&source).unwrap(), b"second");
+            assert_eq!(std::fs::read(&destination).unwrap(), b"first");
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn clone_failure_preserves_created_ownership_and_copy_wrapper_cleans_it() {
+        let directory = crate::test_support::TestDir::new();
+        std::fs::write(directory.0.join("source"), b"source").unwrap();
+        let source = File::open(directory.0.join("source")).unwrap();
+        let root = File::open(&directory.0).unwrap();
+        FAIL_CLONE_SYNC.set(true);
+        assert!(matches!(
+            clone_into(&source, &root, "clone".as_ref()),
+            Err(CloneFailure::Created(_))
+        ));
+        assert!(directory.0.join("clone").exists());
+        unlink_file_at(&root, "clone".as_ref()).unwrap();
+        FAIL_CLONE_SYNC.set(true);
+        assert!(clone_or_copy_into(&source, &root, "copy".as_ref()).is_err());
+        assert!(!directory.0.join("copy").exists());
+        std::fs::write(directory.0.join("existing"), b"other owner").unwrap();
+        assert!(matches!(
+            clone_into(&source, &root, "existing".as_ref()),
+            Err(CloneFailure::NotCreated(_))
+        ));
+        assert_eq!(
+            std::fs::read(directory.0.join("existing")).unwrap(),
+            b"other owner"
+        );
+    }
 
     #[test]
     fn source_metadata_reads_only_into_the_dedicated_buffer() {

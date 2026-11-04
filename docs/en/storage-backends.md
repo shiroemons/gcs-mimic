@@ -65,9 +65,11 @@ with one execution permit. Indexed queries and recovery pages avoid loading the
 whole catalog. Versioned migrations include seed initialization, bucket IAM and
 the later session, import and synchronization state.
 
-`src/storage/catalog/objects.rs` streams into opaque files and publishes
-immutable blobs, then checks conditions and changes references in a short
-SQL transaction.
+`src/storage/catalog/objects/upload.rs` streams into opaque files;
+`objects/durability.rs` publishes immutable blobs and `objects/publication.rs`
+checks conditions and changes references in a short SQL transaction. The
+`objects.rs` facade retains selection and access checks; its child modules
+separate schema migration, recovery, reclamation, readers and listing.
 SQLite is embedded and needs no separately managed database server. Current
 application serialization means WAL's general reader/writer concurrency is not
 a measured application benefit. WAL still has one writer, checkpoint work and

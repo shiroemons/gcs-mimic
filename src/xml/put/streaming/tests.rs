@@ -12,6 +12,7 @@ use crate::{
 use http_body_util::Full;
 use hyper::Request;
 use ring::hmac;
+use std::io;
 
 fn sign(key: &hmac::Key, message: &str) -> String {
     crate::hashing::encode_lower(hmac::sign(key, message.as_bytes()).as_ref())

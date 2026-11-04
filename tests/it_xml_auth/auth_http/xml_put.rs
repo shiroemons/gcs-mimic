@@ -1,4 +1,5 @@
 use super::*;
+use common::input_fixtures::{StoredObjects, UploadCleanup};
 use std::{
     net::Shutdown,
     sync::{Arc, Barrier},
@@ -43,32 +44,22 @@ fn snapshot(server: &Server, data: &TestDir) -> (Value, Vec<u8>, i64, i64) {
 }
 
 fn files(data: &TestDir, directory: &str) -> usize {
-    std::fs::read_dir(data.0.join(directory))
-        .unwrap()
-        .map(|entry| {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                std::fs::read_dir(path).unwrap().count()
-            } else {
-                1
-            }
-        })
-        .sum()
+    common::input_fixtures::upload_files(&data.0, directory)
 }
 
-fn clean(data: &TestDir) {
+fn clean(data: &TestDir, server: &mut Server) {
+    let before = StoredObjects::read(&data.0);
+    // Shutdown joins uploads and owned cleanup before catalog close releases directory ownership.
+    server.stop();
     let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
-    let count: i64 = common::catalog::count(&connection, "objects");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while files(data, "staging") != 0 || files(data, "blobs") as i64 != count {
-        assert!(
-            Instant::now() < deadline,
-            "upload artifacts were not reclaimed"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
+    let status = UploadCleanup::observe(&data.0, 0);
+    assert!(
+        status.is_complete(),
+        "upload artifacts were not reclaimed: {status:?}"
+    );
     let pending: i64 = common::catalog::count(&connection, "pending_blob_deletions");
     assert_eq!(pending, 0);
+    assert_eq!(StoredObjects::read(&data.0), before);
 }
 
 fn expect_continue(server: &Server, path: &str, headers: &str, length: usize) -> TcpStream {
@@ -138,7 +129,7 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
     assert_eq!(metadata["crc32c"], CRC);
     server.stop();
     let identities = identity_file(&_config);
-    let server = Server::strict(&data, &identities);
+    let mut server = Server::strict(&data, &identities);
     assert_eq!(server.get(ADMIN, JSON_OBJECT).success().json(), metadata);
     assert_eq!(
         server
@@ -170,13 +161,13 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
         server.request("PUT", &path, ADMIN, b"encoded").success();
         assert_eq!(server.get(ADMIN, &path).success().body, b"encoded");
     }
-    clean(&data);
+    clean(&data, &mut server);
 }
 
 #[test]
 fn xml_put_chunked_multibuffer_and_configured_size_boundaries() {
     let data = TestDir::new();
-    let (server, _) = Server::start(&data, &["--max-object-bytes", "262281"]);
+    let (mut server, _) = Server::start(&data, &["--max-object-bytes", "262281"]);
     server
         .create_bucket("", "project-a", "iam-bucket")
         .success();
@@ -211,12 +202,12 @@ fn xml_put_chunked_multibuffer_and_configured_size_boundaries() {
     request.extend_from_slice(b"\r\n1\r\nx\r\n0\r\n\r\n");
     xml_error(&server.raw(&request), 400, "EntityTooLarge");
     assert_eq!(snapshot(&server, &data), before);
-    clean(&data);
+    clean(&data, &mut server);
 }
 
 #[test]
 fn xml_put_individual_and_combined_hash_headers_accept_matching_bytes() {
-    let (_config, data, server) = iam::fixture();
+    let (_config, data, mut server) = iam::fixture();
     for hashes in [
         format!("Content-MD5: {MD5}\r\n"),
         format!("x-goog-hash: md5={MD5}\r\n"),
@@ -233,12 +224,12 @@ fn xml_put_individual_and_combined_hash_headers_accept_matching_bytes() {
         );
         assert_eq!(server.get(ADMIN, OBJECT).success().body, b"hello world");
     }
-    clean(&data);
+    clean(&data, &mut server);
 }
 
 #[test]
 fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
-    let (_config, data, server) = fixture();
+    let (_config, data, mut server) = fixture();
     let before = snapshot(&server, &data);
     // Incomplete customer-supplied keys fail with their documented XML codes.
     for (header, code) in [
@@ -313,12 +304,12 @@ fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
         xml_error(&server.raw(request.as_bytes()), 400, "InvalidArgument");
     }
     assert_eq!(snapshot(&server, &data), before);
-    clean(&data);
+    clean(&data, &mut server);
 }
 
 #[test]
 fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
-    let (_config, data, server) = fixture();
+    let (_config, data, mut server) = fixture();
     let before = snapshot(&server, &data);
     for (header, code) in [
         ("Content-Type: invalid\r\n", "InvalidArgument"),
@@ -450,7 +441,8 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
     request.extend_from_slice(b"\xff\r\n\r\nnew");
     xml_error(&server.raw(&request), 400, "InvalidArgument");
     assert_eq!(snapshot(&server, &data), before);
-    clean(&data);
+    clean(&data, &mut server);
+    let server = Server::strict(&data, &identity_file(&_config));
     server
         .request(
             "PUT",
@@ -470,7 +462,7 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
 
 #[test]
 fn xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens() {
-    let (_config, data, server) = fixture();
+    let (_config, data, mut server) = fixture();
     let before = snapshot(&server, &data);
     for (auth, status, code) in [
         (CREATOR, 403, "AccessDenied"),
@@ -559,12 +551,12 @@ fn xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens
         404,
         "NoSuchBucket",
     );
-    clean(&data);
+    clean(&data, &mut server);
 }
 
 #[test]
 fn xml_put_conditions_and_concurrent_overwrites_are_atomic() {
-    let (_config, data, server) = fixture();
+    let (_config, data, mut server) = fixture();
     let before = snapshot(&server, &data);
     let generation = before.0["generation"].as_str().unwrap();
     for condition in [
@@ -632,12 +624,12 @@ fn xml_put_conditions_and_concurrent_overwrites_are_atomic() {
     let mut statuses = [Reply::read_joined(a).status, Reply::read_joined(b).status];
     statuses.sort();
     assert_eq!(statuses, [200, 412]);
-    clean(&data);
+    clean(&data, &mut server);
 }
 
 #[test]
 fn xml_put_rechecks_create_delete_and_bucket_grants_at_publication() {
-    let (_config, data, server) = iam::fixture();
+    let (_config, data, mut server) = iam::fixture();
     let mut late = expect_continue(&server, OBJECT, CREATOR, 4);
     server.request("PUT", OBJECT, ADMIN, b"winner").success();
     let before = snapshot(&server, &data);
@@ -655,7 +647,7 @@ fn xml_put_rechecks_create_delete_and_bucket_grants_at_publication() {
     revoked.write_all(b"late").unwrap();
     xml_error(&Reply::read_joined(revoked), 401, "AuthenticationRequired");
     assert_eq!(snapshot(&server, &data), before);
-    clean(&data);
+    clean(&data, &mut server);
 }
 
 #[test]
@@ -682,7 +674,9 @@ fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
             assert!(discarded.is_empty());
         }
     }
-    clean(&data);
+    clean(&data, &mut server);
+    let identities = identity_file(&_config);
+    let mut server = Server::strict_with(&data, &identities, &["--connection-timeout-ms", "2000"]);
     assert_eq!(snapshot(&server, &data), before);
     let mut stream = expect_continue(&server, OBJECT, ADMIN, 99999);
     stream.write_all(b"partial").unwrap();
@@ -691,7 +685,8 @@ fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
     let identities = identity_file(&_config);
     let mut server = Server::strict(&data, &identities);
     assert_eq!(snapshot(&server, &data), before);
-    clean(&data);
+    clean(&data, &mut server);
+    let mut server = Server::strict(&data, &identities);
     let mut stream = expect_continue(&server, OBJECT, ADMIN, 99999);
     stream.write_all(b"partial").unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -703,9 +698,9 @@ fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
     server.child.wait().unwrap();
     drop(stream);
     drop(server);
-    let server = Server::strict(&data, &identities);
+    let mut server = Server::strict(&data, &identities);
     assert_eq!(snapshot(&server, &data), before);
-    clean(&data);
+    clean(&data, &mut server);
 }
 
 #[test]
@@ -719,17 +714,17 @@ fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     server.request("PUT", OBJECT, "", b"previous").success();
     let before = snapshot(&server, &data);
     xml_error(&server.raw(b"PUT /iam-bucket/object HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nnew\r\n0\r\nx-goog-hash: crc32c=AAAAAA==\r\n\r\n"), 400, "IncompleteBody");
-    clean(&data);
+    clean(&data, &mut server);
+    let (mut server, _) = Server::start(&data, &["--connection-timeout-ms", "2000"]);
     assert_eq!(snapshot(&server, &data), before);
     let mut stream = expect_continue(&server, OBJECT, "", 99999);
     stream.write_all(b"partial").unwrap();
     let mut received = Vec::new();
     stream.read_to_end(&mut received).unwrap();
     assert_upload_timed_out(&received);
-    clean(&data);
+    clean(&data, &mut server);
+    let (mut server, _) = Server::start(&data, &["--object-request-timeout-ms", "500"]);
     assert_eq!(snapshot(&server, &data), before);
-    server.stop();
-    let (server, _) = Server::start(&data, &["--object-request-timeout-ms", "500"]);
     let mut stream = expect_continue(&server, OBJECT, "", 99999);
     for _ in 0..10 {
         if stream.write_all(b"x").is_err() {
@@ -740,7 +735,8 @@ fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     let mut received = Vec::new();
     stream.read_to_end(&mut received).unwrap();
     assert_upload_timed_out(&received);
-    clean(&data);
+    clean(&data, &mut server);
+    let (server, _) = Server::start(&data, &[]);
     assert_eq!(snapshot(&server, &data), before);
 }
 
@@ -813,7 +809,7 @@ fn xml_put_versioning_and_default_event_holds_match_shared_uploads() {
     assert_eq!(snapshot(&server, &data), before);
     server.stop();
     let identities = identity_file(&_config);
-    let server = Server::strict(&data, &identities);
+    let mut server = Server::strict(&data, &identities);
     assert_eq!(snapshot(&server, &data), before);
     assert_eq!(
         server
@@ -828,7 +824,7 @@ fn xml_put_versioning_and_default_event_holds_match_shared_uploads() {
             .body,
         b"second"
     );
-    clean(&data);
+    clean(&data, &mut server);
 }
 
 #[test]
@@ -881,7 +877,7 @@ fn xml_put_bucket_cors_covers_preflight_success_and_denials() {
 
 #[test]
 fn xml_put_upload_admission_is_bounded_and_releases_aborted_slots() {
-    let (_config, data, server) = fixture();
+    let (_config, data, mut server) = fixture();
     let before = snapshot(&server, &data);
     let mut streams: Vec<_> = (0..8)
         .map(|n| expect_continue(&server, &format!("/iam-bucket/held-{n}"), ADMIN, 99999))
@@ -889,8 +885,8 @@ fn xml_put_upload_admission_is_bounded_and_releases_aborted_slots() {
     streams.push(expect_continue(&server, OBJECT, ADMIN, 999999));
     assert_eq!(snapshot(&server, &data), before);
     drop(streams);
-    clean(&data);
     server
         .request("PUT", "/iam-bucket/after-release", ADMIN, b"slot available")
         .success();
+    clean(&data, &mut server);
 }

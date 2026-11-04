@@ -626,6 +626,15 @@ impl From<crate::url::UrlError> for JsonError {
     }
 }
 
+impl From<crate::auth::AuthError> for JsonError {
+    fn from(error: crate::auth::AuthError) -> Self {
+        match error {
+            crate::auth::AuthError::Failure(failure) => failure.into(),
+            crate::auth::AuthError::Unavailable(cause) => Self::backend(&cause),
+        }
+    }
+}
+
 impl From<AuthFailure> for JsonError {
     fn from(failure: AuthFailure) -> Self {
         match failure {
@@ -692,6 +701,13 @@ impl From<CatalogError> for JsonError {
                 "Public access prevention is enforced",
             ),
             CatalogError::InvalidMetadata(reason) => Self::invalid(reason),
+            CatalogError::Metadata(error) => {
+                if error.unsupported() {
+                    Self::unsupported(&error.to_string())
+                } else {
+                    Self::invalid(error.to_string())
+                }
+            }
             CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
             CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
                 Self::storage_capacity()
@@ -783,6 +799,10 @@ impl From<ObjectError> for JsonError {
             ObjectError::BucketNotFound => Self::missing_bucket(),
             ObjectError::Component(failure) => failure.into(),
             ObjectError::InvalidMetadata => Self::invalid_argument("Custom metadata exceeds 8 KiB"),
+            ObjectError::Metadata(error) => {
+                if error.unsupported() { Self::unsupported_object(&error.to_string()) }
+                else { Self::invalid(error.to_string()) }
+            }
             ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),
             ObjectError::DerivedTransferIncomplete => {
                 Self::invalid_argument("Derived transfer is incomplete")

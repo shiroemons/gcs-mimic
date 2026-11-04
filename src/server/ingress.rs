@@ -14,7 +14,6 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::sync::Semaphore;
 
 mod upload_gzip;
 
@@ -96,9 +95,6 @@ pub(super) fn override_method(request: &mut Request<RequestBody>) -> Result<(), 
     Ok(())
 }
 
-// One short job fits every supported runtime's blocking pool; connection admission bounds waiters.
-static DECODERS: Semaphore = Semaphore::const_new(1);
-
 pub(super) async fn decode_metadata(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
@@ -110,7 +106,7 @@ pub(super) async fn decode_metadata(
             .is_some_and(|kind| kind == "multipart" || kind == "media")
         && request.headers().contains_key(CONTENT_ENCODING)
     {
-        return upload_gzip::request(request, ctx);
+        return upload_gzip::request(request, ctx).await;
     }
     let resumable_metadata = request.method() == Method::POST
         && request
@@ -140,11 +136,12 @@ pub(super) async fn decode_metadata(
     }
     ctx.state
         .auth
-        .authenticate_at(
+        .authenticate_request(
             request.headers(),
             request.uri().query(),
             ctx.state.clock.as_ref(),
         )
+        .await
         .map_err(JsonError::from)?;
     let (mut parts, mut body) = request.into_parts();
     if body.size_hint().lower() > BUCKET_BODY_LIMIT as u64 {
@@ -162,8 +159,12 @@ pub(super) async fn decode_metadata(
         compressed.extend_from_slice(&data);
         super::body_progress(ctx.activity);
     }
-    let permit = DECODERS
-        .acquire()
+    let permit = ctx
+        .state
+        .pools
+        .gzip_decoders
+        .clone()
+        .acquire_owned()
         .await
         .map_err(|_| decoder_unavailable())?;
     let decoded = crate::task::run_blocking("json-gzip-decoder", move || {
@@ -234,4 +235,99 @@ fn decode(compressed: &[u8], cap: usize) -> Result<Vec<u8>, DecodeError> {
         return Err(DecodeError::Limit);
     }
     Ok(decoded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        auth::Auth,
+        config::Config,
+        server::{ObjectActivity, State, WorkPools},
+        storage::Catalog,
+    };
+    use std::{io::Write, sync::Arc, time::Duration};
+
+    #[test]
+    fn work_pools_scale_with_blocking_threads_and_do_not_share_permits() {
+        for (threads, expected) in [(1, 1), (8, 2), (16, 4)] {
+            let config = Config {
+                max_blocking_threads: threads,
+                ..Config::default()
+            };
+            let pools = WorkPools::new(&config);
+            assert_eq!(pools.gzip_decoders.available_permits(), expected);
+            assert_eq!(pools.batches.available_permits(), 2);
+            let other = WorkPools::new(&config);
+            assert!(!Arc::ptr_eq(&pools.gzip_decoders, &other.gzip_decoders));
+            assert!(!Arc::ptr_eq(&pools.batches, &other.batches));
+        }
+    }
+
+    #[tokio::test]
+    async fn gzip_metadata_admission_uses_the_server_pool() {
+        let dir = crate::test_support::TestDir::new();
+        let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
+        let config = Config::default();
+        let endpoints = config
+            .runtime_endpoints
+            .snapshot(&config, "http://localhost")
+            .unwrap();
+        let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
+        let ctx = RequestCtx {
+            state: &state,
+            config: &config,
+            endpoints: &endpoints,
+            activity: &activity,
+        };
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(b"{}").unwrap();
+        let compressed = encoder.finish().unwrap();
+        let request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/storage/v1/b?project=local")
+                .header("content-encoding", "gzip")
+                .body(RequestBody::Buffered(Full::new(Bytes::from(
+                    compressed.clone(),
+                ))))
+                .unwrap()
+        };
+        let first = state
+            .pools
+            .gzip_decoders
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), decode_metadata(request(), ctx))
+                .await
+                .unwrap()
+                .is_ok()
+        );
+        let second = state
+            .pools
+            .gzip_decoders
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let pending = decode_metadata(request(), ctx);
+        tokio::pin!(pending);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut pending)
+                .await
+                .is_err()
+        );
+        drop(second);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), pending)
+                .await
+                .unwrap()
+                .is_ok()
+        );
+        drop(first);
+        state.catalog.close().await.unwrap();
+    }
 }

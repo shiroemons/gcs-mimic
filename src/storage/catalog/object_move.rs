@@ -89,7 +89,7 @@ impl Catalog {
                 if source == destination {
                     return Err(ObjectError::InvalidMetadata);
                 }
-                let (versioning, _) = Self::bucket_settings_in_transaction(&transaction, &bucket)?;
+                let publication = super::objects::BucketPublication::load(&transaction, &bucket)?;
                 let now = clock.now();
                 let micros = unix_micros(now)?;
                 let origin = super::change_journal::origin(&destination_create);
@@ -122,7 +122,7 @@ impl Catalog {
                 let (record, _, ()) = publish_in_transaction(
                     &transaction,
                     previous.as_ref(),
-                    versioning,
+                    &publication,
                     NewVersion {
                         blob_id,
                         assignment: GenerationAssignment::Automatic,

@@ -112,6 +112,100 @@ async fn translate_snapshot(
 }
 
 #[tokio::test]
+async fn preserved_live_export_crash_and_power_loss_keep_the_external_copy_before_acknowledgement()
+{
+    for step in [Step::SyncCopyInstalled, Step::SyncCopyCommit] {
+        for &crash in Crash::ALL {
+            let fixture = Fixture::new(4096, 1000).await;
+            let (operation, id) = fixture.preserved().await;
+            fixture
+                .writeback
+                .advance_live_export(operation.clone())
+                .await
+                .unwrap();
+            let snapshots = TestDir::new();
+            let data = snapshots.0.join("catalog");
+            let tree = snapshots.0.join("tree");
+            fault::arm(&fixture.tree.0, step, 0, crash.fault(tree.clone()));
+            fixture.catalog.inject(step, 0, crash.fault(data.clone()));
+            loop {
+                let result = fixture
+                    .writeback
+                    .advance_live_export(operation.clone())
+                    .await
+                    .unwrap();
+                if step == Step::SyncCopyInstalled || result == LiveResult::Complete {
+                    break;
+                }
+            }
+            assert_eq!(fixture.catalog.pending_faults(), 0);
+            assert_eq!(fault::pending(&fixture.tree.0), 0);
+            assert_eq!(
+                fs::read(tree.join("test-bucket/object")).unwrap(),
+                b"api winner"
+            );
+            assert_eq!(
+                fs::read(data.join("sync-conflicts").join(&id)).unwrap(),
+                BODY
+            );
+            drop(operation);
+            let (original_data, original_tree, bucket, record) = fixture.shut_down().await;
+            restore_tree(&tree, &original_tree.0);
+            let catalog = Catalog::open(&data).await.unwrap();
+            let retained_path = data.join("sync-conflicts").join(&id);
+            let selected = id.clone();
+            // Snapshot copies have new inodes; translate only their already-verified retained metadata.
+            catalog
+                .run_admin(move |connection| {
+                    let retained: Vec<u8> = connection
+                        .prepare_cached("SELECT retained FROM sync_conflicts WHERE id=?1")?
+                        .query_row([&selected], |row| row.get(0))?;
+                    let retained = translated(&retained, &retained_path);
+                    connection
+                        .prepare_cached("UPDATE sync_conflicts SET retained=?2 WHERE id=?1")?
+                        .execute(params![selected, retained])?;
+                    Ok(())
+                })
+                .await
+                .unwrap();
+            let lease = catalog
+                .sync_state()
+                .activate_root(&original_tree.0, Activation::Open)
+                .await
+                .unwrap();
+            let writeback = lease
+                .writeback(Limits::new(4096, 1000).unwrap())
+                .await
+                .unwrap();
+            let recovered = Fixture {
+                data: original_data,
+                tree: original_tree,
+                catalog,
+                lease,
+                writeback,
+                bucket,
+                record,
+            };
+            assert_eq!(
+                recovered.writeback.recover_pending().await.unwrap().stop,
+                Stop::Ready
+            );
+            let page = recovered.page().await;
+            assert_eq!(
+                (page.usage.entries, page.usage.retained_bytes),
+                (1, BODY.len() as u128)
+            );
+            assert_eq!(
+                fs::read(data.join("sync-conflicts").join(id)).unwrap(),
+                BODY
+            );
+            recovered.assert_api().await;
+            recovered.close().await;
+        }
+    }
+}
+
+#[tokio::test]
 async fn protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_finish_quota_transfer()
  {
     for step in [

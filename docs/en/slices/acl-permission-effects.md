@@ -29,6 +29,13 @@ fake-gcs-server v1.56.1, revision
 
 ## Object read slice
 
+IAM and ACL user-email matching ignores ASCII domain case while preserving
+local-part and non-email ID case. Stored spelling is unchanged. Registry aliases
+that would identify two principals after domain folding are rejected. ACL-entry
+duplicate detection remains byte-exact, so domain-case variants remain accepted
+as additive entries. Google-exact local-part and duplicate behavior remains
+unverified under SPEC-PRINCIPAL-EMAIL-CASE.
+
 The catalog defers an IAM-denied object read until it selects the generation,
 then evaluates that generation's READER/OWNER entries in the same transaction
 as existence and conditions. Matching registered user identities,
@@ -81,8 +88,8 @@ The real local server cases in `tests/it_xml_auth/acl_permission_effects/` are:
 - `bidi_read_handle_reauthorizes_fixed_generation_for_each_new_rpc`:
   disk/RAM handle reuse, different principal, exact old bytes, revocation,
   public grants, PAP, UBLA and IAM authority.
-- `bidi_read_iam_handle_keeps_its_opened_snapshot_after_generation_deletion`:
-  IAM snapshot compatibility and different-principal denial.
+- `bidi_read_iam_handle_rejects_a_removed_generation`:
+  current IAM authorization, NOT_FOUND after generation deletion, and handle invalidation.
 
 Catalog coverage additionally includes
 `object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot`

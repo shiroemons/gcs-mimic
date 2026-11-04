@@ -32,6 +32,7 @@ super::string_enum! {
         PublicBaseUrl => "public_base_url",
         AdminEnabled => "admin_enabled",
         AdminPrincipal => "admin_principal",
+        AdminAllowedHosts => "admin_allowed_hosts",
         LocalCreatorEmail => "local_creator_email",
         XmlVirtualHostDomains => "xml_virtual_host_domains",
         MaxConnections => "max_connections",
@@ -96,6 +97,7 @@ impl Setting {
             | Self::PublicBaseUrl
             | Self::AdminEnabled
             | Self::AdminPrincipal
+            | Self::AdminAllowedHosts
             | Self::LocalCreatorEmail
             | Self::XmlVirtualHostDomains
             | Self::AuthMode

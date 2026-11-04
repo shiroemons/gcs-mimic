@@ -21,6 +21,11 @@ The other guides are standalone.
 
 ## Scope
 
+The default permissive mode has no authentication, and JSON CORS allows any
+browser origin. A malicious page opened in your browser can read local fixtures
+even when the listener binds only to loopback. Use strict authentication for
+sensitive data; bucket CORS does not restrict JSON API origins.
+
 The current slice supports JSON bucket create/get/list/delete and metadata PATCH/PUT, bucket IAM policy
 get/set and object media/multipart upload,
 metadata get/patch/update, generation-pinned copy, continuation rewrite, ordered compose,
@@ -1091,6 +1096,11 @@ below cover anonymous public reads, registered-only grants and revocation.
 For an isolated native server plus vet/test, use `bash scripts/sdk-go.sh`.
 
 ## Strict local authentication
+
+If local administration is enabled, set `admin_principal` to a visible-ASCII ID
+present in the selected identity registry. An explicit administrative principal
+requires `auth_mode=strict` and `admin_enabled=true`; invalid combinations and
+unknown IDs fail startup before catalog creation or readiness.
 
 `compose.strict.yaml` switches the same Compose project to `auth_mode=strict` and
 mounts the local fixture registry `config/identities.json` read-only. Three

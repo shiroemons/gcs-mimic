@@ -56,7 +56,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --api-base-url URL           Derived from bound listener (fixed advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --admin-enabled BOOL         false (local management API; isolate the listener when enabled)
-  --admin-principal ID         none (strict local fixture administration; independent of Google IAM)
+  --admin-principal ID         none (strict instance administrator for local management except sync; required with --admin-enabled in strict mode)
+  --admin-allowed-hosts LIST   none (comma-separated DNS names allowed to reach /_internal management; at most 32)
   --local-creator-email EMAIL local-user@gcs-mimic.invalid (permissive native: creator recorded as owner and ACL OWNER of new objects; empty disables; grants nothing)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
@@ -314,8 +315,11 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     if report.valid(&["scheme", "tls_cert", "tls_key"]) {
         match tls::load_server(&report.config) {
             Ok(value) => acceptor = value,
-            Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Tls, "tls_cert",
-                "Cannot load TLS identity; provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with one private key and a certificate chain.")),
+            Err(error) => report.diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Tls,
+                error.setting(),
+                format!("Cannot load TLS identity: {error}; {}", error.repair()),
+            )),
         }
     }
     // Load the registry before binding so a bad identity file never reaches readiness.
@@ -325,13 +329,24 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     {
         match Registry::load(path) {
             Ok(registry) => auth = Auth::strict(registry),
-            Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "identity_file",
-                "Cannot load identity_file; provide a readable valid registry at most 64 KiB with unique ids/tokens, supported project_roles and valid RSA public_keys; remove unknown fields and private keys.")),
+            Err(error) => report.diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Identity,
+                "identity_file",
+                error.to_string(),
+            )),
         }
     }
     if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
         report.diagnostics.warnings.extend(warnings);
+    }
+    if report.valid(&["admin_principal"])
+        && let (Some(principal), Some(principals)) =
+            (&report.config.admin_principal, auth.principals())
+        && !principals.iter().any(|identity| identity.id() == principal)
+    {
+        report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "admin_principal",
+            format!("admin_principal {principal:?} is not an id in identity_file; use one of its identities.")));
     }
     // The legacy profile (fake-gcs-server compatible) keeps project-owner objects.
     if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native {
@@ -340,6 +355,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     if report.diagnostics.is_err() {
         return Err(report.diagnostics.into());
     }
+    auth = auth.with_verifier_budget(report.config.max_blocking_threads);
     report.diagnostics.write(io::stderr().lock())?;
     let config = report.config;
     gcs_mimic::diagnostics::set_log_level(config.log_level);
@@ -856,7 +872,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "912f78244a1733e7e4c0d13a393bce8fa25f22d92df912134edfdce5b5c109a9"
+            "e40d807d299f26010a3e430483b9a77cca442863a67945e55f3347f470f4a6ab"
         );
     }
 
