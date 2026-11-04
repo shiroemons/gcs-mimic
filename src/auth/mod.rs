@@ -935,25 +935,18 @@ fn has_credential_parameter(query: &str) -> bool {
 
 /// Percent-decode a query key without failing, so malformed encodings cannot hide credentials.
 fn lenient_decode(raw: &str) -> Vec<u8> {
-    let bytes = raw.as_bytes();
+    let mut bytes = raw.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%'
-            && let Some(byte) = bytes[index + 1..]
-                .first_chunk::<2>()
-                .and_then(crate::hex::byte)
+    while let Some((&first, tail)) = bytes.split_first() {
+        if first == b'%'
+            && let Some(byte) = tail.first_chunk::<2>().and_then(crate::hex::byte)
         {
             decoded.push(byte);
-            index += 3;
+            bytes = tail.get(2..).unwrap_or_default();
             continue;
         }
-        decoded.push(if bytes[index] == b'+' {
-            b' '
-        } else {
-            bytes[index]
-        });
-        index += 1;
+        decoded.push(if first == b'+' { b' ' } else { first });
+        bytes = tail;
     }
     decoded
 }

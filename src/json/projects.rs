@@ -8,7 +8,7 @@ use super::query::{Decoding, common, decode, finish, parse_query, validate_proje
 use super::{Fields, JsonError};
 use crate::storage::hmac_keys::{HmacKeyError, HmacKeyPage, HmacKeyRecord, HmacKeyState};
 use hyper::{Method, StatusCode, Uri};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// The documented list has no default page size; this bound keeps one page small and matches
 /// the bucket listing cap.
@@ -297,19 +297,26 @@ pub(crate) fn hmac_key_list(
     base_url: &str,
 ) -> Result<Value, JsonError> {
     let items = &page.items;
-    let mut value = json!({
-        "kind": "storage#hmacKeysMetadata",
-        "items": items
-            .iter()
-            .map(|record| hmac_key_metadata(record, base_url))
-            .collect::<Result<Vec<_>, _>>()?,
-    });
+    let mut value = Map::from_iter([
+        ("kind".into(), "storage#hmacKeysMetadata".into()),
+        (
+            "items".into(),
+            items
+                .iter()
+                .map(|record| hmac_key_metadata(record, base_url))
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
+        ),
+    ]);
     if page.has_more
         && let Some(last) = items.last()
     {
-        value["nextPageToken"] = encode_list_token(params, &last.access_id).into();
+        value.insert(
+            "nextPageToken".into(),
+            encode_list_token(params, &last.access_id).into(),
+        );
     }
-    Ok(value)
+    Ok(Value::Object(value))
 }
 
 /// The project number the bucket resource reports for `project`: numeric project identifiers

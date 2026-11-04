@@ -143,9 +143,7 @@ impl BufRead for Input {
 
 impl Read for Input {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
-        let bytes = self.fill_buf()?;
-        let length = bytes.len().min(output.len());
-        output[..length].copy_from_slice(&bytes[..length]);
+        let length = self.fill_buf()?.read(output)?;
         self.consume(length);
         Ok(length)
     }

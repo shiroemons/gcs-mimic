@@ -141,8 +141,9 @@ impl Native {
             if count == 0 {
                 return Err(io::ErrorKind::UnexpectedEof.into());
             }
+            let count = usize::try_from(count).map_err(io::Error::other)?;
             let mut offset = 0;
-            while offset + size_of::<libc::inotify_event>() <= count as usize {
+            while offset + size_of::<libc::inotify_event>() <= count {
                 // SAFETY: bounds above cover the complete fixed header; kernel records may be unaligned.
                 let event = unsafe {
                     std::ptr::read_unaligned(
@@ -150,7 +151,7 @@ impl Native {
                     )
                 };
                 let length = size_of::<libc::inotify_event>() + event.len as usize;
-                if length > count as usize - offset {
+                if length > count - offset {
                     return Err(io::ErrorKind::InvalidData.into());
                 }
                 if structural(event.mask) {
@@ -160,7 +161,7 @@ impl Native {
                 }
                 offset += length;
             }
-            if offset != count as usize {
+            if offset != count {
                 return Err(io::ErrorKind::InvalidData.into());
             }
         }

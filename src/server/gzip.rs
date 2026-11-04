@@ -24,7 +24,7 @@ impl<R: BufRead> BufRead for Input<R> {
             return Err(io::ErrorKind::WouldBlock.into());
         }
         let bytes = self.reader.fill_buf()?;
-        Ok(&bytes[..bytes.len().min(self.budget)])
+        Ok(bytes.get(..self.budget).unwrap_or(bytes))
     }
 
     fn consume(&mut self, length: usize) {
@@ -35,9 +35,7 @@ impl<R: BufRead> BufRead for Input<R> {
 
 impl<R: BufRead> Read for Input<R> {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
-        let bytes = self.fill_buf()?;
-        let length = bytes.len().min(output.len());
-        output[..length].copy_from_slice(&bytes[..length]);
+        let length = self.fill_buf()?.read(output)?;
         self.consume(length);
         Ok(length)
     }

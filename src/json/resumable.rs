@@ -175,14 +175,36 @@ pub(crate) fn options(
     ))
 }
 
+#[cfg(test)]
+#[test]
+fn duplicate_field_scan_handles_escaped_keys_nested_objects_and_truncated_strings() {
+    for input in [
+        r#"{"metadata":{"猫":"a\\\"b"},"items":[{"key":1},{"key":2}]}"#,
+        r#"{"metadata":{"a\"b":"one","a\\b":"two"}}"#,
+    ] {
+        assert!(
+            validate_duplicate_fields(input.as_bytes()).is_ok(),
+            "{input}"
+        );
+    }
+    for input in [
+        r#"{"metadata":{"key":1,"\u006bey":2}}"#,
+        r#"{"key":"unterminated"#,
+        r#"{"key":"escaped\""#,
+    ] {
+        let error = validate_duplicate_fields(input.as_bytes()).unwrap_err();
+        assert_eq!(error.status, hyper::StatusCode::BAD_REQUEST, "{input}");
+    }
+}
+
 fn validate_duplicate_fields(bytes: &[u8]) -> Result<(), JsonError> {
     // JSON parsing validates syntax; this bounded scan preserves duplicate-key information.
     let _: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
     let mut stack: Vec<Option<std::collections::BTreeSet<String>>> = Vec::new();
     let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
+    while let Some(byte) = bytes.get(i) {
+        match byte {
             b'{' => stack.push(Some(Default::default())),
             b'[' => stack.push(None),
             b'}' | b']' => {
@@ -191,20 +213,24 @@ fn validate_duplicate_fields(bytes: &[u8]) -> Result<(), JsonError> {
             b'"' => {
                 let start = i;
                 i += 1;
-                while bytes[i] != b'"' {
-                    if bytes[i] == b'\\' {
+                while let Some(byte) = bytes.get(i).filter(|byte| **byte != b'"') {
+                    if *byte == b'\\' {
                         i += 1;
                     }
                     i += 1;
                 }
                 let end = i + 1;
                 let mut next = end;
-                while next < bytes.len() && bytes[next].is_ascii_whitespace() {
+                while bytes.get(next).is_some_and(u8::is_ascii_whitespace) {
                     next += 1;
                 }
                 if bytes.get(next) == Some(&b':') {
-                    let key: String = serde_json::from_slice(&bytes[start..end])
-                        .map_err(|_| JsonError::invalid_parameter("Invalid JSON key"))?;
+                    let key: String = serde_json::from_slice(
+                        bytes
+                            .get(start..end)
+                            .ok_or_else(|| JsonError::invalid_parameter("Invalid JSON key"))?,
+                    )
+                    .map_err(|_| JsonError::invalid_parameter("Invalid JSON key"))?;
                     if let Some(Some(keys)) = stack.last_mut()
                         && !keys.insert(key)
                     {

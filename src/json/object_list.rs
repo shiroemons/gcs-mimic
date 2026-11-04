@@ -3,7 +3,7 @@ use super::{
     query::{boolean, finish, parse_query, projection},
 };
 use crate::storage::{FoldersAsPrefixes, ListQueryError, ObjectListPage, ObjectListQuery};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectListParams {
@@ -143,24 +143,28 @@ pub(crate) fn object_list(
     base_url: &str,
 ) -> Result<Value, JsonError> {
     // Recorded order: kind, nextPageToken, items. The position of prefixes is unverified.
-    let mut value = json!({"kind": "storage#objects"});
+    let mut value = Map::from_iter([("kind".into(), "storage#objects".into())]);
     if let Some(cursor) = &page.next {
-        value["nextPageToken"] =
+        value.insert(
+            "nextPageToken".into(),
             super::page_token::encode_object_page_token(&params.query, params.projection, cursor)
-                .into();
+                .into(),
+        );
     }
     if !page.prefixes.is_empty() {
-        value["prefixes"] = json!(page.prefixes);
+        value.insert("prefixes".into(), json!(page.prefixes));
     }
     if !page.items.is_empty() {
-        value["items"] = page
-            .items
-            .iter()
-            .map(|object| object_resource(object, base_url, params.projection))
-            .collect::<Result<Vec<_>, _>>()?
-            .into();
+        value.insert(
+            "items".into(),
+            page.items
+                .iter()
+                .map(|object| object_resource(object, base_url, params.projection))
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
+        );
     }
-    Ok(value)
+    Ok(Value::Object(value))
 }
 
 #[cfg(test)]

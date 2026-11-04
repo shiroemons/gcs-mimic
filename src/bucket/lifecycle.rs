@@ -181,9 +181,10 @@ pub(crate) fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {
         .iter()
         .map(|rule| {
             let action = &rule["action"];
-            let mut action_out = json!({"type": action["type"]});
+            let mut action_out =
+                serde_json::Map::from_iter([("type".into(), action["type"].clone())]);
             if let Some(class) = action.get("storageClass") {
-                action_out["storageClass"] = class.clone();
+                action_out.insert("storageClass".into(), class.clone());
             }
             json!({"action": action_out, "condition": rule["condition"]})
         })
@@ -357,8 +358,8 @@ fn validate_condition(
 fn valid_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
+        || bytes.get(4) != Some(&b'-')
+        || bytes.get(7) != Some(&b'-')
         || bytes
             .iter()
             .enumerate()
@@ -366,11 +367,9 @@ fn valid_date(value: &str) -> bool {
     {
         return false;
     }
-    let (Ok(year), Ok(month), Ok(day)) = (
-        value[..4].parse::<u32>(),
-        value[5..7].parse::<u32>(),
-        value[8..].parse::<u32>(),
-    ) else {
+    let number =
+        |range: std::ops::Range<usize>| value.get(range).and_then(|part| part.parse::<u32>().ok());
+    let (Some(year), Some(month), Some(day)) = (number(0..4), number(5..7), number(8..10)) else {
         return false;
     };
     let days = match month {
@@ -388,7 +387,11 @@ fn valid_date(value: &str) -> bool {
 
 pub(crate) fn validate_location(rules: &[Value], location_type: &str) -> Result<(), CatalogError> {
     for rule in rules {
-        if let Some(classes) = rule["condition"]["matchesStorageClass"].as_array() {
+        if let Some(classes) = rule
+            .get("condition")
+            .and_then(|condition| condition.get("matchesStorageClass"))
+            .and_then(Value::as_array)
+        {
             let incompatible = if location_type == "region" {
                 "MULTI_REGIONAL"
             } else {

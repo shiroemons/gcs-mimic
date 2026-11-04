@@ -45,7 +45,8 @@ pub(super) async fn list(
     empty_body(request, headers.sha256).await?;
     match operation {
         Operation::Parts => {
-            let marker = numeric(&mut query, "part-number-marker", 0, 10000)? as u16;
+            let marker = u16::try_from(numeric(&mut query, "part-number-marker", 0, 10000)?)
+                .map_err(|_| Error::invalid("Multipart number is out of range"))?;
             let limit = numeric(&mut query, "max-parts", 1000, u32::MAX)?.min(1000) as usize;
             if limit == 0 {
                 return Err(Error::invalid("max-parts must be positive"));

@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use hyper::{HeaderMap, Method, StatusCode, Uri, header::HeaderValue};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -789,8 +789,9 @@ pub(crate) fn add_derived_owner(value: &mut Value, object: &ObjectRecord) {
         ..
     }) = &object.owner
         && value.get("owner").is_none()
+        && let Some(value) = value.as_object_mut()
     {
-        value["owner"] = json!({"entity": entity});
+        value.insert("owner".into(), json!({"entity": entity}));
     }
 }
 
@@ -810,33 +811,56 @@ pub(crate) fn object_resource(
     );
     // Fields follow the order of recorded Cloud Storage responses. Fields those responses did
     // not contain follow them, in an order that has not been verified.
-    let mut value = json!({
-        "kind": "storage#object",
-        "id": format!("{}/{}/{}", object.bucket, object.name, object.generation),
-        "selfLink": format!("{base}/{path}"),
-        "mediaLink": format!("{base}/download/{path}?generation={}&alt=media", object.generation),
-        "name": object.name, "bucket": object.bucket,
-        "generation": object.generation.to_string(), "metageneration": object.metageneration.to_string(),
-    });
+    let mut value = Map::from_iter([
+        ("kind".into(), json!("storage#object")),
+        (
+            "id".into(),
+            json!(format!(
+                "{}/{}/{}",
+                object.bucket, object.name, object.generation
+            )),
+        ),
+        ("selfLink".into(), json!(format!("{base}/{path}"))),
+        (
+            "mediaLink".into(),
+            json!(format!(
+                "{base}/download/{path}?generation={}&alt=media",
+                object.generation
+            )),
+        ),
+        ("name".into(), json!(object.name)),
+        ("bucket".into(), json!(object.bucket)),
+        ("generation".into(), json!(object.generation.to_string())),
+        (
+            "metageneration".into(),
+            json!(object.metageneration.to_string()),
+        ),
+    ]);
     if !object.content_type.is_empty() {
-        value["contentType"] = json!(object.content_type);
+        value.insert("contentType".into(), json!(object.content_type));
     }
-    value["storageClass"] = json!(object.storage_class);
-    value["size"] = json!(object.size.to_string());
+    value.insert("storageClass".into(), json!(object.storage_class));
+    value.insert("size".into(), json!(object.size.to_string()));
     if object.has_md5() {
-        value["md5Hash"] = json!(base64(&object.md5));
+        value.insert("md5Hash".into(), json!(base64(&object.md5)));
     }
     if let Some(encoding) = &object.content_encoding {
-        value["contentEncoding"] = json!(encoding);
+        value.insert("contentEncoding".into(), json!(encoding));
     }
-    value["crc32c"] = json!(base64(&object.crc32c.to_be_bytes()));
-    value["etag"] = json!(object_etag(object));
-    value["timeCreated"] = json!(timestamp(object.time_created)?);
-    value["updated"] = json!(timestamp(object.updated)?);
-    value["timeStorageClassUpdated"] = json!(timestamp(object.time_created)?);
-    value["timeFinalized"] = json!(timestamp(object.time_created)?);
+    value.insert("crc32c".into(), json!(base64(&object.crc32c.to_be_bytes())));
+    value.insert("etag".into(), json!(object_etag(object)));
+    value.insert("timeCreated".into(), json!(timestamp(object.time_created)?));
+    value.insert("updated".into(), json!(timestamp(object.updated)?));
+    value.insert(
+        "timeStorageClassUpdated".into(),
+        json!(timestamp(object.time_created)?),
+    );
+    value.insert(
+        "timeFinalized".into(),
+        json!(timestamp(object.time_created)?),
+    );
     if let Some(count) = object.component_count {
-        value["componentCount"] = json!(count);
+        value.insert("componentCount".into(), json!(count));
     }
     for (key, field) in [
         ("contentDisposition", &object.content_disposition),
@@ -844,38 +868,41 @@ pub(crate) fn object_resource(
         ("cacheControl", &object.cache_control),
     ] {
         if let Some(field) = field {
-            value[key] = json!(field);
+            value.insert(key.into(), json!(field));
         }
     }
     if !object.metadata.is_empty() {
-        value["metadata"] = json!(object.metadata);
+        value.insert("metadata".into(), json!(object.metadata));
     }
     if let Some(hold) = object.event_based_hold.as_bool() {
-        value["eventBasedHold"] = json!(hold);
+        value.insert("eventBasedHold".into(), json!(hold));
     }
     if let Some(hold) = object.temporary_hold.as_bool() {
-        value["temporaryHold"] = json!(hold);
+        value.insert("temporaryHold".into(), json!(hold));
     }
     if let Some(time) = super::object_retention::expiration(object.earliest_deletion_time())? {
-        value["retentionExpirationTime"] = json!(time);
+        value.insert("retentionExpirationTime".into(), json!(time));
     }
     if let Some(retention) = &object.retention {
-        value["retention"] = super::object_retention::render(retention)?;
+        value.insert(
+            "retention".into(),
+            super::object_retention::render(retention)?,
+        );
     }
     if let Some(time) = &object.custom_time {
-        value["customTime"] = json!(time);
+        value.insert("customTime".into(), json!(time));
     }
     if let Some(deleted) = object.time_deleted {
-        value["timeDeleted"] = json!(timestamp(deleted)?);
+        value.insert("timeDeleted".into(), json!(timestamp(deleted)?));
     }
     if let Some(time) = object.soft_delete_time {
-        value["softDeleteTime"] = json!(timestamp(time)?);
+        value.insert("softDeleteTime".into(), json!(timestamp(time)?));
     }
     if let Some(time) = object.hard_delete_time {
-        value["hardDeleteTime"] = json!(timestamp(time)?);
+        value.insert("hardDeleteTime".into(), json!(timestamp(time)?));
     }
     super::csek::render(object, &mut value);
-    Ok(value)
+    Ok(Value::Object(value))
 }
 
 /// Representation headers for an untranscoded media download.
@@ -1026,21 +1053,23 @@ pub(crate) fn object_etag(object: &ObjectRecord) -> String {
 pub(crate) fn revision_etag(generation: Option<i64>, metageneration: i64) -> String {
     fn varint(bytes: &mut Vec<u8>, mut value: u64) {
         while value >= 0x80 {
-            bytes.push((value as u8) | 0x80);
+            let [byte, ..] = value.to_le_bytes();
+            bytes.push(byte | 0x80);
             value >>= 7;
         }
-        bytes.push(value as u8);
+        let [byte, ..] = value.to_le_bytes();
+        bytes.push(byte);
     }
     let mut bytes = Vec::new();
     match generation {
         Some(generation) => {
             bytes.push(0x08);
-            varint(&mut bytes, generation as u64);
+            varint(&mut bytes, generation.cast_unsigned());
             bytes.push(0x10);
         }
         None => bytes.push(0x08),
     }
-    varint(&mut bytes, metageneration as u64);
+    varint(&mut bytes, metageneration.cast_unsigned());
     base64(&bytes)
 }
 

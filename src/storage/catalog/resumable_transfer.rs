@@ -72,13 +72,13 @@ async fn receive_chunk(
                                 )
                             }
                         })?;
-                    let discard = durable
+                    let discard = usize::try_from(durable
                         .saturating_sub(chunk.start + received)
-                        .min(bytes.len() as u64) as usize;
+                        .min(bytes.len() as u64)).map_err(object_unavailable)?;
                     if discard < bytes.len() {
                         #[cfg(test)]
                         fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
-                        file.write(&bytes[discard..]).await?;
+                        file.write(bytes.get(discard..).ok_or_else(|| object_unavailable("invalid resumable discard offset"))?).await?;
                     }
                     received = next;
                 }

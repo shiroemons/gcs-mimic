@@ -92,9 +92,10 @@ impl ObjectReader {
             return Ok(None);
         }
         let limit = self.remaining.min(CHUNK_SIZE as u64);
+        let capacity = usize::try_from(limit).map_err(io::Error::other)?;
         if let ReaderData::Memory(reader) = &mut self.file {
             let bytes = reader
-                .next_chunk(limit as usize)
+                .next_chunk(capacity)
                 .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
             self.remaining -= bytes.len() as u64;
             self.position += bytes.len() as u64;
@@ -102,7 +103,7 @@ impl ObjectReader {
         }
         // Reading into spare capacity skips zero-filling a buffer the read overwrites;
         // `take` keeps the read within the persisted size even if capacity is larger.
-        let mut buffer = BytesMut::with_capacity(limit as usize);
+        let mut buffer = BytesMut::with_capacity(capacity);
         let ReaderData::Disk(file) = &mut self.file else {
             return Err(io::Error::other("invalid object reader backend"));
         };

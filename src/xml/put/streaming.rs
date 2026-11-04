@@ -147,7 +147,11 @@ impl Reader<'_> {
         if !self.fill().await? {
             return Err(malformed());
         }
-        Ok(self.buffer.split_to(1)[0])
+        self.buffer
+            .split_to(1)
+            .first()
+            .copied()
+            .ok_or_else(malformed)
     }
 
     async fn crlf(&mut self) -> Result<(), Error> {

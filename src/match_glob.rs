@@ -58,16 +58,16 @@ impl Glob {
             next = match token {
                 Token::Character(character) => self.push(State::Consume(character, next)),
                 Token::Star(slash) => {
-                    let split = self.push(State::Accept);
-                    let consume = self.push(State::Consume(Character::Any(slash), split));
-                    self.states[split] = State::Split(next, consume);
+                    let split = self.states.len();
+                    self.push(State::Split(next, split + 1));
+                    self.push(State::Consume(Character::Any(slash), split));
                     split
                 }
                 Token::Directories => {
-                    let split = self.push(State::Accept);
-                    let slash = self.push(State::Consume(Character::Literal('/'), next));
-                    let consume = self.push(State::Consume(Character::Any(true), split));
-                    self.states[split] = State::Split(slash, consume);
+                    let split = self.states.len();
+                    self.push(State::Split(split + 1, split + 2));
+                    self.push(State::Consume(Character::Literal('/'), next));
+                    self.push(State::Consume(Character::Any(true), split));
                     self.push(State::Split(next, split))
                 }
                 Token::Alternatives(branches) => {
@@ -90,13 +90,16 @@ impl Glob {
     fn activate(&self, active: &mut [bool], start: usize, pending: &mut Vec<usize>) {
         pending.push(start);
         while let Some(index) = pending.pop() {
-            if active[index] {
+            let Some(enabled) = active.get_mut(index) else {
+                continue;
+            };
+            if *enabled {
                 continue;
             }
-            active[index] = true;
-            if let State::Split(a, b) = self.states[index] {
-                pending.push(a);
-                pending.push(b);
+            *enabled = true;
+            if let Some(State::Split(a, b)) = self.states.get(index) {
+                pending.push(*a);
+                pending.push(*b);
             }
         }
     }
@@ -109,11 +112,11 @@ impl Glob {
         self.activate(&mut active, self.start, &mut pending);
         for character in name.chars() {
             next.fill(false);
-            for (index, enabled) in active.iter().enumerate() {
+            for (state, enabled) in self.states.iter().zip(&active) {
                 if !enabled {
                     continue;
                 }
-                if let State::Consume(test, target) = &self.states[index] {
+                if let State::Consume(test, target) = state {
                     let matches = match test {
                         Character::Literal(value) => character == *value,
                         Character::Any(slash) => *slash || character != '/',
@@ -132,7 +135,7 @@ impl Glob {
             }
             std::mem::swap(&mut active, &mut next);
         }
-        active[0]
+        active.first().copied().unwrap_or(false)
     }
 }
 
@@ -184,7 +187,8 @@ fn sequence(chars: &[char], position: &mut usize, scope: Scope) -> Result<Vec<To
         if brace && matches!(character, ',' | '}') {
             break;
         }
-        let boundary = *position == 0 || chars[*position - 1] == '/';
+        let boundary = *position == 0
+            || position.checked_sub(1).and_then(|index| chars.get(index)) == Some(&'/');
         *position += 1;
         let token = match character {
             '\\' => {

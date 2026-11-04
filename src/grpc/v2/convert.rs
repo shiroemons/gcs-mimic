@@ -22,8 +22,14 @@ fn unix_nanos_timestamp(time: UnixNanos) -> Timestamp {
 
 fn lifecycle(rules: &[Value]) -> Result<Option<pb::bucket::Lifecycle>, tonic::Status> {
     let rules = LifecycleRule::from_stored(rules)?;
-    Ok((!rules.is_empty()).then(|| pb::bucket::Lifecycle {
-        rule: rules.iter().map(Into::into).collect(),
+    if rules.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(pb::bucket::Lifecycle {
+        rule: rules
+            .iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?,
     }))
 }
 
@@ -90,29 +96,38 @@ impl From<&pb::bucket::lifecycle::Rule> for LifecycleRule {
     }
 }
 
-impl From<&LifecycleRule> for pb::bucket::lifecycle::Rule {
-    fn from(value: &LifecycleRule) -> Self {
+impl TryFrom<&LifecycleRule> for pb::bucket::lifecycle::Rule {
+    type Error = ObjectError;
+
+    fn try_from(value: &LifecycleRule) -> Result<Self, Self::Error> {
         let condition = &value.condition;
-        let days = |number: Option<i64>| number.map(|number| number as i32);
-        Self {
+        let days = |number: Option<i64>| {
+            number.map(i32::try_from).transpose().map_err(|error| {
+                ObjectError::Corrupt(crate::storage::failure::BackendCause::with_source(
+                    "Stored lifecycle condition exceeds int32 range",
+                    error,
+                ))
+            })
+        };
+        Ok(Self {
             action: Some(pb::bucket::lifecycle::rule::Action {
                 r#type: value.action.kind.clone(),
                 storage_class: value.action.storage_class.clone().unwrap_or_default(),
             }),
             condition: Some(pb::bucket::lifecycle::rule::Condition {
-                age_days: days(condition.age),
+                age_days: days(condition.age)?,
                 created_before: condition.created_before.as_ref().map(Into::into),
                 custom_time_before: condition.custom_time_before.as_ref().map(Into::into),
-                days_since_custom_time: days(condition.days_since_custom_time),
-                days_since_noncurrent_time: days(condition.days_since_noncurrent_time),
+                days_since_custom_time: days(condition.days_since_custom_time)?,
+                days_since_noncurrent_time: days(condition.days_since_noncurrent_time)?,
                 is_live: condition.is_live,
                 matches_prefix: condition.matches_prefix.clone(),
                 matches_storage_class: condition.matches_storage_class.clone(),
                 matches_suffix: condition.matches_suffix.clone(),
                 noncurrent_time_before: condition.noncurrent_time_before.as_ref().map(Into::into),
-                num_newer_versions: days(condition.num_newer_versions),
+                num_newer_versions: days(condition.num_newer_versions)?,
             }),
-        }
+        })
     }
 }
 
@@ -428,7 +443,10 @@ mod tests {
         let proto = lifecycle(&stored).unwrap().unwrap();
         assert_eq!(lifecycle_rules(Some(&proto)).unwrap(), stored);
         let typed = LifecycleRule::from_stored(&stored).unwrap();
-        assert_eq!(pb::bucket::lifecycle::Rule::from(&typed[0]), proto.rule[0]);
+        assert_eq!(
+            pb::bucket::lifecycle::Rule::try_from(&typed[0]).unwrap(),
+            proto.rule[0]
+        );
         for (mut rule, field) in [
             (proto.rule[0].clone(), "age_days"),
             (proto.rule[0].clone(), "created_before"),
@@ -453,6 +471,25 @@ mod tests {
             assert_eq!(error.code(), tonic::Code::InvalidArgument);
             assert!(error.message().contains(field), "{error}");
         }
+    }
+
+    #[test]
+    fn grpc_lifecycle_rejects_integer_overflow_without_truncation() {
+        let mut rule = LifecycleRule::default();
+        rule.condition.age = Some(i64::from(i32::MAX));
+        assert_eq!(
+            pb::bucket::lifecycle::Rule::try_from(&rule)
+                .unwrap()
+                .condition
+                .unwrap()
+                .age_days,
+            Some(i32::MAX)
+        );
+        rule.condition.age = Some(i64::from(i32::MAX) + 1);
+        assert!(matches!(
+            pb::bucket::lifecycle::Rule::try_from(&rule),
+            Err(ObjectError::Corrupt(_))
+        ));
     }
 
     #[test]

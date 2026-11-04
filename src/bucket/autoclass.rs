@@ -94,7 +94,9 @@ pub(crate) fn parse_json(value: &Value) -> Result<AutoclassUpdate, CatalogError>
 fn floor_micros(time: SystemTime) -> SystemTime {
     // The catalog stores bucket timestamps with microsecond precision.
     match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => UNIX_EPOCH + Duration::from_micros(duration.as_micros() as u64),
+        Ok(duration) => {
+            UNIX_EPOCH + duration - Duration::from_nanos(u64::from(duration.subsec_nanos() % 1000))
+        }
         Err(_) => time,
     }
 }
@@ -186,7 +188,9 @@ pub(crate) fn validate_bucket(
         ));
     }
     if lifecycle.iter().any(|rule| {
-        rule["action"]["type"] == "SetStorageClass"
+        rule.get("action")
+            .and_then(|action| action.get("type"))
+            .is_some_and(|kind| kind == "SetStorageClass")
             || rule["condition"].get("matchesStorageClass").is_some()
     }) {
         return Err(CatalogError::Metadata(

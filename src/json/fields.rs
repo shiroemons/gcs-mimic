@@ -57,7 +57,12 @@ impl Fields {
         };
         let fields = Self::parse_with(value, empty_segments)?;
         fields
-            .validate(&SCHEMAS["schemas"][schema])
+            .validate(
+                SCHEMAS
+                    .get("schemas")
+                    .and_then(|schemas| schemas.get(schema))
+                    .unwrap_or(&Value::Null),
+            )
             .map_err(|mut error| {
                 // Cloud Storage named only the rejected field, at the `fields` parameter
                 // (observed 2026-10-31 for retentionExpireTime).
@@ -110,7 +115,10 @@ impl Fields {
 
     fn validate(&self, schema: &Value) -> Result<(), JsonError> {
         let schema = if let Some(name) = schema["$ref"].as_str() {
-            &SCHEMAS["schemas"][name]
+            SCHEMAS
+                .get("schemas")
+                .and_then(|schemas| schemas.get(name))
+                .unwrap_or(&Value::Null)
         } else {
             schema
         };
@@ -200,10 +208,10 @@ impl Parser<'_> {
             if !(empty && self.empty_segments == EmptySegments::Skip) {
                 fields.merge(self.path(depth)?);
             }
-            if !self.rest.starts_with(',') {
+            let Some(rest) = self.rest.strip_prefix(',') else {
                 break;
-            }
-            self.rest = &self.rest[1..];
+            };
+            self.rest = rest;
         }
         Ok(fields)
     }
@@ -217,24 +225,27 @@ impl Parser<'_> {
             .rest
             .find([',', '/', '(', ')'])
             .unwrap_or(self.rest.len());
-        let name = &self.rest[..end];
+        let (name, rest) = self
+            .rest
+            .split_at_checked(end)
+            .ok_or_else(|| invalid("Invalid field selection"))?;
         if name.is_empty() || (name.contains('*') && name != "*") {
             return Err(invalid("Invalid field selection"));
         }
-        self.rest = &self.rest[end..];
-        let child = if self.rest.starts_with('/') {
-            self.rest = &self.rest[1..];
+        self.rest = rest;
+        let child = if let Some(rest) = self.rest.strip_prefix('/') {
+            self.rest = rest;
             self.path(depth + 1)?
-        } else if self.rest.starts_with('(') {
-            self.rest = &self.rest[1..];
+        } else if let Some(rest) = self.rest.strip_prefix('(') {
+            self.rest = rest;
             let child = self.list(depth + 1)?;
-            if !self.rest.starts_with(')') {
+            let Some(rest) = self.rest.strip_prefix(')') else {
                 return Err(JsonError::field_mask_syntax(format!(
                     "Invalid FieldMask '{}'. Cannot find matching ')' for all '('.",
                     self.source
                 )));
-            }
-            self.rest = &self.rest[1..];
+            };
+            self.rest = rest;
             child
         } else {
             Fields {

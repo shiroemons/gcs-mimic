@@ -32,7 +32,12 @@ impl RewriteRequest {
             .and_then(|value| value.parse().ok())
     }
     pub(crate) fn conditions(&self, side: RewriteSide) -> ObjectConditions {
-        let keys = if side == RewriteSide::Source {
+        let [
+            generation_match,
+            generation_not_match,
+            metageneration_match,
+            metageneration_not_match,
+        ] = if side == RewriteSide::Source {
             [
                 "ifSourceGenerationMatch",
                 "ifSourceGenerationNotMatch",
@@ -48,10 +53,10 @@ impl RewriteRequest {
             ]
         };
         ObjectConditions {
-            if_generation_match: self.number(keys[0]),
-            if_generation_not_match: self.number(keys[1]),
-            if_metageneration_match: self.number(keys[2]),
-            if_metageneration_not_match: self.number(keys[3]),
+            if_generation_match: self.number(generation_match),
+            if_generation_not_match: self.number(generation_not_match),
+            if_metageneration_match: self.number(metageneration_match),
+            if_metageneration_not_match: self.number(metageneration_not_match),
         }
     }
 }
@@ -63,14 +68,19 @@ pub(crate) fn route(
 ) -> Option<Result<RewriteRequest, JsonError>> {
     let path = uri.path().strip_prefix("/storage/v1/b/")?;
     let segments: Vec<_> = path.split('/').take(9).collect();
-    if segments.len() != 8
-        || segments[1] != "o"
-        || segments[3] != "rewriteTo"
-        || segments[4] != "b"
-        || segments[6] != "o"
-    {
+    let [
+        source_bucket,
+        "o",
+        source_name,
+        "rewriteTo",
+        "b",
+        destination_bucket,
+        "o",
+        destination_name,
+    ] = segments.as_slice()
+    else {
         return None;
-    }
+    };
     Some((|| {
         if *method != Method::POST {
             return Err(JsonError::method_not_allowed(
@@ -80,13 +90,13 @@ pub(crate) fn route(
         }
         let names = RewriteNames {
             source: ObjectTarget::new(
-                decode(segments[0], Decoding::Path)?,
-                decode(segments[2], Decoding::Path)?,
+                decode(source_bucket, Decoding::Path)?,
+                decode(source_name, Decoding::Path)?,
                 (),
             ),
             destination: ObjectTarget::new(
-                decode(segments[5], Decoding::Path)?,
-                decode(segments[7], Decoding::Path)?,
+                decode(destination_bucket, Decoding::Path)?,
+                decode(destination_name, Decoding::Path)?,
                 (),
             ),
         };
@@ -173,13 +183,22 @@ pub(crate) fn route(
 }
 
 pub(crate) fn response(progress: RewriteProgress) -> Result<Value, JsonError> {
-    let mut value = json!({"kind":"storage#rewriteResponse","totalBytesRewritten":progress.offset.to_string(),"objectSize":progress.total.to_string(),"done":progress.resource.is_some()});
+    let mut value = Map::from_iter([
+        ("kind".into(), json!("storage#rewriteResponse")),
+        (
+            "totalBytesRewritten".into(),
+            json!(progress.offset.to_string()),
+        ),
+        ("objectSize".into(), json!(progress.total.to_string())),
+        ("done".into(), json!(progress.resource.is_some())),
+    ]);
     if let Some(token) = progress.token {
-        value["rewriteToken"] = json!(token);
+        value.insert("rewriteToken".into(), json!(token));
     }
     if let Some(resource) = progress.resource {
-        value["resource"] = resource;
+        value.insert("resource".into(), resource);
     }
+    let mut value = Value::Object(value);
     if let Some(fields) = progress.fields {
         Fields::parse(&fields, "RewriteResponse")?.apply(&mut value);
     }

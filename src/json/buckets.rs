@@ -6,7 +6,7 @@ use crate::bucket::{
 };
 use crate::config::CompatProfile;
 use crate::object::unix_nanos::UnixNanos;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::{collections::BTreeMap, time::SystemTime};
 
 const LEGACY_LOCATION: &str = "US-CENTRAL1";
@@ -973,106 +973,154 @@ pub(crate) fn bucket_resource_with_profile(
     };
     // Fields follow the order of a recorded Cloud Storage response. Fields it did not contain
     // follow `locationType`, in an order that has not been verified.
-    let mut value = json!({
-        "kind": "storage#bucket",
-        "selfLink": format!("{}/storage/v1/b/{}", base_url.trim_end_matches('/'), encode_segment(&bucket.name)),
-        "id": bucket.name, "name": bucket.name,
-        "projectNumber": project_number,
-    });
+    let mut value = Map::from_iter([
+        ("kind".into(), json!("storage#bucket")),
+        (
+            "selfLink".into(),
+            json!(format!(
+                "{}/storage/v1/b/{}",
+                base_url.trim_end_matches('/'),
+                encode_segment(&bucket.name)
+            )),
+        ),
+        ("id".into(), json!(bucket.name)),
+        ("name".into(), json!(bucket.name)),
+        ("projectNumber".into(), project_number.into()),
+    ]);
     // The reference emulator's bucket shape has no generation; keep that profile unchanged.
     if profile == CompatProfile::Native {
-        value["generation"] = bucket.generation.to_string().into();
+        value.insert("generation".into(), bucket.generation.to_string().into());
     }
-    value["metageneration"] = bucket.metageneration.to_string().into();
-    value["location"] = json!(bucket.location);
-    value["storageClass"] = json!(bucket.storage_class);
-    value["etag"] = bucket_etag(bucket).into();
-    value["timeCreated"] = timestamp(bucket.time_created)?.into();
-    value["updated"] = timestamp(bucket.updated)?.into();
+    value.insert(
+        "metageneration".into(),
+        bucket.metageneration.to_string().into(),
+    );
+    value.insert("location".into(), json!(bucket.location));
+    value.insert("storageClass".into(), json!(bucket.storage_class));
+    value.insert("etag".into(), bucket_etag(bucket).into());
+    value.insert("timeCreated".into(), timestamp(bucket.time_created)?.into());
+    value.insert("updated".into(), timestamp(bucket.updated)?.into());
     if let Some(policy) = &bucket.soft_delete_policy {
-        let mut soft_delete =
-            json!({"retentionDurationSeconds": policy.retention_duration_seconds.to_string()});
+        let mut soft_delete = Map::from_iter([(
+            "retentionDurationSeconds".into(),
+            policy.retention_duration_seconds.to_string().into(),
+        )]);
         // Cloud Storage reports no effective time for a disabled policy (recorded 2026-10-31).
         if policy.retention_duration_seconds > 0 {
-            soft_delete["effectiveTime"] = timestamp(policy.effective_time)?.into();
+            soft_delete.insert(
+                "effectiveTime".into(),
+                timestamp(policy.effective_time)?.into(),
+            );
         }
-        value["softDeletePolicy"] = soft_delete;
+        value.insert("softDeletePolicy".into(), soft_delete.into());
     }
-    let mut uniform_access =
-        json!({"enabled": bucket.uniform_bucket_level_access_locked_time.is_some()});
+    let mut uniform_access = Map::from_iter([(
+        "enabled".into(),
+        bucket
+            .uniform_bucket_level_access_locked_time
+            .is_some()
+            .into(),
+    )]);
     if let Some(locked_time) = bucket.uniform_bucket_level_access_locked_time {
-        uniform_access["lockedTime"] = timestamp(locked_time)?.into();
+        uniform_access.insert("lockedTime".into(), timestamp(locked_time)?.into());
     }
-    value["iamConfiguration"] = json!({
+    value.insert("iamConfiguration".into(), json!({
         "bucketPolicyOnly": uniform_access,
         "uniformBucketLevelAccess": uniform_access,
         "publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" },
-    });
-    value["locationType"] = json!(bucket.location_type);
+    }));
+    value.insert("locationType".into(), json!(bucket.location_type));
     // Cloud Storage returned `satisfiesPZI: true` for regional buckets (asia-northeast1 and
     // us-central1, 2026-10-31) and no such field for a multi-region bucket, which carries
     // `rpo: DEFAULT` instead. The reference emulator's bucket shape has neither field.
     if profile == CompatProfile::Native {
         if bucket.location_type == "region" {
-            value["satisfiesPZI"] = true.into();
+            value.insert("satisfiesPZI".into(), true.into());
         } else {
-            value["rpo"] = "DEFAULT".into();
+            value.insert("rpo".into(), "DEFAULT".into());
         }
     }
+    add_optional_bucket_fields(&mut value, bucket, profile)?;
+    if profile == CompatProfile::LegacyEmulator {
+        value.insert("location".into(), LEGACY_LOCATION.into());
+        value.insert("locationType".into(), "region".into());
+        value.insert("projectNumber".into(), "0".into());
+        if bucket.metageneration == 1 {
+            value.insert("storageClass".into(), "STANDARD".into());
+            value.insert("etag".into(), "RVRhZw==".into());
+            value.insert("updated".into(), timestamp(bucket.time_created)?.into());
+            value.shift_remove("labels");
+        }
+    }
+    Ok(Value::Object(value))
+}
+
+fn add_optional_bucket_fields(
+    value: &mut Map<String, Value>,
+    bucket: &BucketRecord,
+    profile: CompatProfile,
+) -> Result<(), JsonError> {
     if let Some(config) = &bucket.autoclass {
-        let mut autoclass =
-            json!({"enabled": config.enabled, "toggleTime": timestamp(config.toggle_time)?});
+        let mut autoclass = Map::from_iter([
+            ("enabled".into(), config.enabled.into()),
+            ("toggleTime".into(), timestamp(config.toggle_time)?.into()),
+        ]);
         if let Some(class) = &config.terminal_storage_class {
-            autoclass["terminalStorageClass"] = class.as_str().into();
+            autoclass.insert("terminalStorageClass".into(), class.as_str().into());
         }
         if let Some(time) = config.terminal_storage_class_update_time {
-            autoclass["terminalStorageClassUpdateTime"] = timestamp(time)?.into();
+            autoclass.insert(
+                "terminalStorageClassUpdateTime".into(),
+                timestamp(time)?.into(),
+            );
         }
-        value["autoclass"] = autoclass;
+        value.insert("autoclass".into(), autoclass.into());
     }
     if !bucket.labels.is_empty() {
-        value["labels"] = json!(bucket.labels);
+        value.insert("labels".into(), json!(bucket.labels));
     }
     if !bucket.cors.is_empty() {
-        value["cors"] = cors_value(&bucket.cors);
+        value.insert("cors".into(), cors_value(&bucket.cors));
     }
     if !bucket.lifecycle.is_empty() {
-        value["lifecycle"] = json!({"rule": bucket.lifecycle});
+        value.insert("lifecycle".into(), json!({"rule": bucket.lifecycle}));
     }
     if bucket.versioning_enabled
         || bucket.versioning_configured
         || profile == CompatProfile::LegacyEmulator
     {
-        value["versioning"] = json!({"enabled": bucket.versioning_enabled});
+        value.insert(
+            "versioning".into(),
+            json!({"enabled": bucket.versioning_enabled}),
+        );
     }
     if let Some(policy) = &bucket.retention_policy {
-        let mut retention = json!({"retentionPeriod":policy.retention_period.to_string(), "effectiveTime":timestamp(policy.effective_time)?});
+        let mut retention = Map::from_iter([
+            (
+                "retentionPeriod".into(),
+                policy.retention_period.to_string().into(),
+            ),
+            (
+                "effectiveTime".into(),
+                timestamp(policy.effective_time)?.into(),
+            ),
+        ]);
         // `isLocked` appears only once the policy is locked (recorded 2026-10-31).
         if policy.is_locked {
-            retention["isLocked"] = true.into();
+            retention.insert("isLocked".into(), true.into());
         }
-        value["retentionPolicy"] = retention;
+        value.insert("retentionPolicy".into(), retention.into());
     }
     if let Some(object_retention) = super::object_retention::render_bucket(bucket) {
-        value["objectRetention"] = object_retention;
+        value.insert("objectRetention".into(), object_retention);
     }
     if bucket.default_event_based_hold || profile == CompatProfile::LegacyEmulator {
-        value["defaultEventBasedHold"] = bucket.default_event_based_hold.into();
+        value.insert(
+            "defaultEventBasedHold".into(),
+            bucket.default_event_based_hold.into(),
+        );
     }
-    if profile == CompatProfile::LegacyEmulator {
-        value["location"] = LEGACY_LOCATION.into();
-        value["locationType"] = "region".into();
-        value["projectNumber"] = "0".into();
-        if bucket.metageneration == 1 {
-            value["storageClass"] = "STANDARD".into();
-            value["etag"] = "RVRhZw==".into();
-            value["updated"] = value["timeCreated"].clone();
-            if let Some(object) = value.as_object_mut() {
-                object.shift_remove("labels");
-            }
-        }
-    }
-    Ok(value)
+    Ok(())
 }
 
 /// Cloud Storage encodes only the metageneration, so by inference from the encoding a recreated
@@ -1091,18 +1139,21 @@ pub(crate) fn bucket_list_with_profile(
 ) -> Result<Value, JsonError> {
     // The recorded object list orders kind, nextPageToken, items; a bucket list was not recorded
     // and follows the same layout.
-    let mut value = json!({"kind": "storage#buckets"});
+    let mut value = Map::from_iter([("kind".into(), "storage#buckets".into())]);
     if let Some(token) = next_page_token {
-        value["nextPageToken"] = token.into();
+        value.insert("nextPageToken".into(), token.into());
     }
     if !buckets.is_empty() {
-        value["items"] = buckets
-            .iter()
-            .map(|bucket| bucket_resource_with_profile(bucket, base_url, projection, profile))
-            .collect::<Result<Vec<_>, _>>()?
-            .into();
+        value.insert(
+            "items".into(),
+            buckets
+                .iter()
+                .map(|bucket| bucket_resource_with_profile(bucket, base_url, projection, profile))
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
+        );
     }
-    Ok(value)
+    Ok(Value::Object(value))
 }
 
 /// A soft-deleted version renders as its bucket plus the two deletion times.
@@ -1113,8 +1164,17 @@ pub(crate) fn soft_deleted_bucket_resource(
     profile: CompatProfile,
 ) -> Result<Value, JsonError> {
     let mut value = bucket_resource_with_profile(&version.record, base_url, projection, profile)?;
-    value["softDeleteTime"] = timestamp(version.soft_delete_time)?.into();
-    value["hardDeleteTime"] = timestamp(version.hard_delete_time)?.into();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| JsonError::service_unavailable("Bucket resource must be an object"))?;
+    object.insert(
+        "softDeleteTime".into(),
+        timestamp(version.soft_delete_time)?.into(),
+    );
+    object.insert(
+        "hardDeleteTime".into(),
+        timestamp(version.hard_delete_time)?.into(),
+    );
     Ok(value)
 }
 
@@ -1125,18 +1185,21 @@ pub(crate) fn soft_deleted_bucket_list(
     projection: Projection,
     profile: CompatProfile,
 ) -> Result<Value, JsonError> {
-    let mut value = json!({"kind": "storage#buckets"});
+    let mut value = Map::from_iter([("kind".into(), "storage#buckets".into())]);
     if let Some(token) = next_page_token {
-        value["nextPageToken"] = token.into();
+        value.insert("nextPageToken".into(), token.into());
     }
     if !versions.is_empty() {
-        value["items"] = versions
-            .iter()
-            .map(|version| soft_deleted_bucket_resource(version, base_url, projection, profile))
-            .collect::<Result<Vec<_>, _>>()?
-            .into();
+        value.insert(
+            "items".into(),
+            versions
+                .iter()
+                .map(|version| soft_deleted_bucket_resource(version, base_url, projection, profile))
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
+        );
     }
-    Ok(value)
+    Ok(Value::Object(value))
 }
 
 pub(super) use crate::url::encode_unreserved as encode_segment;
@@ -1154,7 +1217,15 @@ pub(crate) fn http_date(time: SystemTime) -> Result<String, JsonError> {
         .map_err(|_| timestamp_error())?
         .as_secs()
         / 86400;
-    let weekday = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"][(days % 7) as usize];
+    let weekday = match days % 7 {
+        0 => "Thu",
+        1 => "Fri",
+        2 => "Sat",
+        3 => "Sun",
+        4 => "Mon",
+        5 => "Tue",
+        _ => "Wed",
+    };
     // RFC 3339 timestamps always carry a two-digit month at bytes 5..7.
     let month = timestamp
         .get(5..7)
@@ -1169,9 +1240,9 @@ pub(crate) fn http_date(time: SystemTime) -> Result<String, JsonError> {
         .ok_or_else(timestamp_error)?;
     Ok(format!(
         "{weekday}, {} {month} {} {} GMT",
-        &timestamp[8..10],
-        &timestamp[..4],
-        &timestamp[11..19]
+        timestamp.get(8..10).ok_or_else(timestamp_error)?,
+        timestamp.get(..4).ok_or_else(timestamp_error)?,
+        timestamp.get(11..19).ok_or_else(timestamp_error)?
     ))
 }
 
@@ -1188,7 +1259,7 @@ pub(super) fn timestamp_nanos(time: UnixNanos) -> Result<String, JsonError> {
     if !crate::clock::rfc3339_micros(micros) {
         return Err(timestamp_error());
     }
-    let seconds = micros.div_euclid(1_000_000) as i64;
+    let seconds = i64::try_from(micros.div_euclid(1_000_000)).map_err(|_| timestamp_error())?;
     let fraction = format!("{:03}", micros.div_euclid(1000).rem_euclid(1000));
     let daytime = seconds.rem_euclid(86400);
     // Gregorian 400-year cycles avoid platform-local timezone and time_t limits.

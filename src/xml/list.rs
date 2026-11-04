@@ -151,7 +151,7 @@ fn marker_cursor(
             marker
                 .strip_prefix(&query.prefix)
                 .and_then(|tail| tail.find(&query.delimiter))
-                .map(|index| &marker[..query.prefix.len() + index + query.delimiter.len()])
+                .and_then(|index| marker.get(..query.prefix.len() + index + query.delimiter.len()))
         })
         .flatten();
     Some(ObjectListCursor {

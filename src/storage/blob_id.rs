@@ -82,7 +82,11 @@ impl BlobId {
 
     pub(crate) fn blob_path(self, data_dir: &Path) -> PathBuf {
         let text = self.to_hex();
-        data_dir.join("blobs").join(&text[..2]).join(text)
+        let [first, ..] = self.0;
+        data_dir
+            .join("blobs")
+            .join(format!("{first:02x}"))
+            .join(text)
     }
 
     pub(crate) fn staging_path(self, data_dir: &Path) -> PathBuf {

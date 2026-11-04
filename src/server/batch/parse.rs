@@ -52,15 +52,21 @@ fn headers(bytes: &[u8]) -> Result<HeaderMap, JsonError> {
 }
 
 fn block(bytes: &[u8]) -> Result<(&[u8], &[u8]), JsonError> {
-    if bytes.starts_with(b"\r\n") {
-        return Ok((&[], &bytes[2..]));
+    if let Some(rest) = bytes.strip_prefix(b"\r\n") {
+        return Ok((&[], rest));
     }
     let end = bytes
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
         .filter(|end| *end <= HEADER_LIMIT)
         .ok_or_else(|| invalid("Missing or oversized batch header block"))?;
-    Ok((&bytes[..end], &bytes[end + 4..]))
+    let (headers, rest) = bytes
+        .split_at_checked(end)
+        .ok_or_else(|| invalid("Missing or oversized batch header block"))?;
+    let body = rest
+        .strip_prefix(b"\r\n\r\n")
+        .ok_or_else(|| invalid("Missing or oversized batch header block"))?;
+    Ok((headers, body))
 }
 
 fn single<'a>(headers: &'a HeaderMap, key: &str) -> Result<Option<&'a str>, JsonError> {
@@ -153,8 +159,10 @@ fn part(
         .position(|window| window == b"\r\n")
         .filter(|end| *end <= HEADER_LIMIT)
         .ok_or_else(|| invalid("Missing batch HTTP request line"))?;
-    let line = std::str::from_utf8(&http[..line_end])
-        .map_err(|_| invalid("Invalid batch request line"))?;
+    let (line, rest) = http
+        .split_at_checked(line_end)
+        .ok_or_else(|| invalid("Missing batch HTTP request line"))?;
+    let line = std::str::from_utf8(line).map_err(|_| invalid("Invalid batch request line"))?;
     let fields: Vec<_> = line.split(' ').collect();
     let [method, target, "HTTP/1.1"] = fields.as_slice() else {
         return Err(invalid("Batch parts require an HTTP/1.1 request line"));
@@ -169,7 +177,10 @@ fn part(
         return Err(invalid("Unsupported batch method"));
     }
     let uri = uri(target, query, api_base_url)?;
-    let (inner, body) = block(&http[line_end + 2..])?;
+    let (inner, body) = block(
+        rest.strip_prefix(b"\r\n")
+            .ok_or_else(|| invalid("Missing batch HTTP request line"))?,
+    )?;
     let inner = headers(inner)?;
     if inner
         .keys()
@@ -223,7 +234,9 @@ fn delimiter_suffix(bytes: &[u8]) -> Result<(bool, usize), JsonError> {
     if padding > HEADER_LIMIT {
         return Err(invalid("Oversized batch delimiter padding"));
     }
-    let rest = &bytes[padding..];
+    let rest = bytes
+        .get(padding..)
+        .ok_or_else(|| invalid("Malformed batch delimiter line"))?;
     if rest.starts_with(b"\r\n") {
         return Ok((closing, prefix + padding + 2));
     }
@@ -245,12 +258,22 @@ pub(super) fn parts(
     let first_at = bytes
         .windows(first.len())
         .position(|window| window == first)
-        .filter(|at| *at <= DISCARD_LIMIT && (*at == 0 || bytes[..*at].ends_with(b"\r\n")))
+        .filter(|at| {
+            *at <= DISCARD_LIMIT
+                && (*at == 0
+                    || bytes
+                        .get(..*at)
+                        .is_some_and(|prefix| prefix.ends_with(b"\r\n")))
+        })
         .ok_or_else(|| invalid("Missing batch opening boundary"))?;
     let mut offset = first_at + first.len();
     let mut result = Vec::new();
     loop {
-        let (closing, length) = delimiter_suffix(&bytes[offset..])?;
+        let (closing, length) = delimiter_suffix(
+            bytes
+                .get(offset..)
+                .ok_or_else(|| invalid("Malformed batch delimiter line"))?,
+        )?;
         offset += length;
         if closing {
             if result.is_empty() || bytes.len() - offset > DISCARD_LIMIT {
@@ -261,7 +284,9 @@ pub(super) fn parts(
         if result.len() >= 100 {
             return Err(invalid("Batch requests support at most 100 calls"));
         }
-        let end = bytes[offset..]
+        let end = bytes
+            .get(offset..)
+            .ok_or_else(|| invalid("Missing batch closing boundary"))?
             .windows(delimiter.len())
             .position(|window| window == delimiter)
             .map(|end| offset + end)

@@ -136,7 +136,11 @@ impl Output {
             if n == 0 {
                 break;
             }
-            hasher.update(&buffer[..n]);
+            hasher.update(
+                buffer
+                    .get(..n)
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
+            );
             length += n as u64;
         }
         Ok((hasher.finish(), length))

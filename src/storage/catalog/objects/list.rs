@@ -76,10 +76,14 @@ pub(in crate::storage::catalog) fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
 fn prefix_end_into(prefix: &str, end: &mut Vec<u8>) -> bool {
     end.clear();
     end.extend_from_slice(prefix.as_bytes());
-    let Some(index) = end.iter().rposition(|byte| *byte != u8::MAX) else {
+    let Some((index, byte)) = end
+        .iter_mut()
+        .enumerate()
+        .rfind(|(_, byte)| **byte != u8::MAX)
+    else {
         return false;
     };
-    end[index] += 1;
+    *byte += 1;
     end.truncate(index + 1);
     true
 }
@@ -497,7 +501,7 @@ fn group_prefix<'a>(name: &'a str, query: &ObjectListQuery) -> Option<&'a str> {
     }
     let remainder = name.strip_prefix(&query.prefix)?;
     let index = remainder.find(&query.delimiter)?;
-    Some(&name[..query.prefix.len() + index + query.delimiter.len()])
+    name.get(..query.prefix.len() + index + query.delimiter.len())
 }
 
 fn trailing_marker(name: &str, query: &ObjectListQuery) -> bool {

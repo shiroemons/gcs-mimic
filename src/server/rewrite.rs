@@ -255,7 +255,9 @@ async fn execute(
         let budget = if multiple {
             operation
                 .number("maxBytesRewrittenPerCall")
-                .map(|number| number as u64)
+                .map(u64::try_from)
+                .transpose()
+                .map_err(crate::storage::failure::object_unavailable)?
                 .unwrap_or(8 * 1024 * 1024)
         } else {
             u64::MAX
