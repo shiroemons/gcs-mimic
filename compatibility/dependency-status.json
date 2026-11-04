@@ -215,13 +215,13 @@
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie", "release_input": true,
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
-        "digest": "sha256:9daf2b244ccc30523e55cafe32edf8465671ba567d0101620e5612ccb76ea1a7",
-        "latest_verified_digest": "sha256:9daf2b244ccc30523e55cafe32edf8465671ba567d0101620e5612ccb76ea1a7",
+        "digest": "sha256:ea0999ff67355d958b8799b6751c879a6d770076d26047dca66f6e51e77930d3",
+        "latest_verified_digest": "sha256:ea0999ff67355d958b8799b6751c879a6d770076d26047dca66f6e51e77930d3",
         "verification_status": "ADOPTED",
-        "update_scope": "Registry inspection on 2026-11-03 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie in which only the linux/riscv64 manifest changed. The linux/amd64 and linux/arm64 platform digests are unchanged, so the build stage inputs and the socat snapshot timestamp are identical; Rust stays 1.99.1. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
+        "update_scope": "Registry inspection on 2026-11-04 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie (created 2026-11-03, docker-rust revision f6c59bee4a6e34a154c2122895ecd7833507f705) with new linux/amd64 and linux/arm64 platform digests. Rust stays 1.99.1 and both platform images still record the Debian snapshot 20261027T000000Z, so the socat snapshot timestamp is unchanged. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
         "platforms": {
-          "linux/amd64": "sha256:11b01282eaac5ba4ab9fc503d3a4a4d5db601597ce85479ab8c29495be660670",
-          "linux/arm64": "sha256:752ae176b955dd798d28b8f91a9f8cc3aed3d050fa3eb36fa877d61608d6867f"
+          "linux/amd64": "sha256:be49948243566aa0ae465ae2786c4bab8cb5597084873b01d3db50dcebc70b18",
+          "linux/arm64": "sha256:a5b16f6cc783db8240559f7d2fe38a30e3885bed801db49e5e37d6b1223b68bf"
         },
         "source_url": "https://hub.docker.com/v2/repositories/library/rust/tags/1.99.1-slim-trixie"
       },
