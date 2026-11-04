@@ -78,6 +78,27 @@ fn progress(connection: &Connection) -> Result<Option<ImportProgress>, CatalogEr
     ).optional().map_err(unavailable)
 }
 
+pub(super) fn verify_resume(
+    connection: &Connection,
+    version: i64,
+    source: [u8; 32],
+) -> Result<(), CatalogError> {
+    if version < 16 || !connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM import_journal WHERE singleton=1 AND active=1 AND source=?1)",
+        [source], |row| row.get::<_, bool>(0),
+    )? {
+        return Err(CatalogError::PreconditionFailed);
+    }
+    if version >= 18
+        && let Some(failure) = progress(connection)?.and_then(|state| state.failure)
+    {
+        return Err(unavailable(format!(
+            "import permanently failed: {failure}; preserve the source snapshot and restart into a new empty destination"
+        )));
+    }
+    Ok(())
+}
+
 pub(super) fn matching(
     connection: &Connection,
     binding: &ImportBinding,

@@ -22,6 +22,69 @@ fn element(ordinal: i64) -> ImportElement {
     }
 }
 
+#[tokio::test]
+async fn import_resume_checks_the_binding_before_schema_migration_and_recovery() {
+    for importing in [false, true] {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let binding = binding(0);
+        if importing {
+            catalog
+                .import_journal()
+                .begin(binding.clone())
+                .await
+                .unwrap();
+        }
+        catalog.close().await.unwrap();
+        let path = dir.0.join("catalog.sqlite3");
+        let old = Connection::open(&path).unwrap();
+        super::super::test_support::downgrade_deletion_history_schema(&old);
+        old.pragma_update(None, "user_version", 49).unwrap();
+        old.close().unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let stage = dir.0.join("staging/00000000000000000000000000000001");
+        std::fs::write(&stage, b"keep until authorized recovery").unwrap();
+        assert!(matches!(
+            Catalog::resume_import(&dir.0, [9; 32]).await,
+            Err(CatalogError::PreconditionFailed)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            std::fs::read(&stage).unwrap(),
+            b"keep until authorized recovery"
+        );
+        assert!(!path.with_extension("sqlite3-wal").exists());
+        assert!(!path.with_extension("sqlite3-shm").exists());
+        let opened = if importing {
+            let reopened = Catalog::resume_import(&dir.0, binding.source)
+                .await
+                .unwrap();
+            assert_eq!(
+                reopened
+                    .import_journal()
+                    .progress()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .binding,
+                binding
+            );
+            reopened
+        } else {
+            Catalog::open(&dir.0).await.unwrap()
+        };
+        assert!(!stage.exists());
+        opened.close().await.unwrap();
+        let current = Connection::open(&path).unwrap();
+        assert_eq!(
+            current
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            super::super::CATALOG_SCHEMA_VERSION
+        );
+    }
+}
+
 async fn commit(
     catalog: &Catalog,
     binding: ImportBinding,

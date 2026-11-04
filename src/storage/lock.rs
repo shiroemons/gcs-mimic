@@ -80,6 +80,22 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
             e,
         )
     })?;
+    acquire_file(
+        data_dir,
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false),
+    )
+}
+
+/// A rejected import resume must not create even a missing lock file.
+pub(super) fn acquire_existing(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
+    acquire_file(data_dir, OpenOptions::new().read(true).write(true))
+}
+
+fn acquire_file(data_dir: &Path, options: &OpenOptions) -> Result<DirectoryLock, CatalogError> {
     // A directory inode lock also survives replacement of catalog.lock on Unix.
     #[cfg(unix)]
     let directory = acquire_directory_file(
@@ -101,11 +117,7 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
     let directory = None;
     #[cfg(unix)]
     let directory = Some(directory);
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
+    let file = options
         .open(data_dir.join("catalog.lock"))
         .map_err(|e| lock_failure(format!("open data directory lock: {e}"), e))?;
     file.try_lock().map_err(|e| match e {

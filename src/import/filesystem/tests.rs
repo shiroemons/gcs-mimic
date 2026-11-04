@@ -2,6 +2,55 @@ use super::*;
 use crate::storage::{change_journal::ChangeKind, failure::unavailable};
 
 #[test]
+fn import_refuses_an_unbound_catalog_without_changing_destination_bytes() {
+    for lock_present in [true, false] {
+        let dir = crate::test_support::TestDir::new();
+        let source = dir.0.join("source");
+        fs::create_dir(&source).unwrap();
+        let destination = dir.0.join("destination");
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let catalog = Catalog::open(&destination).await.unwrap();
+            crate::storage::test_fixtures::seed_bucket(&catalog).await;
+            catalog.close().await.unwrap();
+        });
+        if !lock_present {
+            fs::remove_file(destination.join("catalog.lock")).unwrap();
+        }
+        let stage = destination
+            .join("staging")
+            .join("00000000000000000000000000000001");
+        fs::write(&stage, b"preserve this orphan until server recovery").unwrap();
+        let before = fs::read(destination.join("catalog.sqlite3")).unwrap();
+        let names = || {
+            let mut names: Vec<_> = fs::read_dir(&destination)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            names.sort();
+            names
+        };
+        let before_names = names();
+        let options = Options::new(
+            source,
+            destination.clone(),
+            super::super::MetadataMode::Sidecar,
+            super::super::SourcePlatform::Unix,
+        );
+        assert!(execute(options, Vec::new(), Vec::new()).is_err());
+        assert_eq!(
+            fs::read(destination.join("catalog.sqlite3")).unwrap(),
+            before
+        );
+        assert_eq!(names(), before_names);
+        assert_eq!(
+            fs::read(&stage).unwrap(),
+            b"preserve this orphan until server recovery"
+        );
+    }
+}
+
+#[test]
 fn buffered_observations_are_anonymous_and_report_the_last_flush_failure() {
     let file = Baseline::create().unwrap();
     #[cfg(unix)]

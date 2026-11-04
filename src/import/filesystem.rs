@@ -439,7 +439,17 @@ async fn run(
     } else {
         Some(metadata_scan(options, baseline, BaselineMode::Record, diagnostics).await?)
     };
-    let catalog = Catalog::open(&options.destination).await?;
+    let catalog = if start == ImportStart::Resume {
+        Catalog::resume_import(&options.destination, source).await.map_err(|error| {
+            if matches!(error, crate::bucket::CatalogError::PreconditionFailed) {
+                ImportError::from(invalid("data-dir: destination is not the same unfinished import with matching options"))
+            } else {
+                ImportError::from(error)
+            }
+        })?
+    } else {
+        Catalog::open(&options.destination).await?
+    };
     let result = async {
         let journal = catalog.import_journal();
         let original = journal.progress().await?;
