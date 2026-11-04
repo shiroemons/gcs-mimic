@@ -163,7 +163,11 @@ fn request_headers(
     } else {
         put::Signing::Header
     };
-    put::headers(request.headers(), max, signing)
+    let framing = match operation {
+        Operation::Parts | Operation::Uploads | Operation::Abort => put::Framing::OptionalEmpty,
+        Operation::Begin | Operation::Put(_) | Operation::Complete => put::Framing::Required,
+    };
+    put::headers(request.headers(), max, signing, framing)
 }
 
 fn storage_error(error: storage::Error, ctx: ObjectCtx<'_>) -> Error {
