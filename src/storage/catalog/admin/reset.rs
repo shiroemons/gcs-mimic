@@ -33,21 +33,7 @@ impl Admin {
             .catalog
             .wait_admin(self.catalog.0.admin_reads.clone(), deadline)
             .await?;
-        let (exclusive, execution) = loop {
-            let execution = self
-                .catalog
-                .wait_admin(self.catalog.0.execution.clone(), deadline)
-                .await?;
-            // Queuing a writer would reject the nested SQL read leases needed by draining uploads.
-            if let Ok(exclusive) = self.catalog.0.activity.clone().try_write_owned() {
-                break (exclusive, execution);
-            }
-            drop(execution);
-            tokio::time::sleep_until(
-                deadline.min(tokio::time::Instant::now() + Duration::from_millis(10)),
-            )
-            .await;
-        };
+        let (exclusive, execution) = self.catalog.wait_exclusive(deadline).await?;
         let inner = self.catalog.0.clone();
         self.catalog
             .0

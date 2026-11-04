@@ -185,18 +185,7 @@ fn assert_active_upload_reset(catalog_wait_ms: &str) {
         ],
     );
     server.populate();
-    let mut stream = TcpStream::connect(&server.address).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
-    stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=pending HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n").unwrap();
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
-    assert!(line.contains("100 Continue"), "{line}");
-    line.clear();
-    reader.read_line(&mut line).unwrap();
-    assert_eq!(line, "\r\n");
+    let mut reader = pending_media_upload(&server, "pending", b"hello".len());
     let busy = server.request("POST", "/_internal/reset", "", CONFIRM);
     busy.expect(503);
     assert_eq!(busy.headers["retry-after"], "1");

@@ -37,7 +37,9 @@ Traversal retains the existing two-slot channel, 10,000-entry total and 32-level
 
 Batch cancellation transfers all remaining entries to one supervised sequential cleanup owner. Preparation work retains its current entry until filesystem work finishes; SQL work owns the complete batch through commit confirmation. Catalog close waits for shared ownership to drain. Cancellation before SQL admission publishes nothing. Once the owned SQL operation is running, disconnect or a response timeout can leave a completed whole batch; callers must inspect state rather than infer rollback from a missing response. No partial namespace is returned as success.
 
-The publication boundary takes the same exclusive activity gate as reset, protecting notification/reset activity and unpublished uploads. A competing admitted operation returns a retryable busy failure. Runtime synchronization and incomplete import state are rejected; management never resets or edits external seed/import/sync files.
+The publication boundary takes the same exclusive activity gate as reset, protecting notification/reset activity and unpublished uploads. Like reset, it waits for in-flight catalog work and unpublished leases to drain instead of refusing at the first conflict: it retries the exclusive gate without queuing an activity writer, releases SQL execution between attempts so draining work can finish, and lets catalog reads proceed meanwhile. A second seed or publication batch likewise waits for batch admission; the two-slot publication request bound still refuses immediately when full. The batch takes its own activity lease only after admission, so a waiting seed never holds back a reset.
+
+Startup replay waits up to the 30-second administrative publication bound for each step. `/_internal/reseed` waits until the HTTP catalog wait budget (`catalog_wait_timeout_ms`) or the request deadline, whichever comes first; expiry before exclusive ownership returns 503 with `Retry-After: 1` and a message stating that reseed made no changes. A cancelled wait releases its administrative permits, and staged entries go to the existing cleanup owner. Runtime synchronization and incomplete import state are rejected; management never resets or edits external seed/import/sync files.
 
 On Unix, the loader pins the original root descriptor and checks its device/inode against the inspected directory before canonicalization, then opens every ancestor and leaf with the existing no-follow descriptor helpers. Deterministic root/leaf/ancestor symlink swaps cannot read or publish an external canary. Windows retains its prior trusted, stable read-only source requirement and path-opening behavior; the Unix concurrent-swap guarantee is not claimed there.
 
@@ -68,6 +70,15 @@ The following targeted checks passed on the development host; they are not SDK, 
 | `npx --yes markdownlint-cli2 docs/en/slices/atomic-seed-reseed.md docs/en/slices/seed.md docs/en/slices/local-fixture-administration.md docs/en/slices/local-instance-reset.md docs/en/slices/go-subprocess-facade.md` | Zero issues |
 | `go build ./...`; `go test -race ./fakestorage`; `go vet ./...` from `go/` | PASS: metadata codec/forwarding and native facade tests; no real Rust/official-SDK runtime claim |
 | `go test -tags integration -run '^$' ./fakestorage` from `go/` | PASS, compile only; `TestRustFixtureACLAndRetention` is reserved for final-source integration |
+
+The reseed quiescence change added these checks, recorded on 2026-11-04:
+
+| Command | Result and observable scope |
+| --- | --- |
+| `cargo test --locked --lib -- admin::publication::reseed admin::reset seed::tests server::admin::reseed` | 30 passed: reseed admission and commit waits, cancelled-wait permit release, deadline refusal without changes, and the existing reset, seed and HTTP classification cases |
+| `cargo test --locked --test it_admin -- admin_http` | 29 passed, and the `admin_reseed` plus `admin_reset` subset passed 20 consecutive runs (11 cases each): reseed waits for an active upload then replays fixtures; a 500 ms catalog budget returns 503 with `Retry-After: 1` and the no-changes message |
+
+With the previous storage behavior (immediate refusal) restored, four storage tests failed: waiting for a competing batch, waiting for an active upload lease before commit, releasing permits after cancelled waits, and the active-upload case that now requires the refusal to wait until its deadline. The HTTP case that completes an upload while reseed waits also failed.
 
 The crash test runs process-abort and `Fault::PowerLoss` snapshots at BeforePublish, AfterPublish, BeforeCommit and AfterCommit, reopening each snapshot and requiring exactly the old or new complete namespace. The model covers the existing seamed durability steps; it is not proof of physical host power-loss behavior or every instruction window.
 

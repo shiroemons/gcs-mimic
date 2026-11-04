@@ -446,6 +446,27 @@ impl Catalog {
         }
     }
 
+    /// Waits until in-flight catalog work drains, then owns SQL execution and the exclusive
+    /// activity gate together; expiry returns `Busy` before anything is mutated.
+    pub(super) async fn wait_exclusive(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(tokio::sync::OwnedRwLockWriteGuard<()>, OwnedSemaphorePermit), AdminError> {
+        loop {
+            let execution = self.wait_admin(self.0.execution.clone(), deadline).await?;
+            // Queuing a writer would reject the nested SQL read leases needed by draining uploads.
+            if let Ok(exclusive) = self.0.activity.clone().try_write_owned() {
+                return Ok((exclusive, execution));
+            }
+            // Draining work may need the execution slot to finish and release its lease.
+            drop(execution);
+            tokio::time::sleep_until(
+                deadline.min(tokio::time::Instant::now() + Duration::from_millis(10)),
+            )
+            .await;
+        }
+    }
+
     pub(super) async fn run_admin<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
