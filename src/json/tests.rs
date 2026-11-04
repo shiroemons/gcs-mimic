@@ -145,6 +145,29 @@ fn query_booleans_accept_only_lowercase_and_python_spellings() {
 }
 
 #[test]
+fn rejected_query_booleans_name_the_actual_parameter() {
+    for name in [
+        "softDeleted",
+        "enableObjectRetention",
+        "returnPartialSuccess",
+        "prettyPrint",
+        "showDeletedKeys",
+        "includeFoldersAsPrefixes",
+        "includeTrailingDelimiter",
+        "versions",
+        "overrideUnlockedRetention",
+        "copySourceAcl",
+    ] {
+        let mut query = parse_query(&format!("{name}=invalid")).unwrap();
+        let error = super::query::boolean(&mut query, name).unwrap_err();
+        assert_eq!(error.reason, "invalidParameter");
+        let location = error.location.unwrap();
+        assert_eq!(location.kind, "parameter");
+        assert_eq!(location.name, name);
+    }
+}
+
+#[test]
 fn bucket_query_booleans_keep_supported_and_unsupported_semantics() {
     for (method, path, supported) in [
         (

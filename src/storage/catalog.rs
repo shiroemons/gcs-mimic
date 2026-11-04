@@ -683,13 +683,12 @@ impl Drop for UploadGuard {
 #[derive(Clone)]
 pub struct Catalog(Arc<Inner>);
 
-/// Reads and validates an existing catalog without writing to it; returns its stored schema
-/// version, or 0 when the catalog is new.
+/// Reads and validates without writing; retains the connection for pre-migration checks.
 #[expect(
     clippy::disallowed_methods,
     reason = "integrity and schema inspection run once at open"
 )]
-fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
+fn inspect_catalog(path: &Path) -> Result<(i64, Connection), CatalogError> {
     // A read-write connection can checkpoint a rejected catalog's hot WAL on close.
     let connection = if path.try_exists()? {
         if path.with_extension("sqlite3-wal").try_exists()? {
@@ -739,7 +738,7 @@ fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
         // Reject foreign schemas before any persistent journal-mode change.
         validate_schema(&connection, version)?;
     }
-    Ok(version)
+    Ok((version, connection))
 }
 
 /// Opens the catalog for writing in WAL mode with full synchronization.
@@ -996,7 +995,24 @@ impl Catalog {
         local_admin: admin::LocalAdmin,
     ) -> Result<Self, CatalogError> {
         let data_dir = data_dir.as_ref().to_owned();
-        Self::open_backend(data_dir, clock, local_admin, None).await
+        Self::open_backend(data_dir, clock, local_admin, None, None).await
+    }
+
+    /// Checks the unfinished import binding under the directory lock before migration/recovery.
+    pub(crate) async fn resume_import(
+        data_dir: &Path,
+        source: [u8; 32],
+    ) -> Result<Self, CatalogError> {
+        let catalog = Self::open_backend(
+            data_dir.to_owned(),
+            Arc::new(SystemClock),
+            admin::LocalAdmin::Disabled,
+            None,
+            Some(source),
+        )
+        .await?;
+        catalog.set_principal_profile(principals::Profile::TrustedLocal)?;
+        Ok(catalog)
     }
 
     /// Opens an isolated volatile catalog without reading or creating a data directory.
@@ -1016,6 +1032,7 @@ impl Catalog {
             clock,
             local_admin,
             Some((max_bytes, catalog_max_bytes)),
+            None,
         )
         .await
     }
@@ -1025,6 +1042,7 @@ impl Catalog {
         clock: Arc<dyn Clock>,
         local_admin: admin::LocalAdmin,
         memory_limits: Option<(u64, u64)>,
+        resume_source: Option<[u8; 32]>,
     ) -> Result<Self, CatalogError> {
         crate::task::run_blocking("catalog-open", move || -> Result<Self, CatalogError> {
             let backend = match memory_limits {
@@ -1034,9 +1052,19 @@ impl Catalog {
             let (lock, stored_version, mut connection) = if let Some((_, bytes)) = memory_limits {
                 (None, 0, open_memory(bytes)?)
             } else {
-                let lock = lock::acquire(&data_dir)?;
                 let path = data_dir.join("catalog.sqlite3");
-                (Some(lock), inspect_catalog(&path)?, open_writable(&path)?)
+                let (lock, (version, readonly)) = if let Some(source) = resume_source {
+                    lock::acquire_import(&data_dir, || {
+                        let (version, readonly) = inspect_catalog(&path)?;
+                        import_journal::verify_resume(&readonly, version, source)?;
+                        Ok((version, readonly))
+                    })?
+                } else {
+                    let lock = lock::acquire(&data_dir)?;
+                    (lock, inspect_catalog(&path)?)
+                };
+                drop(readonly);
+                (Some(lock), version, open_writable(&path)?)
             };
             let mut version = stored_version;
             if version == 0 {

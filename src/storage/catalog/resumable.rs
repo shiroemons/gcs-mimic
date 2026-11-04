@@ -700,6 +700,7 @@ mod tests {
                 std::sync::Arc::new(crate::clock::SystemClock),
                 super::super::admin::LocalAdmin::Disabled,
                 memory.then_some((8192, 1024 * 1024)),
+                None,
             )
             .await
             .unwrap();

@@ -303,7 +303,7 @@ fn xml_bucket_create_delete_defaults_fields_conflicts_nonempty_and_restart() {
     assert!(created.body.is_empty());
     let resource = server.request("GET", "/storage/v1/b/xml-bucket", "", "");
     let resource: Value = serde_json::from_str(&resource.body).unwrap();
-    assert_eq!(resource["location"], "US");
+    assert_eq!(resource["location"], "EU");
     assert_eq!(resource["storageClass"], "STANDARD");
     let duplicate = server.request("PUT", "/xml-bucket", PROJECT, "");
     duplicate.expect(409);
@@ -341,6 +341,40 @@ fn xml_bucket_create_delete_defaults_fields_conflicts_nonempty_and_restart() {
     server
         .request("HEAD", "/regional-bucket", "", "")
         .expect(200);
+}
+
+#[test]
+fn xml_bucket_creation_uses_configured_default_and_preserves_explicit_location() {
+    let data = TestDir::new();
+    let server = Server::start(&data, &["--default-location", "europe-west1"]);
+    for (name, body, expected) in [
+        ("empty-default", "", "EUROPE-WEST1"),
+        (
+            "xml-default",
+            "<CreateBucketConfiguration><StorageClass>NEARLINE</StorageClass></CreateBucketConfiguration>",
+            "EUROPE-WEST1",
+        ),
+        (
+            "explicit-location",
+            "<CreateBucketConfiguration><LocationConstraint>US</LocationConstraint></CreateBucketConfiguration>",
+            "US",
+        ),
+    ] {
+        server
+            .request("PUT", &format!("/{name}"), PROJECT, body)
+            .expect(200);
+        let reply = server.request("GET", &format!("/storage/v1/b/{name}"), "", "");
+        reply.expect(200);
+        let resource: Value = serde_json::from_str(&reply.body).unwrap();
+        assert_eq!(resource["location"], expected, "{name}");
+    }
+    let invalid = "<CreateBucketConfiguration><LocationConstraint>invalid</LocationConstraint></CreateBucketConfiguration>";
+    server
+        .request("PUT", "/invalid-location", PROJECT, invalid)
+        .expect(400);
+    server
+        .request("HEAD", "/invalid-location", "", "")
+        .expect(404);
 }
 
 #[test]

@@ -584,9 +584,15 @@ async fn resumable_chunk_and_finalization_failures_keep_the_acknowledged_prefix(
     ] {
         let expect = expect_for(&fault);
         h.inject(step, 0, fault);
+        let catalog_io = crate::storage::catalog::fault::catalog_thread_io(&h.dir.0);
         let reply = h.request("PUT", &path, last, b"tail").await;
         assert_backend_failure(&reply, &expect, case);
         h.assert_fired(case);
+        assert_eq!(
+            crate::storage::catalog::fault::catalog_thread_io(&h.dir.0),
+            catalog_io,
+            "{case}"
+        );
         assert_eq!(h.resource("resumable").await.status, 404, "{case}");
         // The final bytes were checkpointed before publication failed, or discarded
         // with the failed write; either way the acknowledged range stays readable.

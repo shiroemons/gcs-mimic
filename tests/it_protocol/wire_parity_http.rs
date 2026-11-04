@@ -870,6 +870,29 @@ fn error_items_name_the_rejected_parameter_or_header() {
     bad_projection.status(400);
     assert_eq!(item(&bad_projection)["location"], "projection");
 
+    for (path, name) in [
+        ("/storage/v1/b/parity/o?versions=invalid", "versions"),
+        ("/storage/v1/b/parity/o?prettyPrint=invalid", "prettyPrint"),
+        (
+            "/storage/v1/b/parity/o?includeTrailingDelimiter=invalid",
+            "includeTrailingDelimiter",
+        ),
+        (
+            "/storage/v1/b/parity/o?includeFoldersAsPrefixes=invalid",
+            "includeFoldersAsPrefixes",
+        ),
+        ("/storage/v1/b/parity/o/value?versions=true", "versions"),
+    ] {
+        let reply = server.request("GET", path, "", b"");
+        reply.status(400);
+        assert_eq!(item(&reply)["location"], name, "{path}");
+        assert_eq!(item(&reply)["locationType"], "parameter", "{path}");
+    }
+    let unknown = server.request("GET", "/storage/v1/b/parity/o?unknown=value", "", b"");
+    unknown.status(400);
+    assert!(item(&unknown).get("location").is_none());
+    assert!(item(&unknown).get("locationType").is_none());
+
     let unbalanced = server.request("GET", &format!("{OBJECT}?fields=metadata%28a"), "", b"");
     unbalanced.status(400);
     assert_eq!(item(&unbalanced)["location"], "fields");

@@ -80,9 +80,73 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
             e,
         )
     })?;
+    acquire_file(
+        data_dir,
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false),
+    )
+}
+
+/// Directory ownership lets a valid resume restore its lock file after read-only inspection.
+pub(super) fn acquire_import<T>(
+    data_dir: &Path,
+    inspect: impl FnOnce() -> Result<T, CatalogError>,
+) -> Result<(DirectoryLock, T), CatalogError> {
+    #[cfg(unix)]
+    let mut lock = DirectoryLock {
+        directory: None,
+        file: acquire_catalog_directory(data_dir)?,
+        released: false,
+    };
+    #[cfg(not(unix))]
+    let lock =
+        acquire_file(data_dir, OpenOptions::new().read(true).write(true)).map_err(|error| {
+            if crate::error::causes(&error).any(|cause| {
+                cause
+                    .downcast_ref::<io::Error>()
+                    .is_some_and(|error| error.kind() == io::ErrorKind::NotFound)
+            }) {
+                CatalogError::from(super::import_journal::ResumeError::MissingLock)
+            } else {
+                error
+            }
+        })?;
+    let inspected = inspect()?;
+    #[cfg(unix)]
+    {
+        let file = open_lock_file(
+            data_dir,
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false),
+        )?;
+        lock.directory = Some(std::mem::replace(&mut lock.file, file));
+    }
+    Ok((lock, inspected))
+}
+
+fn acquire_file(data_dir: &Path, options: &OpenOptions) -> Result<DirectoryLock, CatalogError> {
     // A directory inode lock also survives replacement of catalog.lock on Unix.
     #[cfg(unix)]
-    let directory = acquire_directory_file(
+    let directory = Some(acquire_catalog_directory(data_dir)?);
+    #[cfg(not(unix))]
+    let directory = None;
+    let file = open_lock_file(data_dir, options)?;
+    Ok(DirectoryLock {
+        directory,
+        file,
+        released: false,
+    })
+}
+
+#[cfg(unix)]
+fn acquire_catalog_directory(data_dir: &Path) -> Result<File, CatalogError> {
+    acquire_directory_file(
         &data_dir
             .canonicalize()
             .map_err(|error| lock_failure(format!("resolve data directory: {error}"), error))?,
@@ -96,16 +160,11 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
                 error,
             )
         }
-    })?;
-    #[cfg(not(unix))]
-    let directory = None;
-    #[cfg(unix)]
-    let directory = Some(directory);
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
+    })
+}
+
+fn open_lock_file(data_dir: &Path, options: &OpenOptions) -> Result<File, CatalogError> {
+    let file = options
         .open(data_dir.join("catalog.lock"))
         .map_err(|e| lock_failure(format!("open data directory lock: {e}"), e))?;
     file.try_lock().map_err(|e| match e {
@@ -116,9 +175,5 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
         ),
     })?;
     // Keep the file in place: unlinking it would let another process lock a different inode.
-    Ok(DirectoryLock {
-        directory,
-        file,
-        released: false,
-    })
+    Ok(file)
 }

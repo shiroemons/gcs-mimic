@@ -47,6 +47,14 @@ each request requires its current operation permission in strict mode.
 | Complete | `POST /BUCKET/OBJECT?uploadId=ID` with CompleteMultipartUpload/Part/PartNumber/ETag XML | One new generation with ordered selected bytes, initiation metadata, completion-time timestamps, CRC32C and an opaque ETag |
 | Abort | `DELETE /BUCKET/OBJECT?uploadId=ID`, empty body | Empty 204; the session becomes unavailable and parts are journaled for reclamation |
 
+List uploads, list parts and abort treat omitted Content-Length and
+Transfer-Encoding as an empty request body. Initiation still requires explicit
+framing, normally `Content-Length: 0`; omitting both headers returns 411
+`MissingContentLength` without creating a session. Part uploads, completion and
+XML object copy also require explicit framing. Every operation retains rejection
+of ambiguous framing, invalid Content-Length, non-chunked Transfer-Encoding,
+oversized declared bodies and unexpected nonempty bodies.
+
 Part numbers range from 1 through 10000 and need not be contiguous. Completion
 requires a nonempty, strictly increasing manifest. Missing parts or mismatched
 ETags return 400 InvalidPart; duplicate or descending numbers return 400
@@ -134,6 +142,17 @@ feature rows PARTIAL. They must not be labeled EXACT merely because the local
 acceptance tests pass.
 
 ## Verification
+
+The framing regression on 2026-11-04 passed `cargo check --locked`,
+`cargo test --locked --lib xml::put::empty_request_framing_keeps_header_validation`
+(1 passed) and `cargo test --locked --test it_xml_auth xml_multipart_http`
+(11 passed). `multipart_bodyless_operations_accept_omitted_framing` checks
+initiation's 411 with no session and framed success, both unframed GET lists,
+and unframed abort followed by a missing-session response.
+`multipart_bodyless_operations_reject_bodies_and_puts_still_require_framing`
+checks fixed-length and chunked unexpected bodies, plus required framing for
+ordinary PUT and upload parts. The header unit retains invalid, duplicate,
+ambiguous, unsupported encoding and oversized-declaration checks in both modes.
 
 The native wire corpus is `tests/it_xml_auth/xml_multipart_http.rs`. It covers sparse ordered
 assembly, overwrite of a part, part and upload pagination, delimiter continuation,

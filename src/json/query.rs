@@ -690,8 +690,7 @@ pub(super) fn boolean(query: &mut BTreeMap<String, String>, key: &str) -> Result
         None | Some("false" | "False") => Ok(false),
         Some("true" | "True") => Ok(true),
         Some(_) => Err(
-            JsonError::invalid_parameter(format!("{key} must be true or false"))
-                .at_parameter("projection"),
+            JsonError::invalid_parameter(format!("{key} must be true or false")).at_parameter(key),
         ),
     }
 }
@@ -746,7 +745,7 @@ pub(super) fn finish(query: &BTreeMap<String, String>) -> Result<(), JsonError> 
         Some((key, _)) => Err(JsonError::invalid_parameter(format!(
             "Unknown query parameter for this method: {key}"
         ))
-        .at_parameter("projection")),
+        .at_parameter(key)),
         None => Ok(()),
     }
 }
