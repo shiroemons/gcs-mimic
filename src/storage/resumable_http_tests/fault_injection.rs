@@ -946,10 +946,10 @@ async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
             );
             let before_cleanup = StoredObjects::read(&h.dir.0);
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                // Cancelled derived cleanup retains a writer beyond the publication upload.
-                while !h.state.catalog.session_writers_idle()
-                    || !UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads())
-                        .is_complete()
+                // Observe SQL before the final writer check so newly started cleanup cannot look idle.
+                while !UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads())
+                    .is_complete()
+                    || !h.state.catalog.session_writers_idle()
                 {
                     tokio::task::yield_now().await;
                 }
