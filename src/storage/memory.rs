@@ -217,15 +217,18 @@ impl Stage {
     pub(super) fn write(&mut self, mut bytes: &[u8]) -> io::Result<()> {
         while !bytes.is_empty() {
             if self.pending.is_none() {
-                self.pending = Some(self.allocate(bytes.len().min(BLOCK_SIZE as usize) as u64)?);
+                self.pending = Some(self.allocate((bytes.len() as u64).min(BLOCK_SIZE))?);
             }
             let Some(chunk) = &mut self.pending else {
                 return Err(io::Error::other("missing RAM staging block"));
             };
             let length = bytes.len().min(chunk.bytes.capacity() - chunk.bytes.len());
-            chunk.bytes.extend_from_slice(&bytes[..length]);
+            let (written, rest) = bytes
+                .split_at_checked(length)
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
+            chunk.bytes.extend_from_slice(written);
             self.size += length as u64;
-            bytes = &bytes[length..];
+            bytes = rest;
             if chunk.bytes.len() == chunk.bytes.capacity() {
                 self.flush_pending()?;
             }
@@ -260,7 +263,7 @@ impl Stage {
         };
         chunk
             .bytes
-            .try_reserve_exact(capacity as usize)
+            .try_reserve_exact(usize::try_from(capacity).map_err(io::Error::other)?)
             .map_err(io::Error::other)?;
         chunk
             .reservation
@@ -386,8 +389,7 @@ impl Read for Reader {
         let Some(bytes) = self.next_chunk(output.len()) else {
             return Ok(0);
         };
-        output[..bytes.len()].copy_from_slice(&bytes);
-        Ok(bytes.len())
+        bytes.as_ref().read(output)
     }
 }
 
@@ -405,7 +407,7 @@ impl Seek for Reader {
         let mut remaining = position;
         while let Some(chunk) = self.blob.chunks.get(self.index) {
             if remaining < chunk.len() as u64 {
-                self.within = remaining as usize;
+                self.within = usize::try_from(remaining).map_err(io::Error::other)?;
                 break;
             }
             remaining -= chunk.len() as u64;

@@ -80,9 +80,10 @@ fn operation(
         (&Method::GET, false, false, true, None) => Operation::Parts,
         (&Method::POST, false, false, true, None) => Operation::Complete,
         (&Method::DELETE, false, false, true, None) => Operation::Abort,
-        (&Method::PUT, false, false, true, Some(number)) => {
-            Operation::Put(integer(number, 1, 10000)? as u16)
-        }
+        (&Method::PUT, false, false, true, Some(number)) => Operation::Put(
+            u16::try_from(integer(number, 1, 10000)?)
+                .map_err(|_| Error::invalid("Multipart number is out of range"))?,
+        ),
         _ => {
             return Err(Error::invalid(
                 "Invalid multipart method or query combination",

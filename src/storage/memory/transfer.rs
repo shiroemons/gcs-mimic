@@ -227,7 +227,12 @@ impl Draft {
         let result = stage.write(bytes);
         if let Some(hasher) = &mut stage.hasher {
             // A full budget can reject a later block after earlier bytes were accepted.
-            hasher.update(&bytes[..(stage.size - before) as usize]);
+            let written = usize::try_from(stage.size - before).map_err(io::Error::other)?;
+            hasher.update(
+                bytes
+                    .get(..written)
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
+            );
         }
         result
     }
@@ -285,7 +290,8 @@ impl Stage {
             if remaining == 0 {
                 break;
             }
-            let length = remaining.min(chunk.len() as u64) as usize;
+            let length =
+                usize::try_from(remaining.min(chunk.len() as u64)).map_err(io::Error::other)?;
             if length < chunk.len() {
                 *chunk = chunk.slice(..length);
             }
@@ -296,7 +302,9 @@ impl Stage {
         if remaining == 0 {
             self.pending = None;
         } else if let Some(pending) = &mut self.pending {
-            pending.bytes.truncate(remaining as usize);
+            pending
+                .bytes
+                .truncate(usize::try_from(remaining).map_err(io::Error::other)?);
         } else {
             return Err(io::Error::other("missing acknowledged RAM draft bytes"));
         }

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::xml::document::{self, malformed};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 pub(super) async fn respond(
     request: Request<RequestBody>,
@@ -71,8 +71,13 @@ pub(super) async fn respond(
         }
     }
     let mut value = parse(&bytes, bucket, ctx.config.compat_profile)?;
-    if let Some(period) = period {
-        value["retentionPolicy"] = json!({"retentionPeriod": period.to_string()});
+    if let Some(period) = period
+        && let Some(value) = value.as_object_mut()
+    {
+        value.insert(
+            "retentionPolicy".into(),
+            json!({"retentionPeriod": period.to_string()}),
+        );
     }
     let mut record = json::parse_insert_with_profile(
         value.to_string().as_bytes(),
@@ -95,7 +100,7 @@ fn parse(
     bucket: &str,
     profile: crate::config::CompatProfile,
 ) -> Result<Value, Error> {
-    let mut value = json!({"name": bucket});
+    let mut value = Map::from_iter([("name".into(), json!(bucket))]);
     if !bytes.is_empty() {
         let root = document::read(bytes)?;
         if root.name != "CreateBucketConfiguration" || !root.text.trim().is_empty() {
@@ -113,7 +118,7 @@ fn parse(
             if value.get(field).is_some() || !child.children.is_empty() {
                 return Err(malformed());
             }
-            value[field] = Value::String(child.text.trim().into());
+            value.insert(field.into(), Value::String(child.text.trim().into()));
         }
     }
     if profile == crate::config::CompatProfile::LegacyEmulator
@@ -123,5 +128,5 @@ fn parse(
             "legacy bucket creation settings; use the native compatibility profile",
         ));
     }
-    Ok(value)
+    Ok(Value::Object(value))
 }

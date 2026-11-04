@@ -4,7 +4,7 @@ use crate::{
     config::CompatProfile,
     object::{ObjectError, ObjectRecord},
 };
-use serde_json::json;
+use serde_json::{Map, json};
 use tonic::Status;
 
 pub(super) fn bucket(record: &BucketRecord) -> pb::Bucket {
@@ -32,22 +32,25 @@ pub(super) fn bucket_metadata(
 ) -> Result<Vec<u8>, Status> {
     let insert = current.is_none();
     bucket_outputs(bucket, current)?;
-    let mut body = json!({"defaultEventBasedHold":bucket.default_event_based_hold});
+    let mut body = Map::from_iter([(
+        "defaultEventBasedHold".into(),
+        json!(bucket.default_event_based_hold),
+    )]);
     if insert {
-        body["name"] = json!(bucket.name);
+        body.insert("name".into(), json!(bucket.name));
     }
     if !bucket.storage_class.is_empty() {
-        body["storageClass"] = json!(bucket.storage_class);
+        body.insert("storageClass".into(), json!(bucket.storage_class));
     }
     if !insert || !bucket.labels.is_empty() {
-        body["labels"] = json!(bucket.labels);
+        body.insert("labels".into(), json!(bucket.labels));
     }
     if !bucket.location.is_empty() && insert {
-        body["location"] = json!(bucket.location);
+        body.insert("location".into(), json!(bucket.location));
         bucket.location.clear();
     }
     if let Some(versioning) = &bucket.versioning {
-        body["versioning"] = json!({"enabled":versioning.enabled});
+        body.insert("versioning".into(), json!({"enabled":versioning.enabled}));
     }
     clear_bucket_metadata(bucket)?;
     serde_json::to_vec(&body).map_err(|_| Status::internal("Cannot encode bucket metadata"))

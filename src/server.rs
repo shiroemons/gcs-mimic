@@ -554,7 +554,10 @@ async fn serve_transports(
                 let stopping = stop.subscribe();
                 let saturated = full.subscribe();
                 let config = config.clone();
-                let acceptor = listeners[index].1.clone();
+                let Some((_, acceptor)) = listeners.get(index) else {
+                    break Err(io::Error::other("Accepted connection has no listener"));
+                };
+                let acceptor = acceptor.clone();
                 let connection = async move {
                     match stream {
                         transport::Stream::Tcp(stream) if grpc_index == Some(index) => {
@@ -613,9 +616,14 @@ fn poll_incoming(
     {
         return std::task::Poll::Ready(Err((next, io::Error::from_raw_os_error(code))));
     }
-    for offset in 0..listeners.len() {
-        let index = (next + offset) % listeners.len();
-        if let std::task::Poll::Ready(result) = listeners[index].0.poll_accept(cx) {
+    for (index, (listener, _)) in listeners
+        .iter()
+        .enumerate()
+        .cycle()
+        .skip(next)
+        .take(listeners.len())
+    {
+        if let std::task::Poll::Ready(result) = listener.poll_accept(cx) {
             return std::task::Poll::Ready(
                 result
                     .map(|stream| (index, stream))
@@ -1266,7 +1274,8 @@ fn read_metadata_response(
     let not_modified = match read_etag_not_modified(headers, etag) {
         Err(error)
             if error.status == StatusCode::PRECONDITION_FAILED
-                && value["kind"] == "storage#object" =>
+                && value.get("kind").and_then(serde_json::Value::as_str)
+                    == Some("storage#object") =>
         {
             let mut response = error.at_if_match().into_response();
             if let Ok(etag) = etag.parse() {

@@ -137,10 +137,20 @@ pub(super) async fn respond<'a>(
 /// The legacy profile keeps reporting the project owners team as `owner` for a bucket under
 /// uniform bucket-level access; Cloud Storage reports none (recorded 2026-10-31).
 fn add_legacy_uniform_owner(value: &mut Value, profile: CompatProfile) {
-    let uniform = value["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"] == true;
+    let uniform = value
+        .get("iamConfiguration")
+        .and_then(|value| value.get("uniformBucketLevelAccess"))
+        .and_then(|value| value.get("enabled"))
+        .and_then(Value::as_bool)
+        == Some(true);
     if profile == CompatProfile::LegacyEmulator && uniform && value.get("owner").is_none() {
         let number = value["projectNumber"].as_str().unwrap_or("0").to_owned();
-        value["owner"] = serde_json::json!({"entity": format!("project-owners-{number}")});
+        if let Some(value) = value.as_object_mut() {
+            value.insert(
+                "owner".into(),
+                serde_json::json!({"entity": format!("project-owners-{number}")}),
+            );
+        }
     }
 }
 

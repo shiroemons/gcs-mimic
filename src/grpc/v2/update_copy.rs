@@ -102,7 +102,7 @@ fn validate_derived_fields(o: &pb::Object) -> Result<(), Status> {
 // Existing rewrite tokens bind this persisted representation; metadata application is typed.
 fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
     validate_derived_fields(o)?;
-    let mut value = json!({"metadata":o.metadata});
+    let mut value = Map::from_iter([("metadata".into(), json!(o.metadata))]);
     for (key, v) in [
         ("contentType", &o.content_type),
         ("contentEncoding", &o.content_encoding),
@@ -112,19 +112,19 @@ fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
         ("storageClass", &o.storage_class),
     ] {
         if !v.is_empty() {
-            value[key] = v.clone().into();
+            value.insert(key.into(), v.clone().into());
         }
     }
     if o.temporary_hold {
-        value["temporaryHold"] = true.into();
+        value.insert("temporaryHold".into(), true.into());
     }
     if let Some(v) = o.event_based_hold {
-        value["eventBasedHold"] = v.into();
+        value.insert("eventBasedHold".into(), v.into());
     }
     if let Some(v) = o.custom_time {
-        value["customTime"] = v.to_string().into();
+        value.insert("customTime".into(), v.to_string().into());
     }
-    Ok(value)
+    Ok(Value::Object(value))
 }
 
 fn rewrite_error(e: RewriteError) -> Status {
@@ -364,7 +364,11 @@ impl Storage {
         let mut resource = progress
             .resource
             .map(|v| {
-                let bytes: Vec<u8> = serde_json::from_value(v["proto"].clone())
+                let proto = v
+                    .get("proto")
+                    .cloned()
+                    .ok_or_else(|| Status::internal("Invalid stored rewrite response"))?;
+                let bytes: Vec<u8> = serde_json::from_value(proto)
                     .map_err(|_| Status::internal("Invalid stored rewrite response"))?;
                 <pb::Object as prost::Message>::decode(bytes.as_slice())
                     .map_err(|_| Status::internal("Invalid stored rewrite response"))

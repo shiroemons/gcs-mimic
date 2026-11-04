@@ -57,5 +57,6 @@ fn group_prefix(name: &str, prefix: &str, delimiter: &str) -> Option<String> {
     }
     name.strip_prefix(prefix)?
         .find(delimiter)
-        .map(|offset| name[..prefix.len() + offset + delimiter.len()].to_owned())
+        .and_then(|offset| name.get(..prefix.len() + offset + delimiter.len()))
+        .map(str::to_owned)
 }
