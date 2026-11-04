@@ -155,26 +155,43 @@ begin
     assert(response["Access-Control-Allow-Origin"] == browser_origin, "PUT response lacks CORS headers")
     assert(bucket.file(blob.key)&.download&.string == bytes, "browser upload bytes differ")
   end
-  run_case.call("AS-EMULATOR-V4-DIRECT-UPLOAD") do
-    # cache_control switches Rails to V4 signing and adds a Cache-Control header the
-    # browser must be allowed to send.
-    bytes = "v4 upload bytes"
-    blob = ActiveStorage::Blob.create_before_direct_upload!(filename: "v4.txt", byte_size: bytes.bytesize,
+  run_case.call("AS-EMULATOR-DIRECT-UPLOAD-SIZE") do
+    # Rails 8.1.4.1 signs x-goog-content-length-range: N,N, so the URL cannot store a
+    # body of another size even with a matching checksum.
+    blob = direct_upload_blob("sized upload")
+    uri = URI(blob.service_url_for_direct_upload)
+    headers = blob.service_headers_for_direct_upload
+    size = "sized upload".bytesize
+    assert(headers["x-goog-content-length-range"] == "#{size},#{size}", "size limit header is missing")
+    [["sized upload!", "EntityTooLarge"], ["sized", "EntityTooSmall"]].each do |bytes, code|
+      request = Net::HTTP::Put.new(uri, headers.merge("Content-MD5" => Base64.strict_encode64(Digest::MD5.digest(bytes))))
+      request.body = bytes
+      response = Net::HTTP.start(uri.hostname, uri.port) { |http| http.request(request) }
+      assert(response.code == "400" && response.body.include?("<Code>#{code}</Code>"),
+        "#{bytes.bytesize}-byte PUT returned #{response.code}: #{response.body}")
+    end
+    assert(bucket.file(blob.key).nil?, "an out-of-range body was stored")
+  end
+  run_case.call("AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD") do
+    # Rails 8.1.4.1 signs every direct upload with V2 (GHSA-3w93-6hmw-whh4). V2 leaves
+    # Cache-Control unsigned, and the browser must still be allowed to send it.
+    bytes = "cache control upload bytes"
+    blob = ActiveStorage::Blob.create_before_direct_upload!(filename: "cache.txt", byte_size: bytes.bytesize,
       checksum: Base64.strict_encode64(Digest::MD5.digest(bytes)), content_type: "text/plain",
       service_name: "gcs_emulator_cache_control")
     uri = URI(blob.service_url_for_direct_upload)
     LocalHTTP.validate!(uri)
-    assert(URI.decode_www_form(uri.query).to_h.key?("X-Goog-Algorithm"), "direct upload URL is not V4")
+    assert(URI.decode_www_form(uri.query).to_h.key?("GoogleAccessId"), "direct upload URL is not V2")
     headers = blob.service_headers_for_direct_upload
     assert(headers["Cache-Control"] == "public, max-age=3600", "Cache-Control header is missing")
     allowed = preflight(uri, browser_origin, headers)
-    assert(allowed["Access-Control-Allow-Origin"] == browser_origin, "V4 preflight did not allow #{browser_origin}")
+    assert(allowed["Access-Control-Allow-Origin"] == browser_origin, "preflight did not allow #{browser_origin}")
     request = Net::HTTP::Put.new(uri, headers.merge("Origin" => browser_origin))
     request.body = bytes
     response = Net::HTTP.start(uri.hostname, uri.port) { |http| http.request(request) }
-    assert(response.is_a?(Net::HTTPSuccess), "V4 PUT failed: #{response.code}")
+    assert(response.is_a?(Net::HTTPSuccess), "Cache-Control PUT failed: #{response.code}")
     stored = bucket.file(blob.key)
-    assert(stored&.download&.string == bytes, "V4 upload bytes differ")
+    assert(stored&.download&.string == bytes, "Cache-Control upload bytes differ")
     assert(stored.cache_control == "public, max-age=3600", "Cache-Control was not stored")
   end
   run_case.call("AS-EMULATOR-NO-OAUTH-LATER") do

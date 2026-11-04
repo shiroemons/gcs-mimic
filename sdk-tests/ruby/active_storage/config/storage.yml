@@ -26,7 +26,7 @@ gcs_emulator:
     universe_domain: gcs-emulator.invalid
     private_key: <%= OpenSSL::PKey::RSA.generate(2048).to_pem.dump if Rails.env.local? %>
 
-# The same entry with cache_control, which makes Rails sign direct uploads with V4.
+# The same entry with cache_control, which Rails sends unsigned beside its V2 direct-upload URL.
 gcs_emulator_cache_control:
   service: GCS
   project: local-project

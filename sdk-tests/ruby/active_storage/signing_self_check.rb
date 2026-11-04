@@ -18,12 +18,15 @@ service = ActiveStorage::Service::EmulatorGcsService.new(project: "local-project
   universe_domain: "gcs-emulator.invalid", cache_control: "public, max-age=3600",
   credentials: {type: "service_account", project_id: "local-project", client_email: "local-admin@example.invalid",
                 universe_domain: "gcs-emulator.invalid", private_key: private_key})
-checksum = Base64.strict_encode64(Digest::MD5.digest("expected bytes"))
-url = URI(service.url_for_direct_upload("folder/name +.txt", expires_in: 300, checksum: checksum))
+bytes = "expected bytes"
+checksum = Base64.strict_encode64(Digest::MD5.digest(bytes))
+url = URI(service.url_for_direct_upload("folder/name +.txt", expires_in: 300, checksum: checksum,
+  content_length: bytes.bytesize))
 raise "final browser origin was changed" unless url.host == "127.0.0.1" && url.port == 54_443
 raise "final bucket/object URI differs" unless url.path == "/strict-bucket/folder/name%20%2B.txt"
 query = URI.decode_www_form(url.query).to_h
-headers = {"host" => "127.0.0.1:54443", "cache-control" => "public, max-age=3600", "content-md5" => checksum}
+headers = {"host" => "127.0.0.1:54443", "cache-control" => "public, max-age=3600", "content-md5" => checksum,
+           "x-goog-content-length-range" => "#{bytes.bytesize},#{bytes.bytesize}"}
 raise "required upload headers were not signed" unless query.fetch("X-Goog-SignedHeaders") == headers.keys.sort.join(";")
 
 # Reconstruct the signed request independently from the service and SDK signer.
@@ -38,6 +41,7 @@ end
 raise "signature does not bind the final request" unless verify.call(headers)
 raise "changed port retained a valid signature" if verify.call(headers.merge("host" => "127.0.0.1:4443"))
 raise "changed checksum retained a valid signature" if verify.call(headers.merge("content-md5" => "changed"))
+raise "changed size limit retained a valid signature" if verify.call(headers.merge("x-goog-content-length-range" => "0,1048576"))
 %w[http://user@localhost:4443 http://localhost:4443/prefix http://localhost:4443/?query=1].each do |origin|
   begin
     ActiveStorage::Service::EmulatorGcsService.new(public_endpoint: origin)
@@ -46,4 +50,4 @@ raise "changed checksum retained a valid signature" if verify.call(headers.merge
   end
   raise "invalid signing origin accepted: #{origin}"
 end
-puts "Rails local signing self-check: PASS (final host, port, path, checksum and headers)"
+puts "Rails local signing self-check: PASS (final host, port, path, checksum, size limit and headers)"

@@ -8,8 +8,13 @@
 
 開発・テストではgcs-mimic、本番ではGoogle Cloud Storageを使います。本番の設定は変えません。
 
-Rails 8.1.4、google-cloud-storage 1.62.1、googleauth 1.17.6と1.17.7で確認しています（[検証結果](sdk-active-storage-scenario.md#storageymlだけでエミュレーターを使う)）。
-ほかの版は検証していません。
+Rails 8.1.4.1、google-cloud-storage 1.62.1、googleauth 1.17.6で確認しています（[検証結果](sdk-active-storage-scenario.md#storageymlだけでエミュレーターを使う)）。
+Rails 8.1.4はgoogleauth 1.17.7でも確認しています。ほかの版は検証していません。
+
+Rails 8.1.4.1のダイレクトアップロードには、0.9.0より新しいgcs-mimicが必要です。
+Rails 8.1.4.1はすべてのダイレクトアップロードURLに`x-goog-content-length-range`を署名して含めます。
+0.9.0はこのヘッダーを`400 InvalidArgument`で拒否します。
+詳しくは[XMLアップロードのサイズ範囲](../en/slices/xml-content-length-range.md)（英語）を見てください。
 
 ## 1. バケット付きでエミュレーターを起動する
 
@@ -18,13 +23,14 @@ CORSの設定で、ブラウザがアプリのオリジンからダイレクト�
 [Railsガイド](https://guides.rubyonrails.org/active_storage_overview.html)の
 Google Cloud Storage向けの設定に、`Cache-Control`を足したものです。
 サービスに`cache_control`を設定するとブラウザがこのヘッダーを送るため、ないとそのアップロードはCORSで失敗します。
+Rails 8.1.4.1は`x-goog-content-length-range`も送るため、これも許可します。
 `origin`は自分のアプリのオリジンにします。
 
 ```json
 {"version": 1, "project": "local-project", "buckets": [
   {"name": "local-bucket", "cors": [{
     "origin": ["http://localhost:3000"], "method": ["PUT"],
-    "responseHeader": ["Content-Type", "Content-MD5", "Content-Disposition", "Cache-Control"],
+    "responseHeader": ["Content-Type", "Content-MD5", "Content-Disposition", "x-goog-content-length-range", "Cache-Control"],
     "maxAgeSeconds": 3600}]}
 ]}
 ```

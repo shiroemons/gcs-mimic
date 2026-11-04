@@ -29,7 +29,7 @@ storage = Google::Cloud::Storage.new(project: "local-project", credentials: conf
 browser_origin = "http://localhost:3000"
 bucket = storage.create_bucket(ENV.fetch("GCS_EMULATOR_BUCKET")) do |item|
   item.cors.add_rule(browser_origin, ["PUT"],
-    headers: ["Content-Type", "Content-MD5", "Content-Disposition", "Cache-Control"], max_age: 300)
+    headers: ["Content-Type", "Content-MD5", "Content-Disposition", "x-goog-content-length-range", "Cache-Control"], max_age: 300)
 end
 results = []
 

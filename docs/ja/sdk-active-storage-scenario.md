@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 対象はDESIGN-084、状態はPARTIALです。専用のGemfileでActive Storageとrailties
-8.1.4、sqlite3 2.10.2、google-cloud-storage 1.62.1を固定しています。
+8.1.4.1、sqlite3 2.10.2、google-cloud-storage 1.62.1を固定しています。
 Rails全体や外部DB、画像変換ツールは追加していません。
 製品のV2署名対応は[別スライス](sdk-active-storage-v2-signing.md)に記録しています。
 
@@ -75,7 +75,9 @@ Googleへの通信は実行していません。
 - strictモードはIDファイルに登録したトークンしか受け付けません。strictのエミュレーターに対する使い捨ての確認で、最初のアップロードが`401 Invalid Credentials`になったため、この項目はpermissive専用です。
 
 `attachments.rb`で、同じ接続ガードの下、内部の認証を変えずに次のケースを確認しました。ルートは`Rack::MockRequest`でプロセス内から呼び出しています。
-2026-10-30、Rails 8.1.4、google-cloud-storage 1.62.1、googleauth 1.17.6で、10 PASS・0 FAIL、本番のケースもPASSです。
+2026-11-04、Rails 8.1.4.1、google-cloud-storage 1.62.1、googleauth 1.17.6で、11 PASS・0 FAIL、本番のケースもPASSです。
+Rails 8.1.4.1はダイレクトアップロードに`x-goog-content-length-range`を署名して含めます（[XMLアップロードのサイズ範囲](../en/slices/xml-content-length-range.md)、英語）。
+この変更より前の2026-10-30、Rails 8.1.4では10 PASS・0 FAILでした。当時のRails 8.1.4は`cache_control`付きのアップロードをV4で署名したため、ケース名はAS-EMULATOR-V4-DIRECT-UPLOADでした。
 
 リポジトリ外に作った、Puma 8.0.2とgoogleauth 1.17.7のRailsアプリでも、2026-10-30にChromeで確認しました。
 3000番と4443番が使用中だったためポートは13000番と14443番に変え、それ以外は[Rails Active Storageでgcs-mimicを使う](rails-active-storage.md)のとおりです。
@@ -95,7 +97,8 @@ Googleへの通信は実行していません。
 | AS-EMULATOR-PROXY | `resolve_model_to_route = :rails_storage_proxy`で、リダイレクトせずRailsが本文を返す |
 | AS-EMULATOR-DIRECT-UPLOAD | 直接アップロードのURLとヘッダーでPUTし、`signed_id`で添付して本文と一致 |
 | AS-EMULATOR-DIRECT-UPLOAD-CORS | `http://localhost:3000`からのプリフライトは許可され、許可していないオリジンは拒否。`Origin`付きの`PUT`はCORSヘッダー付きで保存される |
-| AS-EMULATOR-V4-DIRECT-UPLOAD | `cache_control`を設定すると、RailsはV4で署名し`Cache-Control`を付ける。`buckets.json`の許可ヘッダーの`Cache-Control`でプリフライトが通り、`PUT`で本文とcache controlが保存される |
+| AS-EMULATOR-DIRECT-UPLOAD-SIZE | URLには、blobのサイズで`x-goog-content-length-range`が署名される。Content-MD5を合わせても、大きい本文は`EntityTooLarge`、小さい本文は`EntityTooSmall`で失敗し、何も保存されない |
+| AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD | `cache_control`を設定しても、Rails 8.1.4.1はV2で署名し、`Cache-Control`は署名せずに付ける。`buckets.json`の許可ヘッダーの`Cache-Control`でプリフライトが通り、`PUT`で本文とcache controlが保存される |
 | AS-EMULATOR-NO-OAUTH-LATER | 起動から400日後（`travel`）でも、エミュレーター以外へ通信せず保存・取得 |
 | AS-EMULATOR-PURGE | `purge`でエミュレーターからオブジェクトが消える |
 | AS-EMULATOR-PRODUCTION-NO-KEY | 本番の起動では本番用のサービスが選ばれ、`gcs_emulator`項目の鍵は生成されない |
