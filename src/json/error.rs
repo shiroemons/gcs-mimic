@@ -297,6 +297,17 @@ impl JsonError {
         )
     }
 
+    fn catalog_backend(backend: &BackendCause) -> Self {
+        let mut error = Self::backend(backend);
+        error.message = match error.kind {
+            ErrorKind::Backend(_) => error
+                .message
+                .replacen("Object storage", "Bucket catalog", 1),
+            _ => "Bucket catalog is unavailable".into(),
+        };
+        error
+    }
+
     /// An unclassified protocol error; use a named constructor for a semantic error kind.
     pub(crate) fn new(
         status: StatusCode,
@@ -719,15 +730,14 @@ impl From<CatalogError> for JsonError {
             CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
                 Self::storage_capacity()
             }
-            CatalogError::Unavailable(cause) => Self::backend(&cause),
-            CatalogError::Corrupt(cause) => {
-                let mut error = Self::backend(&cause);
-                error.message = "Bucket catalog is unavailable".into();
-                error
+            CatalogError::Unavailable(cause) | CatalogError::Corrupt(cause) => {
+                Self::catalog_backend(&cause)
             }
             error @ (CatalogError::AuthenticationAlreadyConfigured
             | CatalogError::Io(_)
-            | CatalogError::NewerSchema { .. }) => Self::backend(&BackendCause::from_error(error)),
+            | CatalogError::NewerSchema { .. }) => {
+                Self::catalog_backend(&BackendCause::from_error(error))
+            }
         }
     }
 }
@@ -1123,7 +1133,6 @@ mod tests {
             );
         }
         use crate::storage::hmac_keys::HmacKeyError;
-        let internal = "Object storage is unavailable: internal storage failure (private backend details withheld)";
         let catalog = "Bucket catalog is unavailable";
         let corrupt =
             "Object storage is unavailable: stored data is corrupt; restore a valid data directory";
@@ -1132,7 +1141,7 @@ mod tests {
                 JsonError::from(CatalogError::Unavailable(
                     "database is locked: /secret token=private".into(),
                 )),
-                internal,
+                catalog,
             ),
             (
                 JsonError::from(CatalogError::Corrupt(
@@ -1148,18 +1157,18 @@ mod tests {
                     )
                     .into(),
                 )),
-                internal,
+                catalog,
             ),
             (
                 JsonError::from(CatalogError::AuthenticationAlreadyConfigured),
-                internal,
+                catalog,
             ),
             (
                 JsonError::from(CatalogError::NewerSchema {
                     version: 99,
                     supported: 50,
                 }),
-                internal,
+                catalog,
             ),
             (
                 JsonError::from(ObjectError::Corrupt(
@@ -1175,7 +1184,7 @@ mod tests {
                 JsonError::from(HmacKeyError::Catalog(CatalogError::Unavailable(
                     "database is locked: /secret token=private".into(),
                 ))),
-                internal,
+                catalog,
             ),
             (
                 JsonError::from(HmacKeyError::Catalog(CatalogError::Corrupt(
@@ -1191,17 +1200,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unavailable_catalog_keeps_typed_guidance_and_safe_envelope() {
+    async fn catalog_backend_errors_keep_bucket_guidance_and_safe_envelope() {
         use http_body_util::BodyExt;
 
-        for cause in [
-            BackendCause::from("catalog is closed"),
-            BackendCause::from(BackendFailure::CatalogClosed),
+        let generic = "Bucket catalog is unavailable";
+        for (cause, message) in [
+            (
+                CatalogError::Unavailable("catalog is closed".into()),
+                generic,
+            ),
+            (
+                CatalogError::Unavailable(BackendFailure::CatalogClosed.into()),
+                "Bucket catalog is unavailable: catalog is closed; wait for the server to restart before retrying",
+            ),
+            (
+                CatalogError::Io(std::io::ErrorKind::PermissionDenied.into()),
+                generic,
+            ),
+            (
+                CatalogError::NewerSchema {
+                    version: 99,
+                    supported: 50,
+                },
+                generic,
+            ),
+            (CatalogError::AuthenticationAlreadyConfigured, generic),
+            (
+                CatalogError::Corrupt("/secret token=private".into()),
+                generic,
+            ),
         ] {
-            let message = cause.failure().and_then(BackendFailure::guidance).unwrap_or(
-                "Object storage is unavailable: internal storage failure (private backend details withheld)",
-            );
-            let response = JsonError::from(CatalogError::Unavailable(cause)).into_response();
+            let error = JsonError::from(cause);
+            assert!(!error.message.contains("Object storage"));
+            assert_eq!(error.message, message);
+            let response = error.into_response();
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(
                 response.headers()[header::CONTENT_TYPE],

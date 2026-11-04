@@ -442,7 +442,7 @@ mod tests {
                 CatalogError::Unavailable(BackendFailure::CatalogClosed.into()),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "backendError",
-                "Object storage is unavailable: catalog is closed;",
+                "Bucket catalog is unavailable: catalog is closed;",
             ),
             (
                 CatalogError::InvalidMetadata("invalid metadata".into()),
