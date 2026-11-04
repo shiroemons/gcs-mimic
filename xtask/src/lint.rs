@@ -190,24 +190,52 @@ fn valid_target(triple: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-fn host(root: &Path) -> Result<String> {
-    let version = crate::release::capture(Command::new("rustc").current_dir(root).arg("-vV"))?;
-    version
-        .lines()
-        .find_map(|line| line.strip_prefix("host: "))
-        .filter(|triple| valid_target(triple))
-        .map(str::to_owned)
-        .ok_or_else(|| "rustc -vV did not report a host triple".to_owned())
+struct Compiler {
+    host: String,
+    stale: ratchet::StaleCounts,
+}
+
+impl Compiler {
+    fn load(root: &Path) -> Result<Self> {
+        let version = crate::release::capture(Command::new("rustc").current_dir(root).arg("-vV"))?;
+        let manifest = fs::read_to_string(root.join("rust-toolchain.toml"))
+            .map_err(|error| format!("rust-toolchain.toml: {error}"))?;
+        let pin = crate::dependencies::scalar(&manifest, "channel")?;
+        Self::parse(&version, &pin, env::var("RUSTUP_TOOLCHAIN").ok().as_deref())
+    }
+
+    fn parse(version: &str, pin: &str, toolchain: Option<&str>) -> Result<Self> {
+        let field = |name: &str| {
+            version
+                .lines()
+                .find_map(|line| line.strip_prefix(name))
+                .ok_or_else(|| format!("rustc -vV did not report {name}"))
+        };
+        let host = field("host: ")?;
+        if !valid_target(host) {
+            return Err("rustc -vV reported an invalid host triple".into());
+        }
+        let current_stable = toolchain.is_some_and(|name| name.split('-').next() == Some("stable"));
+        let stale = if field("release: ")? == pin && !current_stable {
+            ratchet::StaleCounts::Reject
+        } else {
+            ratchet::StaleCounts::Warn
+        };
+        Ok(Self {
+            host: host.to_owned(),
+            stale,
+        })
+    }
 }
 
 /// Runs the selected mode and returns whether it passed.
 pub fn run(root: &Path, mode: &Mode) -> Result<bool> {
     match mode {
         Mode::Gate => gate(root),
-        Mode::Target(triple) => target_gate(root, triple, &clippy(root, triple)?),
+        Mode::Target(triple) => target_gate(root, triple, &clippy(root, Some(triple))?),
         Mode::Baseline(target) => {
             let findings = match target {
-                Some(target) => clippy(root, target)?,
+                Some(target) => clippy(root, Some(target))?,
                 None => scan_tree(root)?.findings,
             };
             print!("{}", ratchet::Baseline::from_findings(&findings).render());
@@ -223,11 +251,9 @@ fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> 
         .cloned()
         .collect();
     let problems = ratchet::Baseline::load(root, Some(triple))?.check(findings);
+    let problems = ratchet::report(problems, Compiler::load(root)?.stale);
     for finding in &violations {
         eprintln!("error: {}: {}:{}", finding.rule, finding.file, finding.line);
-    }
-    for problem in &problems {
-        eprintln!("error: {problem}");
     }
     if violations.is_empty() && problems.is_empty() {
         let ratcheted_count = findings
@@ -247,21 +273,19 @@ fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> 
 }
 
 fn gate(root: &Path) -> Result<bool> {
-    let host = host(root)?;
-    // Pin the compiler target even when CARGO_BUILD_TARGET or local Cargo config selects another.
-    let mut findings = clippy(root, &host)?;
-    let mut ratchet_problems = ratchet::Baseline::load(root, Some(&host))?.check(&findings);
+    let compiler = Compiler::load(root)?;
+    let mut findings = clippy(root, None)?;
+    let problems = ratchet::Baseline::load(root, Some(&compiler.host))?.check(&findings);
+    let mut ratchet_problems = ratchet::report(problems, compiler.stale);
     let scan = scan_tree(root)?;
-    ratchet_problems.extend(ratchet::Baseline::load(root, None)?.check(&scan.findings));
+    let problems = ratchet::Baseline::load(root, None)?.check(&scan.findings);
+    ratchet_problems.extend(ratchet::report(problems, ratchet::StaleCounts::Reject));
     findings.extend(scan.findings);
     findings.sort();
     let ratcheted_count = findings
         .iter()
         .filter(|finding| ratchet::eligible(&finding.rule))
         .count();
-    for problem in &ratchet_problems {
-        eprintln!("error: {problem}");
-    }
     findings.retain(|finding| !ratchet::eligible(&finding.rule));
     let suppressions = suppression_summary(&scan.suppressed);
     for problem in &scan.problems {
@@ -336,7 +360,7 @@ pub fn suppression_summary(suppressed: &[Finding]) -> String {
     }
 }
 
-fn clippy(root: &Path, target: &str) -> Result<Vec<Finding>> {
+fn clippy_command(root: &Path, target: Option<&str>) -> Command {
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut command = Command::new(cargo);
     // `--lib --bins` leaves `cfg(test)` code uncompiled, so test helpers never count; xtask and
@@ -345,12 +369,18 @@ fn clippy(root: &Path, target: &str) -> Result<Vec<Finding>> {
         .current_dir(root)
         .args(["clippy", "--package", "gcs-mimic", "--lib", "--bins"])
         .args(["--locked", "--offline", "--message-format=json"]);
-    command.args(["--target", target]);
+    if let Some(target) = target {
+        command.args(["--target", target]);
+    }
     command.arg("--");
     for lint in CLIPPY_LINTS.into_iter().chain(RATCHETED_CLIPPY_LINTS) {
         command.args(["-W", lint]);
     }
-    let output = command
+    command
+}
+
+fn clippy(root: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
+    let output = clippy_command(root, target)
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| format!("cargo clippy: {e}"))?;
@@ -368,7 +398,23 @@ fn clippy(root: &Path, target: &str) -> Result<Vec<Finding>> {
             output.status
         ));
     }
+    if !compiled_server(&stdout) {
+        return Err("cargo clippy did not check the server; use a native Cargo default target or an explicit --target TRIPLE".into());
+    }
     Ok(clippy_findings(&stdout))
+}
+
+fn compiled_server(stream: &str) -> bool {
+    stream
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .any(|value| {
+            value["reason"] == "compiler-artifact"
+                && matches!(
+                    value["target"]["name"].as_str(),
+                    Some("gcs_mimic" | "gcs-mimic")
+                )
+        })
 }
 
 /// Extracts curated lint findings on production files from a `--message-format=json` stream.
@@ -1293,6 +1339,56 @@ pub fn test_lines(masked: &str) -> Vec<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compiler_pin_rejects_stale_counts_while_current_stable_only_warns() {
+        let version = "host: aarch64-apple-darwin\nrelease: 1.99.1\n";
+        assert_eq!(
+            Compiler::parse(version, "1.99.1", None).unwrap().stale,
+            ratchet::StaleCounts::Reject
+        );
+        for toolchain in ["stable", "stable-aarch64-apple-darwin"] {
+            assert_eq!(
+                Compiler::parse(version, "1.99.1", Some(toolchain))
+                    .unwrap()
+                    .stale,
+                ratchet::StaleCounts::Warn
+            );
+        }
+        assert_eq!(
+            Compiler::parse(version, "1.98.0", None).unwrap().stale,
+            ratchet::StaleCounts::Warn
+        );
+        assert!(Compiler::parse("host: ../bad\nrelease: 1.99.1", "1.99.1", None).is_err());
+        assert!(Compiler::parse("host: aarch64-apple-darwin", "1.99.1", None).is_err());
+    }
+
+    #[test]
+    fn native_clippy_reuses_default_artifacts_and_explicit_targets_stay_separate() {
+        let native = clippy_command(Path::new("."), None);
+        let args = native
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(!args.contains(&"--target"));
+        assert!(!args.contains(&"--config"));
+        let cross = clippy_command(Path::new("."), Some("x86_64-pc-windows-msvc"));
+        let args = cross
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            args.windows(2)
+                .any(|args| args == ["--target", "x86_64-pc-windows-msvc"])
+        );
+        assert!(!args.contains(&"--config"));
+        assert!(!compiled_server(
+            "{\"reason\":\"build-finished\",\"success\":true}"
+        ));
+        assert!(compiled_server(
+            "{\"reason\":\"compiler-artifact\",\"target\":{\"name\":\"gcs_mimic\"}}"
+        ));
+    }
 
     fn rules(file: &str, text: &str) -> Vec<(String, usize)> {
         scan_source(file, text)

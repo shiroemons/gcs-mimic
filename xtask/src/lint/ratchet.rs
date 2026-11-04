@@ -37,6 +37,32 @@ pub(super) enum Problem {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StaleCounts {
+    Reject,
+    Warn,
+}
+
+impl Problem {
+    fn fails(&self, stale: StaleCounts) -> bool {
+        !matches!((self, stale), (Self::Stale { .. }, StaleCounts::Warn))
+    }
+}
+
+pub(super) fn report(problems: Vec<Problem>, stale: StaleCounts) -> Vec<Problem> {
+    problems.into_iter().filter(|problem| {
+        let fails = problem.fails(stale);
+        if let Problem::Stale { rule, file, recorded, found, .. } = problem
+            && !fails
+        {
+            eprintln!("warning: {rule}: {file}: compiler found {found}, below baseline {recorded}; keep counts from the pinned lane");
+        } else {
+            eprintln!("error: {problem}");
+        }
+        fails
+    }).collect()
+}
+
 impl fmt::Display for Problem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -84,8 +110,17 @@ impl fmt::Display for Problem {
 impl Baseline {
     pub(super) fn load(root: &Path, target: Option<&str>) -> Result<Self, String> {
         let file = file(target);
-        let text =
-            fs::read_to_string(root.join(&file)).map_err(|error| format!("{file}: {error}"))?;
+        let text = match fs::read_to_string(root.join(&file)) {
+            Ok(text) => text,
+            Err(error) if target.is_some() && error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "warning: {file} is missing; all ratcheted findings count as new; establish it with `cargo xtask lint --baseline --target {}`",
+                    target.unwrap_or_default()
+                );
+                String::new()
+            }
+            Err(error) => return Err(format!("{file}: {error}")),
+        };
         Self::parse(&text, &file)
     }
 
@@ -196,6 +231,31 @@ impl Baseline {
 mod tests {
     use super::*;
 
+    struct TempRoot(std::path::PathBuf);
+
+    impl TempRoot {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "gcs-mimic-lint-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            fs::create_dir_all(path.join("xtask")).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            if let Err(error) = fs::remove_dir_all(&self.0) {
+                eprintln!("lint test directory cleanup failed: {error}");
+            }
+        }
+    }
+
     fn finding(line: usize) -> Finding {
         Finding::new("clippy::indexing_slicing", "src/example.rs", line)
     }
@@ -230,15 +290,8 @@ mod tests {
 
     #[test]
     fn shared_and_target_files_are_isolated_and_each_rejects_growth_and_staleness() {
-        let root = std::env::temp_dir().join(format!(
-            "gcs-mimic-lint-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(root.join("xtask")).unwrap();
+        let directory = TempRoot::new();
+        let root = &directory.0;
         let shared = [Finding::new("text::static_str_error", "src/shared.rs", 1)];
         fs::write(root.join(FILE), Baseline::from_findings(&shared).render()).unwrap();
         for (target, count) in [
@@ -252,7 +305,7 @@ mod tests {
             )
             .unwrap();
         }
-        let baseline = Baseline::load(&root, None).unwrap();
+        let baseline = Baseline::load(root, None).unwrap();
         assert!(baseline.check(&shared).is_empty());
         assert!(matches!(
             baseline.check(&[]).as_slice(),
@@ -263,7 +316,7 @@ mod tests {
             ("x86_64-unknown-linux-gnu", 2),
             ("x86_64-pc-windows-msvc", 3),
         ] {
-            let baseline = Baseline::load(&root, Some(target)).unwrap();
+            let baseline = Baseline::load(root, Some(target)).unwrap();
             let findings = (0..count).map(finding).collect::<Vec<_>>();
             assert!(baseline.check(&findings).is_empty());
             let stale = baseline.check(&findings[..count - 1]);
@@ -276,7 +329,23 @@ mod tests {
                 [Problem::Exceeded { .. }]
             ));
         }
-        fs::remove_dir_all(root).unwrap();
+        let missing = Baseline::load(root, Some("aarch64-unknown-linux-gnu")).unwrap();
+        assert!(missing.check(&[]).is_empty());
+        assert!(matches!(
+            missing.check(&[finding(1)]).as_slice(),
+            [Problem::Exceeded { allowed: 0, .. }]
+        ));
+    }
+
+    #[test]
+    fn newer_compilers_warn_on_decreases_but_never_allow_growth() {
+        let baseline = Baseline::from_findings(&[finding(1), finding(2)]);
+        let stale = baseline.check(&[finding(1)]);
+        assert!(stale[0].fails(StaleCounts::Reject));
+        assert!(!stale[0].fails(StaleCounts::Warn));
+        let growth = baseline.check(&[finding(1), finding(2), finding(3)]);
+        assert!(growth[0].fails(StaleCounts::Reject));
+        assert!(growth[0].fails(StaleCounts::Warn));
     }
 
     #[test]

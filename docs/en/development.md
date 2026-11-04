@@ -403,11 +403,17 @@ separated by tabs. Blank lines and `#` comments are ignored. Counts belong to
 files rather than line numbers, so moving a line does not require an update.
 Unknown rules, duplicate pairs and malformed counts fail parsing.
 
-Every gate fails both increases and stale counts: lower a count as soon as
-a finding is fixed, deleting the row at zero. Removed files are stale too.
+Every gate fails increases. The compiler pinned by `rust-toolchain.toml`
+also rejects stale Clippy counts: lower a count as soon as a finding is fixed,
+deleting the row at zero. Removed files are stale too. Other compiler releases
+and `RUSTUP_TOOLCHAIN=stable` (including its host-qualified spelling) warn on
+Clippy decreases, because their diagnostics can differ from the pin. Shared
+text counts always reject staleness. CI retains pinned and current-stable lanes.
 The host gate selects the native compiler's triple and the shared text file;
 `--target` selects only that triple's Clippy file. Target-specific `cfg` counts
 cannot hide another target's regressions or create stale host entries.
+It omits `--target` to reuse native build artifacts; run the host gate with
+Cargo's native default target, and use `--target TRIPLE` for cross builds.
 Reasoned Clippy expectations and text suppressions are excluded
 from the counts and remain subject to their existing staleness checks.
 
@@ -427,8 +433,13 @@ Repeat the target command for `x86_64-pc-windows-msvc`,
 when the target cannot build natively. Do not regenerate unchanged baselines
 to hide a new finding; review and lower individual entries when fixing them.
 
-Review increases explicitly; ordinary fixes should only lower counts. A missing
-baseline fails the gate rather than silently accepting all existing findings.
+Committed Clippy baselines cover macOS ARM64, Windows MSVC, Linux GNU x86-64
+and Linux musl x86-64. A different host still runs Clippy and the shared text
+rules: a missing target file is an empty baseline, so every ratcheted finding
+fails as new. Establish its file with `--baseline --target TRIPLE` after
+reviewing those findings; no other target's counts are substituted. The shared
+text baseline is required. Review increases explicitly; ordinary fixes should
+only lower counts.
 
 #### Reasoned suppressions
 

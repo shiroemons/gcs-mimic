@@ -92,7 +92,7 @@ fn fetch_response(url: &str, headers: &[String], include_headers: bool) -> Resul
     ))
 }
 
-fn scalar(source: &str, key: &str) -> Result<String> {
+pub(crate) fn scalar(source: &str, key: &str) -> Result<String> {
     let prefix = format!("{key} = \"");
     let values: Vec<_> = source
         .lines()

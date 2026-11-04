@@ -41,7 +41,7 @@ gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It ta
 
 ## Rust implementation guardrails
 
-Run `cargo xtask lint` (also run by `just check` and CI) before pushing; any new finding in production code fails it, and ratcheted rules must match the shared or selected-target `xtask/lint-baseline*.txt` counts. Silence a finding only with a written reason; the checks and exception syntax are in `docs/en/development.md` ("Production lint gate"). Each rule states why.
+Run `cargo xtask lint` (also run by `just check` and CI) before pushing; any new finding in production code fails it. Ratcheted rules must match the shared or selected-target `xtask/lint-baseline*.txt` counts on the pinned compiler; current-stable Clippy count decreases warn instead of failing. Silence a finding only with a written reason; the checks and exception syntax are in `docs/en/development.md` ("Production lint gate"). Each rule states why.
 
 - No `unwrap()` in production; `expect()` only for a proven invariant, under `#[expect(clippy::expect_used, reason = "...")]`. A panic reachable from a request drops the connection or crashes a task.
 - Silence lints with `#[expect(lint, reason = "...")]`, never `#[allow]`. An expectation fails once its lint stops firing, so a stale exception cannot outlive its reason.
