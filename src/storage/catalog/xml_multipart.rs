@@ -320,26 +320,33 @@ impl Catalog {
     }
 
     pub(crate) async fn abort_xml_multipart(&self, lease: Lease) -> Result<(), Error> {
+        let permit = self.admit_object_upload()?;
         let catalog = self.clone();
-        self.run(move |connection| {
-            let transaction = sql::immediate(connection).map_err(object_unavailable)?;
-            let result = (|| -> Result<(), Error> {
-                active(
-                    &transaction,
-                    &lease.upload.target,
-                    &lease.access,
-                    unix_millis(catalog.0.clock.now())?,
-                )?;
-                maintenance::retire(&transaction, &lease.upload.target.id)?;
-                objects::commit_publication(transaction)?;
-                Ok(())
-            })();
-            if let Err(error) = maintenance::drain_storage(connection, &catalog.0.backend) {
+        crate::task::spawn_supervised("xml-multipart-abort", async move {
+            let _permit = permit;
+            let operation = catalog.clone();
+            let result = catalog
+                .run(move |connection| {
+                    let transaction = sql::immediate(connection).map_err(object_unavailable)?;
+                    active(
+                        &transaction,
+                        &lease.upload.target,
+                        &lease.access,
+                        unix_millis(operation.0.clock.now())?,
+                    )?;
+                    maintenance::retire(&transaction, &lease.upload.target.id)?;
+                    objects::commit_publication(transaction)?;
+                    operation.0.maintenance_wake.notify_one();
+                    Ok(())
+                })
+                .await;
+            if let Err(error) = catalog.drain_xml_multipart().await {
                 catalog.multipart_cleanup_failed(error);
             }
             result
         })
         .await
+        .map_err(object_unavailable)?
     }
 
     fn multipart_cleanup_failed(&self, error: ObjectError) {

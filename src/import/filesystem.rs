@@ -12,7 +12,7 @@ use crate::{
             Admin, AdminError, BatchPublication, BucketDefinition, BucketName, Generation,
             GenerationCondition, ImportedIdentity, ObjectName, Origin, Publication, PublishMode,
         },
-        import_journal::{ImportBinding, ImportElement},
+        import_journal::{ImportBinding, ImportElement, ResumeError},
     },
 };
 use ring::digest::{Context, SHA256, digest};
@@ -439,7 +439,23 @@ async fn run(
     } else {
         Some(metadata_scan(options, baseline, BaselineMode::Record, diagnostics).await?)
     };
-    let catalog = Catalog::open(&options.destination).await?;
+    let catalog = if start == ImportStart::Resume {
+        Catalog::resume_import(&options.destination, source).await.map_err(|error| {
+            if matches!(error, crate::bucket::CatalogError::PreconditionFailed) {
+                ImportError::from(invalid("data-dir: destination is not the same unfinished import with matching options"))
+            } else if let Some(ResumeError::PermanentlyFailed { reason }) = crate::error::causes(&error).find_map(|cause| cause.downcast_ref::<ResumeError>()) {
+                io::Error::new(io::ErrorKind::InvalidData, ResumeError::PermanentlyFailed { reason: reason.clone() }).into()
+            } else {
+                #[cfg(not(unix))]
+                if crate::error::causes(&error).any(|cause| matches!(cause.downcast_ref::<ResumeError>(), Some(ResumeError::MissingLock))) {
+                    return io::Error::new(io::ErrorKind::InvalidData, ResumeError::MissingLock).into();
+                }
+                ImportError::from(error)
+            }
+        })?
+    } else {
+        Catalog::open(&options.destination).await?
+    };
     let result = async {
         let journal = catalog.import_journal();
         let original = journal.progress().await?;
@@ -447,7 +463,7 @@ async fn run(
             return Err(invalid("data-dir: destination is not the same unfinished import with matching options").into());
         }
         if let Some(failure) = original.as_ref().and_then(|state| state.failure.as_ref()) {
-            return Err(invalid(format!("import permanently failed: {failure}; preserve the source snapshot and restart into a new empty destination")).into());
+            return Err(io::Error::new(io::ErrorKind::InvalidData, ResumeError::PermanentlyFailed { reason: failure.clone() }).into());
         }
         let imported = async {
             let preflight = match preflight {

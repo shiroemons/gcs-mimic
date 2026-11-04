@@ -75,15 +75,19 @@ impl Catalog {
                 }).await
             }.await;
             // An error after COMMIT is ambiguous: only reclaim a file without a committed reference.
-            let backend=catalog.0.backend.clone();
-            if let Err(error)=catalog.run(move |connection| {
+            let cleanup=catalog.run(move |connection| {
                 let referenced:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)", [&id])?;
                 if !referenced {
                     sql::exec(connection, "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)", [id])?;
                 }
-                maintenance::drain_storage(connection,&backend)?;
-                Ok(())
-            }).await {catalog.multipart_cleanup_failed(error);}
+                maintenance::pending(connection)
+            }).await;
+            let cleanup = match cleanup {
+                Ok(true) => catalog.drain_xml_multipart().await.map(|_| ()),
+                Ok(false) => Ok(()),
+                Err(error) => Err(error),
+            };
+            if let Err(error) = cleanup {catalog.multipart_cleanup_failed(error);}
             drop(lease);
             result
         }).await.map_err(object_unavailable)?
@@ -119,19 +123,21 @@ impl Catalog {
                 .await?;
             if let Err(error) = catalog.assemble_xml_parts(&lease, &parts, &id, total).await {
                 let orphan = id;
-                let backend = catalog.0.backend.clone();
-                if let Err(cleanup) = catalog
+                let cleanup = catalog
                     .run(move |connection| {
                         sql::exec(
                             connection,
                             "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
                             [orphan],
                         )?;
-                        maintenance::drain_storage(connection, &backend)?;
                         Ok(())
                     })
-                    .await
-                {
+                    .await;
+                let cleanup = match cleanup {
+                    Ok(()) => catalog.drain_xml_multipart().await.map(|_| ()),
+                    Err(error) => Err(error),
+                };
+                if let Err(cleanup) = cleanup {
                     catalog.multipart_cleanup_failed(cleanup);
                 }
                 return Err(error);
@@ -170,14 +176,7 @@ impl Catalog {
                 )
                 .await;
             drop(owner);
-            let backend = catalog.0.backend.clone();
-            if let Err(error) = catalog
-                .run(move |connection| {
-                    maintenance::drain_storage(connection, &backend)?;
-                    Ok(())
-                })
-                .await
-            {
+            if let Err(error) = catalog.drain_xml_multipart().await {
                 catalog.multipart_cleanup_failed(error);
             }
             drop(lease);

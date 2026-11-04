@@ -114,6 +114,18 @@ pub(crate) enum Step {
     /// Before syncing the multipart staging directory after reclamation (Unix only, like the sync).
     #[cfg(unix)]
     MultipartReclaimSync,
+    /// After durable multipart removal, before deleting its journal rows.
+    MultipartReclaimForget,
+    /// Before restoring an active resumable upload's published file to staging.
+    ResumableRecoveryRename,
+    #[cfg(unix)]
+    ResumableRecoveryShardSync,
+    #[cfg(unix)]
+    ResumableRecoveryStagingSync,
+    ResumableRecoveryTruncate,
+    ResumableRecoverySync,
+    /// After the acknowledged resumable prefix and its staging entry are durable again.
+    ResumableRecovered,
     /// Before one write of body bytes to the staged file.
     BodyWrite,
     /// Before the flush that reports tokio's background tail write.

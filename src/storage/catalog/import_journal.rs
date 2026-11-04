@@ -8,6 +8,7 @@
 use super::{Catalog, admin::AdminError, unavailable};
 use crate::bucket::CatalogError;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use std::{error::Error, fmt};
 
 pub(crate) const MAX_PAGE: usize = 256;
 pub(super) const SCHEMA: &str = "CREATE TABLE import_journal (
@@ -58,6 +59,58 @@ pub struct ImportProgress {
 #[derive(Clone)]
 pub struct ImportJournal(Catalog);
 
+#[derive(Debug)]
+pub(crate) enum ResumeError {
+    Catalog(CatalogError),
+    PermanentlyFailed {
+        reason: String,
+    },
+    #[cfg(not(unix))]
+    MissingLock,
+}
+
+impl fmt::Display for ResumeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Catalog(error) => error.fmt(f),
+            Self::PermanentlyFailed { reason } => write!(
+                f,
+                "import permanently failed: {reason}; preserve the source snapshot and restart into a new empty destination"
+            ),
+            #[cfg(not(unix))]
+            Self::MissingLock => f.write_str("catalog.lock is missing; stop any server using the destination, restore catalog.lock and retry the same unfinished import"),
+        }
+    }
+}
+
+impl Error for ResumeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Catalog(error) => Some(error),
+            Self::PermanentlyFailed { .. } => None,
+            #[cfg(not(unix))]
+            Self::MissingLock => None,
+        }
+    }
+}
+
+impl From<CatalogError> for ResumeError {
+    fn from(error: CatalogError) -> Self {
+        Self::Catalog(error)
+    }
+}
+
+impl From<ResumeError> for CatalogError {
+    fn from(error: ResumeError) -> Self {
+        match error {
+            ResumeError::Catalog(error) => error,
+            rejection => CatalogError::Unavailable(
+                crate::storage::failure::BackendCause::from_error(rejection),
+            ),
+        }
+    }
+}
+
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     super::sql::validate(connection,
         "SELECT (SELECT count(*) FROM import_journal) <= 1
@@ -76,6 +129,25 @@ fn progress(connection: &Connection) -> Result<Option<ImportProgress>, CatalogEr
             failure: row.get(5)?,
         }),
     ).optional().map_err(unavailable)
+}
+
+pub(super) fn verify_resume(
+    connection: &Connection,
+    version: i64,
+    source: [u8; 32],
+) -> Result<(), ResumeError> {
+    if version < 16 || !connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM import_journal WHERE singleton=1 AND active=1 AND source=?1)",
+        [source], |row| row.get::<_, bool>(0),
+    ).map_err(unavailable)? {
+        return Err(CatalogError::PreconditionFailed.into());
+    }
+    if version >= 18
+        && let Some(failure) = progress(connection)?.and_then(|state| state.failure)
+    {
+        return Err(ResumeError::PermanentlyFailed { reason: failure });
+    }
+    Ok(())
 }
 
 pub(super) fn matching(
