@@ -217,7 +217,9 @@ pub(crate) fn decode_object_page_token(
     }
     if is_prefix {
         if query.delimiter.is_empty()
-            || name[query.prefix.len()..]
+            || name
+                .strip_prefix(&query.prefix)
+                .ok_or_else(invalid)?
                 .find(&query.delimiter)
                 .is_none_or(|index| {
                     query.prefix.len() + index + query.delimiter.len() != name.len()

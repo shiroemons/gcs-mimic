@@ -86,7 +86,7 @@ pub(crate) fn route_acl(
     };
     Some(parse_route(
         uri,
-        segments[0],
+        segments.first()?,
         kind,
         object,
         entity,

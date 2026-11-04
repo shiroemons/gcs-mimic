@@ -22,7 +22,8 @@ pub(crate) async fn read_body<B: Body + Unpin>(
     }
     let mut bytes = Vec::new();
     if let Some(length) = body.size_hint().exact() {
-        bytes.try_reserve(length as usize).map_err(|_| {
+        let length = usize::try_from(length).map_err(|_| too_large())?;
+        bytes.try_reserve(length).map_err(|_| {
             JsonError::service_unavailable("Could not allocate request body buffer")
         })?;
     }

@@ -7,7 +7,7 @@ use crate::{
     object::ObjectRecord,
 };
 use hyper::{HeaderMap, header::HeaderValue};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// The key for the addressed (or destination) object: `x-goog-encryption-*`.
 pub(crate) fn request_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, JsonError> {
@@ -21,19 +21,20 @@ pub(crate) fn source_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, Jso
 
 /// Encryption output fields for a resource. Hashes describe the stored plaintext, so Cloud
 /// Storage returns them for an encrypted object only to callers that supplied its key.
-pub(super) fn render(object: &ObjectRecord, value: &mut Value) {
+pub(super) fn render(object: &ObjectRecord, value: &mut Map<String, Value>) {
     let Some(sha256) = object.customer_key_sha256 else {
         return;
     };
-    value["customerEncryption"] = json!({
-        "encryptionAlgorithm": crate::csek::ALGORITHM,
-        "keySha256": super::base64(&sha256),
-    });
-    if let Some(map) = value.as_object_mut() {
-        // shift_remove keeps the recorded field order of the remaining fields.
-        map.shift_remove("md5Hash");
-        map.shift_remove("crc32c");
-    }
+    value.insert(
+        "customerEncryption".into(),
+        json!({
+            "encryptionAlgorithm": crate::csek::ALGORITHM,
+            "keySha256": super::base64(&sha256),
+        }),
+    );
+    // shift_remove keeps the recorded field order of the remaining fields.
+    value.shift_remove("md5Hash");
+    value.shift_remove("crc32c");
 }
 
 /// Render a resource for a caller whose `key` has already been verified against `object`.
@@ -45,9 +46,15 @@ pub(crate) fn object_resource_keyed(
 ) -> Result<Value, JsonError> {
     let mut value = super::object_resource(object, base_url, projection)?;
     if key.is_some_and(|key| object.customer_key_sha256 == Some(key.sha256())) {
-        value["crc32c"] = json!(super::base64(&object.crc32c.to_be_bytes()));
+        let value = value
+            .as_object_mut()
+            .ok_or_else(|| JsonError::service_unavailable("Object resource must be an object"))?;
+        value.insert(
+            "crc32c".into(),
+            json!(super::base64(&object.crc32c.to_be_bytes())),
+        );
         if object.has_md5() {
-            value["md5Hash"] = json!(super::base64(&object.md5));
+            value.insert("md5Hash".into(), json!(super::base64(&object.md5)));
         }
     }
     Ok(value)

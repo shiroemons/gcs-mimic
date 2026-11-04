@@ -79,13 +79,16 @@ fn content_type_with(
                 }
             }
             let end = end.ok_or_else(invalid)?;
-            (value, &tail[end + 1..])
+            (value, tail.get(end + 1..).ok_or_else(invalid)?)
         } else if quotes == ParamQuotes::DoubleOrSingle
             && let Some(inner) = tail.strip_prefix('\'')
             && let Some(end) = inner.find('\'')
-            && !token(&tail[..end + 2])
+            && !token(tail.get(..end + 2).ok_or_else(invalid)?)
         {
-            (inner[..end].to_owned(), &inner[end + 1..])
+            (
+                inner.get(..end).ok_or_else(invalid)?.to_owned(),
+                inner.get(end + 1..).ok_or_else(invalid)?,
+            )
         } else {
             let index = tail.find(';').unwrap_or(tail.len());
             let (value, tail) = tail.split_at(index);
@@ -294,7 +297,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     /// `None` once the framing is settled. Nothing is consumed, so the delimiter search of
     /// the settled framing runs over the same bytes.
     fn detect(&mut self) -> Option<usize> {
-        let pattern = &self.delimiter[1..];
+        let (_, pattern) = self.delimiter.split_first()?;
         let Some(index) = self
             .buffer
             .windows(pattern.len())
@@ -307,7 +310,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             // Keep a partial `LF--boundary` and the CR that may precede it.
             return Some(self.buffer.len().saturating_sub(self.delimiter.len()));
         };
-        let rest = &self.buffer[index + pattern.len()..];
+        let rest = self.buffer.get(index + pattern.len()..)?;
         match rest.iter().find(|b| !matches!(b, b' ' | b'\t')) {
             Some(b'\n') => {
                 self.framing = Framing::Lf;
@@ -388,12 +391,14 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     /// framing a CR before the LF stays in the line, so a CRLF line fails as a header.
     fn line_end(&self, from: usize) -> Option<(usize, usize)> {
         if self.framing == Framing::Lf {
-            self.buffer[from..]
+            self.buffer
+                .get(from..)?
                 .iter()
                 .position(|b| *b == b'\n')
                 .map(|end| (from + end, 1))
         } else {
-            self.buffer[from..]
+            self.buffer
+                .get(from..)?
                 .windows(2)
                 .position(|v| v == b"\r\n")
                 .map(|end| (from + end, 2))
@@ -500,9 +505,11 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             if line.is_empty() {
                 break;
             }
-            let index = line.iter().position(|b| *b == b':').ok_or_else(invalid)?;
-            let key = HeaderName::from_bytes(&line[..index]).map_err(|_| invalid())?;
-            let value = HeaderValue::from_bytes(&line[index + 1..]).map_err(|_| invalid())?;
+            let mut parts = line.splitn(2, |b| *b == b':');
+            let key =
+                HeaderName::from_bytes(parts.next().ok_or_else(invalid)?).map_err(|_| invalid())?;
+            let value = HeaderValue::from_bytes(parts.next().ok_or_else(invalid)?)
+                .map_err(|_| invalid())?;
             if headers.insert(key, value).is_some() {
                 return Err(invalid());
             }
