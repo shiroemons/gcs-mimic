@@ -326,7 +326,7 @@ fn windows_change_time(file: &File) -> Result<i128, FsError> {
             file.as_raw_handle(),
             FileBasicInfo,
             basic.as_mut_ptr().cast(),
-            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+            u32::try_from(std::mem::size_of::<FILE_BASIC_INFO>()).map_err(io::Error::other)?,
         )
     } == 0
     {
@@ -605,10 +605,13 @@ fn copy_read_write(src: &File, dst: &File) -> io::Result<()> {
         }
         let mut written = 0;
         while written < count {
+            let remaining = bytes
+                .get(written..count)
+                .ok_or(io::ErrorKind::InvalidData)?;
             #[cfg(unix)]
-            let result = dst.write_at(&bytes[written..count], offset + written as u64);
+            let result = dst.write_at(remaining, offset + written as u64);
             #[cfg(windows)]
-            let result = dst.seek_write(&bytes[written..count], offset + written as u64);
+            let result = dst.seek_write(remaining, offset + written as u64);
             match result {
                 Ok(0) => {
                     return Err(io::Error::new(
@@ -873,7 +876,7 @@ fn directory_path(directory: &File) -> io::Result<std::path::PathBuf> {
         GetFinalPathNameByHandleW(
             directory.as_raw_handle(),
             buffer.as_mut_ptr(),
-            buffer.len() as u32,
+            u32::try_from(buffer.len()).map_err(io::Error::other)?,
             0,
         )
     };
@@ -886,7 +889,12 @@ fn directory_path(directory: &File) -> io::Result<std::path::PathBuf> {
             "directory path exceeds limit",
         ));
     }
-    Ok(std::ffi::OsString::from_wide(&buffer[..count as usize]).into())
+    Ok(std::ffi::OsString::from_wide(
+        buffer
+            .get(..count as usize)
+            .ok_or(io::ErrorKind::InvalidData)?,
+    )
+    .into())
 }
 
 #[cfg(windows)]
@@ -1028,9 +1036,14 @@ pub(crate) fn read_source_metadata<'a>(
         let length = if result < 0 {
             classify(io::Error::last_os_error())?
         } else {
-            checked_length(result as usize)?
+            checked_length(
+                usize::try_from(result)
+                    .map_err(|error| SourceMetadataError::Io(io::Error::other(error)))?,
+            )?
         };
-        Ok(length.map(|length| &buffer.0[..length]))
+        length
+            .map(|length| buffer.0.get(..length).ok_or(SourceMetadataError::TooLarge))
+            .transpose()
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {

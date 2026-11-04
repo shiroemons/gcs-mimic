@@ -33,8 +33,7 @@ impl SeedContentType {
     pub(crate) fn for_name(self, name: &str) -> &'static str {
         if self == Self::Extension {
             let leaf = name.rsplit('/').next().unwrap_or(name);
-            if let Some(dot) = leaf.rfind('.') {
-                let extension = &leaf[dot..];
+            if let Some(extension) = leaf.rfind('.').and_then(|dot| leaf.get(dot..)) {
                 if let Some(value) = TYPES.get(extension) {
                     return value;
                 }

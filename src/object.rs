@@ -248,18 +248,18 @@ pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
     }
     let normalized = value.replace('t', "T").replace('z', "Z");
     let (seconds, nanos) = if normalized.as_bytes().get(19) == Some(&b'.') {
-        let end = normalized[20..]
+        let remainder = normalized.get(20..).ok_or_else(invalid)?;
+        let end = remainder
             .find(|c: char| !c.is_ascii_digit())
-            .map(|i| i + 20)
             .ok_or_else(invalid)?;
-        let fraction = &normalized[20..end];
+        let (fraction, zone) = remainder.split_at_checked(end).ok_or_else(invalid)?;
         if fraction.is_empty() || fraction.len() > 9 {
             return Err(invalid());
         }
-        let nanos =
-            fraction.parse::<u32>().map_err(|_| invalid())? * 10u32.pow(9 - fraction.len() as u32);
+        let nanos = fraction.parse::<u32>().map_err(|_| invalid())?
+            * 10u32.pow(9 - u32::try_from(fraction.len()).map_err(|_| invalid())?);
         (
-            format!("{}{}", &normalized[..19], &normalized[end..]),
+            format!("{}{}", normalized.get(..19).ok_or_else(invalid)?, zone),
             nanos,
         )
     } else {

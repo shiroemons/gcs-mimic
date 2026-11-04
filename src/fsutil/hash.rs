@@ -29,16 +29,22 @@ pub(crate) fn hash_exact<E: From<io::Error>>(
     let mut buffer = [0; 65_536];
     let mut offset = 0;
     while offset < size {
+        let limit = usize::try_from((size - offset).min(65_536)).map_err(io::Error::other)?;
         let count = read_at(
             file,
-            &mut buffer[..(size - offset).min(65_536) as usize],
+            buffer
+                .get_mut(..limit)
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
             offset,
         )?;
         if count == 0 {
             return Ok(HashOutcome::Short { read: offset });
         }
-        sink(&buffer[..count])?;
-        hasher.update(&buffer[..count]);
+        let chunk = buffer
+            .get(..count)
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
+        sink(chunk)?;
+        hasher.update(chunk);
         offset += count as u64;
     }
     if before != identity(file)? {

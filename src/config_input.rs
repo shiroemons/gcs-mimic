@@ -160,7 +160,7 @@ impl Inputs {
                 .split_once('=')
                 .map_or((token.as_str(), None), |(k, v)| (k, Some(v)));
             let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
-            let name = &key[hyphens..];
+            let name = key.trim_start_matches('-');
             let normalized = name.replace('-', "_");
             let native_name = command == CliCommand::Serve && normalized.parse::<Setting>().is_ok();
             let native = hyphens == 2 && native_name;
@@ -611,7 +611,7 @@ pub fn starts_with_legacy_flag(args: &[String]) -> bool {
     args.first().is_some_and(|token| {
         let key = token.split_once('=').map_or(token.as_str(), |(key, _)| key);
         let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
-        let name = &key[hyphens..];
+        let name = key.trim_start_matches('-');
         let native = hyphens == 2 && name.replace('-', "_").parse::<Setting>().is_ok();
         !native && (1..=2).contains(&hyphens) && LEGACY.iter().any(|(_, flag)| *flag == name)
     })
@@ -633,7 +633,7 @@ pub fn cli_diagnostics(args: &[String]) -> Diagnostics {
         _ => (0, CliCommand::Helper),
     };
     let mut inputs = Inputs::default();
-    inputs.cli(&args[offset..], command);
+    inputs.cli(args.get(offset..).unwrap_or_default(), command);
     inputs.diagnose_legacy();
     if args.first().is_some_and(|v| v.starts_with('-')) && inputs.diagnostics.is_err() {
         inputs.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Cli, "command",

@@ -771,14 +771,21 @@ async fn probe_response(
     let mut buffer = [0; 1024];
     loop {
         let available = buffer.len().min(16_385 - response.len());
-        let read = match stream.read(&mut buffer[..available]).await {
+        let read = match stream
+            .read(
+                buffer
+                    .get_mut(..available)
+                    .ok_or(io::ErrorKind::InvalidData)?,
+            )
+            .await
+        {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             result => result?,
         };
         if read == 0 {
             break;
         }
-        response.extend_from_slice(&buffer[..read]);
+        response.extend_from_slice(buffer.get(..read).ok_or(io::ErrorKind::InvalidData)?);
         if response.len() > 16_384 {
             return Err(io::Error::other("probe response exceeds 16 KiB"));
         }
@@ -787,7 +794,7 @@ async fn probe_response(
         .windows(4)
         .position(|v| v == b"\r\n\r\n")
         .ok_or_else(|| io::Error::other("incomplete probe response"))?;
-    let headers = std::str::from_utf8(&response[..boundary])
+    let headers = std::str::from_utf8(response.get(..boundary).ok_or(io::ErrorKind::InvalidData)?)
         .map_err(|_| io::Error::other("invalid probe headers"))?;
     let mut lines = headers.split("\r\n");
     let status = lines.next().unwrap_or_default();

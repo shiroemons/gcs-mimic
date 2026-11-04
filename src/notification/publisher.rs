@@ -139,9 +139,9 @@ impl Endpoint {
         }
         let response: serde_json::Value =
             serde_json::from_slice(&bytes).map_err(io::Error::other)?;
-        if response["messageIds"]
-            .as_array()
-            .is_none_or(|ids| ids.len() != 1 || ids[0].as_str().is_none_or(str::is_empty))
+        if response.get("messageIds")
+            .and_then(serde_json::Value::as_array)
+            .is_none_or(|ids| !matches!(ids.as_slice(), [id] if id.as_str().is_some_and(|id| !id.is_empty())))
         {
             return Err(io::Error::other(
                 "Pub/Sub publish did not acknowledge exactly one message",

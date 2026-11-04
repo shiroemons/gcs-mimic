@@ -89,6 +89,10 @@ pub(crate) struct Hashes {
     pub crc32c: u32,
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "each hex alphabet index is masked or shifted to four bits"
+)]
 pub(crate) fn encode_lower(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut text = String::with_capacity(bytes.len() * 2);

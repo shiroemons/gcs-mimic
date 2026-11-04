@@ -5,7 +5,7 @@ use super::{
     codec::{self, BucketAttrs, ObjectAttrs},
     reader,
 };
-use crate::{fsutil, hashing::encode_lower};
+use crate::{fsutil, hashing::encode_lower, storage::failure::BackendCause};
 use ring::digest::{Context, SHA256};
 use serde::Deserialize;
 use std::{
@@ -62,7 +62,7 @@ enum Membership {
     Archived,
 }
 
-fn corrupt(reason: impl Into<String>) -> ImportFailure {
+fn corrupt(reason: impl Into<BackendCause>) -> ImportFailure {
     ImportFailure::corrupt(
         "snapshot",
         reason,
@@ -115,7 +115,8 @@ impl Capture<'_> {
         if name <= self.bucket {
             return Err(corrupt("bucket rows must be unique and in lexical order"));
         }
-        codec::parse_bucket_timestamp(created).map_err(corrupt)?;
+        codec::parse_bucket_timestamp(created)
+            .map_err(|error| corrupt(BackendCause::from_error(error)))?;
         codec::acl(attributes.acl.as_deref(), crate::acl::AclKind::Bucket)?;
         self.buckets += 1;
         self.report.summary.buckets += 1;
@@ -212,14 +213,17 @@ impl Capture<'_> {
         }
         let deleted = match membership {
             Membership::Live => {
-                if !codec::is_unset_time(&attributes.deleted).map_err(corrupt)? {
+                if !codec::is_unset_time(&attributes.deleted)
+                    .map_err(|error| corrupt(BackendCause::from_error(error)))?
+                {
                     return Err(corrupt("live member carries a nonzero Deleted timestamp"));
                 }
                 None
             }
-            Membership::Archived => {
-                Some(codec::parse_timestamp(&attributes.deleted).map_err(corrupt)?)
-            }
+            Membership::Archived => Some(
+                codec::parse_timestamp(&attributes.deleted)
+                    .map_err(|error| corrupt(BackendCause::from_error(error)))?,
+            ),
         };
         let file = fsutil::open_regular_at(&self.blobs, blob.as_ref())?;
         let mut body = BodyStream::from_file(

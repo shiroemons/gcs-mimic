@@ -176,13 +176,17 @@ impl Collected {
             .filter(|index| *index < BUCKET_LIMIT);
         let root_key = RootKey::parse(&key);
         let group = (group_digest(&key), reason);
-        let priority = if let Some(index) = entry {
-            let first = !self.entry_seen[index];
-            self.entry_seen[index] = true;
+        let priority = if let Some((seen, retained)) = entry.and_then(|index| {
+            self.entry_seen
+                .get_mut(index)
+                .zip(self.entry_retained.get(index))
+        }) {
+            let first = !*seen;
+            *seen = true;
             if first {
                 *self.first_reasons.entry(reason.label()).or_default() += 1;
             }
-            if self.entry_retained[index] {
+            if *retained {
                 Priority::Extra
             } else {
                 Priority::FirstKey
@@ -255,8 +259,8 @@ impl Collected {
             )
         };
         if stored {
-            if let Some(index) = entry {
-                self.entry_retained[index] = true;
+            if let Some(retained) = entry.and_then(|index| self.entry_retained.get_mut(index)) {
+                *retained = true;
             } else {
                 self.root_seen.clear();
                 self.root_unknown_seen.clear();
@@ -283,8 +287,12 @@ impl Collected {
                     *count -= 1;
                 }
             }
-            let missing =
-                std::array::from_fn(|index| self.entry_seen[index] && !self.entry_retained[index]);
+            let missing: Vec<_> = self
+                .entry_seen
+                .iter()
+                .zip(self.entry_retained)
+                .map(|(seen, retained)| *seen && !retained)
+                .collect();
             let summary = Diagnostic::new(
                 DiagnosticSource::Initializer,
                 "$",
@@ -336,17 +344,17 @@ fn retain(
             .iter()
             .enumerate()
             .filter(|(_, record)| record.priority < candidate.priority)
-            .map(|(index, record)| (record.priority, index))
+            .map(|(index, record)| (record.priority, index, record.bytes))
             .collect();
-        eligible.sort_by_key(|(priority, index)| (*priority, std::cmp::Reverse(*index)));
-        for (_, index) in eligible {
+        eligible.sort_by_key(|(priority, index, _)| (*priority, std::cmp::Reverse(*index)));
+        for (_, index, record_bytes) in eligible {
             if records.len() - removed.len() < limit.records
                 && *bytes - freed + candidate.bytes <= limit.bytes
             {
                 break;
             }
             removed.push(index);
-            freed += records[index].bytes;
+            freed += record_bytes;
         }
     }
     if records.len() - removed.len() < limit.records
@@ -392,8 +400,10 @@ fn group_digest(key: &str) -> [u8; 32] {
             normalized.push(character);
             continue;
         }
-        if character == '[' && chars.peek().is_some_and(|(_, c)| c.is_ascii_digit()) {
-            let tail = &key[offset + 1..];
+        if character == '['
+            && chars.peek().is_some_and(|(_, c)| c.is_ascii_digit())
+            && let Some(tail) = key.get(offset + 1..)
+        {
             let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
             if tail.as_bytes().get(digits) == Some(&b']') {
                 let end = offset + digits + 2;
@@ -401,7 +411,9 @@ fn group_digest(key: &str) -> [u8; 32] {
                     chars.next();
                 }
                 if offset == "buckets".len() && key.starts_with("buckets[") {
-                    normalized.push_str(&key[offset..end]);
+                    if let Some(path) = key.get(offset..end) {
+                        normalized.push_str(path);
+                    }
                 } else if end != key.len() {
                     normalized.push_str("[*]");
                 }
@@ -436,24 +448,21 @@ fn reason_counts(counts: &BTreeMap<&str, usize>) -> String {
     }
 }
 
-fn entry_ranges(seen: &[bool; BUCKET_LIMIT]) -> String {
+fn entry_ranges(seen: &[bool]) -> String {
     let mut ranges = Vec::new();
-    let mut index = 0;
-    while index < seen.len() {
-        if !seen[index] {
-            index += 1;
-            continue;
-        }
-        let first = index;
-        while index + 1 < seen.len() && seen[index + 1] {
-            index += 1;
+    let mut entries = seen.iter().enumerate().peekable();
+    while let Some((first, _)) = entries.find(|(_, seen)| **seen) {
+        let mut index = first;
+        while entries.peek().is_some_and(|(_, seen)| **seen) {
+            if let Some((next, _)) = entries.next() {
+                index = next;
+            }
         }
         if first == index {
             ranges.push(format!("buckets[{first}]"));
         } else {
             ranges.push(format!("buckets[{first}..{index}]"));
         }
-        index += 1;
     }
     if ranges.is_empty() {
         "none".into()
@@ -663,17 +672,22 @@ fn distance(left: &str, right: &str) -> usize {
     let right: Vec<_> = right.chars().collect();
     let mut row: Vec<_> = (0..=right.len()).collect();
     for (i, a) in left.chars().enumerate() {
-        let mut diagonal = row[0];
-        row[0] = i + 1;
-        for (j, b) in right.iter().enumerate() {
-            let previous = row[j + 1];
-            row[j + 1] = (diagonal + usize::from(a != *b))
-                .min(row[j] + 1)
+        let Some((first, rest)) = row.split_first_mut() else {
+            return 0;
+        };
+        let mut diagonal = *first;
+        *first = i + 1;
+        let mut left = *first;
+        for (cell, b) in rest.iter_mut().zip(&right) {
+            let previous = *cell;
+            *cell = (diagonal + usize::from(a != *b))
+                .min(left + 1)
                 .min(previous + 1);
+            left = *cell;
             diagonal = previous;
         }
     }
-    row[right.len()]
+    row.last().copied().unwrap_or(0)
 }
 
 fn unsupported(name: &str) -> bool {
@@ -794,10 +808,10 @@ fn project(
 }
 
 fn native(field: &str, value: &Value, key: &str, now: SystemTime, diagnostics: &mut Collected) {
-    let mut resource = json!({"name":"example-bucket"});
-    resource[field] = value.clone();
+    let mut resource = serde_json::Map::from_iter([("name".into(), json!("example-bucket"))]);
+    resource.insert(field.into(), value.clone());
     if parse_insert_with_profile(
-        resource.to_string().as_bytes(),
+        Value::Object(resource).to_string().as_bytes(),
         "local-project",
         now,
         CompatProfile::Native,

@@ -204,7 +204,7 @@ impl PublicKey {
         if !spki.is_empty() || bits.first() != Some(&0) {
             return Err(invalid());
         }
-        let mut bits = &bits[1..];
+        let mut bits = bits.strip_prefix(&[0]).ok_or_else(invalid)?;
         let mut rsa = element(&mut bits, 0x30).ok_or_else(invalid)?;
         let n = integer(&mut rsa).ok_or_else(invalid)?;
         let e = integer(&mut rsa).ok_or_else(invalid)?;
@@ -261,14 +261,14 @@ fn element<'a>(input: &mut &'a [u8], tag: u8) -> Option<&'a [u8]> {
         (len, 2 + count)
     };
     let value = input.get(start..start + len)?;
-    *input = &input[start + len..];
+    *input = input.get(start + len..)?;
     Some(value)
 }
 
 fn integer<'a>(input: &mut &'a [u8]) -> Option<&'a [u8]> {
     let value = element(input, 0x02)?;
     match value {
-        [0, next, ..] if next & 128 != 0 => Some(&value[1..]),
+        [0, rest @ ..] if rest.first().is_some_and(|next| next & 128 != 0) => Some(rest),
         [first, ..] if *first > 0 && first & 128 == 0 => Some(value),
         _ => None,
     }
@@ -306,7 +306,7 @@ fn canonical_with_payload(
 ) -> Result<String, Failure> {
     let names: Vec<_> = signed.split(';').collect();
     if !names.contains(&"host")
-        || names.windows(2).any(|w| w[0] >= w[1])
+        || !names.is_sorted_by(|a, b| a < b)
         || names.iter().any(|name| {
             name.is_empty()
                 || *name != name.to_ascii_lowercase()
@@ -335,13 +335,16 @@ fn canonical_with_payload(
                     .map_err(|_| Failure::Malformed)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        if values.is_empty() || (name == "host" && (values.len() != 1 || values[0].is_empty())) {
+        let Some(first) = values.first() else {
+            return Err(Failure::Mismatch);
+        };
+        if name == "host" && (values.len() != 1 || first.is_empty()) {
             return Err(Failure::Mismatch);
         }
         if name == "host"
             && uri
                 .authority()
-                .is_some_and(|authority| authority.as_str() != values[0])
+                .is_some_and(|authority| authority.as_str() != first)
         {
             return Err(Failure::Mismatch);
         }
@@ -462,8 +465,8 @@ fn unhex(raw: &str) -> Result<Vec<u8>, Failure> {
 pub fn parse_timestamp(raw: &str) -> Result<SystemTime, SigningError> {
     let invalid = || SigningError::InvalidTimestamp;
     if raw.len() != 16
-        || raw.as_bytes()[8] != b'T'
-        || raw.as_bytes()[15] != b'Z'
+        || raw.as_bytes().get(8) != Some(&b'T')
+        || raw.as_bytes().get(15) != Some(&b'Z')
         || !raw
             .bytes()
             .enumerate()
@@ -471,7 +474,12 @@ pub fn parse_timestamp(raw: &str) -> Result<SystemTime, SigningError> {
     {
         return Err(invalid());
     }
-    let n = |range: std::ops::Range<usize>| raw[range].parse::<i64>().map_err(|_| invalid());
+    let n = |range: std::ops::Range<usize>| {
+        raw.get(range)
+            .ok_or_else(invalid)?
+            .parse::<i64>()
+            .map_err(|_| invalid())
+    };
     let (year, month, day) = (n(0..4)?, n(4..6)?, n(6..8)?);
     let y = year - i64::from(month <= 2);
     let era = y.div_euclid(400);

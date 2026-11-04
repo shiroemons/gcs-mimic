@@ -295,6 +295,10 @@ pub(crate) fn encode_unreserved(raw: &str) -> String {
 }
 
 /// Append `%XX` with uppercase hex digits, shared by object paths and signed URLs.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "each hex alphabet index is masked or shifted to four bits"
+)]
 pub(crate) fn push_percent_encoded(out: &mut String, byte: u8) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     out.push('%');
