@@ -84,7 +84,10 @@ async fn reset(
         ));
     }
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-    let result = ctx.object(None, deadline).await_catalog(admin.reset()).await.map_err(|error| match error {
+    let ctx = ctx.object(None, deadline);
+    // Expiry before exclusive ownership can still confirm that reset made no changes.
+    let wait_deadline = deadline.min(tokio::time::Instant::now() + ctx.catalog_timeout());
+    let result = ctx.await_catalog(admin.reset_until(wait_deadline)).await.map_err(|error| match error {
         AdminError::Busy { .. } => JsonError::service_unavailable("Reset made no changes because catalog work or an unpublished body is active; retry after it completes"),
         AdminError::Precondition => JsonError::new(StatusCode::CONFLICT, "conflict", "Reset made no changes because an import is incomplete; complete or repair the import first"),
         _ => JsonError::service_unavailable("Reset could not confirm completion; inspect local storage and instance state before retrying"),

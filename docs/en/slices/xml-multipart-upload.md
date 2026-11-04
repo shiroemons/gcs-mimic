@@ -135,9 +135,10 @@ unowned staging through existing scans. The injected clock and existing
 next-deadline scheduler perform expiry without idle polling.
 
 Owned activity and writer leases cover staging, body transfer, completion and
-cleanup after caller cancellation. Local instance reset returns busy while those
-leases exist, journals all multipart staging IDs and clears all three tables
-when idle. An already opened ordinary immutable reader remains independent.
+cleanup after caller cancellation. Local instance reset waits up to one second
+for those leases to drain and returns busy if they remain active. When idle, it
+journals all multipart staging IDs and clears all three tables. An already
+opened ordinary immutable reader remains independent.
 
 ## Deliberate local limits
 
