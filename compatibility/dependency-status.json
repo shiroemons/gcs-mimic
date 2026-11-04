@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-11-03T13:08:40Z",
-  "scope": "The 2026-11-03 refresh adopts crc32c 0.6.9 (with a fresh notice review), actions/setup-dotnet v6.1.0, moby/buildkit v0.34.2 and the rebuilt Composer 2.11.1 and Rust 1.99.1-slim-trixie indexes, whose linux/amd64 and linux/arm64 manifests are unchanged. The 2026-11-01 refresh adopts the rebuilt distroless/cc-debian13:nonroot index, whose linux/amd64 and linux/arm64 runtime manifests both changed; no other input changes. The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All eighteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
+  "checked_at_utc": "2026-11-04T10:26:17Z",
+  "scope": "The 2026-11-04 refresh adopts the rebuilt rust:1.99.1-slim-trixie index, whose linux/amd64 and linux/arm64 manifests both changed while Rust and the Debian snapshot stay the same, and google-auth-library 11.3.3 in the Node.js suite and the transitive scorecard and Testcontainers locks. activestorage and railties 8.1.4.1 are deferred under the open rails-8-1-4-1-gcs-direct-upload-content-length-range exception. The 2026-11-03 refresh adopts crc32c 0.6.9 (with a fresh notice review), actions/setup-dotnet v6.1.0, moby/buildkit v0.34.2 and the rebuilt Composer 2.11.1 and Rust 1.99.1-slim-trixie indexes, whose linux/amd64 and linux/arm64 manifests are unchanged. The 2026-11-01 refresh adopts the rebuilt distroless/cc-debian13:nonroot index, whose linux/amd64 and linux/arm64 runtime manifests both changed; no other input changes. The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All eighteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
-    "exit_code": 0,
-    "result": "CURRENT",
+    "exit_code": 1,
+    "result": "UPDATE_AVAILABLE",
     "artifact": "docs/en/evidence/dependency-refresh.md",
-    "follow_up": "After the 2026-11-03 adoptions the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-03. Earlier: after the distroless adoption the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE and Composer latest reports the riscv64-only INFO line. Both container platforms were rebuilt and smoke-tested. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01-distroless. Earlier: the 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. The latest index differs only by a linux/riscv64 entry, so the pin is CURRENT on the declared amd64 and arm64 platforms and the riscv64 difference is reported as INFO. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01."
+    "follow_up": "After the 2026-11-04 adoptions the full check exited 1 with 116 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE and only activestorage and railties report UPDATE_AVAILABLE 8.1.4 -> 8.1.4.1, deferred under the open rails-8-1-4-1-gcs-direct-upload-content-length-range exception. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-04. Earlier: after the 2026-11-03 adoptions the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-03. Earlier: after the distroless adoption the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE and Composer latest reports the riscv64-only INFO line. Both container platforms were rebuilt and smoke-tested. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01-distroless. Earlier: the 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. The latest index differs only by a linux/riscv64 entry, so the pin is CURRENT on the declared amd64 and arm64 platforms and the riscv64 difference is reported as INFO. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01."
   },
   "toolchain": {
     "channel": "stable",
@@ -578,5 +578,18 @@
       "source_url": "https://api.github.com/repos/Swatinem/rust-cache/git/ref/tags/v2.9.3"
     }
   ],
-  "exceptions": []
+  "exceptions": [
+    {
+      "id": "rails-8-1-4-1-gcs-direct-upload-content-length-range",
+      "package": "rubygems activestorage and railties (sdk-tests/ruby/active_storage/Gemfile)",
+      "current": "8.1.4",
+      "latest": "8.1.4.1",
+      "upstream_reference": "https://github.com/rails/rails/releases/tag/v8.1.4.1 (GHSA-hfr4-8rjc-97m2: GCS direct uploads sign and send x-goog-content-length-range; GHSA-3w93-6hmw-whh4: GCS direct uploads always sign with V2)",
+      "evidence": "On 2026-11-04 cargo xtask dependencies check reports activestorage and railties UPDATE_AVAILABLE 8.1.4 -> 8.1.4.1 and exits 1. With the suite locked to 8.1.4.1, just check-active-storage reports AS-DIRECT-UPLOAD, AS-EMULATOR-DIRECT-UPLOAD, AS-EMULATOR-DIRECT-UPLOAD-CORS and AS-EMULATOR-V4-DIRECT-UPLOAD as FAIL (scenario 1 PASS, 5 PASS_WITH_WORKAROUND, 2 FAIL; storage.yml recipe 7 PASS, 3 FAIL); the same server with 8.1.4 reports 1 PASS, 6 PASS_WITH_WORKAROUND, 1 known FAIL and 10 PASS, 0 FAIL. The direct PUT fails with 400 InvalidArgument because the XML API rejects x-goog-content-length-range as unsupported. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-04.",
+      "impact": "Not an upstream regression: Rails 8.1.4.1 is a security release, and Rails applications that adopt it cannot direct-upload to gcs-mimic until the XML API enforces x-goog-content-length-range on signed PUTs and the CORS preflight allows it. The suite stays on 8.1.4, so its results describe Rails 8.1.4 only, and the daily check stays red.",
+      "owner": "project maintainer",
+      "next_action": "Implement x-goog-content-length-range on XML object uploads (signed header binding, 400 for a body outside the range, CORS request-header handling) as its own slice, update the suite for the content_length keyword and the V2-only direct-upload signing, then adopt activestorage and railties 8.1.4.1 together with the lockfile and remove this exception.",
+      "review_by": "2026-11-11"
+    }
+  ]
 }

@@ -300,3 +300,84 @@ crc32c 0.6.8 transitively through google-cloud-storage are unchanged.
 - The PHP suites were not rerun because the Composer amd64 and arm64 manifests
   are unchanged. The BuildKit pin is exercised only by the GHCR publication
   workflow.
+
+## Refresh: 2026-11-04
+
+A local check at `2026-11-04T10:19:23Z` reported four `UPDATE_AVAILABLE`
+inputs. Two were adopted; the Rails pair is deferred under a visible exception.
+
+| Input | Previous | Latest | Result |
+| --- | --- | --- | --- |
+| rust:1.99.1-slim-trixie | `sha256:9daf2b244ccc30523e55cafe32edf8465671ba567d0101620e5612ccb76ea1a7` | `sha256:ea0999ff67355d958b8799b6751c879a6d770076d26047dca66f6e51e77930d3` | Adopted; linux/amd64 and linux/arm64 rebuilt |
+| google-auth-library | 11.3.2 | 11.3.3 | Adopted in the Node.js suite, scorecard and Testcontainers locks |
+| activestorage | 8.1.4 | 8.1.4.1 | Deferred: `rails-8-1-4-1-gcs-direct-upload-content-length-range` |
+| railties | 8.1.4 | 8.1.4.1 | Deferred with activestorage |
+
+The rebuilt Rust index (docker-rust revision
+`f6c59bee4a6e34a154c2122895ecd7833507f705`, created 2026-11-03) has new
+platform digests `sha256:be49948243566aa0ae465ae2786c4bab8cb5597084873b01d3db50dcebc70b18`
+(linux/amd64) and `sha256:a5b16f6cc783db8240559f7d2fe38a30e3885bed801db49e5e37d6b1223b68bf`
+(linux/arm64). Both images still report `rustc 1.99.1 (58cf8f9c3 2026-10-13)`
+and the Debian snapshot `20261027T000000Z` in
+`/etc/apt/sources.list.d/debian.sources`, so the socat snapshot timestamp in
+`sdk-scorecard/install-socat.sh` is unchanged. The Dockerfile,
+`sdk-scorecard/run.sh` and `sdk-scorecard/test-tls.sh` pin the new index.
+
+google-auth-library 11.3.3 (published 2026-11-03, Apache-2.0, 784,370 bytes
+unpacked, Node.js >=22) replaces 11.3.2 as the suite's exact direct pin. The
+scorecard and Testcontainers locks resolve it transitively through
+`@google-cloud/storage`; each lock changes only this package's version,
+tarball and integrity, and the suite and scorecard locks still resolve the
+same package set.
+
+### Rails 8.1.4.1 is deferred
+
+Rails 8.1.4.1 is a security release. Two of its Active Storage changes alter
+the GCS direct-upload contract
+([release notes](https://github.com/rails/rails/releases/tag/v8.1.4.1)):
+
+- GHSA-hfr4-8rjc-97m2: `url_for_direct_upload` and `headers_for_direct_upload`
+  require `content_length:` and sign and send
+  `x-goog-content-length-range: <size>,<size>`.
+- GHSA-3w93-6hmw-whh4: direct-upload URLs are always signed with V2, including
+  when `cache_control` is set.
+
+With the suite's lockfile resolved to 8.1.4.1 (the lock also moved
+nokogiri 1.19.4 to 1.19.7, loofah 2.25.2 to 2.25.3 and rails-html-sanitizer
+1.7.1 to 1.7.2), `just check-active-storage` exited 1:
+
+```text
+Rails 8.1.4.1; googleauth 1.17.6
+AS-DIRECT-UPLOAD: FAIL ArgumentError: missing keyword: :content_length
+Summary: 1 PASS, 5 PASS_WITH_WORKAROUND, 2 FAIL
+AS-EMULATOR-DIRECT-UPLOAD: FAIL RuntimeError: direct PUT failed: 400
+AS-EMULATOR-DIRECT-UPLOAD-CORS: FAIL RuntimeError: preflight did not allow http://localhost:3000
+AS-EMULATOR-V4-DIRECT-UPLOAD: FAIL RuntimeError: direct upload URL is not V4
+Summary: 7 PASS, 3 FAIL
+```
+
+The direct PUT returned `400 InvalidArgument`: "gcs-mimic does not support XML
+API x-goog-content-length-range". The same server binary with the committed
+8.1.4 lockfile reported `1 PASS, 6 PASS_WITH_WORKAROUND, 1 FAIL` (the known
+AS-DEFAULT-AUTH failure) and `10 PASS, 0 FAIL`. Adopting 8.1.4.1 therefore
+needs emulator support for `x-goog-content-length-range` on XML uploads and
+suite changes for the new keyword and V2-only signing, which is a feature
+slice rather than a pin update. The exception in
+[the snapshot](../../../compatibility/dependency-status.json) records the next
+action and a 2026-11-11 review date.
+
+### Validation performed on 2026-11-04
+
+- `cargo xtask dependencies check` at `2026-11-04T10:26:17Z` exited 1: 116
+  inputs were `CURRENT`, fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`, and
+  only activestorage and railties reported `UPDATE_AVAILABLE` 8.1.4 -> 8.1.4.1.
+- `just check-container linux/arm64` exited 0: the image built from the adopted
+  Rust index and passed every smoke case. linux/amd64 was not run locally; CI
+  builds and smoke-tests it.
+- `bash scripts/sdk-go.sh --with-node` exited 0 over HTTP and over HTTPS
+  (`GCS_MIMIC_SDK_SCHEME=https`), both run through
+  `scripts/with-test-tmpdir.sh`. The Node.js files reported 7, 2, 24 and 27
+  tests with 0 failures; the skips are the HTTPS-only cases over HTTP and the
+  strict-only case on the permissive server.
+- The Rails results above come from `just check-active-storage`. The strict
+  Rails recipe was not run because the suite's pins are unchanged.
