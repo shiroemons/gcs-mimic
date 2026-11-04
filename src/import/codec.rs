@@ -6,6 +6,23 @@ use serde::{
 };
 use std::{collections::BTreeMap, fmt};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TimestampError(&'static str);
+
+impl fmt::Display for TimestampError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for TimestampError {}
+
+impl From<TimestampError> for String {
+    fn from(error: TimestampError) -> Self {
+        error.0.into()
+    }
+}
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
 pub(crate) struct SourceAcl {
@@ -51,7 +68,8 @@ pub(super) fn retention(
     attrs: &ObjectAttrs,
 ) -> Result<Option<crate::object::retention::ObjectRetention>, std::io::Error> {
     let invalid = |reason| std::io::Error::new(std::io::ErrorKind::InvalidData, reason);
-    let unset = is_unset_time(&attrs.retention_retain_until).map_err(invalid)?;
+    let unset = is_unset_time(&attrs.retention_retain_until)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
     if attrs.retention_mode.is_empty() && unset {
         return Ok(None);
     }
@@ -63,7 +81,8 @@ pub(super) fn retention(
         ));
     }
     // Nanosecond precision, like the JSON adapter: retention times compare exactly.
-    let retain_until = parse_retention_timestamp(&attrs.retention_retain_until).map_err(invalid)?;
+    let retain_until = parse_retention_timestamp(&attrs.retention_retain_until)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
     Ok(Some(crate::object::retention::ObjectRetention {
         mode,
         retain_until,
@@ -161,27 +180,37 @@ pub(crate) fn path_escape(name: &str) -> String {
     result
 }
 
-pub(crate) fn path_unescape(name: &str) -> Result<String, &'static str> {
+pub(crate) fn path_unescape(name: &str) -> Result<String, std::io::Error> {
     let mut result = Vec::with_capacity(name.len());
     let mut bytes = name.bytes();
     while let Some(byte) = bytes.next() {
         if byte == b'%' {
-            let high = bytes.next().and_then(|b| char::from(b).to_digit(16));
-            let low = bytes.next().and_then(|b| char::from(b).to_digit(16));
-            match (high, low) {
-                (Some(high), Some(low)) => result.push((high * 16 + low) as u8),
-                _ => {
-                    return Err(
+            match bytes
+                .next()
+                .zip(bytes.next())
+                .and_then(|(high, low)| crate::hex::byte(&[high, low]))
+            {
+                Some(byte) => result.push(byte),
+                None => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
                         "malformed bucket percent escape; restore the escaped directory name",
-                    );
+                    ));
                 }
             }
         } else {
             result.push(byte);
         }
     }
-    String::from_utf8(result)
-        .map_err(|_| "decoded bucket must be UTF-8; restore the original snapshot")
+    String::from_utf8(result).map_err(|error| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            crate::storage::failure::BackendCause::with_source(
+                "decoded bucket must be UTF-8; restore the original snapshot",
+                error,
+            ),
+        )
+    })
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -190,7 +219,7 @@ enum Precision {
     Nanos,
 }
 
-pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
+pub(crate) fn parse_timestamp(input: &str) -> Result<i64, TimestampError> {
     parse_timestamp_parts(input, Precision::Micros).map(|(micros, _)| micros)
 }
 
@@ -198,41 +227,55 @@ pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
 /// `SystemTime`, so a platform that floors to 100 ns still keeps every digit.
 pub(super) fn parse_retention_timestamp(
     input: &str,
-) -> Result<crate::object::unix_nanos::UnixNanos, &'static str> {
+) -> Result<crate::object::unix_nanos::UnixNanos, TimestampError> {
     let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)?;
-    crate::object::unix_nanos::UnixNanos::from_micros_and_remainder(micros, nanos)
-        .ok_or("retention timestamp is outside the supported range")
+    crate::object::unix_nanos::UnixNanos::from_micros_and_remainder(micros, nanos).ok_or(
+        TimestampError("retention timestamp is outside the supported range"),
+    )
 }
 
-pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTime, &'static str> {
-    let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)?;
-    let base = super::filesystem::time(micros)
-        .map_err(|_| "bucket timestamp is outside this platform's range")?;
+pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTime, std::io::Error> {
+    let invalid =
+        |reason| std::io::Error::new(std::io::ErrorKind::InvalidData, TimestampError(reason));
+    let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    let base = super::filesystem::time(micros).map_err(|error| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            crate::storage::failure::BackendCause::with_source(
+                "bucket timestamp is outside this platform's range",
+                error,
+            ),
+        )
+    })?;
     let remainder = std::time::Duration::from_nanos(u64::from(nanos));
     let time = base
         .checked_add(remainder)
-        .ok_or("bucket timestamp is outside this platform's range")?;
+        .ok_or_else(|| invalid("bucket timestamp is outside this platform's range"))?;
     // Windows keeps 100 ns intervals, so sub-interval digits would be dropped silently;
     // reject them like other unrepresentable source precision.
     if time.duration_since(base).ok() != Some(remainder) {
-        return Err("bucket timestamp is finer than this platform's clock resolution");
+        return Err(invalid(
+            "bucket timestamp is finer than this platform's clock resolution",
+        ));
     }
     Ok(time)
 }
 
-fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32), &'static str> {
-    let invalid = "invalid source timestamp; supply a complete RFC3339 source timestamp";
+fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32), TimestampError> {
+    let invalid =
+        TimestampError("invalid source timestamp; supply a complete RFC3339 source timestamp");
     let bytes = input.as_bytes();
     if bytes.len() < 20
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
-        || bytes[10] != b'T'
-        || bytes[13] != b':'
-        || bytes[16] != b':'
+        || bytes.get(4) != Some(&b'-')
+        || bytes.get(7) != Some(&b'-')
+        || bytes.get(10) != Some(&b'T')
+        || bytes.get(13) != Some(&b':')
+        || bytes.get(16) != Some(&b':')
     {
         return Err(invalid);
     }
-    let number = |start, end| -> Result<i64, &'static str> {
+    let number = |start, end| -> Result<i64, TimestampError> {
         bytes
             .get(start..end)
             .ok_or(invalid)?
@@ -264,21 +307,21 @@ fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32)
     if bytes.get(index) == Some(&b'.') {
         index += 1;
         let start = index;
-        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
-            let digit = i64::from(bytes[index] - b'0');
+        while let Some(&byte) = bytes.get(index).filter(|byte| byte.is_ascii_digit()) {
+            let digit = byte - b'0';
             if index - start < 6 {
-                micros = micros * 10 + digit;
+                micros = micros * 10 + i64::from(digit);
             } else if index - start < 9 && precision == Precision::Nanos {
-                nanos = nanos * 10 + digit as u32;
+                nanos = nanos * 10 + u32::from(digit);
             } else if digit != 0 {
                 if precision == Precision::Nanos {
-                    return Err(
+                    return Err(TimestampError(
                         "nonzero sub-nanosecond timestamp digits; retain the exact source timestamp without truncation",
-                    );
+                    ));
                 }
-                return Err(
+                return Err(TimestampError(
                     "nonzero sub-microsecond timestamp digits; use an exact-microsecond snapshot, without truncation",
-                );
+                ));
             }
             index += 1;
         }
@@ -295,13 +338,13 @@ fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32)
     let zone = bytes.get(index..).ok_or(invalid)?;
     let offset = if zone == b"Z" {
         0
-    } else if zone.len() == 6 && matches!(zone[0], b'+' | b'-') && zone[3] == b':' {
+    } else if let [sign @ (b'+' | b'-'), _, _, b':', _, _] = zone {
         let zh = number(index + 1, index + 3)?;
         let zm = number(index + 4, index + 6)?;
         if zh > 23 || zm > 59 {
             return Err(invalid);
         }
-        (zh * 3600 + zm * 60) * if zone[0] == b'-' { -1 } else { 1 }
+        (zh * 3600 + zm * 60) * if *sign == b'-' { -1 } else { 1 }
     } else {
         return Err(invalid);
     };
@@ -317,14 +360,14 @@ fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32)
         * 1_000_000
         + micros;
     if !crate::clock::rfc3339_micros(i128::from(micros)) {
-        return Err(
+        return Err(TimestampError(
             "timestamp is outside the supported RFC3339 UTC range after timezone normalization",
-        );
+        ));
     }
     Ok((micros, nanos))
 }
 
-pub(crate) fn is_unset_time(input: &str) -> Result<bool, &'static str> {
+pub(crate) fn is_unset_time(input: &str) -> Result<bool, TimestampError> {
     Ok(input.is_empty() || parse_timestamp(input)? == -62_135_596_800_000_000)
 }
 
@@ -491,12 +534,12 @@ mod tests {
     proptest! {
         #[test]
         fn escaped_names_round_trip(name in any::<String>()) {
-            prop_assert_eq!(path_unescape(&path_escape(&name)), Ok(name));
+            prop_assert_eq!(path_unescape(&path_escape(&name)).unwrap(), name);
         }
         #[test]
         fn valid_bucket_names_round_trip(name in "[a-z][a-z0-9-]{1,60}[a-z0-9]") {
             prop_assert!(crate::json::validate_bucket_name(&name).is_ok());
-            prop_assert_eq!(path_unescape(&path_escape(&name)), Ok(name));
+            prop_assert_eq!(path_unescape(&path_escape(&name)).unwrap(), name);
         }
         #[test]
         fn arbitrary_times_never_panic(input in any::<String>()) { let _ = parse_timestamp(&input); }
@@ -521,6 +564,41 @@ mod tests {
             assert!(parse_timestamp(input).is_err(), "{input}");
         }
         assert_eq!(path_escape("a/b;c,d?%+"), "a%2Fb%3Bc%2Cd%3F%25+");
-        assert!(path_unescape("%ff").is_err());
+    }
+
+    #[test]
+    fn decoding_errors_keep_diagnostics_and_causes() {
+        let error = path_unescape("%ff").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(
+            error.to_string(),
+            "decoded bucket must be UTF-8; restore the original snapshot"
+        );
+        assert!(
+            error
+                .get_ref()
+                .unwrap()
+                .source()
+                .unwrap()
+                .is::<std::string::FromUtf8Error>()
+        );
+        let error = path_unescape("%f").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(
+            error.to_string(),
+            "malformed bucket percent escape; restore the escaped directory name"
+        );
+        let error = super::super::reader::ImportFailure::corrupt(
+            "timestamp",
+            crate::storage::failure::BackendCause::from_error(
+                parse_timestamp("invalid").unwrap_err(),
+            ),
+            "Restore a valid timestamp.",
+        );
+        assert!(
+            std::error::Error::source(&error)
+                .unwrap()
+                .is::<TimestampError>()
+        );
     }
 }

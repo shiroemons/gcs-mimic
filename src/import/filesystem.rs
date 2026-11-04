@@ -236,7 +236,9 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Impo
                     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
             ),
             custom_time: Some(
-                if codec::is_unset_time(&attrs.custom_time).map_err(invalid)? {
+                if codec::is_unset_time(&attrs.custom_time)
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+                {
                     None
                 } else {
                     Some(attrs.custom_time.clone())
@@ -649,19 +651,24 @@ async fn publish(
             enable_object_retention,
             ..
         } => {
-            let mut input = serde_json::json!({"name":name,"defaultEventBasedHold":attributes.default_event_based_hold});
+            let mut input = serde_json::Map::from_iter([
+                ("name".into(), serde_json::json!(name)),
+                (
+                    "defaultEventBasedHold".into(),
+                    serde_json::json!(attributes.default_event_based_hold),
+                ),
+            ]);
             if let Some(enabled) = attributes.versioning_enabled {
-                input["versioning"] = serde_json::json!({"enabled":enabled});
+                input.insert("versioning".into(), serde_json::json!({"enabled":enabled}));
             }
-            let input = input.to_string();
+            let input = serde_json::Value::Object(input).to_string();
             let mut bucket =
                 crate::json::parse_insert(input.as_bytes(), "local-project", SystemTime::now())
                     .map_err(|error| invalid(error.message))?;
             let created = created_timestamp
                 .as_deref()
                 .map(codec::parse_bucket_timestamp)
-                .transpose()
-                .map_err(invalid)?;
+                .transpose()?;
             if let Some(created) = created {
                 bucket.time_created = created;
                 bucket.updated = created;
@@ -756,8 +763,7 @@ async fn verify_committed(
             let created = created_timestamp
                 .as_deref()
                 .map(codec::parse_bucket_timestamp)
-                .transpose()
-                .map_err(invalid)?;
+                .transpose()?;
             if target.default_event_based_hold != attributes.default_event_based_hold
                 || target.project != "local-project"
                 || target.versioning_enabled != attributes.versioning_enabled.unwrap_or_default()

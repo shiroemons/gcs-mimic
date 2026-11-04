@@ -8,6 +8,7 @@ use crate::{
     fsutil::{SOURCE_METADATA_CAP, SourceMetadataBuffer, SourceMetadataError},
     hashing::{Hasher, Hashes},
     source_tree::{self, WalkError, Walker},
+    storage::failure::BackendCause,
 };
 use serde::Serialize;
 use std::{
@@ -44,7 +45,7 @@ pub enum ImportFailure {
     Json(serde_json::Error),
     Corrupt {
         field: &'static str,
-        reason: String,
+        reason: BackendCause,
         fix: Cow<'static, str>,
     },
     ReportClosed,
@@ -52,7 +53,7 @@ pub enum ImportFailure {
 impl ImportFailure {
     pub(super) fn corrupt(
         field: &'static str,
-        reason: impl Into<String>,
+        reason: impl Into<BackendCause>,
         fix: impl Into<Cow<'static, str>>,
     ) -> Self {
         Self::Corrupt {
@@ -71,7 +72,7 @@ impl fmt::Display for ImportFailure {
             Self::SourceChanged { fields } => write!(f, "source_changed: {fields:?}"),
             Self::Io(error) => write!(f, "source I/O failure ({:?})", error.kind()),
             Self::Json(error) => write!(f, "invalid source snapshot JSON: {error}"),
-            Self::Corrupt { reason, .. } => f.write_str(reason),
+            Self::Corrupt { reason, .. } => reason.fmt(f),
             Self::ReportClosed => f.write_str("report output closed"),
         }
     }
@@ -81,6 +82,7 @@ impl std::error::Error for ImportFailure {
         match self {
             Self::Io(error) => Some(error),
             Self::Json(error) => Some(error),
+            Self::Corrupt { reason, .. } => reason.source(),
             _ => None,
         }
     }
@@ -257,12 +259,18 @@ impl BodyStream {
         &mut self,
         buffer: &'a mut [u8; 65_536],
     ) -> Result<&'a [u8], ImportFailure> {
-        let limit = self
-            .max_bytes
-            .saturating_sub(self.read)
-            .saturating_add(1)
-            .min(buffer.len() as u64) as usize;
-        let length = self.file.read(&mut buffer[..limit])?;
+        let limit = usize::try_from(
+            self.max_bytes
+                .saturating_sub(self.read)
+                .saturating_add(1)
+                .min(buffer.len() as u64),
+        )
+        .map_err(io::Error::other)?;
+        let length = self.file.read(
+            buffer
+                .get_mut(..limit)
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
+        )?;
         self.read = self.read.checked_add(length as u64).ok_or_else(|| {
             ImportFailure::corrupt(
                 "Size",
@@ -275,7 +283,9 @@ impl BodyStream {
                 fields: vec![ChangedField::Size],
             });
         }
-        Ok(&buffer[..length])
+        Ok(buffer
+            .get(..length)
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?)
     }
     pub fn check_unchanged(&self) -> Result<(), ImportFailure> {
         let mut changed = Vec::new();
@@ -326,7 +336,7 @@ fn compare_json_file(path: &Path, expected: &[u8]) -> Result<(), ImportFailure> 
         if count == 0 {
             break;
         }
-        if expected.get(offset..offset + count) != Some(&buffer[..count]) {
+        if expected.get(offset..offset + count) != buffer.get(..count) {
             return Err(ImportFailure::SourceChanged {
                 fields: vec![ChangedField::Metadata],
             });
@@ -608,21 +618,18 @@ pub(super) fn check_object_fields(
             report,
             relative,
             ObjectField::CustomTime,
-            reason,
+            &reason.to_string(),
             attrs.custom_time.clone(),
         )?;
     }
     let mut times = [0; 2];
-    for (index, (field, value)) in [
+    for (slot, (field, value)) in times.iter_mut().zip([
         (ObjectField::Created, &attrs.created),
         (ObjectField::Updated, &attrs.updated),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    ]) {
         match codec::parse_timestamp(value) {
-            Ok(time) => times[index] = time,
-            Err(reason) => reject(report, relative, field, reason, value.clone())?,
+            Ok(time) => *slot = time,
+            Err(reason) => reject(report, relative, field, &reason.to_string(), value.clone())?,
         }
     }
     let md5 = crate::json::decode_hash::<16>(&attrs.md5_hash).ok();
@@ -670,7 +677,7 @@ fn check_unset_semantics(
                 "active source semantics are unsupported",
                 value.clone(),
             )?,
-            Err(reason) => reject(report, relative, field, reason, value.clone())?,
+            Err(reason) => reject(report, relative, field, &reason.to_string(), value.clone())?,
         }
     }
     if !attrs.retention_mode.is_empty() {
@@ -758,7 +765,7 @@ fn object(
     }
     let mut body = BodyStream::open(path, options.max_object_bytes)?;
     let bytes = metadata_bytes(&body, options, metadata_buffer, report, relative, xattr)?;
-    let attrs: ObjectAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("ObjectAttrs", format!("invalid object metadata JSON: {e}"), "Restore valid ObjectAttrs JSON with exact known field names, unique keys and the pinned field types."))?;
+    let attrs: ObjectAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("ObjectAttrs", BackendCause::with_source(format!("invalid object metadata JSON: {e}"), e), "Restore valid ObjectAttrs JSON with exact known field names, unique keys and the pinned field types."))?;
     let errors_before = report.summary.blocking_findings;
     let checks = check_object_fields(report, relative, &attrs)?;
     check_unset_semantics(report, relative, &attrs)?;
@@ -1073,7 +1080,7 @@ impl Scan<'_> {
                 fields: vec![ChangedField::Metadata],
             });
         }
-        let name = codec::path_unescape(leaf).map_err(|e| ImportFailure::corrupt("name", e, "Restore a valid Go PathEscape bucket directory component from the source snapshot."))?;
+        let name = codec::path_unescape(leaf).map_err(|e| ImportFailure::corrupt("name", BackendCause::from_error(e), "Restore a valid Go PathEscape bucket directory component from the source snapshot."))?;
         crate::json::validate_bucket_name(&name).map_err(|_| ImportFailure::corrupt("name", "invalid decoded bucket name", "Use a valid bucket name (3–63 characters for ordinary names, starting/ending with a letter or digit); restore its escaped directory component."))?;
         if self.buckets.get(leaf) == Some(&BucketState::Duplicate) {
             return Err(ImportFailure::corrupt(
@@ -1088,7 +1095,7 @@ impl Scan<'_> {
             Err(e) if e.kind() == io::ErrorKind::NotFound => b"{}".to_vec(),
             Err(e) => return Err(e.into()),
         };
-        let attrs: BucketAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("BucketAttrs", format!("invalid bucket metadata JSON: {e}"), "Restore known, unique BucketAttrs fields with the pinned JSON types; an absent sidecar alone means defaults."))?;
+        let attrs: BucketAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("BucketAttrs", BackendCause::with_source(format!("invalid bucket metadata JSON: {e}"), e), "Restore known, unique BucketAttrs fields with the pinned JSON types; an absent sidecar alone means defaults."))?;
         let before = report.summary.blocking_findings;
         if attrs.versioning_enabled == Some(true) {
             report.finding(relative, "VersioningEnabled", "unsupported persisted bucket semantics", "The pinned filesystem backend cannot store history; provide a complete memory export for versioned buckets.", Severity::Blocking, None)?;
