@@ -251,10 +251,16 @@ impl Catalog {
             let blob_id = lease.session.blob_id;
             let offset = lease.session.offset;
             self.run_upload(move |connection| {
-                super::resumable_recovery::recover_prefix(connection, &data_dir, &blob_id, offset)
+                super::resumable_recovery::check_unreferenced(connection, &blob_id)
                     .map_err(object_unavailable)
             })
             .await?;
+            crate::task::run_blocking("resumable-recovery", move || {
+                super::resumable_recovery::recover_file_prefix(&data_dir, &blob_id, offset)
+            })
+            .await
+            .map_err(object_unavailable)?
+            .map_err(object_unavailable)?;
         } else {
             self.invalidate_resumable_session(lease).await?;
         }

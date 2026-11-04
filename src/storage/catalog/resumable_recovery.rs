@@ -26,15 +26,32 @@ pub(super) fn recover_prefix(
     blob_id: &BlobId,
     offset: u64,
 ) -> Result<(), CatalogError> {
-    let stage = blob_id.staging_path(data_dir);
-    let blob = blob_id.blob_path(data_dir);
-    // Also runs after a failed resumable finalization request, so the statement is cached.
+    check_unreferenced(connection, blob_id)?;
+    recover_file_prefix(data_dir, blob_id, offset)
+}
+
+pub(super) fn check_unreferenced(
+    connection: &Connection,
+    blob_id: &BlobId,
+) -> Result<(), CatalogError> {
     let live: bool = super::objects::blob_referenced(connection, blob_id)?;
     if live {
         return Err(unavailable(format!(
             "active upload blob {blob_id} is already published"
         )));
     }
+    Ok(())
+}
+
+pub(super) fn recover_file_prefix(
+    data_dir: &Path,
+    blob_id: &BlobId,
+    offset: u64,
+) -> Result<(), CatalogError> {
+    #[cfg(test)]
+    super::fault::record_catalog_thread_io(data_dir);
+    let stage = blob_id.staging_path(data_dir);
+    let blob = blob_id.blob_path(data_dir);
     let staged = match fs::symlink_metadata(&stage) {
         Ok(metadata) => Some(metadata),
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
@@ -55,11 +72,22 @@ pub(super) fn recover_prefix(
         })?;
         validate_prefix(&metadata, blob_id, offset)?;
         // An ACTIVE row resolves a rename-before-commit crash; COMPLETE rows never enter here.
+        #[cfg(test)]
+        super::fault::hit(data_dir, super::fault::Step::ResumableRecoveryRename)
+            .map_err(unavailable)?;
         fs::rename(&blob, &stage)?;
+        #[cfg(all(test, unix))]
+        super::fault::renamed(&blob, &stage);
         #[cfg(unix)]
         {
             let shard = super::objects::blob_shard(&blob)?;
+            #[cfg(test)]
+            super::fault::hit(data_dir, super::fault::Step::ResumableRecoveryShardSync)
+                .map_err(unavailable)?;
             super::objects::sync_dir(shard)?;
+            #[cfg(test)]
+            super::fault::hit(data_dir, super::fault::Step::ResumableRecoveryStagingSync)
+                .map_err(unavailable)?;
             super::objects::sync_dir(&data_dir.join("staging"))?;
         }
         metadata
@@ -67,11 +95,21 @@ pub(super) fn recover_prefix(
     validate_prefix(&metadata, blob_id, offset)?;
     if metadata.len() > offset {
         let file = fs::OpenOptions::new().write(true).open(&stage)?;
+        #[cfg(test)]
+        super::fault::hit(data_dir, super::fault::Step::ResumableRecoveryTruncate)
+            .map_err(unavailable)?;
         file.set_len(offset)?;
         #[cfg(test)]
         super::fault::truncated(data_dir, &file.metadata()?);
+        #[cfg(test)]
+        super::fault::hit(data_dir, super::fault::Step::ResumableRecoverySync)
+            .map_err(unavailable)?;
         file.sync_all()?;
+        #[cfg(all(test, unix))]
+        super::fault::file_synced(data_dir, &file.metadata()?);
     }
+    #[cfg(test)]
+    super::fault::hit(data_dir, super::fault::Step::ResumableRecovered).map_err(unavailable)?;
     Ok(())
 }
 
