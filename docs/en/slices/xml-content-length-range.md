@@ -100,10 +100,30 @@ Run on 2026-11-04 with Rust 1.99.1, Ruby 4.0.9 and Bundler 4.0.23:
   (the explicit `EmulatorGcs` V4 adapter signs the range, and a changed range
   breaks the signature) and `3 PASS, 0 FAIL`.
 
+### Browser check
+
+A one-file Rails 8.1.4.1 app outside the repository (Puma 8.0.2, the
+documented permissive `gcs_emulator` entry and a `buckets.json` CORS rule
+allowing `x-goog-content-length-range`) was checked in Chrome on 2026-11-04
+against an emulator built from this change. Ports 13000 and 14443 were used
+because 3000 and 4443 were taken. The page loaded the gem's
+`activestorage.esm.js` and called `ActiveStorage.start()`; the PNG was created
+in the page and assigned to the file input, because the automation cannot
+drive the native file picker. The Upload button was clicked normally.
+
+| Request from Chrome | Result |
+| --- | --- |
+| `POST /rails/active_storage/direct_uploads` | 200; a V2 URL with `x-goog-content-length-range: N,N` in the headers |
+| CORS preflight to the emulator | 200 |
+| Signed `PUT` to the emulator | 200; the blob was attached and the image loaded through the redirect |
+| The same URL signed for 5 bytes, a 6-byte body | 400 `EntityTooLarge`, readable by the page through CORS |
+| The same URL, a 4-byte body | 400 `EntityTooSmall` |
+| The same URL, a 5-byte body | 200 |
+
 ## Limitations
 
 - XML multipart part uploads, initiation and completion reject the header
   instead of following Cloud Storage, which has not been recorded for them.
 - XML resumable initiation keeps rejecting the header.
-- Browser execution with Rails 8.1.4.1 was not run; CORS preflight and PUT are
-  exercised with Net::HTTP requests equivalent to the browser's.
+- The browser check used the permissive profile only. Strict-mode browser
+  uploads with Rails 8.1.4.1 remain unverified.
