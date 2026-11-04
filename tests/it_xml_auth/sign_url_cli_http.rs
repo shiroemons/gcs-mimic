@@ -65,7 +65,7 @@ fn signing_cli_urls_verify_through_the_live_xml_route() {
     for virtual_host in [false, true] {
         let base = if virtual_host {
             format!(
-                "http://localhost:{}",
+                "http://LOCALHOST:{}/",
                 server.address.rsplit_once(':').unwrap().1
             )
         } else {
@@ -111,6 +111,15 @@ fn signing_cli_urls_verify_through_the_live_xml_route() {
         let text = String::from_utf8(output.stdout).unwrap();
         let uri: Uri = text.trim().parse().unwrap();
         let host = uri.authority().unwrap().as_str();
+        if virtual_host {
+            assert_eq!(
+                host,
+                format!(
+                    "example-bucket.localhost:{}",
+                    server.address.rsplit_once(':').unwrap().1
+                )
+            );
+        }
         let target = uri.path_and_query().unwrap().as_str();
         let headers = "x-reviewer: jane doe,john\r\n";
         let reply = request(&server, "GET", target, host, headers, b"");
