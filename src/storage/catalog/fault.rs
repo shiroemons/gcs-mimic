@@ -46,7 +46,9 @@ mod tests;
 /// A durable step boundary on a blob write path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
+    #[cfg(unix)]
     SyncDirectorySync,
+    #[cfg(unix)]
     SyncDirectoryDurable,
     SyncMarkerWrite,
     SyncMarkerSync,
@@ -167,9 +169,12 @@ pub(crate) enum Step {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-#[expect(
-    unsafe_code,
-    reason = "test fault accounting resolves the pinned directory descriptor without changing production I/O"
+#[cfg_attr(
+    target_os = "macos",
+    expect(
+        unsafe_code,
+        reason = "test fault accounting resolves the pinned directory descriptor without changing production I/O"
+    )
 )]
 pub(crate) fn descriptor_path(file: &fs::File) -> io::Result<PathBuf> {
     use std::os::fd::AsRawFd;

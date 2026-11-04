@@ -72,10 +72,16 @@ for quiet and observation without client retries. Rescan runs after quiet or the
 ten-second quiet cap instead of returning an unperformed scan as success.
 Reaching that cap alone never completes wait; another quiet interval runs while
 its original deadline remains fixed. Queued controls survive observer recovery.
+Approval and resolution remain available while settling unless the bounded control
+queue is full; a saturated queue returns busy.
 Automatic deletion history is durable across restart and guarded rescans;
 approval, a new complete baseline, or a complete zero-candidate observation after
 established quiet resets it. Automatic and explicit scans use the same reset
-condition; a scan at the quiet cap or with remaining candidates cannot reset it.
+condition. The native queue is checked before and after the scan, and its event
+generation must remain unchanged with no pending event. A scan at the quiet cap,
+with remaining candidates, or spanning new notifications cannot reset history.
+Reset failures retain history and log their cause without discarding a successful
+wait or rescan response.
 The quiet interval has a ten-second cap, so a longer operation may have committed
 deletions below the cumulative threshold before approval becomes required.
 
@@ -89,7 +95,8 @@ bytes, with optional final newlines. Do not put this CLI-only setting in the
 server environment. The server repeats its current control authorization;
 Google bucket IAM or fixture-administrator authority does not bypass it.
 
-Requests have a default 10000 ms total network deadline, configurable from
+Rescan has a default 30000 ms total network deadline to allow for the ten-second
+quiet cap followed by scanning. Other commands default to 10000 ms, configurable from
 1 through 60000 with `--timeout-ms`, or `--timeout` with an integer `ms`/`s`
 suffix. For `wait` this value is sent as the server's
 observation budget; the client allows an additional one second to receive the

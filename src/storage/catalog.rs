@@ -957,6 +957,16 @@ fn recover_on_open(
 }
 
 impl Catalog {
+    #[cfg(test)]
+    pub(crate) fn active_uploads(&self) -> usize {
+        self.0.uploads.lock().unwrap().active
+    }
+
+    #[cfg(test)]
+    pub(crate) fn session_writers_idle(&self) -> bool {
+        self.0.session_writers.lock().unwrap().is_empty()
+    }
+
     fn activity(&self) -> Result<Activity, CatalogError> {
         self.0
             .activity

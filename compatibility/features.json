@@ -34997,6 +34997,12 @@
           ]
         },
         {
+          "id": "xml-owned-cleanup-observation",
+          "description": "Final cleanup checks join active uploads and owned cleanup before requiring empty staging/deletion journals, exact blob/object counts and unchanged object rows, generation allocator and bytes. XML process tests normally stop before the final inventory and preserve crash/restart and live-server slot reuse assertions. Derived fault tests share the inventory predicate and wait for upload and writer ownership. A DiscardProbe barrier deterministically rejects apparently empty inventories while unjournaled cleanup is still active. Scope: docs/en/slices/xml-put-object.md.",
+          "result": "PASS",
+          "test_ids": ["cleanup_waits_for_owned_work_before_its_first_journal_entry", "compose_copy_and_rewrite_failures_are_classified_and_never_publish", "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish"]
+        },
+        {
           "id": "EXT-XML-022-VERSIONING",
           "description": "Versioning-enabled overwrite retains historical generations consistently with JSON uploads, including selected old bytes after restart.",
           "result": "PASS",
@@ -35131,6 +35137,8 @@
         "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
         "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots",
         "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads",
+        "cleanup_waits_for_owned_work_before_its_first_journal_entry",
+        "compose_copy_and_rewrite_failures_are_classified_and_never_publish",
         "xml_path_style_decodes_bucket_once_and_preserves_object_names",
         "xml_v4_streaming::signed_chunks_transfer_binary_and_empty_objects_over_content_length_and_transfer_encoding",
         "xml_v4_streaming::signed_chunk_tampering_lengths_terminal_eof_and_trailers_preserve_the_complete_old_resource",
@@ -35140,6 +35148,8 @@
         "xml::put::streaming::tests::signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resource_and_restart"
       ],
       "verification": [
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- cleanup_waits_for_owned_work compose_copy_and_rewrite_failures_are_classified --test-threads=2","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-put-object.md","test_ids":["cleanup_waits_for_owned_work_before_its_first_journal_entry","compose_copy_and_rewrite_failures_are_classified_and_never_publish"]},
+        {"command":"CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_xml_auth xml_put -- --test-threads=4","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-put-object.md","test_ids":["xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish","xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts","xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["wire_parity_http::xml_object_errors_and_headers_match_the_recorded_responses","wire_parity_http::xml_range_errors_of_a_public_object_are_private","wire_parity_http::xml_delete_rejects_an_unknown_x_goog_header","wire_parity_http::xml_listing_matches_the_recorded_document"]},
         {"command":"CARGO_INCREMENTAL=0 cargo test --locked --offline --test xml_v4_hmac_http xml_v4_streaming:: -- --test-threads=1","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/xml-signed-chunked-upload.md","test_ids":["xml_v4_streaming::signed_chunks_transfer_binary_and_empty_objects_over_content_length_and_transfer_encoding","xml_v4_streaming::signed_chunk_tampering_lengths_terminal_eof_and_trailers_preserve_the_complete_old_resource","xml_v4_streaming::signed_chunks_validate_decoded_md5_and_remove_only_the_aws_encoding_token","xml_v4_streaming::signed_chunks_enforce_decoded_object_limit_and_reject_malformed_header_and_chunk_resources","xml_v4_streaming::signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwrite_and_pap_ubla"]},
         {"command":"CARGO_INCREMENTAL=0 cargo test --locked --lib -- auth::signature::streaming:: xml::put::streaming:: --test-threads=1","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/xml-signed-chunked-upload.md","test_ids":["xml::put::streaming::tests::signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resource_and_restart"]},
@@ -51222,7 +51232,13 @@
           "id": "sync-cumulative-deletion-guard",
           "description": "Schema 50 accumulates automatic deletions in the object-delete transaction and combines them with each frozen scan for the 100-object/over-half guard. Approval, a newly completed baseline or a complete zero-candidate observation after established native quiet resets history; automatic and explicit scans share this condition. A capped or incomplete scan, remaining candidates and restart cannot reset it. Native observation waits for 1 second quiet, capped at 10 seconds; wait and rescan stay in a bounded actor queue instead of returning false completion. Wait reports SourceChanging only at its original deadline if still settling. The previous per-scan-only calculation could delete a bulk operation in smaller unguarded batches. Operations longer than the quiet cap can still commit earlier automatic deletions below the cumulative threshold; the guard does not undo them. Scope: docs/en/slices/directory-synchronization.md#external-deletion-and-approval.",
           "result": "PASS",
-          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_waits_for_a_completed_scan", "quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restart", "native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart", "quiet_waits_hold_their_original_deadline_without_blocking_other_controls", "wait_during_native_quiet_reports_source_changing_only_at_its_deadline", "live_cli_wait_after_writing_observes_bytes_without_retrying"]
+          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "zero_candidate_inventory_can_clear_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_waits_for_a_completed_scan", "quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restart", "native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart", "quiet_waits_hold_their_original_deadline_without_blocking_other_controls", "wait_during_native_quiet_reports_source_changing_only_at_its_deadline", "live_cli_wait_after_writing_observes_bytes_without_retrying"]
+        },
+        {
+          "id": "sync-history-scan-continuity",
+          "description": "A complete zero-candidate reset requires established quiet and an unchanged native event generation with no pending notification at the scan's start and completion. Queued and scan-time notifications retain automatic deletion history and remain pending for observation. Failed resets preserve their error cause, completed wait/rescan replies and observer availability. Pending waits do not block an actor approval response within available queue capacity; shutdown after dequeue retains its reply. CLI rescan defaults to 30 seconds and explicit deadlines replace that default. Scope: docs/en/slices/continuous-directory-observation.md and docs/en/slices/sync-cli.md.",
+          "result": "PASS",
+          "test_ids": ["changes_during_a_scan_preserve_history_and_guard_the_next_deletion_wave", "queued_native_events_cannot_reuse_an_old_quiet_flag_for_history_reset", "history_reset_failure_keeps_its_cause_and_answers_wait_and_rescan", "explicit_rescan_requires_verified_quiet_before_clearing_history", "stopping_after_dequeue_retains_the_request_until_its_stopped_reply", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines"]
         },
         {
           "id": "sync-installed-body-durability",
@@ -51586,7 +51602,7 @@
         "wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors",
         "wait_authorization_deadline_and_cancellation_release_activity",
         "cumulative_deletions_require_approval_after_split_scans_rescan_and_restart",
-        "empty_explicit_rescan_resets_automatic_deletion_history",
+        "zero_candidate_inventory_can_clear_automatic_deletion_history",
         "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers",
         "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls",
         "native_quiet_deadline_is_capped_and_survives_cancelled_waits",
@@ -51605,6 +51621,12 @@
         "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion",
         "unavailable_casefold_flags_fall_back_to_exact_directory_names",
         "source_recheck_preserves_precondition_when_staging_cleanup_also_fails",
+        "changes_during_a_scan_preserve_history_and_guard_the_next_deletion_wave",
+        "queued_native_events_cannot_reuse_an_old_quiet_flag_for_history_reset",
+        "history_reset_failure_keeps_its_cause_and_answers_wait_and_rescan",
+        "explicit_rescan_requires_verified_quiet_before_clearing_history",
+        "stopping_after_dequeue_retains_the_request_until_its_stopped_reply",
+        "rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines",
         "delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes",
         "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval",
         "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling",
@@ -51876,6 +51898,20 @@
           "test_ids": ["observation_cap_allows_rescans_but_never_releases_a_wait_as_quiet", "queued_rescan_recovers_from_pause_without_closing_its_reply", "stopping_a_quiet_queue_answers_waiters_without_losing_their_replies", "live_rescan_registers_a_protected_workspace_before_resuming_intake", "wait_during_native_quiet_reports_source_changing_only_at_its_deadline"]
         },
         {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- changes_during_a_scan queued_native_events history_reset_failure explicit_rescan_requires stopping_after_dequeue quiet_native_observation_keeps racy_exported_bytes zero_candidate_inventory --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["changes_during_a_scan_preserve_history_and_guard_the_next_deletion_wave", "queued_native_events_cannot_reuse_an_old_quiet_flag_for_history_reset", "history_reset_failure_keeps_its_cause_and_answers_wait_and_rescan", "explicit_rescan_requires_verified_quiet_before_clearing_history", "stopping_after_dequeue_retains_the_request_until_its_stopped_reply", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "racy_exported_bytes_are_verified_without_staging_again", "zero_candidate_inventory_can_clear_automatic_deletion_history"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines",
+          "result": "PASS",
+          "verified_at": "2026-11-04",
+          "artifact": "docs/en/slices/sync-cli.md",
+          "test_ids": ["rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines"]
+        },
+        {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",
           "result": "PASS",
           "verified_at": "2026-11-04",
@@ -51904,11 +51940,11 @@
           "test_ids": ["wait_during_native_quiet_reports_source_changing_only_at_its_deadline", "quiet_waits_hold_their_original_deadline_without_blocking_other_controls", "rescan_during_native_quiet_waits_for_a_completed_scan"]
         },
         {
-          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- cumulative_deletions empty_explicit_rescan automatic_deletion_history quiet_native_observation native_quiet_deadline rescan_during_native_quiet --test-threads=4",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- cumulative_deletions zero_candidate_inventory automatic_deletion_history quiet_native_observation native_quiet_deadline rescan_during_native_quiet --test-threads=4",
           "result": "PASS",
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "empty_explicit_rescan_resets_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_waits_for_a_completed_scan"]
+          "test_ids": ["cumulative_deletions_require_approval_after_split_scans_rescan_and_restart", "zero_candidate_inventory_can_clear_automatic_deletion_history", "automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers", "quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers_controls", "native_quiet_deadline_is_capped_and_survives_cancelled_waits", "rescan_during_native_quiet_waits_for_a_completed_scan"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",

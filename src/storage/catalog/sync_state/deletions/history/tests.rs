@@ -1,6 +1,16 @@
 use super::*;
 use crate::storage::catalog;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl RootLease {
+    pub(crate) async fn reject_deletion_history_reset(&self) -> Result<(), RootError> {
+        Ok(self.catalog().run_admin(|connection|{
+            connection.execute_batch("CREATE TRIGGER refuse_history_reset BEFORE UPDATE ON sync_deletion_history BEGIN SELECT RAISE(ABORT,'history reset blocked'); END;")?;
+            Ok(())
+        }).await?)
+    }
+}
+
 #[test]
 fn automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers() {
     let mut connection = Connection::open_in_memory().unwrap();

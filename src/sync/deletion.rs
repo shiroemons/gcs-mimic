@@ -70,7 +70,7 @@ pub(super) async fn absent(root: &RootLease, path: String) -> io::Result<bool> {
     .map_err(io::Error::other)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(super) async fn inventory(
     root: &RootLease,
     config: &Config,

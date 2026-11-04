@@ -73,7 +73,8 @@ releases the previous deletion snapshot.
 Native notifications also coalesce through a one-second quiet interval with a
 ten-second cap. Further events restart quiet without starving control requests;
 rescan queues until quiet or its cap, while status, approval and resolution
-remain available. A capped scan starts another quiet interval and retains waiting
+remain available. Approval and resolution return busy if the bounded control queue
+is full. A capped scan starts another quiet interval and retains waiting
 barriers; it does not establish quiet for wait or history reset. Wait reports
 SourceChanging only if its own deadline arrives
 while still settling. Schema 50 retains automatic
@@ -83,6 +84,18 @@ longer than the quiet cap, earlier deletions below the cumulative threshold may
 already have committed; approval cannot undo them. A complete zero-candidate scan
 after established quiet resets history, whether automatic or explicit. A capped,
 interrupted or incomplete scan, or one with remaining candidates, cannot reset it.
+The actor drains queued native notifications before starting and after completing
+the scan. Reset requires the same event generation at both boundaries and no
+pending notification; events read at either boundary remain queued for observation.
+Reset failures retain history and log their cause while preserving the completed
+wait or rescan response and the observer's running state.
+The scan-continuity regression pauses after a zero-candidate scan, deletes the
+remaining 60 of 120 original files, and waits for native queue readiness before
+allowing reset. It retains the first 60 automatic deletions and guards the next
+60 candidates. Removing the completion check fails deterministically with zero
+retained deletions instead of 60. Separate cases cover a queued event with a
+stale quiet flag, an unverified explicit rescan and reset failure with its cause
+and both control responses intact.
 See the
 [deletion contract](directory-synchronization.md#external-deletion-and-approval).
 
@@ -92,8 +105,11 @@ scans clear history only after a complete zero-candidate quiet observation;
 the test fails when the automatic reset is disabled. Separate tests retain
 12/88 split-deletion approval across restart, preserve history for a capped
 zero-candidate scan, and keep pending candidates from resetting history.
-The racy-clean regression counts staging calls directly and requires zero.
+The racy-clean regression counts staging calls directly and requires zero, then
+changes the body and requires one staging call as a positive control.
 The single-request HTTP/CLI tests contain no SourceChanging retry loop.
+The live-actor control test queues wait while settling and requires a stale
+approval response within 500 ms while retaining the wait's reply.
 Queued controls remain owned through observer failure and recovery. A queued
 rescan can recover retained work instead of losing its response sender when a
 background scan pauses; a retried worker reestablishes quiet for pending waits.

@@ -184,6 +184,15 @@ async fn racy_exported_bytes_are_verified_without_staging_again() {
     assert_eq!(stages.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert!(!tracked().await.unwrap().unwrap().fingerprint.racy);
     assert_eq!(fs::read_dir(data.0.join("staging")).unwrap().count(), 0);
+    fs::write(tree.0.join("test-bucket/body"), b"changed bytes").unwrap();
+    assert_eq!(
+        STAGES
+            .scope(stages.clone(), scan(&catalog, &root, &config))
+            .await
+            .ingested,
+        1
+    );
+    assert_eq!(stages.load(std::sync::atomic::Ordering::SeqCst), 1);
     drop(root);
     catalog.close().await.unwrap();
 }

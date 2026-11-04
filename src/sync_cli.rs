@@ -21,10 +21,12 @@ const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait --endpoint http(s):
        gcs-mimic sync resolve --endpoint URL --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
        gcs-mimic sync resolve --endpoint URL --recovery ID --revision REV --target-identity ID --action discard --operation-id ID --confirm-backup-verified ID
 
-Options: --ca-cert PATH, --token-file PATH, --timeout 10s (1ms..60s).
-The numeric --timeout-ms form also accepts 1..60000 (default 10000).
+Options: --ca-cert PATH, --token-file PATH, --timeout Nms|Ns (1ms..60s).
+The numeric --timeout-ms form also accepts 1..60000. Rescan defaults to 30s;
+other controls default to 10s. Explicit timeout values replace these defaults.
 For wait, N is the server's fixed-fence observation budget; the client adds one
-second to receive the result. Deadline (408) and stopped work (409) fail.
+second to receive the result. Deadline (408), stopped work (409), and
+SourceChanging (409) when still settling at the wait deadline fail.
 The endpoint must be a loopback or private-network HTTP(S) origin with an explicit port.
 Use HTTPS outside loopback to protect the token. HTTPS verifies
 the embedded development CA or the supplied CA and the endpoint hostname.
@@ -123,7 +125,11 @@ impl Options {
         } else {
             values
                 .remove("--timeout-ms")
-                .unwrap_or("10000")
+                .unwrap_or(if command == "rescan" {
+                    "30000"
+                } else {
+                    "10000"
+                })
                 .parse::<u64>()
                 .ok()
                 .filter(|n| (1..=60000).contains(n))

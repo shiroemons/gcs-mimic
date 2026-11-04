@@ -83,17 +83,38 @@ pub(crate) enum DirectoryOpen {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "descriptor-relative directory creation is unsupported on this platform"
+    )
+)]
 pub(crate) enum Created {
     Yes,
     No,
 }
 
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "descriptor-relative child lookup is unsupported on this platform"
+    )
+)]
 pub(crate) enum Child {
     Directory { file: File, created: Created },
     Alias,
     Missing,
 }
 
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "descriptor-relative regular-file lookup is unsupported on this platform"
+    )
+)]
 pub(crate) enum RegularChild {
     File(File),
     Alias,
