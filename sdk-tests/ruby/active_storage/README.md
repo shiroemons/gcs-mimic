@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 This independent suite pins Ruby 4.0.9, Bundler 4.0.23, Active Storage/railties
-8.1.4, sqlite3 2.10.2 and google-cloud-storage 1.62.1. The Rails meta-gem, image
+8.1.4.1, sqlite3 2.10.2 and google-cloud-storage 1.62.1. The Rails meta-gem, image
 processors and external database services are unnecessary. Install the pinned
 Ruby/Bundler, then install this suite's separate graph:
 
@@ -67,13 +67,15 @@ for the exact supported scope and known failures (DESIGN-084).
 [storage.yml](config/storage.yml), which sets a non-Google `universe_domain` so
 that googleauth signs its own token instead of requesting one from Google. The
 runner starts the emulator with [buckets.json](buckets.json), which creates
-`local-bucket` with the Rails guide's direct-upload CORS rule plus
-`Cache-Control`. The script selects the entry as an application would and runs
-ten AS-EMULATOR-* cases through a `has_one_attached` model, under the same
-connection guard and without internal changes: attachments, `url`, the default
-redirect target, proxy mode, V2 and V4 (`cache_control`, from the
-`gcs_emulator_cache_control` entry) direct uploads with browser-equivalent CORS
-requests, an upload 400 days after startup and `purge`. `attachments.rb --production` then checks that a
+`local-bucket` with the Rails guide's direct-upload CORS rule (including
+`x-goog-content-length-range`) plus `Cache-Control`. The script selects the
+entry as an application would and runs eleven AS-EMULATOR-* cases through a
+`has_one_attached` model, under the same connection guard and without internal
+changes: attachments, `url`, the default redirect target, proxy mode, V2 direct
+uploads with and without `cache_control` (the `gcs_emulator_cache_control`
+entry, whose Cache-Control Rails sends unsigned) with browser-equivalent CORS
+requests, the signed size limit rejecting larger and smaller bodies, an upload
+400 days after startup and `purge`. `attachments.rb --production` then checks that a
 production boot generates no emulator key. The runner fails if any script
 fails. See the [Rails guide page](../../../docs/en/rails-active-storage.md).
 

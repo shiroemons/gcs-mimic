@@ -381,3 +381,39 @@ action and a 2026-11-11 review date.
   strict-only case on the permissive server.
 - The Rails results above come from `just check-active-storage`. The strict
   Rails recipe was not run because the suite's pins are unchanged.
+
+### Rails 8.1.4.1 adopted
+
+XML object PUT now enforces `x-goog-content-length-range`
+([slice](../slices/xml-content-length-range.md)), so the Rails Active Storage
+suite adopts activestorage and railties 8.1.4.1 and the
+`rails-8-1-4-1-gcs-direct-upload-content-length-range` exception is closed.
+The lockfile resolves the same transitive changes as the deferred attempt:
+nokogiri 1.19.4 to 1.19.7, loofah 2.25.2 to 2.25.3 and rails-html-sanitizer
+1.7.1 to 1.7.2.
+
+The suite follows the two Rails 8.1.4.1 contract changes:
+
+- `scenario.rb` passes `content_length:` to `headers_for_direct_upload`. Blob
+  methods already pass the blob's byte size.
+- AS-EMULATOR-V4-DIRECT-UPLOAD becomes AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD:
+  the `cache_control` entry now yields a V2 URL with an unsigned
+  Cache-Control header.
+- The new AS-EMULATOR-DIRECT-UPLOAD-SIZE sends the signed URL a larger and a
+  smaller body and expects `EntityTooLarge` and `EntityTooSmall` with no object.
+- `buckets.json` and the strict scenario's CORS rule allow
+  `x-goog-content-length-range`, as the Rails guide at v8.1.4.1 does.
+- The explicit `EmulatorGcs` V4 adapter requires `content_length:` and signs
+  the range; the signing self-check fails when the range changes.
+
+Validation on 2026-11-04:
+
+- `cargo xtask dependencies check` at `2026-11-04T13:22:16Z` exited 0 with 118
+  `CURRENT` inputs, including activestorage and railties 8.1.4.1;
+  fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+- `just check-active-storage` reported `Rails 8.1.4.1`, scenario
+  `1 PASS, 6 PASS_WITH_WORKAROUND, 1 FAIL` (the known AS-DEFAULT-AUTH failure)
+  and storage.yml recipe `11 PASS, 0 FAIL`, with AS-EMULATOR-PRODUCTION-NO-KEY
+  passing. The command exits 1 because of AS-DEFAULT-AUTH, as before.
+- `bash sdk-tests/ruby/active_storage/run-strict.sh` reported the signing
+  self-check PASS and `3 PASS, 0 FAIL`.

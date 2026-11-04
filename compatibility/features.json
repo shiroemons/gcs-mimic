@@ -35119,6 +35119,19 @@
             "xml_v4_streaming::signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwrite_and_pap_ubla",
             "xml::put::streaming::tests::signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resource_and_restart"
           ]
+        },
+        {
+          "id": "EXT-XML-022-CONTENT-LENGTH-RANGE",
+          "description": "Object PUT enforces x-goog-content-length-range as an inclusive MIN,MAX byte range: a declared Content-Length or decoded length is checked before the body is read, a chunked body stops at the first byte past MAX and checks MIN at EOF, and either failure returns 400 EntityTooLarge or EntityTooSmall with the recorded Details and publishes or replaces nothing. Malformed values return 400 ContentLengthRangeInHeaderIsInvalid with the recorded Message and Details in Cloud Storage's check order; copy ignores the header like Cloud Storage. V2 and V4 signatures bind the header. XML multipart and resumable initiation still reject it. Recorded 2026-11-04; see docs/en/slices/xml-content-length-range.md.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::put::length_range::tests::malformed_values_report_the_recorded_reason",
+            "xml::put::length_range::tests::accepts_the_signed_decimal_forms_cloud_storage_accepted",
+            "xml::put::length_range::tests::bounds_are_inclusive_and_name_the_failed_side",
+            "signing::length_range::signed_range_admits_inclusive_sizes_and_rejects_others_before_publication",
+            "signing::length_range::signature_binds_the_range_and_malformed_ranges_fail",
+            "xml-content-length-range"
+          ]
         }
       ],
       "test_ids": [
@@ -35160,9 +35173,17 @@
         "xml_v4_streaming::signed_chunks_validate_decoded_md5_and_remove_only_the_aws_encoding_token",
         "xml_v4_streaming::signed_chunks_enforce_decoded_object_limit_and_reject_malformed_header_and_chunk_resources",
         "xml_v4_streaming::signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwrite_and_pap_ubla",
-        "xml::put::streaming::tests::signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resource_and_restart"
+        "xml::put::streaming::tests::signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resource_and_restart",
+        "xml::put::length_range::tests::malformed_values_report_the_recorded_reason",
+        "xml::put::length_range::tests::accepts_the_signed_decimal_forms_cloud_storage_accepted",
+        "xml::put::length_range::tests::bounds_are_inclusive_and_name_the_failed_side",
+        "signing::length_range::signed_range_admits_inclusive_sizes_and_rejects_others_before_publication",
+        "signing::length_range::signature_binds_the_range_and_malformed_ranges_fail",
+        "xml-content-length-range"
       ],
       "verification": [
+        {"command":"cargo test --lib xml::put && cargo test --test it_xml_auth length_range","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-content-length-range.md","test_ids":["xml::put::length_range::tests::malformed_values_report_the_recorded_reason","xml::put::length_range::tests::accepts_the_signed_decimal_forms_cloud_storage_accepted","xml::put::length_range::tests::bounds_are_inclusive_and_name_the_failed_side","signing::length_range::signed_range_admits_inclusive_sizes_and_rejects_others_before_publication","signing::length_range::signature_binds_the_range_and_malformed_ranges_fail"]},
+        {"command":"cargo xtask differential run --reference compatibility/differential/reference/gcs.json --filter xml-content-length-range","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-content-length-range.md","test_ids":["xml-content-length-range"]},
         {"command":"CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- cleanup_waits_for_owned_work compose_copy_and_rewrite_failures_are_classified --test-threads=2","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-put-object.md","test_ids":["cleanup_waits_for_owned_work_before_its_first_journal_entry","compose_copy_and_rewrite_failures_are_classified_and_never_publish"]},
         {"command":"CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_xml_auth xml_put -- --test-threads=4","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-put-object.md","test_ids":["xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish","xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts","xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["wire_parity_http::xml_object_errors_and_headers_match_the_recorded_responses","wire_parity_http::xml_range_errors_of_a_public_object_are_private","wire_parity_http::xml_delete_rejects_an_unknown_x_goog_header","wire_parity_http::xml_listing_matches_the_recorded_document"]},
@@ -35389,7 +35410,7 @@
         "Go storage v1.70.0 OpenWriter uses JSON Objects.Insert; ordinary Go Writer uses JSON; official SignedURL PUT adds XML write coverage."
       ],
       "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-11-04"
     },
     {
       "id": "EXT-XML-023",
@@ -54401,7 +54422,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "The existing non-Google universe_domain storage.yml recipe reaches the permissive emulator with self-signed JWTs, including 400 days after startup; its native Rails and Chrome evidence remains in docs/en/slices/sdk-active-storage-scenario.md. Unreleased strict authentication verifies bounded RS256 full-control JWTs against startup-registered local public keys and applies ordinary IAM. The explicit EmulatorGcs Rails adapter signs final-origin V4 URLs with the public Ruby SDK API. The integrated strict Rails model/Net::HTTP fixture passes signing self-check, JWT upload/download and V2/V4 direct-upload CORS scenarios, preserving private unsigned-read, PAP and changed-signed-header negatives. See docs/en/slices/strict-service-account-jwt.md and docs/en/rails-active-storage.md. Actual strict Rails browser UI and container reachability remain separate pending acceptance. Default Google OAuth/token exchange and remote IAM signing are unsupported; the local recipe is not a claim that default Google credentials work.",
+      "notes": "The existing non-Google universe_domain storage.yml recipe reaches the permissive emulator with self-signed JWTs, including 400 days after startup; its native Rails and Chrome evidence remains in docs/en/slices/sdk-active-storage-scenario.md. Unreleased strict authentication verifies bounded RS256 full-control JWTs against startup-registered local public keys and applies ordinary IAM. The explicit EmulatorGcs Rails adapter signs final-origin V4 URLs with the public Ruby SDK API. The integrated strict Rails model/Net::HTTP fixture passes signing self-check, JWT upload/download and V2/V4 direct-upload CORS scenarios, preserving private unsigned-read, PAP and changed-signed-header negatives. See docs/en/slices/strict-service-account-jwt.md and docs/en/rails-active-storage.md. Actual strict Rails browser UI and container reachability remain separate pending acceptance. Default Google OAuth/token exchange and remote IAM signing are unsupported; the local recipe is not a claim that default Google credentials work. The suite is pinned to Rails 8.1.4.1, whose direct uploads are always V2 and sign x-goog-content-length-range; XML PUT enforces that range (EXT-XML-022-CONTENT-LENGTH-RANGE, docs/en/slices/xml-content-length-range.md), and the EmulatorGcs V4 adapter signs it too.",
       "dependencies": ["DESIGN-083"],
       "dependency_status": "REFINED",
       "acceptance_status": "DECOMPOSED",
@@ -54414,24 +54435,25 @@
         {"id": "AS-DIRECT-UPLOAD", "description": "Unchanged service URL and headers accept HTTP PUT and exact readback (PASS_WITH_WORKAROUND) after OAuth authorization removal; default authentication remains pending.", "result": "PENDING", "test_ids": ["AS-DIRECT-UPLOAD"]},
         {"id": "AS-EXIST-COMPOSE", "description": "With OAuth authorization removed only: existence/missing and ordered compose preserve source objects (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-EXIST-COMPOSE"]},
         {"id": "AS-STRICT-LOCAL-RECIPE", "description": "The registered local JWT profile and explicit final-origin V4 adapter pass strict model/Net::HTTP upload/download and V2/V4 direct-upload CORS, preserving private unsigned-read, PAP and changed signed-header negatives. Actual Rails browser UI remains separate.", "result": "PASS", "test_ids": ["AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS"]},
-        {"id": "AS-EMULATOR-STORAGE-YML", "description": "The documented gcs_emulator storage.yml entry (non-Google universe_domain, boot-generated key) serves has_one_attached upload/download, unchanged url GET, the default redirect target, proxy mode, V2 and cache_control V4 direct uploads with browser-equivalent CORS preflight and PUT from buckets.json rules (Cache-Control must be an allowed response header for V4), purge and a 400-day-later upload without leaving the emulator origin or changing internals; a production boot generates no key. Removing universe_domain fails every case at oauth2.googleapis.com; removing the CORS rule or the key guard fails its cases.", "result": "PASS", "test_ids": ["AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-V4-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY"]}
+        {"id": "AS-EMULATOR-STORAGE-YML", "description": "The documented gcs_emulator storage.yml entry (non-Google universe_domain, boot-generated key) serves has_one_attached upload/download, unchanged url GET, the default redirect target, proxy mode, V2 direct uploads, including the cache_control entry whose Cache-Control Rails 8.1.4.1 sends unsigned, with browser-equivalent CORS preflight and PUT from buckets.json rules (x-goog-content-length-range and Cache-Control must be allowed response headers), purge and a 400-day-later upload without leaving the emulator origin or changing internals; a production boot generates no key. Removing universe_domain fails every case at oauth2.googleapis.com; removing the CORS rule or the key guard fails its cases.", "result": "PASS", "test_ids": ["AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY"]},
+        {"id": "AS-EMULATOR-DIRECT-UPLOAD-SIZE", "description": "The unchanged Rails 8.1.4.1 direct-upload URL signs x-goog-content-length-range for the blob's byte size; a larger or smaller body with a matching Content-MD5 fails with 400 EntityTooLarge or EntityTooSmall and stores nothing. See docs/en/slices/xml-content-length-range.md.", "result": "PASS", "test_ids": ["AS-EMULATOR-DIRECT-UPLOAD-SIZE"]}
       ],
-      "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE", "AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-V4-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY", "strict_jwt_bearer_fails_unchanged_and_warns_once_about_self_signed_tokens", "AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS"],
+      "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE", "AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-DIRECT-UPLOAD-SIZE", "AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY", "strict_jwt_bearer_fails_unchanged_and_warns_once_about_self_signed_tokens", "AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS"],
       "verification": [
-        {"command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]},
-        {"command": "bash scripts/sdk-active-storage.sh (attachments.rb and attachments.rb --production)", "result": "PASS", "verified_at": "2026-10-30", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-V4-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY"]},
+        {"command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-11-04", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]},
+        {"command": "just check-active-storage (attachments.rb and attachments.rb --production)", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/xml-content-length-range.md", "test_ids": ["AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-DIRECT-UPLOAD-SIZE", "AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY"]},
         {"command": "cargo test --test auth_http", "result": "PASS", "verified_at": "2026-10-30", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["strict_jwt_bearer_fails_unchanged_and_warns_once_about_self_signed_tokens"]},
-        {"command": "bash sdk-tests/ruby/active_storage/run-strict.sh", "result": "PASS", "verified_at": "2026-10-31", "artifact": "docs/en/slices/strict-service-account-jwt.md", "test_ids": ["AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS"]}
+        {"command": "bash sdk-tests/ruby/active_storage/run-strict.sh", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/xml-content-length-range.md", "test_ids": ["AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS"]}
       ],
       "sdk_evidence": [
-        {"language": "Ruby/Rails", "toolchain": "4.0.9", "bundler": "4.0.23", "sdk": "Active Storage / google-cloud-storage", "version": "8.1.4 / 1.62.1", "transport": "HTTP JSON/XML; default OAuth blocked before network; six conditional passes after authorization removal, including unchanged V2 signed GET/PUT", "command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-v2-signing.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]}
+        {"language": "Ruby/Rails", "toolchain": "4.0.9", "bundler": "4.0.23", "sdk": "Active Storage / google-cloud-storage", "version": "8.1.4.1 / 1.62.1", "transport": "HTTP JSON/XML; default OAuth blocked before network; six conditional passes after authorization removal, including unchanged V2 signed GET/PUT with the signed x-goog-content-length-range", "command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-11-04", "artifact": "docs/en/slices/xml-content-length-range.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]}
       ],
       "known_deviations": [
         "Historical AS-SIGNED-URL and AS-DIRECT-UPLOAD evidence used OAuth authorization removal. Later AS-EMULATOR cases use the public universe_domain recipe without that private-client workaround. Neither historical run establishes the new strict final-origin adapter's complete Rails/browser behavior.",
         "AS-DEFAULT-AUTH retains its historical failure at Google's OAuth endpoint. The explicit local universe/JWT strict model/Net::HTTP recipe passes separately; actual strict Rails browser UI, public serving and image transformation remain unverified. DESIGN-040 retains unsupported signing formats and virtual-host differences."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-04"
     },
     {
       "id": "DESIGN-085",

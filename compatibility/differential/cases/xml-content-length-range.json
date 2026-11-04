@@ -1,0 +1,33 @@
+{
+  "id": "xml-content-length-range",
+  "description": "XML PUT x-goog-content-length-range: inclusive bounds, the exact-size pair Rails Active Storage signs, bodies outside the range leaving no object, malformed values and the header on a copy.",
+  "steps": [
+    {"name": "put-exact-size", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "5,5"}, "body_text": "hello", "expect_status": 200},
+    {"name": "put-at-minimum", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-min", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "5,10"}, "body_text": "hello", "expect_status": 200},
+    {"name": "put-at-maximum", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-max", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "0,5"}, "body_text": "hello", "expect_status": 200},
+    {"name": "put-empty-zero-range", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-empty", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "0,0"}, "expect_status": 200},
+    {"name": "put-too-large", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-large", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "0,4"}, "body_text": "hello", "expect_status": 400},
+    {"name": "get-after-too-large", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}-large", "expect_status": 404},
+    {"name": "put-too-small", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-small", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "6,10"}, "body_text": "hello", "expect_status": 400},
+    {"name": "get-after-too-small", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}-small", "expect_status": 404},
+    {"name": "put-overwrite-too-large", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "0,1"}, "body_text": "changed", "expect_status": 400},
+    {"name": "get-after-overwrite-too-large", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "expect_status": 200},
+    {"name": "put-single-number", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-single", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "5"}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-reversed", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-reversed", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "6,5"}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-non-numeric", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-text", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "a,b"}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-spaces", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-spaces", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "1, 10"}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-three-numbers", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-three", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "1,2,3"}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-negative", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-negative", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "-1,5"}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-negative-max", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-negative-max", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "5,-1"}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-negative-zero", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-negative-zero", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "-0,5"}, "body_text": "hello", "expect_status": 200},
+    {"name": "put-plus-sign", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-plus", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "+1,5"}, "body_text": "hello", "expect_status": 200},
+    {"name": "put-empty-bound", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-open", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "1,"}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-empty-minimum", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-open-min", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": ",5"}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-comma-only", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-comma", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": ","}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-leading-zeros", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-zeros", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "01,05"}, "body_text": "hello", "expect_status": 200},
+    {"name": "put-i64-max", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-i64", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "0,9223372036854775807"}, "body_text": "hello", "expect_status": 200},
+    {"name": "put-above-i64", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-u64", "headers": {"Content-Type": "text/plain", "x-goog-content-length-range": "0,9223372036854775808"}, "body_text": "hello", "expect_status": 400},
+    {"name": "get-with-range", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"x-goog-content-length-range": "0,1"}, "expect_status": 200},
+    {"name": "copy-with-range", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-copy", "headers": {"x-goog-copy-source": "/{bucket}/{object}", "x-goog-content-length-range": "0,1"}, "expect_status": 200}
+  ]
+}

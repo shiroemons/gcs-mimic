@@ -13,7 +13,10 @@ use crate::{
 use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes};
 use std::collections::BTreeMap;
 
+pub(super) mod length_range;
 mod streaming;
+
+use length_range::LengthRange;
 
 #[test]
 fn storage_class_header_keeps_error_contracts() {
@@ -42,6 +45,10 @@ pub(super) struct Headers {
     pub(super) metadata: ObjectMetadataUpdate,
     pub(super) sha256: Option<[u8; 32]>,
     pub(super) decoded_length: Option<u64>,
+    /// Already checked against a declared body size; a body of undeclared size is checked as it
+    /// streams. Only object PUT enforces it: multipart rejects a present value, and copy removes
+    /// the header first because Cloud Storage ignores it there.
+    pub(super) length_range: Option<LengthRange>,
 }
 
 pub(super) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Error> {
@@ -83,7 +90,12 @@ pub(super) fn headers(
 ) -> Result<Headers, Error> {
     reject_unsupported_headers(headers, signing)?;
     let conditions = conditions(headers)?;
-    validate_framing(headers, max_bytes, framing)?;
+    let declared_size = validate_framing(headers, max_bytes, framing)?;
+    let length_range = LengthRange::from_headers(headers)?;
+    // A declared size outside the range fails before any byte is read or staged.
+    if let Some((range, size)) = length_range.zip(declared_size) {
+        range.check(size)?;
+    }
     let (content_type, expected) = content_type_and_hashes(headers, conditions)?;
     let metadata = metadata(headers)?;
     let sha256 = if signing == Signing::Streaming {
@@ -104,6 +116,7 @@ pub(super) fn headers(
                     .map_err(|_| Error::unsupported("invalid decoded length"))
             })
             .transpose()?,
+        length_range,
     })
 }
 
@@ -114,7 +127,10 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
             && !name.starts_with("x-goog-meta-")
             && !super::is_common_object_header(name)
             && !(signing != Signing::Header && auth::signature::authentication_header(name))
-            && !matches!(name, "x-goog-hash" | "x-goog-storage-class"))
+            && !matches!(
+                name,
+                "x-goog-hash" | "x-goog-storage-class" | length_range::HEADER
+            ))
             || (name.starts_with("x-amz-")
                 && !(signing != Signing::Header
                     && (auth::signature::authentication_header(name)
@@ -159,7 +175,13 @@ pub(super) fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error>
     Ok(conditions)
 }
 
-fn validate_framing(headers: &HeaderMap, max_bytes: u64, framing: Framing) -> Result<(), Error> {
+/// Returns the declared body size, if any: the decoded length of an aws-chunked or decoded-length
+/// body, otherwise the Content-Length. The body readers fail when the body differs from it.
+fn validate_framing(
+    headers: &HeaderMap,
+    max_bytes: u64,
+    framing: Framing,
+) -> Result<Option<u64>, Error> {
     let length = single(headers, "content-length")?
         .map(|raw| {
             raw.parse::<u64>()
@@ -189,10 +211,11 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64, framing: Framing) -> Re
                 .map_err(|_| Error::unsupported("invalid decoded length"))
         })
         .transpose()?;
-    if declared.or(length).is_some_and(|length| length > max_bytes) {
+    let size = declared.or(length);
+    if size.is_some_and(|size| size > max_bytes) {
         return Err(storage_error(ObjectError::TooLarge, None));
     }
-    Ok(())
+    Ok(size)
 }
 
 #[test]
@@ -437,6 +460,7 @@ pub(crate) async fn respond(
         mut metadata,
         sha256,
         decoded_length,
+        length_range,
     } = headers(
         request.headers(),
         config.max_object_bytes,
@@ -476,8 +500,11 @@ pub(crate) async fn respond(
             &sender,
             ctx,
             streaming,
-            decoded_length,
-            sha256,
+            streaming::Declared {
+                decoded_length,
+                sha256,
+                length_range,
+            },
         )
         .await
         .map(|()| UploadEnd::Eof)

@@ -16,8 +16,10 @@ class ActiveStorage::Service::EmulatorGcsService < ActiveStorage::Service::GCSSe
     super(**config)
   end
 
-  def url_for_direct_upload(key, expires_in:, checksum:, custom_metadata: {}, **)
+  # Signs the size limit Rails 8.1.4.1 sends (GHSA-hfr4-8rjc-97m2), as the stock V2 URL does.
+  def url_for_direct_upload(key, expires_in:, checksum:, content_length:, custom_metadata: {}, **)
     headers = custom_metadata_headers(custom_metadata)
+    headers["x-goog-content-length-range"] = content_length_range(content_length)
     headers["Content-MD5"] = checksum
     headers["Cache-Control"] = config[:cache_control] if config[:cache_control].present?
     signing_file(key).signed_url(**signing_options, version: :v4, method: "PUT",

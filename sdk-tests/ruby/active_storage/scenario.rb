@@ -152,7 +152,8 @@ begin
     key = "direct/#{SecureRandom.hex(8)}"
     uri = URI(service.url_for_direct_upload(key, expires_in: 300, content_type: "text/plain",
       content_length: bytes.bytesize, checksum: checksum))
-    headers = service.headers_for_direct_upload(key, content_type: "text/plain", checksum: checksum)
+    headers = service.headers_for_direct_upload(key, content_type: "text/plain",
+      content_length: bytes.bytesize, checksum: checksum)
     LocalHTTP.validate!(uri)
     request = Net::HTTP::Put.new(uri, headers.compact)
     request["Content-Type"] = "text/plain"

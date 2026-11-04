@@ -26,9 +26,22 @@ pub(crate) struct Recording {
     pub(crate) cases: Vec<CaseOutcome>,
 }
 
+/// What `merge` does with a partial case the base lacks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NewCases {
+    /// Refuse it: a mistyped case ID must not silently add a case.
+    Refuse,
+    /// Append it after the base cases, for a case file added since the base was recorded.
+    Append,
+}
+
 /// Replace complete cases, retaining base order and counting all reference
 /// requests spent on both recordings, including superseded observations.
-pub(crate) fn merge(mut base: Recording, partial: Recording) -> Result<Recording> {
+pub(crate) fn merge(
+    mut base: Recording,
+    partial: Recording,
+    new_cases: NewCases,
+) -> Result<Recording> {
     if base.source == Source::SelfCheck
         || base.requests == 0
         || partial.source != Source::Live
@@ -63,8 +76,11 @@ pub(crate) fn merge(mut base: Recording, partial: Recording) -> Result<Recording
         return Err("partial recording has no cases".into());
     }
     for case in &partial.cases {
-        if !ids.contains(&case.id) || !replacements.insert(case.id.clone()) {
-            return Err("partial recording has unknown or duplicate case ids".into());
+        let admitted = ids.contains(&case.id) || new_cases == NewCases::Append;
+        if !admitted || !replacements.insert(case.id.clone()) {
+            return Err(
+                "partial recording has unknown or duplicate case ids (pass --add-new to append new cases)".into(),
+            );
         }
         if case.error.is_some() || case.steps.iter().any(|step| step.result.is_err()) {
             return Err("partial recording contains a failed case or step".into());
@@ -78,12 +94,14 @@ pub(crate) fn merge(mut base: Recording, partial: Recording) -> Result<Recording
     base.recorded_dates.extend(partial.recorded_dates);
     base.source = Source::Live;
     for case in partial.cases {
-        let slot = base
+        match base
             .cases
             .iter_mut()
             .find(|existing| existing.id == case.id)
-            .ok_or("partial case not found in base")?;
-        *slot = case;
+        {
+            Some(slot) => *slot = case,
+            None => base.cases.push(case),
+        }
     }
     Ok(base)
 }
@@ -324,7 +342,7 @@ mod tests {
         let untouched = [base.cases[0].clone(), base.cases[2].clone()];
         let partial = fixture(&["b"], "2026-11-02", 12);
         let replacement = partial.cases[0].clone();
-        let merged = merge(base, partial).unwrap();
+        let merged = merge(base, partial, NewCases::Refuse).unwrap();
         assert_eq!(
             merged.cases,
             [untouched[0].clone(), replacement, untouched[1].clone()]
@@ -341,6 +359,27 @@ mod tests {
     }
 
     #[test]
+    fn merge_appends_new_cases_only_when_asked_and_still_replaces_known_ones() {
+        let base = fixture(&["a", "b"], "2026-11-01", 100);
+        let partial = fixture(&["b", "new"], "2026-11-04", 44);
+        let replaced = partial.cases[0].clone();
+        let added = partial.cases[1].clone();
+        let kept = base.cases[0].clone();
+        assert!(
+            merge(
+                fixture(&["a", "b"], "2026-11-01", 100),
+                fixture(&["b", "new"], "2026-11-04", 44),
+                NewCases::Refuse,
+            )
+            .is_err()
+        );
+        let merged = merge(base, partial, NewCases::Append).unwrap();
+        assert_eq!(merged.cases, [kept, replaced, added]);
+        assert_eq!(merged.requests, 144);
+        assert_eq!(merged.generated, "2026-11-04");
+    }
+
+    #[test]
     fn merge_requires_live_nonempty_provenance_but_accepts_a_legacy_base() {
         let base_json = to_json(&fixture(&["b"], "2026-11-01", 100));
         let mut legacy = base_json.clone();
@@ -348,19 +387,27 @@ mod tests {
         legacy.as_object_mut().unwrap().remove("recorded_dates");
         let base = from_json(&legacy).unwrap();
         assert_eq!(base.source, Source::Legacy);
-        assert!(merge(base, fixture(&["b"], "2026-11-02", 12)).is_ok());
+        assert!(merge(base, fixture(&["b"], "2026-11-02", 12), NewCases::Refuse).is_ok());
         for source in [Source::Legacy, Source::SelfCheck] {
             let mut partial = fixture(&["b"], "2026-11-02", 12);
             partial.source = source;
-            assert!(merge(from_json(&base_json).unwrap(), partial).is_err());
+            assert!(merge(from_json(&base_json).unwrap(), partial, NewCases::Refuse).is_err());
         }
         let mut self_check = fixture(&["b"], "2026-11-01", 100);
         self_check.source = Source::SelfCheck;
-        assert!(merge(self_check, fixture(&["b"], "2026-11-02", 12)).is_err());
+        assert!(
+            merge(
+                self_check,
+                fixture(&["b"], "2026-11-02", 12),
+                NewCases::Refuse
+            )
+            .is_err()
+        );
         assert!(
             merge(
                 from_json(&base_json).unwrap(),
-                fixture(&["b"], "2026-11-02", 0)
+                fixture(&["b"], "2026-11-02", 0),
+                NewCases::Refuse,
             )
             .is_err()
         );
@@ -374,7 +421,7 @@ mod tests {
         for source in [Source::Live, Source::SelfCheck, Source::Legacy] {
             let mut base = fixture(&["b"], "2026-11-01", 0);
             base.source = source;
-            assert!(merge(base, fixture(&["b"], "2026-11-02", 12)).is_err());
+            assert!(merge(base, fixture(&["b"], "2026-11-02", 12), NewCases::Refuse).is_err());
         }
     }
 
@@ -383,13 +430,21 @@ mod tests {
         assert!(
             merge(
                 fixture(&["b"], "2026-11-02", 100),
-                fixture(&["b"], "2026-11-01", 12)
+                fixture(&["b"], "2026-11-01", 12),
+                NewCases::Refuse,
             )
             .is_err()
         );
         let mut failed_case = fixture(&["b"], "2026-11-02", 12);
         failed_case.cases[0].error = Some("setup failed".into());
-        assert!(merge(fixture(&["b"], "2026-11-01", 100), failed_case).is_err());
+        assert!(
+            merge(
+                fixture(&["b"], "2026-11-01", 100),
+                failed_case,
+                NewCases::Refuse
+            )
+            .is_err()
+        );
         let mut failed_step = fixture(&["b"], "2026-11-02", 12);
         failed_step.cases[0].steps.push(StepOutcome {
             name: "get".into(),
@@ -399,7 +454,14 @@ mod tests {
             retries: 0,
             fingerprint: "00ff".into(),
         });
-        assert!(merge(fixture(&["b"], "2026-11-01", 100), failed_step).is_err());
+        assert!(
+            merge(
+                fixture(&["b"], "2026-11-01", 100),
+                failed_step,
+                NewCases::Refuse
+            )
+            .is_err()
+        );
         let mut bad_dates = to_json(&fixture(&["b"], "2026-11-02", 12));
         bad_dates["recorded_dates"] = json!(["2026-11-03"]);
         assert!(from_json(&bad_dates).is_err());
@@ -414,13 +476,32 @@ mod tests {
         ] {
             let mut partial = fixture(&["b"], "2026-11-02", 12);
             partial.tools = tools;
-            assert!(merge(fixture(&["a", "b"], "2026-11-01", 100), partial).is_err());
+            assert!(
+                merge(
+                    fixture(&["a", "b"], "2026-11-01", 100),
+                    partial,
+                    NewCases::Refuse
+                )
+                .is_err()
+            );
         }
         for ids in [&[][..], &["unknown"][..], &["b", "b"][..]] {
             assert!(
                 merge(
                     fixture(&["a", "b"], "2026-11-01", 100),
-                    fixture(ids, "2026-11-02", 12)
+                    fixture(ids, "2026-11-02", 12),
+                    NewCases::Refuse,
+                )
+                .is_err()
+            );
+        }
+        // Appending still refuses an empty partial and a case repeated within it.
+        for ids in [&[][..], &["new", "new"][..]] {
+            assert!(
+                merge(
+                    fixture(&["a", "b"], "2026-11-01", 100),
+                    fixture(ids, "2026-11-02", 12),
+                    NewCases::Append,
                 )
                 .is_err()
             );
@@ -428,14 +509,16 @@ mod tests {
         assert!(
             merge(
                 fixture(&["b", "b"], "2026-11-01", 100),
-                fixture(&["b"], "2026-11-02", 12)
+                fixture(&["b"], "2026-11-02", 12),
+                NewCases::Refuse,
             )
             .is_err()
         );
         assert!(
             merge(
                 fixture(&["b"], "2026-11-01", u64::MAX),
-                fixture(&["b"], "2026-11-02", 1)
+                fixture(&["b"], "2026-11-02", 1),
+                NewCases::Refuse,
             )
             .is_err()
         );

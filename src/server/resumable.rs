@@ -582,7 +582,7 @@ async fn stream_chunk(
             None,
         )
         .await
-        .map(|()| UploadEnd::Eof)
+        .map(|_| UploadEnd::Eof)
     };
     drive_upload(
         CatalogWait::Session { ctx, progress },

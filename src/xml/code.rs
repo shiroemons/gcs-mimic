@@ -30,6 +30,7 @@ pub(super) enum XmlCode {
     IncompleteBody,
     InvalidPolicyDocument,
     EntityTooSmall,
+    ContentLengthRangeInHeaderIsInvalid,
     BucketNotEmpty,
     BucketNameUnavailable,
     RetentionPolicyNotMet,
@@ -96,6 +97,7 @@ impl XmlCode {
             | Self::IncompleteBody
             | Self::InvalidPolicyDocument
             | Self::EntityTooSmall
+            | Self::ContentLengthRangeInHeaderIsInvalid
             | Self::Csek(_) => StatusCode::BAD_REQUEST,
         }
     }
@@ -128,6 +130,7 @@ impl XmlCode {
             Self::IncompleteBody => "IncompleteBody",
             Self::InvalidPolicyDocument => "InvalidPolicyDocument",
             Self::EntityTooSmall => "EntityTooSmall",
+            Self::ContentLengthRangeInHeaderIsInvalid => "ContentLengthRangeInHeaderIsInvalid",
             Self::BucketNotEmpty => "BucketNotEmpty",
             Self::BucketNameUnavailable => "BucketNameUnavailable",
             Self::RetentionPolicyNotMet => "RetentionPolicyNotMet",

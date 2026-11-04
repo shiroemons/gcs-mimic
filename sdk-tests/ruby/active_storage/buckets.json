@@ -8,7 +8,7 @@
         {
           "origin": ["http://localhost:3000"],
           "method": ["PUT"],
-          "responseHeader": ["Content-Type", "Content-MD5", "Content-Disposition", "Cache-Control"],
+          "responseHeader": ["Content-Type", "Content-MD5", "Content-Disposition", "x-goog-content-length-range", "Cache-Control"],
           "maxAgeSeconds": 3600
         }
       ]

@@ -77,16 +77,22 @@ the suite uses the same entry (`config/storage.yml`) and bucket file
 | AS-EMULATOR-PROXY | With `resolve_model_to_route = :rails_storage_proxy`, the proxy route returns the bytes from Rails with no redirect. |
 | AS-EMULATOR-DIRECT-UPLOAD | An unchanged direct-upload URL and headers PUT, then attaching the blob by `signed_id`, preserve the bytes. |
 | AS-EMULATOR-DIRECT-UPLOAD-CORS | A preflight from `http://localhost:3000` with Rails' direct-upload headers is allowed, an unlisted origin is not, and the `PUT` with `Origin` carries the CORS response header and stores the bytes. |
-| AS-EMULATOR-V4-DIRECT-UPLOAD | With `cache_control` set, Rails signs the direct upload with V4 and adds `Cache-Control`; the browser-equivalent preflight is allowed by the `Cache-Control` response header in `buckets.json`, and the `PUT` stores the bytes and the cache control. |
+| AS-EMULATOR-DIRECT-UPLOAD-SIZE | The URL signs `x-goog-content-length-range` for the blob's size; a larger or smaller body with a matching Content-MD5 fails with `EntityTooLarge` or `EntityTooSmall` and stores nothing. |
+| AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD | With `cache_control` set, Rails 8.1.4.1 still signs the direct upload with V2 and sends `Cache-Control` unsigned; the browser-equivalent preflight is allowed by the `Cache-Control` response header in `buckets.json`, and the `PUT` stores the bytes and the cache control. |
 | AS-EMULATOR-NO-OAUTH-LATER | 400 days after startup (`travel`), an attachment still uploads and downloads without any request leaving the emulator origin. |
 | AS-EMULATOR-PURGE | `purge` removes the object from the emulator. |
 | AS-EMULATOR-PRODUCTION-NO-KEY | A production boot selects its own service and evaluates the `gcs_emulator` entry without generating a key. |
 
 `sdk-tests/ruby/active_storage/attachments.rb` runs these cases under the same
 connection guard, with no internal authorization change; the routes are
-exercised in process through `Rack::MockRequest`. Results on 2026-10-30 with
-Rails 8.1.4, google-cloud-storage 1.62.1 and googleauth 1.17.6: **10 PASS, 0
-FAIL**, and the production case **PASS**.
+exercised in process through `Rack::MockRequest`. Results on 2026-11-04 with
+Rails 8.1.4.1, google-cloud-storage 1.62.1 and googleauth 1.17.6: **11 PASS, 0
+FAIL**, and the production case **PASS**. Rails 8.1.4.1 signs
+`x-goog-content-length-range` into direct uploads; see
+[XML upload size ranges](xml-content-length-range.md). Results on 2026-10-30
+with Rails 8.1.4, before that change, were 10 PASS, 0 FAIL with the case then
+named AS-EMULATOR-V4-DIRECT-UPLOAD, because Rails 8.1.4 signed `cache_control`
+uploads with V4.
 
 A separate Rails app with Puma 8.0.2 and googleauth 1.17.7, outside the
 repository, was checked in Chrome on 2026-10-30. The ports were changed to
@@ -150,6 +156,15 @@ client use Apache-2.0. The Rails meta-gem is omitted; lockfiles record transitiv
 The existing daily freshness workflow runs the same xtask checker; its declared
 SDK scopes now include this Gemfile. Native gem platform suffixes are validated
 against the exact pinned numeric version, including mismatched-platform tests.
+
+On 2026-11-04 the suite moved to the security release activestorage and
+railties 8.1.4.1 (MIT; the lockfile's activestorage SHA-256
+`0f4e2f114f3584723a80a2c089aacc6170e765a0b2c385c9782e26ed78f05c66` matches the
+[RubyGems metadata](https://rubygems.org/api/v2/rubygems/activestorage/versions/8.1.4.1.json)).
+The [GCS adapter at v8.1.4.1](https://github.com/rails/rails/blob/v8.1.4.1/activestorage/lib/active_storage/service/gcs_service.rb)
+changes are recorded in [XML upload size ranges](xml-content-length-range.md),
+and the adoption in the
+[dependency refresh](../evidence/dependency-refresh.md#rails-8141-adopted).
 
 ## Verification
 

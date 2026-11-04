@@ -166,15 +166,19 @@ pub fn pubsub_stub() -> std::io::Result<()> {
 
 /// Merges a filtered re-recording without making any network requests.
 pub fn merge(args: &[String]) -> Result<()> {
-    let [base, partial, flag, out] = args else {
-        return Err("differential merge needs BASE PARTIAL --out FILE".into());
+    const USAGE: &str = "differential merge needs BASE PARTIAL [--add-new] --out FILE";
+    let (base, partial, new_cases, out) = match args {
+        [base, partial, flag, out] if flag == "--out" => {
+            (base, partial, recording::NewCases::Refuse, out)
+        }
+        [base, partial, add, flag, out] if add == "--add-new" && flag == "--out" => {
+            (base, partial, recording::NewCases::Append, out)
+        }
+        _ => return Err(USAGE.into()),
     };
-    if flag != "--out" {
-        return Err("differential merge needs BASE PARTIAL --out FILE".into());
-    }
     let base = recording::from_json(&crate::read_json(Path::new(base))?)?;
     let partial = recording::from_json(&crate::read_json(Path::new(partial))?)?;
-    let merged = recording::merge(base, partial)?;
+    let merged = recording::merge(base, partial, new_cases)?;
     let text =
         serde_json::to_string_pretty(&recording::to_json(&merged)).map_err(|e| e.to_string())?;
     write_checked(Path::new(out), &(text + "\n"), &[])?;

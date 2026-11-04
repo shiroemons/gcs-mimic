@@ -9,9 +9,14 @@
 Use gcs-mimic in development and test, and Google Cloud Storage in production.
 Production configuration does not change.
 
-Tested with Rails 8.1.4, google-cloud-storage 1.62.1, and googleauth 1.17.6
-and 1.17.7 ([verification](slices/sdk-active-storage-scenario.md#storageyml-emulator-recipe)).
-Other versions are untested.
+Tested with Rails 8.1.4.1, google-cloud-storage 1.62.1, and googleauth 1.17.6
+([verification](slices/sdk-active-storage-scenario.md#storageyml-emulator-recipe));
+Rails 8.1.4 was also tested with googleauth 1.17.7. Other versions are untested.
+
+Rails 8.1.4.1 direct uploads need a gcs-mimic build newer than 0.9.0. Rails
+8.1.4.1 signs `x-goog-content-length-range` into every direct-upload URL, and
+0.9.0 rejects that header with `400 InvalidArgument`; see
+[XML upload size ranges](slices/xml-content-length-range.md).
 
 ## 1. Start the emulator with a bucket
 
@@ -19,13 +24,14 @@ Other versions are untested.
 send direct uploads from your app's origin. It is the
 [Rails guide](https://guides.rubyonrails.org/active_storage_overview.html)'s
 Google Cloud Storage rule plus `Cache-Control`, which the browser sends when
-the service sets `cache_control`; without it, those uploads fail CORS.
+the service sets `cache_control`; without it, those uploads fail CORS. Rails
+8.1.4.1 also sends `x-goog-content-length-range`, so the rule must allow it.
 
 ```json
 {"version": 1, "project": "local-project", "buckets": [
   {"name": "local-bucket", "cors": [{
     "origin": ["http://localhost:3000"], "method": ["PUT"],
-    "responseHeader": ["Content-Type", "Content-MD5", "Content-Disposition", "Cache-Control"],
+    "responseHeader": ["Content-Type", "Content-MD5", "Content-Disposition", "x-goog-content-length-range", "Cache-Control"],
     "maxAgeSeconds": 3600}]}
 ]}
 ```
