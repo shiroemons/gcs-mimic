@@ -39,6 +39,69 @@ fn begin(server: &Server, name: &str, auth: &str) -> String {
     tag(&reply.body, "UploadId")
 }
 
+fn without_framing(server: &Server, method: &str, path: &str) -> Reply {
+    server.raw(
+        &format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"),
+        b"",
+    )
+}
+
+#[test]
+fn multipart_bodyless_operations_accept_omitted_framing() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    bucket(&server, "");
+    let begun = without_framing(&server, "POST", "/multipart-bucket/value?uploads");
+    begun.status(200);
+    let id = tag(&begun.body, "UploadId");
+    let path = format!("/multipart-bucket/value?uploadId={id}");
+    let listed = without_framing(&server, "GET", &path);
+    listed.status(200);
+    assert!(!listed.body.contains("<Part>"));
+    let uploads = without_framing(&server, "GET", "/multipart-bucket?uploads");
+    uploads.status(200);
+    assert_eq!(tag(&uploads.body, "UploadId"), id);
+    without_framing(&server, "DELETE", &path).expect(204);
+    let missing = without_framing(&server, "GET", &path);
+    missing.status(404);
+    assert_eq!(tag(&missing.body, "Code"), "NoSuchUpload");
+}
+
+#[test]
+fn multipart_bodyless_operations_reject_bodies_and_puts_still_require_framing() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    bucket(&server, "");
+    let id = begin(&server, "value", "");
+    let path = format!("/multipart-bucket/value?uploadId={id}");
+    for (method, path) in [
+        ("POST", "/multipart-bucket/rejected?uploads"),
+        ("GET", "/multipart-bucket?uploads"),
+        ("GET", path.as_str()),
+        ("DELETE", path.as_str()),
+    ] {
+        server.request(method, path, "", b"x").status(400);
+        server
+            .raw(
+                &format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n"),
+                b"1\r\nx\r\n0\r\n\r\n",
+            )
+            .status(400);
+    }
+    for path in [
+        "/multipart-bucket/object".to_owned(),
+        format!("{path}&partNumber=1"),
+    ] {
+        let reply = without_framing(&server, "PUT", &path);
+        reply.status(411);
+        assert_eq!(tag(&reply.body, "Code"), "MissingContentLength");
+    }
+    without_framing(&server, "GET", &path).status(200);
+    server
+        .request("HEAD", "/multipart-bucket/rejected", "", b"")
+        .expect(404);
+}
+
 #[test]
 fn multipart_memory_capacity_failures_are_reported_without_publishing_a_part() {
     // Simultaneous producer/catalog failures are covered by the upload driver tests.

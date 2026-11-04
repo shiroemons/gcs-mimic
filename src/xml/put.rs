@@ -170,7 +170,7 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
     if chunked.is_some() && length.is_some() {
         return Err(Error::invalid("Ambiguous body framing."));
     }
-    if length.is_none() && chunked.is_none() {
+    if max_bytes != 0 && length.is_none() && chunked.is_none() {
         return Err(Error::new(
             XmlCode::MissingContentLength,
             "Content-Length or chunked transfer encoding is required.",
@@ -186,6 +186,53 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
         return Err(storage_error(ObjectError::TooLarge, None));
     }
     Ok(())
+}
+
+#[test]
+fn empty_request_framing_keeps_header_validation() {
+    for max in [0, 1] {
+        for (values, code) in [
+            (vec![], (max != 0).then_some(XmlCode::MissingContentLength)),
+            (vec![("content-length", "0")], None),
+            (vec![("transfer-encoding", "chunked")], None),
+            (
+                vec![("content-length", "invalid")],
+                Some(XmlCode::InvalidArgument),
+            ),
+            (
+                vec![("transfer-encoding", "gzip")],
+                Some(XmlCode::InvalidArgument),
+            ),
+            (
+                vec![("content-length", "0"), ("transfer-encoding", "chunked")],
+                Some(XmlCode::InvalidArgument),
+            ),
+            (vec![("content-length", "2")], Some(XmlCode::EntityTooLarge)),
+            (
+                vec![("content-length", "0"), ("content-length", "0")],
+                Some(XmlCode::ExcessHeaderValues),
+            ),
+            (
+                vec![
+                    ("content-length", "0"),
+                    ("x-amz-decoded-content-length", "2"),
+                ],
+                Some(XmlCode::EntityTooLarge),
+            ),
+        ] {
+            let mut headers = HeaderMap::new();
+            for (name, value) in values {
+                headers.append(name, value.parse().unwrap());
+            }
+            assert_eq!(
+                validate_framing(&headers, max)
+                    .err()
+                    .map(|error| error.code),
+                code,
+                "{headers:?}, max={max}"
+            );
+        }
+    }
 }
 
 pub(super) fn content_type_and_hashes(
