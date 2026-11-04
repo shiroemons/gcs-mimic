@@ -243,6 +243,7 @@ struct Fixture {
 
 enum Tree {
     Empty,
+    EmptyBucket,
     LongNames,
 }
 
@@ -260,6 +261,9 @@ impl Fixture {
     async fn new(shape: Tree) -> Self {
         let data = TestDir::new();
         let tree = TestDir::new();
+        if matches!(shape, Tree::EmptyBucket) {
+            fs::create_dir(tree.0.join("test-bucket")).unwrap();
+        }
         if matches!(shape, Tree::LongNames) {
             let component = format!("{}{}", "a".repeat(100), "\"".repeat(100));
             let prefix = tree
@@ -353,6 +357,19 @@ impl Fixture {
                 .unwrap(),
         )
         .await
+    }
+
+    async fn wait_for_deletions(&self, count: u64) {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                if self.status().await["pending_deletion_count"] == count {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
     }
 
     async fn armed_workspace(&self, bytes: &[u8]) -> ArmedWorkspace {
@@ -1051,17 +1068,18 @@ async fn findings_pages_reject_in_place_changes_and_foreign_sessions() {
 
 #[tokio::test]
 async fn protected_findings_pages_cover_every_target_with_a_final_null_cursor() {
-    let fixture = Fixture::new(Tree::Empty).await;
+    // A bucket exported during pagination can legitimately invalidate the findings revision.
+    let fixture = Fixture::new(Tree::EmptyBucket).await;
+    let waited = body(
+        fixture
+            .request("POST", "/_internal/sync/wait", b"{}", None)
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(waited["reason"], "Ready");
     let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
-    let owner = fixture.config.seed_project.clone();
     let bucket = BucketName::new("test-bucket").unwrap();
-    fixture
-        .state
-        .catalog
-        .admin(Origin::Api)
-        .ensure_bucket(BucketDefinition::default_for(&bucket, &owner, &SystemClock).unwrap())
-        .await
-        .unwrap();
     let binding = fixture
         .state
         .catalog
@@ -1464,6 +1482,8 @@ async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizi
 async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all_members() {
     let fixture = Fixture::new(Tree::LongNames).await;
     fs::remove_dir_all(fixture.tree.0.join("test-bucket")).unwrap();
+    // Pagination starts after the native observer has published the removal's completed scan.
+    fixture.wait_for_deletions(300).await;
     let response = fixture
         .request("POST", "/_internal/sync/rescan", b"{}", None)
         .await
@@ -1557,16 +1577,7 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
         ),
         StatusCode::CONFLICT
     );
-    tokio::time::timeout(Duration::from_secs(20), async {
-        loop {
-            if fixture.status().await["pending_deletion_count"] == 0 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
+    fixture.wait_for_deletions(0).await;
     assert!(fixture.tree.0.join("test-bucket").is_dir());
     fixture.finish().await;
 }
