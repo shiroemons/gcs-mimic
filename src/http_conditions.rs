@@ -133,24 +133,26 @@ fn matches_field(
             }
             let weak = rest.starts_with(b"W/");
             if weak {
-                rest = &rest[2..];
+                rest = rest.strip_prefix(b"W/").ok_or(EtagError::Invalid)?;
             }
             let (tag, tail) = if let Some(quoted) = rest.strip_prefix(b"\"") {
                 let end = quoted
                     .iter()
                     .position(|byte| *byte == b'"')
                     .ok_or(EtagError::Invalid)?;
-                (&quoted[..end], &quoted[end + 1..])
+                let (tag, tail) = quoted.split_at_checked(end).ok_or(EtagError::Invalid)?;
+                (tag, tail.strip_prefix(b"\"").ok_or(EtagError::Invalid)?)
             } else if syntax == TagSyntax::Opaque {
                 let end = rest
                     .iter()
                     .position(|byte| *byte == b',' || byte.is_ascii_whitespace())
                     .unwrap_or(rest.len());
                 // A wildcard is valid only as the entire field value.
-                if end == 0 || rest[..end].contains(&b'"') || &rest[..end] == b"*" {
+                let (tag, tail) = rest.split_at_checked(end).ok_or(EtagError::Invalid)?;
+                if tag.is_empty() || tag.contains(&b'"') || tag == b"*" {
                     return Err(EtagError::Invalid);
                 }
-                (&rest[..end], &rest[end..])
+                (tag, tail)
             } else {
                 return Err(EtagError::Invalid);
             };

@@ -45,17 +45,21 @@ pub(crate) fn decode(raw: &str, alphabet: Alphabet, padding: Padding) -> Option<
         count += 6;
         if count >= 8 {
             count -= 8;
-            output.push((bits >> count) as u8);
+            output.push(u8::try_from((bits >> count) & 255).ok()?);
         }
     }
     (padding == Padding::RequiredUncheckedBits || bits & ((1 << count) - 1) == 0).then_some(output)
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "each alphabet index is masked or shifted to six bits"
+)]
 pub(crate) fn encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let a = chunk[0];
+        let Some(&a) = chunk.first() else { continue };
         let b = chunk.get(1).copied().unwrap_or(0);
         let c = chunk.get(2).copied().unwrap_or(0);
         result.push(ALPHABET[(a >> 2) as usize] as char);
