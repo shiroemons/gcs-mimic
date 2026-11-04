@@ -85,7 +85,10 @@ mod tests {
             .unwrap(),
             HashOutcome::Short { read: 65_536 }
         );
-        for size in [65_537, 65_536] {
+        let sizes = std::iter::once(65_537);
+        #[cfg(unix)]
+        let sizes = sizes.chain(std::iter::once(65_536));
+        for size in sizes {
             fs::write(&path, vec![7; 65_536]).unwrap();
             let file = File::open(&path).unwrap();
             assert_eq!(

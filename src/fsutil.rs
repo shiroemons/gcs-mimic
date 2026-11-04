@@ -175,6 +175,8 @@ impl std::error::Error for FsError {
     }
 }
 
+// Windows write/change timestamps can repeat within a clock tick, so equality can miss
+// same-size rewrites. Directory synchronization, which needs this check, is unsupported there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FileIdentity {
     pub device: u64,
