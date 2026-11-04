@@ -8,8 +8,9 @@ owns the RAM backend. None is a Google API operation. The compatibility ledger r
 
 ## Accepted boundary
 
-The reset contract was agreed before implementation: an idle instance may be
-reset atomically; active work returns 503 without mutation. Active directory
+An idle instance may be reset atomically. Reset waits up to one second for
+in-flight catalog work and unpublished-body leases to drain; work that remains
+active past that deadline returns 503 without mutation. Active directory
 synchronization and incomplete import return 409. The operation never follows
 or modifies a seed, import-source or sync directory. An already opened immutable
 reader may finish with its selected bytes.
@@ -60,11 +61,29 @@ One shared Tokio read/write gate protects catalog activity. SQL jobs retain owne
 read leases through their executor completion, including cancellation. Upload
 admission, resumable/rewrite/derived writers, unconsumed derived sources, staged
 administrative files, appendable writers and asynchronous reclamation retain
-leases while unpublished bytes or cleanup can still affect state. Reset acquires
-an exclusive lease with `try_write_owned`; a busy gate returns immediate 503 with
-`Retry-After: 1`. New activity cannot enter between its idle check and reset.
-No polling loop, body buffering, forced cancellation or long database transaction
-is introduced. Existing immutable read descriptors are intentionally independent.
+leases while unpublished bytes or cleanup can still affect state. Reset uses the
+bounded administrative admission and execution queues with a shared one-second
+deadline, capped by the HTTP catalog wait budget and remaining request deadline.
+Expiry before exclusive ownership returns the same no-changes Busy response even
+when `catalog_wait_timeout_ms` is shorter than one second. It retries the exclusive
+activity lease every 10 ms, releasing execution between attempts. It never queues
+a writer: existing uploads and maintenance must
+still be able to acquire read leases for their remaining catalog jobs. No activity
+or execution lease is held while sleeping. New activity cannot enter once reset
+owns the exclusive lease. Saturated administrative admission also returns busy.
+If the deadline expires, reset returns 503 with
+`Retry-After: 1` and makes no changes; finish active uploads or cleanup before
+retrying. Continuous activity can exhaust this deadline rather than starving
+ordinary requests. No body buffering, forced cancellation or long database
+transaction is introduced. Existing immutable read descriptors are intentionally independent.
+
+Startup maintenance runs derived, resumable, rewrite, multipart and soft-deleted
+bucket sweeps even on a fresh catalog. Its SQL jobs can overlap the first bucket
+creation and reset after readiness. A configured notification publisher also
+holds activity while inspecting its outbox and sending/recording an attempt.
+Change-journal recording runs inside existing catalog jobs, rather than starting
+an independent worker. These short overlaps must not cause an otherwise idle
+reset to fail immediately.
 
 The short immediate transaction:
 
@@ -105,7 +124,12 @@ validates and stages the complete configured fixture tree before publishing it.
 
 ## Acceptance and verification
 
-Storage tests in `src/storage/catalog/admin/reset/tests.rs` exercise revision and
+Storage tests in `src/storage/catalog/admin/reset/tests.rs` hold a running catalog
+job until reset is waiting, then release it and verify the reset succeeds. They
+also verify that catalog reads can acquire leases while reset waits for an upload
+lease. Cancelling reset during retry sleep or execution admission restores its
+administrative permits; normal catalog reads, a later reset and close succeed.
+The existing tests exercise revision and
 catalog-identity preservation, open-reader completion, busy upload/source leases,
 new-activity rejection under the exclusive lease, incomplete-import refusal,
 failed and ambiguous commit, deferred cleanup and restart. Snapshot and Unix
@@ -116,7 +140,26 @@ complete power-loss namespace durability.
 Wire tests in `tests/it_admin/admin_http/admin_reset/mod.rs` cover default-off/confirmation errors,
 session invalidation, stale generation and policy identity after recreation,
 restart, an active `100 Continue` upload, strict manager/IAM separation and active
-sync refusal with preserved external bytes. All execute offline on loopback.
+sync refusal with preserved external bytes. The active-upload case also runs with
+a 500 ms catalog wait budget, preserving the no-changes message, `Retry-After: 1`,
+existing bytes and the upload's ability to finish. All execute offline on loopback.
+
+Verification on 2026-11-04: `cargo check --locked --tests` passed;
+`cargo test --locked --lib storage::catalog::admin::reset` passed all eleven cases.
+The two new waiting cases failed against immediate reset refusal before the fix.
+`cargo test --locked --test it_admin admin_reset` passed twenty consecutive runs,
+five cases per run (100 passing executions), including the strict-manager reset
+and active-upload 503 with `Retry-After: 1` under both default and 500 ms budgets.
+The short-budget case detects the former incorrect unknown-outcome message.
+Full `cargo test --locked` passed
+2,326 cases with one existing opt-in Pub/Sub test ignored and no failures.
+`cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets --locked -- -D warnings` and
+`cargo xtask lint` passed with zero new production findings and zero ratcheted
+findings. `bash scripts/check-cross.sh` passed the Windows MSVC, Linux GNU and
+Linux musl checks, each with zero new production findings and zero ratcheted
+findings. The broader DESIGN-068 status remains PARTIAL; regenerated English
+and Japanese matrices are unchanged.
 
 Native verification on 2026-10-30: `cargo check --locked --offline --tests`
 passed. `cargo test --locked --offline --lib storage::catalog::admin::reset`

@@ -189,7 +189,14 @@ async fn reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive
     let (_dir, catalog, admin) = setup().await;
     let old = publish(&admin).await;
     let upload = catalog.admit_object_upload().unwrap();
-    assert!(matches!(admin.reset().await, Err(AdminError::Busy { .. })));
+    let started = tokio::time::Instant::now();
+    let reset = tokio::time::timeout(Duration::from_secs(3), admin.reset())
+        .await
+        .unwrap();
+    assert!(
+        matches!(reset, Err(AdminError::Busy { retry_after }) if retry_after == Duration::from_secs(1))
+    );
+    assert!(started.elapsed() >= QUIESCENCE_TIMEOUT);
     drop(upload);
     let object = live("reset-bucket", "value");
     let source = catalog
@@ -220,6 +227,109 @@ async fn reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive
         old
     );
     catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn reset_waits_for_in_flight_catalog_work_before_clearing_state() {
+    let (_dir, catalog, admin) = setup().await;
+    let (started, running) = tokio::sync::oneshot::channel();
+    let (release, finish) = std::sync::mpsc::channel();
+    let worker = catalog.clone();
+    let job = crate::task::spawn_supervised("reset-catalog-test", async move {
+        worker
+            .run::<_, CatalogError>(move |connection| {
+                assert_eq!(
+                    sql::scalar::<i64>(connection, "SELECT count(*) FROM buckets", [])?,
+                    1
+                );
+                started.send(()).unwrap();
+                finish.recv().unwrap();
+                Ok(())
+            })
+            .await
+    });
+    running.await.unwrap();
+    let mut reset = std::pin::pin!(admin.reset());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut reset)
+            .await
+            .is_err()
+    );
+    release.send(()).unwrap();
+    job.await.unwrap().unwrap();
+    let outcome = reset.await.unwrap();
+    assert_eq!((outcome.buckets, outcome.objects), (1, 0));
+    assert!(
+        admin
+            .get_bucket(&BucketName::new("reset-bucket").unwrap())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn reset_wait_allows_catalog_reads_while_upload_lease_is_active() {
+    let (_dir, catalog, admin) = setup().await;
+    let upload = catalog.admit_object_upload().unwrap();
+    let mut reset = std::pin::pin!(admin.reset());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut reset)
+            .await
+            .is_err()
+    );
+    assert!(
+        admin
+            .get_bucket(&BucketName::new("reset-bucket").unwrap())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    drop(upload);
+    assert_eq!(reset.await.unwrap().buckets, 1);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset() {
+    let (_dir, catalog, admin) = setup().await;
+    let upload = catalog.admit_object_upload().unwrap();
+    let reads = catalog.0.admin_reads.available_permits();
+    let waiters = catalog.0.admin_waiters.available_permits();
+    for hold_execution in [false, true] {
+        let held = hold_execution.then(|| catalog.0.execution.clone().try_acquire_owned().unwrap());
+        let execution = catalog.0.execution.available_permits();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), admin.reset())
+                .await
+                .is_err()
+        );
+        assert_eq!(catalog.0.admin_reads.available_permits(), reads);
+        assert_eq!(catalog.0.admin_waiters.available_permits(), waiters);
+        assert_eq!(catalog.0.execution.available_permits(), execution);
+        drop(held);
+    }
+    assert!(
+        admin
+            .get_bucket(&BucketName::new("reset-bucket").unwrap())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    drop(upload);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(3), admin.reset())
+            .await
+            .unwrap()
+            .unwrap()
+            .buckets,
+        1
+    );
+    tokio::time::timeout(Duration::from_secs(3), catalog.close())
+        .await
+        .unwrap()
+        .unwrap();
 }
 
 #[tokio::test]
