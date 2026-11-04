@@ -44,7 +44,7 @@ impl RootLease {
         }).await.map_err(RootError::from)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) async fn clear_path_stop(
         &self,
         binding: SyncBinding,

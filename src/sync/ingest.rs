@@ -134,7 +134,7 @@ async fn forget_missing_directories(root: &RootLease, interrupt: Interrupt<'_>) 
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(super) async fn rescan(
     catalog: &Catalog,
     root: &RootLease,

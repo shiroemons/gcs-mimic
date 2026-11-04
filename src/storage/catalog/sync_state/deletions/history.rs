@@ -27,7 +27,7 @@ pub(super) fn automatic_count(
 }
 
 impl RootLease {
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) async fn automatic_deletion_count(&self) -> Result<u64, RootError> {
         let root = self.status().root_id.as_bytes();
         Ok(self

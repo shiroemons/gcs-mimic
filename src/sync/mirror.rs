@@ -29,7 +29,7 @@ use std::{
 
 #[cfg(test)]
 use super::Hook;
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 use crate::storage::sync_state::writeback::Limits;
 #[cfg(test)]
 tokio::task_local! { static EXPORT_HOOK: std::sync::Arc<Hook>; }
@@ -913,7 +913,7 @@ impl LiveControl<'_> {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     async fn handle_authorized(&mut self, request: Command) -> io::Result<()> {
         self.handle_with_history(request, None).await
     }

@@ -246,6 +246,7 @@ fn publish_marker(
         let mut file = fsutil::create_regular_at(root, MARKER_STAGING.as_ref())?;
         #[cfg(test)]
         {
+            #[cfg(unix)]
             super::super::fault::file_created(&owns.path.join(MARKER_STAGING));
             failure_boundary(&owns.path, "created")?;
             super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerWrite)?;
