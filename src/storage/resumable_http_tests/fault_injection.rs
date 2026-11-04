@@ -12,6 +12,7 @@ use super::*;
 use crate::storage::catalog::fault::Crash;
 use crate::storage::catalog::fault::{Fault, Step};
 use crate::storage::test_fixtures::{PERMISSIVE, live, read_all as read_body};
+use crate::test_support::{StoredObjects, UploadCleanup};
 use std::{io::ErrorKind, path::Path};
 
 const CORRUPT: &str =
@@ -171,6 +172,51 @@ impl Harness {
             "{case}: the write never reached the armed step"
         );
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cleanup_waits_for_owned_work_before_its_first_journal_entry() {
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
+    assert_eq!(h.media("target", b"old").await.status, 200);
+    let before = StoredObjects::read(&h.dir.0);
+    let (entered, waiting) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    h.inject(
+        Step::DiscardProbe,
+        0,
+        Fault::Block {
+            entered: Arc::new(std::sync::Mutex::new(Some(entered))),
+            release: Arc::new(std::sync::Mutex::new(released)),
+        },
+    );
+    let mut stream = TcpStream::connect(&h.address).await.unwrap();
+    stream.write_all(b"POST /upload/storage/v1/b/bucket/o?uploadType=media&name=target HTTP/1.1\r\nHost: local\r\nContent-Length: 100\r\nConnection: close\r\n\r\npartial").await.unwrap();
+    stream.shutdown().await.unwrap();
+    drop(stream);
+    tokio::time::timeout(Duration::from_secs(3), waiting)
+        .await
+        .unwrap()
+        .unwrap();
+    let observed = UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads());
+    assert_eq!(observed.staging, 0);
+    assert_eq!(observed.blobs, observed.objects);
+    assert_eq!(observed.pending, 0);
+    assert_eq!(observed.derived, 0);
+    assert!(observed.active > 0);
+    assert!(
+        !observed.is_complete(),
+        "owned cleanup is still blocked: {observed:?}"
+    );
+    release.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads()).is_complete() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(StoredObjects::read(&h.dir.0), before);
+    h.stop().await;
 }
 
 /// Faults at every step of a single-request upload, from the first body write to the
@@ -898,11 +944,12 @@ async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
                 vec![b'a'; 100 * 1024],
                 "{case}"
             );
-            // Detached request cleanup commits SQL before releasing files and draining its journal.
+            let before_cleanup = StoredObjects::read(&h.dir.0);
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                while count(&h.dir.0, "SELECT count(*) FROM derived_transfers") != 0
-                    || !staged(&h.dir.0).is_empty()
-                    || count(&h.dir.0, "SELECT count(*) FROM pending_blob_deletions") != 0
+                // Cancelled derived cleanup retains a writer beyond the publication upload.
+                while !h.state.catalog.session_writers_idle()
+                    || !UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads())
+                        .is_complete()
                 {
                     tokio::task::yield_now().await;
                 }
@@ -915,6 +962,7 @@ async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
                 "{case}"
             );
             assert_no_leaks(&h.dir.0, &case);
+            assert_eq!(StoredObjects::read(&h.dir.0), before_cleanup, "{case}");
         }
         let reply = derive(&h, operation).await;
         assert_eq!(reply.status, 200, "{operation}");
