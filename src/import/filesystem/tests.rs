@@ -2,6 +2,55 @@ use super::*;
 use crate::storage::{change_journal::ChangeKind, failure::unavailable};
 
 #[test]
+fn permanently_failed_import_resume_preserves_the_invalid_data_error() {
+    let dir = crate::test_support::TestDir::new();
+    let source = dir.0.join("source");
+    fs::create_dir_all(source.join("bucket-one")).unwrap();
+    let options = Options::new(
+        source,
+        dir.0.join("destination"),
+        super::super::MetadataMode::Sidecar,
+        super::super::SourcePlatform::Unix,
+    );
+    assert!(
+        execute(
+            options.clone(),
+            super::super::test_support::StopAfterLines(1),
+            Vec::new()
+        )
+        .is_err()
+    );
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let catalog = Catalog::open(&options.destination).await.unwrap();
+        let journal = catalog.import_journal();
+        let state = journal.progress().await.unwrap().unwrap();
+        assert!(state.active);
+        journal
+            .fail(state.binding, "checksum mismatch")
+            .await
+            .unwrap();
+        catalog.close().await.unwrap();
+    });
+    let before = fs::read(options.destination.join("catalog.sqlite3")).unwrap();
+    let error = execute(options.clone(), Vec::new(), Vec::new()).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "import permanently failed: checksum mismatch; preserve the source snapshot and restart into a new empty destination"
+    );
+    let ImportError::Io(error) = error else {
+        panic!("expected invalid import input")
+    };
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert!(
+        matches!(error.get_ref().unwrap().downcast_ref::<ResumeError>(), Some(ResumeError::PermanentlyFailed { reason }) if reason == "checksum mismatch")
+    );
+    assert_eq!(
+        fs::read(options.destination.join("catalog.sqlite3")).unwrap(),
+        before
+    );
+}
+
+#[test]
 fn import_refuses_an_unbound_catalog_without_changing_destination_bytes() {
     for lock_present in [true, false] {
         let dir = crate::test_support::TestDir::new();
