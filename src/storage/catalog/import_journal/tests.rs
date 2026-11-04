@@ -24,7 +24,14 @@ fn element(ordinal: i64) -> ImportElement {
 
 #[tokio::test]
 async fn import_resume_checks_the_binding_before_schema_migration_and_recovery() {
-    for importing in [false, true] {
+    for (importing, lock_present) in [
+        (false, true),
+        (true, true),
+        #[cfg(unix)]
+        (false, false),
+        #[cfg(unix)]
+        (true, false),
+    ] {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let binding = binding(0);
@@ -41,6 +48,9 @@ async fn import_resume_checks_the_binding_before_schema_migration_and_recovery()
         super::super::test_support::downgrade_deletion_history_schema(&old);
         old.pragma_update(None, "user_version", 49).unwrap();
         old.close().unwrap();
+        if !lock_present {
+            std::fs::remove_file(dir.0.join("catalog.lock")).unwrap();
+        }
         let before = std::fs::read(&path).unwrap();
         let stage = dir.0.join("staging/00000000000000000000000000000001");
         std::fs::write(&stage, b"keep until authorized recovery").unwrap();
@@ -49,6 +59,7 @@ async fn import_resume_checks_the_binding_before_schema_migration_and_recovery()
             Err(CatalogError::PreconditionFailed)
         ));
         assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(dir.0.join("catalog.lock").exists(), lock_present);
         assert_eq!(
             std::fs::read(&stage).unwrap(),
             b"keep until authorized recovery"
@@ -74,6 +85,8 @@ async fn import_resume_checks_the_binding_before_schema_migration_and_recovery()
             Catalog::open(&dir.0).await.unwrap()
         };
         assert!(!stage.exists());
+        assert!(dir.0.join("catalog.lock").is_file());
+        assert!(Catalog::open(&dir.0).await.is_err());
         opened.close().await.unwrap();
         let current = Connection::open(&path).unwrap();
         assert_eq!(

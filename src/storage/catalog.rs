@@ -1052,16 +1052,17 @@ impl Catalog {
             let (lock, stored_version, mut connection) = if let Some((_, bytes)) = memory_limits {
                 (None, 0, open_memory(bytes)?)
             } else {
-                let lock = if resume_source.is_some() {
-                    lock::acquire_existing(&data_dir)?
-                } else {
-                    lock::acquire(&data_dir)?
-                };
                 let path = data_dir.join("catalog.sqlite3");
-                let (version, readonly) = inspect_catalog(&path)?;
-                if let Some(source) = resume_source {
-                    import_journal::verify_resume(&readonly, version, source)?;
-                }
+                let (lock, (version, readonly)) = if let Some(source) = resume_source {
+                    lock::acquire_import(&data_dir, || {
+                        let (version, readonly) = inspect_catalog(&path)?;
+                        import_journal::verify_resume(&readonly, version, source)?;
+                        Ok((version, readonly))
+                    })?
+                } else {
+                    let lock = lock::acquire(&data_dir)?;
+                    (lock, inspect_catalog(&path)?)
+                };
                 drop(readonly);
                 (Some(lock), version, open_writable(&path)?)
             };

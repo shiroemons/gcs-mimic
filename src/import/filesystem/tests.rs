@@ -1,8 +1,7 @@
 use super::*;
 use crate::storage::{change_journal::ChangeKind, failure::unavailable};
 
-#[test]
-fn permanently_failed_import_resume_preserves_the_invalid_data_error() {
+fn interrupted_import() -> (crate::test_support::TestDir, Options) {
     let dir = crate::test_support::TestDir::new();
     let source = dir.0.join("source");
     fs::create_dir_all(source.join("bucket-one")).unwrap();
@@ -20,6 +19,46 @@ fn permanently_failed_import_resume_preserves_the_invalid_data_error() {
         )
         .is_err()
     );
+    (dir, options)
+}
+
+#[test]
+fn missing_import_lock_resumes_or_explains_how_to_restore_it() {
+    let (_dir, options) = interrupted_import();
+    fs::remove_file(options.destination.join("catalog.lock")).unwrap();
+    #[cfg(unix)]
+    {
+        assert!(
+            execute(options.clone(), Vec::new(), Vec::new())
+                .unwrap()
+                .complete
+        );
+        assert!(options.destination.join("catalog.lock").is_file());
+    }
+    #[cfg(not(unix))]
+    {
+        let before = fs::read(options.destination.join("catalog.sqlite3")).unwrap();
+        let error = execute(options.clone(), Vec::new(), Vec::new()).unwrap_err();
+        assert!(error.to_string().contains("restore catalog.lock"));
+        let ImportError::Io(error) = error else {
+            panic!("expected invalid import input")
+        };
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(matches!(
+            error.get_ref().unwrap().downcast_ref::<ResumeError>(),
+            Some(ResumeError::MissingLock)
+        ));
+        assert_eq!(
+            fs::read(options.destination.join("catalog.sqlite3")).unwrap(),
+            before
+        );
+        assert!(!options.destination.join("catalog.lock").exists());
+    }
+}
+
+#[test]
+fn permanently_failed_import_resume_preserves_the_invalid_data_error() {
+    let (_dir, options) = interrupted_import();
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let catalog = Catalog::open(&options.destination).await.unwrap();
         let journal = catalog.import_journal();
@@ -86,7 +125,21 @@ fn import_refuses_an_unbound_catalog_without_changing_destination_bytes() {
             super::super::MetadataMode::Sidecar,
             super::super::SourcePlatform::Unix,
         );
-        assert!(execute(options, Vec::new(), Vec::new()).is_err());
+        let error = execute(options, Vec::new(), Vec::new()).unwrap_err();
+        #[cfg(unix)]
+        assert!(
+            error
+                .to_string()
+                .starts_with("data-dir: destination is not the same unfinished import"),
+            "{error}"
+        );
+        #[cfg(not(unix))]
+        if !lock_present {
+            assert!(
+                error.to_string().contains("restore catalog.lock"),
+                "{error}"
+            );
+        }
         assert_eq!(
             fs::read(destination.join("catalog.sqlite3")).unwrap(),
             before

@@ -62,7 +62,11 @@ pub struct ImportJournal(Catalog);
 #[derive(Debug)]
 pub(crate) enum ResumeError {
     Catalog(CatalogError),
-    PermanentlyFailed { reason: String },
+    PermanentlyFailed {
+        reason: String,
+    },
+    #[cfg(not(unix))]
+    MissingLock,
 }
 
 impl fmt::Display for ResumeError {
@@ -73,6 +77,8 @@ impl fmt::Display for ResumeError {
                 f,
                 "import permanently failed: {reason}; preserve the source snapshot and restart into a new empty destination"
             ),
+            #[cfg(not(unix))]
+            Self::MissingLock => f.write_str("catalog.lock is missing; stop any server using the destination, restore catalog.lock and retry the same unfinished import"),
         }
     }
 }
@@ -82,6 +88,8 @@ impl Error for ResumeError {
         match self {
             Self::Catalog(error) => Some(error),
             Self::PermanentlyFailed { .. } => None,
+            #[cfg(not(unix))]
+            Self::MissingLock => None,
         }
     }
 }

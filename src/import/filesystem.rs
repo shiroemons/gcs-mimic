@@ -446,6 +446,10 @@ async fn run(
             } else if let Some(ResumeError::PermanentlyFailed { reason }) = crate::error::causes(&error).find_map(|cause| cause.downcast_ref::<ResumeError>()) {
                 io::Error::new(io::ErrorKind::InvalidData, ResumeError::PermanentlyFailed { reason: reason.clone() }).into()
             } else {
+                #[cfg(not(unix))]
+                if crate::error::causes(&error).any(|cause| matches!(cause.downcast_ref::<ResumeError>(), Some(ResumeError::MissingLock))) {
+                    return io::Error::new(io::ErrorKind::InvalidData, ResumeError::MissingLock).into();
+                }
                 ImportError::from(error)
             }
         })?
