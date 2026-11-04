@@ -27,7 +27,10 @@ retrieved HTML; Discovery and protobuf do not define the XML request grammar.
 
 The comparison baseline remains fake-gcs-server v1.56.1, commit
 `896ece51e49eed0946089f3089f6343855c0d106`. Its behavior does not establish
-Google compatibility. No real-cloud request is part of this verification.
+Google compatibility. The original local verification did not contact Google;
+the [live framing observation](../evidence/xml-framing-provider-observations.md)
+recorded on 2026-11-04 separately checks request framing against a non-existent
+bucket without creating resources.
 The completion reference was retrieved again on 2026-10-31; its updated digest
 above replaces the previous snapshot for that operation only.
 
@@ -54,6 +57,13 @@ framing, normally `Content-Length: 0`; omitting both headers returns 411
 XML object copy also require explicit framing. Every operation retains rejection
 of ambiguous framing, invalid Content-Length, non-chunked Transfer-Encoding,
 oversized declared bodies and unexpected nonempty bodies.
+
+The recorded HTTP/1.1 responses support this distinction: unframed initiation
+returns 411, while framed initiation and unframed list/abort requests reach
+bucket lookup (`NoSuchBucket`). The HTTP API serves only HTTP/1.1; HTTP/2
+accepted every recorded request through framing. Google's front-end 411 uses
+an HTTP/1.0 HTML response; the local HTTP/1.1 XML `MissingContentLength` body is
+a known difference. Successful operations and chunked framing were not probed.
 
 Part numbers range from 1 through 10000 and need not be contiguous. Completion
 requires a nonempty, strictly increasing manifest. Missing parts or mismatched

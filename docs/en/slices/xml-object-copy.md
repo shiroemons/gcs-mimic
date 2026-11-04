@@ -27,6 +27,15 @@ and non-ASCII bytes must be encoded. The source generation is selected with
 Existing path-style and configured virtual-host routing, bearer authentication,
 V4 signing and XML CORS apply. V2 retains its path-style restrictions.
 
+The [live framing observation](../evidence/xml-framing-provider-observations.md)
+recorded on 2026-11-04 used authenticated curl against a non-existent bucket,
+without creating resources. An HTTP/1.1 copy without Content-Length returned
+411; `Content-Length: 0` reached bucket lookup (`NoSuchBucket`). Both HTTP/2
+requests reached lookup, but the emulator's HTTP API serves only HTTP/1.1.
+Google's front-end 411 uses an HTTP/1.0 HTML response; the local HTTP/1.1 XML
+`MissingContentLength` body is a known difference. Successful copy and chunked
+framing were not probed.
+
 Supported conditions are:
 
 - Source `x-goog-copy-source-if-generation-match` and `x-goog-copy-source-if-metageneration-match`, checked while pinning the selected immutable source; metageneration needs a selected or matched generation.
