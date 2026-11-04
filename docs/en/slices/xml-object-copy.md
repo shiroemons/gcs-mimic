@@ -70,17 +70,21 @@ or composite metadata. This preserves existing XML ETag semantics.
 ## Explicit limits
 
 - Self-copy metadata updates, source date validators, ETag wildcards/lists/weak validators, copy invocation-token replay, explicit ACL/KMS/retention/custom-time request headers and other unsupported XML fields return 400 `InvalidArgument`. Use supported JSON metadata updates for self-copy. They do not silently publish a new generation with different semantics.
-- Request bodies must be empty. Existing framing, header, connection, object-size, catalog-admission and request-deadline bounds apply.
+- Request bodies must be empty and explicitly framed with Content-Length or chunked Transfer-Encoding. Omitting both returns 411 `MissingContentLength` without changing the destination. Existing header, connection, object-size, catalog-admission and request-deadline bounds apply.
 - There is no new SQL, schema, staging/publish protocol or durability seam. The adapter reuses source pinning, ephemeral derived transfer, bounded advance, publication, cancellation cleanup and startup recovery. It never reads an object or whole catalog into memory.
 - Official Rust Arrow `object_store`, container/browser checks and real-cloud differential verification remain integration work. Parent feature status remains PARTIAL.
 
 ## Acceptance
+
+The framing regression on 2026-11-04 passed `cargo check --locked` and
+`cargo test --locked --test it_xml_auth xml_copy` (8 passed).
 
 `tests/it_xml_auth/xml_storage_http.rs` exercises the following wire behavior:
 
 | Test | Behavior |
 | --- | --- |
 | `xml_copy_selects_generation_and_copies_or_replaces_metadata_with_integrity` | Encoded source names, source generation/metageneration/ETag, inherited/replaced metadata, MD5/CRC32C, old generation selection, unchanged source and restart |
+| `xml_copy_requires_framing_and_preserves_destination_when_omitted` | Missing framing returns 411 with unchanged destination metadata/bytes; Content-Length: 0 permits the copy |
 | `xml_copy_failed_conditions_digests_and_unsupported_inputs_preserve_destination` | Source/destination 412, malformed/mismatched digests, invalid/duplicate headers, unsupported inputs and complete destination metadata/bytes preservation |
 | `xml_copy_create_only_condition_has_one_concurrent_winner` | Four concurrent create-only copies publish exactly one generation |
 | `xml_copy_requires_source_get_destination_create_and_overwrite_delete` | Strict source read/destination create/overwrite-delete permissions, invalid credentials and source grant revocation |

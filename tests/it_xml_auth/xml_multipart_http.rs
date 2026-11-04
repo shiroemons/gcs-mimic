@@ -52,8 +52,12 @@ fn multipart_bodyless_operations_accept_omitted_framing() {
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
     let begun = without_framing(&server, "POST", "/multipart-bucket/value?uploads");
-    begun.status(200);
-    let id = tag(&begun.body, "UploadId");
+    begun.status(411);
+    assert_eq!(tag(&begun.body, "Code"), "MissingContentLength");
+    let empty = without_framing(&server, "GET", "/multipart-bucket?uploads");
+    empty.status(200);
+    assert!(!empty.body.contains("<Upload>"));
+    let id = begin(&server, "value", "");
     let path = format!("/multipart-bucket/value?uploadId={id}");
     let listed = without_framing(&server, "GET", &path);
     listed.status(200);

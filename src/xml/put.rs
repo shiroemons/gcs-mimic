@@ -69,14 +69,21 @@ pub(super) enum Signing {
     Streaming,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Framing {
+    Required,
+    OptionalEmpty,
+}
+
 pub(super) fn headers(
     headers: &HeaderMap,
     max_bytes: u64,
     signing: Signing,
+    framing: Framing,
 ) -> Result<Headers, Error> {
     reject_unsupported_headers(headers, signing)?;
     let conditions = conditions(headers)?;
-    validate_framing(headers, max_bytes)?;
+    validate_framing(headers, max_bytes, framing)?;
     let (content_type, expected) = content_type_and_hashes(headers, conditions)?;
     let metadata = metadata(headers)?;
     let sha256 = if signing == Signing::Streaming {
@@ -152,7 +159,7 @@ pub(super) fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error>
     Ok(conditions)
 }
 
-fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
+fn validate_framing(headers: &HeaderMap, max_bytes: u64, framing: Framing) -> Result<(), Error> {
     let length = single(headers, "content-length")?
         .map(|raw| {
             raw.parse::<u64>()
@@ -170,7 +177,7 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
     if chunked.is_some() && length.is_some() {
         return Err(Error::invalid("Ambiguous body framing."));
     }
-    if max_bytes != 0 && length.is_none() && chunked.is_none() {
+    if framing == Framing::Required && length.is_none() && chunked.is_none() {
         return Err(Error::new(
             XmlCode::MissingContentLength,
             "Content-Length or chunked transfer encoding is required.",
@@ -190,9 +197,16 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
 
 #[test]
 fn empty_request_framing_keeps_header_validation() {
-    for max in [0, 1] {
+    for (max, framing) in [
+        (0, Framing::OptionalEmpty),
+        (0, Framing::Required),
+        (1, Framing::Required),
+    ] {
         for (values, code) in [
-            (vec![], (max != 0).then_some(XmlCode::MissingContentLength)),
+            (
+                vec![],
+                (framing == Framing::Required).then_some(XmlCode::MissingContentLength),
+            ),
             (vec![("content-length", "0")], None),
             (vec![("transfer-encoding", "chunked")], None),
             (
@@ -225,11 +239,11 @@ fn empty_request_framing_keeps_header_validation() {
                 headers.append(name, value.parse().unwrap());
             }
             assert_eq!(
-                validate_framing(&headers, max)
+                validate_framing(&headers, max, framing)
                     .err()
                     .map(|error| error.code),
                 code,
-                "{headers:?}, max={max}"
+                "{headers:?}, max={max}, framing={framing:?}"
             );
         }
     }
@@ -423,7 +437,12 @@ pub(crate) async fn respond(
         mut metadata,
         sha256,
         decoded_length,
-    } = headers(request.headers(), config.max_object_bytes, signing)?;
+    } = headers(
+        request.headers(),
+        config.max_object_bytes,
+        signing,
+        Framing::Required,
+    )?;
     if streaming.is_some() {
         metadata.content_encoding = streaming::stored_encoding(request.headers())?;
     }

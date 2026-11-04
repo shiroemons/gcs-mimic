@@ -526,6 +526,45 @@ fn xml_bucket_list_v2_signatures_reject_host_transfer_and_bind_versions() {
 }
 
 #[test]
+fn xml_copy_requires_framing_and_preserves_destination_when_omitted() {
+    let data = TestDir::new();
+    let server = Server::start(&data, &[]);
+    server.bucket("", "list-bucket");
+    server.put("", "source", "source bytes");
+    server.put("", "destination", "previous bytes");
+    let previous = server.resource("", "list-bucket", "destination");
+    let reply = common::http::Client {
+        address: &server.address,
+        host: "localhost",
+        headers: "",
+        timeout: Duration::from_secs(30),
+    }
+    .raw_eof(
+        "PUT /list-bucket/destination HTTP/1.1\r\nHost: localhost\r\nx-goog-copy-source: /list-bucket/source\r\nConnection: close\r\n\r\n",
+        b"",
+    )
+    .into_text();
+    reply.expect(411);
+    assert!(reply.body.contains("<Code>MissingContentLength</Code>"));
+    assert_eq!(server.resource("", "list-bucket", "destination"), previous);
+    assert_eq!(
+        server.request("GET", "/list-bucket/destination", "", ""),
+        (200, "previous bytes".into())
+    );
+    let copied = server.request(
+        "PUT",
+        "/list-bucket/destination",
+        "x-goog-copy-source: /list-bucket/source\r\n",
+        "",
+    );
+    assert_eq!(copied.0, 200, "{}", copied.1);
+    assert_eq!(
+        server.request("GET", "/list-bucket/destination", "", ""),
+        (200, "source bytes".into())
+    );
+}
+
+#[test]
 fn xml_copy_selects_generation_and_copies_or_replaces_metadata_with_integrity() {
     let data = TestDir::new();
     let server = Server::start(&data, &[]);
