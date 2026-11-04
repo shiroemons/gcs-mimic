@@ -384,7 +384,8 @@ fn stream_error(error: Status, failed: Option<i64>, pending: impl Iterator<Item 
         .iter()
         .position(|detail| detail.type_url == READ_ERROR_TYPE);
     let mut detail = index
-        .and_then(|index| pb::BidiReadObjectError::decode(rpc.details[index].value.as_slice()).ok())
+        .and_then(|index| rpc.details.get(index))
+        .and_then(|detail| pb::BidiReadObjectError::decode(detail.value.as_slice()).ok())
         .unwrap_or_default();
     let mut ids = detail
         .read_range_errors
@@ -423,8 +424,8 @@ fn stream_error(error: Status, failed: Option<i64>, pending: impl Iterator<Item 
         type_url: READ_ERROR_TYPE.into(),
         value: detail.encode_to_vec(),
     };
-    if let Some(index) = index {
-        rpc.details[index] = detail;
+    if let Some(existing) = index.and_then(|index| rpc.details.get_mut(index)) {
+        *existing = detail;
     } else {
         rpc.details.push(detail);
     }

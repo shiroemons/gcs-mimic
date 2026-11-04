@@ -3,7 +3,7 @@ use super::{convert, names};
 use crate::auth::Caller;
 use crate::grpc::validate::bucket_conditions;
 use crate::{bucket::CatalogError, json};
-use serde_json::json;
+use serde_json::{Map, Value, json};
 use tonic::{Request, Response, Status};
 
 fn require_caller(caller: Option<Caller<'_>>) -> Result<(), Status> {
@@ -95,7 +95,7 @@ fn bucket_mask(
     mask: Option<&prost_types::FieldMask>,
 ) -> Result<pb::Bucket, Status> {
     validate_bucket_mask(mask)?;
-    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty() && mask.paths[0] != "*") else {
+    let Some(mask) = mask.filter(|mask| mask.paths.first().is_some_and(|path| path != "*")) else {
         return Ok(bucket);
     };
     let mut selected = pb::Bucket::default();
@@ -135,7 +135,7 @@ fn clear_default<T: Default + PartialEq>(field: &mut Option<T>) {
 }
 
 /// Adds the retention, soft-delete and IAM settings of a CreateBucket request to `body`.
-fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<(), Status> {
+fn create_policies(bucket: &pb::Bucket, body: &mut Map<String, Value>) -> Result<(), Status> {
     for (field, key, policy) in [
         (
             "retentionPolicy",
@@ -173,22 +173,30 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
                 } else {
                     crate::bucket::soft_delete_retention(duration.seconds)?;
                 }
-                body[field] = json!({key: duration.seconds.to_string()});
+                body.insert(field.into(), json!({key: duration.seconds.to_string()}));
             }
         }
     }
     if let Some(iam) = &bucket.iam_config {
+        let mut config = Map::new();
         if !iam.public_access_prevention.is_empty() {
             crate::bucket::public_access_prevention(&iam.public_access_prevention)?;
-            body["iamConfiguration"]["publicAccessPrevention"] =
-                json!(iam.public_access_prevention);
+            config.insert(
+                "publicAccessPrevention".into(),
+                json!(iam.public_access_prevention),
+            );
         }
         if let Some(uniform) = &iam.uniform_bucket_level_access {
             if uniform.lock_time.is_some() {
                 return Err(super::status::unsupported("create bucket IAM lock_time"));
             }
-            body["iamConfiguration"]["uniformBucketLevelAccess"] =
-                json!({"enabled": uniform.enabled});
+            config.insert(
+                "uniformBucketLevelAccess".into(),
+                json!({"enabled": uniform.enabled}),
+            );
+        }
+        if !config.is_empty() {
+            body.insert("iamConfiguration".into(), Value::Object(config));
         }
     }
     Ok(())
@@ -196,19 +204,28 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
 
 /// Builds create-only JSON metadata without introducing update-mask reset defaults.
 pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_json::Value, Status> {
-    let mut body = json!({"name": name, "defaultEventBasedHold": bucket.default_event_based_hold});
+    let mut body = Map::from_iter([
+        ("name".into(), json!(name)),
+        (
+            "defaultEventBasedHold".into(),
+            json!(bucket.default_event_based_hold),
+        ),
+    ]);
     for (field, value) in [
         ("location", &bucket.location),
         ("storageClass", &bucket.storage_class),
     ] {
         if !value.is_empty() {
-            body[field] = json!(value);
+            body.insert(field.into(), json!(value));
         }
     }
-    body["labels"] = json!(bucket.labels);
-    body["cors"] = crate::bucket::cors_value(&super::bucket_update::cors_rules(&bucket.cors)?);
+    body.insert("labels".into(), json!(bucket.labels));
+    body.insert(
+        "cors".into(),
+        crate::bucket::cors_value(&super::bucket_update::cors_rules(&bucket.cors)?),
+    );
     if let Some(versioning) = &bucket.versioning {
-        body["versioning"] = json!({"enabled": versioning.enabled});
+        body.insert("versioning".into(), json!({"enabled": versioning.enabled}));
     }
     create_policies(bucket, &mut body)?;
     if let Some(autoclass) = bucket.autoclass.as_ref() {
@@ -218,13 +235,14 @@ pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_jso
                 "create bucket autoclass output fields",
             ));
         }
-        body["autoclass"] = json!({"enabled": autoclass.enabled});
+        let mut config = Map::from_iter([("enabled".into(), json!(autoclass.enabled))]);
         if let Some(class) = &autoclass.terminal_storage_class {
             crate::bucket::autoclass::validate_terminal_storage_class(class)?;
-            body["autoclass"]["terminalStorageClass"] = class.clone().into();
+            config.insert("terminalStorageClass".into(), class.clone().into());
         }
+        body.insert("autoclass".into(), Value::Object(config));
     }
-    Ok(body)
+    Ok(Value::Object(body))
 }
 
 fn create_metadata(
