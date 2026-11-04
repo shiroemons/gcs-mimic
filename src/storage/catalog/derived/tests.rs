@@ -1,3 +1,4 @@
+use super::cleanup::discard_transfer;
 use super::*;
 use crate::storage::test_fixtures::{
     PERMISSIVE, body, bucket, live, permissive_upload, read_all, version,
