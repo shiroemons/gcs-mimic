@@ -26375,15 +26375,835 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "xml-content-length-range",
+      "steps": [
+        {
+          "fingerprint": "9adf5af134e539e8",
+          "name": "put-exact-size",
+          "request": "PUT /<bucket>/xml-content-length-range-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ef5d9710c0d5e477",
+          "name": "put-at-minimum",
+          "request": "PUT /<bucket>/xml-content-length-range-1-min",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5dda15569d8d7f56",
+          "name": "put-at-maximum",
+          "request": "PUT /<bucket>/xml-content-length-range-1-max",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "12935f38ce49c313",
+          "name": "put-empty-zero-range",
+          "request": "PUT /<bucket>/xml-content-length-range-1-empty",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=AAAAAA==, md5=1B2M2Y8AsgTpgAmY7PhCfg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "0",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3133cecc532d43b6",
+          "name": "put-too-large",
+          "request": "PUT /<bucket>/xml-content-length-range-1-large",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "EntityTooLarge"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Your proposed upload is larger than the maximum object size specified in your Policy Document."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Content-length exceeds upper bound on range"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "56e7230ed56b45f4",
+          "name": "get-after-too-large",
+          "request": "GET /<bucket>/xml-content-length-range-1-large",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "NoSuchKey"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The specified key does not exist."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "No such object: <bucket>/xml-content-length-range-1-large"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "0f3de841a81bbfcb",
+          "name": "put-too-small",
+          "request": "PUT /<bucket>/xml-content-length-range-1-small",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "EntityTooSmall"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Your proposed upload is smaller than the minimum object size specified in your Policy Document."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Content-length smaller than lower bound on range"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "80b6be4c590d90a0",
+          "name": "get-after-too-small",
+          "request": "GET /<bucket>/xml-content-length-range-1-small",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "NoSuchKey"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The specified key does not exist."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "No such object: <bucket>/xml-content-length-range-1-small"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "4e461b9e106bf4b5",
+          "name": "put-overwrite-too-large",
+          "request": "PUT /<bucket>/xml-content-length-range-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "EntityTooLarge"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Your proposed upload is larger than the maximum object size specified in your Policy Document."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Content-length exceeds upper bound on range"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "fc896f693d515f7e",
+          "name": "get-after-overwrite-too-large",
+          "request": "GET /<bucket>/xml-content-length-range-1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "hello"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "05f67a09a344b43a",
+          "name": "put-single-number",
+          "request": "PUT /<bucket>/xml-content-length-range-1-single",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "a6b922980d7493ce",
+          "name": "put-reversed",
+          "request": "PUT /<bucket>/xml-content-length-range-1-reversed",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  },
+                  {
+                    "name": "Details",
+                    "text": "x-goog-content-length-range: '6,5' is invalid"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "09c917b11c85264f",
+          "name": "put-non-numeric",
+          "request": "PUT /<bucket>/xml-content-length-range-1-text",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  },
+                  {
+                    "name": "Details",
+                    "text": "x-goog-content-length-range: 'a,b' is invalid"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "d5fca4198ba6df5e",
+          "name": "put-spaces",
+          "request": "PUT /<bucket>/xml-content-length-range-1-spaces",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  },
+                  {
+                    "name": "Details",
+                    "text": "x-goog-content-length-range: '1, 10' is invalid"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "b81cf303fe9016d5",
+          "name": "put-three-numbers",
+          "request": "PUT /<bucket>/xml-content-length-range-1-three",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "bb3386db64a4fbff",
+          "name": "put-negative",
+          "request": "PUT /<bucket>/xml-content-length-range-1-negative",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  },
+                  {
+                    "name": "Details",
+                    "text": "range values cannot be negative"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "cd45d91ad4f84c14",
+          "name": "put-negative-max",
+          "request": "PUT /<bucket>/xml-content-length-range-1-negative-max",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  },
+                  {
+                    "name": "Details",
+                    "text": "range values cannot be negative"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "ad7bc738083e2d71",
+          "name": "put-negative-zero",
+          "request": "PUT /<bucket>/xml-content-length-range-1-negative-zero",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "53ded7a83d994528",
+          "name": "put-plus-sign",
+          "request": "PUT /<bucket>/xml-content-length-range-1-plus",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a5c20346686804a6",
+          "name": "put-empty-bound",
+          "request": "PUT /<bucket>/xml-content-length-range-1-open",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  },
+                  {
+                    "name": "Details",
+                    "text": "min and max range values cannot be null"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "b43ef5ae2f51c68b",
+          "name": "put-empty-minimum",
+          "request": "PUT /<bucket>/xml-content-length-range-1-open-min",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  },
+                  {
+                    "name": "Details",
+                    "text": "min and max range values cannot be null"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "a2cce9385c91e326",
+          "name": "put-comma-only",
+          "request": "PUT /<bucket>/xml-content-length-range-1-comma",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  },
+                  {
+                    "name": "Details",
+                    "text": "min and max range values cannot be null"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "46052438d69d7094",
+          "name": "put-leading-zeros",
+          "request": "PUT /<bucket>/xml-content-length-range-1-zeros",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "53edc30107c60028",
+          "name": "put-i64-max",
+          "request": "PUT /<bucket>/xml-content-length-range-1-i64",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "1d5bd391b9ef196f",
+          "name": "put-above-i64",
+          "request": "PUT /<bucket>/xml-content-length-range-1-u64",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "ContentLengthRangeInHeaderIsInvalid"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The x-goog-content-length-range header you specified was invalid"
+                  },
+                  {
+                    "name": "Details",
+                    "text": "x-goog-content-length-range: '0,9223372036854775808' is invalid"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "6ece252608e6f0b4",
+          "name": "get-with-range",
+          "request": "GET /<bucket>/xml-content-length-range-1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "hello"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5477596f18097c96",
+          "name": "copy-with-range",
+          "request": "PUT /<bucket>/xml-content-length-range-1-copy",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "LastModified",
+                    "text": "<time:f3>"
+                  },
+                  {
+                    "name": "ETag",
+                    "text": "<etag:quoted>"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "CopyObjectResult"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        }
+      ]
     }
   ],
   "format": 2,
-  "generated": "2026-11-02",
+  "generated": "2026-11-04",
   "recorded_dates": [
     "2026-11-01",
-    "2026-11-02"
+    "2026-11-02",
+    "2026-11-04"
   ],
-  "requests": 811,
+  "requests": 855,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

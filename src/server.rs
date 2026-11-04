@@ -1154,13 +1154,23 @@ async fn validate_bodyless_post(
     Ok(())
 }
 
+/// How `stream_upload` stopped reading a body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Streamed {
+    /// The body ended after this many bytes, all forwarded to the catalog.
+    Complete(u64),
+    /// The catalog stopped accepting the body first and reports its own failure, so the bytes
+    /// counted so far say nothing about the body's size.
+    Stopped,
+}
+
 pub(crate) async fn stream_upload(
     mut body: RequestBody,
     sender: &upload_drive::UploadSender,
     max_bytes: u64,
     activity: &watch::Sender<ObjectActivity>,
     expected_sha256: Option<[u8; 32]>,
-) -> Result<(), ObjectError> {
+) -> Result<Streamed, ObjectError> {
     let mut size = 0_u64;
     let mut sha256 = expected_sha256.map(|_| ring::digest::Context::new(&ring::digest::SHA256));
     while let Some(frame) = body.frame().await {
@@ -1183,7 +1193,7 @@ pub(crate) async fn stream_upload(
             let part = bytes.split_to(bytes.len().min(64 * 1024));
             if sender.send(Ok(UploadChunk::Data(part))).await.is_err() {
                 // Preserve the catalog's original failure when it stops accepting the body.
-                return Ok(());
+                return Ok(Streamed::Stopped);
             }
         }
     }
@@ -1193,7 +1203,7 @@ pub(crate) async fn stream_upload(
     {
         return Err(ObjectError::ChecksumMismatch);
     }
-    Ok(())
+    Ok(Streamed::Complete(size))
 }
 
 /// Record body progress for an adapter that reads the request body through its own parser.

@@ -101,7 +101,7 @@ pub(super) async fn insert(
     let producer = async {
         stream_upload(request.into_body(), &sender, max_bytes, ctx.activity, None)
             .await
-            .map(|()| UploadEnd::Eof)
+            .map(|_| UploadEnd::Eof)
     };
     let record = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
         .await

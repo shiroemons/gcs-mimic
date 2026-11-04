@@ -168,7 +168,14 @@ fn request_headers(
         Operation::Parts | Operation::Uploads | Operation::Abort => put::Framing::OptionalEmpty,
         Operation::Begin | Operation::Put(_) | Operation::Complete => put::Framing::Required,
     };
-    put::headers(request.headers(), max, signing, framing)
+    let headers = put::headers(request.headers(), max, signing, framing)?;
+    // Only object PUT enforces the range; accepting it here would drop the limit silently.
+    if headers.length_range.is_some() {
+        return Err(Error::unsupported(
+            "x-goog-content-length-range on multipart uploads",
+        ));
+    }
+    Ok(headers)
 }
 
 fn storage_error(error: storage::Error, ctx: ObjectCtx<'_>) -> Error {
@@ -322,7 +329,7 @@ async fn upload_part(
             headers.sha256,
         )
         .await
-        .map(|()| UploadEnd::Eof)
+        .map(|_| UploadEnd::Eof)
     };
     let part = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
         .await

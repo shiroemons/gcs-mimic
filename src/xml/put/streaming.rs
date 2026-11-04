@@ -1,7 +1,10 @@
 //! Incremental signed-chunk decoding keeps unverified bytes in the existing staging upload.
 
 use super::*;
-use crate::{auth::signature::Streaming, server::body_progress};
+use crate::{
+    auth::signature::Streaming,
+    server::{Streamed, body_progress},
+};
 use crate::{object::UploadChunk, server::upload_drive::UploadSender};
 use http_body_util::BodyExt;
 use ring::digest;
@@ -39,29 +42,33 @@ pub(super) fn stored_encoding(headers: &HeaderMap) -> Result<Option<Option<Strin
     Ok(Some((!remaining.is_empty()).then(|| remaining.join(","))))
 }
 
+/// What the request headers declare about the body.
+#[derive(Clone, Copy)]
+pub(super) struct Declared {
+    pub(super) decoded_length: Option<u64>,
+    pub(super) sha256: Option<[u8; 32]>,
+    pub(super) length_range: Option<LengthRange>,
+}
+
 pub(super) async fn upload(
     body: Incoming,
     sender: &UploadSender,
     ctx: ObjectCtx<'_>,
     streaming: Option<Streaming>,
-    decoded: Option<u64>,
-    sha256: Option<[u8; 32]>,
+    declared: Declared,
 ) -> Result<(), Error> {
+    let Declared {
+        decoded_length,
+        sha256,
+        length_range,
+    } = declared;
     let Some(streaming) = streaming else {
-        if let Some(length) = decoded {
+        if let Some(length) = decoded_length {
             return plain(body, sender, ctx, length, sha256).await;
         }
-        return stream_upload(
-            body,
-            sender,
-            ctx.config.max_object_bytes,
-            ctx.activity,
-            sha256,
-        )
-        .await
-        .map_err(|error| storage_error(error, ctx.caller));
+        return http_framed(body, sender, ctx, sha256, length_range).await;
     };
-    let decoded = decoded.ok_or_else(malformed)?;
+    let decoded = decoded_length.ok_or_else(malformed)?;
     let overhead = decoded
         .checked_div(8192)
         .and_then(|chunks| chunks.checked_add(2))
@@ -76,6 +83,26 @@ pub(super) async fn upload(
         ctx,
     };
     signed(reader, sender, streaming, decoded).await
+}
+
+/// Streams a body delimited only by HTTP framing, Content-Length or chunked. A chunked body
+/// declares no size up front, so its length range is checked here.
+async fn http_framed(
+    body: Incoming,
+    sender: &UploadSender,
+    ctx: ObjectCtx<'_>,
+    sha256: Option<[u8; 32]>,
+    length_range: Option<LengthRange>,
+) -> Result<(), Error> {
+    let limit = ctx.config.max_object_bytes;
+    // Stop at the first byte past the range instead of staging the rest of the body.
+    let cap = length_range.map_or(limit, |range| range.cap(limit));
+    match stream_upload(body, sender, cap, ctx.activity, sha256).await {
+        Ok(Streamed::Complete(size)) => length_range.map_or(Ok(()), |range| range.check(size)),
+        Ok(Streamed::Stopped) => Ok(()),
+        Err(ObjectError::TooLarge) if cap < limit => Err(LengthRange::exceeded()),
+        Err(error) => Err(storage_error(error, ctx.caller)),
+    }
 }
 
 async fn plain(

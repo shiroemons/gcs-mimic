@@ -126,6 +126,9 @@ fn options(headers: &HeaderMap, signing: put::Signing) -> Result<put::Headers, E
             selected.remove(name);
         }
     }
+    // Cloud Storage ignored a range the copied object exceeded (recorded 2026-11-04 in the
+    // `xml-content-length-range` differential case): it limits a request body, which a copy lacks.
+    selected.remove(put::length_range::HEADER);
     let options = put::headers(&selected, 0, signing, put::Framing::Required)?;
     if options.sha256.is_some_and(|hash| {
         hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, b"").as_ref()

@@ -28,6 +28,8 @@ fn fixture() -> (TestDir, TestDir, Server) {
 
 mod put;
 
+mod length_range;
+
 mod overrides;
 
 mod pap;
