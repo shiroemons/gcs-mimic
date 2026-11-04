@@ -1,4 +1,10 @@
 use super::*;
+use super::{
+    read::read_range,
+    resource::mask_object,
+    resumable::{Persisted, parse_upload_id, resumable_piece},
+    write::{EndOfStream, MessagePosition},
+};
 use crate::grpc::test_support::{self as fixtures, assert_code, registry};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
