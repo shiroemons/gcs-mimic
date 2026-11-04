@@ -222,7 +222,7 @@ const fn parameter_location(name: &'static str) -> ErrorLocation {
 /// The JSON API query parameters whose rejection Cloud Storage reports with a `parameter`
 /// location. A fixed table lets the error keep a `&'static` reference to the location instead of
 /// owning the client-supplied name.
-static PARAMETERS: [ErrorLocation; 30] = [
+static PARAMETERS: [ErrorLocation; 37] = [
     parameter_location("alt"),
     parameter_location("fields"),
     parameter_location("generation"),
@@ -253,6 +253,13 @@ static PARAMETERS: [ErrorLocation; 30] = [
     parameter_location("endOffset"),
     parameter_location("versions"),
     parameter_location("kmsKeyName"),
+    parameter_location("enableObjectRetention"),
+    parameter_location("returnPartialSuccess"),
+    parameter_location("prettyPrint"),
+    parameter_location("includeFoldersAsPrefixes"),
+    parameter_location("includeTrailingDelimiter"),
+    parameter_location("overrideUnlockedRetention"),
+    parameter_location("copySourceAcl"),
 ];
 
 impl ErrorLocation {
