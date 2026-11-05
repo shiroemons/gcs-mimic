@@ -6,7 +6,7 @@ Creates a bucket, uploads, lists, downloads and deletes an object with `@google-
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.9.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.10.0
 ```
 
 ## Run

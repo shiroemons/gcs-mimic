@@ -11,9 +11,9 @@
 Rails 8.1.4.1、google-cloud-storage 1.62.1、googleauth 1.17.6で確認しています（[検証結果](sdk-active-storage-scenario.md#storageymlだけでエミュレーターを使う)）。
 Rails 8.1.4はgoogleauth 1.17.7でも確認しています。ほかの版は検証していません。
 
-Rails 8.1.4.1のダイレクトアップロードには、0.9.0より新しいgcs-mimicが必要です。
+Rails 8.1.4.1のダイレクトアップロードには、gcs-mimic 0.10.0以降が必要です。
 Rails 8.1.4.1はすべてのダイレクトアップロードURLに`x-goog-content-length-range`を署名して含めます。
-0.9.0はこのヘッダーを`400 InvalidArgument`で拒否します。
+0.10.0はこの範囲を検査します。0.9.0はこのヘッダーを`400 InvalidArgument`で拒否します。
 詳しくは[XMLアップロードのサイズ範囲](../en/slices/xml-content-length-range.md)（英語）を見てください。
 
 ## 1. バケット付きでエミュレーターを起動する
@@ -39,7 +39,7 @@ Rails 8.1.4.1は`x-goog-content-length-range`も送るため、これも許可�
 # compose.yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.9.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.10.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -100,7 +100,7 @@ RailsはComposeのサービス名でエミュレーターに届きますが、�
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.9.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.10.0
     ports:
       - "127.0.0.1:4443:4443" # the host port must equal the container port
     environment:
@@ -134,7 +134,7 @@ config.active_storage.resolve_model_to_route = :rails_storage_proxy
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.9.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.10.0
     env:
       GCS_MIMIC_SCHEME: http
     ports:

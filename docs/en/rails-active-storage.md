@@ -13,9 +13,10 @@ Tested with Rails 8.1.4.1, google-cloud-storage 1.62.1, and googleauth 1.17.6
 ([verification](slices/sdk-active-storage-scenario.md#storageyml-emulator-recipe));
 Rails 8.1.4 was also tested with googleauth 1.17.7. Other versions are untested.
 
-Rails 8.1.4.1 direct uploads need a gcs-mimic build newer than 0.9.0. Rails
-8.1.4.1 signs `x-goog-content-length-range` into every direct-upload URL, and
-0.9.0 rejects that header with `400 InvalidArgument`; see
+Rails 8.1.4.1 direct uploads need gcs-mimic 0.10.0 or later. Rails
+8.1.4.1 signs `x-goog-content-length-range` into every direct-upload URL;
+0.10.0 enforces that range, while 0.9.0 rejects the header with
+`400 InvalidArgument`. See
 [XML upload size ranges](slices/xml-content-length-range.md).
 
 ## 1. Start the emulator with a bucket
@@ -40,7 +41,7 @@ the service sets `cache_control`; without it, those uploads fail CORS. Rails
 # compose.yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.9.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.10.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -108,7 +109,7 @@ Docker, so Rails and the browser use the same URL:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.9.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.10.0
     ports:
       - "127.0.0.1:4443:4443" # the host port must equal the container port
     environment:
@@ -144,7 +145,7 @@ bucket. Right after startup the port can answer with an empty reply, which
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.9.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.10.0
     env:
       GCS_MIMIC_SCHEME: http
     ports:
