@@ -19,6 +19,24 @@ async fn native_watch_covers_more_than_a_thousand_files_without_per_file_descrip
         .unwrap();
 }
 
+/// Asserts that an idle tree stops producing changes. FSEvents can still deliver
+/// writes made just before a stream started ("since now" is not a hard cut), so
+/// such stragglers are drained first; a watcher that polls never stays quiet for
+/// the window and fails at the deadline.
+async fn assert_idle(watcher: &Watch) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        match tokio::time::timeout(Duration::from_millis(500), watcher.changed()).await {
+            Err(_) => return,
+            Ok(Err(error)) => panic!("watch failed: {error}"),
+            Ok(Ok(_)) => assert!(
+                tokio::time::Instant::now() < deadline,
+                "an idle tree kept producing changes"
+            ),
+        }
+    }
+}
+
 #[tokio::test]
 async fn native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling()
  {
@@ -29,11 +47,7 @@ async fn native_watch_observes_nested_writes_atomic_replacement_and_directory_ch
     let directory = fsutil::open_directory_nofollow(&root.0).unwrap();
     let mut watcher =
         Watch::new(build(&directory, &root.0.canonicalize().unwrap()).unwrap()).unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_millis(30), watcher.changed())
-            .await
-            .is_err()
-    );
+    assert_idle(&watcher).await;
     for operation in ["write", "replace", "new-directory", "delete"] {
         match operation {
             "write" => fs::write(&body, b"changed").unwrap(),
@@ -51,12 +65,9 @@ async fn native_watch_observes_nested_writes_atomic_replacement_and_directory_ch
             .unwrap()
             .unwrap();
         watcher = Watch::new(build(&directory, &root.0.canonicalize().unwrap()).unwrap()).unwrap();
+        // A straggler from this operation must not satisfy the next one's check.
+        assert_idle(&watcher).await;
     }
-    assert!(
-        tokio::time::timeout(Duration::from_millis(30), watcher.changed())
-            .await
-            .is_err()
-    );
 }
 
 #[tokio::test]
