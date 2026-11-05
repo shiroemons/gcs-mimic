@@ -1826,11 +1826,10 @@ fn healthcheck_deadline_includes_slow_streaming_responses() {
         // 25 s, far beyond the bound below.
         for byte in b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" {
             std::thread::sleep(Duration::from_millis(600));
+            // After the healthcheck gives up, later writes fail as the platform reports a
+            // closed peer (Windows uses ConnectionAborted).
             if let Err(error) = stream.write_all(&[*byte]) {
-                assert!(matches!(
-                    error.kind(),
-                    std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
-                ));
+                assert!(common::closed_by_server(&error), "{error}");
                 break;
             }
         }

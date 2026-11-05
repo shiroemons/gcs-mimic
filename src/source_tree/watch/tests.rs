@@ -78,9 +78,12 @@ async fn native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity()
     std::os::unix::fs::symlink(&outside.0, root.0.join("link")).unwrap();
     let directory = fsutil::open_directory_nofollow(&root.0).unwrap();
     let watcher = Watch::new(build(&directory, &root.0.canonicalize().unwrap()).unwrap()).unwrap();
+    // Drain FSEvents stragglers from the setup first, so a change seen after the
+    // outside write can only come from that write.
+    assert_idle(&watcher).await;
     fs::write(outside.0.join("body"), b"unobserved outside").unwrap();
     assert!(
-        tokio::time::timeout(Duration::from_millis(30), watcher.changed())
+        tokio::time::timeout(Duration::from_millis(500), watcher.changed())
             .await
             .is_err()
     );
