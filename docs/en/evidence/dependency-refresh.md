@@ -417,3 +417,36 @@ Validation on 2026-11-04:
   passing. The command exits 1 because of AS-DEFAULT-AUTH, as before.
 - `bash sdk-tests/ruby/active_storage/run-strict.sh` reported the signing
   self-check PASS and `3 PASS, 0 FAIL`.
+
+## Refresh: 2026-11-05
+
+The release-scope check on 2026-11-05 reported `UPDATE_AVAILABLE` for
+`rust:1.99.1-slim-trixie`.
+
+| Input | Previous | Adopted | Change |
+| --- | --- | --- | --- |
+| rust:1.99.1-slim-trixie | `sha256:ea0999ff67355d958b8799b6751c879a6d770076d26047dca66f6e51e77930d3` | `sha256:59f72d5265cfcf281fcfa4d990e75f09c53f911def9913c47a4a89dca690a887` | Only linux/riscv64 and its attestation rebuilt; amd64 and arm64 unchanged |
+
+`slim-trixie` resolves to the same index. The linux/amd64
+(`sha256:be49948243566aa0ae465ae2786c4bab8cb5597084873b01d3db50dcebc70b18`)
+and linux/arm64
+(`sha256:a5b16f6cc783db8240559f7d2fe38a30e3885bed801db49e5e37d6b1223b68bf`)
+manifests are byte-identical to the previous pin, so the snapshot timestamp
+`20261027T000000Z` in `scripts/install-musl-tools.sh` and
+`sdk-scorecard/install-socat.sh` is unchanged. The Dockerfile,
+`sdk-scorecard/run.sh` and `sdk-scorecard/test-tls.sh` pin the new index.
+
+### Validation performed on 2026-11-05
+
+- `cargo xtask dependencies check` at `2026-11-05T06:31:32Z` exited 1. Both Rust
+  image tags, the Debian stable codename and the musl and socat packages were
+  `CURRENT`, with 113 `CURRENT` lines in total and fake-gcs-server v1.56.1
+  `PINNED_REFERENCE`. Three SDK-suite inputs released upstream the same day
+  reported `UPDATE_AVAILABLE`: google.golang.org/api v0.310.0 -> v0.311.0
+  (two manifests), google.golang.org/genproto
+  v0.0.0-20261026165753-2ffab32bce7e -> v0.0.0-20261104224025-d1e00e9f33ab and
+  bundler 4.0.23 -> 4.0.24 (two manifests). They are not adopted in this
+  refresh.
+- No container was rebuilt for this pin: the declared platform manifests the
+  builds use are unchanged, and both architectures were built and smoke-tested
+  from them the same day ([scratch runtime](scratch-runtime.md)).
