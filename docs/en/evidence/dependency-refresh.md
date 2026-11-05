@@ -450,3 +450,45 @@ manifests are byte-identical to the previous pin, so the snapshot timestamp
 - No container was rebuilt for this pin: the declared platform manifests the
   builds use are unchanged, and both architectures were built and smoke-tested
   from them the same day ([scratch runtime](scratch-runtime.md)).
+
+## Refresh: 2026-11-05 SDK inputs
+
+The three SDK-suite updates reported by the same check are adopted.
+
+| Input | Previous | Adopted | Manifests |
+| --- | --- | --- | --- |
+| google.golang.org/api | v0.310.0 | v0.311.0 (published 2026-11-04, revision `2a8925bc33b378b7172830a4b2d154b7952055bf`) | `go/go.mod`, `sdk-tests/go/go.mod` |
+| google.golang.org/genproto | v0.0.0-20261026165753-2ffab32bce7e | v0.0.0-20261104224025-d1e00e9f33ab | `sdk-tests/go/go.mod` |
+| bundler | 4.0.23 | 4.0.24 (published 2026-11-05, SHA-256 `16ca64e20816a0cf151a948fb141d788602996d2b4d73577b74388fe84fa98bc`) | `sdk-tests/ruby/Gemfile.lock`, `sdk-tests/ruby/active_storage/Gemfile.lock` |
+
+The API client release notes list regenerated Discovery clients only, and its
+BSD-3-Clause LICENSE is byte-identical to v0.310.0; the module still requires
+Go 1.26.0. `go get` and `go mod tidy` with Go 1.27.3 also raise, as indirect
+requirements, cloud.google.com/go/auth/oauth2adapt to v0.3.1, golang.org/x/net
+to v0.62.0 and genproto/googleapis/rpc to v0.0.0-20261026165753-2ffab32bce7e in
+both modules. In `go/go.mod` they bring cel.dev/expr v0.25.3, the Envoy
+pseudo-version and grpc v1.85.0, which `sdk-tests/go/go.mod` already resolved.
+Bundler 4.0.24 fixes `bundle exec` paths with spaces, gemspec dependency groups
+and platforms, lock checksums after platform changes and file locking; each
+lockfile changes only its Bundler checksum and `BUNDLED WITH`.
+
+`examples/go`, `examples/ruby`, `sdk-scorecard/go` and `sdk-scorecard/ruby` use
+the same previous versions but are not tracked by the freshness check, so they
+are unchanged here.
+
+### Validation performed on 2026-11-05 for SDK inputs
+
+- `cargo xtask dependencies check` at `2026-11-05T06:41:59Z` exited 0 with 118
+  `CURRENT` inputs; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+- `bash scripts/sdk-go.sh --with-ruby`, run through
+  `scripts/with-test-tmpdir.sh`, exited 0: Go vet and 88 passing Go tests (the
+  V2 signed URL test skips by design outside HTTPS mode) and every Ruby
+  permissive and strict journey.
+- `go test -race -tags integration ./...` in `go` with `GCS_MIMIC_BINARY` set
+  as `scripts/sdk-go.sh` sets it, and `go test -race ./...` in
+  `go/sourceexport`, passed.
+- `just check-active-storage` reported `Rails 8.1.4.1`, scenario
+  `1 PASS, 6 PASS_WITH_WORKAROUND, 1 FAIL` (the known AS-DEFAULT-AUTH failure)
+  and storage.yml recipe `11 PASS, 0 FAIL`; it exits 1 because of
+  AS-DEFAULT-AUTH, as before. `bash sdk-tests/ruby/active_storage/run-strict.sh`
+  reported the signing self-check PASS and `3 PASS, 0 FAIL`.

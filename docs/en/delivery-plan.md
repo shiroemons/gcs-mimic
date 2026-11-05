@@ -248,7 +248,7 @@ settings in the native profile, as recorded from Cloud Storage, and preserves
 them in the legacy-emulator profile as a local SDK compatibility choice; it
 records Rust and native PUT guide checks, and the Go and Ruby PUT replacement
 suites passed on 2026-11-01. Reference, container and Docker checks were
-not rerun for that policy. The Go harness currently pins API client v0.310.0
+not rerun for that policy. The Go harness currently pins API client v0.311.0
 with Storage v1.70.0; see the [dependency policy](dependency-policy.md).
 The complete buckets.update row stays PARTIAL for advanced fields,
 ACL/billing/full projection and provider defaults/error parity.

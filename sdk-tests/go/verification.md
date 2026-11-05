@@ -2,9 +2,17 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+## SDK API client and genproto update: 2026-11-05
+
+Current pins are Go 1.27.3, Storage v1.70.0, API v0.311.0, OAuth2 v0.37.0 and genproto v0.0.0-20261104224025-d1e00e9f33ab.
+`GOTOOLCHAIN=go1.27.3 go get google.golang.org/api@v0.311.0 google.golang.org/genproto@v0.0.0-20261104224025-d1e00e9f33ab` and `go mod tidy`
+update the API client, the legacy Storage v1 stubs and, through their requirements, oauth2adapt v0.3.1, golang.org/x/net v0.62.0 and genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e. The Go requirement is unchanged. Official release notes
+describe regenerated Discovery clients only; no harness migration was required.
+See the [dependency refresh evidence](../../docs/en/evidence/dependency-refresh.md#refresh-2026-11-05-sdk-inputs).
+
 ## SDK API client update: 2026-10-29
 
-Current pins are Go 1.27.3, Storage v1.70.0, API v0.310.0 and OAuth2 v0.37.0.
+The 2026-10-29 pins were Go 1.27.3, Storage v1.70.0, API v0.310.0 and OAuth2 v0.37.0.
 `GOTOOLCHAIN=go1.27.3 go get google.golang.org/api@v0.310.0` and `go mod tidy`
 update the API client and, through its requirements, gax-go/v2 v2.27.0,
 enterprise-certificate-proxy v0.3.24 and OpenTelemetry v1.47.0 (adding
