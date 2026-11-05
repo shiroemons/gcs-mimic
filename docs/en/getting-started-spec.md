@@ -2,11 +2,11 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-**Status: broader end-to-end design specification.** The current JSON, strict IAM, XML and RSA signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](signed-urls.md#signed-private-downloads-and-uploads) covers signing, private transfers, negative conditions, restart and peer endpoints. Its [integrated evidence](evidence/signed-urls.md) records the verified scope and UX-006 status. TOML, proxy-derived origins and broader acceptance targets below do not define current commands/settings. Published examples select 0.10.0; each scope's limits are identified in its slice contract. The project/CLI/image name is `gcs-mimic`.
+**Status: broader end-to-end design specification.** The current JSON, strict IAM, XML and RSA signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](signed-urls.md#signed-private-downloads-and-uploads) covers signing, private transfers, negative conditions, restart and peer endpoints. Its [integrated evidence](evidence/signed-urls.md) records the verified scope and UX-006 status. TOML, proxy-derived origins and broader acceptance targets below do not define current commands/settings. Published examples select 0.11.0; each scope's limits are identified in its slice contract. The project/CLI/image name is `gcs-mimic`.
 
 This English document is canonical. Japanese user guides live in `docs/ja` and retain the same feature status and supported scope. Historical Japanese planning notes are separate. Implementation prompts are Japanese; source code, identifiers, commits and canonical documentation remain English.
 
-The 0.8.0 migration additions and their verification gates are mapped in [migration integration](evidence/migration-integration.md). Published examples use 0.10.0. This specification's historical milestone text does not override the feature ledger or the current seed, synchronization, storage and authentication slice contracts.
+The 0.8.0 migration additions and their verification gates are mapped in [migration integration](evidence/migration-integration.md). Published examples use 0.11.0. This specification's historical milestone text does not override the feature ledger or the current seed, synchronization, storage and authentication slice contracts.
 
 The current object walkthrough selects `name,size` from metadata and
 `items(name),nextPageToken` from listing, captures the HTTP ETag header, requires
@@ -134,7 +134,7 @@ cd gcs-mimic
 docker compose build
 ```
 
-The repository supplies `compose.yaml`, `config/development.json`, fixture samples and the Dockerfile. The current server reads flat JSON; the structured TOML example below is a future design target, not an accepted file format. Image references in source-build documentation use the locally built `gcs-mimic:dev`; registry examples use an exact published version such as `ghcr.io/shiroemons/gcs-mimic:0.10.0`.
+The repository supplies `compose.yaml`, `config/development.json`, fixture samples and the Dockerfile. The current server reads flat JSON; the structured TOML example below is a future design target, not an accepted file format. Image references in source-build documentation use the locally built `gcs-mimic:dev`; registry examples use an exact published version such as `ghcr.io/shiroemons/gcs-mimic:0.11.0`.
 
 ## 2. Stable proposed CLI and configuration contract
 

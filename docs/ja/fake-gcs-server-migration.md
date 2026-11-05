@@ -8,7 +8,7 @@
 UX-012とUX-001はPARTIAL、DESIGN-061は既存のホスト・コンテナ接続範囲で
 IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置き換えは含みません。
 
-公開イメージの例は0.10.0です。0.8.0以降は、RAM保存、ローカルPub/Sub、HTTP batch、XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターも使えます。[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)に、各機能の対応範囲と検証結果をまとめています。
+公開イメージの例は0.11.0です。0.8.0以降は、RAM保存、ローカルPub/Sub、HTTP batch、XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターも使えます。[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)に、各機能の対応範囲と検証結果をまとめています。
 機能の実装状態は共通の台帳を原本とし、全面置換は未達のままです。
 
 ## GitHubで確認した利用例と移行時の違い
@@ -107,7 +107,7 @@ Goでは削除前に`err`を確認してください。未設定での`softDelet
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.10.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.11.0
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
