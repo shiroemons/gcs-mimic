@@ -1,4 +1,3 @@
-use super::catalog::replace_resumable_cleanup_obstacle;
 mod cloud_storage_parity;
 mod csek;
 mod fault_injection;
@@ -2173,7 +2172,11 @@ async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() 
             assert!(tokio::time::Instant::now() < deadline);
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        replace_resumable_cleanup_obstacle(&h.state.catalog, stage.clone()).await;
+        // Removing the obstacle leaves nothing to delete, which the next retry treats
+        // as done. Recreating a file here would race that retry: session cleanup
+        // unlinks on the blocking pool, outside the catalog thread, so it can see the
+        // path absent, forget its journal row, and leave the new file unowned.
+        std::fs::remove_dir(&stage).unwrap();
         while stage.exists() || h.state.catalog.resumable_maintenance_error().is_some() {
             assert!(tokio::time::Instant::now() < deadline);
             tokio::time::sleep(Duration::from_millis(5)).await;

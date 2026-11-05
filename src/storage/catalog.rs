@@ -40,19 +40,6 @@ pub(super) mod test_support;
 #[cfg(test)]
 pub(crate) mod fault;
 
-#[cfg(test)]
-pub(super) async fn replace_resumable_cleanup_obstacle(catalog: &Catalog, stage: PathBuf) {
-    catalog
-        .run(move |_| {
-            // Maintenance must not clear the deletion journal while this path is temporarily absent.
-            std::fs::remove_dir(&stage).unwrap();
-            std::fs::write(stage, b"uncommitted tail").unwrap();
-            Ok::<_, CatalogError>(())
-        })
-        .await
-        .unwrap();
-}
-
 pub(crate) mod resumable;
 mod resumable_transfer;
 mod upload_replay;
