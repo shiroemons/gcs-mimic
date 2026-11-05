@@ -359,6 +359,31 @@ impl Fixture {
         .await
     }
 
+    /// Reads status and then the findings page for its revision. Status reports the
+    /// published observation while the page checks the current one, so a native
+    /// notification still settling can make the just-read revision stale (409);
+    /// only that answer is retried, with a fresh status, until a deadline.
+    async fn findings(&self) -> (Value, Value) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let status = self.status().await;
+            let path = format!(
+                "/_internal/sync?view=findings&revision={}",
+                status["findings_revision"].as_str().unwrap()
+            );
+            match self.request("GET", &path, b"", None).await {
+                Ok(page) => return (status, body(page).await),
+                Err(error)
+                    if error.status == StatusCode::CONFLICT
+                        && tokio::time::Instant::now() < deadline =>
+                {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Err(error) => panic!("findings page: {error:?}"),
+            }
+        }
+    }
+
     async fn wait_for_deletions(&self, count: u64) {
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
@@ -545,11 +570,12 @@ async fn unmappable_source_entries_have_a_durable_root_finding_until_repaired() 
     )
     .unwrap();
     fixture.task.rescan().await.unwrap();
-    let status = fixture.status().await;
+    let (status, page) = fixture.findings().await;
     assert_eq!(status["state"], "SourceUnrepresentable");
-    let revision = status["findings_revision"].as_str().unwrap();
-    let path = format!("/_internal/sync?view=findings&revision={revision}");
-    let page = body(fixture.request("GET", &path, b"", None).await.unwrap()).await;
+    let path = format!(
+        "/_internal/sync?view=findings&revision={}",
+        status["findings_revision"].as_str().unwrap()
+    );
     assert_eq!(page["total_count"], 1);
     assert_eq!(page["items"][0]["scope"], "root");
     assert_eq!(page["items"][0]["reason"], "SourceUnrepresentable");
@@ -656,10 +682,9 @@ async fn recovery_http_refreshes_changed_workspace_identity_and_requires_exact_d
         id,
         path,
     } = fixture.armed_workspace(b"protected old body").await;
-    let old = fixture.status().await;
+    let (old, old_page) = fixture.findings().await;
     let old_revision = old["findings_revision"].as_str().unwrap();
     let old_path = format!("/_internal/sync?view=findings&revision={old_revision}");
-    let old_page = body(fixture.request("GET", &old_path, b"", None).await.unwrap()).await;
     let original = old_page["items"]
         .as_array()
         .unwrap()
@@ -669,17 +694,12 @@ async fn recovery_http_refreshes_changed_workspace_identity_and_requires_exact_d
     assert_eq!(original["retained_bytes"], 18);
     assert!(original["hashes"].is_null());
     fs::write(&path, b"changed protected body").unwrap();
-    let fresh = fixture.status().await;
+    let (fresh, page) = fixture.findings().await;
     assert_ne!(fresh["findings_revision"], old["findings_revision"]);
     assert_eq!(
         status_of(fixture.request("GET", &old_path, b"", None).await),
         StatusCode::CONFLICT
     );
-    let page_path = format!(
-        "/_internal/sync?view=findings&revision={}",
-        fresh["findings_revision"].as_str().unwrap()
-    );
-    let page = body(fixture.request("GET", &page_path, b"", None).await.unwrap()).await;
     let selected = page["items"]
         .as_array()
         .unwrap()
