@@ -48888,7 +48888,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Source-built Distroless cc Docker/Compose preserves UID/GID 10001, read-only-root and persistent bucket/object media CRUD across restart/recreation. Container symbols are stripped; complete-image compressed layers are about 60% smaller than the Debian baseline. See docs/en/evidence/distroless.md. Image probes now follow environment/config without an HTTP override; Docker listener/data defaults are environment settings shared with the probe. Default HTTPS and HTTP were healthy on local ARM64. Evidence: docs/en/slices/migrate-defaults.md.",
+      "notes": "The source-built scratch image with a static musl binary keeps Docker/Compose UID/GID 10001, read-only-root and persistent bucket/object media CRUD across restart/recreation. Container symbols are stripped; the earlier Distroless migration is recorded in docs/en/evidence/distroless.md and the current scratch runtime, sizes and checks in docs/en/evidence/scratch-runtime.md. Image probes now follow environment/config without an HTTP override; Docker listener/data defaults are environment settings shared with the probe. Default HTTPS and HTTP were healthy on local ARM64. Evidence: docs/en/slices/migrate-defaults.md.",
       "dependencies": [
         "DESIGN-064"
       ],
@@ -49083,7 +49083,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Distroless linux/arm64 builds and runs natively with persistent bucket/object media CRUD, host/peer curl, restart/reset and resource settings. Current image and size evidence: docs/en/evidence/distroless.md.",
+      "notes": "The scratch linux/arm64 image builds and runs natively with persistent bucket/object media CRUD, host/peer curl, restart/reset and resource settings. Current image and size evidence: docs/en/evidence/scratch-runtime.md.",
       "dependencies": [
         "DESIGN-058"
       ],
@@ -50196,7 +50196,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "The pinned distroless Debian 13 runtime retains UID/GID 10001 and a read-only root, with persistent media on the explicit writable data volume. Existing distribution evidence remains linked; the final source image is rebuilt and checked by the migration integration gate.",
+      "notes": "The runtime starts from scratch with one static musl binary, its notices, a sticky /tmp and the UID/GID 10001 data directory; it has no shell, package manager or OS packages. It keeps a read-only root, with persistent media on the explicit writable data volume. See docs/en/evidence/scratch-runtime.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -50242,6 +50242,15 @@
           "test_ids": [
             "guide-host-peer-object-media",
             "guide-object-restart-persistence"
+          ]
+        },
+        {
+          "command": "just check-containers",
+          "result": "PASS",
+          "verified_at": "2026-11-05",
+          "artifact": "docs/en/evidence/scratch-runtime.md",
+          "test_ids": [
+            "container-foundation-smoke"
           ]
         }
       ],
@@ -58204,7 +58213,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Distroless GCR runtime, Docker Hub build/frontend and test-only curl indexes/platform digests are verified. Daily checks retain Debian codename detection and avoid sending Docker Hub authentication to GCR. See docs/en/evidence/distroless.md.",
+      "notes": "Docker Hub build/frontend and test-only curl indexes/platform digests are verified; the scratch runtime has no base image to pin. The Rust build image carries the Debian codename check, the build stage's musl-tools is pinned to a Debian snapshot as a release input, and GCR support avoids sending Docker Hub authentication. See docs/en/evidence/scratch-runtime.md; the earlier Distroless GCR runtime is recorded in docs/en/evidence/distroless.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",

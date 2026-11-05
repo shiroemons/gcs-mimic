@@ -979,8 +979,9 @@ fn verify_apt_pin(package: &Value, script: &str, callers: &[(&str, &str)]) -> Re
 
 /// OS packages installed into pinned images must pin both the snapshot archive and the version in
 /// their install script, and the snapshot must record the same values. Returns whether the live
-/// Debian suite now carries a different version.
-fn check_apt_packages(root: &Path, status: &Value) -> Result<bool> {
+/// Debian suite now carries a different version. The release scope compares only packages that
+/// build a release artifact, but still verifies every recorded pin offline.
+fn check_apt_packages(root: &Path, status: &Value, scope: Scope) -> Result<bool> {
     let mut drift = false;
     for package in status["docker"]["apt_packages"]
         .as_array()
@@ -997,6 +998,10 @@ fn check_apt_packages(root: &Path, status: &Value) -> Result<bool> {
         }
         let callers: Vec<(&str, &str)> = sources.iter().map(|(c, s)| (*c, s.as_str())).collect();
         verify_apt_pin(package, &script, &callers)?;
+        if !release_input(package)? && scope == Scope::Release {
+            println!("debian {name}: SKIPPED development-only input");
+            continue;
+        }
         let suite = text(package, "suite")?;
         let versions = json(&fetch(
             &format!("https://sources.debian.org/api/src/{name}/"),
@@ -1280,12 +1285,13 @@ pub fn scope(args: &[String]) -> Option<Scope> {
     }
 }
 
-/// Every Docker input must say whether it builds or ships a release artifact, so a new image
-/// cannot fall out of the release gate by omission.
-fn release_input(image: &Value) -> Result<bool> {
-    image["release_input"]
-        .as_bool()
-        .ok_or_else(|| format!("missing release_input: {}", image["reference"]))
+/// Every Docker image and apt package must say whether it builds or ships a release artifact, so
+/// a new input cannot fall out of the release gate by omission.
+fn release_input(input: &Value) -> Result<bool> {
+    input["release_input"].as_bool().ok_or_else(|| {
+        let id = input.get("reference").unwrap_or(&input["name"]);
+        format!("missing release_input: {id}")
+    })
 }
 
 /// Offline: the ledger `platforms` of every release-input image must equal the architectures the
@@ -1443,12 +1449,11 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
             registry_manifest_source(image, |url| fetch(url, &[], false))?;
         drift |= check_image_tags(image, &manifest_source, &headers)?;
     }
+    drift |= check_apt_packages(root, &status, scope)?;
     if scope == Scope::Release {
-        println!("apt packages: SKIPPED development-only inputs");
         println!("SDK ecosystems: SKIPPED development-only inputs");
         return Ok(drift);
     }
-    drift |= check_apt_packages(root, &status)?;
     let scopes = status["sdk_ecosystems"]
         .as_array()
         .ok_or("missing sdk_ecosystems")?;
@@ -1929,7 +1934,22 @@ mod tests {
                 "{pin}"
             );
         }
+        for package in status["docker"]["apt_packages"].as_array().unwrap() {
+            let builds_release = package["callers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|caller| caller == "Dockerfile");
+            assert_eq!(
+                release_input(package).unwrap(),
+                builds_release,
+                "{}",
+                package["name"]
+            );
+        }
         assert!(release_input(&serde_json::json!({"reference": "x:1"})).is_err());
+        let err = release_input(&serde_json::json!({"name": "pkg"})).unwrap_err();
+        assert!(err.contains("pkg"), "{err}");
     }
 
     #[test]

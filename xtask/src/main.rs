@@ -1,6 +1,6 @@
 use std::{env, path::Path, process::ExitCode};
 
-const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check [--scope all|release] | differential validate|run|merge|sweep [options] | lint [--target TRIPLE|--baseline [--target TRIPLE]|--test-clock-baseline] | release prepare TARGET BINARY OUTPUT_DIR | release notices OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
+const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check [--scope all|release] | differential validate|run|merge|sweep [options] | lint [--target TRIPLE|--baseline [--target TRIPLE]|--test-clock-baseline] | release prepare TARGET BINARY OUTPUT_DIR | release notices TARGET OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
 
 fn main() -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
@@ -21,8 +21,8 @@ fn main() -> ExitCode {
             }
         };
     }
-    if args.len() == 3 && args[..2] == ["release", "notices"] {
-        return match xtask::release::notices(root, Path::new(&args[2])) {
+    if args.len() == 4 && args[..2] == ["release", "notices"] {
+        return match xtask::release::notices(root, &args[2], Path::new(&args[3])) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("error: {error}");

@@ -171,11 +171,12 @@ One-time setup by the repository owner:
 
 ## Notices, SBOM and provenance
 
-Images include both project license texts and Cargo/Rust/SQLite/crc32c/GCC
-notices under `/usr/share/licenses/gcs-mimic`. Distroless's OS copyright notices,
-common license texts and package records remain in their original locations.
-The added index points to those records; build-image OS packages are not treated
-as though they all ship in the runtime image.
+Images include both project license texts and Cargo/Rust/SQLite/crc32c/GCC/musl
+notices under `/usr/share/licenses/gcs-mimic`. The runtime image starts from
+`scratch`, so it ships no operating-system packages; the statically linked musl
+C library is covered by its complete pinned source archive, the same one the
+musl binary archives carry. Build-image OS packages are not treated as though
+they ship in the runtime image.
 
 The BuildKit image and official SBOM generator are pinned by multi-platform
 digest and checked daily with the other container inputs. The OCI indexes carry

@@ -189,12 +189,20 @@
     "status": "PINNED",
     "apt_packages": [
       {
-        "name": "socat", "suite": "trixie", "version": "1.8.0.3-1+deb13u1",
+        "name": "socat", "release_input": false, "suite": "trixie", "version": "1.8.0.3-1+deb13u1",
         "snapshot": "20261027T000000Z",
         "script": "sdk-scorecard/install-socat.sh",
         "callers": ["sdk-scorecard/run.sh", "sdk-scorecard/test-tls.sh"],
         "purpose": "Development-only loopback forwarder inside the digest-pinned Rust image, so the Rust scorecard probe keeps loopback URLs, Host headers and signatures. apt reads the snapshot.debian.org archive for the timestamp the Rust image itself was built from, so socat and its dependencies are identical on every run; the daily check compares the version with Debian trixie and verifies the script records the same pin.",
         "source_url": "https://sources.debian.org/api/src/socat/"
+      },
+      {
+        "name": "musl", "release_input": true, "suite": "trixie", "version": "1.2.5-3.1~deb13u1",
+        "snapshot": "20261027T000000Z",
+        "script": "scripts/install-musl-tools.sh",
+        "callers": ["Dockerfile"],
+        "purpose": "Release build input: musl-tools, musl-dev and musl from the Debian musl source package give the Dockerfile's build stage musl-gcc, which compiles the C dependencies and links the static container binary. The Dockerfile bind-mounts the script read-only at /app; apt reads the snapshot.debian.org archive for the timestamp the Rust image itself was built from, and the daily check compares the version with Debian trixie.",
+        "source_url": "https://sources.debian.org/api/src/musl/"
       }
     ],
     "digests": [
@@ -214,7 +222,9 @@
       },
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie", "release_input": true,
-        "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
+        "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie", "stable_codename": "trixie",
+        "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
+        "stable_codename_note": "The scratch runtime has no Debian base, so this build image carries the Debian stable codename check: a newer stable generation is detected even though the slim-trixie alias stays on Debian 13.",
         "digest": "sha256:ea0999ff67355d958b8799b6751c879a6d770076d26047dca66f6e51e77930d3",
         "latest_verified_digest": "sha256:ea0999ff67355d958b8799b6751c879a6d770076d26047dca66f6e51e77930d3",
         "verification_status": "ADOPTED",
@@ -224,20 +234,6 @@
           "linux/arm64": "sha256:a5b16f6cc783db8240559f7d2fe38a30e3885bed801db49e5e37d6b1223b68bf"
         },
         "source_url": "https://hub.docker.com/v2/repositories/library/rust/tags/1.99.1-slim-trixie"
-      },
-      {
-        "registry": "gcr.io",
-        "repository": "distroless/cc-debian13", "reference": "gcr.io/distroless/cc-debian13:nonroot", "release_input": true,
-        "tag": "nonroot", "latest_tag": "nonroot", "stable_codename": "trixie",
-        "digest": "sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1",
-        "platforms": {
-          "linux/amd64": "sha256:65af2e9e44e71de2df28245f6814301775d3ef04436b7d563f240d86fedf24aa",
-          "linux/arm64": "sha256:1026089ebb266c264cfa1828860332f25160079615ee146d159a7d1f3a701bd3"
-        },
-        "source_url": "https://github.com/GoogleContainerTools/distroless",
-        "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
-        "purpose": "Shell-free glibc/libgcc runtime for the existing GNU Rust binary. USER remains 10001:10001 for persistent-volume compatibility; the nonroot tag's default user is overridden.",
-        "alias_note": "The nonroot tag tracks updates within Debian 13. Debian stable codename is checked independently so a newer Debian generation is detected."
       },
       {
         "repository": "curlimages/curl", "reference": "curlimages/curl:8.23.0", "release_input": false,

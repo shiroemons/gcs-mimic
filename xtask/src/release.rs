@@ -267,14 +267,21 @@ pub fn prepare(root: &Path, target: &str, binary: &Path, output: &Path) -> Resul
     Ok(())
 }
 
-pub fn notices(root: &Path, output: &Path) -> Result<()> {
-    let rustc = capture(Command::new("rustc").arg("-Vv"))?;
-    let target = rustc
-        .lines()
-        .find_map(|line| line.strip_prefix("host: "))
-        .filter(|host| host.ends_with("-unknown-linux-gnu"))
-        .ok_or("container notices require a native GNU Linux build toolchain")?;
+// The container ships one static musl binary on an empty base image, so its notices must name
+// the musl runtime the binary links rather than whatever host built it.
+fn check_container_target(target: &str) -> Result<()> {
+    if !target.ends_with("-unknown-linux-musl") {
+        return Err(format!(
+            "container notices require a static Linux musl target: {target}"
+        ));
+    }
+    Ok(())
+}
+
+pub fn notices(root: &Path, target: &str, output: &Path) -> Result<()> {
+    check_container_target(target)?;
     check_destination(target, output)?;
+    check_native_toolchain(target, &capture(Command::new("rustc").arg("-Vv"))?)?;
     let metadata = cargo_metadata(root)?;
     write_notices(root, target, &metadata, output)?;
     let index_path = output.join("third-party-licenses/INDEX.json");
@@ -282,10 +289,7 @@ pub fn notices(root: &Path, output: &Path) -> Result<()> {
         serde_json::from_slice(&fs::read(&index_path).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
     index["runtime_os_notices"] = json!({
-        "scope": "The pinned Distroless runtime retains its own Debian package notices and license texts; these are not copied from the build image.",
-        "copyrights": "/usr/share/doc/<package>/copyright",
-        "common_license_texts": "/usr/share/common-licenses",
-        "package_records": "/var/lib/dpkg/status.d",
+        "scope": "The runtime image starts from scratch and ships no operating-system packages; the statically linked C runtime's notices are listed under native_notices.",
     });
     write_json(&index_path, &index)
 }
@@ -552,6 +556,20 @@ mod tests {
             native_notice_names("aarch64-unknown-linux-musl"),
             ["GCC-COPYRIGHT", "musl-1.2.5.tar.gz"]
         );
+    }
+
+    #[test]
+    fn container_notices_accept_only_static_musl_targets() {
+        for target in ["aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl"] {
+            assert!(check_container_target(target).is_ok(), "{target}");
+        }
+        for target in [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-apple-darwin",
+            "x86_64-pc-windows-msvc",
+        ] {
+            assert!(check_container_target(target).is_err(), "{target}");
+        }
     }
 
     #[test]

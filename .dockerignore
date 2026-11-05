@@ -16,3 +16,5 @@
 !distribution/
 !distribution/notices/
 !distribution/notices/**
+!scripts/
+!scripts/install-musl-tools.sh

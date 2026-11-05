@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The observer stays outside the target cgroup; the distroless runtime is unchanged.
+# The observer stays outside the target cgroup; the shell-free runtime image is unchanged.
 set -euo pipefail
 
 # The pinned builder has awk but not jq; probe output uses only validated numbers.

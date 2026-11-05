@@ -240,16 +240,22 @@ Verify the newest suitable supported builder/runtime image from its official pub
 
 Do not invent a `rust:<version>` tag before confirming that image exists. If the official Rust image has not yet published the new compiler, use a verified supported builder and install the exact official toolchain through a documented process, or record a visible publication-lag exception. Do not silently use the previous compiler.
 
-The runtime uses digest-pinned `gcr.io/distroless/cc-debian13:nonroot`. It supplies
-glibc/libgcc for the existing GNU Rust binary; the container build strips symbols
-without changing panic handling, checksums or persistence settings. Numeric
+The runtime image starts from `scratch` and holds one statically linked musl
+binary, so it has no base image to pin or refresh. The build stage installs
+`musl-tools` from the Debian snapshot the digest-pinned Rust image was built
+from, through `scripts/install-musl-tools.sh`; the dependency snapshot records
+that package as a release input. The container build strips symbols and uses fat
+LTO with `opt-level = "s"` without changing panic handling, checksums or
+persistence settings; the release archives keep the default release profile. Numeric
 UID/GID 10001 are retained so existing data volumes remain writable. Runtime
 containers contain no shell or package manager; the application supplies probes.
 
 The freshness checker supports Docker Hub and public `gcr.io` manifests. GCR
 requests send no Docker Hub token. Unsupported registries fail explicitly.
-Distroless tag/index/platform digests and Debian stable codename are checked
-independently, preserving detection when a new Debian generation becomes stable.
+The Rust build image's tag/index/platform digests and the Debian stable codename
+are checked independently, preserving detection when a new Debian generation
+becomes stable. The release-scope check also compares Debian packages that build
+release artifacts.
 
 The current workflow reports tag/digest drift; upgrade submission and latest-dependency candidate testing remain future work. Rebuild runtime images when accepted base-image updates change them; editing a Dockerfile does not update a published image. Released images are published to GHCR and Docker Hub; see the [container distribution procedure](container-distribution.md).
 
