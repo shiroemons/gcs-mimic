@@ -1,6 +1,7 @@
 use super::super::tests::{body, request, setup};
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::test_support::{eventually_async, eventually_some_async};
 use std::io::{Seek, SeekFrom};
 use std::{collections::BTreeMap, fs};
 
@@ -637,23 +638,17 @@ async fn publication_admits_only_one_active_and_one_waiting_batch() {
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
     let worker = admin.clone();
     let active = tokio::spawn(async move { worker.publish_objects(vec![a]).await });
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while catalog.0.publication_batch.available_permits() != 0 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the active batch to hold its permit", || async {
+        catalog.0.publication_batch.available_permits() == 0
     })
-    .await
-    .unwrap();
+    .await;
     let b = entry(&admin, &dir.0, "b", b"b").await;
     let worker = admin.clone();
     let queued = tokio::spawn(async move { worker.publish_objects(vec![b]).await });
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while catalog.0.publication_requests.available_permits() != 0 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the queued batch to hold its permit", || async {
+        catalog.0.publication_requests.available_permits() == 0
     })
-    .await
-    .unwrap();
+    .await;
     let c = entry(&admin, &dir.0, "c", b"c").await;
     assert!(matches!(
         admin.publish_objects(vec![c]).await,
@@ -676,13 +671,10 @@ async fn publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks() {
         let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
         let worker = admin.clone();
         let publishing = tokio::spawn(async move { worker.publish_objects(vec![input]).await });
-        tokio::time::timeout(Duration::from_secs(3), async {
-            while blob_count(&dir.0) == 0 {
-                tokio::time::sleep(Duration::from_millis(2)).await;
-            }
+        eventually_async("the batch to rename its blob", || async {
+            blob_count(&dir.0) != 0
         })
-        .await
-        .unwrap();
+        .await;
         if cancel_request {
             publishing.abort();
         }
@@ -731,19 +723,13 @@ async fn publication_shutdown_drains_accepted_batch_through_retired_blob_reclama
     let held = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
     let worker = admin.clone();
     let publishing = tokio::spawn(async move { worker.publish_objects(vec![input]).await });
-    let selected = tokio::time::timeout(Duration::from_secs(3), async {
-        loop {
-            let selected = admin.get_object(&bucket, &name, None).await.unwrap();
-            if selected.generation != old.generation
-                && catalog.0.staged_handles.available_permits() == 256
-            {
-                break selected;
-            }
-            tokio::task::yield_now().await;
-        }
+    let selected = eventually_some_async("the batch to select a new generation", || async {
+        let selected = admin.get_object(&bucket, &name, None).await.unwrap();
+        (selected.generation != old.generation
+            && catalog.0.staged_handles.available_permits() == 256)
+            .then_some(selected)
     })
-    .await
-    .unwrap();
+    .await;
     assert!(!publishing.is_finished());
     assert_eq!(catalog.0.publication_requests.available_permits(), 1);
     let worker = catalog.clone();

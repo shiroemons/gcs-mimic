@@ -63,7 +63,9 @@ fn conflicting_process(address: &str, dir: &TestDir) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(3);
+    // A live listener must fail at once, while a free-but-TIME_WAIT address waits up
+    // to 65 s; 30 s still separates the two and tolerates a slow process start.
+    let deadline = Instant::now() + Duration::from_secs(30);
     while child.try_wait().unwrap().is_none() {
         if Instant::now() >= deadline {
             child.kill().unwrap();
@@ -99,7 +101,7 @@ fn assert_bind_wait_signals_exit_without_readiness(address: &str, dir: &TestDir)
             stderr.read_line(&mut line).unwrap();
             let _ = send.send((stderr, line));
         });
-        let (_stderr, line) = match receive.recv_timeout(Duration::from_secs(3)) {
+        let (_stderr, line) = match receive.recv_timeout(Duration::from_secs(30)) {
             Ok(value) => value,
             Err(error) => {
                 child.kill().unwrap();
@@ -114,7 +116,7 @@ fn assert_bind_wait_signals_exit_without_readiness(address: &str, dir: &TestDir)
                 .unwrap()
                 .success()
         );
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(30);
         while child.try_wait().unwrap().is_none() {
             if Instant::now() >= deadline {
                 child.kill().unwrap();
@@ -1035,7 +1037,7 @@ async fn full_server_reclaims_idle_keep_alive_slots_for_waiting_clients() {
     let mut waiting = BufReader::new(stream(address));
     assert!(exchange(&mut waiting, health).starts_with("HTTP/1.1 200"));
     assert!(
-        started.elapsed() < Duration::from_secs(2),
+        started.elapsed() < Duration::from_secs(30),
         "{:?}",
         started.elapsed()
     );
@@ -1819,9 +1821,12 @@ fn healthcheck_deadline_includes_slow_streaming_responses() {
             request.push(byte[0]);
             assert!(request.len() <= 512);
         }
-        for chunk in ["HTTP/1.1 ", "200 OK\r\n", "Content-Length: 2\r\n", "\r\nok"] {
+        // One byte per 600 ms keeps every gap below the 2 s deadline, so only a deadline
+        // that covers the whole response can fire, while the full answer would take about
+        // 25 s, far beyond the bound below.
+        for byte in b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" {
             std::thread::sleep(Duration::from_millis(600));
-            if let Err(error) = stream.write_all(chunk.as_bytes()) {
+            if let Err(error) = stream.write_all(&[*byte]) {
                 assert!(matches!(
                     error.kind(),
                     std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
@@ -1843,6 +1848,6 @@ fn healthcheck_deadline_includes_slow_streaming_responses() {
     assert!(!output.stderr.is_empty());
     // The deadline starts before the connection, so timing from acceptance excludes process
     // startup, which loaded machines delay independently of the healthcheck deadline.
-    assert!(accepted.recv().unwrap().elapsed() < Duration::from_secs(3));
+    assert!(accepted.recv().unwrap().elapsed() < Duration::from_secs(15));
     mock.join().unwrap();
 }

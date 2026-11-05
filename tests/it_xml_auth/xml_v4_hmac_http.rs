@@ -36,7 +36,7 @@ impl Server {
     fn raw(&self, wire: &str, method: &str) -> Reply {
         let mut stream = TcpStream::connect(&self.address).unwrap();
         stream
-            .set_read_timeout(Some(Duration::from_secs(15)))
+            .set_read_timeout(Some(Duration::from_secs(60)))
             .unwrap();
         stream.write_all(wire.as_bytes()).unwrap();
         let mut reader = BufReader::new(stream);

@@ -37,22 +37,13 @@ fn media(server: &Server, bucket: &str, name: &str) -> Vec<u8> {
 }
 
 fn assert_no_transfer_files(dir: &TestDir) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
+    common::eventually("no derived transfers or staging files", || {
         let count = common::catalog::count(
             &rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap(),
             "derived_transfers",
         );
-        let files = common::process::staging_count(dir);
-        if count == 0 && files == 0 {
-            return;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "leaked transfers={count}, staging files={files}"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+        count == 0 && common::process::staging_count(dir) == 0
+    });
 }
 
 #[test]

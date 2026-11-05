@@ -3,10 +3,7 @@ use common::http::Body;
 
 use common::TestDir;
 use common::ingress::{Server, gzip};
-use std::{
-    io::{BufReader, Write},
-    time::{Duration, Instant},
-};
+use std::io::{BufReader, Write};
 
 const PATH: &str = "/upload/storage/v1/b/gzip-bucket/o?uploadType=multipart";
 const OBJECT: &str = "/storage/v1/b/gzip-bucket/o/object";
@@ -205,7 +202,9 @@ fn media_transport_gzip_stores_the_decoded_body() {
             b"x",
         )
         .status(400);
-    await_staging(&dir, 0);
+    common::eventually("rejected uploads leave no stage", || {
+        common::process::staging_count(&dir) == 0
+    });
 }
 
 #[test]
@@ -319,17 +318,6 @@ fn multipart_gzip_strict_permissions_precede_publication() {
         .status(200);
 }
 
-fn await_staging(dir: &TestDir, count: usize) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while common::process::staging_count(dir) != count {
-        assert!(
-            Instant::now() < deadline,
-            "staging did not reach expected count {count}"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
 #[test]
 fn multipart_gzip_disconnect_and_absolute_deadline_cancel_unvalidated_streams() {
     for timeout in [false, true] {
@@ -358,7 +346,9 @@ fn multipart_gzip_disconnect_and_absolute_deadline_cancel_unvalidated_streams() 
         client
             .write_all(&compressed[..compressed.len() - 8])
             .unwrap();
-        await_staging(&dir, 1);
+        common::eventually("the unvalidated stream staged", || {
+            common::process::staging_count(&dir) == 1
+        });
         if timeout {
             let mut reader = BufReader::new(client);
             let reply = common::read_http_response(&mut reader, Body::Expected).unwrap();
@@ -367,7 +357,9 @@ fn multipart_gzip_disconnect_and_absolute_deadline_cancel_unvalidated_streams() 
         } else {
             drop(client);
         }
-        await_staging(&dir, 0);
+        common::eventually("the cancelled stage cleaned", || {
+            common::process::staging_count(&dir) == 0
+        });
         server.request("GET", OBJECT, "", b"").status(404);
         server.request("POST", PATH, TYPE, &compressed).status(200);
     }

@@ -3,7 +3,7 @@ use crate::storage::catalog::fault::{self, Fault, Step};
 use crate::{
     bucket::BucketAccess,
     storage::{Catalog, ResumableOptions, SessionState, test_fixtures::bucket},
-    test_support::TestDir,
+    test_support::{TestDir, eventually_async},
 };
 
 async fn catalog(data: &Path) -> Catalog {
@@ -153,25 +153,19 @@ fn cancelled_cleanup_keeps_its_writer_and_directory_ownership_until_close() {
         let id = session.id.clone();
         let request =
             tokio::spawn(async move { worker.cancel_resumable_session(&id, "bucket").await });
-        tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            while catalog.0.uploads.lock().unwrap().active == 0 {
-                tokio::task::yield_now().await;
-            }
+        eventually_async("the cancellation to become an active upload", || async {
+            catalog.0.uploads.lock().unwrap().active != 0
         })
-        .await
-        .unwrap();
+        .await;
         request.abort();
         assert!(request.await.unwrap_err().is_cancelled());
         assert!(catalog.try_resumable_writer(&session.id).is_err());
         let worker = catalog.clone();
         let close = tokio::spawn(async move { worker.close().await });
-        tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            while !catalog.0.admission.is_closed() {
-                tokio::task::yield_now().await;
-            }
+        eventually_async("close to stop admission", || async {
+            catalog.0.admission.is_closed()
         })
-        .await
-        .unwrap();
+        .await;
         assert!(!close.is_finished());
         assert!(crate::storage::lock::acquire(&data.0).is_err());
         release.send(()).unwrap();

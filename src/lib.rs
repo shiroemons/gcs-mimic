@@ -32,6 +32,10 @@ pub mod storage;
 pub mod sync;
 mod task;
 #[cfg(test)]
+#[expect(
+    dead_code,
+    reason = "Unit tests use a subset of the fixtures shared with the integration tests"
+)]
 mod test_support;
 pub mod tls;
 pub mod url;

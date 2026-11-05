@@ -1055,8 +1055,9 @@ mod tests {
         let (catalog, directory, _clock) = fixture().await;
         let (_token, owner) = new_session(&catalog).await.unwrap();
         drop(owner);
-        tokio::time::timeout(Duration::from_secs(2), async {
-            loop {
+        crate::test_support::eventually_async(
+            "the undelivered session to be reclaimed",
+            || async {
                 let count = catalog
                     .run(|connection| {
                         connection
@@ -1067,19 +1068,14 @@ mod tests {
                     })
                     .await
                     .unwrap();
-                if count == 0
+                count == 0
                     && std::fs::read_dir(directory.join("staging"))
                         .unwrap()
                         .count()
                         == 0
-                {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
+            },
+        )
+        .await;
         assert_eq!(
             std::fs::read_dir(directory.join("staging"))
                 .unwrap()

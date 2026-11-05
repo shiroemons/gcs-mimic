@@ -95,17 +95,6 @@ fn simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission
     }
 }
 
-fn wait_for_stages(dir: &TestDir, expected: usize) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while common::process::staging_count(dir) != expected {
-        assert!(
-            Instant::now() < deadline,
-            "staging count did not reach {expected}"
-        );
-        thread::sleep(Duration::from_millis(5));
-    }
-}
-
 #[test]
 fn disconnect_cleans_staging_and_shutdown_waits_for_upload_completion() {
     let dir = TestDir::new();
@@ -113,13 +102,19 @@ fn disconnect_cleans_staging_and_shutdown_waits_for_upload_completion() {
     server.bucket();
     let mut disconnected = server.stream();
     disconnected.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=aborted HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\na").unwrap();
-    wait_for_stages(&dir, 1);
+    common::eventually("the aborted upload staged", || {
+        common::process::staging_count(&dir) == 1
+    });
     drop(disconnected);
-    wait_for_stages(&dir, 0);
+    common::eventually("the aborted stage cleaned", || {
+        common::process::staging_count(&dir) == 0
+    });
     server.get("aborted").expect(404);
     let mut upload = server.stream();
     upload.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=completed HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\na").unwrap();
-    wait_for_stages(&dir, 1);
+    common::eventually("the completing upload staged", || {
+        common::process::staging_count(&dir) == 1
+    });
     thread::scope(|scope| {
         let stop = scope.spawn(|| server.stop());
         thread::sleep(Duration::from_millis(100));
@@ -127,7 +122,9 @@ fn disconnect_cleans_staging_and_shutdown_waits_for_upload_completion() {
         Reply::framed(upload).expect(200);
         stop.join().unwrap();
     });
-    wait_for_stages(&dir, 0);
+    common::eventually("the completed stage published", || {
+        common::process::staging_count(&dir) == 0
+    });
     let mut reopened = Server::start(&dir, 1000, 5000);
     assert_eq!(reopened.get("completed?alt=media").body, b"abc");
     reopened.stop();

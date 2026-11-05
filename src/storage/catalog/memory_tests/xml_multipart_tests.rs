@@ -1,6 +1,7 @@
 use super::super::xml_multipart::{CompletedPart, Error, Options, Part, PartUpload, Target};
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::test_support::eventually_async;
 
 async fn begin(catalog: &Catalog) -> Target {
     catalog
@@ -69,26 +70,19 @@ async fn bytes(catalog: &Catalog) -> Vec<u8> {
 }
 
 async fn reclaimed(catalog: &Catalog) {
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            let empty = catalog
-                .run::<_, ObjectError>(|connection| {
-                    connection
-                        .prepare_cached("SELECT NOT EXISTS(SELECT 1 FROM derived_transfers)")
-                        .unwrap()
-                        .query_row([], |row| row.get::<_, bool>(0))
-                        .map_err(crate::storage::failure::object_unavailable)
-                })
-                .await
-                .unwrap();
-            if empty {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
+    eventually_async("derived transfers to be reclaimed", || async {
+        catalog
+            .run::<_, ObjectError>(|connection| {
+                connection
+                    .prepare_cached("SELECT NOT EXISTS(SELECT 1 FROM derived_transfers)")
+                    .unwrap()
+                    .query_row([], |row| row.get::<_, bool>(0))
+                    .map_err(crate::storage::failure::object_unavailable)
+            })
+            .await
+            .unwrap()
     })
-    .await
-    .unwrap();
+    .await;
 }
 
 #[tokio::test]
@@ -335,13 +329,10 @@ async fn ram_xml_multipart_close_wakes_stalled_parts_without_publishing_them() {
             )
             .await
     });
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while sender.capacity() != 2 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the request to consume its chunks", || async {
+        sender.capacity() == 2
     })
-    .await
-    .unwrap();
+    .await;
     tokio::time::timeout(std::time::Duration::from_secs(2), catalog.close())
         .await
         .unwrap()
@@ -388,13 +379,10 @@ async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_repl
             )
             .await
     });
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while sender.capacity() != 2 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the request to consume its chunks", || async {
+        sender.capacity() == 2
     })
-    .await
-    .unwrap();
+    .await;
     let (entered, started) = tokio::sync::oneshot::channel();
     let (release, blocked) = std::sync::mpsc::channel();
     let worker = catalog.clone();

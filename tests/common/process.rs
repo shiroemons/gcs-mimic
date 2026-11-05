@@ -9,7 +9,7 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::Path,
     process::{Child, ChildStdout, Command, Stdio},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 // Each suite adds scenario-specific methods without extending another suite's server.
@@ -189,17 +189,7 @@ pub(crate) fn blob_count(dir: &TestDir) -> usize {
 }
 
 pub(crate) fn no_leaks(dir: &TestDir, expected: usize) {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        let staging = staging_count(dir);
-        let blobs = blob_count(dir);
-        if staging == 0 && blobs == expected {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "staging={staging}, blobs={blobs}, expected={expected}"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    super::eventually(&format!("staging=0, blobs={expected}"), || {
+        staging_count(dir) == 0 && blob_count(dir) == expected
+    });
 }

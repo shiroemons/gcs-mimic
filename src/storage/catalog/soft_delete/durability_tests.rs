@@ -8,7 +8,7 @@ use crate::{
             version,
         },
     },
-    test_support::TestDir,
+    test_support::{TestDir, eventually_async},
 };
 use bytes::Bytes;
 use std::{
@@ -214,25 +214,19 @@ fn restore_owns_blocking_publication_through_disconnect_and_close() {
                     .restore_object(restore_target, Default::default(), PERMISSIVE_RESTORE)
                     .await
             });
-            tokio::time::timeout(Duration::from_secs(3), async {
-                while fs::read_dir(data.0.join("staging")).unwrap().count() == 0 {
-                    tokio::task::yield_now().await;
-                }
+            eventually_async("the restore to stage its body", || async {
+                fs::read_dir(data.0.join("staging")).unwrap().count() != 0
             })
-            .await
-            .unwrap();
+            .await;
             if disconnect {
                 request.abort();
             }
             let worker = catalog.clone();
             let close = tokio::spawn(async move { worker.close().await });
-            tokio::time::timeout(Duration::from_secs(3), async {
-                while !catalog.0.admission.is_closed() {
-                    tokio::task::yield_now().await;
-                }
+            eventually_async("close to stop admission", || async {
+                catalog.0.admission.is_closed()
             })
-            .await
-            .unwrap();
+            .await;
             assert!(!close.is_finished());
             assert!(crate::storage::lock::acquire(&data.0).is_err());
             release.send(()).unwrap();

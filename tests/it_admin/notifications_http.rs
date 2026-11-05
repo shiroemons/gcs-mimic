@@ -664,32 +664,25 @@ fn opted_in_pubsub_emulator_receives_the_notification() {
             b"payload",
         )
         .json_ok();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let result = common::effects::request(
-            &address,
-            "POST",
-            &format!("/v1/{subscription}:pull"),
-            "",
-            br#"{"maxMessages":10,"returnImmediately":true}"#,
-        )
-        .json_ok();
-        if let Some(messages) = result["receivedMessages"].as_array()
-            && !messages.is_empty()
-        {
-            assert_eq!(
-                messages[0]["message"]["attributes"]["eventType"],
-                "OBJECT_FINALIZE"
-            );
-            assert_eq!(messages[0]["message"]["attributes"]["objectId"], "received");
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "Pub/Sub emulator did not receive the notification"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    let message = common::input_fixtures::eventually_some(
+        "the Pub/Sub emulator to receive the notification",
+        || {
+            let result = common::effects::request(
+                &address,
+                "POST",
+                &format!("/v1/{subscription}:pull"),
+                "",
+                br#"{"maxMessages":10,"returnImmediately":true}"#,
+            )
+            .json_ok();
+            result["receivedMessages"]
+                .as_array()
+                .and_then(|messages| messages.first())
+                .map(|message| message["message"].clone())
+        },
+    );
+    assert_eq!(message["attributes"]["eventType"], "OBJECT_FINALIZE");
+    assert_eq!(message["attributes"]["objectId"], "received");
     server.stop();
     common::effects::request(&address, "DELETE", &format!("/v1/{subscription}"), "", b"")
         .expect(200);

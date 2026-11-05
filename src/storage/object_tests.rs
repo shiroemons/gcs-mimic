@@ -9,7 +9,7 @@ use gcs_mimic::{
     clock::ManualClock,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
     storage::{Catalog, MoveConditions, MoveNames, ObjectReader, ObjectUpload},
-    test_support::{TestDir, live_len},
+    test_support::{TestDir, eventually_async, live_len},
 };
 use md5::{Digest, Md5};
 use rusqlite::Connection;
@@ -974,19 +974,12 @@ async fn race_upload<T: Send + 'static>(
             .await
     });
     // Rendezvous after the advisory check and body write, before transport-confirmed EOF.
-    tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            let written = fs::read_dir(dir.join("staging"))
-                .unwrap()
-                .any(|entry| live_len(&entry.unwrap().path()) == 11);
-            if written {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the upload to stage its whole body", || async {
+        fs::read_dir(dir.join("staging"))
+            .unwrap()
+            .any(|entry| live_len(&entry.unwrap().path()) == 11)
     })
-    .await
-    .unwrap();
+    .await;
     let barrier = Arc::new(tokio::sync::Barrier::new(3));
     let (deleted, deletion) = tokio::sync::oneshot::channel();
     let start = barrier.clone();
@@ -1003,20 +996,13 @@ async fn race_upload<T: Send + 'static>(
     let delete = tokio::spawn(async move {
         start.wait().await;
         if iteration % 3 == 2 {
-            tokio::time::timeout(Duration::from_secs(5), async {
-                loop {
-                    if let Ok(record) = observer
-                        .get_object(live("bucket", name), Default::default(), PERMISSIVE)
-                        .await
-                        && Some(record.generation) != conditions.if_generation_match
-                    {
-                        break;
-                    }
-                    tokio::task::yield_now().await;
-                }
+            eventually_async("the racing write to publish a new generation", || async {
+                observer
+                    .get_object(live("bucket", name), Default::default(), PERMISSIVE)
+                    .await
+                    .is_ok_and(|record| Some(record.generation) != conditions.if_generation_match)
             })
-            .await
-            .unwrap();
+            .await;
         }
         let result = delete.await;
         let _ = deleted.send(());
@@ -1127,13 +1113,10 @@ async fn committed_mutations_succeed_when_reclaim_is_deferred_to_restart() {
             async move { put(&worker, "object", b"new", ObjectConditions::default()).await },
         );
     // Change permissions only after rename, even if the new blob shares the old shard.
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while blobs(&dir.0).len() != 2 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the overwrite to rename its blob", || async {
+        blobs(&dir.0).len() == 2
     })
-    .await
-    .unwrap();
+    .await;
     let permissions = fs::metadata(old_shard).unwrap().permissions();
     fs::set_permissions(old_shard, fs::Permissions::from_mode(0o555)).unwrap();
     database.execute_batch("ROLLBACK").unwrap();
@@ -1777,13 +1760,10 @@ fn stalled_uploads_leave_blocking_workers_available_without_an_upload_limit() {
                     catalog.put_object(upload, receiver).await
                 });
             }
-            tokio::time::timeout(Duration::from_secs(5), async {
-                while fs::read_dir(dir.0.join("staging")).unwrap().count() != 40 {
-                    tokio::task::yield_now().await;
-                }
+            eventually_async("all 40 uploads to stage", || async {
+                fs::read_dir(dir.0.join("staging")).unwrap().count() == 40
             })
-            .await
-            .unwrap();
+            .await;
             tokio::time::timeout(
                 Duration::from_secs(5),
                 catalog.get_bucket("bucket", PERMISSIVE),
@@ -1818,13 +1798,10 @@ async fn cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup() {
             .put_object(permissive_upload("bucket", "cancelled", 100), receiver)
             .await
     });
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while fs::read_dir(dir.0.join("staging")).unwrap().count() != 1 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the upload to stage", || async {
+        fs::read_dir(dir.0.join("staging")).unwrap().count() == 1
     })
-    .await
-    .unwrap();
+    .await;
     upload.abort();
     assert!(upload.await.unwrap_err().is_cancelled());
     let closer = catalog.clone();
@@ -1850,9 +1827,10 @@ async fn shutdown_rejects_new_uploads_and_waits_for_all_active_guards() {
         .collect();
     let closer = catalog.clone();
     let close = tokio::spawn(async move { closer.close().await });
-    while catalog.is_healthy() {
-        tokio::task::yield_now().await;
-    }
+    eventually_async("close to mark the catalog unhealthy", || async {
+        !catalog.is_healthy()
+    })
+    .await;
     assert!(!close.is_finished());
     assert!(
         matches!(catalog.admit_object_upload(), Err(ObjectError::Unavailable(cause)) if cause == "catalog is closed")

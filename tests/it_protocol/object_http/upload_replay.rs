@@ -80,15 +80,10 @@ fn upload_replay_lost_response_and_recreated_bucket_do_not_duplicate_mutations()
     server.bucket();
     let mut stream = server.stream();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=lost HTTP/1.1\r\nHost: local\r\nContent-Length: 7\r\nX-Goog-Gcs-Idempotency-Token: lost\r\n\r\npayload").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let original = loop {
+    let original = common::input_fixtures::eventually_some("the lost upload committed", || {
         let reply = server.get("lost");
-        if reply.status == 200 {
-            break reply.json();
-        }
-        assert!(Instant::now() < deadline);
-        thread::sleep(Duration::from_millis(10));
-    };
+        (reply.status == 200).then(|| reply.json())
+    });
     // Discard the original response, then restart before retrying its invocation.
     drop(stream);
     server.stop();

@@ -1,5 +1,8 @@
 use super::*;
-use crate::{clock::SystemClock, test_support::TestDir};
+use crate::{
+    clock::SystemClock,
+    test_support::{TestDir, eventually_async},
+};
 use std::{
     fs,
     time::{Duration, UNIX_EPOCH},
@@ -424,21 +427,15 @@ async fn import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix
             .publish_import_objects(source_copy, 1, vec![item])
             .await
     });
-    tokio::time::timeout(Duration::from_secs(3), async {
-        loop {
-            if fs::read_dir(dir.0.join("blobs")).unwrap().any(|shard| {
-                fs::read_dir(shard.unwrap().path())
-                    .unwrap()
-                    .next()
-                    .is_some()
-            }) {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the import to rename a blob", || async {
+        fs::read_dir(dir.0.join("blobs")).unwrap().any(|shard| {
+            fs::read_dir(shard.unwrap().path())
+                .unwrap()
+                .next()
+                .is_some()
+        })
     })
-    .await
-    .unwrap();
+    .await;
     publishing.abort();
     assert!(matches!(publishing.await, Err(error) if error.is_cancelled()));
     let worker = catalog.clone();

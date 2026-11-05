@@ -1,6 +1,7 @@
 use super::appendable::AppendError;
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::test_support::eventually_async;
 
 async fn create(catalog: &Catalog) -> appendable::AppendWriter {
     catalog
@@ -323,19 +324,13 @@ async fn ram_appendable_cancelled_flush_rolls_back_candidate_and_allows_takeover
     });
     started.await.unwrap();
     let flush = tokio::spawn(async move { writer.flush().await });
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            let mut reader = catalog.0.backend.memory().unwrap().open(&id).unwrap();
-            let mut output = Vec::new();
-            std::io::Read::read_to_end(&mut reader, &mut output).unwrap();
-            if output == b"abcdlost" {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the flushed bytes to reach the memory blob", || async {
+        let mut reader = catalog.0.backend.memory().unwrap().open(&id).unwrap();
+        let mut output = Vec::new();
+        std::io::Read::read_to_end(&mut reader, &mut output).unwrap();
+        output == b"abcdlost"
     })
-    .await
-    .unwrap();
+    .await;
     flush.abort();
     assert!(flush.await.unwrap_err().is_cancelled());
     release.send(()).unwrap();

@@ -689,11 +689,7 @@ fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
     let mut server = Server::strict(&data, &identities);
     let mut stream = expect_continue(&server, OBJECT, ADMIN, 99999);
     stream.write_all(b"partial").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while files(&data, "staging") == 0 {
-        assert!(Instant::now() < deadline);
-        thread::sleep(Duration::from_millis(10));
-    }
+    common::eventually("the partial upload staged", || files(&data, "staging") != 0);
     server.child.kill().unwrap();
     server.child.wait().unwrap();
     drop(stream);

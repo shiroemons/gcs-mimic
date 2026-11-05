@@ -7,7 +7,6 @@ use std::{
     net::TcpStream,
     sync::{Arc, Barrier},
     thread,
-    time::{Duration, Instant},
 };
 
 fn setup(strict: bool) -> (TestDir, Server) {
@@ -361,11 +360,7 @@ fn versioned_crash_recovery_preserves_referenced_generations() {
     db.execute_batch("BEGIN IMMEDIATE").unwrap();
     let mut stream = TcpStream::connect(&server.address).unwrap();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=file HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\nnew").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while blobs(&dir) < 3 {
-        assert!(Instant::now() < deadline);
-        thread::sleep(Duration::from_millis(10));
-    }
+    common::eventually("the upload published its blob", || blobs(&dir) >= 3);
     server.child.kill().unwrap();
     server.child.wait().unwrap();
     drop(stream);

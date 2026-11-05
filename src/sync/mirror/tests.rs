@@ -10,7 +10,7 @@ use crate::{
     clock::SystemClock,
     object::UploadChunk,
     storage::admin::{BucketDefinition, GenerationCondition, Publication, PublishMode},
-    test_support::TestDir,
+    test_support::{TestDir, eventually_async},
 };
 use bytes::Bytes;
 use std::fs;
@@ -1362,13 +1362,10 @@ async fn started_mirror_failing(failures: &[LiveFailure]) -> (TestDir, TestDir, 
 async fn a_stopped_mirror_turns_readiness_off() {
     for failure in [LiveFailure::Error, LiveFailure::Panic] {
         let (_data, _tree, catalog, task) = started_mirror(Some(failure)).await;
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            while catalog.background_tasks_running() {
-                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-            }
+        eventually_async("the mirror to stop", || async {
+            !catalog.background_tasks_running()
         })
-        .await
-        .unwrap();
+        .await;
         assert!(
             catalog.is_healthy(),
             "a stopped mirror does not poison the catalog"
@@ -1393,13 +1390,10 @@ async fn a_stopped_mirror_turns_readiness_off() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn explicit_rescan_recovers_a_paused_observer_and_shutdown_releases_ownership() {
     let (_data, tree, catalog, task) = started_mirror(Some(LiveFailure::Error)).await;
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while catalog.background_tasks_running() {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the mirror to stop", || async {
+        !catalog.background_tasks_running()
     })
-    .await
-    .unwrap();
+    .await;
     assert!(matches!(
         catalog
             .sync_state()
@@ -1442,13 +1436,10 @@ async fn explicit_rescan_recovers_a_paused_observer_and_shutdown_releases_owners
 }
 
 async fn await_paused(root: &RootLease) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while root.observation().await.unwrap().paused_reason.is_none() {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the observer to pause", || async {
+        root.observation().await.unwrap().paused_reason.is_some()
     })
-    .await
-    .unwrap();
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1542,13 +1533,10 @@ async fn shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition() 
         Origin::Api,
     )
     .await;
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while root.observation().await.unwrap().pending_writeback == 0 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("a pending writeback", || async {
+        root.observation().await.unwrap().pending_writeback != 0
     })
-    .await
-    .unwrap();
+    .await;
     drop(root);
     tokio::time::timeout(Duration::from_secs(2), task.finish())
         .await
@@ -1951,13 +1939,10 @@ async fn native_watch_permission_retry_lowers_readiness_and_shutdown_releases_th
     );
     let bucket = tree.0.join("test-bucket");
     std::fs::set_permissions(&bucket, std::fs::Permissions::from_mode(0o0)).unwrap();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while catalog.background_tasks_running() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+    eventually_async("the observer to stop", || async {
+        !catalog.background_tasks_running()
     })
-    .await
-    .unwrap();
+    .await;
     tokio::time::timeout(Duration::from_secs(5), task.finish())
         .await
         .unwrap()

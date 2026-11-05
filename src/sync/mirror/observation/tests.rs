@@ -1,33 +1,27 @@
 use super::*;
+use crate::test_support::eventually_some_async;
 mod history;
 
 async fn tracked(root: &RootLease, expected: u64) -> Result<(), RootError> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    loop {
-        if root.observation().await?.tracked_objects == expected
-            && root.deletion_set().await?.is_some()
-        {
-            break;
+    eventually_some_async(&format!("tracked count to reach {expected}"), || async {
+        let ready: Result<bool, RootError> = async {
+            Ok(root.observation().await?.tracked_objects == expected
+                && root.deletion_set().await?.is_some())
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "tracked count did not reach {expected}"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    Ok(())
+        .await;
+        ready.map(|ready| ready.then_some(())).transpose()
+    })
+    .await
 }
 
 async fn cleared_history(root: &RootLease) -> Result<(), RootError> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    while root.automatic_deletion_count().await? != 0 {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "quiet automatic scan did not clear history"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    Ok(())
+    eventually_some_async("a quiet automatic scan to clear history", || async {
+        root.automatic_deletion_count()
+            .await
+            .map(|count| (count == 0).then_some(()))
+            .transpose()
+    })
+    .await
 }
 
 #[tokio::test]

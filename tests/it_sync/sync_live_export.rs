@@ -186,41 +186,30 @@ async fn publish(catalog: &Catalog, bucket: &BucketName, name: &str, body: &[u8]
 }
 
 async fn wait_body(path: &std::path::Path, body: Option<&[u8]>) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let matches = match (fs::read(path), body) {
-                (Ok(found), Some(body)) => found == body,
-                (Err(e), None) => e.kind() == std::io::ErrorKind::NotFound,
-                _ => false,
-            };
-            if matches {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    common::input_fixtures::eventually_async("the exported file to match", || {
+        std::future::ready(match (fs::read(path), body) {
+            (Ok(found), Some(body)) => found == body,
+            (Err(e), None) => e.kind() == std::io::ErrorKind::NotFound,
+            _ => false,
+        })
     })
-    .await
-    .unwrap();
+    .await;
 }
 
 async fn wait_generation(catalog: &Catalog, bucket: &BucketName, path: &str, generation: i64) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
+    common::input_fixtures::eventually_async(
+        "the sync record to reach the generation",
+        || async move {
             let binding = catalog.sync_state().binding(bucket).await.unwrap();
-            if catalog
+            catalog
                 .sync_state()
                 .get_path(binding, path.into())
                 .await
                 .unwrap()
                 .is_some_and(|record| record.generation.get() == generation)
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
+        },
+    )
+    .await;
 }
 
 async fn setup() -> (TestDir, TestDir, Catalog, BucketName, Config) {
@@ -336,13 +325,12 @@ async fn live_export_skips_colon_and_backslash_names_and_keeps_exporting() {
     wait_body(&tree.0.join("test-bucket/after"), Some(b"after")).await;
     // One change page is exported in name order, so "after" can land before the skipped names
     // are recorded; stopping at that point would drop their findings.
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while root.findings_page(0, 256).await.unwrap().len() < 2 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
+    let findings = &root;
+    common::input_fixtures::eventually_async(
+        "both skipped names recorded as findings",
+        || async move { findings.findings_page(0, 256).await.unwrap().len() >= 2 },
+    )
+    .await;
     worker.finish().await.unwrap();
     assert!(
         !tree
@@ -431,13 +419,10 @@ async fn live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_d
     )
     .await;
     wait_body(&tree.0.join("test-bucket/removed"), None).await;
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while !tree.0.join("empty-bucket").is_dir() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    common::input_fixtures::eventually_async("the empty bucket directory exported", || {
+        std::future::ready(tree.0.join("empty-bucket").is_dir())
     })
-    .await
-    .unwrap();
+    .await;
     server
         .request("DELETE", "/storage/v1/b/empty-bucket", b"")
         .expect(204);

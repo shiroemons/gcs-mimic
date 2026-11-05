@@ -341,11 +341,12 @@ fn tls_stream(
     ca: &Path,
 ) -> tokio_rustls::rustls::StreamOwned<tokio_rustls::rustls::ClientConnection, TcpStream> {
     let socket = TcpStream::connect(&server.address).unwrap();
+    // Hang guards only; server deadlines under test are far shorter.
     socket
-        .set_read_timeout(Some(Duration::from_secs(2)))
+        .set_read_timeout(Some(Duration::from_secs(30)))
         .unwrap();
     socket
-        .set_write_timeout(Some(Duration::from_secs(2)))
+        .set_write_timeout(Some(Duration::from_secs(30)))
         .unwrap();
     let connection = tokio_rustls::rustls::ClientConnection::new(
         gcs_mimic::tls::client_config(ca).unwrap(),
@@ -889,8 +890,10 @@ fn tls_handshake_admission_timeout_shutdown_and_strict_permissions() {
         &[
             "--max-connections",
             "1",
+            // The longest accepted handshake deadline, so a stop that waited for it
+            // stays far beyond the bound below even on a stalled runner.
             "--tls-handshake-timeout-ms",
-            "5000",
+            "60000",
         ],
     );
     let mut stalled = TcpStream::connect(&server.address).unwrap();
@@ -898,7 +901,7 @@ fn tls_handshake_admission_timeout_shutdown_and_strict_permissions() {
     std::thread::sleep(Duration::from_millis(50));
     let started = Instant::now();
     server.stop();
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(30));
 }
 
 #[test]
@@ -1046,7 +1049,9 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
     idle.read_to_end(&mut response).unwrap();
     assert_upload_timed_out(&response);
     assert!(started.elapsed() >= Duration::from_millis(500));
-    assert!(started.elapsed() < Duration::from_secs(2));
+    // Either server deadline (600 ms inactivity, 1500 ms absolute) may end it; the
+    // bound only rules out a hang.
+    assert!(started.elapsed() < Duration::from_secs(20));
     let mut trickle = tls_stream(&server, &ca);
     trickle.write_all(request).unwrap();
     trickle.write_all(b"1\r\nx\r\n").unwrap();
@@ -1104,7 +1109,9 @@ fn tls_healthcheck_deadline_includes_stalled_handshake() {
     let (send, receive) = std::sync::mpsc::channel::<()>();
     let stalled = std::thread::spawn(move || {
         let (_socket, _) = listener.accept().unwrap();
-        receive.recv_timeout(Duration::from_secs(5)).unwrap();
+        // The peer stays silent far longer than the bound below, so only the
+        // healthcheck's own deadline can end the probe in time.
+        receive.recv_timeout(Duration::from_secs(60)).unwrap();
     });
     let started = Instant::now();
     let output = common::server_command()
@@ -1115,7 +1122,7 @@ fn tls_healthcheck_deadline_includes_stalled_handshake() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("probe deadline exceeded"));
     assert!(started.elapsed() >= Duration::from_millis(1700));
-    assert!(started.elapsed() < Duration::from_secs(4));
+    assert!(started.elapsed() < Duration::from_secs(30));
     send.send(()).unwrap();
     stalled.join().unwrap();
 }

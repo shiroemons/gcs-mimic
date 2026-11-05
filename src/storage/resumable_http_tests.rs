@@ -8,7 +8,7 @@ mod terminal_retention;
 mod upload_replay;
 use crate as gcs_mimic;
 use crate::storage::test_fixtures::seed_bucket;
-use crate::test_support::TestDir;
+use crate::test_support::{TestDir, eventually_async, eventually_some_async};
 use AuthProfile::{Permissive, Strict};
 use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
@@ -459,19 +459,15 @@ impl Harness {
 }
 
 /// Retries a request that a short catalog budget may reject with 503 while the
-/// runner is loaded; a persistent 503 still fails after five seconds.
+/// runner is loaded; a persistent 503 fails at the hang guard.
 async fn retry_unavailable<F: std::future::Future<Output = Reply>>(
     mut request: impl FnMut() -> F,
 ) -> Reply {
-    // A hang guard: a loaded runner may need many retries before the catalog frees.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let reply = request().await;
-        if reply.status != 503 || tokio::time::Instant::now() >= deadline {
-            return reply;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    eventually_some_async("a reply other than 503", || {
+        let reply = request();
+        async move { Some(reply.await).filter(|reply| reply.status != 503) }
+    })
+    .await
 }
 
 #[track_caller]
@@ -1686,19 +1682,15 @@ async fn interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes
     stream.write_all(&vec![b'b'; 64 * 1024]).await.unwrap();
     stream.shutdown().await.unwrap();
     drop(stream);
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-    loop {
+    let r = eventually_some_async("the aborted writer to release the session", || async {
         let r = h
             .request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
             .await;
-        if r.status != 503 {
-            assert_eq!(r.status, 308);
-            assert_eq!(r.headers["range"], "bytes=0-262143");
-            break;
-        }
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::task::yield_now().await;
-    }
+        (r.status != 503).then_some(r)
+    })
+    .await;
+    assert_eq!(r.status, 308);
+    assert_eq!(r.headers["range"], "bytes=0-262143");
     assert_eq!(
         h.request(
             "PUT",
@@ -1735,14 +1727,10 @@ async fn busy_session_rejects_competing_writer_while_other_sessions_progress() {
         .await
         .unwrap();
     let stage = session.blob_id.staging_path(&h.dir.0);
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-    loop {
-        if tokio::fs::metadata(&stage).await.unwrap().len() > 0 {
-            break;
-        }
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    }
+    eventually_async("the busy writer to stage its first byte", || async {
+        tokio::fs::metadata(&stage).await.unwrap().len() > 0
+    })
+    .await;
     assert_eq!(
         h.request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
             .await
@@ -1849,11 +1837,10 @@ async fn chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots(
             .await
             .unwrap();
         let stage = session.blob_id.staging_path(&h.dir.0);
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-        while tokio::fs::metadata(&stage).await.unwrap().len() == 0 {
-            assert!(tokio::time::Instant::now() < deadline);
-            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        }
+        eventually_async("the stalled writer to stage its first bytes", || async {
+            tokio::fs::metadata(&stage).await.unwrap().len() > 0
+        })
+        .await;
         stalled.push((stream, path));
     }
     let init = h.initiate("name=admission", "", b"").await;
@@ -1861,19 +1848,15 @@ async fn chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots(
     assert_eq!(h.request("PUT", &path, "", b"additional").await.status, 200);
     for (mut stream, path) in stalled {
         stream.shutdown().await.unwrap();
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-        loop {
+        let r = eventually_some_async("the disconnected writer to release the session", || async {
             let r = h
                 .request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
                 .await;
-            if r.status != 503 {
-                assert_eq!(r.status, 308);
-                assert!(!r.headers.contains_key("range"));
-                break;
-            }
-            assert!(tokio::time::Instant::now() < deadline);
-            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        }
+            (r.status != 503).then_some(r)
+        })
+        .await;
+        assert_eq!(r.status, 308);
+        assert!(!r.headers.contains_key("range"));
     }
     let init = h.initiate("name=too-large", "", b"").await;
     let path = h.path(&init);
@@ -1952,11 +1935,10 @@ async fn session_deadline_during_transfer_returns_not_found_without_acknowledgin
     stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
     stream.write_all(&[b'x'; 64 * 1024]).await.unwrap();
     let stage = session.blob_id.staging_path(&h.dir.0);
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-    while tokio::fs::metadata(&stage).await.unwrap().len() == 0 {
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-    }
+    eventually_async("the writer to stage its first bytes", || async {
+        tokio::fs::metadata(&stage).await.unwrap().len() > 0
+    })
+    .await;
     h.clock.set(session.deadline);
     for _ in 0..3 {
         stream.write_all(&[b'x'; 64 * 1024]).await.unwrap();
@@ -2044,11 +2026,10 @@ async fn cancellation_racing_append_respects_writer_and_prevents_later_publicati
     let mut stream = TcpStream::connect(&h.address).await.unwrap();
     stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
     stream.write_all(&[b'a'; 64 * 1024]).await.unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
-    while tokio::fs::metadata(&stage).await.unwrap().len() == 0 {
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::task::yield_now().await;
-    }
+    eventually_async("the appending writer to stage its first bytes", || async {
+        tokio::fs::metadata(&stage).await.unwrap().len() > 0
+    })
+    .await;
     assert_eq!(h.request("DELETE", &path, "", b"").await.status, 503);
     for _ in 0..3 {
         stream.write_all(&[b'a'; 64 * 1024]).await.unwrap();
@@ -2153,34 +2134,26 @@ async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() 
                 .await
         };
         assert_eq!(response.status, if cancel { 499 } else { 400 });
-        // A hang guard shared by the polling loops below; each exits as soon as its
-        // state appears, and a loaded runner has needed more than three seconds.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-        while h.state.catalog.resumable_maintenance_error().is_none() {
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "cleanup scheduler was not woken"
-            );
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        loop {
+        eventually_async(
+            "the cleanup scheduler to report the failed unlink",
+            || async { h.state.catalog.resumable_maintenance_error().is_some() },
+        )
+        .await;
+        let status = eventually_some_async("a DELETE reply other than 503", || async {
             let status = h.request("DELETE", &path, "", b"").await.status;
-            if status != 503 {
-                assert_eq!(status, if cancel { 499 } else { 410 });
-                break;
-            }
-            assert!(tokio::time::Instant::now() < deadline);
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+            (status != 503).then_some(status)
+        })
+        .await;
+        assert_eq!(status, if cancel { 499 } else { 410 });
         // Removing the obstacle leaves nothing to delete, which the next retry treats
         // as done. Recreating a file here would race that retry: session cleanup
         // unlinks on the blocking pool, outside the catalog thread, so it can see the
         // path absent, forget its journal row, and leave the new file unowned.
         std::fs::remove_dir(&stage).unwrap();
-        while stage.exists() || h.state.catalog.resumable_maintenance_error().is_some() {
-            assert!(tokio::time::Instant::now() < deadline);
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        eventually_async("the cleanup retry to remove the staging path", || async {
+            !stage.exists() && h.state.catalog.resumable_maintenance_error().is_none()
+        })
+        .await;
         assert!(h.clock.now() < session.deadline);
         assert_eq!(
             h.request(

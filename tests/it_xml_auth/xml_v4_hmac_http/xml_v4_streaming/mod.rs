@@ -86,7 +86,7 @@ fn send(
 ) -> Reply {
     let stream = TcpStream::connect(&server.address).unwrap();
     stream
-        .set_read_timeout(Some(Duration::from_secs(15)))
+        .set_read_timeout(Some(Duration::from_secs(60)))
         .unwrap();
     stream
         .set_write_timeout(Some(Duration::from_secs(15)))
@@ -316,7 +316,7 @@ fn signed_chunk_tampering_lengths_terminal_eof_and_trailers_preserve_the_complet
     }
     let mut truncated = TcpStream::connect(&server.address).unwrap();
     truncated
-        .set_read_timeout(Some(Duration::from_secs(15)))
+        .set_read_timeout(Some(Duration::from_secs(60)))
         .unwrap();
     write!(
         truncated,

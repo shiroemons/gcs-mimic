@@ -575,8 +575,7 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=value HTTP/1.1\r\nHost: localhost\r\nContent-Length: 8\r\n\r\ntail").unwrap();
     drop(stream);
     // Reset takes the existing activity gate, so wait only for an incomplete request's cleanup.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
+    common::eventually("reset after the incomplete upload's cleanup", || {
         let response = server.request(
             "POST",
             "/_internal/reset",
@@ -584,12 +583,11 @@ fn memory_capacity_aborted_input_and_unsupported_sessions_preserve_old_state() {
             br#"{"confirm":"gcs-mimic"}"#,
         );
         if response.status == 200 {
-            break;
+            return true;
         }
         response.expect(503);
-        assert!(std::time::Instant::now() < deadline);
-        std::thread::yield_now();
-    }
+        false
+    });
     server.bucket(false);
     server.put(b"next").json_ok();
     server.stop();

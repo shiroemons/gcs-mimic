@@ -448,13 +448,10 @@ pub(crate) mod tests {
         drop(spawn_supervised(NAME, async {
             panic!("detached fixture panic");
         }));
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while reported_panics(NAME).is_empty() {
-                tokio::task::yield_now().await;
-            }
+        crate::test_support::eventually_async("the detached panic to be reported", || async {
+            !reported_panics(NAME).is_empty()
         })
-        .await
-        .unwrap();
+        .await;
         assert_eq!(reported_panics(NAME), ["detached fixture panic"]);
         let next = spawn_supervised("test-after-panic", async { 7 });
         assert_eq!(next.await.unwrap(), 7);

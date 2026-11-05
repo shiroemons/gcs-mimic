@@ -6,6 +6,7 @@ use crate::storage::test_fixtures::{
 use crate::{
     object::{ObjectConditions, ObjectError, ObjectTarget, UploadChunk},
     storage::admin::{AdminError, BucketDefinition, BucketName},
+    test_support::eventually_async,
 };
 use BodyEnd::{Aborted, Complete};
 use Versioning::{Off, On};
@@ -470,16 +471,10 @@ async fn ram_derived_cancel_expiry_and_abandoned_begin_reclaim_their_owned_state
     request.abort();
     assert!(request.await.unwrap_err().is_cancelled());
     release.send(()).unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            if catalog.get_derived(&id).await == Err(ObjectError::DerivedTransferNotFound) {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the cancelled derived transfer to be removed", || async {
+        catalog.get_derived(&id).await == Err(ObjectError::DerivedTransferNotFound)
     })
-    .await
-    .unwrap();
+    .await;
     let transfer = ram_transfer(&catalog).await;
     catalog
         .advance_derived(&transfer.id, u64::MAX)
@@ -776,33 +771,23 @@ async fn ram_last_catalog_drop_wakes_and_releases_an_idle_notification_publisher
                 crate::notification::Endpoint::parse("127.0.0.1:1").unwrap(),
             )
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while catalog.0.notification_attempts.available_permits() != 0 {
-                tokio::task::yield_now().await;
-            }
+        eventually_async("the publisher to hold the attempt permit", || async {
+            catalog.0.notification_attempts.available_permits() == 0
         })
-        .await
-        .unwrap();
+        .await;
         release.send(()).unwrap();
         blocked.await.unwrap();
     }
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while Arc::strong_count(&catalog.0) != 1
-            || catalog.0.notification_attempts.available_permits() != 1
-        {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the publisher to release the catalog", || async {
+        Arc::strong_count(&catalog.0) == 1
+            && catalog.0.notification_attempts.available_permits() == 1
     })
-    .await
-    .unwrap();
+    .await;
     drop(catalog);
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while wake.strong_count() != 0 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the publisher wake to be dropped", || async {
+        wake.strong_count() == 0
     })
-    .await
-    .unwrap();
+    .await;
 }
 
 #[tokio::test]

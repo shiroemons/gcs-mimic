@@ -175,6 +175,13 @@ fn reset_short_catalog_wait_reports_no_changes() {
 
 fn assert_active_upload_reset(catalog_wait_ms: &str) {
     let dir = TestDir::new();
+    // The catalog wait applies to every request, so on a loaded runner a short one also
+    // times out the ordinary setup uploads, which are not under test. Populate with the
+    // default wait, then restart on the same data with the wait under test.
+    let setup = Server::start(&dir, &["--admin-enabled", "true"]);
+    setup.populate();
+    // A graceful server stops on drop; an explicit stop would signal it twice.
+    drop(setup);
     let server = Server::start(
         &dir,
         &[
@@ -184,7 +191,6 @@ fn assert_active_upload_reset(catalog_wait_ms: &str) {
             catalog_wait_ms,
         ],
     );
-    server.populate();
     let mut reader = pending_media_upload(&server, "pending", b"hello".len());
     let busy = server.request("POST", "/_internal/reset", "", CONFIRM);
     busy.expect(503);
@@ -203,9 +209,13 @@ fn assert_active_upload_reset(catalog_wait_ms: &str) {
     let reply = common::read_http_response(&mut reader, Body::Expected).unwrap();
     assert!(reply.starts_with(b"HTTP/1.1 200"));
     drop(reader);
-    server
-        .request("POST", "/_internal/reset", "", CONFIRM)
-        .json_ok();
+    // The finished upload's cleanup can still hold the catalog past a short wait; reset
+    // then answers its documented no-change 503 with Retry-After, so retry it.
+    crate::common::input_fixtures::eventually_some("reset after the upload finished", || {
+        let reply = server.request("POST", "/_internal/reset", "", CONFIRM);
+        (reply.status != 503).then_some(reply)
+    })
+    .json_ok();
     server.request("GET", OBJECT, "", b"").expect(404);
 }
 

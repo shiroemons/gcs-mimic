@@ -1,6 +1,6 @@
 use crate as gcs_mimic;
 use crate::storage::test_fixtures::{body, publication, seed_bucket};
-use crate::test_support::TestDir;
+use crate::test_support::{TestDir, eventually_async};
 use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
     clock::{Clock, ManualClock},
@@ -456,13 +456,10 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
         .await
         .unwrap();
     catalog.start_resumable_maintenance();
-    tokio::time::timeout(Duration::from_secs(2), async {
-        while clock.calls.load(Ordering::SeqCst) < 2 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the scheduler to read the clock twice", || async {
+        clock.calls.load(Ordering::SeqCst) >= 2
     })
-    .await
-    .unwrap();
+    .await;
     let calls = clock.calls.load(Ordering::SeqCst);
     tokio::time::sleep(Duration::from_millis(30)).await;
     assert_eq!(clock.calls.load(Ordering::SeqCst), calls);
@@ -486,13 +483,11 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
         )
         .await
         .unwrap();
-    tokio::time::timeout(Duration::from_secs(2), async {
-        while first.blob_id.staging_path(&dir.0).exists() {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
+    eventually_async(
+        "the expired session's staging file to be removed",
+        || async { !first.blob_id.staging_path(&dir.0).exists() },
+    )
+    .await;
     catalog.close().await.unwrap();
     let reopened = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     reopened.close().await.unwrap();
@@ -859,22 +854,16 @@ async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
     assert!(catalog.resumable_maintenance_error().is_some());
     // The failure is repaired without explicitly invoking maintenance a second time.
     std::fs::remove_dir(&stage).unwrap();
-    tokio::time::timeout(Duration::from_secs(3), async {
-        loop {
-            let count: i64 = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
-                .unwrap()
-                .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
-                    row.get(0)
-                })
-                .unwrap();
-            if count == 0 && catalog.resumable_maintenance_error().is_none() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    eventually_async("the scheduler to retry and expire the session", || async {
+        let count: i64 = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+            .unwrap()
+            .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        count == 0 && catalog.resumable_maintenance_error().is_none()
     })
-    .await
-    .unwrap();
+    .await;
     catalog.close().await.unwrap();
 }
 
@@ -901,13 +890,7 @@ async fn scheduler_restarts_after_a_panic_and_readiness_reports_the_gap() {
     // Every pass panics until the injection is cleared, keeping the loop in its restart backoff.
     catalog.inject_maintenance_panics(usize::MAX);
     catalog.start_resumable_maintenance();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while state.is_ready() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .unwrap();
+    eventually_async("readiness to turn off", || async { !state.is_ready() }).await;
     assert!(!catalog.background_tasks_running());
     assert!(
         catalog.is_healthy(),
@@ -919,22 +902,16 @@ async fn scheduler_restarts_after_a_panic_and_readiness_reports_the_gap() {
     );
     catalog.inject_maintenance_panics(0);
     // The restarted loop expires the session without another explicit maintenance call.
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let count: i64 = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
-                .unwrap()
-                .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
-                    row.get(0)
-                })
-                .unwrap();
-            if count == 0 && state.is_ready() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    eventually_async("the restarted loop to expire the session", || async {
+        let count: i64 = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+            .unwrap()
+            .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        count == 0 && state.is_ready()
     })
-    .await
-    .unwrap();
+    .await;
     assert!(catalog.background_tasks_running());
     drop(state);
     catalog.close().await.unwrap();
@@ -967,26 +944,14 @@ async fn persistent_maintenance_failures_turn_readiness_off_until_a_pass_succeed
     std::fs::create_dir(&stage).unwrap();
     clock.set(session.deadline);
     catalog.start_resumable_maintenance();
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while state.is_ready() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
+    eventually_async("readiness to turn off", || async { !state.is_ready() }).await;
     assert!(catalog.resumable_maintenance_error().is_some());
     assert!(
         catalog.is_healthy(),
         "failing maintenance does not poison the catalog"
     );
     std::fs::remove_dir(&stage).unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while !state.is_ready() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
+    eventually_async("readiness to return", || async { state.is_ready() }).await;
     assert!(catalog.resumable_maintenance_error().is_none());
     drop(state);
     catalog.close().await.unwrap();

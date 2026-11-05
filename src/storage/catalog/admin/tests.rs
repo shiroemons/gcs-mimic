@@ -3,7 +3,7 @@ use crate::storage::ObjectUpload;
 use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use crate::{
     clock::SystemClock,
-    test_support::{TestDir, live_len},
+    test_support::{TestDir, eventually_async, eventually_some_async, live_len},
 };
 use bytes::Bytes;
 use std::collections::BTreeMap;
@@ -314,17 +314,11 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
                 _ => unreachable!(),
             }
         });
-        let selected = tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                let record = admin.get_object(&bucket, &name, None).await.unwrap();
-                if record.generation != old.generation {
-                    break record;
-                }
-                tokio::task::yield_now().await;
-            }
+        let selected = eventually_some_async("a new generation to be selected", || async {
+            let record = admin.get_object(&bucket, &name, None).await.unwrap();
+            (record.generation != old.generation).then_some(record)
         })
-        .await
-        .unwrap();
+        .await;
         assert!(!publication.is_finished());
         drop(held);
         publication.await.unwrap();
@@ -443,22 +437,15 @@ async fn publication_waits_for_reclamation_without_holding_catalog_execution() {
             .publish_object(&target_bucket, &target_name, request(None), body(b"new"))
             .await
     });
-    tokio::time::timeout(Duration::from_secs(3), async {
-        loop {
-            if admin
-                .get_object(&bucket, &name, None)
-                .await
-                .unwrap()
-                .generation
-                != old.generation
-            {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
+    eventually_async("a new generation to be selected", || async {
+        admin
+            .get_object(&bucket, &name, None)
+            .await
+            .unwrap()
+            .generation
+            != old.generation
     })
-    .await
-    .unwrap();
+    .await;
     assert!(!publication.is_finished());
     assert_eq!(publication_blobs(&dir.0).len(), 2);
     drop(cleanup);
@@ -473,13 +460,10 @@ async fn cancelled_reclamation_retains_directory_ownership_until_sql_settles() {
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
     let worker = catalog.clone();
     let cleanup = tokio::spawn(async move { worker.reclaim_after_commit().await });
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while catalog.0.reclamation.available_permits() != 0 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("reclamation to hold its permit", || async {
+        catalog.0.reclamation.available_permits() == 0
     })
-    .await
-    .unwrap();
+    .await;
     cleanup.abort();
     let _ = cleanup.await;
     let worker = catalog.clone();
@@ -821,7 +805,10 @@ async fn admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock() {
             .ensure_bucket(bucket("pending-bucket", "project"))
             .await
     });
-    wait_for(|| catalog.0.execution.available_permits() == 0).await;
+    eventually_async("the ensure to hold the execution permit", || async {
+        catalog.0.execution.available_permits() == 0
+    })
+    .await;
     ensure.abort();
     let _ = ensure.await;
     let closer = catalog.clone();
@@ -1061,16 +1048,6 @@ fn bucket_definition(index: usize) -> BucketDefinition {
     bucket(&format!("full-{index:04}"), "project")
 }
 
-async fn wait_for(mut condition: impl FnMut() -> bool) {
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while !condition() {
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
-    })
-    .await
-    .unwrap();
-}
-
 #[tokio::test]
 async fn admin_cancelled_body_cleans_staging_before_unlock() {
     let (dir, catalog, admin, bucket, name) = setup().await;
@@ -1084,7 +1061,7 @@ async fn admin_cancelled_body_cleans_staging_before_unlock() {
             .publish_object(&bucket, &name, request(None), receiver)
             .await
     });
-    wait_for(|| {
+    eventually_async("the publication to stage bytes", || async {
         std::fs::read_dir(dir.0.join("staging"))
             .unwrap()
             .any(|entry| live_len(&entry.unwrap().path()) > 0)
@@ -1124,7 +1101,7 @@ async fn admin_shutdown_holds_lock_through_renamed_publication() {
             .publish_object(&bucket, &name, request(None), receiver)
             .await
     });
-    wait_for(|| {
+    eventually_async("the publication to stage bytes", || async {
         std::fs::read_dir(dir.0.join("staging"))
             .unwrap()
             .any(|entry| live_len(&entry.unwrap().path()) > 0)
@@ -1133,7 +1110,7 @@ async fn admin_shutdown_holds_lock_through_renamed_publication() {
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
     sender.send(Ok(UploadChunk::End)).await.unwrap();
     drop(sender);
-    wait_for(|| {
+    eventually_async("the publication to rename its blob", || async {
         std::fs::read_dir(dir.0.join("blobs"))
             .unwrap()
             .any(|entry| std::fs::read_dir(entry.unwrap().path()).unwrap().count() > 0)

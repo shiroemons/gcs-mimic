@@ -5,7 +5,7 @@ use crate::{
     clock::{Clock, ManualClock, SystemClock},
     object::UploadChunk,
     storage::admin::{BucketDefinition, BucketName, LocalAdmin},
-    test_support::TestDir,
+    test_support::{TestDir, eventually_async},
 };
 use std::{
     io,
@@ -129,13 +129,10 @@ async fn new_parts_skip_reclamation_but_replacements_reclaim_the_retired_bytes()
     let replacing = target.clone();
     let replacement =
         tokio::spawn(async move { put(&worker, &replacing, 1, b"replacement").await });
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while deletion_count(&catalog).await == 0 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the replaced part to be queued for deletion", || async {
+        deletion_count(&catalog).await != 0
     })
-    .await
-    .unwrap();
+    .await;
     assert!(!replacement.is_finished());
     drop(held);
     let replaced = tokio::time::timeout(Duration::from_secs(5), replacement)
@@ -196,13 +193,10 @@ async fn cancelled_abort_reclaims_every_batch_without_another_request() {
     .await
     .unwrap();
     drop(held);
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while catalog.active_uploads() != 0 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("active uploads to finish", || async {
+        catalog.active_uploads() == 0
     })
-    .await
-    .unwrap();
+    .await;
     assert_eq!(deletion_count(&catalog).await, 1);
     tokio::time::timeout(
         Duration::from_secs(5),
@@ -211,13 +205,10 @@ async fn cancelled_abort_reclaims_every_batch_without_another_request() {
     .await
     .unwrap();
     catalog.start_resumable_maintenance();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while deletion_count(&catalog).await != 0 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("maintenance to drain pending deletions", || async {
+        deletion_count(&catalog).await == 0
     })
-    .await
-    .unwrap();
+    .await;
     assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
     catalog.close().await.unwrap();
 }

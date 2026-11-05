@@ -3,6 +3,7 @@ use super::*;
 use crate::storage::test_fixtures::{
     PERMISSIVE, body, bucket, live, permissive_upload, read_all, version,
 };
+use crate::test_support::eventually_async;
 use bytes::Bytes;
 use md5::{Digest, Md5, digest::common::hazmat::SerializableState};
 use std::io::Write;
@@ -1038,18 +1039,14 @@ async fn abandoned_handler_guard_waits_for_writer_then_reclaims_transfer() {
     tokio::task::yield_now().await;
     assert!(catalog.get_derived(&transfer.id).await.is_ok());
     drop(writer);
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            if catalog.get_derived(&transfer.id).await == Err(ObjectError::DerivedTransferNotFound)
+    eventually_async(
+        "the derived transfer and its staging to be removed",
+        || async {
+            catalog.get_derived(&transfer.id).await == Err(ObjectError::DerivedTransferNotFound)
                 && fs::read_dir(path.join("staging")).unwrap().count() == 0
-            {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
+        },
+    )
+    .await;
     assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
     catalog.close().await.unwrap();
     fs::remove_dir_all(path).unwrap();
@@ -1392,18 +1389,14 @@ async fn dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer() {
     request.abort();
     assert!(request.await.unwrap_err().is_cancelled());
     release.send(()).unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            if catalog.get_derived(&id).await == Err(ObjectError::DerivedTransferNotFound)
+    eventually_async(
+        "the derived transfer and its staging to be removed",
+        || async {
+            catalog.get_derived(&id).await == Err(ObjectError::DerivedTransferNotFound)
                 && fs::read_dir(path.join("staging")).unwrap().count() == 0
-            {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
+        },
+    )
+    .await;
     assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
     catalog.close().await.unwrap();
     fs::remove_dir_all(path).unwrap();

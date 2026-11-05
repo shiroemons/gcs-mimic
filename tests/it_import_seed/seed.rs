@@ -1268,18 +1268,12 @@ async fn sigterm_during_seed_drains_writes_releases_lock_and_retries() {
     assert!(Catalog::open(&data).await.is_err());
     assert!(server.child.try_wait().unwrap().is_none());
     connection.execute_batch("COMMIT;").unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
-    loop {
-        if let Some(status) = server.child.try_wait().unwrap() {
-            assert!(status.success());
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "seed ignored SIGTERM after owned write drained"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    let status = common::input_fixtures::eventually_some_async(
+        "seed exit after the owned write drained",
+        || std::future::ready(server.child.try_wait().unwrap()),
+    )
+    .await;
+    assert!(status.success());
     let mut output = String::new();
     server.stdout.read_to_string(&mut output).unwrap();
     assert_eq!(output, "{\"event\":\"stopped\"}\n");
@@ -1325,8 +1319,7 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
             events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
             "seeding"
         );
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        loop {
+        common::input_fixtures::eventually_async("seed reached body transfer", || {
             let transferring = fs::read_dir(data.join("staging"))
                 .into_iter()
                 .flatten()
@@ -1336,19 +1329,15 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
                     // File publication may clone the complete source before hashing it.
                     size > 0 && size <= SIZE
                 });
-            if transferring {
-                break;
+            if !transferring {
+                assert!(
+                    server.child.try_wait().unwrap().is_none(),
+                    "seed exited before body transfer"
+                );
             }
-            assert!(
-                server.child.try_wait().unwrap().is_none(),
-                "seed exited before body transfer"
-            );
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "seed did not reach body transfer"
-            );
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
+            std::future::ready(transferring)
+        })
+        .await;
         let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
         let blob_ids = || -> BTreeSet<String> {
             fs::read_dir(data.join("blobs"))
@@ -1360,18 +1349,17 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
         if after_rename {
             // As in the existing media crash test, reserve SQLite after advisory checks and block publication after rename.
             connection.execute_batch("BEGIN IMMEDIATE").unwrap();
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-            while blob_ids().is_empty() {
-                assert!(
-                    server.child.try_wait().unwrap().is_none(),
-                    "seed exited before publication"
-                );
-                assert!(
-                    tokio::time::Instant::now() < deadline,
-                    "seed did not reach rename before commit"
-                );
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            }
+            common::input_fixtures::eventually_async("seed reached rename before commit", || {
+                let renamed = !blob_ids().is_empty();
+                if !renamed {
+                    assert!(
+                        server.child.try_wait().unwrap().is_none(),
+                        "seed exited before publication"
+                    );
+                }
+                std::future::ready(renamed)
+            })
+            .await;
             assert_eq!(common::catalog::count(&connection, "objects"), 0);
             assert_eq!(
                 events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
@@ -1396,22 +1384,15 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
             );
             connection.execute_batch("COMMIT").unwrap();
         }
-        // A hang guard, not a latency bound: cancellation waits for the blocking copy or
-        // hash step already running on the 64 MiB body, which took over 5 s on loaded
-        // runs. Ignoring SIGTERM still fails below, because the seed would commit the
-        // object or never exit.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-        loop {
-            if let Some(status) = server.child.try_wait().unwrap() {
-                assert!(status.success());
-                break;
-            }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "seed ignored SIGTERM during transfer/publication"
-            );
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        // Cancellation waits for the blocking copy or hash step already running on the
+        // 64 MiB body, which took over 5 s on loaded runs. Ignoring SIGTERM still fails
+        // below, because the seed would commit the object or never exit.
+        let status = common::input_fixtures::eventually_some_async(
+            "seed exit after SIGTERM during transfer",
+            || std::future::ready(server.child.try_wait().unwrap()),
+        )
+        .await;
+        assert!(status.success());
         let mut output = String::new();
         server.stdout.read_to_string(&mut output).unwrap();
         assert_eq!(output, "{\"event\":\"stopped\"}\n");

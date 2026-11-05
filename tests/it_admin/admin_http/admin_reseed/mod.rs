@@ -14,14 +14,20 @@ fn seeded_server(data: &TestDir, source: &TestDir, catalog_wait_ms: &str) -> Ser
             catalog_wait_ms,
         ],
     );
-    server
-        .request(
+    // The catalog wait applies to every request, so on a loaded runner a short one also
+    // times out this setup upload, which is not under test. Its 503 is retryable; a
+    // retry may add a generation, and only the content is checked later. Restarting with
+    // the default wait is no option: startup replays the seed over the edit.
+    common::input_fixtures::eventually_some("the setup edit", || {
+        let reply = server.request(
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=value",
             "",
             b"API edit",
-        )
-        .json_ok();
+        );
+        (reply.status != 503).then_some(reply)
+    })
+    .json_ok();
     server
 }
 
@@ -72,9 +78,13 @@ fn reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active() {
         b"API edit"
     );
     finish_upload(upload);
-    server
-        .request("POST", "/_internal/reseed", "", b"")
-        .json_ok();
+    // The finished upload's cleanup can still hold the catalog past a short wait; reseed
+    // then answers its documented no-change 503 with Retry-After, so retry it.
+    crate::common::input_fixtures::eventually_some("reseed after the upload finished", || {
+        let reply = server.request("POST", "/_internal/reseed", "", b"");
+        (reply.status != 503).then_some(reply)
+    })
+    .json_ok();
     assert_eq!(
         server
             .request("GET", &format!("{OBJECT}?alt=media"), "", b"")

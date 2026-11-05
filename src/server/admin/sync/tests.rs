@@ -10,7 +10,7 @@ use crate::{
         admin::{BucketDefinition, BucketName, Generation, ObjectName, Origin},
         sync_state::writeback::{Limits, Writeback},
     },
-    test_support::TestDir,
+    test_support::{TestDir, eventually_async, eventually_some_async},
 };
 use http_body_util::BodyExt;
 use std::{fs, time::Duration};
@@ -362,39 +362,21 @@ impl Fixture {
     /// Reads status and then the findings page for its revision. Status reports the
     /// published observation while the page checks the current one, so a native
     /// notification still settling can make the just-read revision stale (409);
-    /// only that answer is retried, with a fresh status, until a deadline.
+    /// only that answer is retried, with a fresh status.
     async fn findings(&self) -> (Value, Value) {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        loop {
+        eventually_some_async("a findings page for a current revision", || async {
             let status = self.status().await;
             let path = format!(
                 "/_internal/sync?view=findings&revision={}",
                 status["findings_revision"].as_str().unwrap()
             );
             match self.request("GET", &path, b"", None).await {
-                Ok(page) => return (status, body(page).await),
-                Err(error)
-                    if error.status == StatusCode::CONFLICT
-                        && tokio::time::Instant::now() < deadline =>
-                {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                }
+                Ok(page) => Some((status, body(page).await)),
+                Err(error) if error.status == StatusCode::CONFLICT => None,
                 Err(error) => panic!("findings page: {error:?}"),
-            }
-        }
-    }
-
-    async fn wait_for_deletions(&self, count: u64) {
-        tokio::time::timeout(Duration::from_secs(20), async {
-            loop {
-                if self.status().await["pending_deletion_count"] == count {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
-        .unwrap();
     }
 
     async fn armed_workspace(&self, bytes: &[u8]) -> ArmedWorkspace {
@@ -1391,11 +1373,11 @@ async fn rescan_during_native_quiet_waits_for_a_completed_scan() {
     fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
     fs::write(fixture.tree.0.join("test-bucket/body"), b"pending").unwrap();
     let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while root.deletion_set().await.unwrap().is_some() {
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    eventually_async(
+        "the native event to invalidate the deletion set",
+        || async { root.deletion_set().await.unwrap().is_none() },
+    )
+    .await;
     let result = tokio::time::timeout(
         Duration::from_secs(10),
         fixture.request_once("POST", "/_internal/sync/rescan", b"{}", None),
@@ -1417,11 +1399,11 @@ async fn wait_during_native_quiet_reports_source_changing_only_at_its_deadline()
     fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
     fs::write(fixture.tree.0.join("test-bucket/body"), b"pending").unwrap();
     let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while root.deletion_set().await.unwrap().is_some() {
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    eventually_async(
+        "the native event to invalidate the deletion set",
+        || async { root.deletion_set().await.unwrap().is_none() },
+    )
+    .await;
     let started = tokio::time::Instant::now();
     let response = fixture
         .request(
@@ -1503,7 +1485,10 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
     let fixture = Fixture::new(Tree::LongNames).await;
     fs::remove_dir_all(fixture.tree.0.join("test-bucket")).unwrap();
     // Pagination starts after the native observer has published the removal's completed scan.
-    fixture.wait_for_deletions(300).await;
+    eventually_async("300 pending deletions", || async {
+        fixture.status().await["pending_deletion_count"] == 300
+    })
+    .await;
     let response = fixture
         .request("POST", "/_internal/sync/rescan", b"{}", None)
         .await
@@ -1597,7 +1582,10 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
         ),
         StatusCode::CONFLICT
     );
-    fixture.wait_for_deletions(0).await;
+    eventually_async("no pending deletions", || async {
+        fixture.status().await["pending_deletion_count"] == 0
+    })
+    .await;
     assert!(fixture.tree.0.join("test-bucket").is_dir());
     fixture.finish().await;
 }

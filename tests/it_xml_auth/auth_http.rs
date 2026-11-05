@@ -788,7 +788,13 @@ fn auth_http_project_roles_gate_each_route() {
 fn auth_http_rejected_uploads_do_not_read_or_stage_the_body() {
     let config = TestDir::new();
     let dir = TestDir::new();
-    let server = Server::strict(&dir, &identity_file(&config));
+    // A server that waited for the body would answer only after this 30 s idle deadline,
+    // far beyond the bounds below, so they tolerate a stalled runner.
+    let server = Server::strict_with(
+        &dir,
+        &identity_file(&config),
+        &["--connection-timeout-ms", "30000"],
+    );
     server
         .create_bucket(ADMIN, "project-a", "bucket-a")
         .success();
@@ -826,7 +832,7 @@ fn auth_http_rejected_uploads_do_not_read_or_stage_the_body() {
             .auth_error(status, reason);
         sending.join().unwrap();
         assert!(
-            start.elapsed() < Duration::from_secs(2),
+            start.elapsed() < Duration::from_secs(10),
             "rejection must not wait for the advertised body"
         );
     }
@@ -835,7 +841,7 @@ fn auth_http_rejected_uploads_do_not_read_or_stage_the_body() {
     server
         .raw(b"POST /upload/storage/v1/b/bucket-a/o?uploadType=media&name=exists HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer creator-token\r\nContent-Length: 900000\r\n\r\n")
         .forbidden();
-    assert!(start.elapsed() < Duration::from_secs(1));
+    assert!(start.elapsed() < Duration::from_secs(10));
     assert_eq!(
         server
             .get(ADMIN, "/storage/v1/b/bucket-a/o/exists?alt=media")

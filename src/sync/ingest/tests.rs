@@ -8,7 +8,7 @@ use crate::sync::test_support::hooked_worker;
 use crate::{
     object::{ObjectMetadataUpdate, UploadChunk},
     storage::admin::Origin,
-    test_support::TestDir,
+    test_support::{TestDir, eventually_async, eventually_some_async},
 };
 use std::{collections::BTreeMap, fs, sync::Arc, time::Duration};
 
@@ -420,41 +420,33 @@ async fn api_put(catalog: &Catalog, path: &str, bytes: &'static [u8]) {
 
 async fn wait_observed(catalog: &Catalog, path: &str, bytes: &[u8]) -> crate::object::ObjectRecord {
     let (bucket, name) = mapping::path_to_name(std::path::Path::new(path)).unwrap();
-    tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            if let Ok(record) = catalog
-                .admin(Origin::Api)
-                .get_object(&bucket, &name, None)
-                .await
-                && record.size == bytes.len() as u64
-                && record.crc32c == crc32c::crc32c(bytes)
-            {
-                return record;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    eventually_some_async(&format!("{path} to be observed"), || async {
+        catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &name, None)
+            .await
+            .ok()
+            .filter(|record| {
+                record.size == bytes.len() as u64 && record.crc32c == crc32c::crc32c(bytes)
+            })
     })
     .await
-    .unwrap()
 }
 
 async fn wait_absent(catalog: &Catalog, path: &str) {
     let (bucket, name) = mapping::path_to_name(std::path::Path::new(path)).unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            match catalog
-                .admin(Origin::Api)
-                .get_object(&bucket, &name, None)
-                .await
-            {
-                Err(AdminError::NotFound) => return,
-                Ok(_) => tokio::time::sleep(Duration::from_millis(10)).await,
-                Err(error) => panic!("unexpected API error: {error}"),
-            }
+    eventually_async(&format!("{path} to be removed"), || async {
+        match catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &name, None)
+            .await
+        {
+            Err(AdminError::NotFound) => true,
+            Ok(_) => false,
+            Err(error) => panic!("unexpected API error: {error}"),
         }
     })
-    .await
-    .unwrap();
+    .await;
 }
 
 #[tokio::test]

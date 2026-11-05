@@ -1,6 +1,6 @@
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, body, live, read_all, version};
-use crate::test_support::TestDir;
+use crate::test_support::{TestDir, eventually_async};
 
 mod owner_tests;
 
@@ -537,13 +537,10 @@ async fn ram_appendable_cancelled_creations_leave_no_unreferenced_blob_budget() 
                 .create_appendable("append", "cancelled", options())
                 .await
         });
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            while slots().lock().unwrap().get(&slot.key).unwrap().holders != 2 {
-                tokio::task::yield_now().await;
-            }
+        eventually_async("the creation to join the slot", || async {
+            slots().lock().unwrap().get(&slot.key).unwrap().holders == 2
         })
-        .await
-        .unwrap();
+        .await;
         request.abort();
         let Err(error) = request.await else {
             panic!("cancelled creation completed");

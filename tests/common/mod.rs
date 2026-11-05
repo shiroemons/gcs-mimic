@@ -21,6 +21,9 @@ pub(crate) mod process;
 #[path = "../../src/test_support.rs"]
 pub(super) mod input_fixtures;
 pub(crate) type TestDir = input_fixtures::TestDir;
+// Only `eventually` is used by every binary (through `process::no_leaks`); an unused
+// re-export warns per binary, so the other waits are reached through `input_fixtures`.
+pub(crate) use input_fixtures::eventually;
 
 /// PUT defaults to `projection=full`; remove ACL fields before comparing with noAcl reads.
 pub(crate) fn without_acl(mut value: serde_json::Value) -> serde_json::Value {

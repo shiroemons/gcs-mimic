@@ -394,14 +394,10 @@ fn multipart_rejects_bad_completion_hashes_order_small_parts_and_unsupported_con
 /// Bucket deletion and restart recovery sweep multipart sessions in the background; until the
 /// sweep releases the lock, multipart requests answer the retryable 503 Busy.
 fn after_sweep(mut send: impl FnMut() -> Reply) -> Reply {
-    for _ in 0..100 {
+    common::input_fixtures::eventually_some("the multipart sweep to become idle", || {
         let reply = send();
-        if reply.status != 503 || !reply.body.contains("already in progress") {
-            return reply;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    panic!("multipart sweep did not become idle");
+        (reply.status != 503 || !reply.body.contains("already in progress")).then_some(reply)
+    })
 }
 
 #[test]
@@ -426,23 +422,16 @@ fn multipart_reset_and_bucket_recreation_invalidate_sessions_and_remove_parts() 
     .status(404);
     let id = begin(&server, "value", "");
     part(&server, "value", &id, 1, "", b"discard");
-    let mut reset = None;
-    for _ in 0..100 {
+    common::input_fixtures::eventually_some("maintenance to become idle for reset", || {
         let reply = server.request(
             "POST",
             "/_internal/reset",
             "Content-Type: application/json\r\n",
             br#"{"confirm":"gcs-mimic"}"#,
         );
-        if reply.status != 503 {
-            reset = Some(reply);
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    reset
-        .expect("maintenance eventually becomes idle")
-        .status(200);
+        (reply.status != 503).then_some(reply)
+    })
+    .status(200);
     assert_eq!(common::process::staging_count(&dir), 0);
     drop(server);
     let server = Server::start(&dir, &[]);

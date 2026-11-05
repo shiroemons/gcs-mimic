@@ -12,7 +12,7 @@ use super::*;
 use crate::storage::catalog::fault::Crash;
 use crate::storage::catalog::fault::{Fault, Step};
 use crate::storage::test_fixtures::{PERMISSIVE, live, read_all as read_body};
-use crate::test_support::{StoredObjects, UploadCleanup};
+use crate::test_support::{StoredObjects, UploadCleanup, eventually_async};
 use std::{io::ErrorKind, path::Path};
 
 const CORRUPT: &str =
@@ -208,13 +208,10 @@ async fn cleanup_waits_for_owned_work_before_its_first_journal_entry() {
         "owned cleanup is still blocked: {observed:?}"
     );
     release.send(()).unwrap();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while !UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads()).is_complete() {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("owned upload cleanup to complete", || async {
+        UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads()).is_complete()
     })
-    .await
-    .unwrap();
+    .await;
     assert_eq!(StoredObjects::read(&h.dir.0), before);
     h.stop().await;
 }
@@ -951,17 +948,12 @@ async fn compose_copy_and_rewrite_failures_are_classified_and_never_publish() {
                 "{case}"
             );
             let before_cleanup = StoredObjects::read(&h.dir.0);
-            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            eventually_async(&format!("{case}: derived cleanup to finish"), || async {
                 // Observe SQL before the final writer check so newly started cleanup cannot look idle.
-                while !UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads())
-                    .is_complete()
-                    || !h.state.catalog.session_writers_idle()
-                {
-                    tokio::task::yield_now().await;
-                }
+                UploadCleanup::observe(&h.dir.0, h.state.catalog.active_uploads()).is_complete()
+                    && h.state.catalog.session_writers_idle()
             })
-            .await
-            .unwrap_or_else(|error| panic!("{case}: derived cleanup did not finish: {error}"));
+            .await;
             assert_eq!(
                 count(&h.dir.0, "SELECT count(*) FROM derived_transfers"),
                 0,

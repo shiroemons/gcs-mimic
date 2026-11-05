@@ -147,7 +147,7 @@ fn keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns() {
             "--connection-timeout-ms",
             "300",
             "--keep-alive-timeout-ms",
-            "3000",
+            "8000",
             "--data-dir",
         ])
         .arg(directory.0.join("data"))
@@ -159,7 +159,7 @@ fn keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns() {
     let mut line = String::new();
     stdout.read_line(&mut line).unwrap();
     let ready: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(ready["keep_alive_timeout_ms"], 3000);
+    assert_eq!(ready["keep_alive_timeout_ms"], 8000);
     let served = || {
         let connection = TcpStream::connect(ready["listen"].as_str().unwrap()).unwrap();
         connection
@@ -178,7 +178,7 @@ fn keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns() {
     let started = Instant::now();
     assert_eq!(idle.read(&mut [0]).unwrap(), 0);
     assert!(
-        started.elapsed() >= Duration::from_millis(2500),
+        started.elapsed() >= Duration::from_millis(7500),
         "{:?}",
         started.elapsed()
     );
@@ -191,7 +191,7 @@ fn keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns() {
     let started = Instant::now();
     assert_eq!(stalled.read(&mut [0]).unwrap(), 0);
     assert!(
-        started.elapsed() < Duration::from_millis(2500),
+        started.elapsed() < Duration::from_secs(5),
         "{:?}",
         started.elapsed()
     );

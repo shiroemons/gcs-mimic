@@ -7,7 +7,7 @@ use crate::storage::test_fixtures::{
 use crate::{
     notification::NotificationConfig,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord},
-    test_support::TestDir,
+    test_support::{TestDir, eventually_async},
 };
 use bytes::Bytes;
 use serde_json::{Value, json};
@@ -619,16 +619,10 @@ async fn accept_publish(listener: &tokio::net::TcpListener) -> (tokio::net::TcpS
 }
 
 async fn wait_for_pending(catalog: &Catalog, check: impl Fn(&Option<Pending>) -> bool) {
-    tokio::time::timeout(std::time::Duration::from_secs(3), async {
-        loop {
-            if check(&catalog.next_notification().await.unwrap()) {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the expected pending notification", || async {
+        check(&catalog.next_notification().await.unwrap())
     })
-    .await
-    .unwrap();
+    .await;
 }
 
 #[tokio::test]

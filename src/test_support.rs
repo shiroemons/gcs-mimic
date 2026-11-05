@@ -225,6 +225,67 @@ impl Drop for TestDir {
     }
 }
 
+/// How long a wait on background work may take before the test fails. It only
+/// guards against a hang; tests decide by the state they wait for, never by how
+/// quickly it arrived, because shared CI runners stall for seconds at a time.
+pub(crate) const HANG_GUARD: std::time::Duration = std::time::Duration::from_secs(60);
+const POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// Blocks until `condition` holds. `what` names the awaited state in the failure.
+#[track_caller]
+pub(crate) fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
+    eventually_some(what, || condition().then_some(()));
+}
+
+/// Blocks until `attempt` yields a value and returns it.
+#[track_caller]
+pub(crate) fn eventually_some<T>(what: &str, mut attempt: impl FnMut() -> Option<T>) -> T {
+    let deadline = std::time::Instant::now() + HANG_GUARD;
+    loop {
+        if let Some(value) = attempt() {
+            return value;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "still waiting after {HANG_GUARD:?} for {what}"
+        );
+        std::thread::sleep(POLL);
+    }
+}
+
+/// Async counterpart of [`eventually`] for tests on a tokio runtime. Not for
+/// paused-time tests: their clock jumps over the guard while blocking work runs.
+pub(crate) async fn eventually_async<F, Fut>(what: &str, mut condition: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    eventually_some_async(what, || {
+        let check = condition();
+        async move { check.await.then_some(()) }
+    })
+    .await;
+}
+
+/// Async counterpart of [`eventually_some`] for tests on a tokio runtime.
+pub(crate) async fn eventually_some_async<T, F, Fut>(what: &str, mut attempt: F) -> T
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Option<T>>,
+{
+    let deadline = tokio::time::Instant::now() + HANG_GUARD;
+    loop {
+        if let Some(value) = attempt().await {
+            return value;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "still waiting after {HANG_GUARD:?} for {what}"
+        );
+        tokio::time::sleep(POLL).await;
+    }
+}
+
 #[cfg(unix)]
 pub(crate) fn fifo(path: &Path) {
     assert!(

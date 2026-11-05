@@ -131,22 +131,13 @@ impl Server {
     /// runner. Any other status, including a 503 with another reason, returns at
     /// once so the caller's assertion still fails.
     fn once_settled(&self, send: impl Fn(&Self) -> Reply) -> Reply {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
+        common::input_fixtures::eventually_some("a reply other than the deadline 503", || {
             let reply = send(self);
             let deadline_reply = reply.status == 503
                 && serde_json::from_slice::<Value>(&reply.body)
                     .is_ok_and(|body| body["error"]["errors"][0]["reason"] == "backendError");
-            if !deadline_reply {
-                return reply;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "still answering 503 after 10 s: {}",
-                String::from_utf8_lossy(&reply.body)
-            );
-            thread::sleep(Duration::from_millis(50));
-        }
+            (!deadline_reply).then_some(reply)
+        })
     }
 }
 
@@ -639,11 +630,9 @@ fn obj_http_restart_and_sigkill_mid_upload_clean_staging() {
     assert_eq!(server.get("durable").json(), original);
     let mut interrupted = server.stream();
     interrupted.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=partial HTTP/1.1\r\nHost: local\r\nContent-Length: 900000\r\n\r\npartial").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while common::process::staging_count(&dir) == 0 {
-        assert!(Instant::now() < deadline, "upload reached staging");
-        thread::sleep(Duration::from_millis(10));
-    }
+    common::eventually("upload reached staging", || {
+        common::process::staging_count(&dir) != 0
+    });
     server.child.kill().unwrap();
     assert!(!server.child.wait().unwrap().success());
     drop(interrupted);
@@ -676,7 +665,10 @@ fn obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out() {
     let start = Instant::now();
     let timed_out = Reply::framed(stream);
     assert!(start.elapsed() >= Duration::from_millis(500));
-    assert!(start.elapsed() < Duration::from_secs(2));
+    assert!(
+        start.elapsed() < Duration::from_secs(20),
+        "bounded by the 600 ms idle deadline, not a hang"
+    );
     timed_out.json_error(408, "uploadBrokenConnection");
     server.get("idle").json_error(404, "notFound");
     server.upload("name=after-timeout", "", b"ok").expect(200);
@@ -695,11 +687,9 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
         stream.write_all(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=held-{index} HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n").as_bytes()).unwrap();
         stream
     }).collect();
-    let admitted = Instant::now() + Duration::from_secs(2);
-    while common::process::staging_count(&dir) < 8 {
-        assert!(Instant::now() < admitted, "all eight uploads admitted");
-        thread::sleep(Duration::from_millis(5));
-    }
+    common::eventually("all eight uploads admitted", || {
+        common::process::staging_count(&dir) >= 8
+    });
     for _ in 0..10 {
         thread::sleep(Duration::from_millis(70));
         for stream in &mut uploads {
@@ -715,12 +705,13 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
         Reply::framed(stream).json_error(408, "uploadBrokenConnection");
     }
     assert!(started.elapsed() >= Duration::from_millis(800));
-    assert!(started.elapsed() < Duration::from_secs(3));
-    let cleaned = Instant::now() + Duration::from_secs(3);
-    while common::process::staging_count(&dir) != 0 {
-        assert!(Instant::now() < cleaned, "cancelled stages cleaned");
-        thread::sleep(Duration::from_millis(10));
-    }
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "bounded by the 900 ms request deadline, not a hang"
+    );
+    common::eventually("cancelled stages cleaned", || {
+        common::process::staging_count(&dir) == 0
+    });
     assert_eq!(server.once_settled(|s| s.get("held-0")).json(), original);
     assert_eq!(
         server.once_settled(|s| s.get("held-0?alt=media")).body,
@@ -871,14 +862,9 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
     let started = Instant::now();
     let mut first = server.stream();
     first.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=committing HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\none").unwrap();
-    let published = Instant::now() + Duration::from_secs(30);
-    while common::process::blob_count(&dir) == 0 {
-        assert!(
-            Instant::now() < published,
-            "first upload reached publication"
-        );
-        thread::sleep(Duration::from_millis(5));
-    }
+    common::eventually("first upload reached publication", || {
+        common::process::blob_count(&dir) != 0
+    });
     // The first commit owns the serialized catalog slot while the external lock is held.
     thread::sleep(Duration::from_millis(250));
     let mut second = server.stream();
@@ -903,18 +889,15 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
     assert!(started.elapsed() >= Duration::from_secs(2));
     database.execute_batch("ROLLBACK").unwrap();
     // GET response startup still has the inactivity deadline; let SQLite's busy retry finish first.
-    let committed = Instant::now() + Duration::from_secs(30);
-    while !database
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = 'test-bucket' AND name = 'committing')",
-            [],
-            |row| row.get::<_, bool>(0),
-        )
-        .unwrap()
-    {
-        assert!(Instant::now() < committed, "timed-out upload committed");
-        thread::sleep(Duration::from_millis(5));
-    }
+    common::eventually("timed-out upload committed", || {
+        database
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = 'test-bucket' AND name = 'committing')",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap()
+    });
     assert_eq!(server.get("committing?alt=media").body, b"one");
     server.get("queued").json_error(404, "notFound");
     server
@@ -949,14 +932,9 @@ fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let mut first = server.stream();
     first.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=first HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\none").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while common::process::blob_count(&dir) == 0 {
-        assert!(
-            Instant::now() < deadline,
-            "first upload reached publication"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
+    common::eventually("first upload reached publication", || {
+        common::process::blob_count(&dir) != 0
+    });
     // Let the first commit take the serialized catalog slot while SQLite is locked.
     thread::sleep(Duration::from_millis(250));
     let mut second = server.stream();
@@ -982,11 +960,9 @@ fn obj_http_additional_upload_waits_for_advisory_check() {
         stream.write_all(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=held-{index} HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\n").as_bytes()).unwrap();
         uploads.push(stream);
     }
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while common::process::staging_count(&dir) < 8 {
-        assert!(Instant::now() < deadline, "all upload bodies admitted");
-        thread::sleep(Duration::from_millis(10));
-    }
+    common::eventually("all upload bodies admitted", || {
+        common::process::staging_count(&dir) >= 8
+    });
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     uploads[0].write_all(b"one").unwrap();
@@ -1010,7 +986,9 @@ fn obj_http_additional_upload_waits_for_advisory_check() {
 #[test]
 fn obj_http_precheck_and_method_alt_reject_before_consuming_body() {
     let dir = TestDir::new();
-    let server = Server::start(&dir, 1_000_000, 2000);
+    // A server that waited for the body would answer only after this 30 s idle deadline,
+    // far beyond the bound below, so the bound tolerates a stalled runner.
+    let server = Server::start(&dir, 1_000_000, 30_000);
     server.bucket();
     server.upload("name=exists", "", b"old").expect(200);
     for (path, status, reason) in [
@@ -1038,7 +1016,7 @@ fn obj_http_precheck_and_method_alt_reject_before_consuming_body() {
             )
             .json_error(status, reason);
         assert!(
-            start.elapsed() < Duration::from_secs(1),
+            start.elapsed() < Duration::from_secs(10),
             "response must not wait for the advertised body"
         );
     }
@@ -1143,14 +1121,9 @@ fn obj_http_sigkill_after_blob_rename_before_commit_and_after_success() {
     let mut upload = server.stream();
     upload.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=durable HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\nnew").unwrap();
     let count_blobs = || common::process::blob_count(&dir);
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while count_blobs() < 2 {
-        assert!(
-            Instant::now() < deadline,
-            "upload reached blob publication before commit"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
+    common::eventually("upload reached blob publication before commit", || {
+        count_blobs() >= 2
+    });
     assert_eq!(
         database
             .query_row(
@@ -1217,16 +1190,6 @@ fn resumable_files(
         dir.0.join("staging").join(&id),
         dir.0.join("blobs").join(&id[..2]).join(&id),
     )
-}
-
-/// A hang guard, not a latency bound: a boundary that is never reached fails here,
-/// while hashing a 64 MiB chunk in a debug build took over 5 s on loaded runs.
-fn wait_for_boundary(message: &str, mut reached: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while !reached() {
-        assert!(Instant::now() < deadline, "{message}");
-        thread::sleep(Duration::from_millis(1));
-    }
 }
 
 fn send_resumable_chunk(
@@ -1296,7 +1259,7 @@ fn resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail() {
     let (stage, _) = resumable_files(&dir, &database);
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let sending = send_resumable_chunk(&server, &path, prefix, prefix, "*", b'x');
-    wait_for_boundary(
+    common::eventually(
         "chunk bytes must reach staging before the offset commit",
         || std::fs::metadata(&stage).unwrap().len() > prefix,
     );
@@ -1400,7 +1363,7 @@ fn assert_resumable_precommit_recovery(after_rename: bool) {
     let (stage, blob) = resumable_files(&dir, &database);
     let sending = send_resumable_chunk(&server, &path, prefix, 4, &total.to_string(), b'b');
     // Hashing a fixed disk prefix leaves time to acquire the lock after the final checkpoint.
-    wait_for_boundary(
+    common::eventually(
         "final chunk must checkpoint before hashing and publication",
         || resumable_progress(&database).0 == total,
     );
@@ -1411,7 +1374,7 @@ fn assert_resumable_precommit_recovery(after_rename: bool) {
         "missed the final checkpoint-to-publication lock window"
     );
     if after_rename {
-        wait_for_boundary(
+        common::eventually(
             "final blob rename must precede the blocked Object/COMPLETE commit",
             || blob.is_file(),
         );

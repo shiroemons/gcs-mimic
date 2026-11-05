@@ -1,6 +1,7 @@
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::storage::{ResumableChunk, ResumableError, ResumableOptions};
+use crate::test_support::{eventually_async, eventually_some_async};
 use ChunkMode::{Checkpoint, Finalize};
 use serde_json::json;
 
@@ -290,13 +291,10 @@ async fn ram_resumable_cancelled_request_discards_tail_and_keeps_the_previous_ha
             )
             .await
     });
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while sender.capacity() != 2 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the request to consume its chunks", || async {
+        sender.capacity() == 2
     })
-    .await
-    .unwrap();
+    .await;
     request.abort();
     assert!(request.await.unwrap_err().is_cancelled());
     tokio::time::timeout(std::time::Duration::from_secs(2), sender.closed())
@@ -389,13 +387,10 @@ async fn ram_resumable_close_wakes_a_stalled_body_and_waits_for_owned_cleanup() 
             )
             .await
     });
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while sender.capacity() != 2 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the request to consume its chunks", || async {
+        sender.capacity() == 2
     })
-    .await
-    .unwrap();
+    .await;
     tokio::time::timeout(std::time::Duration::from_secs(2), catalog.close())
         .await
         .unwrap()
@@ -463,19 +458,13 @@ async fn ram_resumable_eof_cancellation_keeps_the_owned_checkpoint_offset_and_ha
     assert!(request.await.unwrap_err().is_cancelled());
     release.send(()).unwrap();
     gate.await.unwrap().unwrap();
-    let lease = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            if let Ok(lease) = catalog
-                .lock_resumable_session(&active.id, "test-bucket")
-                .await
-            {
-                break lease;
-            }
-            tokio::task::yield_now().await;
-        }
+    let lease = eventually_some_async("the cancelled writer to release the session", || async {
+        catalog
+            .lock_resumable_session(&active.id, "test-bucket")
+            .await
+            .ok()
     })
-    .await
-    .unwrap();
+    .await;
     assert_eq!(lease.session.offset, 8);
     drop(lease);
     chunk(&catalog, &active.id, b"", 8, Some(8), Finalize)

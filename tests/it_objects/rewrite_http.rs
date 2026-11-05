@@ -962,11 +962,9 @@ fn rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success() 
     let address = server.address.clone();
     let started = std::time::Instant::now();
     let worker = thread::spawn(move || request(&address, "POST", BASE, ADMIN, b""));
-    let limit = started + std::time::Duration::from_secs(2);
-    while common::process::staging_count(&dir) < 2 {
-        assert!(std::time::Instant::now() < limit);
-        thread::sleep(std::time::Duration::from_millis(1));
-    }
+    common::eventually("the rewrite staged its transfer", || {
+        common::process::staging_count(&dir) >= 2
+    });
     thread::sleep(
         (started + 2 * request_budget).saturating_duration_since(std::time::Instant::now()),
     );

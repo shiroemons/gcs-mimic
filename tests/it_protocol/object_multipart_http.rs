@@ -278,14 +278,9 @@ fn obj_http_media_and_multipart_recheck_each_condition_after_streaming() {
             let mut stream = socket(&server.address);
             write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing&{key}={condition} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: {}\r\n\r\n", body.len()).unwrap();
             stream.write_all(&body[..body.len() - 1]).unwrap();
-            let deadline = Instant::now() + Duration::from_secs(3);
-            while common::process::staging_count(&dir) != 1 {
-                assert!(
-                    Instant::now() < deadline,
-                    "upload must pass advisory checks"
-                );
-                thread::sleep(Duration::from_millis(5));
-            }
+            common::eventually("upload must pass advisory checks", || {
+                common::process::staging_count(&dir) == 1
+            });
             let current = if key.contains("Metageneration") {
                 server
                     .request(
@@ -1276,14 +1271,10 @@ fn obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks() 
             Reply::framed(stream).status
         })
     }).collect();
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while common::process::staging_count(&dir) != 4 {
-        assert!(
-            Instant::now() < deadline,
-            "all uploads must pass advisory checks before any commit"
-        );
-        thread::sleep(Duration::from_millis(5));
-    }
+    common::eventually(
+        "all uploads must pass advisory checks before any commit",
+        || common::process::staging_count(&dir) == 4,
+    );
     barrier.wait();
     let mut statuses: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
     statuses.sort_unstable();
@@ -1307,11 +1298,9 @@ fn obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots() 
         write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=existing HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n",prefix.len()).unwrap();
         stream.write_all(prefix).unwrap(); stream.write_all(b"\r\n").unwrap(); stream
     }).collect();
-    let ready = Instant::now() + Duration::from_secs(3);
-    while common::process::staging_count(&dir) != 8 {
-        assert!(Instant::now() < ready, "all uploads must enter staging");
-        thread::sleep(Duration::from_millis(5));
-    }
+    common::eventually("all uploads must enter staging", || {
+        common::process::staging_count(&dir) == 8
+    });
     server
         .request(
             "POST",

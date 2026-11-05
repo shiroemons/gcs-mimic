@@ -20,13 +20,10 @@ impl CountingClock {
         self.calls.store(0, Ordering::SeqCst);
         catalog.start_resumable_maintenance();
         // Creation leaves a notification: both initial passes must reach their future timer.
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while self.calls.load(Ordering::SeqCst) < 4 {
-                tokio::task::yield_now().await;
-            }
+        eventually_async("both initial passes to reach their timer", || async {
+            self.calls.load(Ordering::SeqCst) >= 4
         })
-        .await
-        .unwrap();
+        .await;
     }
 }
 
@@ -81,13 +78,10 @@ async fn expired_busy_session_wakes_scheduler_when_its_writer_is_released() {
     assert!(catalog.resumable_maintenance_error().is_none());
     let catalog_io = fault::catalog_thread_io(&dir.0);
     drop(lease);
-    tokio::time::timeout(Duration::from_secs(2), async {
-        while count(&connection, "sessions") != 1 {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the released expired session to be removed", || async {
+        count(&connection, "sessions") == 1
     })
-    .await
-    .unwrap();
+    .await;
     assert!(!session.blob_id.staging_path(&dir.0).exists());
     assert_eq!(fault::catalog_thread_io(&dir.0), catalog_io);
     catalog.close().await.unwrap();
@@ -126,14 +120,10 @@ async fn failed_cleanup_retries_after_writer_release_without_another_request() {
     assert_eq!(count(&connection, "journal"), 1);
     assert_eq!(count(&connection, "sessions"), 1);
     drop(lease);
-    tokio::time::timeout(Duration::from_secs(2), async {
-        while count(&connection, "journal") != 0 || catalog.resumable_maintenance_error().is_some()
-        {
-            tokio::task::yield_now().await;
-        }
+    eventually_async("the failed cleanup to be retried", || async {
+        count(&connection, "journal") == 0 && catalog.resumable_maintenance_error().is_none()
     })
-    .await
-    .unwrap();
+    .await;
     assert!(!session.blob_id.staging_path(&dir.0).exists());
     assert_eq!(count(&connection, "sessions"), 1);
     catalog.close().await.unwrap();
