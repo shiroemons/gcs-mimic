@@ -12,6 +12,7 @@
 use serde_json::Value;
 
 mod ratchet;
+mod test_clock;
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
@@ -121,6 +122,8 @@ pub enum Mode {
     Gate,
     /// Print shared text counts, or Clippy counts for a target, without writing a file.
     Baseline(Option<String>),
+    /// Print per-file wall-clock call counts in test code, without writing a file.
+    TestClockBaseline,
     /// Run only the Clippy pass for another target triple; text rules are target-independent
     /// and already ran with the host gate.
     Target(String),
@@ -174,6 +177,7 @@ pub fn mode(args: &[String]) -> Option<Mode> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         [] => Some(Mode::Gate),
         ["--baseline"] => Some(Mode::Baseline(None)),
+        ["--test-clock-baseline"] => Some(Mode::TestClockBaseline),
         ["--baseline", "--target", triple] if valid_target(triple) => {
             Some(Mode::Baseline(Some(triple.to_owned())))
         }
@@ -241,7 +245,22 @@ pub fn run(root: &Path, mode: &Mode) -> Result<bool> {
             print!("{}", ratchet::Baseline::from_findings(&findings).render());
             Ok(true)
         }
+        Mode::TestClockBaseline => {
+            print!("{}", test_clock::render(&test_clock::scan(root)?));
+            Ok(true)
+        }
     }
+}
+
+/// Applies the test wall-clock ratchet and prints its problems.
+fn test_clock_gate(root: &Path) -> Result<Vec<String>> {
+    let text = fs::read_to_string(root.join(test_clock::FILE))
+        .map_err(|error| format!("{}: {error}", test_clock::FILE))?;
+    let problems = test_clock::check(&test_clock::parse(&text)?, &test_clock::scan(root)?);
+    for problem in &problems {
+        eprintln!("error: {problem}");
+    }
+    Ok(problems)
 }
 
 fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> {
@@ -280,6 +299,7 @@ fn gate(root: &Path) -> Result<bool> {
     let scan = scan_tree(root)?;
     let problems = ratchet::Baseline::load(root, None)?.check(&scan.findings);
     ratchet_problems.extend(ratchet::report(problems, ratchet::StaleCounts::Reject));
+    let test_clock_problems = test_clock_gate(root)?;
     findings.extend(scan.findings);
     findings.sort();
     let ratcheted_count = findings
@@ -307,16 +327,19 @@ fn gate(root: &Path) -> Result<bool> {
     let passed = violations.is_empty()
         && missing_helper.is_none()
         && scan.problems.is_empty()
-        && ratchet_problems.is_empty();
+        && ratchet_problems.is_empty()
+        && test_clock_problems.is_empty();
     if passed {
         println!(
-            "lint: 0 new production violations; {ratcheted_count} ratcheted findings; {suppressions}"
+            "lint: 0 new production violations; {ratcheted_count} ratcheted findings; {suppressions}; test wall-clock calls within {}",
+            test_clock::FILE
         );
     } else {
         eprintln!(
-            "lint failed: {} production violations, {} suppression problems; {suppressions}",
+            "lint failed: {} production violations, {} suppression problems, {} test wall-clock problems; {suppressions}",
             violations.len() + usize::from(missing_helper.is_some()) + ratchet_problems.len(),
-            scan.problems.len()
+            scan.problems.len(),
+            test_clock_problems.len()
         );
         eprintln!(
             "Fix each finding, or justify it with `#[expect(<lint>, reason = \"...\")]` or `{SUPPRESSION_SYNTAX}`."
