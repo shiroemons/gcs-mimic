@@ -629,7 +629,12 @@ async fn wait_for_pending(catalog: &Catalog, check: impl Fn(&Option<Pending>) ->
 async fn missing_acknowledgement_retries_the_same_snapshot_after_restart() {
     use tokio::io::AsyncWriteExt;
     let dir = TestDir::new();
-    let catalog = setup(&dir, VersionHistory::Discard).await;
+    // The retry after a failed attempt is due 100 ms later. A frozen clock keeps it pending, so
+    // a slow poll cannot miss `attempts == 1` while further failed retries keep raising it.
+    let clock = std::sync::Arc::new(crate::clock::ManualClock::new(
+        UNIX_EPOCH + std::time::Duration::from_micros(42_000_000),
+    ));
+    let catalog = setup_with_clock(&dir, VersionHistory::Discard, clock.clone()).await;
     put(&catalog, "prefix/item", Default::default())
         .await
         .unwrap();
@@ -651,11 +656,14 @@ async fn missing_acknowledgement_retries_the_same_snapshot_after_restart() {
     })
     .await;
     catalog.close().await.unwrap();
-    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
     assert_eq!(
         catalog.next_notification().await.unwrap().unwrap().attempts,
         1
     );
+    clock.set(UNIX_EPOCH + std::time::Duration::from_micros(42_200_000));
     catalog.start_notification_publisher(endpoint).unwrap();
     let (mut socket, second) =
         tokio::time::timeout(std::time::Duration::from_secs(3), accept_publish(&listener))
