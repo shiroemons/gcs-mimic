@@ -68,8 +68,10 @@ An archive is named `gcs-mimic-X.Y.Z-<target>` and contains the executable,
 Cargo dependency notices cover the locked workspace graph, including build-only
 and other-platform dependencies; this conservative superset is not an exact
 runtime bill of materials. Original notices, multiple license alternatives and
-required NOTICE files are preserved. Rust's compiler/library copyright documents
-and license texts are included. Linux adds GCC runtime notices; musl archives
+required NOTICE files are preserved. The Rust standard library's copyright
+document and the associated license texts are included; the toolchain-wide
+copyright document is not, because no compiler or tool component ships.
+Linux adds GCC runtime notices; musl archives
 also include the pinned upstream musl source archive to retain individual source
 file notices. That source archive supplies notices, not a claim that the shipped
 runtime is an unpatched upstream build.

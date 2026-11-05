@@ -18,6 +18,7 @@ const TARGETS: [&str; 8] = [
     "aarch64-unknown-linux-musl",
     "x86_64-unknown-linux-musl",
 ];
+const RUST_NOTICES: [&str; 2] = ["COPYRIGHT-library.html", "licenses"];
 const MUSL_SOURCE_SHA256: &str = "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4";
 // These MIT crates were published from one grpc-rust revision without their license text. The
 // supplied text is that revision's repository-root LICENSE, which tonic 0.14.9 packages verbatim.
@@ -313,7 +314,9 @@ fn write_notices(root: &Path, target: &str, metadata: &Value, output: &Path) -> 
     let sysroot = PathBuf::from(capture(Command::new("rustc").args(["--print", "sysroot"]))?);
     let rust_notices = sysroot.join("share/doc/rust");
     let mut rust_files = BTreeSet::new();
-    for name in ["COPYRIGHT-library.html", "COPYRIGHT.html", "licenses"] {
+    // Binaries link only the standard library, which COPYRIGHT-library.html covers. The 14 MB
+    // COPYRIGHT.html covers the whole toolchain (rustc, LLVM and tools), none of which ships.
+    for name in RUST_NOTICES {
         notice_files(&rust_notices, Path::new(name), &mut rust_files)?;
     }
     let native_names = native_notice_names(target);
@@ -434,7 +437,7 @@ fn write_notices(root: &Path, target: &str, metadata: &Value, output: &Path) -> 
         &third_party.join("INDEX.json"),
         &json!({
             "scope": "Superset of the complete locked workspace dependency graph, including build, test, host and other-target dependencies; not a claim that every listed crate is linked into this binary.",
-            "rust_notices": "rust/COPYRIGHT-library.html and rust/COPYRIGHT.html are upstream toolchain attribution supersets; rust/licenses contains the associated license texts.",
+            "rust_notices": "rust/COPYRIGHT-library.html is the upstream attribution for the Rust standard library linked into the binary; rust/licenses contains the associated license texts. The toolchain-wide COPYRIGHT.html is omitted because no compiler or tool component ships.",
             "mime_notices": "mime/NOTICE retains the pinned Go BSD-3-Clause and mailcap Public Domain attribution for the embedded seed MIME profile.",
             "native_notices": native_names.iter().map(|name| format!("native/{name}")).collect::<Vec<_>>(),
             "gcc_notices": if target.contains("linux") { Some("GCC-COPYRIGHT preserves the build runner GCC package's complete runtime/startup-code copyright and license terms.") } else { None },
@@ -613,6 +616,12 @@ mod tests {
             output
                 .join("third-party-licenses/rust/COPYRIGHT-library.html")
                 .is_file()
+        );
+        assert!(output.join("third-party-licenses/rust/licenses").is_dir());
+        assert!(
+            !output
+                .join("third-party-licenses/rust/COPYRIGHT.html")
+                .exists()
         );
         let index = fs::read_to_string(output.join("third-party-licenses/INDEX.json")).unwrap();
         assert_eq!(
