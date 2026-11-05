@@ -192,8 +192,8 @@ fn every_supported_release_has_a_fixture() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
     present.sort();
-    // Directory names sort lexically ("0.10.0" before "0.8.0"), so compare sets
-    // instead of the release order the constant keeps.
+    // Directory names sort lexically ("0.10.0" before "0.8.0"), so sort both sides
+    // the same way; only the set of releases matters.
     let mut supported = SUPPORTED_RELEASES.to_vec();
     supported.sort_unstable();
     assert_eq!(present, supported);

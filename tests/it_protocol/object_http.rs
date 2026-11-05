@@ -125,18 +125,26 @@ impl Server {
         self.0.stop();
     }
 
-    /// Repeats `send` while it answers 503 and returns the first other reply. Right
-    /// after cancelled uploads, their cleanup can hold the catalog past a short
-    /// connection deadline on a loaded runner; any other status still fails the
-    /// caller's assertion at once.
+    /// Repeats `send` while it answers the retryable deadline 503 (`backendError`)
+    /// and returns the first other reply. Right after cancelled uploads, their
+    /// cleanup can hold the catalog past a short connection deadline on a loaded
+    /// runner. Any other status, including a 503 with another reason, returns at
+    /// once so the caller's assertion still fails.
     fn once_settled(&self, send: impl Fn(&Self) -> Reply) -> Reply {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             let reply = send(self);
-            if reply.status != 503 {
+            let deadline_reply = reply.status == 503
+                && serde_json::from_slice::<Value>(&reply.body)
+                    .is_ok_and(|body| body["error"]["errors"][0]["reason"] == "backendError");
+            if !deadline_reply {
                 return reply;
             }
-            assert!(Instant::now() < deadline, "catalog still busy: 503");
+            assert!(
+                Instant::now() < deadline,
+                "still answering 503 after 10 s: {}",
+                String::from_utf8_lossy(&reply.body)
+            );
             thread::sleep(Duration::from_millis(50));
         }
     }
@@ -724,7 +732,10 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
             .json_error(404, "notFound");
     }
     assert_eq!(common::process::blob_count(&dir), 1);
-    // Released permits admit a new upload.
+    // Released permits admit a new upload. A 503 does not prove that an attempt
+    // was not committed (see
+    // obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish),
+    // so a retry may add a generation; only reaching 200 is asserted here.
     server
         .once_settled(|s| s.upload("name=after-deadline", "", b"ok"))
         .expect(200);
