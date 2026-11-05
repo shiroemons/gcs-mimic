@@ -1,0 +1,40 @@
+name: Timing stress
+# Foundation CI keeps test concurrency low so deadline tests rarely starve; this
+# daily run does the opposite on purpose. It surfaces tests that depend on
+# wall-clock timing before a release dry run does, so a failure here names a
+# test to make deterministic rather than a product regression.
+on:
+  schedule:
+    - cron: '43 4 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stress:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          rustup toolchain install "$pin" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: stress
+          save-if: false
+      - run: cargo fetch --locked
+      - run: bash scripts/stress-tests.sh
+        env:
+          GCSM_STRESS_ROUNDS: '2'

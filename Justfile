@@ -10,6 +10,10 @@ check:
     bash scripts/trim-target.sh
     env -u RUSTUP_TOOLCHAIN bash scripts/with-test-tmpdir.sh bash scripts/check.sh
 
+# Run the Rust tests repeatedly with parallel binaries on a busy CPU to surface timing-dependent tests.
+stress-tests:
+    env -u RUSTUP_TOOLCHAIN bash scripts/stress-tests.sh
+
 # Drop stale incremental state and keep target/ under GCSM_TARGET_MAX_MB (default 30720).
 trim-target:
     bash scripts/trim-target.sh
