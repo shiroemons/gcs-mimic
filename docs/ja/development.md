@@ -72,6 +72,28 @@ RAMディスクを作れなかった場合は警告を出し、逐次実行で�
 これらの設定に`GCSM_TEST_`接頭辞を使うのは、サーバーが`GCS_MIMIC_`と`FAKE_GCS_`で始まる変数を
 すべて自分の設定として読み、知らない名前を拒否するためです。
 
+## テストで時間を待つ
+
+共有のCIランナーは数秒止まることがあります。決まった時間の`sleep`や、テスト自身の短い期限で状態を見に行くテストは、
+マシンの速さで成否が変わります。状態の到達は`src/test_support.rs`の補助関数で待ってください。
+`eventually`・`eventually_some`はブロックして待ち、`eventually_async`・`eventually_some_async`は`await`で待ちます。
+10 msごとに確かめ、`HANG_GUARD`（60秒）を過ぎたときだけ失敗します。これは止まったときの安全装置で、速さの基準ではありません。
+統合テストからは`common::eventually`と`common::input_fixtures::*`で使います。
+非同期版は時計を止めたテストには使えません。ブロッキング処理の間に時計が安全装置を飛び越えるためです。
+
+経過時間に上限を付けるのは、2つの仕組みを見分けるときだけにします。その場合は競合する期限を上限から十分離します。
+たとえば、本文を待たずに拒否することを確かめるテストでは、無通信の期限を30秒にして、上限を10秒にします。
+下限（`elapsed() >= ...`）は、遅いランナーでは長くなるだけなので問題ありません。
+
+`cargo xtask lint`は、`src/`と`tests/`のテストファイル（`src/test_support.rs`を除く）にある`sleep(`と`Instant::now()`の呼び出しを数え、
+`xtask/test-clock-baseline.txt`と比べます。ファイルごとの件数は増やせず、減ったら記録も下げる必要があります。
+一覧は`cargo xtask lint --test-clock-baseline > xtask/test-clock-baseline.txt`で作り直し、差分が減少だけであることを確かめてください。
+
+`just stress-tests`（`scripts/stress-tests.sh`）は、テストバイナリを並列に動かし、全CPUを空回りのループで埋めた状態で
+Rustのテストを繰り返し実行します。回数は`GCSM_STRESS_ROUNDS`（既定は2）、並列数は`GCSM_STRESS_JOBS`（既定はCPU数）で変えられます。
+毎日動く**Timing stress**ワークフローが、LinuxとmacOSでこれを実行します。
+ここでの失敗は製品の不具合ではなく、決定的に直すべき時間依存のテストを示します。
+
 ## gRPC生成コードの検証
 
 gRPCのprotoは通常CIでSHA-256を照合し、日次の依存検査で固定したprotocから再生成してコミット済みRustと比較します。

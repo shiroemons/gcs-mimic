@@ -518,6 +518,38 @@ and `#[cfg(test)]` modules, but not helper functions of integration tests.
 2. Remove it from `CLIPPY_LINTS` in `xtask/src/lint.rs`.
 3. Run `just check`.
 
+### Waiting in tests
+
+Shared CI runners stall for seconds, so a test that sleeps for a fixed time,
+or polls against its own short deadline, passes or fails with machine speed.
+Wait for the state instead, through the helpers in `src/test_support.rs`:
+`eventually` and `eventually_some` block, `eventually_async` and
+`eventually_some_async` await. They poll every 10 ms and fail only after
+`HANG_GUARD` (60 s), which guards against a hang and is never a latency bound.
+Integration tests reach them as `common::eventually` and
+`common::input_fixtures::*`. The async helpers are not for paused-time tests,
+whose clock jumps over the guard while blocking work runs.
+
+Bound elapsed time only to tell two mechanisms apart, and keep the competing
+deadline far from the bound: for example, a test that proves an early rejection
+does not wait for the body sets a 30 s idle deadline and asserts less than 10 s.
+Lower bounds (`elapsed() >= ...`) are safe, because a slow runner only lengthens
+them.
+
+`cargo xtask lint` counts `sleep(` and `Instant::now()` calls in test files
+under `src/` and `tests/` (outside `src/test_support.rs`) against
+`xtask/test-clock-baseline.txt`. A file may not gain a call; a file that loses
+one must lower its entry. Regenerate the whole list with
+`cargo xtask lint --test-clock-baseline > xtask/test-clock-baseline.txt` and
+review the diff: only lower counts are expected.
+
+`just stress-tests` (`scripts/stress-tests.sh`) runs the Rust tests repeatedly
+with parallel test binaries while busy loops occupy every CPU;
+`GCSM_STRESS_ROUNDS` (default 2) and `GCSM_STRESS_JOBS` (default: CPU count)
+adjust it. The daily **Timing stress** workflow runs it on Linux and macOS. A
+failure there names a timing-dependent test to make deterministic, not a product
+regression.
+
 ## Protobuf generation checks
 
 Foundation CI checks `src/grpc/proto/SHA256SUMS` and exercises the offline
