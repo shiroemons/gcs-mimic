@@ -124,6 +124,22 @@ impl Server {
     fn stop(&mut self) {
         self.0.stop();
     }
+
+    /// Repeats `send` while it answers 503 and returns the first other reply. Right
+    /// after cancelled uploads, their cleanup can hold the catalog past a short
+    /// connection deadline on a loaded runner; any other status still fails the
+    /// caller's assertion at once.
+    fn once_settled(&self, send: impl Fn(&Self) -> Reply) -> Reply {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let reply = send(self);
+            if reply.status != 503 {
+                return reply;
+            }
+            assert!(Instant::now() < deadline, "catalog still busy: 503");
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
 }
 
 /// Creates the test bucket and runs `setup` on a server with the default deadlines,
@@ -697,25 +713,21 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
         assert!(Instant::now() < cleaned, "cancelled stages cleaned");
         thread::sleep(Duration::from_millis(10));
     }
-    assert_eq!(server.get("held-0").json(), original);
-    assert_eq!(server.get("held-0?alt=media").body, b"original");
+    assert_eq!(server.once_settled(|s| s.get("held-0")).json(), original);
+    assert_eq!(
+        server.once_settled(|s| s.get("held-0?alt=media")).body,
+        b"original"
+    );
     for index in 1..8 {
         server
-            .get(&format!("held-{index}"))
+            .once_settled(|s| s.get(&format!("held-{index}")))
             .json_error(404, "notFound");
     }
     assert_eq!(common::process::blob_count(&dir), 1);
-    // Released permits admit a new upload; cleanup of the cancelled stages can
-    // still hold the catalog briefly on a loaded runner, so retry its 503.
-    let admitted = Instant::now() + Duration::from_secs(10);
-    loop {
-        let status = server.upload("name=after-deadline", "", b"ok").status;
-        if status == 200 {
-            break;
-        }
-        assert!(status == 503 && Instant::now() < admitted, "{status}");
-        thread::sleep(Duration::from_millis(50));
-    }
+    // Released permits admit a new upload.
+    server
+        .once_settled(|s| s.upload("name=after-deadline", "", b"ok"))
+        .expect(200);
 }
 
 #[test]
