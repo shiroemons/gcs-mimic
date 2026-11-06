@@ -319,6 +319,13 @@ async fn a_retry_past_the_full_window_publishes_again_and_recent_retries_still_r
     // Newer than the first upload's record, and with it exactly fill the window.
     let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
     connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < 4095) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created + n, deadline + n, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
+    // A publication that fails after making room gives the room back with its transaction.
+    connection.execute_batch("CREATE TRIGGER fail_publication BEFORE INSERT ON objects BEGIN SELECT RAISE(FAIL, 'injected publication failure'); END;").unwrap();
+    let rejected = "X-Goog-Gcs-Idempotency-Token: rejected\r\n";
+    assert_eq!(h.request("POST", path, rejected, b"x").await.status, 503);
+    connection
+        .execute_batch("DROP TRIGGER fail_publication")
+        .unwrap();
     drop(connection);
     assert_eq!(
         h.request("POST", path, oldest, b"first").await.body,
