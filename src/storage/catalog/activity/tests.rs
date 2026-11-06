@@ -493,6 +493,69 @@ async fn a_disabled_catalog_wait_leaves_administrative_waits_unlimited() {
     catalog.close().await.unwrap();
 }
 
+/// The gate shut as an exclusive job would shut it, with an execution permit of its own: the SQL
+/// job in front of the gate still runs, as it does when the job takes over right after that SQL.
+fn exclusive_job_after_the_next_sql(catalog: &Catalog) -> ExclusiveGuard {
+    ExclusiveGuard {
+        _gate: catalog.0.activity.lock.clone().try_write_owned().unwrap(),
+        _reservation: catalog.0.activity.reserve(),
+        _execution: Arc::new(tokio::sync::Semaphore::new(1))
+            .try_acquire_owned()
+            .unwrap(),
+    }
+}
+
+#[tokio::test]
+async fn a_copy_token_waits_for_an_exclusive_job_after_reading_its_source() {
+    let (_dir, catalog, _admin) = setup().await;
+    let exclusive = exclusive_job_after_the_next_sql(&catalog);
+    let copy = tokio::spawn({
+        let catalog = catalog.clone();
+        async move {
+            catalog
+                .prepare_copy_replay(
+                    BUCKET,
+                    "target",
+                    Default::default(),
+                    &BucketAccess::Permissive,
+                    crate::storage::catalog::upload_replay::CopyReplaySource {
+                        bucket: BUCKET,
+                        name: "source",
+                        generation: Some(1),
+                        access: &BucketAccess::Permissive,
+                    },
+                    crate::storage::catalog::upload_replay::ReplayInvocation {
+                        token: Some("token"),
+                        request: "copy",
+                    },
+                )
+                .await
+                .map(drop)
+        }
+    });
+    settle().await;
+    assert!(!copy.is_finished());
+    drop(exclusive);
+    joined(copy).await.unwrap();
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn maintenance_skips_a_writer_while_an_exclusive_job_runs() {
+    let (_dir, catalog, _admin) = setup().await;
+    let exclusive = exclusive_job_after_the_next_sql(&catalog);
+    let claim = catalog.claim_writer(
+        crate::storage::catalog::resumable::writers::WriterKey::Resumable("session".into()),
+        crate::storage::catalog::resumable::writers::KeyOrigin::Catalog,
+    );
+    assert!(matches!(
+        claim,
+        Err(crate::storage::catalog::resumable::writers::ClaimError::Busy)
+    ));
+    drop(exclusive);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn management_calls_give_up_at_the_configured_catalog_wait() {
     let (_dir, catalog, admin) = setup().await;

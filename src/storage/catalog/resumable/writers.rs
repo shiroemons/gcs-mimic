@@ -259,7 +259,9 @@ impl Catalog {
         key: WriterKey,
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
-        let activity = self.activity().map_err(ClaimError::Catalog)?;
+        // Only a running exclusive job refuses this lease, and every such job wakes maintenance
+        // when it ends or its next pass comes round, so this is one more thing to skip for now.
+        let activity = self.activity().map_err(|_| ClaimError::Busy)?;
         self.claim_leased(activity, key, origin)
     }
 
