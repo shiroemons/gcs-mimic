@@ -14,6 +14,7 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+mod maintenance;
 mod parallel;
 
 async fn setup(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
