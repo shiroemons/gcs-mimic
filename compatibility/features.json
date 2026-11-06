@@ -951,7 +951,7 @@
         "depends_on": ["onboarding-state-contract", "bucket-xml-cors"],
         "feature_ids": ["JSON-BUCKETS-002", "JSON-BUCKETS-008", "BEHAVIOR-BUCKET-009", "DESIGN-062"],
         "completion_conditions": [
-          "Use the version-1 JSON schema, --buckets-file / GCS_MIMIC_BUCKETS_FILE / buckets_file, CLI-over-env-over-config precedence and fixed 1 MiB/1000-entry/64 KiB limits in docs/en/slices/bucket-initialization.md. Resolve entry project over file project over seed_project, collect complete native validation diagnostics, reject unknown/IAM/lifecycle settings and authorize initialization as local administration in both auth modes before mutation.",
+          "Use the version-1 JSON schema, --buckets-file / GCS_MIMIC_BUCKETS_FILE / buckets_file, CLI-over-env-over-config precedence and the file, max_buckets_per_batch and 64 KiB entry limits in docs/en/slices/bucket-initialization.md. Resolve entry project over file project over seed_project, collect complete native validation diagnostics, reject unknown/IAM/lifecycle settings and authorize initialization as local administration in both auth modes before mutation.",
           "Create missing buckets only; verify independent CORS/versioning effects for two buckets and preserve API changes, existing objects and settings across restarts.",
           "Removing an entry does not delete a bucket; one batched ensure_buckets lookup and one transaction atomically create the missing set. Precommit failure rolls back the set, postcommit failure preserves it, and retry converges. Existing project mismatches warn without mutation, and ready reports disabled or applied with created/existing/project_mismatches counts. Runtime cases map to BUCKET-INIT-INPUT, BUCKET-INIT-STARTUP, BUCKET-INIT-INDEPENDENT-SETTINGS, BUCKET-INIT-PRESERVE-API-CHANGES and BUCKET-INIT-ONBOARDING; broader instruction-level crash injection remains explicit under BUCKET-INIT-ATOMICITY."
         ],
@@ -30016,9 +30016,13 @@
         },
         {
           "id": "REWRITE-LIFETIME",
-          "description": "Injected-clock expiry at seven-day equality, separate active/completed bounds, cache eviction, busy-session maintenance and restart cleanup protect live destinations. A configured max_rewrite_sessions preserves copy/compose capacity across restart without shortening token lifetime, and rewrites past the former 128 survive reopening.",
+          "description": "Injected-clock expiry at seven-day equality, separate active/completed bounds, cache eviction, busy-session maintenance and restart cleanup protect live destinations. Completed responses use the window finished resumable sessions use: the 4096 most recent, and on the memory backend at most a quarter of memory_catalog_max_bytes. A retried continuation waits for the step its cancelled request left running and returns its stored result. A configured max_rewrite_sessions preserves copy/compose capacity across restart without shortening token lifetime, and rewrites past the former 128 survive reopening.",
           "result": "PASS",
           "test_ids": [
+            "finished_rewrites_past_the_former_window_still_replay",
+            "the_oldest_finished_rewrite_past_the_window_goes_first",
+            "finished_rewrites_stay_inside_a_small_memory_catalog_budget",
+            "a_retried_continuation_waits_for_the_step_its_cancelled_request_left_running",
             "a_configured_rewrite_cap_refuses_past_it_and_busy_expiry_does_not_block_others",
             "rewrite_expired_token_and_restart_cleanup_preserve_live_destination",
             "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart",
@@ -30060,6 +30064,10 @@
         }
       ],
       "test_ids": [
+        "finished_rewrites_past_the_former_window_still_replay",
+        "the_oldest_finished_rewrite_past_the_window_goes_first",
+        "finished_rewrites_stay_inside_a_small_memory_catalog_budget",
+        "a_retried_continuation_waits_for_the_step_its_cancelled_request_left_running",
         "tokens_are_opaque_and_tampering_never_selects_the_original_token",
         "continuation_binds_every_supplied_parameter_body_and_path",
         "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget",
@@ -30089,6 +30097,18 @@
         "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib -- storage::catalog::rewrite",
+          "result": "PASS",
+          "verified_at": "2026-11-06",
+          "artifact": "docs/en/evidence/zero-config-defaults.md",
+          "test_ids": [
+            "finished_rewrites_past_the_former_window_still_replay",
+            "the_oldest_finished_rewrite_past_the_window_goes_first",
+            "finished_rewrites_stay_inside_a_small_memory_catalog_budget",
+            "a_retried_continuation_waits_for_the_step_its_cancelled_request_left_running"
+          ]
+        },
         {
           "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
@@ -33191,7 +33211,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Opt-in h2c Storage v2 foundation: unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive keep_alive_timeout_ms idle expiry, and body_inactivity_timeout_ms, disabled by default, bounds silence without request/response frames with a GOAWAY and bounded grace. header_read_timeout_ms bounds a missing HTTP/2 preface (logged as grpc_handshake_timeout). PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive at header_read_timeout_ms detects dead peers, and TCP keep-alive covers them when that is disabled; SIGTERM grace retains its existing cap. A gRPC connection is not reclaimed for a waiting client at a full server, and max_concurrent_streams of 8 is fixed. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*); explicit deadline and client-cancellation cases remain pending. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): gRPC errors carry the recorded messages and details (ErrorInfo for malformed resource names, BadRequest for an empty object name); the JSON-to-gRPC 412 rewrite applies to failed preconditions only, and a not-modified read carries the recorded message. The cases beyond the two status unit tests are covered by the differential replay (grpc-errors matches), not by dedicated Rust tests.",
+      "notes": "Opt-in h2c Storage v2 foundation: unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive keep_alive_timeout_ms idle expiry, and body_inactivity_timeout_ms, disabled by default, bounds silence without request/response frames with a GOAWAY and bounded grace. header_read_timeout_ms bounds a missing HTTP/2 preface (logged as grpc_handshake_timeout). PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive at header_read_timeout_ms detects dead peers, and TCP keep-alive covers them when that is disabled; SIGTERM grace retains its existing cap. An idle gRPC connection joins the line of idle connections at a full server, and when its turn comes for a waiting client it logs grpc_idle_reclaimed at debug and sends GOAWAY. A new connection joins after its first stream ends or a grace of up to five seconds, a stream that races the GOAWAY keeps running, and a silent peer holds the slot for at most the lesser of header_read_timeout_ms and five seconds. When a stream raced the GOAWAY, the waiting client waits for another connection to end, bounded by that connection's keep-alive, and does not fail. max_grpc_streams (default 100, 1..65536, requires grpc_listen) sets the concurrent streams per connection; RFC 9113 section 6.5.2 recommends no fewer than 100, and each stream can buffer a message of up to 4 MiB, so one connection can reach 400 MiB. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*); explicit deadline and client-cancellation cases remain pending. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): gRPC errors carry the recorded messages and details (ErrorInfo for malformed resource names, BadRequest for an empty object name); the JSON-to-gRPC 412 rewrite applies to failed preconditions only, and a not-modified read carries the recorded message. The cases beyond the two status unit tests are covered by the differential replay (grpc-errors matches), not by dedicated Rust tests.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -33212,10 +33232,13 @@
         {"id":"grpc_phase_limits","description":"A missing HTTP/2 preface is bounded by header_read_timeout_ms alone and logs grpc_handshake_timeout, a connection whose preface arrived is idle under keep_alive_timeout_ms, and zero disables each limit while no value overflows time arithmetic or reaches hyper as a zero interval.","result":"PASS","test_ids":["grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_idle_connection_outlives_the_handshake_deadline","grpc_disabled_and_largest_limits_keep_every_phase_open"]},
         {"id":"grpc_silent_open_stream_is_bounded","description":"With body_inactivity_timeout_ms set, no request/response HEADERS, DATA or trailers for that long with open streams triggers GOAWAY and bounded grace, releasing shared admission; PING/PONG does not renew activity. It is disabled by default, replacing a fixed 60 seconds.","result":"PASS","test_ids":["grpc_silent_open_stream_is_bounded"]},
         {"id":"grpc_active_stream_survives_past_bound","description":"Request or response frames at intervals shorter than the silence bound keep streams alive beyond that bound in total elapsed time.","result":"PASS","test_ids":["grpc_active_stream_survives_past_bound"]},
+        {"id":"grpc_idle_reclaim_at_a_full_server","description":"At a full server an idle gRPC connection gives its slot to a waiting client through GOAWAY, oldest first and one per client, in the same line as HTTP/1 connections. An open stream is not reclaimed, a stream that races the GOAWAY is served, and a silent peer holds the slot for a short grace only.","result":"PASS","test_ids":["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client"]},
+        {"id":"grpc_stream_limit_setting","description":"max_grpc_streams defaults to 100 streams per connection, follows the setting and requires grpc_listen, and with a gRPC listener startup raises the open-file target for its streams without adding a warning.","result":"PASS","test_ids":["grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits"]},
         {"id":"grpc_success_status_deadlines_cancellation","description":"Operation-specific success statuses and streaming are verified by the per-operation rows; explicit deadline-expiry and client-cancellation behavior across operations remains unverified.","result":"PENDING","test_ids":[]}
       ],
-      "test_ids": ["grpc::v2::status::tests::resource_name_errors_carry_their_details","grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","grpc_idle_connection_outlives_the_handshake_deadline","grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"],
+      "test_ids": ["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits","grpc::v2::status::tests::resource_name_errors_carry_their_details","grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","grpc_idle_connection_outlives_the_handshake_deadline","grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"],
       "verification": [
+        {"command":"cargo test --locked --lib -- grpc::tests reclaim_tests fd_limit config::","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits"]},
         {"command":"cargo test --locked --lib -- grpc::tests","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_idle_connection_outlives_the_handshake_deadline","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc::v2::status::tests::resource_name_errors_carry_their_details"]},
         {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound"]},
@@ -33365,7 +33388,7 @@
       "test_ids": ["multipart-wire", "multipart_bodyless_operations_accept_omitted_framing", "multipart_bodyless_operations_reject_bodies_and_puts_still_require_framing", "xml::put::empty_request_framing_keeps_header_validation", "multipart-remaining"],
       "verification": [{"command":"cargo check --tests; cargo test --test xml_multipart_http; cargo test --lib multipart","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart-wire"]}, {"command":"cargo test --locked --test it_xml_auth xml_multipart_http","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart_bodyless_operations_accept_omitted_framing","multipart_bodyless_operations_reject_bodies_and_puts_still_require_framing"]}, {"command":"cargo test --locked --lib xml::put::empty_request_framing_keeps_header_validation","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["xml::put::empty_request_framing_keeps_header_validation"]}],
       "sdk_evidence": [],
-      "known_deviations": ["Local sessions have no count limit, expire after seven days and serialize mutating operations, so a parallel part waits its turn and receives 503 past catalog_wait_timeout_ms; pages cap at 1000. Owner/provider wire details, lifecycle abort execution and final SDK/container checks remain pending. The local infrastructure model is not EXACT Google fidelity."],
+      "known_deviations": ["Local sessions have no count limit and expire after seven days, where the provider sets no limit, by owner decision: abandoned parts do not appear in object listings, so they would keep using a local disk unnoticed, and /_internal/reset and abort also remove them. Different part numbers write at the same time; a repeated number, a completion or an abort waits its turn and receives 503 past catalog_wait_timeout_ms. Pages cap at 1000. Owner/provider wire details, lifecycle abort execution and final SDK/container checks remain pending. The local infrastructure model is not EXACT Google fidelity."],
       "implemented_in": null,
       "last_verified": "2026-10-30"
     },
@@ -33732,7 +33755,7 @@
         },
         {
           "id": "EXT-XML-012-VIRTUAL",
-          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; domain routing never changes advertised URLs, since a virtual bucket host is never advertised as the API base, and never dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
+          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; a virtual bucket host advertises the configured domain with the same port and the scheme of its connection, never the bucket label, an explicit base stays fixed, and domain routing never dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
           "result": "PASS",
           "test_ids": [
             "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
@@ -34378,7 +34401,7 @@
         },
         {
           "id": "EXT-XML-017-VIRTUAL",
-          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; domain routing never changes advertised URLs, since a virtual bucket host is never advertised as the API base, and never dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
+          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; a virtual bucket host advertises the configured domain with the same port and the scheme of its connection, never the bucket label, an explicit base stays fixed, and domain routing never dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
           "result": "PASS",
           "test_ids": [
             "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
@@ -34767,7 +34790,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "x-goog-acl, x-goog-custom-time, x-goog-encryption-kms-key-name, x-goog-object-lock-*, x-goog-user-project, Content-MD5 and x-goog-hash are rejected as unsupported at initiation instead of being applied.",
-        "The session URI is always path-style on the advertised API endpoint, also for a virtual-host initiation; Google's virtual-host Location form is unverified.",
+        "The session URI is always path-style on the advertised API endpoint, also for a virtual-host initiation, where without an explicit base that endpoint is the configured domain with the same port and the scheme of the connection; Google's virtual-host Location form is unverified.",
         "The response sets Cache-Control: no-store and omits X-GUploader-UploadID."
       ],
       "implemented_in": null,
@@ -34802,7 +34825,7 @@
       "test_ids": ["multipart-wire", "multipart_bodyless_operations_accept_omitted_framing", "multipart_bodyless_operations_reject_bodies_and_puts_still_require_framing", "xml::put::empty_request_framing_keeps_header_validation", "multipart-remaining", "uploads_past_the_former_limit_survive_reopening_and_a_held_one_does_not_stall_expiry", "bucket_delete_wakes_cleanup_and_retires_every_upload_of_the_old_bucket"],
       "verification": [{"command":"cargo test --locked --lib -- xml_multipart","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["uploads_past_the_former_limit_survive_reopening_and_a_held_one_does_not_stall_expiry","bucket_delete_wakes_cleanup_and_retires_every_upload_of_the_old_bucket"]}, {"command":"cargo check --tests; cargo test --test xml_multipart_http; cargo test --lib multipart","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart-wire"]}, {"command":"cargo test --locked --test it_xml_auth xml_multipart_http","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart_bodyless_operations_accept_omitted_framing","multipart_bodyless_operations_reject_bodies_and_puts_still_require_framing"]}, {"command":"cargo test --locked --lib xml::put::empty_request_framing_keeps_header_validation","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["xml::put::empty_request_framing_keeps_header_validation"]}],
       "sdk_evidence": [],
-      "known_deviations": ["Seven-day expiry and per-upload serialization are deliberate local limits; provider permits a longer lifetime and simultaneous parts. Session count is unlimited, as the provider documents. Unsupported conditions/headers fail explicitly; final SDK/container and remaining provider cases are pending.", "The missing-framing 411 recorded 2026-11-04 is an HTTP/1.0 HTML front-end response; the emulator returns HTTP/1.1 XML MissingContentLength (docs/en/evidence/xml-framing-provider-observations.md)."],
+      "known_deviations": ["Seven-day expiry is a deliberate local limit, by owner decision, where the provider sets none. Different part numbers write at the same time, as the provider allows; a repeated number, a completion or an abort waits its turn up to catalog_wait_timeout_ms. Session count is unlimited, as the provider documents. Unsupported conditions/headers fail explicitly; final SDK/container and remaining provider cases are pending.", "The missing-framing 411 recorded 2026-11-04 is an HTTP/1.0 HTML front-end response; the emulator returns HTTP/1.1 XML MissingContentLength (docs/en/evidence/xml-framing-provider-observations.md)."],
       "implemented_in": null,
       "last_verified": "2026-10-30"
     },
@@ -35170,7 +35193,7 @@
         },
         {
           "id": "EXT-XML-022-VIRTUAL",
-          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; domain routing never changes advertised URLs, since a virtual bucket host is never advertised as the API base, and never dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
+          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; a virtual bucket host advertises the configured domain with the same port and the scheme of its connection, never the bucket label, an explicit base stays fixed, and domain routing never dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
           "result": "PASS",
           "test_ids": [
             "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
@@ -35516,13 +35539,13 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id":"multipart-wire","description":"Verify bounded part streaming/replacement, checksums, required keys, strict permissions, EOF and checkpoint failure preservation with restart.","result":"PASS","test_ids":["multipart-wire"]},
-        {"id":"multipart-parallel-parts","description":"Parallel parts of one upload take turns: a part waits for the lease up to catalog_wait_timeout_ms and fails with 503 only past it, so a transfer that outlasts the budget can fail another part.","result":"PASS","test_ids":["a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit"]},
+        {"id":"multipart-parallel-parts","description":"Different part numbers of one upload write at the same time. A repeated number waits and the last to finish wins; completion and abort wait for the parts in flight and hold back later parts. A conflicting request waits up to catalog_wait_timeout_ms and fails with 503 only past it, leaving nothing behind and the stalled part free to resume. Each commit checks the retained total, so only the part that passes max_object_bytes fails.","result":"PASS","test_ids":["a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit", "a_part_finishes_while_two_other_bodies_stay_stalled", "the_same_part_number_waits_and_the_last_to_finish_wins", "a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "an_abort_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "parts_in_flight_cannot_together_pass_the_retained_limit", "a_part_succeeds_while_other_parts_of_its_upload_stay_stalled_on_the_wire", "only_a_conflicting_request_answers_503_past_the_catalog_wait"]},
         {"id":"multipart-remaining","description":"Verify final SDK/container execution and remaining provider concurrent-part/header/error behavior.","result":"PENDING","test_ids":["multipart-remaining"]}
       ],
-      "test_ids": ["multipart-wire", "multipart-remaining", "a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit"],
-      "verification": [{"command":"cargo test --locked --lib -- xml_multipart","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit"]},{"command":"cargo check --tests; cargo test --test xml_multipart_http; cargo test --lib multipart","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart-wire"]}],
+      "test_ids": ["multipart-wire", "multipart-remaining", "a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit", "a_part_finishes_while_two_other_bodies_stay_stalled", "the_same_part_number_waits_and_the_last_to_finish_wins", "a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "an_abort_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "parts_in_flight_cannot_together_pass_the_retained_limit", "a_part_succeeds_while_other_parts_of_its_upload_stay_stalled_on_the_wire", "only_a_conflicting_request_answers_503_past_the_catalog_wait"],
+      "verification": [{"command":"cargo test --locked --lib -- xml_multipart resumable_http_tests","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit", "a_part_finishes_while_two_other_bodies_stay_stalled", "the_same_part_number_waits_and_the_last_to_finish_wins", "a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "an_abort_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "parts_in_flight_cannot_together_pass_the_retained_limit", "a_part_succeeds_while_other_parts_of_its_upload_stay_stalled_on_the_wire", "only_a_conflicting_request_answers_503_past_the_catalog_wait"]},{"command":"cargo check --tests; cargo test --test xml_multipart_http; cargo test --lib multipart","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart-wire"]}],
       "sdk_evidence": [],
-      "known_deviations": ["Mutating session operations serialize with retryable busy errors; aggregate retained parts share max_object_bytes and RAM storage budgets where selected. Full provider concurrency/header/error and final SDK/container cases remain pending."],
+      "known_deviations": ["Unfinished uploads expire after seven days, where the provider sets no limit, by owner decision: abandoned parts do not appear in object listings, so they would keep using a local disk unnoticed. A repeated part number, a completion or an abort waits its turn and receives a retryable busy error past catalog_wait_timeout_ms; aggregate retained parts share max_object_bytes and RAM storage budgets where selected. Full provider concurrency/header/error and final SDK/container cases remain pending."],
       "implemented_in": null,
       "last_verified": "2026-10-30"
     },
@@ -48518,7 +48541,7 @@
         },
         {
           "id": "DESIGN-055-VIRTUAL",
-          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; domain routing never changes advertised URLs, since a virtual bucket host is never advertised as the API base, and never dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
+          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; a virtual bucket host advertises the configured domain with the same port and the scheme of its connection, never the bucket label, an explicit base stays fixed, and domain routing never dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
           "result": "PASS",
           "test_ids": [
             "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
@@ -48533,9 +48556,10 @@
         },
         {
           "id": "DESIGN-055-API-DEFAULT",
-          "description": "config-api-origin-default owns explicit/unset Config state: validate API-host conflicts during preflight using the explicit base host or wildcard-substituted listen IP, including numeric DNS suffixes, before catalog access/bind/ready; resolve only the actual port after bind before State/ready, including port zero, with IPv4/IPv6 loopback substitutions and HTTPS for the primary listener. Explicit base/prefix wins. Without one, each request renders links from its Host and connection scheme, and an invalid or missing Host, or one that selects an XML virtual bucket, uses the bound base; Forwarded stays ignored. The bound base, and an explicit one when set, is what ready reports, fixed ready keys are retained and Compose host-port changes preserve resumable Location reachability without startup-phase reordering.",
+          "description": "config-api-origin-default owns explicit/unset Config state: validate API-host conflicts during preflight using the explicit base host or wildcard-substituted listen IP, including numeric DNS suffixes, before catalog access/bind/ready; resolve only the actual port after bind before State/ready, including port zero, with IPv4/IPv6 loopback substitutions and HTTPS for the primary listener. Explicit base/prefix wins. Without one, each request renders links from its Host and connection scheme, a Host that selects an XML virtual bucket uses the configured domain with the same port, and an invalid or missing Host uses the bound base; Forwarded stays ignored. The bound base, and an explicit one when set, is what ready reports, fixed ready keys are retained and Compose host-port changes preserve resumable Location reachability without startup-phase reordering. The checked-in Compose files no longer pin the base and pass GCS_MIMIC_API_BASE_URL through only when it is set, so container-host-port-resumable and compose-api-base-published-port record the earlier pinned files, and compose-peer-and-host-resumable records the current ones.",
           "result": "PASS",
           "test_ids": [
+            "compose-peer-and-host-resumable",
             "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
             "api_origin_ready_and_resumable_locations_use_bound_addresses",
             "api_origin_explicit_base_wins_and_conflicts_fail_before_catalog",
@@ -48546,7 +48570,7 @@
             "request_host_sets_the_advertised_base_and_never_the_fixed_one",
             "unusable_request_authorities_keep_the_fixed_base",
             "absolute_form_target_overrides_host_and_is_validated_the_same_way",
-            "an_xml_virtual_host_is_not_advertised_as_the_api_base",
+            "an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base",
             "only_an_external_url_update_fixes_a_derived_base",
             "runtime_external_url_fixes_the_base_and_a_public_host_alone_does_not",
             "strict_mode_links_follow_the_request_host_without_an_explicit_base",
@@ -48569,6 +48593,7 @@
         }
       ],
       "test_ids": [
+        "compose-peer-and-host-resumable",
         "advertised_endpoint_precedence_and_validation",
         "bkt_http_crud_metadata_conditions_and_errors",
         "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
@@ -48624,14 +48649,15 @@
         "request_host_sets_the_advertised_base_and_never_the_fixed_one",
         "unusable_request_authorities_keep_the_fixed_base",
         "absolute_form_target_overrides_host_and_is_validated_the_same_way",
-        "an_xml_virtual_host_is_not_advertised_as_the_api_base",
+        "an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base",
         "only_an_external_url_update_fixes_a_derived_base",
         "runtime_external_url_fixes_the_base_and_a_public_host_alone_does_not",
         "strict_mode_links_follow_the_request_host_without_an_explicit_base",
         "unix_links_use_http_and_the_request_host_without_an_explicit_base"
       ],
       "verification": [
-        {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- request_host_http; cargo test --locked --test it_process -- unix_transport; cargo test --locked --test it_xml_auth -- sign_url","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","a_repeated_call_on_a_finished_rewrite_renders_links_for_its_own_host","an_explicit_base_ignores_the_host","explicit_base_ignores_the_request_host","management_routes_refuse_a_host_that_only_the_derived_base_would_name","management_host_is_not_admitted_by_a_base_derived_from_the_same_host","a_metadata_write_may_repeat_links_read_through_another_host","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","stored_response_links_move_to_the_new_origin_without_touching_other_fields","advertised_scheme_follows_the_connection_and_forwarded_headers_do_not_apply","request_host_sets_the_advertised_base_and_never_the_fixed_one","unusable_request_authorities_keep_the_fixed_base","absolute_form_target_overrides_host_and_is_validated_the_same_way","an_xml_virtual_host_is_not_advertised_as_the_api_base","only_an_external_url_update_fixes_a_derived_base","runtime_external_url_fixes_the_base_and_a_public_host_alone_does_not","strict_mode_links_follow_the_request_host_without_an_explicit_base","unix_links_use_http_and_the_request_host_without_an_explicit_base"]},
+        {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
+        {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- request_host_http; cargo test --locked --test it_process -- unix_transport; cargo test --locked --test it_xml_auth -- sign_url","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","a_repeated_call_on_a_finished_rewrite_renders_links_for_its_own_host","an_explicit_base_ignores_the_host","explicit_base_ignores_the_request_host","management_routes_refuse_a_host_that_only_the_derived_base_would_name","management_host_is_not_admitted_by_a_base_derived_from_the_same_host","a_metadata_write_may_repeat_links_read_through_another_host","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","stored_response_links_move_to_the_new_origin_without_touching_other_fields","advertised_scheme_follows_the_connection_and_forwarded_headers_do_not_apply","request_host_sets_the_advertised_base_and_never_the_fixed_one","unusable_request_authorities_keep_the_fixed_base","absolute_form_target_overrides_host_and_is_validated_the_same_way","an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base","only_an_external_url_update_fixes_a_derived_base","runtime_external_url_fixes_the_base_and_a_public_host_alone_does_not","strict_mode_links_follow_the_request_host_without_an_explicit_base","unix_links_use_http_and_the_request_host_without_an_explicit_base"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -48842,7 +48868,7 @@
         }
       ],
       "known_deviations": [
-        "Public/API origin routing, helpers, ready fields, request-derived links and the bound-address fallback are verified, including HTTPS-primary scheme=both integration. Independent configuration contract review remains pending; trusted proxy-derived origins remain DESIGN-056 work, so a proxy that rewrites Host needs an explicit base. An XML virtual host setup also needs one, because a virtual bucket host gets a loopback link."
+        "Public/API origin routing, helpers, ready fields, request-derived links and the bound-address fallback are verified, including HTTPS-primary scheme=both integration. Independent configuration contract review remains pending; trusted proxy-derived origins remain DESIGN-056 work, so a proxy that rewrites Host needs an explicit base. An XML virtual host setup needs one only if DNS resolves the bucket names and not the configured domain, which a virtual bucket host advertises."
       ],
       "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-25"
@@ -48893,7 +48919,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Without an explicit base, Location follows the authority each request addressed and the scheme of its connection, so host, Compose peer and browser addresses reach one server with no setting; an invalid or missing Host, or one that selects an XML virtual bucket, falls back to the bound listener. An explicit api_base_url or runtime externalUrl fixes it. Forwarded headers never apply, and a request authority only renders links: it never grants object permission or admits a management request. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/zero-config-defaults.md and, for the earlier fixed-base cases, docs/en/evidence/resumable-upload.md. No allowlist is needed (SPEC-RSM-LOCATION); no browser execution/CORS claim.",
+      "notes": "Without an explicit base, Location follows the authority each request addressed and the scheme of its connection, so host, Compose peer and browser addresses reach one server with no setting; a Host that selects an XML virtual bucket uses the configured domain with the same port and never the bucket label, and an invalid or missing Host falls back to the bound listener. An explicit api_base_url or runtime externalUrl fixes it. Forwarded headers never apply, and a request authority only renders links: it never grants object permission or admits a management request. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/zero-config-defaults.md and, for the earlier fixed-base cases, docs/en/evidence/resumable-upload.md. No allowlist is needed (SPEC-RSM-LOCATION); no browser execution/CORS claim.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -48911,16 +48937,17 @@
         },
         {
           "id": "RSM-LOC-002",
-          "description": "positive: A request addressed to a peer's service name, with no configuration, gets a Location on that name and can complete through another of the server's addresses; a browser address gets its own Location, without a CORS claim. Wire tests set Host directly; the guide's Compose commands run in the release gate. Contract: docs/en/slices/resumable-upload.md.",
+          "description": "positive: A request addressed to a peer's service name, with no configuration, gets a Location on that name and can complete through another of the server's addresses; a browser address gets its own Location, without a CORS claim. Wire tests set Host directly. A Compose service in the final image with no base configured confirmed it: a client on localhost:<published port> and a peer on gcs:4443 each got their own address and each finished a resumable upload. Contract: docs/en/slices/resumable-upload.md.",
           "result": "PASS",
           "test_ids": [
+            "compose-peer-and-host-resumable",
             "a_session_opened_through_one_host_completes_through_another",
             "xml_session_and_multipart_locations_follow_the_host_of_their_request"
           ]
         },
         {
           "id": "RSM-LOC-003",
-          "description": "negative/boundary: Forwarded headers and unusable Host values never reach Location; an explicit base ignores Host and keeps its trailing slash/proxy prefix; a virtual bucket host is not advertised; invalid advertised URLs fail config. Contract: docs/en/slices/resumable-upload.md.",
+          "description": "negative/boundary: Forwarded headers and unusable Host values never reach Location; an explicit base ignores Host and keeps its trailing slash/proxy prefix; a virtual bucket host advertises the configured domain and never the bucket label; invalid advertised URLs fail config. Contract: docs/en/slices/resumable-upload.md.",
           "result": "PASS",
           "test_ids": [
             "initiation_returns_opaque_fixed_location_and_status_without_publication",
@@ -48929,11 +48956,12 @@
             "url::tests::rejects_invalid_base_urls",
             "forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link",
             "an_explicit_base_ignores_the_host",
-            "an_xml_virtual_host_is_not_advertised_as_the_api_base"
+            "an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base"
           ]
         }
       ],
       "test_ids": [
+        "compose-peer-and-host-resumable",
         "host_follows_returned_location_and_streams_large_body_in_small_buffers",
         "TestObjectResumableWriter",
         "guide-resumable-host",
@@ -48946,10 +48974,11 @@
         "url::tests::rejects_invalid_base_urls",
         "forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link",
         "an_explicit_base_ignores_the_host",
-        "an_xml_virtual_host_is_not_advertised_as_the_api_base"
+        "an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base"
       ],
       "verification": [
-        {"command":"cargo test --locked --test it_protocol -- request_host_http","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","a_session_opened_through_one_host_completes_through_another","xml_session_and_multipart_locations_follow_the_host_of_their_request","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","an_explicit_base_ignores_the_host","an_xml_virtual_host_is_not_advertised_as_the_api_base"]},
+        {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
+        {"command":"cargo test --locked --test it_protocol -- request_host_http","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","a_session_opened_through_one_host_completes_through_another","xml_session_and_multipart_locations_follow_the_host_of_their_request","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","an_explicit_base_ignores_the_host","an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -49399,9 +49428,9 @@
         },
         {
           "id": "sync-configuration-inputs",
-          "description": "Verify CLI > environment > file > default for only sync_dir and sync_delete_guard, strict boolean parsing, guard without root, removed tuning-key rejection through CLI/environment/JSON, overlap/alias/symlink rejection and CLI-only exact catalog-ID reinitialization. Internal policy is fixed at 1000 ms, at least 100 deletions and more than 50%, 1 GiB and 1000 conflict entries; fewer settings suit local development. Settle/delete effects remain PENDING. Scope and verification: docs/en/slices/directory-synchronization.md.",
+          "description": "Verify CLI > environment > file > default for sync_dir, sync_delete_guard, max_sync_entries and max_sync_depth, which also require sync_dir, strict boolean parsing, guard without root, removed tuning-key rejection through CLI/environment/JSON, overlap/alias/symlink rejection and CLI-only exact catalog-ID reinitialization. Internal policy is fixed at 1000 ms, at least 100 deletions and more than 50%, a 1 TiB conflict budget and a conflict entry limit; fewer settings suit local development. A scan, a watch and export accept exactly max_sync_depth levels, and one directory may hold as many names as the tree limit allows. Settle/delete effects remain PENDING. Scope and verification: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization", "sync_removed_settings_and_guard_without_root_fail_with_diagnostics", "sync_overlaps_aliases_empty_and_symlink_roots_are_rejected"]
+          "test_ids": ["sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization", "sync_removed_settings_and_guard_without_root_fail_with_diagnostics", "sync_overlaps_aliases_empty_and_symlink_roots_are_rejected", "sync_tree_limits_keep_their_defaults_and_mean_nothing_without_a_sync_dir", "one_directory_may_hold_as_many_entries_as_the_tree_limit_allows", "every_walker_applies_the_same_depth_limit", "the_default_depth_accepts_exactly_what_export_can_create"]
         },
         {
           "id": "sync-configuration",
@@ -49427,7 +49456,7 @@
         },
         {
           "id": "BUCKET-INIT-BOUNDS",
-          "description": "Inclusive 1,048,576-byte file, 1000-entry and 65,536-byte raw-entry/encoded-resource limits and each one-over case, whitespace/escape/project accounting pass. At most 1000 entries are inspected and over-count explicitly reports the uninspected remainder; errors never return partial records. Diagnostics retain at most 256 records/64 KiB with an exact omitted-error summary. Owner init-parser.",
+          "description": "A file limit of 1 KiB per allowed bucket and at least 1,048,576 bytes, max_buckets_per_batch entries (1..1000000) and 65,536-byte raw-entry/encoded-resource limits and each one-over case, whitespace/escape/project accounting pass. At most max_buckets_per_batch entries are inspected and over-count explicitly reports the uninspected remainder and names the setting; errors never return partial records. Diagnostics retain at most 256 records/64 KiB with an exact omitted-error summary at any limit. Owner init-parser.",
           "result": "PASS",
           "test_ids": [
             "inclusive_limit_reads_only_one_extra_byte",
@@ -49470,7 +49499,7 @@
         },
         {
           "id": "BUCKET-INIT-DIAGNOSTICS",
-          "description": "Side-effect-free parser detects independent structural/semantic errors in up to 1000 entries without existence lookup, including structural/name diagnostics for oversized entries while skipping their native value parsing. Shared initializer JSON sorting/escaping/redaction and suggestions/ties pass. Retention is capped at 256 records/64 KiB with exact omitted counts, always an error without records. Process-level startup suppression passes under BUCKET-INIT-STARTUP.",
+          "description": "Side-effect-free parser detects independent structural/semantic errors in up to max_buckets_per_batch entries without existence lookup, including structural/name diagnostics for oversized entries while skipping their native value parsing. Shared initializer JSON sorting/escaping/redaction and suggestions/ties pass. Retention is capped at 256 records/64 KiB with exact omitted counts, always an error without records. Process-level startup suppression passes under BUCKET-INIT-STARTUP.",
           "result": "PASS",
           "test_ids": [
             "invalid_projects_do_not_hide_independent_native_errors",
@@ -49565,7 +49594,7 @@
         },
         {
           "id": "onboarding-state-authority",
-          "description": "Typed bounded local administration passes validated names/generations, ordered atomic batches up to 1000, Replace metadata/conditions/holds/checksums, reads up to 256, independent saturated-API admission, actual 30-second timeout, shutdown ownership, cancellation cleanup and typed DiskFull/Corrupt. Native seed thirteen-case and Linux fourteen-case regressions plus permissive/strict SDK/container checks pass; initializer startup and later publication modes remain separate. Contract: docs/en/slices/onboarding-state-contract.md; evidence: docs/en/evidence/shared-admin-interface.md.",
+          "description": "Typed bounded local administration passes validated names/generations, ordered atomic batches, Replace metadata/conditions/holds/checksums, reads up to 256, independent saturated-API admission, a timeout at the configured catalog wait, shutdown ownership, cancellation cleanup and typed DiskFull/Corrupt. Native seed thirteen-case and Linux fourteen-case regressions plus permissive/strict SDK/container checks pass; initializer startup and later publication modes remain separate. Contract: docs/en/slices/onboarding-state-contract.md; evidence: docs/en/evidence/shared-admin-interface.md.",
           "result": "PASS",
           "test_ids": [
             "admin_names_generations_and_permissions_are_validated",
@@ -49603,6 +49632,10 @@
         }
       ],
       "test_ids": [
+        "sync_tree_limits_keep_their_defaults_and_mean_nothing_without_a_sync_dir",
+        "one_directory_may_hold_as_many_entries_as_the_tree_limit_allows",
+        "every_walker_applies_the_same_depth_limit",
+        "the_default_depth_accepts_exactly_what_export_can_create",
         "live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes",
         "ingest_strict_configuration_has_actionable_remedy",
         "ingest_defers_partial_and_replacement_saves_then_resumes_activation",
@@ -49678,6 +49711,7 @@
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib -- config:: sync::tree","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["sync_tree_limits_keep_their_defaults_and_mean_nothing_without_a_sync_dir","one_directory_may_hold_as_many_entries_as_the_tree_limit_allows","every_walker_applies_the_same_depth_limit","the_default_depth_accepts_exactly_what_export_can_create"]},
         {
           "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed --test import_filesystem; cargo test --locked --offline --lib -- mime::tests",
           "result": "PASS",
@@ -50728,16 +50762,18 @@
         {"id":"ADMIN-PRINCIPAL-STARTUP-PROFILE","description":"Explicit admin_principal requires visible ASCII, strict authentication, enabled administration and a matching loaded registry ID; reject impossible or ignored combinations before readiness.","result":"PASS","test_ids":["config::tests::administrative_principals_require_a_strict_enabled_registry_profile","startup_rejects_an_administrative_principal_missing_from_the_registry"]},
         {"id": "admin-wire-isolation", "description": "Verify opt-in routes, separate strict authority, malformed requests, fixture metadata and isolated atomic reseed through HTTP.", "result": "PASS", "test_ids": ["admin-wire-isolation"]},
         {"id": "admin-reset-recovery", "description": "Verify reset activity exclusion and restart/crash/power-loss boundaries without bypassing shared publication.", "result": "PASS", "test_ids": ["admin-reset-recovery"]},
-        {"id": "admin-reset-quiescence", "description": "Wait up to one second, capped by the caller budget, for catalog work and unpublished leases without queuing an activity writer or blocking catalog reads; return 503 with Retry-After: 1 and preserve state when the deadline expires before exclusive ownership, and release administrative permits when a waiting reset is cancelled.", "result": "PASS", "test_ids": ["reset_waits_for_in_flight_catalog_work_before_clearing_state", "reset_wait_allows_catalog_reads_while_upload_lease_is_active", "reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive_ownership", "cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset", "reset_rejects_active_upload_without_changing_existing_bytes", "reset_short_catalog_wait_reports_no_changes", "reset_uses_the_local_manager_and_refuses_active_directory_sync"]},
-        {"id": "admin-reseed-quiescence", "description": "Seed and reseed wait for batch admission and for catalog work and unpublished leases before the exclusive commit, without queuing an activity writer or blocking catalog reads; startup waits up to the 30-second publication bound, and /_internal/reseed returns 503 with Retry-After: 1 and a no-changes message when the caller budget expires first; cancelled waits release administrative permits.", "result": "PASS", "test_ids": ["atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhile", "seed_admission_waits_for_a_competing_batch_to_finish", "cancelled_seed_waits_release_admission_and_allow_reset", "atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespace", "reseed_waits_for_an_active_upload_and_then_replays_fixtures", "reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active"]},
+        {"id": "admin-reset-quiescence", "description": "Wait up to catalog_wait_timeout_ms and the request deadline for catalog work and unpublished leases without blocking catalog reads. New uploads line up behind the reset, requests that arrive meanwhile run against the cleared state, a stream of new work cannot starve it, and it leaves a budget for its work after the wait. Return 503 with Retry-After: 1 and preserve state when the deadline expires before exclusive ownership, and release administrative permits when a waiting reset is cancelled or its client disconnects.", "result": "PASS", "test_ids": ["a_disconnected_reset_gives_up_its_wait_and_changes_nothing", "a_steady_stream_of_new_work_cannot_starve_an_exclusive_job", "reset_waits_for_in_flight_catalog_work_before_clearing_state", "reset_wait_allows_catalog_reads_while_upload_lease_is_active", "reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive_ownership", "cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset", "requests_during_a_reset_wait_and_then_see_the_cleared_state", "reset_short_catalog_wait_reports_no_changes", "reset_uses_the_local_manager_and_refuses_active_directory_sync"]},
+        {"id": "admin-reseed-quiescence", "description": "Seed and reseed wait for batch admission and for catalog work and unpublished leases before the exclusive commit, without blocking catalog reads, and requests that arrive during the commit wait and then see what it published. Startup and /_internal/reseed spend catalog_wait_timeout_ms on waiting only, and /_internal/reseed returns 503 with Retry-After: 1 and a no-changes message when the caller budget expires first; cancelled waits release administrative permits, and reseeds past the active one take turns.", "result": "PASS", "test_ids": ["requests_during_a_seed_commit_wait_and_then_see_what_it_published", "reseeds_past_the_active_one_take_turns_and_all_complete", "atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhile", "seed_admission_waits_for_a_competing_batch_to_finish", "cancelled_seed_waits_release_admission_and_allow_reset", "atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespace", "reseed_waits_for_an_active_upload_and_then_replays_fixtures", "reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active"]},
+        {"id": "admin-exclusive-job-ordering", "description": "A reset queued ahead of a seed commit leaves no object without its bytes on the memory backend, and a reseed may take longer than the catalog wait. The tests exist; the final run has not been recorded here yet.", "result": "PENDING", "test_ids": ["a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_bytes", "a_reseed_may_take_longer_than_the_catalog_wait"]},
         {"id": "admin-final-integration", "description": "Run Go facade fixture/reset/reseed and final-source container workflows together.", "result": "PENDING", "test_ids": ["admin-final-integration"]}
       ],
-      "test_ids": ["server::admin::guard::tests::local_host_classification_does_not_accept_public_lookalikes", "server::admin::guard::tests::management_authority_rejects_duplicates_and_prefers_uri_authority", "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate", "it_admin::admin_http::management_routes_refuse_page_initiated_requests_without_mutation", "admin-wire-isolation", "admin-reset-recovery", "admin-final-integration", "config::tests::administrative_principals_require_a_strict_enabled_registry_profile", "startup_rejects_an_administrative_principal_missing_from_the_registry", "reset_waits_for_in_flight_catalog_work_before_clearing_state", "reset_wait_allows_catalog_reads_while_upload_lease_is_active", "reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive_ownership", "cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset", "reset_rejects_active_upload_without_changing_existing_bytes", "reset_short_catalog_wait_reports_no_changes", "reset_uses_the_local_manager_and_refuses_active_directory_sync", "atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhile", "seed_admission_waits_for_a_competing_batch_to_finish", "cancelled_seed_waits_release_admission_and_allow_reset", "atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespace", "reseed_waits_for_an_active_upload_and_then_replays_fixtures", "reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active"],
+      "test_ids": ["a_disconnected_reset_gives_up_its_wait_and_changes_nothing", "a_steady_stream_of_new_work_cannot_starve_an_exclusive_job", "requests_during_a_seed_commit_wait_and_then_see_what_it_published", "reseeds_past_the_active_one_take_turns_and_all_complete", "a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_bytes", "a_reseed_may_take_longer_than_the_catalog_wait", "server::admin::guard::tests::local_host_classification_does_not_accept_public_lookalikes", "server::admin::guard::tests::management_authority_rejects_duplicates_and_prefers_uri_authority", "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate", "it_admin::admin_http::management_routes_refuse_page_initiated_requests_without_mutation", "admin-wire-isolation", "admin-reset-recovery", "admin-final-integration", "config::tests::administrative_principals_require_a_strict_enabled_registry_profile", "startup_rejects_an_administrative_principal_missing_from_the_registry", "reset_waits_for_in_flight_catalog_work_before_clearing_state", "reset_wait_allows_catalog_reads_while_upload_lease_is_active", "reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive_ownership", "cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset", "requests_during_a_reset_wait_and_then_see_the_cleared_state", "reset_short_catalog_wait_reports_no_changes", "reset_uses_the_local_manager_and_refuses_active_directory_sync", "atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhile", "seed_admission_waits_for_a_competing_batch_to_finish", "cancelled_seed_waits_release_admission_and_allow_reset", "atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespace", "reseed_waits_for_an_active_upload_and_then_replays_fixtures", "reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active"],
       "verification": [
+        {"command":"cargo test --locked --lib -- admin::publication::reseed catalog::activity; cargo test --locked --test it_admin -- admin_reset admin_reseed","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_disconnected_reset_gives_up_its_wait_and_changes_nothing","a_steady_stream_of_new_work_cannot_starve_an_exclusive_job","requests_during_a_seed_commit_wait_and_then_see_what_it_published","reseeds_past_the_active_one_take_turns_and_all_complete"]},
         {"command":"cargo test --locked --lib -- admin::publication::reseed admin::reset seed::tests server::admin::reseed (30 passed)","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/atomic-seed-reseed.md","test_ids":["atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhile","seed_admission_waits_for_a_competing_batch_to_finish","cancelled_seed_waits_release_admission_and_allow_reset","atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespace"]},
         {"command":"cargo test --locked --test it_admin -- admin_reseed admin_reset (20 iterations, 220 passed)","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/atomic-seed-reseed.md","test_ids":["reseed_waits_for_an_active_upload_and_then_replays_fixtures","reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active"]},
         {"command":"cargo test --locked --lib storage::catalog::admin::reset (11 passed)","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/local-instance-reset.md","test_ids":["reset_waits_for_in_flight_catalog_work_before_clearing_state","reset_wait_allows_catalog_reads_while_upload_lease_is_active","reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive_ownership","cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset"]},
-        {"command":"cargo test --locked --test it_admin admin_reset (20 iterations, 100 passed)","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/local-instance-reset.md","test_ids":["reset_rejects_active_upload_without_changing_existing_bytes","reset_short_catalog_wait_reports_no_changes","reset_uses_the_local_manager_and_refuses_active_directory_sync"]},
+        {"command":"cargo test --locked --test it_admin admin_reset (20 iterations, 100 passed)","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/local-instance-reset.md","test_ids":["requests_during_a_reset_wait_and_then_see_the_cleared_state","reset_short_catalog_wait_reports_no_changes","reset_uses_the_local_manager_and_refuses_active_directory_sync"]},
         {"command":"CARGO_BUILD_JOBS=4 cargo test --lib config::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["config::tests::administrative_principals_require_a_strict_enabled_registry_profile"]},
         {"command":"CARGO_BUILD_JOBS=4 cargo test --test it_process startup_","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["startup_rejects_an_administrative_principal_missing_from_the_registry"]},
         {
@@ -51756,7 +51792,7 @@
           "test_ids": [
             "import_publication_preserves_identity_settings_hold_and_atomic_prefix",
             "import_publication_progress_rejects_foreign_project_records_and_failure_is_bounded",
-            "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+            "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit"
           ]
         },
         {
@@ -51817,12 +51853,12 @@
         },
         {
           "id": "administrative-bounded-operations",
-          "description": "Independent two-upload/32-read management admission and a bounded 32-waiter queue progress under full API slots; the public 30-second deadline returns Busy. Replace and bounded reads retain shared conditions, checksums, metadata, generations, holds and versioning. Transactional adapter state and later publication modes remain pending. Fixed metadata controls/length and empty custom keys are validated in the shared core, preserving the old readable generation on rejection.",
+          "description": "Independent two-upload/32-read management admission progresses under full API slots, and callers past the slots wait for their turn; catalog_wait_timeout_ms, or 30 seconds for a catalog no server configured, returns Busy. Replace and bounded reads retain shared conditions, checksums, metadata, generations, holds and versioning. Transactional adapter state and later publication modes remain pending. Fixed metadata controls/length and empty custom keys are validated in the shared core, preserving the old readable generation on rejection.",
           "result": "PASS",
           "test_ids": [
             "admin_admission_is_independent_of_saturated_api_slots",
-            "admin_wait_deadlines_queue_limit_and_closed_state_are_typed",
-            "admin_publication_times_out_at_the_public_admission_deadline",
+            "admin_wait_deadlines_and_closed_state_are_typed",
+            "admin_publication_times_out_at_the_configured_catalog_wait",
             "admin_replace_preserves_conditions_checksums_metadata_and_versions",
             "admin_invalid_metadata_cannot_replace_a_readable_generation"
           ]
@@ -51998,8 +52034,8 @@
         "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
         "rejects_future_schema_unversioned_data_and_corruption",
         "admin_admission_is_independent_of_saturated_api_slots",
-        "admin_wait_deadlines_queue_limit_and_closed_state_are_typed",
-        "admin_publication_times_out_at_the_public_admission_deadline",
+        "admin_wait_deadlines_and_closed_state_are_typed",
+        "admin_publication_times_out_at_the_configured_catalog_wait",
         "admin_replace_preserves_conditions_checksums_metadata_and_versions",
         "admin_invalid_metadata_cannot_replace_a_readable_generation",
         "shared-admin-native-regression",
@@ -52031,7 +52067,7 @@
         "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob",
         "import_publication_preserves_identity_settings_hold_and_atomic_prefix",
         "import_publication_progress_rejects_foreign_project_records_and_failure_is_bounded",
-        "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix",
+        "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit",
         "filesystem_import_interrupt_resume_and_serve_gate",
         "filesystem_import_resume_revalidates_inode_and_ctime_only_drift",
         "filesystem_import_xattr_revalidation_preserves_source_metadata",
@@ -52259,7 +52295,7 @@
           "test_ids": [
             "import_publication_preserves_identity_settings_hold_and_atomic_prefix",
             "import_publication_progress_rejects_foreign_project_records_and_failure_is_bounded",
-            "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+            "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit"
           ]
         },
         {
@@ -52455,8 +52491,8 @@
           "artifact": "docs/en/evidence/shared-admin-interface.md",
           "test_ids": [
             "admin_admission_is_independent_of_saturated_api_slots",
-            "admin_wait_deadlines_queue_limit_and_closed_state_are_typed",
-            "admin_publication_times_out_at_the_public_admission_deadline",
+            "admin_wait_deadlines_and_closed_state_are_typed",
+            "admin_publication_times_out_at_the_configured_catalog_wait",
             "admin_replace_preserves_conditions_checksums_metadata_and_versions",
             "admin_invalid_metadata_cannot_replace_a_readable_generation"
           ]
@@ -52468,8 +52504,8 @@
           "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
           "test_ids": [
             "admin_admission_is_independent_of_saturated_api_slots",
-            "admin_wait_deadlines_queue_limit_and_closed_state_are_typed",
-            "admin_publication_times_out_at_the_public_admission_deadline",
+            "admin_wait_deadlines_and_closed_state_are_typed",
+            "admin_publication_times_out_at_the_configured_catalog_wait",
             "admin_replace_preserves_conditions_checksums_metadata_and_versions",
             "admin_invalid_metadata_cannot_replace_a_readable_generation"
           ]
@@ -52839,7 +52875,7 @@
           "test_ids": [
             "import_publication_keeps_independent_successes_and_terminal_failure_after_restart",
             "import_publication_disk_full_rolls_back_records_observations_and_cursor",
-            "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+            "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit"
           ]
         },
         {
@@ -53020,7 +53056,7 @@
             "publication_budget_returns_retryable_handles_and_releases_sql_lane",
             "publication_disk_full_rolls_back_the_batch_and_journal",
             "publication_partial_batch_allows_staging_without_a_second_batch",
-            "publication_admits_only_one_active_and_one_waiting_batch",
+            "publication_past_the_active_batch_takes_turns_and_every_batch_commits",
             "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup"
           ]
         },
@@ -53169,7 +53205,7 @@
         "publication_budget_returns_retryable_handles_and_releases_sql_lane",
         "publication_disk_full_rolls_back_the_batch_and_journal",
         "publication_partial_batch_allows_staging_without_a_second_batch",
-        "publication_admits_only_one_active_and_one_waiting_batch",
+        "publication_past_the_active_batch_takes_turns_and_every_batch_commits",
         "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
         "publication_file_checksums_caps_staging_visibility_and_discard",
         "publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers",
@@ -53181,7 +53217,7 @@
         "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob",
         "import_publication_keeps_independent_successes_and_terminal_failure_after_restart",
         "import_publication_disk_full_rolls_back_records_observations_and_cursor",
-        "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+        "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit"
       ],
       "verification": [
         {
@@ -53304,7 +53340,7 @@
           "test_ids": [
             "import_publication_keeps_independent_successes_and_terminal_failure_after_restart",
             "import_publication_disk_full_rolls_back_records_observations_and_cursor",
-            "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+            "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit"
           ]
         },
         {
@@ -53332,7 +53368,7 @@
             "publication_budget_returns_retryable_handles_and_releases_sql_lane",
             "publication_disk_full_rolls_back_the_batch_and_journal",
             "publication_partial_batch_allows_staging_without_a_second_batch",
-            "publication_admits_only_one_active_and_one_waiting_batch",
+            "publication_past_the_active_batch_takes_turns_and_every_batch_commits",
             "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
             "publication_file_checksums_caps_staging_visibility_and_discard",
             "publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers",
@@ -53355,7 +53391,7 @@
             "publication_budget_returns_retryable_handles_and_releases_sql_lane",
             "publication_disk_full_rolls_back_the_batch_and_journal",
             "publication_partial_batch_allows_staging_without_a_second_batch",
-            "publication_admits_only_one_active_and_one_waiting_batch",
+            "publication_past_the_active_batch_takes_turns_and_every_batch_commits",
             "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
             "publication_file_checksums_caps_staging_visibility_and_discard",
             "publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers",
@@ -55652,7 +55688,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-30",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Current source stages the complete bounded read-only fixture tree and atomically publishes it before readiness. Identical fixtures retain generations, differing fixtures replace with seed-default metadata, non-fixture objects stay untouched and versioning retains prior generations. A differing held/retained fixture now fails the entire replay with no readiness or partial publication; successful blocked count is zero. Extension MIME is default, octet-stream is opt-in, and metadata-suffix files remain literal bodies. Source builds also add opt-in disk-merge and RAM-replacement reseed through separate management authority. Native whole-tree publication, cancellation, failed write/flush/sync and selected process-abort/PowerLoss snapshots pass in docs/en/slices/atomic-seed-reseed.md. Historical happy-path platform/container evidence remains below; final combined image/SDK/platform reruns for the changed contract remain pending, so this row is temporarily PARTIAL. See docs/en/slices/seed.md for configuration and bounds.",
+      "notes": "Current source stages the complete bounded read-only fixture tree and atomically publishes it before readiness. Identical fixtures retain generations, differing fixtures replace with seed-default metadata, non-fixture objects stay untouched and versioning retains prior generations. A differing held/retained fixture now fails the entire replay with no readiness or partial publication; successful blocked count is zero. Extension MIME is default, octet-stream is opt-in, and metadata-suffix files remain literal bodies. max_seed_entries, max_seed_depth and max_buckets_per_batch size one seed, and a failure names the setting to raise; other buckets of the server do not count. Source builds also add opt-in disk-merge and RAM-replacement reseed through separate management authority. Native whole-tree publication, cancellation, failed write/flush/sync and selected process-abort/PowerLoss snapshots pass in docs/en/slices/atomic-seed-reseed.md. Historical happy-path platform/container evidence remains below; final combined image/SDK/platform reruns for the changed contract remain pending, so this row is temporarily PARTIAL. See docs/en/slices/seed.md for configuration and bounds.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -55769,10 +55805,12 @@
         },
         {
           "id": "seed-walk",
-          "description": "Bound traversal at 32 directory levels and 10000 total entries.",
+          "description": "Bound traversal at max_seed_depth directory levels and max_seed_entries total entries, and buckets at max_buckets_per_batch; a tree past a limit fails with a diagnostic that names its setting.",
           "result": "PASS",
           "test_ids": [
-            "fixture_depth_and_entry_count_are_bounded"
+            "fixture_depth_and_entry_count_are_bounded",
+            "the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the_setting",
+            "a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_restart"
           ]
         },
         {
@@ -55825,6 +55863,8 @@
         }
       ],
       "test_ids": [
+        "the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the_setting",
+        "a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_restart",
         "seed_configuration_precedence_and_validation",
         "pinned_go_suffix_case_and_media_types",
         "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart",
@@ -55853,6 +55893,7 @@
         "container-seed-lifecycle"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib -- seed::tests","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the_setting","a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_restart"]},
         {
           "command": "cargo test --locked --offline --test seed --test admin_http",
           "result": "PASS",
@@ -56048,9 +56089,10 @@
         },
         {
           "id": "UX-003-API-DEFAULT",
-          "description": "Resolve an unset API base after bind from the actual port with IPv4/IPv6 wildcard loopback substitution; explicit normalized bases and proxy prefixes win. Without one, each request renders links and Locations from its Host and connection scheme, and Forwarded cannot change them. Preflight rejects API/XML-domain collisions before catalog access/bind, and Compose host-port overrides preserve resumable Location traversal.",
+          "description": "Resolve an unset API base after bind from the actual port with IPv4/IPv6 wildcard loopback substitution; explicit normalized bases and proxy prefixes win. Without one, each request renders links and Locations from its Host and connection scheme, and Forwarded cannot change them. Preflight rejects API/XML-domain collisions before catalog access/bind, and Compose host-port overrides preserve resumable Location traversal. The checked-in Compose files no longer pin the base and pass GCS_MIMIC_API_BASE_URL through only when it is set, so container-host-port-resumable and compose-api-base-published-port record the earlier pinned files, and compose-peer-and-host-resumable records the current ones.",
           "result": "PASS",
           "test_ids": [
+            "compose-peer-and-host-resumable",
             "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
             "api_origin_ready_and_resumable_locations_use_bound_addresses",
             "api_origin_explicit_base_wins_and_conflicts_fail_before_catalog",
@@ -56122,6 +56164,7 @@
         }
       ],
       "test_ids": [
+        "compose-peer-and-host-resumable",
         "TestMigrationAppScenarioGo",
         "ruby-migration-scenario",
         "container-host-peer-bucket-crud",
@@ -56190,6 +56233,7 @@
         "a_session_opened_through_one_host_completes_through_another"
       ],
       "verification": [
+        {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
         {"command":"cargo test --locked --test it_protocol -- request_host_http","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","a_session_opened_through_one_host_completes_through_another"]},
         {
           "command": "just check-sdk",
