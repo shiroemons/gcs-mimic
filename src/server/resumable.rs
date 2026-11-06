@@ -3,7 +3,6 @@ use super::upload_drive::{CatalogWait, UploadEnd, UploadSender, drive_upload, up
 use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, stream_upload};
 use crate::{
     bucket::BucketAccess,
-    config::ApiBaseSource,
     json::{
         self, JsonError, ObjectInsertParams,
         resumable::{self, Range},
@@ -499,16 +498,7 @@ pub(crate) async fn transfer(
             .completion
             .clone()
             .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion))?;
-        match ctx.endpoints.api_base_source() {
-            // The response stays exactly as it was stored.
-            ApiBaseSource::Explicit => {}
-            // The stored links name the Host that finished the upload, and a retry can arrive
-            // through another address: a browser finishes on a published port, a peer asks
-            // through the service name.
-            ApiBaseSource::Derived => {
-                json::rebase_object_links(&mut completion, ctx.endpoints.api_base_url());
-            }
-        }
+        super::context::rebase_stored_links(ctx.endpoints, &mut completion);
         return Ok(Transfer::Complete(completion));
     }
     if status_only {

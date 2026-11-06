@@ -7,12 +7,24 @@ use super::{BodyPace, ObjectActivity, State, authorize_bucket, await_upload_cata
 use crate::{
     auth::Caller,
     bucket::BucketAccess,
-    config::{Config, RequestEndpoints},
-    json::JsonError,
+    config::{ApiBaseSource, Config, RequestEndpoints},
+    json::{self, JsonError},
     object::ObjectError,
 };
+use serde_json::Value;
 use std::future::Future;
 use tokio::{sync::watch, time::Instant};
+
+/// Moves the links of an object resource stored by an earlier request to this request's origin.
+/// The stored links name the Host that finished the work, and a retry can arrive through another
+/// address: a browser finishes on a published port, a peer asks through the service name. An
+/// explicit base left them correct, so the stored response stays exactly as it was.
+pub(crate) fn rebase_stored_links(endpoints: &RequestEndpoints, resource: &mut Value) {
+    match endpoints.api_base_source() {
+        ApiBaseSource::Explicit => {}
+        ApiBaseSource::Derived => json::rebase_object_links(resource, endpoints.api_base_url()),
+    }
+}
 
 /// What every handler needs from the connection that dispatched its request.
 #[derive(Clone, Copy)]

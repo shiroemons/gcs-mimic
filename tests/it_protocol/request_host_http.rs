@@ -210,6 +210,46 @@ fn replayed_uploads_render_links_for_the_retrying_host() {
 }
 
 #[test]
+fn a_repeated_call_on_a_finished_rewrite_renders_links_for_its_own_host() {
+    let dir = TestDir::new();
+    let server = Server::derived(&dir, &[]);
+    server.bucket("rewrite");
+    let source = vec![b'a'; 1024 * 1024 + 7];
+    server
+        .send(
+            "POST",
+            "/upload/storage/v1/b/rewrite/o?uploadType=media&name=source",
+            CONTAINER,
+            "",
+            &source,
+        )
+        .json_ok();
+    let rewrite = "/storage/v1/b/rewrite/o/source/rewriteTo/b/rewrite/o/destination";
+    let first = server
+        .send(
+            "POST",
+            &format!("{rewrite}?maxBytesRewrittenPerCall=1048576"),
+            CONTAINER,
+            "",
+            br#"{"storageClass":"NEARLINE"}"#,
+        )
+        .json_ok();
+    assert_eq!(first["done"], false);
+    let token = first["rewriteToken"].as_str().unwrap();
+    let continued = format!("{rewrite}?rewriteToken={token}");
+    let finished = server
+        .send("POST", &continued, CONTAINER, "", b"")
+        .json_ok();
+    assert_eq!(finished["done"], true);
+    assert_object_links(&finished["resource"], &origin(CONTAINER));
+    let repeated = server
+        .send("POST", &continued, PUBLISHED, "", b"")
+        .json_ok();
+    assert_eq!(repeated["done"], true);
+    assert_object_links(&repeated["resource"], &origin(PUBLISHED));
+}
+
+#[test]
 fn a_metadata_write_may_repeat_links_read_through_another_host() {
     let dir = TestDir::new();
     let server = Server::derived(&dir, &[]);

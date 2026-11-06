@@ -145,8 +145,12 @@ pub(super) async fn respond(
     )
     .await;
     drop(wait);
-    let (value, mut owner) =
+    let (mut value, mut owner) =
         result.map_err(|failure| JsonError::from(ObjectError::backend(failure)))??;
+    // A repeated call on a finished rewrite answers from its stored response.
+    if let Some(resource) = value.get_mut("resource") {
+        super::context::rebase_stored_links(ctx.endpoints, resource);
+    }
     let mut response = Response::new(Full::new(Bytes::from(json::render_body(&value))));
     response.headers_mut().insert(
         "content-type",
