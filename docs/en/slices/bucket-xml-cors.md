@@ -44,7 +44,7 @@ header formatting have not been established by real-cloud differential tests.
 | PATCH | Omitted `cors` preserves rules; a supplied list replaces all rules; `[]` or `null` clears them. |
 | PUT | Supplied rules replace all rules; explicit `[]` or `null` clears them. Omitted `cors` clears the rules in the native profile (as recorded from Cloud Storage) and preserves them in the legacy-emulator profile, a local choice under SPEC-BUCKET-PUT. |
 | Schema | Rules are objects; origin/method/responseHeader are optional string arrays; maxAgeSeconds is an optional nonnegative int32. Empty rules/list fields have no match. Empty/whitespace/control-bearing origins, invalid HTTP method/header tokens and negative/overflow/fraction/string max age fail with 400 and preserve the entire bucket. |
-| Limits | Existing bounded JSON metadata bodies and the 64 KiB stored CORS limit remain unchanged, including empty rules. Expanded bucket-list pages use the budget below, independently of `fields`. Catalog concurrency, SQLite cache and queues retain their existing limits. Object bytes never enter this metadata path. |
+| Limits | The 16 MiB JSON body limit bounds one request. CORS rules have no count or size limit of their own, as Cloud Storage documents none. Expanded bucket-list pages use the budget below, independently of `fields`. Catalog concurrency, SQLite cache and queues retain their existing limits. Object bytes never enter this metadata path. |
 | Permissions | Existing strict `storage.buckets.create`, `storage.buckets.get` and `storage.buckets.update` checks apply. Update authorization and metageneration conditions run in the same catalog transaction as CORS mutation. |
 | Persistence | Schema 12 adds a nonnull JSON column with `[]` for older buckets. Migration is transactional. Restart preserves rules, order, optional max age and other metadata. |
 | Concurrent updates | Eight updates using one metageneration produce one success and seven precondition failures. Failed parse/permission/condition checks never change CORS or other metadata. |
@@ -81,8 +81,10 @@ Field selection may remove `nextPageToken`; callers requesting partial responses
 must explicitly select it to enumerate all pages.
 
 A first row exceeding the budget is returned alone. This exception is necessary
-to preserve all accepted metadata and ensure forward progress. For the dense
-empty-rule case, the unchanged 64 KiB CORS limit permits at most 21,844 rules:
+to preserve all accepted metadata and ensure forward progress. The estimates that
+follow were recorded when a 64 KiB CORS limit applied; a 16 MiB body now allows about
+256 times as many rules, and the memory of such a page grows with them. For the dense
+empty-rule case, that limit permitted at most 21,844 rules:
 with Rust 1.99.1 on a supported 64-bit target, the fallible typed-rule collection
 has capacity 32,768, occupying 2,621,440 bytes at 80 bytes per slot. The response
 Value array occupies another 699,008 bytes at 32 bytes per slot. Together these

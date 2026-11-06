@@ -352,7 +352,9 @@ waiting request reports the wait's own failure; 0 waits without a limit. CLI
 `--catalog-wait-timeout-ms`, environment `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` and JSON
 `catalog_wait_timeout_ms` use the same precedence. The advisory check and post-EOF storage
 wait each receive this separate budget, capped by any remaining absolute request budget, and
-it also bounds the wait for a busy upload session.
+it also bounds the wait for a busy upload session and the wait of a reset, reseed, publication
+or management call for its turn. A request that arrives during a reset, reseed or seed commit
+waits for it within this budget and then runs against the state it left.
 A completed upload queued behind another commit can still receive its result beyond the
 inactivity deadline. After Hyper confirms EOF, body inactivity no longer applies; the
 bounded storage wait includes sending the explicit EOF marker, queued writes, sync,

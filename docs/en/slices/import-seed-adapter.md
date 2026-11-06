@@ -45,7 +45,7 @@ No repository dependency or benchmark harness is added.
 ## Implementation and verification
 
 The adapter uses the shared Walker on one dedicated traversal thread with a
-two-slot entry channel. Its existing 10000-entry and 32-directory-depth bounds
+two-slot entry channel. Its `max_seed_entries` and `max_seed_depth` bounds
 still apply, including skipped files. Objects are staged from the file and
 published with `publish_objects` under an absent or exact-generation condition
 and native metadata; a live object that already matches is detected by hashing

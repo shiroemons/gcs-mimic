@@ -106,7 +106,7 @@ Label keys must be nonempty and start with a lowercase/international letter;
 keys/values allow lowercase/international letters, numeric characters, `_` and
 `-`, at most 63 Unicode characters. Values may be empty. The final merged map
 has at most 64 keys, including retained labels. Invalid deletion keys are also
-rejected. The existing 64 KiB metadata body cap and bounded query parser apply.
+rejected. The 16 MiB JSON body cap and bounded query parser apply.
 
 Recognized unsupported fields are acl, autoclass, billing, cors,
 customPlacementConfig, defaultObjectAcl, encryption, hierarchicalNamespace,

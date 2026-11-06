@@ -165,8 +165,11 @@ Sessions expire
 after a fixed 604800 seconds from creation, including at deadline equality;
 calls do not renew the deadline. Unfinished rewrites are unlimited unless
 `max_rewrite_sessions` sets a limit, which never counts ephemeral copy/compose transfers. Separately
-cache at most 128 completed responses, evicting the earliest-created session
-(ordered by its deadline and ID) when full, excluding the current completion.
+cache at most 4096 completed responses, the window finished resumable sessions use, evicting the
+earliest-created session (ordered by its deadline and ID) when full, excluding the current
+completion. On the memory backend they may also fill at most a quarter of
+`memory_catalog_max_bytes`, counted by the size of each record. Trimming stays bounded per
+completion and never fails the rewrite.
 Eviction makes that completed token unavailable without changing its destination.
 Use the
 HTTP `max_connections` limit and exclusive per-session writer guard.
@@ -196,6 +199,11 @@ a timeout while a detached operation could publish would misreport its outcome.
 Before an initial progress response is handed off, a cancellation owner reclaims
 unreturned active state. Completion returns the transaction's captured resource
 without a second expiry-sensitive token lookup.
+
+A step runs detached, so it outlives a request whose client gave up. A retried continuation
+waits for that step before it reads the session, within the same `catalog_wait_timeout_ms`
+budget as a busy session, and then returns the stored result. Reading first would not do: the
+step may finish the rewrite and remove the transfer, turning the retry into a 404.
 
 Keep the previous input token and its saved output alongside the current token:
 retrying that token returns the same progress/completion without another copy

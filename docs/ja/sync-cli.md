@@ -106,7 +106,7 @@ JSON以外の本文を受け取った場合は、本文を表示せずHTTP statu
 
 既存の[障害注入・PowerLossモデル（英語）](../en/slices/sync-conflict-recovery.md)と
 [書戻し復旧（英語）](../en/slices/native-writeback-recovery.md)は別の証拠です。
-物理電断や全命令境界を保証しません。サーバー自身の混雑時503、Linux/Windowsの全面的な動作、
+物理電断や全命令境界を保証しません。サーバー自身が返す503、Linux/Windowsの全面的な動作、
 watcher・alias・overflow・bind mount、終了や障害の全境界、Google実環境はこのCLI受入の対象外です。
 親DESIGN-072・DESIGN-074はPARTIALのままです。SDK・コンテナ・benchmarkは本作業では実行しません。
 コマンド・test ID・検証結果は[CLIの記録（英語）](../en/slices/sync-cli.md#native-operator-acceptance)、

@@ -175,7 +175,7 @@ The 100-object fixture uses an explicit 60-second CLI deadline for its initial
 durable scan; subsequent waits retain a finite ten-second budget. This does not
 change the CLI's ten-second default or establish a scan-latency guarantee.
 
-The real-server admission/503 timing path remains separate from the controlled
+The real-server 503 timing path remains separate from the controlled
 receiver. Linux/Windows parity, exhaustive watcher/alias/overflow/bind-mount and
 shutdown/crash boundaries, full parent acceptance and real Google behavior are
 not established by these CLI cases. No SDK suite, container build or benchmark

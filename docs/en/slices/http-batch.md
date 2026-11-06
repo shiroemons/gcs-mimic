@@ -4,14 +4,15 @@
 
 Each server admits two batch envelopes, including response bodies being sent.
 Admission precedes body reads and stays held until the response body is consumed
-or dropped on disconnect. Additional batches wait without reading their bodies;
+or dropped on disconnect. A client that stops reading therefore keeps its place. Additional batches wait without reading their bodies;
 on HTTP connections the earlier of request_timeout_ms (default
 180000 ms) and object_request_timeout_ms (batch admission, default 0, disabled)
 ends the wait with JSON 503 backendError. Expiry of the request
 deadline also closes the connection with `Connection: close`. An admitted envelope's body
-then runs under body_inactivity_timeout_ms, like an object body. Request and response
-budgets remain 10,000,000 bytes each, so admitted payload buffers are bounded by two pairs of
-those budgets; this is not a bound on whole-process RSS. Outer authentication
+then runs under body_inactivity_timeout_ms, like an object body. The request stays below
+10,000,000 bytes, as the batch guide documents. The response has no total limit: it leaves
+chunked, one part at a time, so memory follows the largest part rather than their sum; this is
+not a bound on whole-process RSS. Outer authentication
 still supplies defaults that an individual part may override.
 
 POST /batch/storage/v1 accepts a multipart/mixed envelope containing between
@@ -50,19 +51,25 @@ retention/hold checks, strict permissions and catalog publication remain in use.
 ## Bounds and local limits
 
 The request must be smaller than 10,000,000 bytes. Each MIME/HTTP header block is
-limited to 8 KiB and 64 headers; each inner body is limited to 64 KiB. Preamble
-and epilogue each allow 4 KiB. Boundaries use the existing RFC 2046 validator,
+limited to 8 KiB and 64 headers; an inner body has no limit of its own below the
+envelope's. Preamble and epilogue each allow 4 KiB. Boundaries use the existing RFC 2046 validator,
 including quoted values and trailing delimiter whitespace. Header folding,
 non-binary transfer encoding, duplicate framing headers, incorrect Content-Length,
 HTTP trailers, compressed batch envelopes and non-HTTP/1.1 parts are rejected.
 
 One bounded blocking parser job runs at a time. Validated request bodies retain
 shared slices of the bounded envelope, rather than duplicate object bodies.
-Each response has a 512 KiB local budget; retained response data share a
-10,000,000-byte envelope budget with space reserved for remaining error parts.
-An oversized response is replaced by a per-part 413 responseTooLarge error that
-states that the operation may have completed. These response limits and exact
-malformed-input statuses are local behavior, without real-service parity claims.
+Each part's response leaves as soon as it is ready. A part may buffer up to 1 GiB, above the
+largest response that documented limits allow, so a limit a real response could reach never
+reports a completed operation as a failure; past it the part is replaced by a per-part 413
+responseTooLarge error that states that the operation may have completed.
+
+The response head leaves before any part runs. A client that stops reading holds back the
+remaining parts, and one that disconnects cancels them. Each part starts its own deadline under
+request_timeout_ms, and an expired part answers its own 503 in place while later parts still run;
+progress and catalog waits renew that deadline as they do for a request. A producer that stops
+early fails the body instead of ending it without its closing delimiter. These response limits and
+exact malformed-input statuses are local behavior, without real-service parity claims.
 
 The broad feature BEHAVIOR-COMMON-008 remains partial until final combined SDK
 verification and the remaining provider/profile edge contract are reconciled.
@@ -95,8 +102,11 @@ tests/it_protocol/http_batch.rs covers metadata PATCH and atomic stale condition
 200/204/404/412 parts, optional and matching Content-IDs, encoded object names,
 strict outer credentials with denied/invalid inner overrides, inner query
 overrides, rejected inherited/inner query credentials, one connection slot,
-100/101 calls, the 10 MB boundary, exact 64 KiB bodies, MIME framing,
+100/101 calls, the 10 MB boundary, MIME framing,
 invalid targets/headers/lengths and full-envelope validation before deletion.
+`batch_answers_full_object_lists_past_the_former_response_limits` covers full object lists, and
+`server::batch::tests` cover parts leaving as their own chunks, a stalled reader, a departed
+reader and a part past its limit.
 
 On 2026-10-30, cargo check --tests passed and cargo test --test http_batch
 passed all four wire tests. SDK, container and full integration execution are

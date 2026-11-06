@@ -27,7 +27,7 @@ fidelity before IMPLEMENTED can be claimed.
 | Invalid boundary, malformed/truncated body or wrong part count | 400; no object creation or replacement; accept two or three parts only |
 | Boundary across transport chunks | Preserve exact media bytes, including binary, delimiter-like bytes and trailing CRLF |
 | Preamble/epilogue and part headers | Bounded parsing; no object-size-proportional buffering |
-| Metadata/checksum JSON cap | At most 64 KiB per JSON part; oversized part returns 413 |
+| Metadata/checksum JSON cap | At most 16 MiB per JSON part; oversized part returns 413 |
 | Writable metadata | Persist name, fixed content fields and custom metadata; apply the existing metadata validation rules |
 | Custom metadata size | UTF-8 key/value total <=8192 bytes; excess returns 400 without publication |
 | Query name versus metadata name | Query wins; missing both returns 400; validate the selected name |
@@ -87,7 +87,7 @@ fail 400; empty custom keys and non-ASCII fixed header values fail 501 locally.
 Content-Language retains the 100-character limit. The custom map is capped at
 8192 UTF-8 key/value bytes for non-null entries; null entries are absent from the
 new map. Excess is rejected after bounded metadata parsing, before media input
-or staging, with a second check at publication. The JSON part has the 64 KiB cap.
+or staging, with a second check at publication. The JSON part has the 16 MiB cap.
 Uploads create a fresh metadata set rather than merging with a previous generation.
 
 The [insert reference](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert)
@@ -112,7 +112,7 @@ framing and must never become the stored object content type.
 big-endian CRC32C. Validate all supplied values against incrementally computed
 hashes of the exact media bytes. Checksum mismatch returns 400, as documented by
 the data-validation guide. Hash syntax and exact error reasons remain local rules
-under SPEC-010. The optional third part is `application/json`, bounded to 64 KiB,
+under SPEC-010. The optional third part is `application/json`, bounded to 16 MiB,
 and may contain only these two checksum fields. An empty object is accepted.
 Conflicting metadata/header/third-part declarations and other third-part keys return
 400 locally; identical declarations are allowed. Publication waits for validation
@@ -160,13 +160,16 @@ This leniency follows the production gcloud request shape, which Cloud Storage s
 The existing object cap applies to media bytes, not JSON or MIME overhead.
 Unknown-length and chunked bodies remain bounded streams. Metadata, part headers,
 preamble, epilogue and retained boundary fragments have fixed limits independent
-of object size. Each JSON part accepts exactly 65536 bytes. Preamble and epilogue
+of object size. Each JSON part accepts exactly 16 MiB. Preamble and epilogue
 each accept 4096 bytes; the preamble excludes the CRLF belonging to the first
 delimiter. Each part's 8192-byte header-block cap includes every line's CRLF and
 the terminating blank line. Delimiter suffix lines accept at most 8192 bytes
 before CRLF, including the closing `--` when present; CRLF split across frames
 at the exact cap is accepted. Known Content-Length above the media cap plus a
-conservative 256 KiB framing allowance returns 413 before upload admission.
+framing allowance of two JSON parts and 256 KiB returns 413 before upload
+admission. Fixed and custom metadata together stop at 40 KiB once encoded as
+JSON, answering 400, because stored session and completion rows keep a copy of
+them; custom metadata keeps its documented 8 KiB within that.
 These are local resource limits under SPEC-016; RFC 2046 does not prescribe them.
 
 Reuse immediate upload admission and the media deadlines. Bucket existence is

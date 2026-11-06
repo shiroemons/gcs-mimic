@@ -124,7 +124,7 @@ are 1000 for `noAcl` and 200 for `full`; `full` adds `acl`, `defaultObjectAcl` a
 official region, dual-region and multi-region list and the documented storage
 classes are accepted. Recognized unsupported settings, such as `billing`, and invalid
 names/queries return 400.
-Insert bodies are capped at 64 KiB; get/list/delete require no body.
+Insert bodies are capped at 16 MiB; get/list/delete require no body.
 
 Peer-container curl uses a digest-pinned, test-only official curl image:
 
@@ -466,7 +466,7 @@ Continuation may omit optional parameters/body; repeated values must match the
 first request. The immediately previous token replays its response, including
 the original completed generation, without another publication. Sessions expire
 after a fixed week. Unfinished rewrites are unlimited unless `max_rewrite_sessions` sets a
-limit, and the 128 most recent completed responses are
+limit, and the 4096 most recent completed responses are
 retained separately; older completion responses can be evicted before expiry.
 Malformed/mismatched requests fail 400; unavailable, altered or expired keys fail
 local 410. Changed unqualified sources fail 412; explicitly selected retained
@@ -535,7 +535,7 @@ second. A metadata contentType must match the media part's Content-Type, ignorin
 parameters such as `charset`; a mismatch returns 400 and publishes nothing, as Cloud
 Storage does. An omitted, null or empty contentType uses the media part's type.
 Custom metadata is limited to 8192 UTF-8 key/value bytes. The media cap excludes
-framing, and each JSON part is limited to 65536 bytes.
+framing, and each JSON part is limited to 16 MiB.
 
 ```sh
 printf 'Hello multipart.\n' > "$work_dir/multipart-media.txt"

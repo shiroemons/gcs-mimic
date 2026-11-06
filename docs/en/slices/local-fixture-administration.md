@@ -54,7 +54,7 @@ an enabled management request without credentials. Both modes require listener
 isolation as with the existing local configuration endpoint.
 
 Send `POST /_internal/objects` with `Content-Type: multipart/related; boundary=B`.
-The first part is an `application/json` object of at most 64 KiB; the second is
+The first part is an `application/json` object of at most 16 MiB; the second is
 the streamed media body. Existing multipart limits, optional trailing checksum
 parts, strict framing and complete transport EOF apply. Query parameters are
 rejected. The target bucket must already exist; missing buckets return 404.

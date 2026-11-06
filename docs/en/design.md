@@ -74,22 +74,31 @@ The bucket/object catalog is concrete; no generic persistence trait is frozen fo
 The server caps connections (default 1024), headers (64 and 16 KiB), shutdown drain
 (5 seconds), async workers (2) and blocking workers (8).
 Startup raises the soft `RLIMIT_NOFILE` to three descriptors per connection plus 64; when
-the platform refuses that, it warns and starts anyway.
+the platform refuses that, it warns and starts anyway. With `grpc_listen`, the raise also aims at
+two descriptors for every stream of every connection (`max_connections` times
+`max_grpc_streams` times 2), because each stream can hold a source file and a staged file. Falling
+short of that part stays silent: macOS refuses more than about 10240, so a warning would fire
+whenever gRPC is on.
 Each server limits signature verification to half its blocking pool (at least
 one slot); bounded streaming chunk signatures are checked inline.
 Once every connection slot is taken, the accept loop holds one client until a slot frees and
 leaves later clients in the kernel backlog, requested at 1024. Accepted TCP sockets enable
-TCP keep-alive (30 seconds idle, then every 15 seconds; the OS sets the probe count), so a
-peer that vanishes without a FIN releases its slot even with every timeout disabled.
+TCP keep-alive (30 seconds idle, then four probes 15 seconds apart), so an idle connection to a
+peer that vanishes without a FIN releases its slot after 90 seconds on every platform, even with
+every timeout disabled. A socket with unacknowledged data falls under the kernel's retransmission
+limit instead.
 Connections stay open between requests
-for `keep_alive_timeout_ms` (see below). Bucket insert, PATCH, PUT and IAM PUT JSON bodies
-are capped at 64 KiB (`BUCKET_BODY_LIMIT`); probes and bodiless bucket methods reject bodies.
+for `keep_alive_timeout_ms` (see below). Every JSON document shares one limit of 16 MiB
+(`json::RESOURCE_BODY_LIMIT`): request bodies, gzip bodies once expanded, multipart metadata
+parts, XML bucket metadata, initialization entries and import metadata. Cloud Storage documents
+no size for these, so it is a memory guard that real data does not reach, not a contract. Probes
+and bodiless bucket methods reject bodies.
 Object media has a configurable `max_object_bytes` cap: 5 TiB by default, validated
 from 1 byte through 5 TiB via CLI/environment/JSON configuration. Known Content-Length
 overflow is rejected before reading; producer and storage also bound unknown-length streams.
 
 JSON multipart removes MIME framing in the adapter before shared bounded staging
-and atomic publication. Metadata and optional final checksum JSON each have a 64 KiB
+and atomic publication. Metadata and optional final checksum JSON each have the 16 MiB
 cap; part header blocks and delimiter suffixes have 8 KiB caps, and preamble/epilogue
 each have a 4 KiB cap. Publication waits for complete framing, checksums and transport
 EOF. Media/multipart invocation tokens use bounded persistent response replay,
@@ -126,7 +135,7 @@ has no upper bound.
 | `request_timeout_ms` | 180000 | The handler's time before its response starts, which also bounds a small request body. |
 | `keep_alive_timeout_ms` | 120000 | Idle time between requests on one connection, longer than the Go SDK's 90-second idle pool; the connection then closes without a warning or lingering. Also idle gRPC connections. |
 | `object_request_timeout_ms` | 0 (disabled) | A whole object upload or media request from dispatch; never renews on chunks. Accepting 5 TiB objects rules out a fixed bound on a transfer. |
-| `catalog_wait_timeout_ms` | 120000 | Each upload advisory or post-EOF catalog wait, and the wait for a busy session. |
+| `catalog_wait_timeout_ms` | 120000 | Each upload advisory or post-EOF catalog wait, the wait for a busy session, and the wait of a reset, reseed, publication or management call for its turn. It bounds waiting only: a reseed may then take as long as its tree needs. |
 
 `connection_timeout_ms` remains an alias with no default. Named, it sets the header, body
 inactivity and request limits to one value, and any of those three named explicitly wins,
@@ -140,6 +149,16 @@ request has started passes the wake on, and with nobody idle the wake goes to th
 connection to turn idle. With `max_connections` of 1, a connection therefore closes after a
 response when another client waits. Catalog waits suspend the request deadlines while they
 last, and each ends on every path out of the waiting code.
+
+An idle gRPC connection joins the same line, logs `grpc_idle_reclaimed` at debug when its turn
+comes, and sends GOAWAY. A new gRPC connection joins only after its first stream ends or after a
+grace of up to five seconds, because with more clients than slots each connection would otherwise
+lose its slot before its first call. A stream the peer opened before reading the GOAWAY keeps an
+open stream's limits, so a reclaim cannot cut a call that HTTP/2 accepted. A peer that stays silent
+holds the slot for at most the lesser of `header_read_timeout_ms` and five seconds, because every
+later client waits behind the one being served. When a stream did race the GOAWAY, the waiting
+client waits for another connection to end, which `keep_alive_timeout_ms` bounds; it does not fail.
+
 A deadline that expires before the handler answers cancels the handler without
 publication and answers with a retryable status that Cloud Storage documents: object
 uploads (`/upload/...` and XML PUT/POST with a body) receive 408 `uploadBrokenConnection`,
@@ -238,6 +257,11 @@ until a later call confirms the rollback.
 Each operation waits for one of 32 admission slots, then awaits one execution
 permit before queuing its job on a dedicated catalog thread that owns no other work.
 The slots bound the jobs left to run at shutdown, and close fails the waiters at once.
+A reset, reseed or seed commit owns that permit while it runs, so a SQL job simply waits its turn
+and needs no lease. Work that spans several jobs, such as an upload body or a session writer, holds
+a read lease that the exclusive job drains. While it drains, new work of that kind lines up behind
+its reservation, so a stream of uploads cannot keep it out, while reads and work already under way
+continue. Everything queued then runs against the state the job left instead of answering 503.
 File content I/O, publication/removal, directory sync and gzip decoding stay on the
 runtime's bounded blocking pool, so a saturated pool cannot hold the execution permit
 while catalog work waits for a pool thread. A serialized metadata job may pin an
@@ -280,7 +304,8 @@ Power-loss durability and every individual instruction window remain unverified.
 An explicit `api_base_url` (`--api-base-url` / `GCS_MIMIC_API_BASE_URL` / JSON) or runtime
 `externalUrl` fixes `selfLink`. Without one, each request renders links from its own Host and
 the scheme of its connection, because one address cannot reach the server from both the host and
-a peer container. An invalid or missing Host, or one that selects an XML virtual bucket, falls
+a peer container. A Host that selects an XML virtual bucket renders the configured domain under
+it, with the same port, and never the bucket label. An invalid or missing Host falls
 back to the base resolved once from the actual bound listener with wildcard IPs replaced by
 loopback. Ready reports that fixed base as the effective `api_base_url`. Forwarded headers never
 influence links. No public URL or permissions follow
@@ -289,7 +314,10 @@ projectNumber, projection and unsupported-semantics deviations.
 
 ### Bucket IAM policies
 
-`bucket_policies` stores one row per bucket, with bindings bounded to 64 KiB and
+`bucket_policies` stores one row per bucket, with bindings bounded where they are
+encoded, whichever API writes them, to 1,600 principal occurrences (the documented 1,500 plus
+one full ACL of 100) and 1 MiB. Past either is a client error, and a column check keeps 1 MiB
+behind that encoder. Each row also holds
 a catalog-wide monotonically allocated revision encoded as an opaque base64 etag.
 Creation commits the bucket and its default policy together. Deletion removes
 both in one transaction; the allocator survives deletion, so recreation cannot
@@ -462,7 +490,9 @@ re-authenticating the delegate. Never log the URI or token.
 One session may have at most one active writer. A competing request waits for it up to
 `catalog_wait_timeout_ms` (0 waits without a limit), because a client that gave up on a stalled
 chunk retries while the old handler is still unwinding; past that it receives local retryable
-503. Maintenance and session trimming skip a held writer instead of waiting. Repeated/overlapping writes
+503. An XML multipart upload differs: each part number has its own writer, so different numbers
+write side by side, and completion and abort wait for the whole upload within the same budget.
+Maintenance and session trimming skip a held writer instead of waiting. Repeated/overlapping writes
 must discard the acknowledged prefix with bounded buffers and append only the
 unseen tail. Persisted bytes remain immutable. A chunk checkpoint requires
 complete transport EOF, file sync and a short offset transaction; interruption
@@ -617,9 +647,12 @@ preserving a normalized proxy prefix; the proxy must strip that prefix before fo
 Without one, each request derives them from the authority it addressed and the scheme of its
 connection, so the host and a Compose peer reach one server through their own addresses. The
 authority comes from an absolute request target or else from Host. It must be exactly a host
-and an optional connectable port. An invalid or missing Host, or one that selects an XML
-virtual bucket, falls back to the base resolved once from the actual bound listener with
-wildcard IPs replaced by loopback.
+and an optional connectable port. A Host that selects an XML virtual bucket
+(`bucket.storage.example:4443`) uses the configured domain with the same port and the scheme of
+the connection (`storage.example:4443`), and never the bucket label, because that name reached
+this server where a loopback address may not reach it from a peer. A setup whose DNS resolves only
+the bucket names needs the explicit base. An invalid or missing Host falls back to the base
+resolved once from the actual bound listener with wildcard IPs replaced by loopback.
 
 A Host value only renders links, so it can never decide trust: the management Host guard reads
 endpoint state that holds no request-derived value. A client controls the links it gets back

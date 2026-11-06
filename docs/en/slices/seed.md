@@ -81,8 +81,9 @@ Seed uses the typed
 [shared administrative interface](onboarding-state-contract.md#administrative-interface-acceptance),
 with a Seed origin and explicit local authority in both authentication profiles.
 API grants remain unchanged. Bucket creation returns the actual stored record
-without overwriting it. Its two management upload slots and bounded 30-second
-admission waits are independent of the API's catalog and connection limits.
+without overwriting it. Its two management upload slots and its admission waits,
+bounded by `catalog_wait_timeout_ms`, are independent of the API's catalog and
+connection limits.
 Accepted publication and cancellation cleanup retain their permits until
 completion, and catalog close drains them before releasing directory ownership.
 Local files use shared file staging and one whole-tree publication transaction,
@@ -239,7 +240,7 @@ Replay is sequential. A dedicated traversal thread sends entries over a two-slot
 channel using the shared bounded, sorted Walker. File publication clones
 to immutable staging where supported or copies with fixed buffers, hashing the
 staged bytes once on the shared administrative file workers. Retained metadata
-has a budget that grows with `max_seed_entries` and buckets are capped at 1,000;
+has a budget that grows with `max_seed_entries` and buckets are capped at `max_buckets_per_batch`;
 one batch lease bounds whole-tree ownership. A seed is one atomic publication, so
 its memory grows with the tree until it commits.
 `max_object_bytes` applies to every fixture file on every replay, with a

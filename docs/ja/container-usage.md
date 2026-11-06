@@ -71,8 +71,9 @@ JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書�
 
 すべての呼び出し元に同じアドレスを返したいときは、`GCS_MIMIC_API_BASE_URL`で固定します。
 `Forwarded`と`X-Forwarded-*`は無視するので、Hostを書き換えるリバースプロキシでは指定が必要です。
-XMLの仮想ホスト構成でも必要です。仮想バケットのホストはAPIではなくバケットを指すので、未指定だとそのリクエストにはbind先のリンクを返します。
-不正なHostやHostなしのリクエストにも、同じbind先のアドレスを返します。
+XMLの仮想ホスト構成では不要です。`bucket.storage.example:4443`のような仮想バケットのホストへのリクエストには、設定したドメインと同じポート、接続のスキームでリンク（`storage.example:4443`）を返し、バケット名は含めません。
+DNSにバケット名だけを登録していてドメイン自体を解決できない場合は、指定してください。
+不正なHostやHostなしのリクエストには、bind先のアドレスを返します。
 これは実際にbindしたアドレスで、`0.0.0.0`は`127.0.0.1`、`::`は`[::1]`に置き換え、ポート0は割り当て後のポートを使います。
 イメージでは`http://127.0.0.1:4443`（HTTPSなら`https://`）で、ready通知の`api_base_url`で確認できます。
 リポジトリのComposeファイルは、`GCS_MIMIC_API_BASE_URL`が環境にあるときだけ渡します。
@@ -288,7 +289,7 @@ strictでもローカル管理として初期化し、API権限は付与しま�
 IAMポリシー、ACL、lifecycle、UBLA、未知フィールドは空・無効でも拒否します。
 0.8.0以降は`softDeletePolicy`を指定できます。既定ではsoft deleteが無効なので、使うバケットで`retentionDurationSeconds`に1秒以上を指定します。
 JSON APIの固定CORSとXMLのバケット別CORSは別です。
-上限はファイル1MiB、1000件、各64KiBです。
+上限はバケット数が`max_buckets_per_batch`、ファイルが許可したバケットあたり1KiB（最低32MiB）、各項目が16MiBです。
 JSON-BUCKETS-002、JSON-BUCKETS-008、DESIGN-062はPARTIAL、
 BEHAVIOR-BUCKET-009はIMPLEMENTEDを維持します。
 詳細は[英語の契約](../en/slices/bucket-initialization.md)を参照してください。

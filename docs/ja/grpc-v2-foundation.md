@@ -39,8 +39,12 @@ Go SDKは`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`と
 gcs-mimicの未対応とJSON APIへの切り替え例を示します。not foundとは区別できます。
 
 起動は既存の復旧・初期化・seedの後にbindし、ready出力後に受け付けます。
-HTTP・HTTPSと接続上限1024本を共有し、接続ごとに最大8ストリーム、メッセージは最大4MiBです。
-接続枠が足りなくなっても、gRPCの接続はアイドル接続の回収の対象になりません。接続ごとの8ストリームと、バッチの同時実行数2は固定です。
+HTTP・HTTPSと接続上限1024本を共有し、接続ごとのストリームは`max_grpc_streams`（既定100、1〜65536、`grpc_listen`が必須）まで、受信メッセージは最大4MiB、送信メッセージはStorage v2が最大33MiB、Storage v1が最大4MiBです。
+v2の上限は最大のバケットリソースに合わせています。CORSとライフサイクルのルールは、別々の書き込みでそれぞれJSON本文の上限16MiBまで届きます。受信上限が4MiBのままのクライアントでは、そのようなリソースの読み取りはクライアント側で失敗するはずで、`read_mask`で除けば読めます。実際のSDKでは確認していません。
+既定の100はRFC 9113 6.5.2節の推奨値です。ストリームごとに最大4MiBの要求メッセージとエンコードした応答をバッファするので、1接続で要求だけでも最大400MiBになりえます。メモリーを抑えるには下げてください。
+接続枠が足りなくなると、最も長くアイドルなgRPC接続はGOAWAYを送り、HTTP/1と同じ行列で枠を譲ります（`grpc_idle_reclaimed`、debug）。
+新しい接続は最初のストリームが終わるか、最大5秒の猶予が過ぎるまで行列に入りません。GOAWAYと競合して開かれたストリームは切りません。この場合、待っているクライアントは他の接続が終わるのを待ちます。上限は他の接続のkeep-aliveで、失敗はしません。
+沈黙する相手が枠を持つのは`header_read_timeout_ms`と5秒の短い方までです。
 SIGTERMでは同じ受付停止・drain・カタログcloseの順で終了します。
 strictは共有AuthでBearerを判定し、ローカルprincipalを各RPCグループへ渡します。
 共有受け口はトークンなしを匿名Callerとして渡し、RPC側の共通関数が現時点では
@@ -59,9 +63,9 @@ strictは共有AuthでBearerを判定し、ローカルprincipalを各RPCグル�
 合計時間が上限を超えても切断しません。接続ごとに最後のフレーム時刻を1つ保持します。
 `grpc_dead_peer_is_detected_by_keepalive`では、開いたストリームの相手が応答しなくなった場合、
 間隔・応答期限とも`header_read_timeout_ms`のHTTP/2 keepaliveで検出して閉じます。
-これを0にするとpingを止め、相手の消失はTCP keep-aliveに任せます。プローブ回数はOSの既定です。
+これを0にするとpingを止め、相手の消失はTCP keep-aliveに任せます。プローブは4回で、アイドルな接続の相手の消失は90秒で検出します。
 `grpc_goaway_has_bounded_grace`では、GOAWAY後の猶予を、アイドル時は
-`header_read_timeout_ms`（0なら5秒）、SIGTERM時はその値と`shutdown_timeout_ms / 2`の小さい方に制限します。
+`header_read_timeout_ms`と5秒の短い方（0なら5秒）、SIGTERM時は`header_read_timeout_ms`（0なら5秒）と`shutdown_timeout_ms / 2`の小さい方に制限します。
 全体の停止予算の半分を接続の後始末・joinに残し、正常終了させるためです。`shutdown_timeout_ms`が0なら予算の制限はありません。
 すでにアイドルのGOAWAY中でもSIGTERMで猶予を短縮し、共有の停止順序は変えません。
 未完のhandshakeにはGOAWAYを送れない場合があり、猶予後に強制終了します。prefaceが届かないまま期限が切れると`grpc_handshake_timeout`を記録します。

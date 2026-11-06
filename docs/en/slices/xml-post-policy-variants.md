@@ -74,8 +74,11 @@ seven-day maximum remain visible deviations: neither was established as a
 form-policy requirement. The checked official Go storage v1.70.0
 `post_policy_v4.go` validates a future expiration without a seven-day ceiling.
 
-The bounded multipart parser and upload path are reused: at most 64 fields,
-64 KiB per non-file field, 256 KiB aggregate fields, one final file part, bounded
+The bounded multipart parser and upload path are reused: non-file fields have no
+limit on their number or individual size and share a total of 16 MiB, which charges
+each field's name and map entry so a form of empty fields cannot grow past it.
+Custom metadata keeps its documented 8 KiB, however many fields carry it. One
+final file part, bounded
 body chunks and checked stream EOF before publication. Policy ranges are
 inclusive. Rejected conditions, insufficient overwrite permissions and failed
 write/flush/sync leave old bytes, metadata, generation and object count intact.

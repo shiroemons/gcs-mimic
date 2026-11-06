@@ -24,7 +24,7 @@ Protected phase-two operations receive no entry discount. If a last check finds 
 
 After a successful native export, the final binding carries its root control scope so the normal shared tracking transaction can clear obsolete findings. A successful removal clears only the matching root, incarnation and observed generation. An external-edit conflict does not clear its finding.
 
-The fixed conflict limits remain 1 GiB and 1000 entries. Smaller internal write-back limits exercise exact boundaries with small real bodies. Oversized sparse workspaces retain the existing metadata-only inspection and explicitly confirmed discard remedy; transfer does not read an over-limit sparse body to completion. Physical workspace-to-store copying still needs space for both bodies, including when the final single-copy state would fit.
+The fixed conflict limits are 1 TiB and a count of entries. Smaller internal write-back limits exercise exact boundaries with small real bodies. Oversized sparse workspaces retain the existing metadata-only inspection and explicitly confirmed discard remedy; transfer does not read an over-limit sparse body to completion. Physical workspace-to-store copying still needs space for both bodies, including when the final single-copy state would fit.
 
 ## Acceptance and evidence
 

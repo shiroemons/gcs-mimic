@@ -132,7 +132,7 @@ metageneration and event type for reconciliation. No global or per-object
 delivery-order guarantee is provided.
 
 A network attempt holds the shared catalog activity lease through local
-acknowledgement or retry recording. Reset waits up to one second for that attempt
+acknowledgement or retry recording. Reset waits up to `catalog_wait_timeout_ms` for that attempt
 to finish, then reports busy if its lease is still active; a
 successful reset therefore cannot be followed by a new send of a cleared
 snapshot. Backoff releases the lease. Catalog close wakes the worker, stops new

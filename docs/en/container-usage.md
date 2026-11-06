@@ -67,9 +67,11 @@ Public and signed URLs must still use the address reachable by their recipient.
 
 Set `GCS_MIMIC_API_BASE_URL` to fix one address for every caller. A reverse proxy
 that rewrites Host needs it, because `Forwarded` and `X-Forwarded-*` are ignored.
-So does the XML virtual host setup: a request to a virtual bucket host names a
-bucket and not the API, so without it those requests get a link to the bound
-address. That fallback also serves an invalid or missing Host. It is the actual
+The XML virtual host setup does not need it: a request to a virtual bucket host
+such as `bucket.storage.example:4443` gets links on the configured domain with the
+same port and the scheme of its connection (`storage.example:4443`), never with the
+bucket label. Set it only if your DNS resolves the bucket names and not that domain.
+An invalid or missing Host falls back to the actual
 bound listener, with wildcard IPs replaced by loopback and port zero by the
 allocated port, which is `http://127.0.0.1:4443` (or `https://`) in the image, and
 the ready event reports it as `api_base_url`. The checked-in Compose files pass

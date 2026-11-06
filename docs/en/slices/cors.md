@@ -61,8 +61,8 @@ signed-32-bit `maxAgeSeconds`. Omitted max age evaluates to 3600.
 PATCH omission preserves rules; an array replaces them and `[]`/null clears
 them. PUT omission preserves the rules under the local choice in SPEC-BUCKET-PUT,
 without real-GCS verification. Unknown fields retain existing bucket
-adapter behavior. Configuration is bounded by the existing 64 KiB metadata
-body/catalog limits. Invalid types, unsafe header names/values and invalid age
+adapter behavior. Configuration is bounded by the 16 MiB JSON body limit, with
+no size check of its own. Invalid types, unsafe header names/values and invalid age
 fail before mutation. Updates use the existing atomic metageneration condition
 and `storage.buckets.update` checks, with one revision per successful update.
 

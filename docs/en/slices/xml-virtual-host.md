@@ -61,7 +61,11 @@ explicit local conflict rule also preserves bodyless HEAD errors.
 Forwarded/X-Forwarded headers are never trusted. This list selects XML routing;
 it does not implement a general allowed-host security policy or grant access.
 DESIGN-055's fixed advertised API base, listener and explicit URL helper bases
-remain separate; no API selfLink or resumable Location changes.
+remain separate. Without a fixed base, a request to a virtual bucket host gets API
+`selfLink` and resumable Location values on the configured domain under that host, with
+the same port and the scheme of its connection, never with the bucket label, because a
+loopback address may not reach the server from a peer. A setup whose DNS resolves only the
+bucket names needs an explicit `api_base_url`.
 
 Both offline helpers accept `--style path|virtual-hosted`, defaulting to `path`:
 
@@ -137,7 +141,7 @@ verifies an exact SAN for a dotted bucket.
 | --- | --- |
 | Configuration | Default disabled; CLI/environment/file precedence, empty override, bounded validated domains, case-insensitive/longest-suffix selection, advertised API host conflict rejected |
 | Routing | Dotted bucket, encoded/Unicode/repeated/leading paths, GET/HEAD/PUT metadata/bytes equivalence, ranges, generation selectors/atomic conditions and malformed-path XML errors |
-| Isolation | Nonconfigured/lookalike/base/trailing-dot/IPv6 hosts remain path-style; conflicting absolute authorities rejected; forwarded headers ignored; advertised links unchanged; virtual JSON/admin paths and OPTIONS use XML; bucket root unsupported |
+| Isolation | Nonconfigured/lookalike/base/trailing-dot/IPv6 hosts remain path-style; conflicting absolute authorities rejected; forwarded headers ignored; advertised links use the configured domain and never the bucket label; virtual JSON/admin paths and OPTIONS use XML; bucket root unsupported |
 | Permissions/CORS | Anonymous/roleless/viewer denial, creator create versus overwrite, public read and signed PUT, preflight/actual/error headers without access fallback |
 | Signatures | Actual host/port/raw object path, both directions of addressing-style transfer rejection, tamper failure, private signed GET/HEAD/PUT and encoded paths |
 | Helpers/SDK | Public and signed virtual style; final host verified, official Go virtual and bucket-bound signers, default-port success and known explicit-port failure |

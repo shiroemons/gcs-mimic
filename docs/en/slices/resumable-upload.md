@@ -252,8 +252,9 @@ requires no migration; newly aborted sessions retain their distinct 410 result.
 Without an explicit base, Location is the **authority the request addressed**, on
 the scheme of its connection, followed by the JSON upload path and encoded session
 identifier. The authority comes from an absolute request target or else from Host,
-and must be exactly a host and an optional connectable port. An invalid or missing
-Host, or one that selects an XML virtual bucket, falls back to the base resolved
+and must be exactly a host and an optional connectable port. A Host that selects
+an XML virtual bucket uses the configured domain with the same port, never the
+bucket label. An invalid or missing Host falls back to the base resolved
 from the bound listener. Forwarded and X-Forwarded-* headers never apply, because
 no proxy is trusted. A runtime `externalUrl` or an explicit `api_base_url` fixes
 the origin instead. `src/config.rs` and `src/url.rs::normalize_base_url` accept

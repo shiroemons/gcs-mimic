@@ -24,9 +24,10 @@ Two separate limits use ordinary CLI > environment > JSON precedence:
 | `memory_max_bytes` | 67108864 | Retained allocation capacity plus 128 bytes per blob and per chunk for registry/descriptor overhead; staging, committed generations, history, pins, open readers and cloned response chunks share this budget. Chunk-table capacity beyond the initial 128-byte reservation is also charged, including replacement allocations during growth. |
 | `memory_catalog_max_bytes` | 16777216 | Maximum SQLite database pages, rounded down to 4096-byte pages; applied separately to main and temporary databases. The connection also retains its bounded statement cache and 2 MiB page-cache target. |
 
-Finished resumable records may fill half of `memory_catalog_max_bytes`, counted by the size
-of each record. A new session trims the oldest ones, so they never exhaust the budget and
-fail later catalog writes for the days until they expire. Active sessions and objects are
+Finished resumable records and finished rewrite records may each fill a quarter of
+`memory_catalog_max_bytes`, counted by the size of each record. A new session or a completed
+rewrite trims the oldest ones, so they never exhaust the budget and fail later catalog writes
+for the days until they expire. Active sessions and objects are
 still limited only by the budget itself.
 
 These are storage limits, not a bound on process RSS, allocator overhead, runtime
@@ -415,7 +416,8 @@ In-flight writes, syncs and truncations retain both the exclusive slot guard and
 the registry's counted handle. Cancelling a takeover cannot let a later writer
 use a different lock while its truncation is still running. RAM catalogs have
 separate slot namespaces. A retired writer rejects even an overlapping no-op
-append, as well as flush. Reset stays busy while a writer holds its activity lease.
+append, as well as flush. Reset waits while a writer holds its activity lease, and answers
+busy past `catalog_wait_timeout_ms`.
 
 `cargo test --locked --offline --lib appendable -- --nocapture` passed 21 tests,
 including seven RAM-related cases: prefix/snapshot/catalog isolation, quota at

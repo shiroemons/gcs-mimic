@@ -46,7 +46,7 @@ GET `/storage/v1/b/{bucket}/iam` accepts `optionsRequestedPolicyVersion`
 omitted or 1, 3. PUT at the same path replaces the Policy supplied directly
 as JSON. Both follow existing common-query rules: `userProject`, even empty,
 returns 501 because requester billing is unsupported. Unknown query keys and
-duplicates return 400. GET requires an empty body; PUT uses the existing 64 KiB
+duplicates return 400. GET requires an empty body; PUT uses the 16 MiB
 bounded JSON reader. Unknown JSON fields are ignored; recognized unsupported
 semantics are rejected. `kind` and `resourceId` are ignored in requests.
 `auditConfigs` returns 501 because it is absent from the
@@ -83,8 +83,11 @@ project's `projectOwner` and `projectEditor`, and
 documented non-UBLA defaults. Migration gives existing buckets these same defaults.
 
 Limits are 1,500 principal occurrences across all bindings, counting duplicates,
-and 64 KiB JSON body/persisted bindings. The body cap can be reached before the
-principal limit when IDs are long. Duplicate members and repeated bindings for
+and the 16 MiB JSON body. Whichever API writes a policy, the catalog stores at
+most 1,600 occurrences, the 1,500 plus one full ACL of 100, and 1 MiB once
+encoded. Past either is a client error, and an ACL entity stops at 272 bytes, the
+longest form a project ID allows. Repeating an ACL edit does not grow the policy.
+Duplicate members and repeated bindings for
 the same role are stored and returned in their submitted order, without merging
 or deduplication. The official setIamPolicy and Policy references checked above
 do not specify their normalization; this preservation is the supported local

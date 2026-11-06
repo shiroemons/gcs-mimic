@@ -45,7 +45,7 @@ ordinary objects as one. The same object listed twice contributes twice.
 | Surface | Acceptance contract |
 | --- | --- |
 | Path and method | POST `/storage/v1/b/{destinationBucket}/o/{destinationObject}/compose`; decode each path component exactly once after routing; use existing bucket/profile and 1..1024-byte object-name rules; wrong method returns 405 and Allow: POST |
-| Request body | JSON object capped at 64 KiB; complete EOF required before staging; malformed JSON 400 parseError, non-object/invalid typed fields 400; no object payload in this body |
+| Request body | JSON object capped at 16 MiB; complete EOF required before staging; malformed JSON 400 parseError, non-object/invalid typed fields 400; no object payload in this body |
 | sourceObjects | Required array with 1..32 entries, each an object with a valid string name; order and duplicates preserved; no URL expansion, wildcard expansion, cross-bucket field or catalog-wide listing |
 | Source generation | Optional nonnegative int64 decimal string or JSON integer; omitted selects live generation; explicit generation selects retained or live generation; resolve and pin all selected source generations in one request-start snapshot |
 | objectPreconditions.ifGenerationMatch | Optional nonnegative int64; compare with the selected source generation, including when generation is explicit; mismatch, including a differing explicit generation, returns 412 without publishing |
