@@ -14,13 +14,22 @@ export DEBIAN_FRONTEND=noninteractive
 snapshot=20261027T000000Z
 socat_version=1.8.0.3-1+deb13u1
 
-cat >/etc/apt/sources.list.d/debian.sources <<SOURCES
+install_from() {
+  cat >/etc/apt/sources.list.d/debian.sources <<SOURCES
 Types: deb
-URIs: http://snapshot.debian.org/archive/debian/$snapshot
+URIs: $1
 Suites: trixie
 Components: main
 Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
 SOURCES
+  apt-get -o Acquire::Retries=3 update -qq >&2 &&
+    apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends "socat=$socat_version" >&2
+}
 
-apt-get -o Acquire::Retries=3 update -qq >&2
-apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends "socat=$socat_version" >&2
+# snapshot.debian.org intermittently answers 503/504 under load. The live mirror keeps the exact
+# socat version pin and apt's signature check, but its dependencies may be newer than the
+# snapshot's; this development-only forwarder accepts that over failing the whole scorecard.
+if ! install_from "http://snapshot.debian.org/archive/debian/$snapshot"; then
+  echo "snapshot.debian.org failed; retrying the pinned socat version from deb.debian.org" >&2
+  install_from "http://deb.debian.org/debian"
+fi

@@ -244,7 +244,13 @@ The runtime image starts from `scratch` and holds one statically linked musl
 binary, so it has no base image to pin or refresh. The build stage installs
 `musl-tools` from the Debian snapshot the digest-pinned Rust image was built
 from, through `scripts/install-musl-tools.sh`; the dependency snapshot records
-that package as a release input. The container build strips symbols and uses fat
+that package as a release input. When snapshot.debian.org stays unavailable after
+apt's retries, the script installs the same exact version from deb.debian.org,
+still under apt's signature check, and fails if that mirror no longer carries it.
+The complete musl source archive that the notices preserve is committed under
+`distribution/notices/musl-1.2.5`, because a musl.libc.org outage must not fail
+an image or release build; `xtask release notices` verifies its pinned SHA-256.
+The container build strips symbols and uses fat
 LTO with `opt-level = "s"` without changing panic handling, checksums or
 persistence settings; the release archives keep the default release profile. Numeric
 UID/GID 10001 are retained so existing data volumes remain writable. Runtime

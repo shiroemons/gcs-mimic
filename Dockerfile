@@ -7,9 +7,9 @@ WORKDIR /build
 ARG CARGO_BUILD_JOBS=2
 RUN --mount=type=bind,source=scripts/install-musl-tools.sh,target=/app/scripts/install-musl-tools.sh \
     /app/scripts/install-musl-tools.sh
-# The release workflow verifies the same pinned archive for the musl binary archives.
-ADD --checksum=sha256:a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4 \
-    https://musl.libc.org/releases/musl-1.2.5.tar.gz /build/target/release-notices/musl-1.2.5.tar.gz
+# The archive is committed because a musl.libc.org timeout otherwise fails the whole image build.
+# `xtask release notices` below verifies its pinned SHA-256, as it does for the release archives.
+COPY distribution/notices/musl-1.2.5/musl-1.2.5.tar.gz ./target/release-notices/
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY xtask/Cargo.toml ./xtask/Cargo.toml
 COPY xtask/src ./xtask/src

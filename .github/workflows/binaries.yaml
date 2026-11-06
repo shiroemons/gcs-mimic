@@ -212,9 +212,7 @@ jobs:
       - name: Preserve complete musl source notices
         if: endsWith(matrix.target, '-musl')
         run: |
-          curl --fail --show-error --location --max-time 120 \
-            https://musl.libc.org/releases/musl-1.2.5.tar.gz \
-            --output target/release-notices/musl-1.2.5.tar.gz
+          cp distribution/notices/musl-1.2.5/musl-1.2.5.tar.gz target/release-notices/
           echo 'a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4  target/release-notices/musl-1.2.5.tar.gz' | sha256sum --check
       - run: cargo fetch --locked
       - run: cargo build --release --locked --offline --target "$TARGET" --bin gcs-mimic
