@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::resumable::encode_options;
 use crate::storage::test_fixtures::{PERMISSIVE, body, live, read_all, version};
 use crate::test_support::{TestDir, eventually_async};
 

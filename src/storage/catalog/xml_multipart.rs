@@ -252,7 +252,8 @@ impl Catalog {
                 if options.metadata.storage_class.is_none() {
                     options.metadata.storage_class = Some(storage_class);
                 }
-                let encoded = resumable::encode_options(&options).to_string();
+                let encoded =
+                    resumable::encode_new_options(&transaction, &target.bucket, &options)?;
                 if encoded.len() > 65536 {
                     return Err(ObjectError::TooLarge);
                 }

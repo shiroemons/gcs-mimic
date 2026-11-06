@@ -83,7 +83,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
-  --identity-file PATH         none (strict-mode JSON identity registry, at most 64 KiB)
+  --identity-file PATH         none (strict-mode JSON identity registry, at most 16 MiB)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
   --event-pubsub-topic ID       none (global notification topic name)
@@ -900,7 +900,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "6bd720cdce1950fe5f3b61d72ac882baa2ad79f75187c36ed727a91791461738"
+            "a21f1c9ae35b3b28ed567d581d31e1c5313db08cfeda47d7b6e58ba06d9be7a0"
         );
     }
 

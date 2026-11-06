@@ -229,7 +229,8 @@ fn insert_session(
         let deadline = created
             .checked_add(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?)
             .ok_or_else(|| unavailable("upload deadline overflow"))?;
-        let encoded = encode_options(&request.options).to_string();
+        let encoded = encode_new_options(&transaction, &request.bucket, &request.options)
+            .map_err(unavailable)?;
         let total = request
             .total
             .map(i64::try_from)
@@ -534,7 +535,27 @@ impl Catalog {
 }
 
 pub(super) fn encode_options(o: &ResumableOptions) -> Value {
-    json!(options::StoredOptions::from_options(o))
+    json!(options::StoredOptions::from_options(o, None))
+}
+
+/// Encodes the options of a new upload into `bucket`, whose project cannot change while the
+/// upload lives: deleting the bucket ends its incarnation and with it the upload.
+pub(super) fn encode_new_options(
+    connection: &Connection,
+    bucket: &str,
+    o: &ResumableOptions,
+) -> rusqlite::Result<String> {
+    let project: Option<String> = match &o.access {
+        crate::bucket::BucketAccess::Policy {
+            identity: Some(_), ..
+        } => sql::optional_scalar(
+            connection,
+            "SELECT project FROM buckets WHERE name = ?1",
+            [bucket],
+        )?,
+        _ => None,
+    };
+    Ok(json!(options::StoredOptions::from_options(o, project.as_deref())).to_string())
 }
 
 /// Stored resumable session options that no longer decode; the catalog treats them as corrupt.

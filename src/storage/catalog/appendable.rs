@@ -17,7 +17,7 @@ use super::{
         ObjectUpload, PublicationDefaults, authorized_bucket, check_conditions, lookup,
         object_unavailable, unlink,
     },
-    resumable::{ResumableOptions, decode_options, encode_options},
+    resumable::{ResumableOptions, decode_options, encode_new_options},
     system_time_micros, unix_micros,
 };
 use crate::storage::catalog::{bucket_incarnation, sql};
@@ -939,7 +939,7 @@ impl Catalog {
                     .ok_or_else(|| object_unavailable("generation exhausted"))?,
             );
             sql::exec(&transaction, "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation])?;
-            let encoded = encode_options(&options).to_string();
+            let encoded = encode_new_options(&transaction, &bucket, &options)?;
             sql::exec(&transaction,
                     "INSERT INTO appendable_objects VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?7, ?8, 0)", params![bucket, name, generation, incarnation, blob_id, encoded, micros, handle])?;
             let time = system_time_micros(micros)?;

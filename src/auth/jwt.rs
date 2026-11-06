@@ -8,7 +8,7 @@ use crate::clock::Clock;
 use serde::Deserialize;
 use std::{sync::Arc, time::UNIX_EPOCH};
 
-const MAX_TOKEN_BYTES: usize = 8192;
+pub(super) const MAX_TOKEN_BYTES: usize = 8192;
 const SCOPE: &str = "https://www.googleapis.com/auth/devstorage.full_control";
 
 #[derive(Deserialize)]
@@ -69,10 +69,7 @@ impl<'a> Candidate<'a> {
         }
         let keys = Arc::clone(registry.signing_keys.get(&claims.iss)?);
         let signature = decode(signature)?;
-        let identity = registry
-            .identities
-            .iter()
-            .find(|identity| identity.id == claims.iss)?;
+        let identity = registry.identity(&claims.iss)?;
         Some(Self {
             identity,
             keys,

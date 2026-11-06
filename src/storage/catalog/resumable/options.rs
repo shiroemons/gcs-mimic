@@ -103,7 +103,9 @@ pub(super) struct StoredOptions {
 }
 
 impl StoredOptions {
-    pub(super) fn from_options(options: &ResumableOptions) -> Self {
+    /// `bucket_project` narrows the principal's stored grants to the one project that can
+    /// authorize a new upload; without it they are stored as they are.
+    pub(super) fn from_options(options: &ResumableOptions, bucket_project: Option<&str>) -> Self {
         let m = &options.metadata;
         let field = |value: &Option<Option<String>>| value.clone().map(|value| Field { value });
         let metadata = Metadata {
@@ -132,7 +134,10 @@ impl StoredOptions {
                 permission,
                 project,
             } => Some(Access {
-                identity: identity.as_ref().map(Identity::upload_snapshot),
+                identity: identity.as_ref().map(|identity| match bucket_project {
+                    Some(project) => identity.upload_snapshot_for(project),
+                    None => identity.upload_snapshot(),
+                }),
                 permission: permission.as_str().into(),
                 project: project.clone(),
             }),
