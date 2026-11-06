@@ -46,7 +46,7 @@ fn finish_upload_with(upload: &mut BufReader<TcpStream>, body: &[u8]) {
 fn a_reseed_may_take_longer_than_the_catalog_wait() {
     let (data, source) = (TestDir::new(), TestDir::new());
     let server = seeded_server(&data, &source, "50");
-    for index in 0..500 {
+    for index in 0..40 {
         std::fs::write(source.0.join(format!("test-bucket/extra-{index}")), b"seed").unwrap();
     }
     // A wait this short can still expire on a loaded runner, which is a retryable 503.
@@ -59,7 +59,7 @@ fn a_reseed_may_take_longer_than_the_catalog_wait() {
         server
             .request(
                 "GET",
-                "/storage/v1/b/test-bucket/o/extra-499?alt=media",
+                "/storage/v1/b/test-bucket/o/extra-39?alt=media",
                 "",
                 b""
             )

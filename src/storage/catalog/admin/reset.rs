@@ -29,25 +29,18 @@ impl Admin {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<ResetOutcome, AdminError> {
-        // A seed batch lets go of its lease for its commit while its bodies already sit in the RAM
-        // store, so clearing that store mid-batch would leave rows without bytes. Waiting here also
-        // holds no reservation, so a long seed does not stop new uploads for all that time.
-        let batch = self
-            .catalog
-            .wait_admin(self.catalog.0.publication_batch.clone(), deadline)
-            .await?;
         let admission = self
             .catalog
             .wait_admin(self.catalog.0.admin_reads.clone(), deadline)
             .await?;
-        let exclusive = self.catalog.wait_exclusive(deadline).await?;
+        let exclusive = self.exclusive_past_seed_commits(deadline).await?;
         let inner = self.catalog.0.clone();
         self.catalog
             .0
             .executor
             .run(move || {
                 // Cancellation cannot release admission while the owned transaction/cleanup runs.
-                let (_batch, _admission, _exclusive) = (batch, admission, exclusive);
+                let (_admission, _exclusive) = (admission, exclusive);
                 let result = inner.with_connection(|connection| reset(connection, &inner.backend));
                 inner.maintenance_wake.notify_one();
                 match result {
@@ -58,6 +51,30 @@ impl Admin {
             })
             .await
             .map_err(AdminError::backend)?
+    }
+
+    /// Exclusive ownership with no seed commit under way. A seed batch lets go of its lease for its
+    /// commit while its bodies already sit in the RAM store, so clearing the store then would leave
+    /// rows without bytes. Such a commit needs exclusive ownership to finish, so this gives it up
+    /// before waiting, and holding nothing while it waits it can never wait for itself. A batch
+    /// that has not reached its commit still holds its lease and so is drained as usual.
+    async fn exclusive_past_seed_commits(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<crate::storage::catalog::ExclusiveGuard, AdminError> {
+        let seed_commit = &self.catalog.0.seed_commit;
+        loop {
+            let exclusive = self.catalog.wait_exclusive(deadline).await?;
+            if seed_commit.available_permits() > 0 {
+                return Ok(exclusive);
+            }
+            drop(exclusive);
+            drop(
+                self.catalog
+                    .wait_admin(seed_commit.clone(), deadline)
+                    .await?,
+            );
+        }
     }
 }
 

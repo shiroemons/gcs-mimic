@@ -18,7 +18,7 @@ use std::{
 use tokio::sync::{Notify, Semaphore};
 
 mod activity;
-use activity::{Activity, ActivityGate, Work};
+use activity::{Activity, ActivityGate, ExclusiveGuard, Work};
 
 #[cfg(test)]
 mod memory_tests;
@@ -178,6 +178,9 @@ struct Inner {
     admin_reads: Arc<Semaphore>,
     staged_handles: Arc<Semaphore>,
     publication_batch: Arc<Semaphore>,
+    /// Held by a seed batch from before it lets go of its lease until its commit ends, while
+    /// nothing else keeps a reset from clearing the bodies it already put in the RAM store.
+    seed_commit: Arc<Semaphore>,
     /// Held by a publication request until its batch and every staged cleanup it left are done,
     /// which is what `close` waits for. Callers past the permits wait for one like any other slot.
     publication_requests: Arc<Semaphore>,

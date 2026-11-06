@@ -225,17 +225,20 @@ impl SeedBatch {
                 .push(prepare_entry(catalog.clone(), entry).await?);
         }
         std::mem::swap(&mut self.entries, &mut self.prepared);
+        let deadline = wait_deadline(&catalog, self.request_deadline);
+        // Taken while the lease still keeps a reset out, so the two together leave it no gap.
+        let committing = catalog
+            .wait_admin(catalog.0.seed_commit.clone(), deadline)
+            .await?;
         // The batch's own read lease would otherwise keep the exclusive gate from ever opening.
         self.activity.take();
-        let exclusive = catalog
-            .wait_exclusive(wait_deadline(&catalog, self.request_deadline))
-            .await?;
+        let exclusive = catalog.wait_exclusive(deadline).await?;
         let inner = catalog.0.clone();
         let (outcome, mut batch) = catalog
             .0
             .executor
             .run(move || {
-                let _exclusive = exclusive;
+                let (_exclusive, _committing) = (exclusive, committing);
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Debug,
                     "seed_commit_started",

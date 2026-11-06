@@ -322,6 +322,7 @@ impl Catalog {
                 admin_reads: Arc::new(Semaphore::new(32)),
                 staged_handles: Arc::new(Semaphore::new(256)),
                 publication_batch: Arc::new(Semaphore::new(1)),
+                seed_commit: Arc::new(Semaphore::new(1)),
                 publication_requests: Arc::new(Semaphore::new(2)),
                 writeback_execution: Arc::new(Semaphore::new(1)),
                 file_workers: admin::FileWorkers::new()?,
