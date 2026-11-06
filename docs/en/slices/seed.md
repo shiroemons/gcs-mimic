@@ -260,10 +260,10 @@ macOS a path past `PATH_MAX` (1024 bytes) fails with the operating system's erro
 for a name that is too long. Sorted directory-entry vectors and the pending stack
 share a named entry budget; directory iterators are closed before descent. Logical
 names are bounded to 1024 UTF-8 bytes. Named limits bound traversal memory and
-open handles without a general directory-walking dependency. They are local usability limits, not Google
-bucket/object limits. Filesystem/SQLite operation duration and overall seed
-duration have no additional wall-clock bound. Replaying an unchanged tree reads
-every fixture body once per startup.
+open handles without a general directory-walking dependency. They are local
+usability limits, not Google bucket/object limits. Filesystem/SQLite operation
+duration and overall seed duration have no additional wall-clock bound. Replaying
+an unchanged tree reads every fixture body once per startup.
 
 ## Getting-started snippet for integration
 
