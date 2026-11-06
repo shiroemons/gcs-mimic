@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Recorded **2026-11-06** for the behavior the [0.12.0 notes](../releases/0.12.0.md) describe, at code commit `6a1794f9`. A migration check found that a working setup needed added settings for connections, object size, timeouts, soft delete and the advertised URL. The defaults changed so that `GCS_MIMIC_SCHEME=http` and the data mounts are enough.
+Recorded **2026-11-07** for the behavior the [0.12.0 notes](../releases/0.12.0.md) describe, at code commit `c1a84da5`. A migration check found that a working setup needed added settings for connections, object size, timeouts, soft delete and the advertised URL. The defaults changed so that `GCS_MIMIC_SCHEME=http` and the data mounts are enough.
 
 ## Sources for the timeouts
 
@@ -10,7 +10,23 @@ Cloud Storage documents no seconds for waiting on a request head, silence on a b
 
 ## Rust tests
 
-Each command ran through `bash scripts/with-test-tmpdir.sh`, with the pinned toolchain and no failures.
+`just pre-push` ran once at code commit `c1a84da5`, with the pinned toolchain, and every stage passed in 18 minutes 27 seconds: `just check`, `just check-sdk` and the container checks for `linux/amd64` and `linux/arm64`. Its Rust targets passed 2855 tests with no failures and 1 ignored test, which needs a Pub/Sub emulator.
+
+| Target | Result |
+| --- | --- |
+| `gcs_mimic` library | 1682 passed |
+| `gcs-mimic` binary | 31 passed |
+| `it_admin` | 72 passed, 1 ignored |
+| `it_import_seed` | 76 passed |
+| `it_json` | 135 passed |
+| `it_objects` | 144 passed |
+| `it_process` | 76 passed |
+| `it_protocol` | 146 passed |
+| `it_sync` | 30 passed |
+| `it_xml_auth` | 258 passed |
+| `xtask` and its checks | 205 passed |
+
+The narrower commands below ran during the first set of these changes, through `bash scripts/with-test-tmpdir.sh`, and are kept as a guide to what covers what.
 
 | Command | Result |
 | --- | --- |
@@ -24,7 +40,7 @@ Each command ran through `bash scripts/with-test-tmpdir.sh`, with the pinned too
 | `cargo test --locked --test it_import_seed -- bucket_initialization seed` | 64 passed |
 | `cargo test --locked --test it_xml_auth -- xml_multipart sign_url` | 13 passed |
 
-These tests set Host directly and do not start containers. The full `just check`, the SDK suites and the container smoke test belong to the release gate and are not recorded here.
+These tests set Host directly and do not start containers.
 
 ## What the tests establish
 
@@ -66,15 +82,15 @@ One run of each scenario on the integrated release build, native on macOS arm64,
 | --- | --- | --- |
 | Go SDK, 32 parallel, 800 uploads and read-backs | 0 failures | 17 to 22 failures |
 | 96 parallel GETs of 4 MiB, 480 requests | 0 failures | 0 failures, queued behind its 32 connections |
-| Mixed load, 48 parallel, 15 seconds | 27,444 operations, no 503 or connection error, peak RSS 38 MiB | 449 responses of 503 and many connection errors |
+| Mixed load, 48 parallel, 15 seconds | 38,175 operations, no 503 or connection error, peak RSS 36 MiB | 449 responses of 503 and many connection errors |
 | 300 resumable uploads left unfinished | All succeed and continue after a restart | 503 from the 129th |
 | A write that stalls for 8 seconds and for 70 seconds | Succeeds | Not recorded |
-| 3 GiB POST and GET | Contents match, peak RSS 17 MiB | Not recorded |
+| 3 GiB POST and GET | Contents match, peak RSS 16 MiB | Not recorded |
 | 300 MiB overwrite and delete | Space reclaimed at once | About 615 MiB stayed on disk |
-| `kill -9` twice | No loss among 787 acknowledged writes | Not recorded |
-| 1000 transfers in flight, half uploads and half downloads | About 230 MiB RSS while held, peaks of 266 to 343 MiB | Not recorded |
+| `kill -9` twice | No loss among 946 acknowledged writes | Not recorded |
+| 1000 transfers in flight, half uploads and half downloads | About 230 MiB RSS while held, peaks of 277 to 313 MiB, in the five runs with no failure | Not recorded |
 
-Ten more runs of the last scenario had no failures. With the CPU saturated (load average above 100), a thousand clients connecting at once sometimes saw `connection reset by peer` right after connecting, and the server logged only `connection failed` for those. macOS caps the listen backlog at `kern.ipc.somaxconn`, 128 here, which is the likely cause.
+Three of nine runs of the last scenario on this build had 124 to 671 of the thousand clients see `connection reset by peer` right after connecting, at a load average near 5. The build of the first set of these changes did the same in one of five runs, so this is not new. In the run with 671 failures the server logged 104, so most of those clients never reached `accept`. macOS caps the listen backlog at `kern.ipc.somaxconn`, 128 here, which is the likely cause, though this check does not prove it. The same scenario from a Docker network, on Linux, had no failures.
 
 ### In the container
 
@@ -86,12 +102,12 @@ The final image on Docker Desktop for macOS arm64, using a Compose service with 
 | Links | A client on `localhost:<published port>` and a peer on `gcs:4443` each got their own address, and each finished a resumable upload |
 | Go SDK, 32 parallel, 800 uploads and read-backs | 0 failures |
 | 96 parallel GETs of 4 MiB, 480 requests | 0 failures |
-| Mixed load, 48 parallel, 15 seconds | 15,064 operations, no 503 or connection error, 53 MiB |
+| Mixed load, 48 parallel, 15 seconds | 12,963 operations, no 503 or connection error, 53 MiB |
 | 300 resumable uploads left unfinished | All succeed and continue after a restart |
 | 5200 resumable uploads finished, and 5000 created and cancelled, 16 parallel | 0 failures and no `disk I/O error` |
 | A write that stalls for 8 seconds and for 70 seconds | Succeeds |
 | 3 GiB POST and GET | Contents match, 100 MiB |
-| 1000 transfers in flight from the same Docker network, on `compose.yaml` with its read-only root and limits | 0 failures, 442 MiB at most, no OOM kill, 10 MiB afterwards |
+| 1000 transfers in flight from the same Docker network, on `compose.yaml` with its read-only root and limits | 0 failures, no OOM kill, 9 MiB afterwards. Memory during the transfers was not sampled on this build; an earlier one reached 442 MiB |
 | A 128 MiB data directory, `tmpfs` | 300 MiB upload and a 617 KB gzip body expanding to 300 MiB each answer 503 with guidance; the server stays ready and serves reads, and an upload succeeds after a delete |
 
 Through Docker Desktop's published port, a thousand clients connecting at once got `connection reset by peer` from its port forwarding. The run from the same Docker network had no failures, so this scenario is recorded from there.

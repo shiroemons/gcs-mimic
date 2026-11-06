@@ -48688,7 +48688,7 @@
         "unix_links_use_http_and_the_request_host_without_an_explicit_base"
       ],
       "verification": [
-        {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
+        {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
         {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- request_host_http; cargo test --locked --test it_process -- unix_transport; cargo test --locked --test it_xml_auth -- sign_url","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","a_repeated_call_on_a_finished_rewrite_renders_links_for_its_own_host","an_explicit_base_ignores_the_host","explicit_base_ignores_the_request_host","management_routes_refuse_a_host_that_only_the_derived_base_would_name","management_host_is_not_admitted_by_a_base_derived_from_the_same_host","a_metadata_write_may_repeat_links_read_through_another_host","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","stored_response_links_move_to_the_new_origin_without_touching_other_fields","advertised_scheme_follows_the_connection_and_forwarded_headers_do_not_apply","request_host_sets_the_advertised_base_and_never_the_fixed_one","unusable_request_authorities_keep_the_fixed_base","absolute_form_target_overrides_host_and_is_validated_the_same_way","an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base","only_an_external_url_update_fixes_a_derived_base","runtime_external_url_fixes_the_base_and_a_public_host_alone_does_not","strict_mode_links_follow_the_request_host_without_an_explicit_base","unix_links_use_http_and_the_request_host_without_an_explicit_base"]},
         {
           "command": "just check",
@@ -49009,7 +49009,7 @@
         "an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base"
       ],
       "verification": [
-        {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
+        {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
         {"command":"cargo test --locked --test it_protocol -- request_host_http","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","a_session_opened_through_one_host_completes_through_another","xml_session_and_multipart_locations_follow_the_host_of_their_request","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","an_explicit_base_ignores_the_host","an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base"]},
         {
           "command": "just check",
@@ -56280,7 +56280,7 @@
         "a_session_opened_through_one_host_completes_through_another"
       ],
       "verification": [
-        {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
+        {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
         {"command":"cargo test --locked --test it_protocol -- request_host_http","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","a_session_opened_through_one_host_completes_through_another"]},
         {
           "command": "just check-sdk",
