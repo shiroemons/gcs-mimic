@@ -120,7 +120,7 @@ for platform in "$@"; do
   docker compose -p "$project" up --detach --no-build --force-recreate --wait --wait-timeout 40
   service=$(docker compose -p "$project" ps --quiet gcs)
   [[ $(docker compose -p "$project" port gcs 4443) == "$address" ]]
-  [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' "$service") == 'true 134217728 1000000000 64' ]]
+  [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' "$service") == 'true 536870912 1000000000 64' ]]
   expect_status GET /_internal/health 200
   expect_status GET /_internal/ready 200
   expect_status GET '/storage/v1/b?project=local-project' 200
