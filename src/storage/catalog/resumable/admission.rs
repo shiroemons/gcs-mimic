@@ -9,7 +9,7 @@ use rusqlite::{Connection, Transaction};
 /// repeated final requests get the original outcome, which clients ask for soon after the
 /// transition. A seven-day window would not do: an SDK that opens one session per upload would
 /// leave millions of records, and every maintenance pass would slow down with them.
-const MAX_TERMINAL_SESSIONS: i64 = 4096;
+pub(in crate::storage::catalog) const MAX_TERMINAL_SESSIONS: i64 = 4096;
 /// Keeps one creation's transaction short; a larger excess carries over to the next creation.
 const MAX_TRIMMED_PER_CREATION: usize = 256;
 /// Candidates read beyond the excess, so a few held sessions do not cut the trim short.
@@ -63,7 +63,8 @@ pub(super) fn admit_session(
         return Err(unavailable(BackendFailure::RetainedSessionLimit));
     }
     // A count under the window is negative and fails the conversion: nothing to trim.
-    let excess = usize::try_from(terminal - MAX_TERMINAL_SESSIONS).unwrap_or_default();
+    let window = catalog.session_limits().finished_resumable;
+    let excess = usize::try_from(terminal - window).unwrap_or_default();
     trim_finished(transaction, catalog, excess.min(MAX_TRIMMED_PER_CREATION))
 }
 

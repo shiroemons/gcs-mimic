@@ -29,6 +29,47 @@ async fn open_with_bucket(dir: &TestDir, clock: &Arc<ManualClock>) -> Catalog {
     catalog
 }
 
+/// Finished records must not outgrow a RAM catalog's budget: past it every catalog write fails
+/// until the records expire days later, so the window shrinks with the budget.
+#[tokio::test]
+async fn finished_sessions_stay_inside_a_small_memory_catalog_budget() {
+    const BUDGET: u64 = 1024 * 1024;
+    let catalog = Catalog::open_memory_for_server(
+        64 * 1024 * 1024,
+        BUDGET,
+        Arc::new(crate::clock::SystemClock),
+        crate::storage::admin::LocalAdmin::Disabled,
+    )
+    .await
+    .unwrap();
+    catalog.apply_session_limits(&Config {
+        backend: crate::config::Backend::Memory,
+        memory_catalog_max_bytes: BUDGET,
+        ..Default::default()
+    });
+    catalog
+        .insert_bucket(bucket("bucket", "project"))
+        .await
+        .unwrap();
+    // More than the 641 finished sessions that used to exhaust this budget.
+    for index in 0..1_500 {
+        let session = catalog
+            .create_resumable_session(
+                "bucket",
+                &format!("some/typical/object/name-{index}.bin"),
+                crate::storage::ResumableOptions::new(BucketAccess::Permissive),
+                None,
+            )
+            .await
+            .unwrap();
+        catalog
+            .cancel_resumable_session(&session.id, "bucket")
+            .await
+            .unwrap();
+    }
+    catalog.close().await.unwrap();
+}
+
 async fn create(catalog: &Catalog, clock: &ManualClock) -> Result<String, ResumableError> {
     // Distinct initiation times give trimming a deterministic oldest-first order.
     clock.advance(std::time::Duration::from_millis(1));
