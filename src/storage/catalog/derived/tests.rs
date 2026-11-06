@@ -1085,6 +1085,49 @@ async fn abandoned_handler_guard_waits_for_writer_then_reclaims_transfer() {
     fs::remove_dir_all(path).unwrap();
 }
 
+/// A copy has no request deadline by default, so its transfer lives as long as it advances, and
+/// the lifetime reclaims only one nobody is working on.
+#[tokio::test]
+async fn advancing_renews_an_ephemeral_lifetime_and_an_idle_transfer_still_expires() {
+    use crate::clock::ManualClock;
+    use std::{
+        sync::Arc,
+        time::{Duration, UNIX_EPOCH},
+    };
+    let (catalog, path) = setup().await;
+    catalog.close().await.unwrap();
+    drop(catalog);
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
+    let catalog = Catalog::open_with_clock(&path, clock.clone())
+        .await
+        .unwrap();
+    put(&catalog, "source", b"bytes").await;
+    let transfer = catalog
+        .begin_derived_ephemeral(vec![source(&catalog, "source").await.whole()], 5)
+        .await
+        .unwrap();
+    let lifetime = Duration::from_millis(EPHEMERAL_LIFETIME_MILLIS.unsigned_abs());
+    let within_lifetime = lifetime - Duration::from_secs(1);
+    for offset in 1..=3 {
+        clock.advance(within_lifetime);
+        assert_eq!(
+            catalog
+                .advance_derived(&transfer.id, 1)
+                .await
+                .unwrap()
+                .offset,
+            offset
+        );
+    }
+    clock.advance(lifetime);
+    assert_eq!(
+        catalog.advance_derived(&transfer.id, 1).await,
+        Err(ObjectError::DerivedTransferExpired)
+    );
+    catalog.close().await.unwrap();
+    fs::remove_dir_all(path).unwrap();
+}
+
 #[tokio::test]
 async fn injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs() {
     use crate::clock::ManualClock;

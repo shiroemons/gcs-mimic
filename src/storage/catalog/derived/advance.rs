@@ -58,7 +58,10 @@ impl Catalog {
             output.finish(&catalog).await?;
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();
-                sql::exec(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1", params![id, progress.offset, md5_state.as_slice(), crc])?;
+                // An ephemeral lifetime only reclaims an abandoned transfer, so progress renews
+                // it: a request may copy for longer, and has a deadline of its own if configured.
+                let renewed = now.saturating_add(EPHEMERAL_LIFETIME_MILLIS);
+                sql::exec(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4, deadline = CASE ephemeral WHEN 1 THEN max(deadline, ?5) ELSE deadline END WHERE id = ?1", params![id, progress.offset, md5_state.as_slice(), crc, renewed])?;
                 // The queued SQL job owns the draft until its acknowledged prefix is updated.
                 output.acknowledge(progress.offset);
                 Ok(progress)
