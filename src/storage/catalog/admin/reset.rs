@@ -29,6 +29,13 @@ impl Admin {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<ResetOutcome, AdminError> {
+        // A seed batch lets go of its lease for its commit while its bodies already sit in the RAM
+        // store, so clearing that store mid-batch would leave rows without bytes. Waiting here also
+        // holds no reservation, so a long seed does not stop new uploads for all that time.
+        let batch = self
+            .catalog
+            .wait_admin(self.catalog.0.publication_batch.clone(), deadline)
+            .await?;
         let admission = self
             .catalog
             .wait_admin(self.catalog.0.admin_reads.clone(), deadline)
@@ -40,7 +47,7 @@ impl Admin {
             .executor
             .run(move || {
                 // Cancellation cannot release admission while the owned transaction/cleanup runs.
-                let (_admission, _exclusive) = (admission, exclusive);
+                let (_batch, _admission, _exclusive) = (batch, admission, exclusive);
                 let result = inner.with_connection(|connection| reset(connection, &inner.backend));
                 inner.maintenance_wake.notify_one();
                 match result {

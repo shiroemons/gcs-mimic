@@ -30,6 +30,50 @@ async fn the_metadata_budget_grows_with_the_allowed_tree_and_refuses_past_it() {
     catalog.close().await.unwrap();
 }
 
+/// A batch lets go of its lease for its commit while its bodies already sit in the RAM store, so a
+/// reset queued ahead of that commit must not clear them out from under the rows to come.
+#[tokio::test]
+async fn a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_bytes() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open_memory_for_server(
+        1024 * 1024,
+        1024 * 1024,
+        std::sync::Arc::new(SystemClock),
+        super::super::super::LocalAdmin::Enabled,
+    )
+    .await
+    .unwrap();
+    let admin = catalog.local_admin().unwrap();
+    let mut batch = admin.seed_batch().await.unwrap();
+    batch.bucket(bucket()).unwrap();
+    add(&mut batch, &dir.0, "seeded", b"seeded bytes").await;
+    // Holding SQL lines the reset up ahead of the commit, whichever of them reaches it first.
+    let held = catalog.0.execution.clone().try_acquire_owned().unwrap();
+    let wait = crate::time_limit::TimeLimit::from_millis(60_000);
+    let reset = tokio::spawn({
+        let admin = admin.clone();
+        async move { admin.reset_until(wait.deadline()).await.map(drop) }
+    });
+    let settle = || async {
+        for _ in 0..64 {
+            tokio::task::yield_now().await;
+        }
+    };
+    settle().await;
+    let commit = tokio::spawn(async move { batch.commit(SeedMode::Merge).await.map(drop) });
+    catalog.0.activity.drained().await;
+    settle().await;
+    drop(held);
+    joined(commit).await.unwrap();
+    joined(reset).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    let name = ObjectName::new("seeded").unwrap();
+    if admin.get_object(&bucket, &name, None).await.is_ok() {
+        assert_eq!(bytes(&admin, "seeded").await, b"seeded bytes");
+    }
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn seed_project_mismatch_preserves_the_existing_diagnostic() {
     let (_dir, catalog, admin, _, _) = setup().await;
