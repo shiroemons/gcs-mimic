@@ -25,11 +25,12 @@ use std::{
     time::SystemTime,
 };
 
-pub(crate) const FILE_LIMIT: usize = 1024 * 1024;
+/// Leaves room beside one entry of the largest size, which a smaller file limit would refuse first.
+pub(crate) const FILE_LIMIT: usize = 2 * ENTRY_LIMIT;
 /// What each allowed bucket adds to a file, about what the default limit gets per bucket: a fixed
 /// size would otherwise refuse a file long before it reached the configured bucket limit.
 const FILE_BYTES_PER_BUCKET: usize = 1024;
-pub(crate) const ENTRY_LIMIT: usize = 64 * 1024;
+pub(crate) const ENTRY_LIMIT: usize = crate::json::RESOURCE_BODY_LIMIT;
 pub(crate) const DIAGNOSTIC_LIMIT: usize = 256;
 pub(crate) const DIAGNOSTIC_BYTES_LIMIT: usize = 64 * 1024;
 const ARRAY_DIAGNOSTIC_LIMIT: usize = 4;
@@ -503,7 +504,7 @@ struct ResourceSizeError;
 
 impl std::fmt::Display for ResourceSizeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Encoded native resource exceeds 64 KiB; reduce it to at most 65,536 bytes after removing project.")
+        f.write_str("Encoded native resource exceeds 16 MiB; reduce it to at most 16,777,216 bytes after removing project.")
     }
 }
 
@@ -1156,7 +1157,7 @@ fn file_limit(bucket_limit: usize) -> usize {
 
 fn file_limit_fix(bucket_limit: usize) -> String {
     format!(
-        "Bucket initialization file exceeds {} bytes; reduce it, or raise max_buckets_per_batch, which allows 1 KiB per bucket and at least 1 MiB in all.",
+        "Bucket initialization file exceeds {} bytes; reduce it, or raise max_buckets_per_batch, which allows 1 KiB per bucket and at least 32 MiB in all.",
         file_limit(bucket_limit)
     )
 }
@@ -1338,7 +1339,7 @@ fn check_entry(
             diagnostics,
             Reason::Limit,
             &key,
-            "Entry exceeds 64 KiB; reduce its original JSON span, including project and whitespace, to at most 65,536 bytes.",
+            "Entry exceeds 16 MiB; reduce its original JSON span, including project and whitespace, to at most 16,777,216 bytes.",
         );
     }
     let Some(fields) = members(raw) else {
@@ -1458,6 +1459,10 @@ mod tests {
         fs,
         time::{Duration, UNIX_EPOCH},
     };
+
+    /// Labels of the form `"label123456":1e9`, which fit an entry as written and pass its limit
+    /// once encoded: each takes 18 bytes as written and 27 with the number expanded.
+    const EXPANDING_LABELS: usize = 800_000;
 
     struct FixedClock;
     impl Clock for FixedClock {
@@ -1982,16 +1987,17 @@ mod tests {
     }
 
     #[test]
-    fn the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_one_mib() {
+    fn the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor() {
+        // The first bucket limit whose allowance passes the floor.
+        let limit = FILE_LIMIT / FILE_BYTES_PER_BUCKET + 1;
         assert_eq!(file_limit(1), FILE_LIMIT);
         assert_eq!(file_limit(DEFAULT_LIMIT), FILE_LIMIT);
         assert_eq!(file_limit(FILE_LIMIT / FILE_BYTES_PER_BUCKET), FILE_LIMIT);
-        assert_eq!(file_limit(2000), 2000 * FILE_BYTES_PER_BUCKET);
+        assert_eq!(file_limit(limit), limit * FILE_BYTES_PER_BUCKET);
         assert_eq!(file_limit(1_000_000), 1_000_000 * FILE_BYTES_PER_BUCKET);
 
         let directory = crate::test_support::TestDir::new();
         let file = directory.0.join("buckets.json");
-        let limit = 2000;
         let empty = r#"{"version":1,"buckets":[]}"#;
         let fill = |extra: usize| {
             format!(
@@ -2034,7 +2040,7 @@ mod tests {
                 "{key}"
             );
         }
-        let values = (0..3400)
+        let values = (0..EXPANDING_LABELS)
             .map(|index| format!(r#""label{index}":1e9"#))
             .collect::<Vec<_>>()
             .join(",");
@@ -2247,7 +2253,7 @@ mod tests {
                     check_resource_size(entry.as_bytes())
                         .unwrap_err()
                         .to_string(),
-                    "Encoded native resource exceeds 64 KiB; reduce it to at most 65,536 bytes after removing project."
+                    "Encoded native resource exceeds 16 MiB; reduce it to at most 16,777,216 bytes after removing project."
                 );
             }
         }
@@ -2257,7 +2263,7 @@ mod tests {
             ),
             ["buckets[0].cors[0].maxAgeSeconds"]
         );
-        let labels = (0..3400)
+        let labels = (0..EXPANDING_LABELS)
             .map(|i| format!(r#""label{i}":1e9"#))
             .collect::<Vec<_>>()
             .join(",");
@@ -2573,7 +2579,7 @@ mod tests {
                 .unwrap_err()
                 .errors[0]
                 .fix
-                .contains("1 MiB")
+                .contains("32 MiB")
         );
         #[cfg(unix)]
         {

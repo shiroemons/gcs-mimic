@@ -56,7 +56,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --sync-reinitialize ID       startup only (exact catalog ID; missing marker only)
   --max-sync-entries N         10000 (1..100000000; files and directories in sync_dir, also the watches Linux may use; scans take longer, not more memory)
   --max-sync-depth N           128 (1..1024; directory levels below sync_dir, counting the bucket)
-  --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 KiB per allowed bucket and at least 1 MiB)
+  --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 KiB per allowed bucket and at least 32 MiB)
   --max-buckets-per-batch N    1000 (1..1000000; buckets one --buckets-file or one seed may declare, not all buckets; memory grows with them)
   --api-base-url URL           Each request's Host, else the bound listener (set to fix the advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
@@ -900,7 +900,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "cd4dd2a3e46cf5524e15fac181d4c7cc059a803c122c3e8c5624d4141eeb92e8"
+            "dfecfcff7289958670e889ddf681de456bbbaddfe74192f3d8a3dfebba49b78d"
         );
     }
 
