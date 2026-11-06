@@ -28,6 +28,71 @@ pub(super) fn bucket(name: &str, project: &str) -> BucketRecord {
     }
 }
 
+/// The documented 1,500 principals take more than the 64 KiB the column used to allow, and a
+/// failed constraint would answer with a retryable server error instead of storing the policy.
+#[tokio::test]
+async fn policy_bindings_migration_keeps_policies_and_lifts_the_size_check() {
+    use gcs_mimic::auth::{Binding, Policy};
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    catalog
+        .insert_bucket(bucket("bucket", "project"))
+        .await
+        .unwrap();
+    let small = Policy {
+        bindings: vec![Binding {
+            role: "roles/storage.objectViewer".into(),
+            members: vec!["user:reader@example.invalid".into()],
+        }],
+        etag: None,
+    };
+    let stored = catalog
+        .set_policy("bucket", small, PERMISSIVE)
+        .await
+        .unwrap();
+    downgraded(&dir, &catalog, |connection| {
+        common::downgrade_policy_bindings_schema(connection);
+        let oversized = "x".repeat(65_537);
+        assert!(
+            connection
+                .execute(
+                    "UPDATE bucket_policies SET bindings = ?1 WHERE bucket = 'bucket'",
+                    [&oversized],
+                )
+                .is_err(),
+            "the downgraded column keeps its size check"
+        );
+        connection.pragma_update(None, "user_version", 50).unwrap();
+    })
+    .await;
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog.get_policy("bucket", PERMISSIVE).await.unwrap(),
+        stored
+    );
+    let large = Policy {
+        bindings: vec![Binding {
+            role: "roles/storage.objectViewer".into(),
+            members: (0..1500)
+                .map(|index| format!("user:{index:04}{}", "x".repeat(250)))
+                .collect(),
+        }],
+        etag: None,
+    };
+    let stored = catalog
+        .set_policy("bucket", large, PERMISSIVE)
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog.get_policy("bucket", PERMISSIVE).await.unwrap(),
+        stored
+    );
+    catalog.close().await.unwrap();
+    assert_current_schema(&Connection::open(dir.0.join("catalog.sqlite3")).unwrap());
+}
+
 #[tokio::test]
 async fn versioning_presence_migration_preserves_existing_bucket_states() {
     let dir = TestDir::new();

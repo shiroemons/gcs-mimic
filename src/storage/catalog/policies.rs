@@ -16,6 +16,19 @@ CREATE TABLE policy_revision (
 ) WITHOUT ROWID;
 PRAGMA user_version = 6;";
 
+/// A policy's documented 1,500 principals can take more than the 64 KiB this column first allowed,
+/// and a failed constraint would surface as a retryable server error. The principal count is what
+/// bounds the column now. No table references this one, so dropping it cascades nothing.
+pub(super) const UNBOUNDED_BINDINGS_SCHEMA: &str = "CREATE TABLE bucket_policies_rebuilt (
+    bucket TEXT PRIMARY KEY COLLATE BINARY,
+    bindings TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision > 0)
+) WITHOUT ROWID;
+INSERT INTO bucket_policies_rebuilt SELECT bucket, bindings, revision FROM bucket_policies;
+DROP TABLE bucket_policies;
+ALTER TABLE bucket_policies_rebuilt RENAME TO bucket_policies;
+PRAGMA user_version = 51;";
+
 const SELECT_BUCKET_PROJECT: &str = "SELECT project FROM buckets WHERE name = ?1";
 
 #[expect(
