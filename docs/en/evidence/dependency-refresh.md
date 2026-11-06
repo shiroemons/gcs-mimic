@@ -569,3 +569,13 @@ digests, so the PHP suites run the same images.
 
 `GITHUB_TOKEN=... cargo xtask dependencies check` at 2026-11-06T12:29:07Z exited 0 with 119 `CURRENT`
 inputs; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`. The gzip tests passed with the new flate2.
+
+### Refresh before the 0.12.0 release
+
+| Input | Before | After |
+| --- | --- | --- |
+| com.google.auth:google-auth-library-oauth2-http | 1.56.0 | 1.57.0, jar of **395,167 bytes**, `sdk-scorecard/java` only |
+
+This scorecard probe is a development-only input and ships in no release artifact. Its lockfile changes only that version.
+
+`GITHUB_TOKEN=... cargo xtask dependencies check` at 2026-11-06T17:28:50Z exited 0 with 119 `CURRENT` inputs; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`. The Java suites run in the `just pre-push` recorded for the 0.12.0 release.

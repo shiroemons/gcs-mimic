@@ -89,4 +89,4 @@ local.gcsmimic:sdk-scorecard-java:jar:1.0.0
 |  +- dev.cel:protobuf:jar:0.13.0:runtime
 |  +- io.grpc:grpc-rls:jar:1.83.0:runtime
 |  \- org.jspecify:jspecify:jar:1.0.0:compile
-\- com.google.auth:google-auth-library-oauth2-http:jar:1.56.0:compile
+\- com.google.auth:google-auth-library-oauth2-http:jar:1.57.0:compile
