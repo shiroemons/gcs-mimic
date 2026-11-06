@@ -9,7 +9,7 @@ use gcs_mimic::{
     source_tree::{self, Walker},
 };
 use serde_json::{Value, json};
-use std::{fs, path::Path, process::Command};
+use std::{fs, num::NonZeroUsize, path::Path, process::Command};
 
 const ATTRS: &[u8] = include_bytes!("../fixtures/import/object-attrs.json");
 
@@ -329,7 +329,7 @@ fn metadata_and_body_limits_empty_files_os_detritus_and_page_counts_are_explicit
                 + p["page"]["findings"].as_array().unwrap().len()
                 <= 256)
     );
-    options.max_entries = 2;
+    options.max_entries = NonZeroUsize::new(2);
     let (summary, pages, _) = inspect(options);
     assert!(!summary.complete && !summary.eligible);
     assert_finding(&pages, ".:limits", "source entry limit exceeded");
@@ -431,8 +431,12 @@ fn overlap_and_walk_fail_closed_without_creating_destination() {
     overlap.destination = options.source.join("new");
     assert!(import::inspect(overlap, Vec::new(), Vec::new()).is_err());
     fs::create_dir_all(options.source.join("bucket-one/a/b/c")).unwrap();
+    let shallow = source_tree::TreeLimits {
+        entries: NonZeroUsize::new(20),
+        depth: NonZeroUsize::new(1),
+    };
     assert!(
-        Walker::new(&options.source, 20, 1)
+        Walker::new(&options.source, shallow)
             .unwrap()
             .any(|entry| entry.is_err())
     );
@@ -712,18 +716,19 @@ fn export_fingerprint_tracks_layout_and_skips_but_separates_stat_drift() {
     platform.source_platform = SourcePlatform::Windows;
     assert_ne!(export_digest(&attrs), export_digest(&inspect(platform).0));
     let mut limit = options.clone();
-    limit.max_object_bytes += 1;
+    limit.max_object_bytes -= 1;
     assert_ne!(export_digest(&attrs), export_digest(&inspect(limit).0));
     let mut incomplete = options.clone();
-    incomplete.max_entries = 1;
+    incomplete.max_entries = NonZeroUsize::new(1);
     let incomplete = inspect(incomplete).0;
     assert!(
         !incomplete.complete
             && incomplete.manifest_sha256.is_none()
             && incomplete.stat_observations_sha256.is_none()
     );
-    let mut shallow = options.clone();
-    shallow.max_depth = 0;
+    let (_shallow_dir, mut shallow) = setup();
+    fs::create_dir_all(shallow.source.join("bucket-one/one/two")).unwrap();
+    shallow.max_depth = NonZeroUsize::new(1);
     let (_, shallow_pages, _) = inspect(shallow);
     assert_finding(&shallow_pages, ".:limits", "source depth limit exceeded");
     let fix = shallow_pages
@@ -736,7 +741,7 @@ fn export_fingerprint_tracks_layout_and_skips_but_separates_stat_drift() {
         fix["diagnostic"]["fix"]
             .as_str()
             .unwrap()
-            .contains("within 0 levels")
+            .contains("within 1 levels")
     );
     fs::write(options.source.join("bucket-one/body.metadata"), b"{").unwrap();
     let blocked = inspect(options).0;

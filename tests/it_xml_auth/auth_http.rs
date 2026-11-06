@@ -3,6 +3,8 @@ use crate::common::process::declare_server;
 
 mod iam;
 
+mod identity_limits;
+
 mod xml;
 
 mod xml_put;

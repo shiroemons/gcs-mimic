@@ -227,11 +227,6 @@ impl Catalog {
         &self,
         projects: &[String],
     ) -> Result<(), CatalogError> {
-        if projects.len() > 64 {
-            return Err(CatalogError::InvalidMetadata(
-                "Parent policy exceeds 64 projects".into(),
-            ));
-        }
         let projects = projects.to_vec();
         self.run(move |connection| {
             let transaction = connection.transaction()?;

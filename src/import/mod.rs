@@ -12,7 +12,7 @@ mod test_support;
 mod tests;
 
 use crate::{
-    config::{MAX_OBJECT_BYTES, MAX_TREE_DEPTH, MAX_TREE_ENTRIES},
+    config::{MAX_OBJECT_BYTES, MAX_TREE_DEPTH},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     hashing::Hashes,
     source_tree,
@@ -25,6 +25,7 @@ use serde::Serialize;
 use std::{
     fs,
     io::{self, Write},
+    num::NonZeroUsize,
     path::PathBuf,
 };
 use tokio::sync::mpsc;
@@ -48,10 +49,11 @@ Filesystem snapshots recover normalized disk names only; original names/history 
 Native project/default placement and ETags are generated. Snapshot format preserves declared memory history.
 No server configuration is read.
 
-  --max-object-bytes N  1073741824 (1..5497558138880; largest source body)
-  --max-entries N       10000 (1..100000000; source files and directories, or snapshot rows)
-  --max-depth N         32 (1..1024; directory levels below a bucket; filesystem format only)
-These limits identify an import: a resume must repeat the values of its first run.";
+  --max-object-bytes N  5497558138880 (0..5497558138880; largest source body; 0 is the largest)
+  --max-entries N       0 (source files and directories, or snapshot rows; 0 is unlimited)
+  --max-depth N         0 (0..1024; directory levels below a bucket; filesystem format only; 0 is unlimited)
+These limits identify an import: a resume must repeat the values of its first run.
+An import that an earlier release started without them also resumes without them.";
 
 crate::config::string_enum! {
     no_default
@@ -117,8 +119,8 @@ pub struct Options {
     pub source_format: SourceFormat,
     pub verify_bodies: bool,
     pub max_object_bytes: u64,
-    pub max_entries: usize,
-    pub max_depth: usize,
+    pub max_entries: Option<NonZeroUsize>,
+    pub max_depth: Option<NonZeroUsize>,
 }
 
 impl Options {
@@ -135,11 +137,31 @@ impl Options {
             source_platform,
             source_format: SourceFormat::Filesystem,
             verify_bodies: false,
-            // These values are part of an import's identity, so changing a default would stop
-            // an unfinished import from resuming after an upgrade.
+            max_object_bytes: MAX_OBJECT_BYTES,
+            max_entries: None,
+            max_depth: None,
+        }
+    }
+
+    /// These options as an earlier release ran them when they named no limit. Limits are part of
+    /// an import's identity, and that release recorded its own defaults: 1 GiB, 10,000 entries and
+    /// 32 levels. Only options that name no limit themselves can mean them.
+    fn with_former_defaults(&self) -> Option<Self> {
+        (self.max_object_bytes == MAX_OBJECT_BYTES
+            && self.max_entries.is_none()
+            && self.max_depth.is_none())
+        .then(|| Self {
             max_object_bytes: 1_073_741_824,
-            max_entries: 10_000,
-            max_depth: 32,
+            max_entries: NonZeroUsize::new(10_000),
+            max_depth: NonZeroUsize::new(32),
+            ..self.clone()
+        })
+    }
+
+    fn tree_limits(&self) -> source_tree::TreeLimits {
+        source_tree::TreeLimits {
+            entries: self.max_entries,
+            depth: self.max_depth,
         }
     }
 
@@ -206,11 +228,11 @@ impl Options {
                 "Memory snapshot import is supported on Linux and macOS only; import the capture on one of those hosts.",
             );
         }
-        if self.max_entries == 0 || self.max_depth > MAX_TREE_DEPTH {
-            issue(
-                "limits",
-                "Use a positive entry limit and at most 1024 directory levels.",
-            );
+        if self
+            .max_depth
+            .is_some_and(|depth| depth.get() > MAX_TREE_DEPTH)
+        {
+            issue("limits", "Use at most 1024 directory levels.");
         }
         if diagnostics.is_err() {
             Err(diagnostics)
@@ -662,12 +684,17 @@ fn option_fields(options: &Options) -> [Vec<u8>; 6] {
             SourcePlatform::Windows => 1,
         }],
         options.max_object_bytes.to_be_bytes().to_vec(),
-        (options.max_entries as u64).to_be_bytes().to_vec(),
-        (options.max_depth as u64).to_be_bytes().to_vec(),
+        identity_limit(options.max_entries).to_be_bytes().to_vec(),
+        identity_limit(options.max_depth).to_be_bytes().to_vec(),
     ]
 }
 
-/// Applies the limit options, leaving the identity of an import that names none untouched.
+/// Zero cannot be a limit, so it identifies an import that has none.
+fn identity_limit(limit: Option<NonZeroUsize>) -> u64 {
+    limit.map_or(0, |limit| limit.get() as u64)
+}
+
+/// Applies the limit options; 0 means no limit, which for a body is Cloud Storage's own.
 fn apply_limits(
     options: &mut Options,
     values: &std::collections::BTreeMap<&str, &str>,
@@ -679,13 +706,13 @@ fn apply_limits(
                 value
                     .parse::<u64>()
                     .ok()
-                    .filter(|limit| (1..=maximum).contains(limit))
+                    .filter(|limit| *limit <= maximum)
                     .ok_or_else(|| {
                         Diagnostics::error(
                             DiagnosticSource::Cli,
                             key,
                             format!(
-                                "Use an integer in 1..={maximum}; see import fake-gcs-server --help."
+                                "Use an integer in 0..={maximum}; see import fake-gcs-server --help."
                             ),
                         )
                     })
@@ -693,13 +720,13 @@ fn apply_limits(
             .transpose()
     };
     if let Some(bytes) = limit("--max-object-bytes", MAX_OBJECT_BYTES)? {
-        options.max_object_bytes = bytes;
+        options.max_object_bytes = if bytes == 0 { MAX_OBJECT_BYTES } else { bytes };
     }
-    if let Some(entries) = limit("--max-entries", MAX_TREE_ENTRIES)? {
-        options.max_entries = usize::try_from(entries)?;
+    if let Some(entries) = limit("--max-entries", u64::MAX)? {
+        options.max_entries = NonZeroUsize::new(usize::try_from(entries)?);
     }
     if let Some(depth) = limit("--max-depth", MAX_TREE_DEPTH as u64)? {
-        options.max_depth = usize::try_from(depth)?;
+        options.max_depth = NonZeroUsize::new(usize::try_from(depth)?);
     }
     Ok(())
 }

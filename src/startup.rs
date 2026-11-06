@@ -541,6 +541,14 @@ fn seed_failure(error: &SeedError) -> String {
         | SeedError::BucketLimit { .. } => {
             return format!("seed import: {error}.");
         }
+        // No entry limit stops a seed before this, and a RAM catalog fills long before a disk does.
+        SeedError::Admin(AdminError::DiskFull(_)) => {
+            return "seed import: disk full; free disk space, or with backend memory raise memory_catalog_max_bytes and memory_max_bytes, before restarting.".into();
+        }
+        // The walk opens absolute paths; without a depth limit nothing else stops at this length.
+        SeedError::Io(error) if error.kind() == io::ErrorKind::InvalidFilename => {
+            "a fixture path exceeds this platform's path length limit"
+        }
         SeedError::BucketName(_) => "Invalid bucket name",
         SeedError::ObjectName(_) => "Invalid object name",
         SeedError::FileLimit => "max_object_bytes",
@@ -698,6 +706,10 @@ mod tests {
                 SeedError::WalkStopped,
                 "unreadable or invalid fixture input",
             ),
+            (
+                SeedError::Io(io::ErrorKind::InvalidFilename.into()),
+                "a fixture path exceeds this platform's path length limit",
+            ),
         ] {
             let error = SeedError::Import(Box::new(SeedError::Entry {
                 label: "fixture".into(),
@@ -713,6 +725,12 @@ mod tests {
         assert_eq!(
             seed_failure(&SeedError::Admin(AdminError::Hold)),
             "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry."
+        );
+        assert!(
+            seed_failure(&SeedError::Admin(AdminError::DiskFull(
+                io::ErrorKind::StorageFull.into()
+            )))
+            .contains("memory_catalog_max_bytes")
         );
         let error = SeedError::Io(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
         let error = SeedError::Import(Box::new(error));
@@ -1250,7 +1268,7 @@ mod tests {
         let failure = prepare_startup(
             &catalog,
             &config,
-            &vec!["project".into(); 65],
+            &["bad project".into()],
             Arc::new(SystemClock),
             shutdown.as_mut(),
         )

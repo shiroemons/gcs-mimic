@@ -1,5 +1,5 @@
 //! Native notifications trigger bounded descriptor-relative rescans.
-use crate::sync::tree::TreeLimits;
+use super::TreeLimits;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::fd::AsRawFd;
 use std::{fs::File, io, path::Path};

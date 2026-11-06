@@ -36,7 +36,9 @@ pub(in crate::storage) const SCHEMA: &str = include_str!("conflicts/schema.sql")
 /// tracked file over 1 TiB, under the 5 TiB object limit, still does. Below that the free disk is
 /// the real bound, and a full disk pauses the root as an I/O failure instead of evicting a copy.
 pub(crate) const MAX_BYTES: u64 = 1 << 40;
-pub(crate) const MAX_ENTRIES: u64 = 1000;
+/// The most entries `sync_writeback_roots` accepts. Every entry waits for an owner's decision, so
+/// a lower count would pause the root over conflicts the disk still has room for.
+pub(crate) const MAX_ENTRIES: u64 = 1_000_000;
 #[cfg(all(test, unix))]
 use list::ConflictPage;
 pub(in crate::storage) use list::usage;

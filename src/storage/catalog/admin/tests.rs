@@ -9,7 +9,7 @@ use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::{fs, time::Duration};
 
-const BATCH: usize = crate::config::DEFAULT_MAX_BUCKETS_PER_BATCH;
+const BATCH: usize = 1000;
 
 #[test]
 fn administrative_diagnostics_keep_their_existing_messages() {
@@ -645,9 +645,9 @@ async fn admin_ensure_full_batch_and_concurrent_creates_are_atomic() {
 }
 
 /// The initialization file enforces `max_buckets_per_batch`, so the catalog must not cut in with
-/// a count of its own: a raised limit would otherwise still stop here, at startup.
+/// a count of its own: a batch past 1000 buckets would otherwise still stop here, at startup.
 #[tokio::test]
-async fn admin_ensure_accepts_a_batch_past_the_default_limit_and_finds_it_after_reopening() {
+async fn admin_ensure_accepts_a_batch_past_a_thousand_buckets_and_finds_it_after_reopening() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let records = (0..=BATCH)

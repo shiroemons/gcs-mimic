@@ -367,10 +367,10 @@ fn ordinary_xattr_objects_do_not_get_a_detritus_probe() {
     assert_eq!(READS.load(Ordering::SeqCst), 2);
 }
 
-/// An unfinished import's identity includes its limits, so a default that moved would refuse to
-/// resume what an earlier release started. The options raise a limit; they must not move these.
+/// An unfinished import's identity includes its limits. The bytes an earlier release recorded for
+/// its defaults have to stay reachable, or an upgrade would refuse to resume what it started.
 #[test]
-fn the_defaults_that_identify_an_import_stay_where_they_were() {
+fn an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both() {
     let options = Options::new(
         "source".into(),
         "destination".into(),
@@ -378,7 +378,13 @@ fn the_defaults_that_identify_an_import_stay_where_they_were() {
         SourcePlatform::Unix,
     );
     let fields = option_fields(&options);
+    assert_eq!(fields[3], MAX_OBJECT_BYTES.to_be_bytes());
+    assert_eq!(fields[4], 0u64.to_be_bytes());
+    assert_eq!(fields[5], 0u64.to_be_bytes());
+    let former = options.with_former_defaults().unwrap();
+    let fields = option_fields(&former);
     assert_eq!(fields[3], 1_073_741_824u64.to_be_bytes());
     assert_eq!(fields[4], 10_000u64.to_be_bytes());
     assert_eq!(fields[5], 32u64.to_be_bytes());
+    assert!(former.with_former_defaults().is_none());
 }

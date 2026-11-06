@@ -6,7 +6,7 @@ use crate::{
     bounded_file::{self, ReadError},
     bucket::BucketRecord,
     clock::Clock,
-    config::{CompatProfile, DEFAULT_MAX_BUCKETS_PER_BATCH},
+    config::CompatProfile,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     json::{parse_insert_with_profile, validate_project},
     storage::{
@@ -21,15 +21,19 @@ use serde::{
 use serde_json::{Value, json, value::RawValue};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    num::NonZeroUsize,
     path::Path,
     time::SystemTime,
 };
 
 /// Leaves room beside one entry of the largest size, which a smaller file limit would refuse first.
 pub(crate) const FILE_LIMIT: usize = 2 * ENTRY_LIMIT;
-/// What each allowed bucket adds to a file, about what the default limit gets per bucket: a fixed
-/// size would otherwise refuse a file long before it reached the configured bucket limit.
+/// What each allowed bucket adds to a file: a fixed size would otherwise refuse a file long before
+/// it reached the configured bucket limit.
 const FILE_BYTES_PER_BUCKET: usize = 1024;
+/// The whole file is read into memory and parsed, so even without a bucket limit a mistaken path
+/// to some huge file must fail here. A million buckets of 1 KiB each still fit.
+const UNLIMITED_FILE_LIMIT: usize = 1024 * 1024 * 1024;
 pub(crate) const ENTRY_LIMIT: usize = crate::json::RESOURCE_BODY_LIMIT;
 pub(crate) const DIAGNOSTIC_LIMIT: usize = 256;
 pub(crate) const DIAGNOSTIC_BYTES_LIMIT: usize = 64 * 1024;
@@ -66,11 +70,12 @@ const RANGE_BYTES_LIMIT: usize = SUMMARY_BYTES_RESERVE
 const MAX_SUMMARY_RECORD_BYTES: usize =
     RANGE_BYTES_LIMIT + MORE_RANGES_BYTES + 3 * MAX_REASON_BYTES + SUMMARY_TEXT_BYTES;
 const _: () = assert!(MAX_SUMMARY_RECORD_BYTES + SUMMARY_ENVELOPE_BYTES <= SUMMARY_BYTES_RESERVE);
-// Alternating failures make the most ranges. They all fit at the default limit, so only a limit
-// someone raised can ever shorten this list.
+/// Alternating failures make the most ranges, and all of them fit up to this many buckets, so only
+/// a larger file ever shortens the list.
+const FULLY_LISTED_BUCKETS: usize = 1000;
 const _: () = assert!(
-    DEFAULT_MAX_BUCKETS_PER_BATCH.div_ceil(2)
-        * ("buckets[".len() + 2 * decimal_width(DEFAULT_MAX_BUCKETS_PER_BATCH - 1) + "..], ".len())
+    FULLY_LISTED_BUCKETS.div_ceil(2)
+        * ("buckets[".len() + 2 * decimal_width(FULLY_LISTED_BUCKETS - 1) + "..], ".len())
         <= RANGE_BYTES_LIMIT
 );
 
@@ -148,8 +153,13 @@ enum EntryReport {
     Detailed,
 }
 
+/// How many of `entries` a file with this limit gets to declare; the rest are not inspected.
+fn inspected_entries(bucket_limit: Option<NonZeroUsize>, entries: usize) -> usize {
+    bucket_limit.map_or(entries, |limit| entries.min(limit.get()))
+}
+
 struct Collected {
-    bucket_limit: usize,
+    bucket_limit: Option<NonZeroUsize>,
     root: Vec<Retained>,
     entries: Vec<Retained>,
     root_bytes: usize,
@@ -165,7 +175,7 @@ struct Collected {
 }
 
 impl Collected {
-    fn new(bucket_limit: usize) -> Self {
+    fn new(bucket_limit: Option<NonZeroUsize>) -> Self {
         Self {
             bucket_limit,
             root: Vec::new(),
@@ -197,7 +207,7 @@ impl Collected {
             .strip_prefix("buckets[")
             .and_then(|suffix| suffix.split_once(']'))
             .and_then(|(index, _)| index.parse::<usize>().ok())
-            .filter(|index| *index < self.bucket_limit);
+            .filter(|index| self.bucket_limit.is_none_or(|limit| *index < limit.get()));
         let root_key = RootKey::parse(&key);
         let group = (group_digest(&key), reason);
         let priority = if let Some(index) = entry {
@@ -658,7 +668,12 @@ fn value(raw: &RawValue) -> Result<Value, Diagnostics> {
         DiagnosticSource::Initializer, "$", "Cannot decode JSON resource; use a bounded UTF-8 JSON document with native bucket settings."))
 }
 
-fn duplicates(raw: &RawValue, key: &str, bucket_limit: usize, diagnostics: &mut Collected) {
+fn duplicates(
+    raw: &RawValue,
+    key: &str,
+    bucket_limit: Option<NonZeroUsize>,
+    diagnostics: &mut Collected,
+) {
     if raw.get().starts_with('{') {
         if let Some(Members(fields)) = members(raw) {
             let mut seen = BTreeMap::new();
@@ -682,15 +697,12 @@ fn duplicates(raw: &RawValue, key: &str, bucket_limit: usize, diagnostics: &mut 
     } else if raw.get().starts_with('[')
         && let Some(items) = array(raw)
     {
-        for (index, raw) in items
-            .iter()
-            .take(if key == "buckets" {
-                bucket_limit
-            } else {
-                usize::MAX
-            })
-            .enumerate()
-        {
+        let inspected = if key == "buckets" {
+            inspected_entries(bucket_limit, items.len())
+        } else {
+            items.len()
+        };
+        for (index, raw) in items.iter().take(inspected).enumerate() {
             duplicates(raw, &format!("{key}[{index}]"), bucket_limit, diagnostics);
         }
     }
@@ -1149,17 +1161,25 @@ fn initialization_failure(error: &AdminError) -> std::io::Error {
     ))
 }
 
-fn file_limit(bucket_limit: usize) -> usize {
-    bucket_limit
-        .saturating_mul(FILE_BYTES_PER_BUCKET)
-        .max(FILE_LIMIT)
+fn file_limit(bucket_limit: Option<NonZeroUsize>) -> usize {
+    bucket_limit.map_or(UNLIMITED_FILE_LIMIT, |limit| {
+        limit
+            .get()
+            .saturating_mul(FILE_BYTES_PER_BUCKET)
+            .max(FILE_LIMIT)
+    })
 }
 
-fn file_limit_fix(bucket_limit: usize) -> String {
-    format!(
-        "Bucket initialization file exceeds {} bytes; reduce it, or raise max_buckets_per_batch, which allows 1 KiB per bucket and at least 32 MiB in all.",
-        file_limit(bucket_limit)
-    )
+fn file_limit_fix(bucket_limit: Option<NonZeroUsize>) -> String {
+    let limit = file_limit(bucket_limit);
+    match bucket_limit {
+        Some(_) => format!(
+            "Bucket initialization file exceeds {limit} bytes; reduce it, or raise max_buckets_per_batch, which allows 1 KiB per bucket and at least 32 MiB in all."
+        ),
+        None => format!(
+            "Bucket initialization file exceeds {limit} bytes; check that buckets_file names the intended file, or reduce it."
+        ),
+    }
 }
 
 /// Read one selected regular file; relative paths use the process working directory.
@@ -1168,7 +1188,7 @@ pub(crate) fn load(
     seed_project: &str,
     clock: &dyn Clock,
     default_location: &str,
-    bucket_limit: usize,
+    bucket_limit: Option<NonZeroUsize>,
 ) -> Result<Vec<BucketRecord>, Diagnostics> {
     let read_failure = || {
         Diagnostics::error(
@@ -1203,7 +1223,7 @@ pub(crate) fn parse(
     seed_project: &str,
     clock: &dyn Clock,
     default_location: &str,
-    bucket_limit: usize,
+    bucket_limit: Option<NonZeroUsize>,
 ) -> Result<Vec<BucketRecord>, Diagnostics> {
     let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
     if bytes.len() > file_limit(bucket_limit) {
@@ -1287,21 +1307,22 @@ pub(crate) fn parse(
             );
             continue;
         };
-        if entries.len() > bucket_limit {
+        let inspected = inspected_entries(bucket_limit, entries.len());
+        if inspected < entries.len() {
             error(
                 &mut diagnostics,
                 Reason::Limit,
                 "buckets",
                 format!(
-                    "Too many buckets; keep at most {bucket_limit} entries or raise max_buckets_per_batch. Remaining {} entries were not inspected.",
-                    entries.len() - bucket_limit
+                    "Too many buckets; keep at most {inspected} entries or raise max_buckets_per_batch. Remaining {} entries were not inspected.",
+                    entries.len() - inspected
                 ),
             );
         }
         if !version_valid {
             continue;
         }
-        for (index, raw) in entries.iter().take(bucket_limit).enumerate() {
+        for (index, raw) in entries.iter().take(inspected).enumerate() {
             if let Some(entry) = check_entry(raw, index, now, &mut names, &mut diagnostics)? {
                 checked.push(entry);
             }
@@ -1471,7 +1492,12 @@ mod tests {
         }
     }
 
-    const DEFAULT_LIMIT: usize = DEFAULT_MAX_BUCKETS_PER_BATCH;
+    /// Most cases here check a limit an operator named, so they name one.
+    const LIMIT: usize = 1000;
+
+    fn named(limit: usize) -> Option<NonZeroUsize> {
+        NonZeroUsize::new(limit)
+    }
 
     fn parse(
         bytes: &[u8],
@@ -1479,7 +1505,7 @@ mod tests {
         clock: &dyn Clock,
         default_location: &str,
     ) -> Result<Vec<BucketRecord>, Diagnostics> {
-        super::parse(bytes, seed_project, clock, default_location, DEFAULT_LIMIT)
+        super::parse(bytes, seed_project, clock, default_location, named(LIMIT))
     }
 
     fn load(
@@ -1488,10 +1514,13 @@ mod tests {
         clock: &dyn Clock,
         default_location: &str,
     ) -> Result<Vec<BucketRecord>, Diagnostics> {
-        super::load(file, seed_project, clock, default_location, DEFAULT_LIMIT)
+        super::load(file, seed_project, clock, default_location, named(LIMIT))
     }
 
-    fn parsed_within(document: &str, limit: usize) -> Result<Vec<BucketRecord>, Diagnostics> {
+    fn parsed_with(
+        document: &str,
+        limit: Option<NonZeroUsize>,
+    ) -> Result<Vec<BucketRecord>, Diagnostics> {
         super::parse(
             document.as_bytes(),
             "seed-project",
@@ -1501,8 +1530,12 @@ mod tests {
         )
     }
 
+    fn parsed_within(document: &str, limit: usize) -> Result<Vec<BucketRecord>, Diagnostics> {
+        parsed_with(document, named(limit))
+    }
+
     fn parsed(document: &str) -> Result<Vec<BucketRecord>, Diagnostics> {
-        parsed_within(document, DEFAULT_LIMIT)
+        parsed_within(document, LIMIT)
     }
 
     fn rendered_bytes(errors: &Diagnostics) -> usize {
@@ -1637,9 +1670,9 @@ mod tests {
         #[test]
         fn arbitrary_bytes_never_panic_at_any_limit(
             bytes in prop::collection::vec(any::<u8>(), 0..4096),
-            limit in prop_oneof![Just(1usize), 1usize..=1_000_000, Just(1_000_000)],
+            limit in prop_oneof![Just(0usize), Just(1), 1usize..=1_000_000, Just(1_000_000)],
         ) {
-            if let Err(errors) = super::parse(&bytes, "seed-project", &FixedClock, "US", limit) {
+            if let Err(errors) = super::parse(&bytes, "seed-project", &FixedClock, "US", named(limit)) {
                 prop_assert!(errors.is_err());
                 prop_assert!(rendered_bytes(&errors) <= DIAGNOSTIC_BYTES_LIMIT);
             }
@@ -1679,11 +1712,12 @@ mod tests {
         #[test]
         fn any_failure_pattern_at_any_limit_stays_within_the_diagnostic_bounds(
             failing in prop::collection::vec(any::<bool>(), 0..3000),
-            limit in prop_oneof![1usize..3000, Just(1_000_000)],
+            limit in prop_oneof![Just(0usize), 1usize..3000, Just(1_000_000)],
         ) {
             let document = document_of(failing.iter().copied());
             let result = parsed_within(&document, limit);
-            let expect_success = failing.len() <= limit && !failing.iter().any(|failing| *failing);
+            let within = limit == 0 || failing.len() <= limit;
+            let expect_success = within && !failing.iter().any(|failing| *failing);
             prop_assert_eq!(result.is_ok(), expect_success);
             if let Err(errors) = result {
                 prop_assert!(errors.errors.len() <= DIAGNOSTIC_LIMIT);
@@ -1917,7 +1951,7 @@ mod tests {
     #[test]
     fn first_error_summaries_cover_all_entries_with_bounded_ranges() {
         for alternating in [false, true] {
-            let entries = (0..DEFAULT_LIMIT).map(|index| json!({"name":if !alternating || index % 2 == 0 { format!("bad name-{index}") } else { format!("bucket-{index:04}") }})).collect::<Vec<_>>();
+            let entries = (0..FULLY_LISTED_BUCKETS).map(|index| json!({"name":if !alternating || index % 2 == 0 { format!("bad name-{index}") } else { format!("bucket-{index:04}") }})).collect::<Vec<_>>();
             let errors = parsed(&json!({"version":1,"buckets":entries}).to_string()).unwrap_err();
             let summary = &errors.errors.last().unwrap().fix;
             if alternating {
@@ -1960,7 +1994,7 @@ mod tests {
 
     #[test]
     fn the_bucket_limit_is_inclusive_and_its_failure_names_the_setting() {
-        for limit in [1, 2, DEFAULT_LIMIT + 1, 5000] {
+        for limit in [1, 2, LIMIT + 1, 5000] {
             let at_limit = document_of((0..limit).map(|_| false));
             assert_eq!(parsed_within(&at_limit, limit).unwrap().len(), limit);
             let past_limit = document_of((0..=limit).map(|_| false));
@@ -1987,11 +2021,25 @@ mod tests {
     }
 
     #[test]
+    fn no_bucket_limit_inspects_every_entry_up_to_the_file_limit() {
+        let entries = (0..LIMIT + 1)
+            .map(|index| json!({"name":format!("bucket-{index:04}")}))
+            .collect::<Vec<_>>();
+        let document = json!({"version":1,"buckets":entries}).to_string();
+        assert_eq!(parsed_with(&document, None).unwrap().len(), LIMIT + 1);
+        assert_eq!(file_limit(None), UNLIMITED_FILE_LIMIT);
+        let fix = file_limit_fix(None);
+        assert!(fix.contains("buckets_file"), "{fix}");
+        assert!(!fix.contains("max_buckets_per_batch"), "{fix}");
+    }
+
+    #[test]
     fn the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor() {
+        let file_limit = |limit| file_limit(named(limit));
         // The first bucket limit whose allowance passes the floor.
         let limit = FILE_LIMIT / FILE_BYTES_PER_BUCKET + 1;
         assert_eq!(file_limit(1), FILE_LIMIT);
-        assert_eq!(file_limit(DEFAULT_LIMIT), FILE_LIMIT);
+        assert_eq!(file_limit(LIMIT), FILE_LIMIT);
         assert_eq!(file_limit(FILE_LIMIT / FILE_BYTES_PER_BUCKET), FILE_LIMIT);
         assert_eq!(file_limit(limit), limit * FILE_BYTES_PER_BUCKET);
         assert_eq!(file_limit(1_000_000), 1_000_000 * FILE_BYTES_PER_BUCKET);
@@ -2010,7 +2058,7 @@ mod tests {
             parsed_within(&fill(1), limit).unwrap_err(),
             {
                 fs::write(&file, fill(1)).unwrap();
-                super::load(&file, "seed-project", &FixedClock, "US", limit).unwrap_err()
+                super::load(&file, "seed-project", &FixedClock, "US", named(limit)).unwrap_err()
             },
             {
                 fs::write(&file, fill(0)).unwrap();
@@ -2024,7 +2072,7 @@ mod tests {
             );
         }
         fs::write(&file, fill(0)).unwrap();
-        assert!(super::load(&file, "seed-project", &FixedClock, "US", limit).is_ok());
+        assert!(super::load(&file, "seed-project", &FixedClock, "US", named(limit)).is_ok());
     }
 
     #[test]
@@ -2064,7 +2112,7 @@ mod tests {
 
     #[test]
     fn entries_after_the_count_limit_are_not_interpreted() {
-        let mut entries = (0..DEFAULT_LIMIT)
+        let mut entries = (0..LIMIT)
             .map(|index| json!({"name":format!("bucket-{index:04}")}))
             .collect::<Vec<_>>();
         entries.push(json!({"unknown":true}));
@@ -2381,7 +2429,7 @@ mod tests {
         assert!(!errors.to_string().contains("secret"));
         assert_eq!(distance("aa", "ab"), 1);
         let raw: &RawValue = serde_json::from_str(r#"{"":1}"#).unwrap();
-        let mut errors = Collected::new(DEFAULT_LIMIT);
+        let mut errors = Collected::new(named(LIMIT));
         closed::<Document>(&members(raw).unwrap(), "", &mut errors);
         assert!(errors.finish().errors[0].fix.contains("use buckets,"));
     }

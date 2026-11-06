@@ -3,6 +3,7 @@
 use super::*;
 use crate::storage::catalog::ConnectionUnavailable;
 use crate::storage::catalog::sql;
+use std::num::NonZeroUsize;
 
 #[derive(Clone, Copy)]
 pub(crate) enum SeedMode {
@@ -28,18 +29,21 @@ pub(crate) struct SeedBatch {
     request: Arc<OwnedSemaphorePermit>,
     runtime: tokio::runtime::Handle,
     metadata_bytes: usize,
-    metadata_budget: usize,
+    metadata_budget: Option<usize>,
     request_deadline: Option<tokio::time::Instant>,
 }
 
-/// A batch holds every object's metadata in memory until it commits, so this bounds that memory.
-/// It scales with the tree size the operator allowed: a larger seed is a deliberate choice, and
-/// fixed bytes would refuse it long before its entry limit.
-fn metadata_budget(max_entries: usize) -> usize {
+/// A batch holds every object's metadata in memory until it commits. A limit the operator chose
+/// bounds that memory, scaled so that fixed bytes do not refuse a tree long before its entry
+/// limit; without a limit, the size of the tree is all that bounds it.
+fn metadata_budget(max_entries: Option<NonZeroUsize>) -> Option<usize> {
     const BYTES_PER_10K_ENTRIES: usize = 8 * 1024 * 1024;
-    max_entries
-        .div_ceil(10_000)
-        .saturating_mul(BYTES_PER_10K_ENTRIES)
+    max_entries.map(|entries| {
+        entries
+            .get()
+            .div_ceil(10_000)
+            .saturating_mul(BYTES_PER_10K_ENTRIES)
+    })
 }
 
 /// A caller with its own budget (an HTTP request) supplies a limit so that waiting ends as a
@@ -58,13 +62,13 @@ fn wait_deadline(
 impl Admin {
     #[cfg(test)]
     pub(crate) async fn seed_batch(&self) -> Result<SeedBatch, AdminError> {
-        self.seed_batch_until(None, 10_000).await
+        self.seed_batch_until(None, None).await
     }
 
     pub(crate) async fn seed_batch_until(
         &self,
         request_deadline: Option<tokio::time::Instant>,
-        max_entries: usize,
+        max_entries: Option<NonZeroUsize>,
     ) -> Result<SeedBatch, AdminError> {
         if self.catalog.sync_controls()?.is_some() {
             return Err(AdminError::Precondition);
@@ -117,7 +121,9 @@ fn metadata_size(value: &impl std::fmt::Debug) -> Result<usize, AdminError> {
 
 impl SeedBatch {
     fn charge_metadata(&mut self, bytes: usize) -> Result<(), AdminError> {
-        let budget = self.metadata_budget;
+        let Some(budget) = self.metadata_budget else {
+            return Ok(());
+        };
         self.metadata_bytes = self
             .metadata_bytes
             .checked_add(bytes)

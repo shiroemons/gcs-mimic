@@ -867,8 +867,7 @@ pub(super) fn scan(
     xattr: XattrReader,
 ) -> Result<(), ImportFailure> {
     let root = &options.source;
-    let walk = Walker::new(root, options.max_entries, options.max_depth)
-        .map_err(|error| walk_failure(error, options.max_depth))?;
+    let walk = Walker::new(root, options.tree_limits()).map_err(walk_failure)?;
     let mut scan = Scan {
         options,
         report,
@@ -878,8 +877,7 @@ pub(super) fn scan(
         body_buffer: options.verify_bodies.then(|| Box::new([0; 65_536])),
     };
     for entry in walk {
-        let (path, metadata, depth) =
-            entry.map_err(|error| walk_failure(error, options.max_depth))?;
+        let (path, metadata, depth) = entry.map_err(walk_failure)?;
         let report = &mut *scan.report;
         report.summary.entries += 1;
         if depth == 0 && metadata.is_dir() {
@@ -1158,19 +1156,19 @@ fn check_object_sidecar(path: &Path, leaf: &str) -> Result<(), ImportFailure> {
     Ok(())
 }
 
-fn walk_failure(error: WalkError, max_depth: usize) -> ImportFailure {
+fn walk_failure(error: WalkError) -> ImportFailure {
     match error {
         WalkError::Io(error) => ImportFailure::Io(error),
-        WalkError::EntryLimit => ImportFailure::corrupt(
+        WalkError::EntryLimit { .. } => ImportFailure::corrupt(
             "limits",
             "source entry limit exceeded",
             "Raise --max-entries, or split the source to fit the entry limit, which counts sidecars, before retrying.",
         ),
-        WalkError::DepthLimit => ImportFailure::corrupt(
+        WalkError::DepthLimit { limit } => ImportFailure::corrupt(
             "limits",
             "source depth limit exceeded",
             format!(
-                "Raise --max-depth, or provide source directories within {max_depth} levels below a bucket; do not silently flatten object names."
+                "Raise --max-depth, or provide source directories within {limit} levels below a bucket; do not silently flatten object names."
             ),
         ),
         WalkError::NotDirectory => ImportFailure::corrupt(

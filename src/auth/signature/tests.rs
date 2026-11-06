@@ -997,6 +997,9 @@ fn registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material() {
                 .contains("public_keys")
         );
     }
+    // A service account can hold more keys than the 8 this file once allowed.
     let value = json!({"identities":[{"id":SIGNER,"tokens":[],"public_keys":vec![PUBLIC;9]}]});
+    assert!(Registry::parse(&serde_json::to_vec(&value).unwrap()).is_ok());
+    let value = json!({"identities":[{"id":SIGNER,"tokens":[],"public_keys":[]}]});
     assert!(Registry::parse(&serde_json::to_vec(&value).unwrap()).is_err());
 }

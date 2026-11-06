@@ -4,8 +4,8 @@ use crate::time_limit::TimeLimit;
 pub(super) const UNKNOWN_SETTING: &str = "Unknown setting; remove it and use --help.";
 pub(crate) const MAX_OBJECT_BYTES: u64 = 5 * 1024_u64.pow(4);
 /// A 1024-byte object name cannot nest deeper than this, so a larger limit could admit nothing.
+/// A walk that holds a descriptor per level stops here even when no limit is set.
 pub(crate) const MAX_TREE_DEPTH: usize = 1024;
-pub(crate) const MAX_TREE_ENTRIES: u64 = 100_000_000;
 
 super::string_enum! {
     no_default pub(crate) enum Setting {
@@ -96,10 +96,11 @@ impl Setting {
             Self::MaxObjectBytes => Some((1, MAX_OBJECT_BYTES)),
             // 0 means unlimited here only; the config holds `Option<NonZeroU32>`.
             Self::MaxResumableSessions | Self::MaxRewriteSessions => Some((0, u32::MAX as u64)),
-            Self::MaxSeedEntries | Self::MaxSyncEntries => Some((1, MAX_TREE_ENTRIES)),
-            Self::MaxSeedDepth | Self::MaxSyncDepth => Some((1, MAX_TREE_DEPTH as u64)),
-            // Each bucket of a batch costs memory until the batch commits as one transaction.
-            Self::MaxBucketsPerBatch => Some((1, 1_000_000)),
+            // 0 means unlimited here too; the config holds `Option<NonZeroUsize>`.
+            Self::MaxSeedEntries | Self::MaxSyncEntries | Self::MaxBucketsPerBatch => {
+                Some((0, u64::MAX))
+            }
+            Self::MaxSeedDepth | Self::MaxSyncDepth => Some((0, MAX_TREE_DEPTH as u64)),
             Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 1024)),
             Self::Config
             | Self::LogLevel

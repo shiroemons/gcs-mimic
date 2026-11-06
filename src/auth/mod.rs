@@ -162,13 +162,14 @@ impl FromIterator<Permission> for ProjectGrant {
     }
 }
 
-const MAX_REGISTRY_BYTES: u64 = 64 * 1024;
-const MAX_IDENTITIES: usize = 256;
+/// The file is trusted and read once at startup, and every lookup goes through an index, so its
+/// size is all that needs a bound: it is held in memory while it parses.
+const MAX_REGISTRY_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_REGISTRY_MIB: u64 = MAX_REGISTRY_BYTES / (1024 * 1024);
+/// The longest email address; object owners and ACL entities store the id with little to spare.
 const MAX_ID_BYTES: usize = 254;
-const MAX_TOKENS: usize = 16;
-const MAX_TOKEN_BYTES: usize = 512;
-const MAX_PROJECTS: usize = 64;
-const MAX_ROLES: usize = 32;
+/// A registered token arrives in the same header as a JWT, so the same bound fits both.
+const MAX_TOKEN_BYTES: usize = jwt::MAX_TOKEN_BYTES;
 
 /// Query parameters that carry credentials in Google APIs (OAuth tokens and V2/V4 signatures).
 /// Unlike XML signing parameters this set includes OAuth tokens and excludes standalone Expires.
@@ -269,14 +270,39 @@ enum Presented<'a> {
 pub struct Identity {
     id: String,
     acl_entity: Option<String>,
-    projects: BTreeMap<String, ProjectGrant>,
+    /// Shared because requests clone the caller, and a principal may hold any number of projects.
+    projects: Arc<BTreeMap<String, ProjectGrant>>,
+}
+
+fn upload_grants(grant: &ProjectGrant) -> Vec<&'static str> {
+    [Permission::ObjectsCreate, Permission::ObjectsDelete]
+        .into_iter()
+        .filter(|permission| grant.permissions.contains(*permission))
+        .map(Permission::as_str)
+        .collect()
 }
 
 impl Identity {
     pub(crate) fn upload_snapshot(&self) -> Value {
-        serde_json::json!({"id": self.id, "projects": self.projects.iter().map(|(project, grant)| {
-            (project.clone(), [Permission::ObjectsCreate, Permission::ObjectsDelete].into_iter().filter(|permission| grant.permissions.contains(*permission)).map(Permission::as_str).collect::<Vec<_>>())
-        }).collect::<BTreeMap<_, _>>()})
+        let projects: BTreeMap<_, _> = self
+            .projects
+            .iter()
+            .map(|(project, grant)| (project, upload_grants(grant)))
+            .collect();
+        serde_json::json!({"id": self.id, "projects": projects})
+    }
+
+    /// The snapshot an upload in a bucket of `project` stores. Stored options hold at most 64 KiB
+    /// and only the bucket's own project can authorize the upload, so the others stay out however
+    /// many a principal holds.
+    pub(crate) fn upload_snapshot_for(&self, project: &str) -> Value {
+        let projects: BTreeMap<_, _> = self
+            .projects
+            .get_key_value(project)
+            .map(|(project, grant)| (project, upload_grants(grant)))
+            .into_iter()
+            .collect();
+        serde_json::json!({"id": self.id, "projects": projects})
     }
 
     pub(crate) fn from_upload_snapshot(value: &Value) -> Result<Self, InvalidUploadSnapshot> {
@@ -286,10 +312,7 @@ impl Identity {
             .filter(|id| !id.is_empty() && id.len() <= MAX_ID_BYTES)
             .ok_or_else(invalid)?
             .to_owned();
-        let projects = value["projects"]
-            .as_object()
-            .filter(|p| p.len() <= MAX_PROJECTS)
-            .ok_or_else(invalid)?;
+        let projects = value["projects"].as_object().ok_or_else(invalid)?;
         let mut permissions = BTreeMap::new();
         for (project, entries) in projects {
             let mut set = ProjectGrant::default();
@@ -305,7 +328,7 @@ impl Identity {
         Ok(Self {
             id,
             acl_entity: None,
-            projects: permissions,
+            projects: permissions.into(),
         })
     }
 
@@ -429,7 +452,7 @@ pub enum RegistryError {
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TooLarge => f.write_str("identity_file exceeds 64 KiB"),
+            Self::TooLarge => write!(f, "identity_file exceeds {MAX_REGISTRY_MIB} MiB"),
             Self::Io(error) => write!(f, "identity_file: {error}"),
             Self::Syntax(error) => write!(f, "identity_file: {error}"),
             Self::Invalid {
@@ -472,6 +495,8 @@ impl std::error::Error for RegistryError {
 #[derive(Debug)]
 pub struct Registry {
     identities: Vec<Identity>,
+    /// Authentication resolves a signer per request, so it must not walk the identities.
+    ids: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
     signing_keys: HashMap<String, Arc<[signature::PublicKey]>>,
     public_access_prevention_projects: Vec<String>,
@@ -511,13 +536,11 @@ impl Registry {
             .ok_or_else(|| error("missing required field: identities".into()))?
             .as_array()
             .ok_or_else(|| error("identities must be an array".into()))?;
-        if !(1..=MAX_IDENTITIES).contains(&entries.len()) {
-            return Err(error(format!(
-                "identities must contain 1..={MAX_IDENTITIES} entries"
-            )));
+        if entries.is_empty() {
+            return Err(error("identities must contain at least one entry".into()));
         }
         let mut identities = Vec::with_capacity(entries.len());
-        let mut ids = BTreeSet::new();
+        let mut ids = HashMap::with_capacity(entries.len());
         let mut tokens = HashMap::new();
         let mut signing_keys = HashMap::new();
         for (index, entry) in entries.iter().enumerate() {
@@ -552,7 +575,7 @@ impl Registry {
                     crate::object::owner::RESERVED_ID_PREFIX
                 )));
             }
-            if !ids.insert(id.to_owned()) {
+            if ids.insert(id.to_owned(), index).is_some() {
                 return Err(error(format!("duplicate id: {id}")));
             }
             if let Some(keys) = entry.get("public_keys") {
@@ -563,11 +586,6 @@ impl Registry {
                 .ok_or_else(|| error("missing required field: tokens".into()))?
                 .as_array()
                 .ok_or_else(|| error("tokens must be an array".into()))?;
-            if token_values.len() > MAX_TOKENS {
-                return Err(error(format!(
-                    "tokens must contain 0..={MAX_TOKENS} entries"
-                )));
-            }
             for token in token_values {
                 let token = token
                     .as_str()
@@ -594,12 +612,13 @@ impl Registry {
             identities.push(Identity {
                 id: id.to_owned(),
                 acl_entity: acl_identity::parse_entity(entry.get("acl_entity"), index)?,
-                projects: permissions,
+                projects: permissions.into(),
             });
         }
         acl_identity::validate_aliases(&identities)?;
         Ok(Self {
             identities,
+            ids,
             tokens,
             signing_keys,
             public_access_prevention_projects,
@@ -609,6 +628,10 @@ impl Registry {
     pub(crate) fn len(&self) -> usize {
         self.identities.len()
     }
+
+    fn identity(&self, id: &str) -> Option<&Identity> {
+        self.identities.get(*self.ids.get(id)?)
+    }
 }
 
 fn parse_pap_projects(value: Option<&Value>) -> Result<Vec<String>, RegistryError> {
@@ -616,22 +639,21 @@ fn parse_pap_projects(value: Option<&Value>) -> Result<Vec<String>, RegistryErro
         entry: None,
         reason,
     };
-    let mut public_access_prevention_projects = Vec::new();
     let Some(value) = value else {
-        return Ok(public_access_prevention_projects);
+        return Ok(Vec::new());
     };
-    let projects = value.as_array().filter(|projects| projects.len() <= MAX_PROJECTS)
-        .ok_or_else(|| error("public_access_prevention_projects must be an array of at most 64 project identifiers".into()))?;
+    let projects = value.as_array().ok_or_else(|| {
+        error("public_access_prevention_projects must be an array of project identifiers".into())
+    })?;
+    let mut seen = BTreeSet::new();
+    let mut public_access_prevention_projects = Vec::with_capacity(projects.len());
     for project in projects {
         let project = project.as_str().ok_or_else(|| {
             error("public_access_prevention_projects entries must be strings".into())
         })?;
         crate::json::validate_project(project)
             .map_err(|_| error("invalid public_access_prevention_projects entry".into()))?;
-        if public_access_prevention_projects
-            .iter()
-            .any(|existing| existing == project)
-        {
+        if !seen.insert(project) {
             return Err(error(
                 "duplicate public_access_prevention_projects entry".into(),
             ));
@@ -651,9 +673,9 @@ fn parse_public_keys(
     };
     let keys = keys
         .as_array()
-        .filter(|keys| (1..=8).contains(&keys.len()))
+        .filter(|keys| !keys.is_empty())
         .ok_or_else(|| {
-            error("public_keys must be an array of 1..=8 inline public PEM strings".into())
+            error("public_keys must be a nonempty array of inline public PEM strings".into())
         })?;
     keys.iter()
         .map(|key| {
@@ -682,11 +704,6 @@ fn parse_project_roles(
     let projects = projects
         .as_object()
         .ok_or_else(|| error("project_roles must be a JSON object".into()))?;
-    if projects.len() > MAX_PROJECTS {
-        return Err(error(format!(
-            "project_roles must contain at most {MAX_PROJECTS} projects"
-        )));
-    }
     for (project, role_values) in projects {
         crate::json::validate_project(project).map_err(|source| RegistryError::Project {
             entry: index,
@@ -695,10 +712,10 @@ fn parse_project_roles(
         })?;
         let role_values = role_values
             .as_array()
-            .filter(|roles| (1..=MAX_ROLES).contains(&roles.len()))
+            .filter(|roles| !roles.is_empty())
             .ok_or_else(|| {
                 error(format!(
-                    "project {project:?}: roles must be an array of 1..={MAX_ROLES} role names"
+                    "project {project:?}: roles must be a nonempty array of role names"
                 ))
             })?;
         let mut names = BTreeSet::new();
@@ -1022,7 +1039,7 @@ mod tests {
     }
 
     #[test]
-    fn pap_parent_fixture_rejects_malformed_and_unbounded_projects() {
+    fn pap_parent_fixture_rejects_malformed_and_repeated_projects() {
         for projects in [
             serde_json::json!(null),
             serde_json::json!(true),
@@ -1031,7 +1048,6 @@ mod tests {
             serde_json::json!([""]),
             serde_json::json!(["has space"]),
             serde_json::json!(["p", "p"]),
-            serde_json::json!((0..65).map(|n| format!("p{n}")).collect::<Vec<_>>()),
         ] {
             let value = serde_json::json!({"identities":[{"id":"local","tokens":["token"]}],"public_access_prevention_projects":projects});
             assert!(
@@ -1061,7 +1077,8 @@ mod tests {
         let identity = Identity {
             id: "local".into(),
             acl_entity: None,
-            projects: BTreeMap::from([("project".into(), [BUCKETS_UPDATE].into_iter().collect())]),
+            projects: BTreeMap::from([("project".into(), [BUCKETS_UPDATE].into_iter().collect())])
+                .into(),
         };
         let access = BucketAccess::Policy {
             identity: Some(identity),
@@ -1178,7 +1195,8 @@ mod tests {
                         projects: BTreeMap::from([(
                             "project".into(),
                             permissions.into_iter().collect(),
-                        )]),
+                        )])
+                        .into(),
                     }),
                     permission: Permission::BucketsUpdate,
                     project: Some("project".into()),
@@ -1296,11 +1314,11 @@ mod tests {
             .await
             .unwrap();
         let mut registry = Registry::parse(br#"{"identities":[{"id":"reader","tokens":["reader"]},{"id":"writer","tokens":["writer"]}]}"#).unwrap();
-        registry.identities[0].projects.insert(
+        Arc::make_mut(&mut registry.identities[0].projects).insert(
             "project".into(),
             [OBJECTS_UPDATE, OBJECTS_GET_IAM].into_iter().collect(),
         );
-        registry.identities[1].projects.insert(
+        Arc::make_mut(&mut registry.identities[1].projects).insert(
             "project".into(),
             [OBJECTS_UPDATE, OBJECTS_SET_IAM].into_iter().collect(),
         );
@@ -1433,28 +1451,19 @@ mod tests {
         let projects: Vec<_> = (0..roles::PREDEFINED_ROLES.len())
             .map(|index| format!("project-{index}"))
             .collect();
-        let mut registry = Vec::new();
-        for (chunk_index, chunk) in roles::PREDEFINED_ROLES.chunks(MAX_PROJECTS).enumerate() {
-            let project_roles: serde_json::Map<_, _> = chunk
-                .iter()
-                .enumerate()
-                .map(|(offset, (role, _, _))| {
-                    (
-                        projects[chunk_index * MAX_PROJECTS + offset].clone(),
-                        serde_json::json!([role]),
-                    )
-                })
-                .collect();
-            registry.push(serde_json::json!({
-                "id": format!("user-{chunk_index}@example.invalid"),
-                "tokens": [format!("token-{chunk_index}")],
-                "project_roles": project_roles,
-            }));
-        }
+        let project_roles: serde_json::Map<_, _> = roles::PREDEFINED_ROLES
+            .iter()
+            .zip(&projects)
+            .map(|((role, _, _), project)| (project.clone(), serde_json::json!([role])))
+            .collect();
         let registry = Registry::parse(
-            serde_json::json!({ "identities": registry })
-                .to_string()
-                .as_bytes(),
+            serde_json::json!({ "identities": [{
+                "id": "user@example.invalid",
+                "tokens": ["token"],
+                "project_roles": project_roles,
+            }]})
+            .to_string()
+            .as_bytes(),
         )
         .unwrap();
         let identity = &registry.identities[0];
@@ -1668,25 +1677,13 @@ mod tests {
             1
         );
         let long_id = "a".repeat(255);
-        let long_token = "t".repeat(513);
-        let many_tokens: Vec<_> = (0..17).map(|n| format!("t{n}")).collect();
-        let many_roles = vec!["roles/storage.objectViewer"; 33];
-        let many_projects: serde_json::Map<_, _> = (0..65)
-            .map(|n| (format!("p{n}"), serde_json::json!(["roles/storage.viewer"])))
-            .collect();
-        let many_identities: Vec<_> = (0..257)
-            .map(|n| serde_json::json!({"id": format!("u{n}"), "tokens": [format!("t{n}")]}))
-            .collect();
+        let long_token = "t".repeat(MAX_TOKEN_BYTES + 1);
         for (case, document) in [
             ("malformed", "{".to_owned()),
             ("not object", "[]".into()),
             ("missing identities", "{}".into()),
             ("unknown top", r#"{"identities":[],"extra":1}"#.into()),
             ("empty", r#"{"identities":[]}"#.into()),
-            (
-                "too many identities",
-                serde_json::json!({ "identities": many_identities }).to_string(),
-            ),
             (
                 "unknown field",
                 valid(r#"{"id":"a","tokens":["t"],"role":"x"}"#),
@@ -1711,10 +1708,6 @@ mod tests {
                 valid(r#"{"id":"a","tokens":["t"]},{"id":"a","tokens":["u"]}"#),
             ),
             ("missing tokens", valid(r#"{"id":"a"}"#)),
-            (
-                "too many tokens",
-                valid(&serde_json::json!({"id":"a","tokens":many_tokens}).to_string()),
-            ),
             ("empty token", valid(r#"{"id":"a","tokens":[""]}"#)),
             ("space token", valid(r#"{"id":"a","tokens":["a b"]}"#)),
             ("non-ascii token", valid(r#"{"id":"a","tokens":["tö"]}"#)),
@@ -1760,18 +1753,12 @@ mod tests {
                 ),
             ),
             (
-                "too many roles",
-                valid(
-                    &serde_json::json!({"id":"a","tokens":["t"],"project_roles":{"p":many_roles}})
-                        .to_string(),
-                ),
+                "no roles",
+                valid(r#"{"id":"a","tokens":["t"],"project_roles":{"p":[]}}"#),
             ),
             (
-                "too many projects",
-                valid(
-                    &serde_json::json!({"id":"a","tokens":["t"],"project_roles":many_projects})
-                        .to_string(),
-                ),
+                "no public keys",
+                valid(r#"{"id":"a","tokens":["t"],"public_keys":[]}"#),
             ),
             (
                 "invalid project",
@@ -1795,19 +1782,89 @@ mod tests {
         }
     }
 
+    /// Everything the file can name resolves through an index, so counts past the former limits
+    /// of 256 identities, 16 tokens, 64 projects and 32 roles load and authenticate.
+    #[tokio::test]
+    async fn a_registry_past_the_former_count_limits_loads_and_authenticates_its_last_entry() {
+        const COUNT: usize = 1000;
+        let roles: Vec<_> = roles::PREDEFINED_ROLES
+            .iter()
+            .map(|(role, _, _)| *role)
+            .collect();
+        let tokens: Vec<_> = (0..COUNT).map(|n| format!("extra-{n}")).collect();
+        let projects: serde_json::Map<_, _> = (0..COUNT)
+            .map(|n| (format!("project-{n}"), serde_json::json!(roles)))
+            .collect();
+        let mut identities: Vec<_> = (0..COUNT)
+            .map(|n| serde_json::json!({"id": format!("u{n}"), "tokens": [format!("t{n}")]}))
+            .collect();
+        identities.push(serde_json::json!({
+            "id": "last", "tokens": tokens, "project_roles": projects,
+        }));
+        let parked: Vec<_> = (0..COUNT).map(|n| format!("parked-{n}")).collect();
+        let document = serde_json::json!({
+            "identities": identities, "public_access_prevention_projects": parked,
+        });
+        let registry = Registry::parse(document.to_string().as_bytes()).unwrap();
+        assert_eq!(registry.len(), COUNT + 1);
+        assert_eq!(registry.public_access_prevention_projects.len(), COUNT);
+        assert_eq!(registry.identity("u999").unwrap().id(), "u999");
+        assert!(registry.identity("unknown").is_none());
+        let auth = Auth::strict(registry);
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer extra-999".parse().unwrap());
+        let caller = auth
+            .authenticate_request(&headers, None, &crate::clock::SystemClock)
+            .await
+            .unwrap()
+            .unwrap();
+        let identity = caller.principal().unwrap();
+        assert_eq!(identity.id(), "last");
+        assert!(identity.allows(OBJECTS_CREATE, "project-999"));
+    }
+
+    /// Stored upload options hold at most 64 KiB, so a principal's other projects must stay out.
+    #[test]
+    fn an_upload_snapshot_for_a_project_keeps_only_that_project() {
+        let projects: serde_json::Map<_, _> = (0..5000)
+            .map(|n| {
+                (
+                    format!("project-{n}"),
+                    serde_json::json!(["roles/storage.objectAdmin"]),
+                )
+            })
+            .collect();
+        let document =
+            serde_json::json!({"identities": [{"id":"a","tokens":[],"project_roles":projects}]});
+        let registry = Registry::parse(document.to_string().as_bytes()).unwrap();
+        let identity = registry.identity("a").unwrap();
+        assert!(identity.upload_snapshot().to_string().len() > 64 * 1024);
+        let snapshot = identity.upload_snapshot_for("project-7");
+        let restored = Identity::from_upload_snapshot(&snapshot).unwrap();
+        assert!(restored.allows(OBJECTS_CREATE, "project-7"));
+        assert!(!restored.allows(OBJECTS_CREATE, "project-8"));
+        assert_eq!(
+            identity.upload_snapshot_for("unlisted")["projects"],
+            serde_json::json!({})
+        );
+        let full = Identity::from_upload_snapshot(&identity.upload_snapshot()).unwrap();
+        assert!(full.allows(OBJECTS_CREATE, "project-4999"));
+    }
+
     #[test]
     fn registry_file_read_is_bounded() {
         let dir = TestDir::new();
         let path = dir.0.join("identity.json");
         let mut document = r#"{"identities":[{"id":"a","tokens":["t"]}]}"#.to_owned();
-        document.push_str(&" ".repeat(64 * 1024 - document.len()));
+        let limit = usize::try_from(MAX_REGISTRY_BYTES).unwrap();
+        document.push_str(&" ".repeat(limit - document.len()));
         std::fs::write(&path, &document).unwrap();
         assert_eq!(Registry::load(&path).unwrap().len(), 1);
         document.push(' ');
         std::fs::write(&path, &document).unwrap();
         assert_eq!(
             Registry::load(&path).unwrap_err().to_string(),
-            "identity_file exceeds 64 KiB"
+            "identity_file exceeds 16 MiB"
         );
         std::fs::remove_file(&path).unwrap();
         assert!(

@@ -413,7 +413,7 @@ fn a_large_bucket_entry_starts_and_survives_a_restart() {
     server.stop();
 }
 
-/// A file with more buckets than the default limit allows, at about the size each may add.
+/// A file past both the former default of 1000 buckets and the 1 MiB that went with it.
 fn large_file(root: &Path, count: usize) {
     let filler = "x".repeat(63);
     let entries = (0..count)
@@ -443,28 +443,25 @@ fn diagnostic(output: &std::process::Output) -> Value {
 }
 
 #[test]
-fn a_raised_bucket_limit_starts_again_after_a_restart_and_the_default_names_the_setting() {
+fn a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it() {
     const BUCKETS: usize = 1200;
     let dir = TestDir::new();
     large_file(&dir.0, BUCKETS);
-    let default = diagnostic(&selected(&dir.0).output().unwrap());
+    let mut limited = selected(&dir.0);
+    limited.args(["--max-buckets-per-batch", &(BUCKETS - 1).to_string()]);
+    let limited = diagnostic(&limited.output().unwrap());
     assert!(
-        default.to_string().contains("max_buckets_per_batch"),
-        "{default}"
+        limited.to_string().contains("max_buckets_per_batch"),
+        "{limited}"
     );
-    let raised = || {
-        let mut command = selected(&dir.0);
-        command.args(["--max-buckets-per-batch", &BUCKETS.to_string()]);
-        command
-    };
-    let server = Server::start(&mut raised());
+    let server = Server::start(&mut selected(&dir.0));
     counts(&server, BUCKETS, 0, 0);
     assert_eq!(
         server.json("GET", "/storage/v1/b/bucket-01199", Value::Null)["name"],
         "bucket-01199"
     );
     server.stop();
-    let server = Server::start(&mut raised());
+    let server = Server::start(&mut selected(&dir.0));
     counts(&server, 0, BUCKETS, 0);
     let (mut listed, mut token) = (0, String::new());
     loop {

@@ -4,7 +4,9 @@ use crate::{
     clock::Clock,
     config::Config,
     object::{ExpectedHashes, name::validate as validate_object_name},
-    source_tree::{WalkError, Walker, is_os_metadata},
+    source_tree::{
+        LARGE_TREE_ENTRIES, TreeLimits, WalkError, Walker, is_os_metadata, warn_large_tree,
+    },
     storage::{
         Catalog,
         admin::{
@@ -24,22 +26,6 @@ mod error;
 pub use error::SeedError;
 
 type Entry = Result<(PathBuf, std::fs::Metadata, usize), SeedError>;
-
-/// The tree a seed accepts, so the walk thread and its errors need no whole configuration.
-#[derive(Clone, Copy)]
-struct TreeLimits {
-    entries: usize,
-    depth: usize,
-}
-
-impl From<&Config> for TreeLimits {
-    fn from(config: &Config) -> Self {
-        Self {
-            entries: config.max_seed_entries,
-            depth: config.max_seed_depth,
-        }
-    }
-}
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "lowercase")]
@@ -95,16 +81,14 @@ pub(crate) async fn reseed(
     import_directory(&admin, config, clock, root, mode, Some(request_deadline)).await
 }
 
-fn walk_error(error: WalkError, limits: TreeLimits) -> SeedError {
-    match error {
-        WalkError::Io(error) => SeedError::Io(error),
-        WalkError::EntryLimit => SeedError::EntryLimit {
-            limit: limits.entries,
-        },
-        WalkError::DepthLimit => SeedError::DepthLimit {
-            limit: limits.depth,
-        },
-        WalkError::NotDirectory => SeedError::NotDirectory,
+impl From<WalkError> for SeedError {
+    fn from(error: WalkError) -> Self {
+        match error {
+            WalkError::Io(error) => Self::Io(error),
+            WalkError::EntryLimit { limit } => Self::EntryLimit { limit: limit.get() },
+            WalkError::DepthLimit { limit } => Self::DepthLimit { limit: limit.get() },
+            WalkError::NotDirectory => Self::NotDirectory,
+        }
     }
 }
 
@@ -120,11 +104,10 @@ enum Walked {
 fn entries(root: PathBuf, limits: TreeLimits) -> io::Result<mpsc::Receiver<Walked>> {
     let (send, receive) = mpsc::channel(2);
     crate::task::spawn_thread("seed-walk", move || {
-        let walk = match Walker::new(&root, limits.entries, limits.depth) {
+        let walk = match Walker::new(&root, limits) {
             Ok(walk) => walk,
             Err(error) => {
-                let failure = walk_error(error, limits);
-                let _ = send.blocking_send(Walked::Entry(Box::new(Err(failure))));
+                let _ = send.blocking_send(Walked::Entry(Box::new(Err(error.into()))));
                 return;
             }
         };
@@ -134,7 +117,7 @@ fn entries(root: PathBuf, limits: TreeLimits) -> io::Result<mpsc::Receiver<Walke
             entry
         });
         for entry in walk {
-            let entry = entry.map_err(|error| walk_error(error, limits));
+            let entry = entry.map_err(SeedError::from);
             if send.blocking_send(Walked::Entry(Box::new(entry))).is_err() {
                 return;
             }
@@ -170,7 +153,11 @@ async fn import_directory(
             return Err(SeedError::Overlap);
         }
     }
-    let mut entries = entries(root.clone(), TreeLimits::from(config))?;
+    let limits = TreeLimits {
+        entries: config.max_seed_entries,
+        depth: config.max_seed_depth,
+    };
+    let mut entries = entries(root.clone(), limits)?;
     let mut seed = Seed {
         batch,
         #[cfg(unix)]
@@ -180,6 +167,7 @@ async fn import_directory(
         buckets: 0,
     };
     let mut skipped_os_metadata = 0;
+    let mut walked = 0;
     loop {
         let entry = match entries.recv().await {
             Some(Walked::Entry(entry)) => *entry,
@@ -190,6 +178,11 @@ async fn import_directory(
             }
         };
         let (path, metadata, depth) = entry?;
+        walked += 1;
+        // A chosen limit already says how large a tree may be.
+        if walked == LARGE_TREE_ENTRIES + 1 && limits.entries.is_none() {
+            warn_large_tree("seed_tree_large", "seed_dir", "max_seed_entries");
+        }
         // The walker only yields paths below the root it was given.
         let relative = path.strip_prefix(&root).map_err(SeedError::RelativePath)?;
         let label = relative.display().to_string();
@@ -300,9 +293,10 @@ impl Seed<'_> {
     }
 
     fn bucket(&mut self, leaf: &str) -> Result<(), SeedError> {
-        let limit = self.config.max_buckets_per_batch;
-        if self.buckets >= limit {
-            return Err(SeedError::BucketLimit { limit });
+        if let Some(limit) = self.config.max_buckets_per_batch
+            && self.buckets >= limit.get()
+        {
+            return Err(SeedError::BucketLimit { limit: limit.get() });
         }
         let name = BucketName::new(leaf).map_err(SeedError::BucketName)?;
         let record = BucketDefinition::default_for(&name, &self.config.seed_project, self.clock)?;

@@ -1,6 +1,6 @@
 use super::*;
 use crate::test_support::TestDir;
-use std::{collections::BTreeSet, fs};
+use std::{collections::BTreeSet, fs, num::NonZeroUsize};
 
 #[test]
 fn created_parents_survive_crash_and_power_loss_only_after_directory_sync() {
@@ -177,7 +177,7 @@ fn the_entry_limit_is_inclusive_and_reserved_root_entries_take_no_place() {
         fs::write(tree.0.join(name), b"").unwrap();
     }
     let limits = |entries| TreeLimits {
-        entries,
+        entries: NonZeroUsize::new(entries),
         ..TreeLimits::default()
     };
     assert_eq!(scan_tree(&tree, limits(3)).unwrap(), 3);
@@ -189,8 +189,8 @@ fn the_entry_limit_is_inclusive_and_reserved_root_entries_take_no_place() {
     assert!(failure.contains("exceeds 1 inspected entries"), "{failure}");
 }
 
-/// A directory past the former inspection cap of 10,000 names has to work once the limit allows
-/// it, and has to fail on its first page, not after every page the limit admits, otherwise.
+/// A directory past the former inspection cap of 10,000 names has to work without a limit, and has
+/// to fail on its first page, not after every page a named limit admits, otherwise.
 #[test]
 fn one_directory_may_hold_as_many_entries_as_the_tree_limit_allows() {
     const FILES: usize = 10_050;
@@ -199,20 +199,17 @@ fn one_directory_may_hold_as_many_entries_as_the_tree_limit_allows() {
     for index in 0..FILES {
         fs::write(tree.0.join(format!("bucket/{index:05}")), b"").unwrap();
     }
-    let failure = reason(scan_tree(&tree, TreeLimits::default()).unwrap_err());
-    assert!(failure.contains("10000"), "{failure}");
-    assert!(failure.contains("max_sync_entries"), "{failure}");
-    let raised = TreeLimits {
-        entries: FILES + 1,
+    assert_eq!(scan_tree(&tree, TreeLimits::default()).unwrap(), FILES + 1);
+    let named = |entries| TreeLimits {
+        entries: NonZeroUsize::new(entries),
         ..TreeLimits::default()
     };
-    assert_eq!(scan_tree(&tree, raised).unwrap(), FILES + 1);
+    let failure = reason(scan_tree(&tree, named(10_000)).unwrap_err());
+    assert!(failure.contains("10000"), "{failure}");
+    assert!(failure.contains("max_sync_entries"), "{failure}");
+    assert_eq!(scan_tree(&tree, named(FILES + 1)).unwrap(), FILES + 1);
     let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
-    let first_page = TreeScan::new(TreeLimits {
-        entries: 100,
-        ..TreeLimits::default()
-    })
-    .page(&root);
+    let first_page = TreeScan::new(named(100)).page(&root);
     let failure = reason(first_page.err().unwrap());
     assert!(failure.contains("exceeds 100 inspected"), "{failure}");
 }
@@ -223,7 +220,7 @@ fn every_walker_applies_the_same_depth_limit() {
     fs::create_dir_all(tree.0.join("bucket/one/two")).unwrap();
     fs::write(tree.0.join("bucket/one/two/file"), b"").unwrap();
     let limits = |depth| TreeLimits {
-        depth,
+        depth: NonZeroUsize::new(depth),
         ..TreeLimits::default()
     };
     let at_limit = limits(3);
@@ -236,22 +233,36 @@ fn every_walker_applies_the_same_depth_limit() {
     assert!(!limits(2).admits_file(Path::new("bucket/one/two/file")));
 }
 
+/// The former default stopped at 128 levels. A scan holds one descriptor per level, so this stays
+/// far below what the descriptor limit of a test process allows.
 #[test]
-fn the_default_depth_accepts_exactly_what_export_can_create() {
-    let levels = |count: usize| {
-        let tree = TestDir::new();
-        let path = std::iter::repeat_n("d", count).collect::<PathBuf>();
-        let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
-        assert!(parent(&root, &path, ParentOpen::Create).is_ok());
-        assert!(TreeLimits::default().admits_file(&path));
-        let walked = scan_tree(&tree, TreeLimits::default());
-        (tree, walked)
+fn no_depth_limit_accepts_what_export_can_create_past_the_former_default() {
+    const LEVELS: usize = 129;
+    let tree = TestDir::new();
+    let path = std::iter::repeat_n("d", LEVELS).collect::<PathBuf>();
+    let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
+    assert!(parent(&root, &path, ParentOpen::Create).is_ok());
+    assert!(TreeLimits::default().admits_file(&path));
+    assert_eq!(scan_tree(&tree, TreeLimits::default()).unwrap(), LEVELS);
+    let named = TreeLimits {
+        depth: NonZeroUsize::new(LEVELS - 1),
+        ..TreeLimits::default()
     };
-    let (_tree, walked) = levels(DEFAULT_DEPTH);
-    assert_eq!(walked.unwrap(), DEFAULT_DEPTH);
-    let (_tree, walked) = levels(DEFAULT_DEPTH + 1);
-    let failure = reason(walked.unwrap_err());
+    let failure = reason(scan_tree(&tree, named).unwrap_err());
     assert!(failure.contains("128 levels"), "{failure}");
+    assert!(failure.contains("max_sync_depth"), "{failure}");
+}
+
+/// Descriptors, not a limit of the operator's, are what `MAX_TREE_DEPTH` protects without one.
+#[test]
+fn no_depth_limit_still_bounds_the_descriptors_a_walk_holds() {
+    let limits = TreeLimits::default();
+    assert_eq!(limits.deepest_directory(), crate::config::MAX_TREE_DEPTH);
+    let AdminError::Invalid(failure) = limits.too_deep() else {
+        panic!("a tree past every name is invalid input");
+    };
+    assert!(failure.contains("1024 levels"), "{failure}");
+    assert!(!failure.contains("max_sync_depth"), "{failure}");
 }
 
 #[test]

@@ -192,11 +192,7 @@ impl Auth {
                 .ok_or(Failure::UnknownSigner)?;
             (signer, Key::Hmac(secret))
         };
-        let identity = registry
-            .identities
-            .iter()
-            .find(|identity| identity.id == signer)
-            .ok_or(Failure::UnknownSigner)?;
+        let identity = registry.identity(&signer).ok_or(Failure::UnknownSigner)?;
         Ok((Caller::Principal(identity), key))
     }
 }
