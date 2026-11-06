@@ -9,5 +9,6 @@ mod it_json {
     mod bucket_storage_layout_http;
     mod fields_http;
     mod json_response_http;
+    mod large_resources_http;
     mod project_resources_http;
 }

@@ -1187,6 +1187,24 @@ mod tests {
         );
         assert!(pages[0].1 < 1024 * 1024 && pages[2].1 < 1024 * 1024);
         assert!(pages[1].1 > 5 * 1024 * 1024);
+        // A client that keeps a 4 MiB limit can still read that bucket without its large fields.
+        let masked = storage
+            .list_buckets(
+                Request::new(pb::ListBucketsRequest {
+                    parent: "projects/p".into(),
+                    prefix: "m-".into(),
+                    read_mask: Some(prost_types::FieldMask {
+                        paths: vec!["name".into()],
+                    }),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(masked.buckets.len(), 1);
+        assert!(masked.encoded_len() < 1024, "{}", masked.encoded_len());
         storage.state.catalog.close().await.unwrap();
     }
 
