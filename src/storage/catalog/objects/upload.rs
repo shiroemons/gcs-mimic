@@ -144,7 +144,7 @@ impl UploadCommit {
             if let Some(record) = replay.replay(&transaction, micros, fingerprint)? {
                 return Ok(CommitOutcome::Replayed(record));
             }
-            super::super::upload_replay::capacity(&transaction, micros)?;
+            super::super::upload_replay::make_room(&transaction, micros)?;
         }
         let bucket = BucketPublication::load(&transaction, &self.bucket)?;
         let storage_class = bucket.storage_class(self.metadata.storage_class);

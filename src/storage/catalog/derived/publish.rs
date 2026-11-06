@@ -151,7 +151,7 @@ where
     let (_, delete_permission) =
         objects::authorized_bucket(transaction, &destination.bucket, &destination.access)?;
     if replay.is_some() {
-        super::super::upload_replay::capacity(transaction, micros)?;
+        super::super::upload_replay::make_room(transaction, micros)?;
     }
     let bucket = objects::BucketPublication::load(transaction, &destination.bucket)?;
     let storage_class = bucket.storage_class(destination.storage_class);

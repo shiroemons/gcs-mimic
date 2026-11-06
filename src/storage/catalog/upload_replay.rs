@@ -1,4 +1,4 @@
-use super::{Catalog, UploadGuard, objects, unavailable, unix_micros};
+use super::{Catalog, UploadGuard, objects, unix_micros};
 use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
@@ -38,6 +38,8 @@ pub(super) struct CopySource {
     generation: i64,
 }
 
+/// How many completions a retry can get back. This is a window over recent uploads, not a quota:
+/// a full table makes room by dropping its oldest record, see [`make_room`].
 const CAPACITY: i64 = 4096;
 const LIFETIME_MICROS: i64 = 600_000_000;
 pub(super) const SCHEMA: &str = "CREATE TABLE upload_replays (
@@ -70,11 +72,6 @@ pub(crate) struct CopyReplaySource<'a> {
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    // The same statement as the per-upload `capacity` check, so validation reuses its entry.
-    let count: i64 = sql::scalar(connection, "SELECT count(*) FROM upload_replays", [])?;
-    if count > CAPACITY {
-        return Err(unavailable("upload replay capacity exceeded"));
-    }
     let mut statement =
         connection.prepare_cached("SELECT completion FROM upload_replays ORDER BY token")?;
     let mut rows = statement.query([])?;
@@ -332,26 +329,21 @@ impl UploadReplay {
     }
 }
 
-pub(super) fn capacity(connection: &Connection, now: i64) -> Result<(), ObjectError> {
+/// Makes room for one more completion, in the publishing transaction, so a rejected upload drops
+/// nothing. Only finished uploads have a record (the bound request lives in the upload's guard
+/// until its record commits), so this never touches an upload in progress. A retry that finds
+/// its record gone publishes again, exactly as it does after the record's lifetime.
+pub(super) fn make_room(connection: &Connection, now: i64) -> Result<(), ObjectError> {
     sql::exec(
         connection,
         "DELETE FROM upload_replays WHERE deadline <= ?1",
         [now],
     )?;
-    check_capacity(connection, now)
-}
-
-fn check_capacity(connection: &Connection, now: i64) -> Result<(), ObjectError> {
-    let count: i64 = sql::scalar(
+    sql::exec(
         connection,
-        "SELECT count(*) FROM upload_replays WHERE deadline > ?1",
-        [now],
+        "DELETE FROM upload_replays WHERE token IN (SELECT token FROM upload_replays ORDER BY deadline, token LIMIT max((SELECT count(*) FROM upload_replays) + 1 - ?1, 0))",
+        [CAPACITY],
     )?;
-    if count >= CAPACITY {
-        return Err(objects::object_unavailable(
-            "Upload replay capacity reached; retry after retained requests expire",
-        ));
-    }
     Ok(())
 }
 
@@ -543,7 +535,6 @@ impl Catalog {
                 };
                 let now = unix_micros(clock.now())?;
                 if replay.cached(&transaction, now)?.is_none() {
-                    check_capacity(&transaction, now)?;
                     let previous = objects::lookup(&transaction, &bucket, &name)?;
                     objects::check_publication(
                         previous.as_ref(),
@@ -568,6 +559,7 @@ impl UploadGuard {
 
 #[cfg(test)]
 mod tests {
+    use super::super::unavailable;
     use super::*;
     use crate::object::ObjectMetadataUpdate;
     use std::collections::BTreeMap;
@@ -627,15 +619,49 @@ mod tests {
         catalog.close().await.unwrap();
     }
 
-    #[test]
-    fn advisory_capacity_counts_only_unexpired_rows_without_writing() {
+    /// A table of `rows` records, each with a later deadline than the one before.
+    fn replay_table(rows: i64) -> Connection {
         let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE upload_replays(deadline INTEGER); INSERT INTO upload_replays VALUES (1), (3); CREATE TEMP TRIGGER reject_replay_delete BEFORE DELETE ON upload_replays BEGIN SELECT RAISE(ABORT, 'advisory must not delete'); END;").unwrap();
-        check_capacity(&connection, 2).unwrap();
-        assert_eq!(
-            sql::scalar::<i64>(&connection, "SELECT count(*) FROM upload_replays", []).unwrap(),
-            2
-        );
+        connection
+            .execute_batch("CREATE TABLE upload_replays(token INTEGER PRIMARY KEY, deadline INTEGER); CREATE INDEX upload_replays_deadline ON upload_replays(deadline, token);")
+            .unwrap();
+        sql::exec(
+            &connection,
+            "WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM ids WHERE n < ?1) INSERT INTO upload_replays SELECT n, 100 + n FROM ids",
+            [rows],
+        )
+        .unwrap();
+        connection
+    }
+
+    fn oldest_and_count(connection: &Connection) -> (i64, i64) {
+        sql::row(
+            connection,
+            "SELECT min(token), count(*) FROM upload_replays",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn making_room_drops_only_what_the_window_needs_oldest_first() {
+        // One slot left: nothing goes.
+        let spare = replay_table(CAPACITY - 1);
+        make_room(&spare, 0).unwrap();
+        assert_eq!(oldest_and_count(&spare), (1, CAPACITY - 1));
+        // Full: exactly the oldest goes.
+        let full = replay_table(CAPACITY);
+        make_room(&full, 0).unwrap();
+        assert_eq!(oldest_and_count(&full), (2, CAPACITY - 1));
+        // A catalog already over the window comes back within it rather than failing.
+        let over = replay_table(CAPACITY + 5);
+        make_room(&over, 0).unwrap();
+        assert_eq!(oldest_and_count(&over), (7, CAPACITY - 1));
+        // Expired records go first, and only they when that makes enough room.
+        let expired = replay_table(CAPACITY);
+        make_room(&expired, 103).unwrap();
+        assert_eq!(oldest_and_count(&expired), (4, CAPACITY - 3));
     }
 
     #[test]

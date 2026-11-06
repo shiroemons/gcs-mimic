@@ -42,20 +42,32 @@ async fn copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_ca
             .await
             .error(400, "invalid");
     }
+    // Older than the real record, so the full window drops them first.
     let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
-    connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < 4095) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created, deadline, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
+    connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < 4095) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created - n, deadline - n, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
     assert_eq!(
         h.request("POST", path, &headers, b"").await.body,
         original.body
     );
-    h.request(
-        "POST",
-        path,
-        &format!("X-Goog-Gcs-Idempotency-Token: new-copy\r\n{destination}{source}"),
-        b"",
-    )
-    .await
-    .error(503, "backendError");
+    let retained = |connection: &rusqlite::Connection| -> i64 {
+        connection
+            .query_row("SELECT count(*) FROM upload_replays", [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(retained(&connection), 4096);
+    // The window is full, and a new copy still succeeds instead of answering 503.
+    assert_eq!(
+        h.request(
+            "POST",
+            "/storage/v1/b/bucket/o/source/copyTo/b/bucket/o/second-copy",
+            &format!("X-Goog-Gcs-Idempotency-Token: new-copy\r\n{destination}{source}"),
+            b"",
+        )
+        .await
+        .status,
+        200
+    );
+    assert_eq!(retained(&connection), 4096);
     assert_eq!(
         h.request("POST", path, &headers, b"").await.body,
         original.body
@@ -220,7 +232,8 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
     .await
     .error(400, "invalid");
     let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
-    connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < 1023) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created, deadline, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
+    // These rows are older than the real records, so the full window below drops them first.
+    connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < 1023) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created - n, deadline - n, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
     drop(connection);
     assert_eq!(
         h.request("POST", path, headers, b"original").await.body,
@@ -234,23 +247,23 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
         original.body
     );
     let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
-    connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1024 UNION ALL SELECT n + 1 FROM entries WHERE n < 4094) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created, deadline, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
-    assert_eq!(
+    connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1024 UNION ALL SELECT n + 1 FROM entries WHERE n < 4094) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created - n, deadline - n, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
+    let retained = |connection: &rusqlite::Connection| -> i64 {
         connection
-            .query_row("SELECT count(*) FROM upload_replays", [], |r| r
-                .get::<_, i64>(0))
-            .unwrap(),
-        4096
-    );
+            .query_row("SELECT count(*) FROM upload_replays", [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(retained(&connection), 4096);
+    // The window is full: the oldest record gives way, and the upload succeeds.
+    let full = "Authorization: Bearer admin\r\nX-Goog-Gcs-Idempotency-Token: full\r\n";
+    let accepted = h.request("POST", path, full, b"accepted").await;
+    assert_eq!(accepted.status, 200);
+    assert_eq!(retained(&connection), 4096);
     drop(connection);
-    h.request(
-        "POST",
-        path,
-        "Authorization: Bearer admin\r\nX-Goog-Gcs-Idempotency-Token: full\r\n",
-        b"blocked",
-    )
-    .await
-    .error(503, "backendError");
+    assert_eq!(
+        h.request("POST", path, full, b"accepted").await.body,
+        accepted.body
+    );
     assert_eq!(
         h.request("POST", path, next, b"new").await.body,
         admitted.body
@@ -268,7 +281,7 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
         )
         .await
         .body,
-        b"new"
+        b"accepted"
     );
     h.clock.advance(Duration::from_secs(600));
     let replacement = h.request("POST", path, next, b"new").await;
@@ -292,6 +305,39 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
     assert_ne!(
         expired_retry.json()["generation"],
         replacement.json()["generation"]
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn a_retry_past_the_full_window_publishes_again_and_recent_retries_still_replay() {
+    let h = Harness::start(1000, Permissive, None).await;
+    let path = "/upload/storage/v1/b/bucket/o?uploadType=media&name=windowed";
+    let oldest = "X-Goog-Gcs-Idempotency-Token: oldest\r\n";
+    let first = h.request("POST", path, oldest, b"first").await;
+    assert_eq!(first.status, 200);
+    // Newer than the first upload's record, and with it exactly fill the window.
+    let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < 4095) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created + n, deadline + n, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
+    drop(connection);
+    assert_eq!(
+        h.request("POST", path, oldest, b"first").await.body,
+        first.body,
+        "a full window still replays a record it holds"
+    );
+    let recent = "X-Goog-Gcs-Idempotency-Token: recent\r\n";
+    let second = h.request("POST", path, recent, b"second").await;
+    assert_eq!(second.status, 200);
+    assert_eq!(
+        h.request("POST", path, recent, b"second").await.body,
+        second.body
+    );
+    let republished = h.request("POST", path, oldest, b"first").await;
+    assert_eq!(republished.status, 200);
+    assert_ne!(
+        republished.json()["generation"],
+        first.json()["generation"],
+        "the dropped record no longer answers, as after its lifetime"
     );
     h.stop().await;
 }
