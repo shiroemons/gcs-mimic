@@ -48,7 +48,7 @@ impl BackendFailure {
                 "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)"
             }
             Self::SessionBusy => {
-                "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session"
+                "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session, or increase catalog_wait_timeout_ms (for example, 60000)"
             }
             Self::MissingCompletion => return None,
         })

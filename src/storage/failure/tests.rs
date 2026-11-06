@@ -65,7 +65,7 @@ fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
         ),
         (
             SessionBusy,
-            "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session",
+            "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session, or increase catalog_wait_timeout_ms (for example, 60000)",
         ),
         (
             MissingCompletion,
