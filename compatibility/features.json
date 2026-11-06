@@ -8499,7 +8499,7 @@
         "json::iam::tests::etag_accepts_one_pair_of_http_quotes_as_the_same_tag"
       ],
       "verification": [
-        {"command":"cargo test --locked --lib","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["stored_policies_are_refused_as_client_errors_past_their_bounds","repeated_acl_edits_do_not_grow_the_policy","policy_bindings_migration_keeps_policies_and_lifts_the_size_check"]},
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["stored_policies_are_refused_as_client_errors_past_their_bounds","repeated_acl_edits_do_not_grow_the_policy","policy_bindings_migration_keeps_policies_and_lifts_the_size_check"]},
         {"command":"cargo test --locked --test bucket_if_match_http --test auth_http && cargo test --locked --lib json::iam","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["iam_policy_writes_compare_if_match_with_the_policy_etag","concurrent_policy_writes_with_one_if_match_etag_have_exactly_one_winner","json::iam::tests::etag_accepts_one_pair_of_http_quotes_as_the_same_tag"]},
         {
           "command": "just check",
@@ -12896,6 +12896,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"COPY-METADATA-LIMIT","description":"Fixed and custom metadata stop at 40 KiB once encoded as JSON, and PATCH edits cannot add up past it. A copy with no metadata of its own that would inherit more fails with 400 before it costs a copy, and one that supplies metadata passes.","result":"PASS","test_ids":["metadata_too_large_to_inherit_fails_before_a_copy_starts","metadata_edits_cannot_add_up_past_what_a_copy_may_inherit"]},
         {
           "id": "COPY-METADATA",
           "description": "Absent/null inheritance except holds, explicit resource replacement and URL names overriding body names.",
@@ -13051,6 +13052,8 @@
         }
       ],
       "test_ids": [
+        "metadata_too_large_to_inherit_fails_before_a_copy_starts",
+        "metadata_edits_cannot_add_up_past_what_a_copy_may_inherit",
         "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it",
         "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes",
         "copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets",
@@ -13095,6 +13098,7 @@
         "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
       ],
       "verification": [
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["metadata_too_large_to_inherit_fails_before_a_copy_starts","metadata_edits_cannot_add_up_past_what_a_copy_may_inherit"]},
         {
           "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
@@ -17741,6 +17745,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"REWRITE-METADATA-LIMIT","description":"A rewrite with no metadata of its own that would inherit more than 40 KiB of encoded metadata fails with 400 before it costs a copy, and one that supplies metadata passes.","result":"PASS","test_ids":["metadata_too_large_to_inherit_fails_before_a_copy_starts","metadata_edits_cannot_add_up_past_what_a_copy_may_inherit"]},
         {
           "id": "REWRITE-RESOURCE",
           "description": "Encoded source/destination paths, one-call/empty/same-name completion, metadata inheritance/replacement, string byte counts, conditional resource/token presence and response fields.",
@@ -17820,6 +17825,8 @@
         }
       ],
       "test_ids": [
+        "metadata_too_large_to_inherit_fails_before_a_copy_starts",
+        "metadata_edits_cannot_add_up_past_what_a_copy_may_inherit",
         "rewrite_one_call_empty_metadata_fields_and_same_name",
         "rewrite_metadata_checksums_validate_and_identity_is_path_selected",
         "rewrite_composite_source_preserves_or_resets_component_count_without_md5",
@@ -17844,6 +17851,7 @@
         "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
       ],
       "verification": [
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["metadata_too_large_to_inherit_fails_before_a_copy_starts","metadata_edits_cannot_add_up_past_what_a_copy_may_inherit"]},
         {
           "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
@@ -23513,6 +23521,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
+        {"id":"LONG-MALFORMED-BODY-ERROR","description":"A parse error for a malformed body past 64 KiB reports the parser's error without quoting the body, so a 16 MiB body cannot answer with more than itself.","result":"PASS","test_ids":["json::error::tests::a_long_malformed_body_is_not_quoted_back"]},
         {"id":"UNKNOWN-ROUTE-ERROR-ENVELOPE","description":"Unknown shared-listener routes return a complete JSON 404 notFound envelope; probes keep local status documents and accept numerical zero body lengths. Adapter unit coverage is recorded in docs/en/slices/http-adapter-boundaries.md.","result":"PASS","test_ids":["server::protocol_tests::unknown_routes_use_json_error_envelopes_and_probes_accept_zero_lengths"]},
         {"id":"ERROR-ENVELOPE-RECORDED","description":"Every JSON response carries the recorded common headers (cache-control, expires, vary, pragma on mutations and errors, content-type on 204 and 304, bare ETag header except on Move); error items name the rejected parameter or header in location and locationType; upload-path errors and XML virtual-host responses keep their own headers.","result":"PASS","test_ids":["wire_parity_http::json_api_responses_carry_the_recorded_cache_envelope","wire_parity_http::error_items_name_the_rejected_parameter_or_header","virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths"]},
         {"id":"ERROR-MISSING-OBJECT-PROVIDER-WIRE","description":"Recorded provider errors (docs/en/evidence/response-wire-provider-observations.md): JSON get, patch and delete of a missing object return 'No such object: <bucket>/<object>' as code, message and errors[{message, domain, reason}] with the no-store headers; the media 404 and 416 are text/html with 'private, max-age=0', and the media 404 HTML-escapes the client-controlled name (& < > \" ') without nosniff or CSP headers; the XML 404 is NoSuchKey 'The specified key does not exist.' with a Details element naming the object, escaped as XML character data (& < > only). Copy, compose and rewrite sources keep the generic 'Object not found'. Bucket-not-found and other error texts remain unrecorded (SPEC-RESPONSE-WIRE-REMAINING).","result":"PASS","test_ids":["wire_parity_http::missing_object_errors_name_the_object_like_cloud_storage","wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in","wire_parity_http::unsatisfiable_media_ranges_answer_with_html_text"]},
@@ -23555,7 +23564,7 @@
           ]
         }
       ],
-      "test_ids": [ "server::protocol_tests::unknown_routes_use_json_error_envelopes_and_probes_accept_zero_lengths", "virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths",
+      "test_ids": [ "json::error::tests::a_long_malformed_body_is_not_quoted_back", "server::protocol_tests::unknown_routes_use_json_error_envelopes_and_probes_accept_zero_lengths", "virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths",
         "wire_parity_http::error_items_name_the_rejected_parameter_or_header",
         "wire_parity_http::json_api_responses_carry_the_recorded_cache_envelope",
         "wire_parity_http::cache_headers_follow_each_recorded_response_kind", "wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache", "wire_parity_http::missing_object_errors_name_the_object_like_cloud_storage", "wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in", "wire_parity_http::unsatisfiable_media_ranges_answer_with_html_text",
@@ -23572,6 +23581,7 @@
         "json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings"
       ],
       "verification": [
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["json::error::tests::a_long_malformed_body_is_not_quoted_back"]},
         {"command":"CARGO_BUILD_JOBS=4 cargo test --lib server::protocol_tests -- --test-threads=4","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/http-adapter-boundaries.md","test_ids":["server::protocol_tests::unknown_routes_use_json_error_envelopes_and_probes_accept_zero_lengths"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["wire_parity_http::json_api_responses_carry_the_recorded_cache_envelope","wire_parity_http::error_items_name_the_rejected_parameter_or_header","virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths"]},
         {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::cache_headers_follow_each_recorded_response_kind","wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache","wire_parity_http::missing_object_errors_name_the_object_like_cloud_storage","wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in","wire_parity_http::unsatisfiable_media_ranges_answer_with_html_text"]},
@@ -23629,7 +23639,7 @@
         {"id":"batch-final-profiles","description":"Execute final combined SDK workflows and reconcile remaining provider/profile field and malformed-input edges.","result":"PENDING","test_ids":["batch-final-profiles"]}
       ],
       "test_ids": ["each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts", "a_departed_reader_cancels_the_remaining_parts", "a_part_past_the_request_limit_answers_alone_and_later_parts_still_run", "batch_answers_full_object_lists_past_the_former_response_limits", "batch-wire", "batch-absolute-origin", "batch-final-profiles", "server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body", "server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"],
-      "verification": [{"command":"cargo test --locked --lib -- server::batch; cargo test --locked --test it_protocol -- http_batch","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts","a_departed_reader_cancels_the_remaining_parts","a_part_past_the_request_limit_answers_alone_and_later_parts_still_run","batch_answers_full_object_lists_past_the_former_response_limits"]},{"command":"cargo check --tests; cargo test --test http_batch","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/http-batch.md","test_ids":["batch-wire"]},{"command":"cargo test --test http_batch","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/http-batch-absolute-targets.md","test_ids":["batch-absolute-origin"]},{"command":"CARGO_BUILD_JOBS=4 cargo test --lib server::batch::tests -- --test-threads=4","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/http-batch.md","test_ids":["server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body","server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"]}],
+      "verification": [{"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts","a_departed_reader_cancels_the_remaining_parts","a_part_past_the_request_limit_answers_alone_and_later_parts_still_run","batch_answers_full_object_lists_past_the_former_response_limits"]},{"command":"cargo check --tests; cargo test --test http_batch","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/http-batch.md","test_ids":["batch-wire"]},{"command":"cargo test --test http_batch","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/http-batch-absolute-targets.md","test_ids":["batch-absolute-origin"]},{"command":"CARGO_BUILD_JOBS=4 cargo test --lib server::batch::tests -- --test-threads=4","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/http-batch.md","test_ids":["server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body","server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"]}],
       "sdk_evidence": [],
       "known_deviations": ["Local execution is sequential but clients must not rely on order; a valid batch is not atomic. Two active envelopes per server is a local resource bound; excess envelopes wait without reading their bodies until the earlier of the request_timeout_ms deadline and object_request_timeout_ms admission deadline. Both return 503 backendError; the request deadline also closes the connection. A response leaves chunked, one part at a time, with no total limit; a part's 1 GiB limit sits above what documented limits allow and may return responseTooLarge after an operation completed. A client that stops reading holds back later parts, and a part's own timeout answers 503 in place while later parts run. Full provider/profile edges and final SDK integration remain pending.", "Absolute part URLs on a foreign origin fail the whole envelope with a local 400; Cloud Storage behavior for foreign origins is unobserved. An advertised host that the public-origin rules reject, such as a name with an underscore, accepts only relative parts."],
       "implemented_in": null,
@@ -25038,7 +25048,7 @@
         "bucket::tests::cors_accepts_rule_counts_and_sizes_above_the_former_64_kib_limit"
       ],
       "verification": [
-        {"command":"cargo test --locked --lib -- bucket::tests","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["bucket::tests::cors_accepts_rule_counts_and_sizes_above_the_former_64_kib_limit"]},
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["bucket::tests::cors_accepts_rule_counts_and_sizes_above_the_former_64_kib_limit"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -29669,6 +29679,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
+        {"id":"COPY-METADATA-LIMIT","description":"Fixed and custom metadata stop at 40 KiB once encoded as JSON, and PATCH edits cannot add up past it. A copy with no metadata of its own that would inherit more fails with 400 before it costs a copy, and one that supplies metadata passes.","result":"PASS","test_ids":["metadata_too_large_to_inherit_fails_before_a_copy_starts","metadata_edits_cannot_add_up_past_what_a_copy_may_inherit"]},
         {
           "id": "COPY-METADATA",
           "description": "Absent/null inheritance except holds, explicit resource replacement and URL names overriding body names.",
@@ -29818,6 +29829,8 @@
         }
       ],
       "test_ids": [
+        "metadata_too_large_to_inherit_fails_before_a_copy_starts",
+        "metadata_edits_cannot_add_up_past_what_a_copy_may_inherit",
         "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it",
         "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes",
         "copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets",
@@ -29862,6 +29875,7 @@
         "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
       ],
       "verification": [
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["metadata_too_large_to_inherit_fails_before_a_copy_starts","metadata_edits_cannot_add_up_past_what_a_copy_may_inherit"]},
         {
           "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
@@ -30106,9 +30120,9 @@
       ],
       "verification": [
         {
-          "command": "cargo test --locked --lib -- storage::catalog::rewrite",
+          "command": "cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)",
           "result": "PASS",
-          "verified_at": "2026-11-06",
+          "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/zero-config-defaults.md",
           "test_ids": [
             "finished_rewrites_past_the_former_window_still_replay",
@@ -33247,8 +33261,8 @@
       ],
       "test_ids": ["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time","grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits","grpc::v2::status::tests::resource_name_errors_carry_their_details","grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","grpc_idle_connection_outlives_the_handshake_deadline","grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"],
       "verification": [
-        {"command":"cargo test --locked --lib; cargo test --locked --test it_json -- large_resources_http","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time"]},
-        {"command":"cargo test --locked --lib -- grpc::tests reclaim_tests fd_limit config::","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits"]},
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time"]},
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits"]},
         {"command":"cargo test --locked --lib -- grpc::tests","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_idle_connection_outlives_the_handshake_deadline","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc::v2::status::tests::resource_name_errors_carry_their_details"]},
         {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound"]},
@@ -35553,7 +35567,7 @@
         {"id":"multipart-remaining","description":"Verify final SDK/container execution and remaining provider concurrent-part/header/error behavior.","result":"PENDING","test_ids":["multipart-remaining"]}
       ],
       "test_ids": ["multipart-wire", "multipart-remaining", "a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit", "a_part_finishes_while_two_other_bodies_stay_stalled", "the_same_part_number_waits_and_the_last_to_finish_wins", "a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "an_abort_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "parts_in_flight_cannot_together_pass_the_retained_limit", "a_part_succeeds_while_other_parts_of_its_upload_stay_stalled_on_the_wire", "only_a_conflicting_request_answers_503_past_the_catalog_wait"],
-      "verification": [{"command":"cargo test --locked --lib -- xml_multipart resumable_http_tests","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit", "a_part_finishes_while_two_other_bodies_stay_stalled", "the_same_part_number_waits_and_the_last_to_finish_wins", "a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "an_abort_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "parts_in_flight_cannot_together_pass_the_retained_limit", "a_part_succeeds_while_other_parts_of_its_upload_stay_stalled_on_the_wire", "only_a_conflicting_request_answers_503_past_the_catalog_wait"]},{"command":"cargo check --tests; cargo test --test xml_multipart_http; cargo test --lib multipart","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart-wire"]}],
+      "verification": [{"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_conflicting_lease_waits_for_the_holder_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit", "a_part_finishes_while_two_other_bodies_stay_stalled", "the_same_part_number_waits_and_the_last_to_finish_wins", "a_completion_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "an_abort_waits_for_the_part_in_flight_and_a_later_part_cannot_overtake_it", "parts_in_flight_cannot_together_pass_the_retained_limit", "a_part_succeeds_while_other_parts_of_its_upload_stay_stalled_on_the_wire", "only_a_conflicting_request_answers_503_past_the_catalog_wait"]},{"command":"cargo check --tests; cargo test --test xml_multipart_http; cargo test --lib multipart","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart-wire"]}],
       "sdk_evidence": [],
       "known_deviations": ["Unfinished uploads expire after seven days, where the provider sets no limit, by owner decision: abandoned parts do not appear in object listings, so they would keep using a local disk unnoticed. A repeated part number, a completion or an abort waits its turn and receives a retryable busy error past catalog_wait_timeout_ms; aggregate retained parts share max_object_bytes and RAM storage budgets where selected. Full provider concurrency/header/error and final SDK/container cases remain pending."],
       "implemented_in": null,
@@ -38727,7 +38741,7 @@
         "sdk-scorecard signed.post_policy_v4 (Ruby)"
       ],
       "verification": [
-        {"command": "cargo test --locked --lib -- xml::post; cargo test --locked --test it_xml_auth -- xml_post_policy_http", "result": "PASS", "verified_at": "2026-11-07", "artifact": "docs/en/evidence/zero-config-defaults.md", "test_ids": ["a_policy_form_may_split_its_custom_metadata_over_many_small_fields", "empty_fields_cannot_grow_the_form_past_its_memory_budget"]},
+        {"command": "cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored); cargo test --locked --test it_xml_auth (258 passed)", "result": "PASS", "verified_at": "2026-11-07", "artifact": "docs/en/evidence/zero-config-defaults.md", "test_ids": ["a_policy_form_may_split_its_custom_metadata_over_many_small_fields", "empty_fields_cannot_grow_the_form_past_its_memory_budget"]},
         {"command": "cargo test --lib --locked xml::post json::multipart", "result": "PASS", "verified_at": "2026-10-29", "artifact": "docs/en/signed-urls.md", "test_ids": ["xml::post::tests::form_reader_stops_at_the_file_part_and_bounds_fields", "xml::post::tests::disposition_reads_quoted_names_and_filenames_case_insensitively", "xml::post::tests::plan_maps_documented_fields_and_rejects_unsupported_ones", "json::multipart::tests::form_data_boundary_accepts_utf8_forms_and_rejects_other_types_and_parameters"]},
         {"command": "cargo test --locked --test auth_http signing::post", "result": "PASS", "verified_at": "2026-10-29", "artifact": "docs/en/signed-urls.md", "test_ids": ["signing::post::post_object_framing_errors_and_other_routes_stay_rejected", "signing::post::v4_policy_success_status_201_xml_200_and_redirect", "signing::post::v4_policy_upload_targets_a_virtual_host_bucket_root", "signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions"]},
         {"command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Go)", "sdk-scorecard signed.post_policy_v4 (Ruby)"]}
@@ -41988,9 +42002,10 @@
         },
         {
           "id": "DESIGN-003-RESTART",
-          "description": "The same registry authorizes persisted buckets and objects after restart; anonymous access remains rejected.",
+          "description": "The same registry authorizes persisted buckets and objects after restart, also past the former count limits; anonymous access remains rejected.",
           "result": "PASS",
           "test_ids": [
+            "a_registry_past_the_former_limits_authorizes_uploads_across_a_restart",
             "auth_http_admin_full_crud_and_restart_with_same_registry"
           ]
         },
@@ -42006,6 +42021,7 @@
         }
       ],
       "test_ids": [
+        "a_registry_past_the_former_limits_authorizes_uploads_across_a_restart",
         "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
         "startup_preserves_safe_identity_and_tls_error_details",
         "auth::tests::registry_file_read_is_bounded",
@@ -42018,6 +42034,7 @@
         "guide-compose-strict-auth"
       ],
       "verification": [
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored); cargo test --locked --test it_xml_auth (258 passed)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_registry_past_the_former_limits_authorizes_uploads_across_a_restart"]},
         {"command":"CARGO_BUILD_JOBS=4 cargo test --test it_process startup_preserves_safe_identity_and_tls_error_details","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["startup_preserves_safe_identity_and_tls_error_details"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
@@ -49441,7 +49458,7 @@
           "result": "PENDING",
           "test_ids": []
         },
-        {"id":"local-trees-without-limits","description":"A seed, a synchronized tree and a bucket file past the former defaults work with no limit named, warn once where they warn, and survive a restart, while a named limit still stops them. The tests exist; the final run has not been recorded here yet.","result":"PENDING","test_ids":["a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart","a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it"]},
+        {"id":"local-trees-without-limits","description":"A seed, a synchronized tree and a bucket file past the former defaults work with no limit named, warn once where they warn, and survive a restart, while a named limit still stops them.","result":"PASS","test_ids":["a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart","a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it"]},
         {
           "id": "sync-configuration-inputs",
           "description": "Verify CLI > environment > file > default for sync_dir, sync_delete_guard, max_sync_entries and max_sync_depth, which default to 0, unlimited, and also require sync_dir, strict boolean parsing, guard without root, removed tuning-key rejection through CLI/environment/JSON, overlap/alias/symlink rejection and CLI-only exact catalog-ID reinitialization. Internal policy is fixed at 1000 ms, at least 100 deletions and more than 50%, and a conflict budget of 1 TiB and 1,000,000 entries; fewer settings suit local development. A scan, a watch and export accept exactly a named max_sync_depth, and one directory may hold as many names as a named max_sync_entries allows. Without a limit a walk stops at 1024 levels and a tree past 10,000 entries logs sync_tree_large once per process. Settle/delete effects remain PENDING. Scope and verification: docs/en/slices/directory-synchronization.md.",
@@ -49733,8 +49750,7 @@
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
-        {"command":"cargo test --locked --lib; cargo test --locked --test it_import_seed","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor","a_large_bucket_entry_starts_and_survives_a_restart"]},
-        {"command":"cargo test --locked --lib -- config:: sync::tree","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["sync_tree_limits_default_to_unlimited_and_mean_nothing_without_a_sync_dir","one_directory_may_hold_as_many_entries_as_the_tree_limit_allows","every_walker_applies_the_same_depth_limit","no_depth_limit_accepts_what_export_can_create_past_the_former_default"]},
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart","a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it","the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor","a_large_bucket_entry_starts_and_survives_a_restart","sync_tree_limits_default_to_unlimited_and_mean_nothing_without_a_sync_dir","one_directory_may_hold_as_many_entries_as_the_tree_limit_allows","every_walker_applies_the_same_depth_limit","no_depth_limit_accepts_what_export_can_create_past_the_former_default"]},
         {
           "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed --test import_filesystem; cargo test --locked --offline --lib -- mime::tests",
           "result": "PASS",
@@ -50787,12 +50803,12 @@
         {"id": "admin-reset-recovery", "description": "Verify reset activity exclusion and restart/crash/power-loss boundaries without bypassing shared publication.", "result": "PASS", "test_ids": ["admin-reset-recovery"]},
         {"id": "admin-reset-quiescence", "description": "Wait up to catalog_wait_timeout_ms and the request deadline for catalog work and unpublished leases without blocking catalog reads. New uploads line up behind the reset, requests that arrive meanwhile run against the cleared state, a stream of new work cannot starve it, and it leaves a budget for its work after the wait. Return 503 with Retry-After: 1 and preserve state when the deadline expires before exclusive ownership, and release administrative permits when a waiting reset is cancelled or its client disconnects.", "result": "PASS", "test_ids": ["a_disconnected_reset_gives_up_its_wait_and_changes_nothing", "a_steady_stream_of_new_work_cannot_starve_an_exclusive_job", "reset_waits_for_in_flight_catalog_work_before_clearing_state", "reset_wait_allows_catalog_reads_while_upload_lease_is_active", "reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive_ownership", "cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset", "requests_during_a_reset_wait_and_then_see_the_cleared_state", "reset_short_catalog_wait_reports_no_changes", "reset_uses_the_local_manager_and_refuses_active_directory_sync"]},
         {"id": "admin-reseed-quiescence", "description": "Seed and reseed wait for batch admission and for catalog work and unpublished leases before the exclusive commit, without blocking catalog reads, and requests that arrive during the commit wait and then see what it published. Startup and /_internal/reseed spend catalog_wait_timeout_ms on waiting only, and /_internal/reseed returns 503 with Retry-After: 1 and a no-changes message when the caller budget expires first; cancelled waits release administrative permits, and reseeds past the active one take turns.", "result": "PASS", "test_ids": ["requests_during_a_seed_commit_wait_and_then_see_what_it_published", "reseeds_past_the_active_one_take_turns_and_all_complete", "atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhile", "seed_admission_waits_for_a_competing_batch_to_finish", "cancelled_seed_waits_release_admission_and_allow_reset", "atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespace", "reseed_waits_for_an_active_upload_and_then_replays_fixtures", "reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active"]},
-        {"id": "admin-exclusive-job-ordering", "description": "A reset queued ahead of a seed commit leaves no object without its bytes on the memory backend, and a reseed may take longer than the catalog wait. The tests exist; the final run has not been recorded here yet.", "result": "PENDING", "test_ids": ["a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_bytes", "a_reseed_may_take_longer_than_the_catalog_wait"]},
+        {"id": "admin-exclusive-job-ordering", "description": "A reset queued ahead of a seed commit leaves no object without its bytes on the memory backend, and a reseed may take longer than the catalog wait.", "result": "PASS", "test_ids": ["a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_bytes", "a_reseed_may_take_longer_than_the_catalog_wait"]},
         {"id": "admin-final-integration", "description": "Run Go facade fixture/reset/reseed and final-source container workflows together.", "result": "PENDING", "test_ids": ["admin-final-integration"]}
       ],
       "test_ids": ["a_disconnected_reset_gives_up_its_wait_and_changes_nothing", "a_steady_stream_of_new_work_cannot_starve_an_exclusive_job", "requests_during_a_seed_commit_wait_and_then_see_what_it_published", "reseeds_past_the_active_one_take_turns_and_all_complete", "a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_bytes", "a_reseed_may_take_longer_than_the_catalog_wait", "server::admin::guard::tests::local_host_classification_does_not_accept_public_lookalikes", "server::admin::guard::tests::management_authority_rejects_duplicates_and_prefers_uri_authority", "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate", "it_admin::admin_http::management_routes_refuse_page_initiated_requests_without_mutation", "admin-wire-isolation", "admin-reset-recovery", "admin-final-integration", "config::tests::administrative_principals_require_a_strict_enabled_registry_profile", "startup_rejects_an_administrative_principal_missing_from_the_registry", "reset_waits_for_in_flight_catalog_work_before_clearing_state", "reset_wait_allows_catalog_reads_while_upload_lease_is_active", "reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive_ownership", "cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset", "requests_during_a_reset_wait_and_then_see_the_cleared_state", "reset_short_catalog_wait_reports_no_changes", "reset_uses_the_local_manager_and_refuses_active_directory_sync", "atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhile", "seed_admission_waits_for_a_competing_batch_to_finish", "cancelled_seed_waits_release_admission_and_allow_reset", "atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespace", "reseed_waits_for_an_active_upload_and_then_replays_fixtures", "reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active"],
       "verification": [
-        {"command":"cargo test --locked --lib -- admin::publication::reseed catalog::activity; cargo test --locked --test it_admin -- admin_reset admin_reseed","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_disconnected_reset_gives_up_its_wait_and_changes_nothing","a_steady_stream_of_new_work_cannot_starve_an_exclusive_job","requests_during_a_seed_commit_wait_and_then_see_what_it_published","reseeds_past_the_active_one_take_turns_and_all_complete"]},
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_bytes","a_reseed_may_take_longer_than_the_catalog_wait","a_disconnected_reset_gives_up_its_wait_and_changes_nothing","a_steady_stream_of_new_work_cannot_starve_an_exclusive_job","requests_during_a_seed_commit_wait_and_then_see_what_it_published","reseeds_past_the_active_one_take_turns_and_all_complete"]},
         {"command":"cargo test --locked --lib -- admin::publication::reseed admin::reset seed::tests server::admin::reseed (30 passed)","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/atomic-seed-reseed.md","test_ids":["atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhile","seed_admission_waits_for_a_competing_batch_to_finish","cancelled_seed_waits_release_admission_and_allow_reset","atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespace"]},
         {"command":"cargo test --locked --test it_admin -- admin_reseed admin_reset (20 iterations, 220 passed)","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/atomic-seed-reseed.md","test_ids":["reseed_waits_for_an_active_upload_and_then_replays_fixtures","reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active"]},
         {"command":"cargo test --locked --lib storage::catalog::admin::reset (11 passed)","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/local-instance-reset.md","test_ids":["reset_waits_for_in_flight_catalog_work_before_clearing_state","reset_wait_allows_catalog_reads_while_upload_lease_is_active","reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive_ownership","cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_reset"]},
@@ -51768,7 +51784,7 @@
             "escaped_bucket_aliases_invalid_escapes_suffix_collisions_and_platform_rules_block"
           ]
         },
-        {"id":"filesystem-import-limit-defaults","description":"An import defaults to 5 TiB bodies and no entry or depth limit, with 0 meaning the same, and null in its JSON report. A resume that names no limit and is refused retries once with the former defaults of 1 GiB, 10000 entries and 32 levels. The tests exist; the final run has not been recorded here yet.","result":"PENDING","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},
+        {"id":"filesystem-import-limit-defaults","description":"An import defaults to 5 TiB bodies and no entry or depth limit, with 0 meaning the same, and null in its JSON report. A resume that names no limit and is refused retries once with the former defaults of 1 GiB, 10000 entries and 32 levels.","result":"PASS","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},
         {
           "id": "filesystem-import-bounded-resume",
           "description": "Reuse the bounded reader, dedicated workers, fixed-size execution baseline and shared file publication; resume only the same canonical source/options/export, validate committed destination identities and revalidate committed inode/ctime drift before new publication. Scope: docs/en/slices/import-filesystem.md.",
@@ -52104,6 +52120,7 @@
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"
       ],
       "verification": [
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},
         {
           "command": "env -u RUSTUP_TOOLCHAIN CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 GCSM_TEST_JOBS=2 bash scripts/with-test-tmpdir.sh bash scripts/test-rust.sh",
           "result": "PASS",
@@ -55720,7 +55737,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
-        {"id":"seed-without-limits","description":"A tree past the former defaults seeds with no limit named, warns once with seed_tree_large and replays after a restart, while a named limit still stops it. The tests exist; the final run has not been recorded here yet.","result":"PENDING","test_ids":["a_tree_past_the_former_defaults_starts_warns_once_and_replays_after_a_restart","a_tree_past_the_former_limits_seeds_and_a_named_limit_still_stops_it"]},
+        {"id":"seed-without-limits","description":"A tree past the former defaults seeds with no limit named, warns once with seed_tree_large and replays after a restart, while a named limit still stops it.","result":"PASS","test_ids":["a_tree_past_the_former_defaults_starts_warns_once_and_replays_after_a_restart","a_tree_past_the_former_limits_seeds_and_a_named_limit_still_stops_it"]},
         {
           "id": "seed-config",
           "description": "CLI/environment/JSON/default precedence for seed_dir, default_seed_dir, seed_project and seed_content_type (default extension) and invalid configuration rejection.",
@@ -55923,7 +55940,7 @@
         "container-seed-lifecycle"
       ],
       "verification": [
-        {"command":"cargo test --locked --lib -- seed::tests","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the_setting","a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_restart"]},
+        {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_tree_past_the_former_defaults_starts_warns_once_and_replays_after_a_restart","a_tree_past_the_former_limits_seeds_and_a_named_limit_still_stops_it","the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the_setting","a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_restart"]},
         {
           "command": "cargo test --locked --offline --test seed --test admin_http",
           "result": "PASS",
