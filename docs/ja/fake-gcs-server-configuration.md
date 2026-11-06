@@ -51,12 +51,12 @@ APIのアップロードに専用の本数枠はありません。`max_connectio
 カタログの呼び出しは、受付枠が埋まっていても失敗せず順番を待ちます。クライアントが切断すれば、その待ちは取り消されます。
 resumableの開始から128 KiBの最終PUTまで、32接続で40本、64接続で64本が成功することも確認しています。
 未完了のresumable、rewrite、XMLマルチパート、派生転送の件数は既定で無制限です。
+XMLマルチパートの異なるパート番号は同時に書き込めます。resetやreseed、初期ファイルのコミットの実行中に届いたリクエストは待ち、終わった後の状態で動きます。
 本文は64 KiBのチャンクと深さ2のチャネルで転送します。
 
 503が残るのは次の場合です。
 
-- リクエストが`catalog_wait_timeout_ms`（既定120000）を超えたとき。XMLマルチパートの並列パートのように、ビジーなセッションを待つ場合を含みます。ハンドラーが`request_timeout_ms`（既定180000）を超えたときも同じです。
-- resetと初期ファイルのコミットの実行中。
+- リクエストが`catalog_wait_timeout_ms`（既定120000）を超えたとき。XMLマルチパートの同じパート番号の再送やCompleteのように、ビジーなセッションを待つ場合を含みます。ハンドラーが`request_timeout_ms`（既定180000）を超えたときも同じです。
 - 自分で指定した`max_resumable_sessions`、`max_rewrite_sessions`を超えたとき。
 - I/O障害と停止処理の間。
 
@@ -200,7 +200,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | イベント通知先・絞り込み | `GCS_MIMIC_PUBSUB_EMULATOR_HOST`・`PUBSUB_EMULATOR_HOST`とnative・旧イベント設定 | 明示したローカルのHTTPエミュレーターと用意済みのtopic、上限付きの永続outboxで少なくとも1回配信する。通知設定の作成時にtopicの存在を確かめる。接続先がなければGoogleへは接続せず失敗する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md) |
 | 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`。JSONバケットAPIと同じ名前に対応。空文字・JSONのnullは`US` |
 | 新規バケットのsoft delete既定の保持期間 | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`・`--default-soft-delete-retention-seconds`・JSONの`default_soft_delete_retention_seconds` | `softDeletePolicy`を指定せずに作ったバケットに与える保持期間。既定はすべての保存方式で`0`で、ポリシーを保存しません。オブジェクトの削除や上書きで本文をすぐに解放します（fake-gcs-serverと同じ）。`0`または`1`～`3155760000`を指定でき、`604800`がCloud Storageの既定の7日です。Cloud Storageが受け付けるのは0または7～90日だけなので、既定と範囲はどちらもローカル独自の仕様です。既存のバケットは保存済みのポリシーを保ちます（0.11.0までが付けた7日も同じです）。`import`とディレクトリ同期で作るバケットは変わりません。リクエストで明示したポリシー（0を含む）が優先されます。legacy-emulatorプロファイルは既定を適用せず、正の値を拒否します |
-| 接続・セッション・初期ファイルの上限 | `GCS_MIMIC_MAX_CONNECTIONS`、`GCS_MIMIC_MAX_OBJECT_BYTES`、`GCS_MIMIC_MAX_RESUMABLE_SESSIONS`、`GCS_MIMIC_MAX_REWRITE_SESSIONS`、`GCS_MIMIC_MAX_SEED_ENTRIES`、`GCS_MIMIC_MAX_SEED_DEPTH` | 移行元に同等の設定はありません。既定（1024、5 TiB、無制限、無制限、10000、32）は通常の移行では変更不要です。共有環境や公開するサーバーでは`max_object_bytes`を下げてください。[すべての設定（英語）](../en/native-binary.md#native-binary-and-configuration) |
+| 接続・セッション・初期ファイル・同期の上限 | `GCS_MIMIC_MAX_CONNECTIONS`、`GCS_MIMIC_MAX_GRPC_STREAMS`、`GCS_MIMIC_MAX_OBJECT_BYTES`、`GCS_MIMIC_MAX_RESUMABLE_SESSIONS`、`GCS_MIMIC_MAX_REWRITE_SESSIONS`、`GCS_MIMIC_MAX_SEED_ENTRIES`、`GCS_MIMIC_MAX_SEED_DEPTH`、`GCS_MIMIC_MAX_BUCKETS_PER_BATCH`、`GCS_MIMIC_MAX_SYNC_ENTRIES`、`GCS_MIMIC_MAX_SYNC_DEPTH` | 移行元に同等の設定はありません。既定は通常の移行では変更不要です。共有環境や公開するサーバーでは`max_object_bytes`を下げてください。[すべての設定（英語）](../en/native-binary.md#native-binary-and-configuration) |
 | 接続とリクエストのタイムアウト | `GCS_MIMIC_HEADER_READ_TIMEOUT_MS`、`GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`、`GCS_MIMIC_REQUEST_TIMEOUT_MS`、`GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS`、`GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS`、`GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 既定は30000、無効、180000、120000、無効、120000ミリ秒です。Cloud Storageはこれらの秒数を公開していないので、[ローカルの判断（英語）](../en/sources.md#timeouts-and-limits-behind-the-local-defaults)です。それぞれ`0`で無効になります。`GCS_MIMIC_CONNECTION_TIMEOUT_MS`は最初の3つの別名として残ります |
 | 作成者として扱うローカル主体 | `GCS_MIMIC_LOCAL_CREATOR_EMAIL`・`--local-creator-email`・JSONの`local_creator_email` | nativeのpermissiveのみ。認証なしで書いたオブジェクトの`owner`と、ACLの`user-`のOWNERエントリに記録するメールアドレス（Cloud Storageが呼び出し元を記録するのと同じ）。既定は`local-user@gcs-mimic.invalid`（予約ドメイン）。空にすると無効になり`project-owners-N`に戻る。作成者の記録だけに使い、権限は与えない。値を変えると次の起動で既存オブジェクトの作成者名も変わる。strictでは登録した呼び出し元が、legacyでは何も記録されないため、どちらでも空でない値を明示すると拒否される |
 | ログレベル選択 | `GCS_MIMIC_LOG_LEVEL`・`--log-level`・JSONの`log_level` | 既定は`info`。`debug`・`info`・`warn`・`error`、`warning`は`warn`の別名。診断とstdoutのready/stoppedは常に表示 |

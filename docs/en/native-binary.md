@@ -112,9 +112,13 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
 | `--max-seed-entries` | `GCS_MIMIC_MAX_SEED_ENTRIES` | 10000 | 1–100000000; files and directories in `seed_dir`. A seed is one atomic publication, so its memory grows with them |
 | `--max-seed-depth` | `GCS_MIMIC_MAX_SEED_DEPTH` | 32 | 1–1024; directory levels below a seed bucket |
+| `--max-sync-entries` | `GCS_MIMIC_MAX_SYNC_ENTRIES` | See `serve --help` | 1–100000000; requires `sync_dir`. Files and directories in `sync_dir`, also the watches Linux may use. A scan takes longer but holds no more memory |
+| `--max-sync-depth` | `GCS_MIMIC_MAX_SYNC_DEPTH` | See `serve --help` | 1–1024; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket |
 | `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved |
-| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Each request's Host and connection scheme | Set it to fix the advertised origin. An invalid or missing Host, or one that selects an XML virtual bucket, falls back to the bound listener URL: wildcard IP becomes loopback and port 0 becomes the allocated port. Explicit absolute HTTP(S) base with optional base path, no credentials/query/fragment. Ready reports the explicit or bound base |
+| `--max-buckets-per-batch` | `GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | See `serve --help` | 1–1000000; buckets one `--buckets-file` or one seed may declare, not all buckets of the server. Either is one atomic publication, so its memory grows with them |
+| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Each request's Host and connection scheme | Set it to fix the advertised origin. A Host that selects an XML virtual bucket uses the configured domain with the same port, never the bucket label. An invalid or missing Host falls back to the bound listener URL: wildcard IP becomes loopback and port 0 becomes the allocated port. Explicit absolute HTTP(S) base with optional base path, no credentials/query/fragment. Ready reports the explicit or bound base |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 1024 | 1–1048576; total across listeners, including TLS handshakes. Startup raises the soft open-file limit to three per connection plus 64, and warns when it cannot |
+| `--max-grpc-streams` | `GCS_MIMIC_MAX_GRPC_STREAMS` | 100 | 1–65536; requires `grpc_listen`. Concurrent streams per gRPC connection. Each can buffer a message of up to 4 MiB, so one connection can reach 400 MiB; lower it to limit that memory. With a gRPC listener, startup also raises the open-file limit toward connections times streams times two, without a warning when that falls short |
 | `--max-resumable-sessions` | `GCS_MIMIC_MAX_RESUMABLE_SESSIONS` | 0 (unlimited) | 0–4294967295; active resumable uploads |
 | `--max-rewrite-sessions` | `GCS_MIMIC_MAX_REWRITE_SESSIONS` | 0 (unlimited) | 0–4294967295; unfinished rewrites |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–1024 |
@@ -125,7 +129,7 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | none | Alias: sets the three settings above to one value; each of them named explicitly wins, from any source |
 | `--keep-alive-timeout-ms` | `GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS` | 120000 (2 minutes) | 0 disables, no upper limit; idle time between HTTP/1.1 requests on one connection and on gRPC connections |
 | `--object-request-timeout-ms` | `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` | 0 (disabled) | 0 disables, no upper limit; absolute upload/media deadline |
-| `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 120000 (2 minutes) | 0 waits without a limit; upload advisory/commit wait and the wait for a busy upload session |
+| `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 120000 (2 minutes) | 0 waits without a limit; upload advisory/commit wait, the wait for a busy upload session, and the wait of a reset, reseed, publication or management call for its turn |
 | `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 0 waits for unfinished requests without a limit |
 | `--max-object-bytes` | `GCS_MIMIC_MAX_OBJECT_BYTES` | 5497558138880 (5 TiB) | 1–5497558138880 (5 TiB); also caps gzip upload expansion, so lower it on a shared or exposed server |
 | `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity file |
@@ -181,8 +185,9 @@ stream after its headers and closes the connection. A deadline response, or a re
 that leaves the request body unread, closes the connection; the server then keeps
 reading and discarding client input for up to 30 seconds, so a rejected upload still
 reads its response instead of a connection reset. Accepted TCP connections enable TCP
-keep-alive (30 seconds idle, then every 15 seconds; the OS sets the probe count), so a
-dead peer releases its slot even with every limit disabled.
+keep-alive (30 seconds idle, then four probes 15 seconds apart), so an idle connection to a
+dead peer releases its slot after 90 seconds, even with every limit disabled. A socket with
+unacknowledged data falls under the kernel's retransmission limit instead.
 Advisory checks and post-EOF storage waits each default to two minutes,
 capped by any remaining absolute request budget, and return 503 `backendError` on expiry.
 After a post-EOF timeout the mutation outcome is unknown: the commit may still complete,
@@ -207,8 +212,10 @@ discard at most 256 KiB for at most 100 ms. Generic admitted catalog writes and 
 upload bodies can still commit after the client disconnects; clients must read back state
 when the response is lost. Trickle uploads cannot renew the absolute request ceiling;
 cancelled uploads remain tracked until their cleanup finishes. A client that drops its
-request gives up its place in the catalog queue. Reset and seed commits still answer 503
-while they run.
+request gives up its place in the catalog queue. Requests that arrive during a reset, reseed
+or seed commit wait and then run against the state it left. A client that stays connected
+without sending its upload body holds up a reset for up to `catalog_wait_timeout_ms`, and new
+uploads wait behind the reset meanwhile. The reset then answers 503 and changes nothing.
 
 Older catalogs migrate automatically, one way and in order, to the current schema 50;
 the log names the versions. A binary supporting only schema 49 cannot open a directory
@@ -241,8 +248,9 @@ entries remain stored. Different existing projects warn without changing owners.
 Initialization runs before seed, using local administrative authority in strict
 and permissive modes, and grants no API permissions. Invalid entries stop startup
 with complete diagnostics and no ready event. IAM policies, ACLs, lifecycle, UBLA
-and unknown fields are rejected even when empty or disabled. Limits are 1 MiB,
-1000 buckets and 64 KiB per entry. See the [schema](slices/bucket-initialization.md)
+and unknown fields are rejected even when empty or disabled. Limits are
+`max_buckets_per_batch` buckets, a file of 1 KiB per allowed bucket and at least 1 MiB,
+and 64 KiB per entry. See the [schema](slices/bucket-initialization.md)
 and [read-only Compose example](container-usage.md#initialize-bucket-settings).
 
 ## Seed a native catalog and read a byte range

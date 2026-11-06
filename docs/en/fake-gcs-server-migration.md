@@ -301,15 +301,16 @@ API uploads have no separate concurrency quota. `max_connections` (default 1024)
 bounds active connections; excess connections wait. Catalog operations also wait for
 admission instead of failing, and a client that disconnects gives up its place. Active
 resumable sessions, unfinished rewrites, XML multipart uploads and derived transfers have
-no count limit by default. Bodies retain 64 KiB chunks
+no count limit by default. Different part numbers of an XML multipart upload write at the
+same time. Requests that arrive during a reset, reseed or seed commit wait and then run against
+the state it left. Bodies retain 64 KiB chunks
 and a depth-two channel, without collecting the whole object in memory.
 
 A 503 remains possible in these cases:
 
 - A request that outlasts `catalog_wait_timeout_ms` (default 120000), including one waiting
-  for a busy session such as a parallel XML multipart part, or a handler that outlasts
-  `request_timeout_ms` (default 180000).
-- A reset or a seed commit while it runs.
+  for a busy session such as a resent XML multipart part number or a completion, or a handler
+  that outlasts `request_timeout_ms` (default 180000).
 - `max_resumable_sessions` or `max_rewrite_sessions` that you set.
 - I/O failures and shutdown.
 

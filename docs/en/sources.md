@@ -170,6 +170,24 @@ The following are also local choices, not provider behavior:
 - `max_connections` of 1024 and `max_object_bytes` of 5 TiB. Only the object size comes from the quotas page.
 - Unlimited active resumable sessions, unfinished rewrites, XML multipart uploads and derived transfers.
 - Soft delete off by default and retention of 1 second through 3155760000 seconds. Both differ from the page above, as `SPEC-SOFT-DELETE` records.
+- `max_buckets_per_batch`, `max_sync_entries`, `max_sync_depth`, `max_seed_entries`, `max_seed_depth` and the `import` limits. The quotas page states no number of buckets per project or objects per bucket, so these only size what one local operation takes on.
+
+**`max_grpc_streams` defaults to 100 because of a protocol recommendation, not an observed provider value.** [RFC 9113 section 6.5.2](https://www.rfc-editor.org/rfc/rfc9113.html#section-6.5.2) says of `SETTINGS_MAX_CONCURRENT_STREAMS`: "It is recommended that this value be no smaller than 100, so as to not unnecessarily limit parallelism."
+
+## Documented limits that remain
+
+gcs-mimic removes fixed limits unless Cloud Storage documents them as part of its contract, and it waits rather than refusing when a local resource is busy. These limits remain, checked on **2026-11-06** and again on **2026-11-07**.
+
+| Limit | gcs-mimic | What the official page says |
+| --- | --- | --- |
+| Object size | `max_object_bytes`, at most 5 TiB | [Quotas and limits](https://docs.cloud.google.com/storage/quotas): 5 TiB, regardless of write method. |
+| XML multipart parts | 10,000 per upload, numbered 1 to 10,000 | [Quotas and limits](https://docs.cloud.google.com/storage/quotas): 10,000 parts. [PUT object multipart](https://docs.cloud.google.com/storage/docs/xml-api/put-object-multipart): "`partNumber` is an integer with a mimimum value of 1 and a maximum value of 10,000." |
+| XML multipart part size | At most 5 GiB; at least 5 MiB except for the last part | [Quotas and limits](https://docs.cloud.google.com/storage/quotas) and [Multipart uploads](https://docs.cloud.google.com/storage/docs/multipart-uploads): 5 MiB to 5 GiB. |
+| Resumable session lifetime | 7 days from initiation | [Quotas and limits](https://docs.cloud.google.com/storage/quotas): 7 days. [Resumable uploads](https://docs.cloud.google.com/storage/docs/resumable-uploads): "A session URI expires after one week but can be cancelled prior to expiring." |
+| Compose sources | 32 per request | [Quotas and limits](https://docs.cloud.google.com/storage/quotas): 32. [Composite objects](https://docs.cloud.google.com/storage/docs/composite-objects): "You can compose between 1 and 32 source objects." |
+| JSON batch | 100 calls; a request smaller than 10,000,000 bytes | [Batch](https://docs.cloud.google.com/storage/docs/batch): at most 100 calls, and "The total batch request payload must be less than 10MB." [Quotas and limits](https://docs.cloud.google.com/storage/quotas) writes "Less than 10 MiB". |
+
+**An unfinished XML multipart upload is the one deliberate difference.** [Multipart uploads](https://docs.cloud.google.com/storage/docs/multipart-uploads) says "There is no limit to how long a multipart upload and its uploaded parts can remain unfinished or idle in a bucket", and the quotas page lists "Unlimited". gcs-mimic expires one after seven days. This is an owner decision: abandoned parts do not appear in object listings, so on a local machine they would keep using disk without anyone noticing. `/_internal/reset` and an abort also remove them.
 
 ## Important scope boundaries
 

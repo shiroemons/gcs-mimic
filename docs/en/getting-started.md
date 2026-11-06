@@ -466,7 +466,7 @@ Continuation may omit optional parameters/body; repeated values must match the
 first request. The immediately previous token replays its response, including
 the original completed generation, without another publication. Sessions expire
 after a fixed week. Unfinished rewrites are unlimited unless `max_rewrite_sessions` sets a
-limit, and the 128 most recent completed responses are
+limit, and the 4096 most recent completed responses are
 retained separately; older completion responses can be evicted before expiry.
 Malformed/mismatched requests fail 400; unavailable, altered or expired keys fail
 local 410. Changed unqualified sources fail 412; explicitly selected retained
