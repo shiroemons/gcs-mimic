@@ -10,7 +10,7 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-snapshot=20261027T000000Z
+snapshot=20261104T212339Z
 musl_version=1.2.5-3.1~deb13u1
 
 install_from() {

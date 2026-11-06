@@ -492,3 +492,44 @@ are unchanged here.
   and storage.yml recipe `11 PASS, 0 FAIL`; it exits 1 because of
   AS-DEFAULT-AUTH, as before. `bash sdk-tests/ruby/active_storage/run-strict.sh`
   reported the signing self-check PASS and `3 PASS, 0 FAIL`.
+
+## Refresh: 2026-11-06
+
+The scheduled check on 2026-11-05 reported `UPDATE_AVAILABLE` for
+`rust:1.99.1-slim-trixie`, and the check on 2026-11-06 also reported Composer and
+the Java SDK inputs.
+
+| Input | Previous | Adopted | Change |
+| --- | --- | --- | --- |
+| rust:1.99.1-slim-trixie | `sha256:59f72d5265cfcf281fcfa4d990e75f09c53f911def9913c47a4a89dca690a887` | `sha256:7eab7ce19273ce785e0ca7578bdf7bc1fcbae621775a8197379a04c9f6e03cd5` | linux/amd64 and linux/arm64 rebuilt; Rust stays 1.99.1 |
+| Debian snapshot for musl and socat | `20261027T000000Z` | `20261104T212339Z` | Read from the new image; package versions unchanged |
+| composer:2.11.1 | `sha256:5190d9b445add2fa26090108273cb1ef1e1af98175201c737b85b3c4f90fbf7c` | `sha256:3d1eb9437516b0ba88c46a0bb05826451a1ab178d29adacb5ded26dad0899ae4` | linux/amd64 and linux/arm64 rebuilt; still PHP 8.5.12 and Composer 2.11.1 |
+| com.google.cloud:google-cloud-storage | 2.76.0 | 2.77.0 | `sdk-tests/java`, `sdk-scorecard/java` |
+| com.google.auth:google-auth-library-oauth2-http | 1.55.0 | 1.56.0 | `sdk-scorecard/java` |
+
+`examples/java` is not tracked by the freshness check and stays on 2.76.0.
+Evidence recorded for the earlier Java versions keeps those versions.
+
+The same run failed Foundation checks on external hosts: musl.libc.org timed out
+during a TLS handshake, and on a re-run snapshot.debian.org answered 504 after
+all eight apt attempts. The build now installs the same pinned musl version from
+deb.debian.org when the snapshot stays unavailable, and uses the musl source
+archive committed under `distribution/notices/musl-1.2.5`, whose SHA-256
+`a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4` matched a
+fresh download.
+
+### Validation performed on 2026-11-06
+
+- `cargo xtask dependencies check` at `2026-11-06T07:33:53Z` exited 0 with 118
+  `CURRENT` inputs; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+- With snapshot.debian.org mapped to an unreachable address, the install scripts
+  installed musl 1.2.5-3.1~deb13u1 on linux/amd64 and linux/arm64 and socat
+  1.8.0.3-1+deb13u1 on linux/amd64 from deb.debian.org. With deb.debian.org also
+  unreachable, the musl script exited 100.
+- `just check-containers` exited 0 on linux/amd64 and linux/arm64 with the new
+  image pin and the committed musl archive.
+- `scripts/sdk-go.sh --with-java --with-php`, run through
+  `scripts/with-test-tmpdir.sh`, exited 0, including the Java HTTP scenario and
+  the PHP strict HTTP cases.
+- `mvn compile` in `sdk-scorecard/java` passed. The full scorecard, the Java
+  Testcontainers scenario and the release archive workflow were not run locally.

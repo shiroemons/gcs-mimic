@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Probes the official `com.google.cloud:google-cloud-storage` 2.76.0 against an
+Probes the official `com.google.cloud:google-cloud-storage` 2.77.0 against an
 emulator. It emits one JSONL line per case: the 51 shared bucket, object and
 signed cases (same IDs and order as the Python probe) plus 19 Java-specific
 cases in the `sdk` area (IDs start with `sdk.`). The area covers the SDK's

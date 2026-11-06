@@ -1,5 +1,5 @@
 local.gcsmimic:sdk-scorecard-java:jar:1.0.0
-+- com.google.cloud:google-cloud-storage:jar:2.76.0:compile
++- com.google.cloud:google-cloud-storage:jar:2.77.0:compile
 |  +- com.fasterxml.jackson.dataformat:jackson-dataformat-xml:jar:2.22.4:compile
 |  +- org.codehaus.woodstox:stax2-api:jar:4.3.0:compile
 |  +- com.fasterxml.woodstox:woodstox-core:jar:7.2.0:compile
@@ -24,24 +24,24 @@ local.gcsmimic:sdk-scorecard-java:jar:1.0.0
 |  +- com.google.http-client:google-http-client-apache-v2:jar:2.2.0:compile
 |  +- com.google.apis:google-api-services-storage:jar:v1-rev20260524-2.0.0:compile
 |  +- com.google.code.gson:gson:jar:2.14.0:compile
-|  +- com.google.cloud:google-cloud-core:jar:2.78.0:compile
+|  +- com.google.cloud:google-cloud-core:jar:2.79.0:compile
 |  +- com.google.auto.value:auto-value-annotations:jar:1.11.0:compile
-|  +- com.google.cloud:google-cloud-core-http:jar:2.78.0:compile
+|  +- com.google.cloud:google-cloud-core-http:jar:2.79.0:compile
 |  +- com.google.http-client:google-http-client-appengine:jar:2.2.0:compile
-|  +- com.google.api:gax-httpjson:jar:2.88.0:compile
+|  +- com.google.api:gax-httpjson:jar:2.89.0:compile
 |  +- org.conscrypt:conscrypt-openjdk-uber:jar:2.6.2:compile
-|  +- com.google.cloud:google-cloud-core-grpc:jar:2.78.0:compile
-|  +- com.google.api:gax:jar:2.88.0:compile
-|  +- com.google.api:gax-grpc:jar:2.88.0:compile
+|  +- com.google.cloud:google-cloud-core-grpc:jar:2.79.0:compile
+|  +- com.google.api:gax:jar:2.89.0:compile
+|  +- com.google.api:gax-grpc:jar:2.89.0:compile
 |  +- io.grpc:grpc-inprocess:jar:1.83.0:compile
 |  +- io.grpc:grpc-alts:jar:1.83.0:compile
 |  +- io.grpc:grpc-auth:jar:1.83.0:compile
-|  +- com.google.auth:google-auth-library-credentials:jar:1.55.0:compile
-|  +- com.google.api:api-common:jar:2.71.0:compile
+|  +- com.google.auth:google-auth-library-credentials:jar:1.56.0:compile
+|  +- com.google.api:api-common:jar:2.72.0:compile
 |  +- io.opencensus:opencensus-api:jar:0.31.1:compile
 |  +- io.opentelemetry:opentelemetry-context:jar:1.62.0:compile
 |  +- io.opentelemetry:opentelemetry-common:jar:1.62.0:compile
-|  +- com.google.api.grpc:proto-google-iam-v1:jar:1.74.0:compile
+|  +- com.google.api.grpc:proto-google-iam-v1:jar:1.75.0:compile
 |  +- com.google.protobuf:protobuf-java:jar:4.33.6:compile
 |  +- com.google.protobuf:protobuf-java-util:jar:4.33.6:compile
 |  +- io.grpc:grpc-core:jar:1.83.0:compile
@@ -50,11 +50,11 @@ local.gcsmimic:sdk-scorecard-java:jar:1.0.0
 |  +- io.perfmark:perfmark-api:jar:0.27.0:runtime
 |  +- io.grpc:grpc-protobuf:jar:1.83.0:compile
 |  +- io.grpc:grpc-protobuf-lite:jar:1.83.0:runtime
-|  +- com.google.api.grpc:proto-google-common-protos:jar:2.79.0:compile
+|  +- com.google.api.grpc:proto-google-common-protos:jar:2.80.0:compile
 |  +- org.threeten:threetenbp:jar:1.7.0:compile
-|  +- com.google.api.grpc:proto-google-cloud-storage-v2:jar:2.76.0:compile
-|  +- com.google.api.grpc:grpc-google-cloud-storage-v2:jar:2.76.0:compile
-|  +- com.google.api.grpc:gapic-google-cloud-storage-v2:jar:2.76.0:compile
+|  +- com.google.api.grpc:proto-google-cloud-storage-v2:jar:2.77.0:compile
+|  +- com.google.api.grpc:grpc-google-cloud-storage-v2:jar:2.77.0:compile
+|  +- com.google.api.grpc:gapic-google-cloud-storage-v2:jar:2.77.0:compile
 |  +- io.opentelemetry:opentelemetry-sdk:jar:1.62.0:compile
 |  +- io.opentelemetry:opentelemetry-sdk-trace:jar:1.62.0:compile
 |  +- io.opentelemetry:opentelemetry-sdk-logs:jar:1.62.0:compile
@@ -89,4 +89,4 @@ local.gcsmimic:sdk-scorecard-java:jar:1.0.0
 |  +- dev.cel:protobuf:jar:0.13.0:runtime
 |  +- io.grpc:grpc-rls:jar:1.83.0:runtime
 |  \- org.jspecify:jspecify:jar:1.0.0:compile
-\- com.google.auth:google-auth-library-oauth2-http:jar:1.55.0:compile
+\- com.google.auth:google-auth-library-oauth2-http:jar:1.56.0:compile

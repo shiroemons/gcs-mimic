@@ -32,12 +32,12 @@ import java.util.stream.Stream;
 
 /** Emulator-neutral official Java SDK probes; stdout is JSONL evidence. */
 public final class Probe {
-  static final String SDK_VERSION = "google-cloud-storage 2.76.0";
+  static final String SDK_VERSION = "google-cloud-storage 2.77.0";
 
   /**
    * Cases this SDK version cannot express through its public API. Decided statically so a
    * runtime failure can never be reclassified as "unsupported". Every scorecard workflow has a
-   * public google-cloud-storage 2.76.0 API, so the map is empty.
+   * public google-cloud-storage 2.77.0 API, so the map is empty.
    */
   static final Map<String, String> UNSUPPORTED = Map.of();
 

@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-11-05T06:41:59Z",
-  "scope": "The 2026-11-05 refresh adopts the rust:1.99.1-slim-trixie index rebuilt for linux/riscv64 only; its linux/amd64 and linux/arm64 manifests are unchanged. The same day the container runtime moved from Distroless to scratch, dropping that input and adding the release-input musl apt package. It also adopts google.golang.org/api v0.311.0 in go/go.mod and sdk-tests/go/go.mod, google.golang.org/genproto v0.0.0-20261104224025-d1e00e9f33ab in sdk-tests/go/go.mod and Bundler 4.0.24 in both Ruby suite lockfiles. The 2026-11-04 refresh adopts the rebuilt rust:1.99.1-slim-trixie index, whose linux/amd64 and linux/arm64 manifests both changed while Rust and the Debian snapshot stay the same, and google-auth-library 11.3.3 in the Node.js suite and the transitive scorecard and Testcontainers locks. activestorage and railties 8.1.4.1 are adopted in the Rails Active Storage suite after XML PUT gained x-goog-content-length-range, closing the rails-8-1-4-1-gcs-direct-upload-content-length-range exception. The 2026-11-03 refresh adopts crc32c 0.6.9 (with a fresh notice review), actions/setup-dotnet v6.1.0, moby/buildkit v0.34.2 and the rebuilt Composer 2.11.1 and Rust 1.99.1-slim-trixie indexes, whose linux/amd64 and linux/arm64 manifests are unchanged. The 2026-11-01 refresh adopts the rebuilt distroless/cc-debian13:nonroot index, whose linux/amd64 and linux/arm64 runtime manifests both changed; no other input changes. The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All eighteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
+  "checked_at_utc": "2026-11-06T07:33:53Z",
+  "scope": "The 2026-11-06 refresh adopts the rebuilt rust:1.99.1-slim-trixie index, whose linux/amd64 and linux/arm64 manifests both changed and which moves the Debian snapshot to 20261104T212339Z, the rebuilt Composer 2.11.1 index, whose linux/amd64 and linux/arm64 manifests both changed, and google-cloud-storage 2.77.0 and google-auth-library-oauth2-http 1.56.0 in the Java suite and scorecard. The 2026-11-05 refresh adopts the rust:1.99.1-slim-trixie index rebuilt for linux/riscv64 only; its linux/amd64 and linux/arm64 manifests are unchanged. The same day the container runtime moved from Distroless to scratch, dropping that input and adding the release-input musl apt package. It also adopts google.golang.org/api v0.311.0 in go/go.mod and sdk-tests/go/go.mod, google.golang.org/genproto v0.0.0-20261104224025-d1e00e9f33ab in sdk-tests/go/go.mod and Bundler 4.0.24 in both Ruby suite lockfiles. The 2026-11-04 refresh adopts the rebuilt rust:1.99.1-slim-trixie index, whose linux/amd64 and linux/arm64 manifests both changed while Rust and the Debian snapshot stay the same, and google-auth-library 11.3.3 in the Node.js suite and the transitive scorecard and Testcontainers locks. activestorage and railties 8.1.4.1 are adopted in the Rails Active Storage suite after XML PUT gained x-goog-content-length-range, closing the rails-8-1-4-1-gcs-direct-upload-content-length-range exception. The 2026-11-03 refresh adopts crc32c 0.6.9 (with a fresh notice review), actions/setup-dotnet v6.1.0, moby/buildkit v0.34.2 and the rebuilt Composer 2.11.1 and Rust 1.99.1-slim-trixie indexes, whose linux/amd64 and linux/arm64 manifests are unchanged. The 2026-11-01 refresh adopts the rebuilt distroless/cc-debian13:nonroot index, whose linux/amd64 and linux/arm64 runtime manifests both changed; no other input changes. The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All eighteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
     "exit_code": 0,
     "result": "CURRENT",
     "artifact": "docs/en/evidence/dependency-refresh.md",
-    "follow_up": "After adopting the 2026-11-05 SDK inputs the full check at 2026-11-05T06:41:59Z exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-05-sdk-inputs. Earlier: after adopting the 2026-11-05 Rust index the full check at 2026-11-05T06:31:32Z exited 1 with 113 CURRENT lines: both Rust image tags, the Debian stable codename and the musl and socat packages were CURRENT, fake-gcs-server v1.56.1 stays PINNED_REFERENCE, and google.golang.org/api v0.311.0, google.golang.org/genproto v0.0.0-20261104224025-d1e00e9f33ab and bundler 4.0.24 reported UPDATE_AVAILABLE in SDK-suite manifests and remain unadopted. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-05. Earlier: after adopting activestorage and railties 8.1.4.1 the full check at 2026-11-04T13:22:16Z exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#rails-8141-adopted. Earlier: after the other 2026-11-04 adoptions the full check exited 1 with 116 CURRENT inputs; only activestorage and railties reported UPDATE_AVAILABLE 8.1.4 -> 8.1.4.1. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-04. Earlier: after the 2026-11-03 adoptions the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-03. Earlier: after the distroless adoption the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE and Composer latest reports the riscv64-only INFO line. Both container platforms were rebuilt and smoke-tested. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01-distroless. Earlier: the 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. The latest index differs only by a linux/riscv64 entry, so the pin is CURRENT on the declared amd64 and arm64 platforms and the riscv64 difference is reported as INFO. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01."
+    "follow_up": "After the 2026-11-06 adoptions the full check at 2026-11-06T07:33:53Z exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-06. Earlier: after adopting the 2026-11-05 SDK inputs the full check at 2026-11-05T06:41:59Z exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-05-sdk-inputs. Earlier: after adopting the 2026-11-05 Rust index the full check at 2026-11-05T06:31:32Z exited 1 with 113 CURRENT lines: both Rust image tags, the Debian stable codename and the musl and socat packages were CURRENT, fake-gcs-server v1.56.1 stays PINNED_REFERENCE, and google.golang.org/api v0.311.0, google.golang.org/genproto v0.0.0-20261104224025-d1e00e9f33ab and bundler 4.0.24 reported UPDATE_AVAILABLE in SDK-suite manifests and remain unadopted. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-05. Earlier: after adopting activestorage and railties 8.1.4.1 the full check at 2026-11-04T13:22:16Z exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#rails-8141-adopted. Earlier: after the other 2026-11-04 adoptions the full check exited 1 with 116 CURRENT inputs; only activestorage and railties reported UPDATE_AVAILABLE 8.1.4 -> 8.1.4.1. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-04. Earlier: after the 2026-11-03 adoptions the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-03. Earlier: after the distroless adoption the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE and Composer latest reports the riscv64-only INFO line. Both container platforms were rebuilt and smoke-tested. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01-distroless. Earlier: the 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. The latest index differs only by a linux/riscv64 entry, so the pin is CURRENT on the declared amd64 and arm64 platforms and the riscv64 difference is reported as INFO. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01."
   },
   "toolchain": {
     "channel": "stable",
@@ -190,7 +190,7 @@
     "apt_packages": [
       {
         "name": "socat", "release_input": false, "suite": "trixie", "version": "1.8.0.3-1+deb13u1",
-        "snapshot": "20261027T000000Z",
+        "snapshot": "20261104T212339Z",
         "script": "sdk-scorecard/install-socat.sh",
         "callers": ["sdk-scorecard/run.sh", "sdk-scorecard/test-tls.sh"],
         "purpose": "Development-only loopback forwarder inside the digest-pinned Rust image, so the Rust scorecard probe keeps loopback URLs, Host headers and signatures. apt reads the snapshot.debian.org archive for the timestamp the Rust image itself was built from, so socat and its dependencies are identical on every run; the daily check compares the version with Debian trixie and verifies the script records the same pin.",
@@ -198,7 +198,7 @@
       },
       {
         "name": "musl", "release_input": true, "suite": "trixie", "version": "1.2.5-3.1~deb13u1",
-        "snapshot": "20261027T000000Z",
+        "snapshot": "20261104T212339Z",
         "script": "scripts/install-musl-tools.sh",
         "callers": ["Dockerfile"],
         "purpose": "Release build input: musl-tools, musl-dev and musl from the Debian musl source package give the Dockerfile's build stage musl-gcc, which compiles the C dependencies and links the static container binary. The Dockerfile bind-mounts the script read-only at /app; apt reads the snapshot.debian.org archive for the timestamp the Rust image itself was built from, and the daily check compares the version with Debian trixie.",
@@ -209,13 +209,13 @@
       {
         "repository": "library/composer", "reference": "composer:2.11.1", "release_input": false,
         "tag": "2.11.1", "latest_tag": "latest",
-        "digest": "sha256:5190d9b445add2fa26090108273cb1ef1e1af98175201c737b85b3c4f90fbf7c",
-        "latest_verified_digest": "sha256:5190d9b445add2fa26090108273cb1ef1e1af98175201c737b85b3c4f90fbf7c",
+        "digest": "sha256:3d1eb9437516b0ba88c46a0bb05826451a1ab178d29adacb5ded26dad0899ae4",
+        "latest_verified_digest": "sha256:3d1eb9437516b0ba88c46a0bb05826451a1ab178d29adacb5ded26dad0899ae4",
         "verification_status": "ADOPTED",
-        "update_scope": "Composer 2.11.1 (released 2026-10-30; official download and changelog verified 2026-10-31) with PHP 8.5.12. The official composer/docker revision is 2af913cf6c428737e8eec2a3e9297d12d96eeac6. On 2026-11-03 the 2.11.1 index was rebuilt to add a linux/riscv64 manifest; the linux/amd64 and linux/arm64 manifests are unchanged, and 2.11.1 and latest now resolve to the same index. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-03.",
+        "update_scope": "Composer 2.11.1 (released 2026-10-30; official download and changelog verified 2026-10-31) with PHP 8.5.12. The official composer/docker revision is 2af913cf6c428737e8eec2a3e9297d12d96eeac6. Registry inspection on 2026-11-06 found the 2.11.1 and latest index rebuilt with new linux/amd64 and linux/arm64 platform digests; the image still reports PHP 8.5.12 and Composer 2.11.1. On 2026-11-03 the 2.11.1 index was rebuilt to add a linux/riscv64 manifest; the linux/amd64 and linux/arm64 manifests are unchanged, and 2.11.1 and latest now resolve to the same index. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-03.",
         "platforms": {
-          "linux/amd64": "sha256:22844d23aacc7140fccf24992829ae98bc2c92e0240ccca3b35716bf5d82ed70",
-          "linux/arm64": "sha256:9c383fb6f07d2b2cbbf0f21133789b335a55996c4c857c0f2775d16f31922872"
+          "linux/amd64": "sha256:07cb23c4c9d528524a8b9a67c403d6ad7fef2268651eb1448e3874d40f28b789",
+          "linux/arm64": "sha256:d95f4dbefb16db852b156bd08345241ff1b5eb6d0800be5b360eeb02d4e37458"
         },
         "source_url": "https://hub.docker.com/_/composer",
         "purpose": "Development-only official Composer 2.11.1 / PHP 8.5.12 runtime for the PHP SDK scorecard and the official PHP SDK suite. sdk-scorecard/run.sh, sdk-scorecard/test-tls.sh and sdk-tests/php/run.sh pin this manifest index; daily detection checks replacement tags and digests."
@@ -225,13 +225,13 @@
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie", "stable_codename": "trixie",
         "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
         "stable_codename_note": "The scratch runtime has no Debian base, so this build image carries the Debian stable codename check: a newer stable generation is detected even though the slim-trixie alias stays on Debian 13.",
-        "digest": "sha256:59f72d5265cfcf281fcfa4d990e75f09c53f911def9913c47a4a89dca690a887",
-        "latest_verified_digest": "sha256:59f72d5265cfcf281fcfa4d990e75f09c53f911def9913c47a4a89dca690a887",
+        "digest": "sha256:7eab7ce19273ce785e0ca7578bdf7bc1fcbae621775a8197379a04c9f6e03cd5",
+        "latest_verified_digest": "sha256:7eab7ce19273ce785e0ca7578bdf7bc1fcbae621775a8197379a04c9f6e03cd5",
         "verification_status": "ADOPTED",
-        "update_scope": "Registry inspection on 2026-11-05 found the 1.99.1-slim-trixie and slim-trixie index rebuilt again with only the linux/riscv64 image and its attestation changed; the linux/amd64 and linux/arm64 platform digests below are unchanged, so the musl and socat snapshot timestamps stay the same. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-05. Earlier: registry inspection on 2026-11-04 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie (created 2026-11-03, docker-rust revision f6c59bee4a6e34a154c2122895ecd7833507f705) with new linux/amd64 and linux/arm64 platform digests. Rust stays 1.99.1 and both platform images still record the Debian snapshot 20261027T000000Z, so the socat snapshot timestamp is unchanged. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
+        "update_scope": "Registry inspection on 2026-11-06 found the 1.99.1-slim-trixie and slim-trixie index rebuilt with new linux/amd64 and linux/arm64 platform digests (images created 2026-11-05). Rust stays 1.99.1; both platform images record the Debian snapshot 20261104T212339Z, so the musl and socat snapshot timestamps advance to it while the package versions stay the same. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-06. Earlier: registry inspection on 2026-11-05 found the 1.99.1-slim-trixie and slim-trixie index rebuilt again with only the linux/riscv64 image and its attestation changed; the linux/amd64 and linux/arm64 platform digests below are unchanged, so the musl and socat snapshot timestamps stay the same. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-05. Earlier: registry inspection on 2026-11-04 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie (created 2026-11-03, docker-rust revision f6c59bee4a6e34a154c2122895ecd7833507f705) with new linux/amd64 and linux/arm64 platform digests. Rust stays 1.99.1 and both platform images still record the Debian snapshot 20261027T000000Z, so the socat snapshot timestamp is unchanged. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
         "platforms": {
-          "linux/amd64": "sha256:be49948243566aa0ae465ae2786c4bab8cb5597084873b01d3db50dcebc70b18",
-          "linux/arm64": "sha256:a5b16f6cc783db8240559f7d2fe38a30e3885bed801db49e5e37d6b1223b68bf"
+          "linux/amd64": "sha256:e97df055c54a05160e7c67ba3b2963de6ddb95903911baf8922dbcd1b394f698",
+          "linux/arm64": "sha256:10d470c049d88eb5dbfc85612f51571edd1ebbbdade35c5d3d89d9ab8fd6bda3"
         },
         "source_url": "https://hub.docker.com/v2/repositories/library/rust/tags/1.99.1-slim-trixie"
       },
@@ -314,11 +314,11 @@
       "resolution_constraints": "Standalone locked Cargo graph, outside the application workspace. Daily checks use actual locked offline Cargo metadata and verify every direct registry resolution. Official Google and Arrow adapters have separate acceptance; compilation does not establish runtime compatibility."
     },
     {
-      "ecosystem": "maven", "manifest": "sdk-tests/java/pom.xml", "source_checked_at": "2026-10-30",
+      "ecosystem": "maven", "manifest": "sdk-tests/java/pom.xml", "source_checked_at": "2026-11-06",
       "toolchain": {"version": "27.0.1.0.2+1", "pin": "sdk-tests/java/.java-version"},
       "maven_version": "3.10.0",
       "direct_dependencies": [
-        {"name": "com.google.cloud:google-cloud-storage", "current": "2.76.0", "license": "Apache-2.0", "jar_bytes": 1536327},
+        {"name": "com.google.cloud:google-cloud-storage", "current": "2.77.0", "license": "Apache-2.0", "jar_bytes": 1549678},
         {"name": "org.testcontainers:testcontainers", "current": "2.0.5", "license": "MIT", "jar_bytes": 17789146}
       ],
       "plugins": [
@@ -355,12 +355,12 @@
       "resolution_constraints": "Development-only scorecard probe; standalone locked Cargo graph outside the application workspace. It runs in the digest-pinned Linux rust image because the SDK cannot trust the scorecard CA on macOS. Daily checks use actual locked offline Cargo metadata and verify every direct registry resolution; the gax, iam-v1, wkt and reqwest edges name crates already in the SDK graph."
     },
     {
-      "ecosystem": "maven", "manifest": "sdk-scorecard/java/pom.xml", "source_checked_at": "2026-10-31",
+      "ecosystem": "maven", "manifest": "sdk-scorecard/java/pom.xml", "source_checked_at": "2026-11-06",
       "toolchain": {"version": "27.0.1.0.2+1", "pin": "sdk-scorecard/java/.java-version"},
       "maven_version": "3.10.0",
       "direct_dependencies": [
-        {"name": "com.google.cloud:google-cloud-storage", "current": "2.76.0", "license": "Apache-2.0", "jar_bytes": 1536327},
-        {"name": "com.google.auth:google-auth-library-oauth2-http", "current": "1.55.0", "jar_bytes": 377507}
+        {"name": "com.google.cloud:google-cloud-storage", "current": "2.77.0", "license": "Apache-2.0", "jar_bytes": 1549678},
+        {"name": "com.google.auth:google-auth-library-oauth2-http", "current": "1.56.0", "jar_bytes": 395166}
       ],
       "plugins": [
         {"name": "org.apache.maven.plugins:maven-compiler-plugin", "current": "3.16.0"},
