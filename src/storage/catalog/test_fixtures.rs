@@ -11,7 +11,7 @@ pub(in crate::storage) fn guidance_source_failures() -> Vec<(
     crate::object::ObjectError,
     crate::storage::failure::BackendFailure,
 )> {
-    use super::{ConnectionUnavailable, admission_error, executor, unavailable};
+    use super::{ConnectionUnavailable, executor, unavailable};
     use crate::{
         object::ObjectError,
         storage::failure::{BackendFailure, object_unavailable},
@@ -33,14 +33,6 @@ pub(in crate::storage) fn guidance_source_failures() -> Vec<(
         (
             object_unavailable(ConnectionUnavailable::Closed),
             BackendFailure::CatalogClosed,
-        ),
-        (
-            ObjectError::from(admission_error(&tokio::sync::TryAcquireError::Closed)),
-            BackendFailure::CatalogClosed,
-        ),
-        (
-            ObjectError::from(admission_error(&tokio::sync::TryAcquireError::NoPermits)),
-            BackendFailure::OperationLimit,
         ),
         (
             ObjectError::from(unavailable(BackendFailure::OutboxLimit)),

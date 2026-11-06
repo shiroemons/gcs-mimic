@@ -662,7 +662,15 @@ async fn admin_admission_is_independent_of_saturated_api_slots() {
     let api_uploads: Vec<_> = (0..64)
         .map(|_| catalog.admit_object_upload().unwrap())
         .collect();
-    assert!(catalog.get_bucket("test-bucket", PERMISSIVE).await.is_err());
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(20),
+            catalog.get_bucket("test-bucket", PERMISSIVE)
+        )
+        .await
+        .is_err(),
+        "API callers wait while the slots are taken"
+    );
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
     let mut waiting = std::pin::pin!(admin.publish_object(
         &bucket,

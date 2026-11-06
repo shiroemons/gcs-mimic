@@ -4,7 +4,6 @@ use std::{error::Error, fmt};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BackendFailure {
     CatalogClosed,
-    OperationLimit,
     UploadWaitTimeout,
     RetainedSessionLimit,
     OutboxLimit,
@@ -18,7 +17,6 @@ impl BackendFailure {
     pub(crate) fn message(self) -> &'static str {
         match self {
             Self::CatalogClosed => "catalog is closed",
-            Self::OperationLimit => "catalog operation limit reached",
             Self::UploadWaitTimeout => "upload catalog wait timed out",
             Self::RetainedSessionLimit => "retained upload session limit reached",
             Self::OutboxLimit => "notification outbox limit reached",
@@ -33,9 +31,6 @@ impl BackendFailure {
         Some(match self {
             Self::CatalogClosed => {
                 "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying"
-            }
-            Self::OperationLimit => {
-                "Object storage is unavailable: catalog operation limit reached; retry with fewer concurrent requests (for example, 16)"
             }
             Self::UploadWaitTimeout => {
                 "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit"

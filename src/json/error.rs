@@ -1089,7 +1089,6 @@ mod tests {
         }
         for cause in [
             BackendFailure::CatalogClosed,
-            BackendFailure::OperationLimit,
             BackendFailure::UploadWaitTimeout,
             BackendFailure::RetainedSessionLimit,
             BackendFailure::FinalizationTimeout,

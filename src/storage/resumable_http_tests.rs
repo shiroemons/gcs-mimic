@@ -1,3 +1,4 @@
+mod catalog_wait;
 mod cloud_storage_parity;
 mod csek;
 mod fault_injection;
@@ -232,6 +233,18 @@ impl Harness {
         base: Option<&str>,
         catalog_wait_timeout_ms: u64,
     ) -> Self {
+        Self::start_with_config(
+            auth,
+            base,
+            Config {
+                max_object_bytes: max,
+                catalog_wait_timeout_ms,
+                ..Default::default()
+            },
+        )
+        .await
+    }
+    async fn start_with_config(auth: AuthProfile, base: Option<&str>, config: Config) -> Self {
         let dir = TestDir::new();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
@@ -255,9 +268,7 @@ impl Harness {
         let config = Config {
             scheme: gcs_mimic::config::Scheme::Http,
             api_base_url: Some(state.api_base_url.clone()),
-            max_object_bytes: max,
-            catalog_wait_timeout_ms,
-            ..Default::default()
+            ..config
         };
         let (stop, rx) = oneshot::channel();
         let running = state.clone();

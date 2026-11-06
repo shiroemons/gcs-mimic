@@ -131,26 +131,62 @@ async fn setup() -> (Catalog, PathBuf) {
 }
 
 #[tokio::test]
-async fn catalog_admission_rejection_does_not_leave_a_derived_draft() {
+async fn a_transfer_waiting_at_close_fails_and_its_draft_does_not_survive_reopening() {
     let (catalog, path) = setup().await;
     put(&catalog, "source", b"bytes").await;
     let selected = source(&catalog, "source").await;
-    let permits = catalog
-        .0
-        .admission
-        .clone()
-        .acquire_many_owned(catalog.0.admission.available_permits() as u32)
-        .await
-        .unwrap();
+    let permits = catalog.hold_admission();
+    let worker = catalog.clone();
+    let waiting =
+        tokio::spawn(async move { worker.begin_derived(vec![selected.whole()], 5).await });
+    crate::test_support::eventually_async("the transfer to wait for admission", || async {
+        catalog.admission_waiters() == 1
+    })
+    .await;
+    catalog.close().await.unwrap();
     assert!(matches!(
-        catalog.begin_derived(vec![selected.whole()], 5).await,
+        waiting.await.unwrap(),
         Err(ObjectError::Unavailable(_))
     ));
-    assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
     drop(permits);
+    let catalog = Catalog::open(&path).await.unwrap();
+    assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
     assert_eq!(bytes(&catalog, "source").await, b"bytes");
-    let transfer = ready(&catalog, "source").await;
-    catalog.cancel_derived(&transfer.id).await.unwrap();
+    catalog.close().await.unwrap();
+    fs::remove_dir_all(path).unwrap();
+}
+
+#[tokio::test]
+async fn a_request_dropped_while_its_transfer_waits_leaves_no_draft() {
+    let (catalog, path) = setup().await;
+    put(&catalog, "source", b"bytes").await;
+    let selected = source(&catalog, "source").await;
+    let permits = catalog.hold_admission();
+    let worker = catalog.clone();
+    let request = tokio::spawn(async move {
+        worker
+            .begin_derived_ephemeral(vec![selected.whole()], 5)
+            .await
+    });
+    crate::test_support::eventually_async("the transfer to wait for admission", || async {
+        catalog.admission_waiters() == 1
+    })
+    .await;
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    drop(permits);
+    crate::test_support::eventually_async("the abandoned transfer to be reclaimed", || async {
+        fs::read_dir(path.join("staging")).unwrap().count() == 0 && catalog.session_writers_idle()
+    })
+    .await;
+    let remaining: i64 = catalog
+        .run(|connection| {
+            sql::scalar(connection, "SELECT count(*) FROM derived_transfers", [])
+                .map_err(crate::storage::failure::unavailable)
+        })
+        .await
+        .unwrap();
+    assert_eq!(remaining, 0);
     catalog.close().await.unwrap();
     fs::remove_dir_all(path).unwrap();
 }

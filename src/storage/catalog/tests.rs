@@ -212,18 +212,6 @@ async fn a_closed_catalog_reports_closed_and_a_full_one_reports_its_limit() {
     );
     let record =
         crate::json::parse_insert(br#"{"name":"admission"}"#, "project", UNIX_EPOCH).unwrap();
-    let held = catalog
-        .0
-        .admission
-        .clone()
-        .try_acquire_many_owned(u32::try_from(MAX_IN_FLIGHT).unwrap())
-        .unwrap();
-    let full = catalog.insert_bucket(record.clone()).await.unwrap_err();
-    assert!(
-        matches!(&full, CatalogError::Unavailable(cause) if *cause == "catalog operation limit reached"),
-        "{full}"
-    );
-    drop(held);
     catalog.close().await.unwrap();
     let closed = catalog.insert_bucket(record).await.unwrap_err();
     assert!(
@@ -652,20 +640,9 @@ fn timestamps_use_integer_unix_milliseconds() {
 }
 
 #[tokio::test]
-async fn admission_is_bounded_and_sqlite_settings_are_explicit() {
+async fn sqlite_settings_are_explicit() {
     let dir = crate::test_support::TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    let permits = catalog
-        .0
-        .admission
-        .clone()
-        .try_acquire_many_owned(MAX_IN_FLIGHT as u32)
-        .unwrap();
-    assert!(matches!(
-        catalog.get_bucket("bucket", PERMISSIVE).await,
-        Err(CatalogError::Unavailable(_))
-    ));
-    drop(permits);
     catalog
         .run(|connection| {
             for (pragma, expected) in [

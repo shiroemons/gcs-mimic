@@ -118,7 +118,6 @@ pub(crate) async fn execute(
     if let Some(replay) = &mut replay {
         replay.bind_source(&source_record);
     }
-    // shortcut: admission is phase-local; reserve one slot if later-stage rejection under load must be eliminated.
     begin_catalog_wait(activity).await;
     let transfer = tokio::time::timeout_at(
         deadline,

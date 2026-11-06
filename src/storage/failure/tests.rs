@@ -44,10 +44,6 @@ fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
             "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
         ),
         (
-            OperationLimit,
-            "Object storage is unavailable: catalog operation limit reached; retry with fewer concurrent requests (for example, 16)",
-        ),
-        (
             UploadWaitTimeout,
             "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit",
         ),

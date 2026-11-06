@@ -153,7 +153,7 @@ impl From<CatalogError> for ResumableError {
     }
 }
 
-/// A nonqueued exclusive operation on one session; dropping always releases admission.
+/// An exclusive operation on one session; dropping always releases its writer.
 pub(crate) struct SessionLease {
     pub session: ResumableSession,
     pub(super) guard: std::sync::Arc<WriterGuard>,
@@ -418,7 +418,7 @@ impl Catalog {
             let files = catalog.clone();
             crate::task::run_blocking("session-create", move || create_session_bytes(&files, &blob_id)).await.map_err(unavailable)??;
             let metadata = catalog.clone();
-            let result = catalog.run_waiting(move |connection| Ok::<_, ResumableError>(insert_session(connection, &metadata, &request))).await;
+            let result = catalog.run(move |connection| Ok::<_, ResumableError>(insert_session(connection, &metadata, &request))).await;
             let result = result.unwrap_or_else(|error| Err(CreateFailure::Ambiguous(error)));
             catalog.0.maintenance_wake.notify_one();
             match result {
@@ -448,7 +448,7 @@ impl Catalog {
         let id = id.to_owned();
         let bucket = bucket.to_owned();
         let session = self
-            .run_waiting(move |connection| {
+            .run(move |connection| {
                 sql::row(
                     connection,
                     concat!(
@@ -569,7 +569,7 @@ impl Catalog {
                 "Upload options exceed 64 KiB".into(),
             ));
         }
-        let (changed, output) = self.run_waiting::<_, CatalogError>(move |connection| {
+        let (changed, output) = self.run::<_, CatalogError>(move |connection| {
             let changed = sql::exec(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded])?;
             if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset); }
             Ok((changed, output))

@@ -347,6 +347,8 @@ impl Catalog {
                 fail_rollback: AtomicBool::new(false),
                 #[cfg(test)]
                 maintenance_panics: std::sync::atomic::AtomicUsize::new(0),
+                #[cfg(test)]
+                admission_waiters: std::sync::atomic::AtomicUsize::new(0),
             })))
         })
         .await?

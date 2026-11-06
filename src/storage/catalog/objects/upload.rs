@@ -290,7 +290,7 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         let clock = self.0.clock.clone();
-        self.run_waiting(move |connection| {
+        self.run(move |connection| {
             let transaction = connection.transaction()?;
             let (_, delete_permission) = authorized_bucket(&transaction, &bucket, &access)?;
             let previous = lookup(&transaction, &bucket, &name)?;

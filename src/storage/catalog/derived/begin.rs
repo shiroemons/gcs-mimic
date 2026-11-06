@@ -162,12 +162,6 @@ impl Catalog {
             ));
         }
         let total = derived_total(&segments, max_bytes)?;
-        let admission = self
-            .0
-            .admission
-            .clone()
-            .try_acquire_owned()
-            .map_err(|error| super::super::admission_error(&error))?;
         let permit = self.admit_object_upload()?;
         let backend = self.0.backend.clone();
         let created = unix_millis(self.0.clock.now())?;
@@ -206,7 +200,7 @@ impl Catalog {
             let (outcome, returned) = match prepared {
                 Ok(()) => {
                     catalog
-                        .run_admitted(admission, move |connection| {
+                        .run(move |connection| {
                             let outcome = begin_transfer(
                                 connection,
                                 &BeginTransfer {

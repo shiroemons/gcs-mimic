@@ -425,7 +425,7 @@ impl Catalog {
         let token = hash(invocation.token.unwrap_or_default().as_bytes());
         let now = unix_micros(self.0.clock.now())?;
         let (source_incarnation, source_generation): (String, Option<i64>) = self
-            .run_waiting(move |connection| {
+            .run(move |connection| {
                 let transaction = connection.transaction()?;
                 let generation = copy_source_generation(
                     &transaction,
@@ -480,7 +480,7 @@ impl Catalog {
     ) -> Result<Option<ObjectRecord>, ObjectError> {
         let replay = replay.clone();
         let clock = self.0.clock.clone();
-        self.run_waiting(move |connection| {
+        self.run(move |connection| {
             let transaction = connection.transaction()?;
             replay.cached(&transaction, unix_micros(clock.now())?)
         })
@@ -523,7 +523,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
         let replay = self
-            .run_waiting(move |connection| {
+            .run(move |connection| {
                 let transaction = connection.transaction()?;
                 let (_, delete_permission) =
                     objects::authorized_bucket(&transaction, &bucket, &access)?;
