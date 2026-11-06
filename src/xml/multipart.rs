@@ -374,7 +374,7 @@ async fn complete(
         "Location",
         &format!(
             "{}/{}/{}",
-            ctx.endpoints.api_base_url.trim_end_matches('/'),
+            ctx.endpoints.api_base_url().trim_end_matches('/'),
             record.bucket,
             crate::url::encode_object_name(&record.name)
         ),

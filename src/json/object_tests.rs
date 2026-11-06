@@ -1,7 +1,8 @@
 use super::*;
+use crate::config::ApiBaseSource;
 use crate::object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget};
 use hyper::{HeaderMap, Method, StatusCode, header::HeaderName};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
@@ -979,16 +980,68 @@ fn obj_csek_002_metadata_update_accepts_only_echoed_customer_encryption() {
     let body = json!({"customerEncryption": echoed["customerEncryption"]}).to_string();
     let request = parse_object_metadata(body.as_bytes(), WriteMode::Patch).unwrap();
     assert!(
-        ObjectMetadataRequest::validate_unchanged(&request.unchanged, &object, "http://localhost")
-            .is_ok()
+        ObjectMetadataRequest::validate_unchanged(
+            &request.unchanged,
+            &object,
+            "http://localhost",
+            ApiBaseSource::Explicit
+        )
+        .is_ok()
     );
     let changed =
         json!({"customerEncryption": {"encryptionAlgorithm": "AES256", "keySha256": "AAAA"}});
     let request = parse_object_metadata(changed.to_string().as_bytes(), WriteMode::Patch).unwrap();
     assert!(
-        ObjectMetadataRequest::validate_unchanged(&request.unchanged, &object, "http://localhost")
-            .is_err()
+        ObjectMetadataRequest::validate_unchanged(
+            &request.unchanged,
+            &object,
+            "http://localhost",
+            ApiBaseSource::Explicit
+        )
+        .is_err()
     );
+}
+
+#[test]
+fn metadata_update_accepts_links_from_another_origin_only_for_a_derived_base() {
+    let object = record();
+    let read = object_resource(&object, "http://gcs:4443", Projection::NoAcl).unwrap();
+    let validate = |body: Value, source| {
+        let request = parse_object_metadata(body.to_string().as_bytes(), WriteMode::Patch).unwrap();
+        ObjectMetadataRequest::validate_unchanged(
+            &request.unchanged,
+            &object,
+            "http://localhost:54321",
+            source,
+        )
+    };
+    for key in ["selfLink", "mediaLink"] {
+        let repeated = json!({key: read[key]});
+        assert!(validate(repeated.clone(), ApiBaseSource::Derived).is_ok());
+        assert!(validate(repeated, ApiBaseSource::Explicit).is_err());
+        let other_bucket = read[key]
+            .as_str()
+            .unwrap()
+            .replace(&object.bucket, "another-bucket");
+        for rewritten in [json!(other_bucket), json!("not a link"), json!(1)] {
+            assert!(validate(json!({key: rewritten}), ApiBaseSource::Derived).is_err());
+        }
+    }
+}
+
+#[test]
+fn stored_response_links_move_to_the_new_origin_without_touching_other_fields() {
+    let object = record();
+    let mut stored = object_resource(&object, "http://gcs:4443", Projection::NoAcl).unwrap();
+    rebase_object_links(&mut stored, "http://localhost:54321");
+    assert_eq!(
+        stored,
+        object_resource(&object, "http://localhost:54321", Projection::NoAcl).unwrap()
+    );
+    let mut selected = json!({"name": "object", "metadata": {"selfLink": "http://gcs:4443/kept"}});
+    rebase_object_links(&mut selected, "http://localhost:54321");
+    assert_eq!(selected["metadata"]["selfLink"], "http://gcs:4443/kept");
+    assert!(selected.get("selfLink").is_none());
 }
 
 /// A Pub/Sub JSON payload drops the listener-dependent links without reordering the other

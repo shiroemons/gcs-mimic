@@ -979,32 +979,45 @@ fn changed_mapped_endpoint_reaches_new_resumable_locations_and_keeps_old_session
 
 #[test]
 fn config_update_during_upload_retains_the_requests_original_endpoint_snapshot() {
-    let dir = TestDir::new();
-    let server = Server::start(&dir, &["--admin-enabled", "true"]);
-    server.populate();
-    let mut upload = pending_media_upload(&server, "slow", b"stream".len());
-    server
-        .configure("http://new.invalid:9876", "public.invalid")
-        .expect(200);
-    upload.get_mut().write_all(b"stream").unwrap();
-    let response = common::read_http_response(&mut upload, Body::Expected).unwrap();
-    let response = String::from_utf8_lossy(&response);
-    let (_, body) = response.split_once("\r\n\r\n").unwrap();
-    let value: Value = serde_json::from_str(body).unwrap();
-    assert!(
-        value["selfLink"]
-            .as_str()
-            .unwrap()
-            .starts_with(&format!("http://{}/", server.address))
-    );
-    assert!(
+    for (args, original) in [
+        (
+            ["--admin-enabled", "true"].as_slice(),
+            // `pending_media_upload` addresses this Host.
+            "http://localhost/",
+        ),
+        (
+            &[
+                "--admin-enabled",
+                "true",
+                "--api-base-url",
+                "http://before.invalid:1234",
+            ],
+            "http://before.invalid:1234/",
+        ),
+    ] {
+        let dir = TestDir::new();
+        let server = Server::start(&dir, args);
+        server.populate();
+        let mut upload = pending_media_upload(&server, "slow", b"stream".len());
         server
-            .request("GET", "/storage/v1/b/test-bucket/o/slow", "", b"")
-            .json_ok()["selfLink"]
-            .as_str()
-            .unwrap()
-            .starts_with("http://new.invalid:9876/")
-    );
+            .configure("http://new.invalid:9876", "public.invalid")
+            .expect(200);
+        upload.get_mut().write_all(b"stream").unwrap();
+        let response = common::read_http_response(&mut upload, Body::Expected).unwrap();
+        let response = String::from_utf8_lossy(&response);
+        let (_, body) = response.split_once("\r\n\r\n").unwrap();
+        let value: Value = serde_json::from_str(body).unwrap();
+        let link = value["selfLink"].as_str().unwrap();
+        assert!(link.starts_with(original), "{link}");
+        assert!(
+            server
+                .request("GET", "/storage/v1/b/test-bucket/o/slow", "", b"")
+                .json_ok()["selfLink"]
+                .as_str()
+                .unwrap()
+                .starts_with("http://new.invalid:9876/")
+        );
+    }
 }
 
 #[test]

@@ -82,10 +82,14 @@ fn resumable_protocol_path(
         return None;
     }
     // A virtual-hosted request names an object; only the path-style reading is the JSON path.
-    let selected =
-        xml::select_object_with_endpoints(uri, request.headers(), ctx.config, ctx.endpoints)
-            .ok()
-            .flatten();
+    let selected = xml::select_object_with_endpoints(
+        uri,
+        request.headers(),
+        ctx.config,
+        ctx.endpoints.snapshot(),
+    )
+    .ok()
+    .flatten();
     if selected.is_some_and(|object| {
         object.bucket != "resumable"
             || Some(object.name()) != uri.path().strip_prefix("/resumable/")
@@ -121,7 +125,7 @@ async fn route(
         request.uri(),
         request.headers(),
         ctx.config,
-        ctx.endpoints,
+        ctx.endpoints.snapshot(),
     ) {
         Ok(selected) => selected,
         Err(error) => {
@@ -465,7 +469,7 @@ async fn respond_acl(
             operation,
             caller,
             state,
-            &ctx.endpoints.api_base_url,
+            ctx.endpoints.api_base_url(),
         )
         .await
         .map_err(|error| anonymous_error(error, caller)),
@@ -507,7 +511,7 @@ async fn respond_notifications(
             fields,
             caller,
             state,
-            &ctx.endpoints.api_base_url,
+            ctx.endpoints.api_base_url(),
         )
         .await
         .map_err(|error| anonymous_error(error, caller)),
@@ -718,7 +722,7 @@ async fn respond_project(
             fields,
             caller,
             state,
-            &ctx.endpoints.api_base_url,
+            ctx.endpoints.api_base_url(),
         )
         .await
         .map_err(|error| anonymous_error(error, caller)),
@@ -744,7 +748,7 @@ async fn respond_bucket(
             caller,
             state,
             profile,
-            &ctx.endpoints.api_base_url,
+            ctx.endpoints.api_base_url(),
         )
         .await
         .map_err(|error| anonymous_error(error, caller)),

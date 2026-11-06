@@ -9,5 +9,6 @@ mod it_protocol {
     mod object_http;
     mod object_multipart_http;
     mod object_range_http;
+    mod request_host_http;
     mod wire_parity_http;
 }

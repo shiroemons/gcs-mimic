@@ -199,6 +199,50 @@ pub(crate) fn path_below_base<'a>(target: &'a str, base: &str) -> Option<&'a str
     below.starts_with('/').then_some(below)
 }
 
+/// Whether a client-supplied authority may appear in an advertised URL. The value reaches
+/// `Location` headers and JSON links, so it must be exactly a host and an optional connectable
+/// port: `Authority` alone also accepts userinfo, reg-name delimiters, unvalidated brackets and
+/// text between the brackets and the port.
+pub(crate) fn is_advertisable_authority(authority: &hyper::http::uri::Authority) -> bool {
+    let host = authority.host();
+    let host_is_valid = match host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        Some(address) => address.parse::<std::net::Ipv6Addr>().is_ok(),
+        None => {
+            !host.is_empty()
+                && host
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_'))
+        }
+    };
+    let port_is_valid = match authority.as_str().strip_prefix(host) {
+        Some("") => true,
+        Some(port) => authority
+            .port_u16()
+            .is_some_and(|number| number != 0 && port == format!(":{number}")),
+        None => false,
+    };
+    host_is_valid && port_is_valid
+}
+
+/// The raw path and query of an absolute link; `None` when it has no origin to replace.
+fn below_origin(link: &str) -> Option<hyper::http::uri::PathAndQuery> {
+    let parts = link.parse::<hyper::Uri>().ok()?.into_parts();
+    parts.authority?;
+    parts.path_and_query
+}
+
+/// `link` with its origin replaced by `base`, which must have no path prefix.
+pub(crate) fn with_origin(link: &str, base: &str) -> Option<String> {
+    below_origin(link).map(|target| format!("{base}{target}"))
+}
+
+/// Whether two absolute links differ at most in their origin.
+pub(crate) fn same_below_origin(first: &str, second: &str) -> bool {
+    below_origin(first)
+        .zip(below_origin(second))
+        .is_some_and(|(first, second)| first == second)
+}
+
 /// Split `scheme://authority` from the raw remainder without decoding or normalizing the path.
 fn split_origin(url: &str) -> Option<(&str, &str)> {
     let (_, after_scheme) = url.split_once("://")?;
@@ -310,6 +354,25 @@ pub(crate) fn push_percent_encoded(out: &mut String, byte: u8) {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn links_compare_and_rebase_below_their_origin_only() {
+        let link = "http://gcs:4443/storage/v1/b/b/o/a%2Fb?generation=1&alt=media";
+        assert_eq!(
+            with_origin(link, "https://localhost:54321").as_deref(),
+            Some("https://localhost:54321/storage/v1/b/b/o/a%2Fb?generation=1&alt=media")
+        );
+        assert_eq!(with_origin("not a link", "http://gcs"), None);
+        assert!(same_below_origin(
+            link,
+            "https://localhost:54321/storage/v1/b/b/o/a%2Fb?generation=1&alt=media"
+        ));
+        assert!(!same_below_origin(
+            link,
+            "http://gcs:4443/storage/v1/b/b/o/a%2Fb?generation=2&alt=media"
+        ));
+        assert!(!same_below_origin(link, "/storage/v1/b/b/o/a%2Fb"));
+    }
 
     #[test]
     fn public_origins_normalize_dns_ips_ports_and_root_paths() {

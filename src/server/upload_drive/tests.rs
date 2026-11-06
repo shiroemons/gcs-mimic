@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     auth::Auth,
-    config::{Config, EndpointSnapshot},
+    config::{Config, RequestEndpoints},
     server::{ObjectActivity, RequestBody, State},
     storage::Catalog,
     test_support::TestDir,
@@ -17,7 +17,7 @@ use std::{
 struct Fixture {
     state: State,
     config: Config,
-    endpoints: EndpointSnapshot,
+    endpoints: RequestEndpoints,
     activity: watch::Sender<ObjectActivity>,
     _dir: TestDir,
 }
@@ -26,11 +26,7 @@ impl Fixture {
         let dir = TestDir::new();
         let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
         let config = Config::default();
-        let endpoints = EndpointSnapshot {
-            api_base_url: "http://localhost".into(),
-            public_base_url: None,
-            xml_virtual_host_domains: Vec::new(),
-        };
+        let endpoints = RequestEndpoints::explicit("http://localhost");
         let (activity, _) = watch::channel(ObjectActivity::default());
         Self {
             state,

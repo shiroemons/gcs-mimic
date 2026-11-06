@@ -1,8 +1,10 @@
 //! Management is for local tools; page-initiated requests must never reach mutations.
 
 use crate::{
+    config::{Config, EndpointSnapshot},
     json::JsonError,
     server::{RequestBody, RequestCtx},
+    url::PublicOrigin,
 };
 use hyper::{Request, StatusCode, http::uri::Authority};
 
@@ -24,7 +26,7 @@ pub(super) fn browser_or_misdirected(
         ));
     }
     if let Some(host) = request_host(request)?
-        && !host_allowed(&host, ctx)
+        && !host_allowed(&host, ctx.config, ctx.endpoints.snapshot())
     {
         return Err(JsonError::new(
             StatusCode::MISDIRECTED_REQUEST,
@@ -89,26 +91,23 @@ fn local_host(host: &str) -> bool {
         })
 }
 
-fn host_allowed(host: &str, ctx: RequestCtx<'_>) -> bool {
+/// Takes the snapshot rather than the request's endpoints: a base derived from this very Host
+/// would match it and admit every DNS rebinding name.
+fn host_allowed(host: &str, config: &Config, endpoints: &EndpointSnapshot) -> bool {
     local_host(host)
-        || ctx
-            .config
-            .admin_allowed_hosts
-            .iter()
-            .any(|name| name == host)
-        || ctx
-            .endpoints
+        || config.admin_allowed_hosts.iter().any(|name| name == host)
+        || endpoints
             .xml_virtual_host_domains
             .iter()
             .any(|name| name == host)
-        || std::iter::once(ctx.endpoints.api_base_url.as_str())
-            .chain(ctx.endpoints.public_base_url.as_ref().map(|v| v.as_str()))
-            .any(|url| {
-                url.parse::<hyper::Uri>()
-                    .ok()
-                    .and_then(|uri| uri.authority().map(normalized_host))
-                    .is_some_and(|name| name == host)
-            })
+        || std::iter::once(endpoints.fixed_api_authority())
+            .chain(
+                endpoints
+                    .public_base_url
+                    .as_ref()
+                    .map(PublicOrigin::authority),
+            )
+            .any(|authority| normalized_host(authority) == host)
 }
 
 #[cfg(test)]
@@ -161,11 +160,58 @@ mod tests {
         );
     }
 
+    /// A base derived from Host would match that Host, so a rebinding page's own name would pass.
+    #[tokio::test]
+    async fn management_host_is_not_admitted_by_a_base_derived_from_the_same_host() {
+        use crate::{
+            auth::Auth,
+            config::ConnectionScheme,
+            server::{ObjectActivity, State},
+            storage::Catalog,
+        };
+        let dir = crate::test_support::TestDir::new();
+        let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
+        let config = Config::default();
+        let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
+        for (host, expected) in [
+            ("evil.example.com", Some(StatusCode::MISDIRECTED_REQUEST)),
+            ("api.example.com", None),
+        ] {
+            let request = Request::builder()
+                .uri("/_internal/config")
+                .header("host", host)
+                .body(RequestBody::Buffered(http_body_util::Full::new(
+                    bytes::Bytes::new(),
+                )))
+                .unwrap();
+            let endpoints = config
+                .runtime_endpoints
+                .snapshot(&config, "http://api.example.com")
+                .unwrap()
+                .for_request(ConnectionScheme::Http, request.uri(), request.headers());
+            assert_eq!(endpoints.api_base_url(), format!("http://{host}"));
+            let ctx = RequestCtx {
+                state: &state,
+                config: &config,
+                endpoints: &endpoints,
+                activity: &activity,
+            };
+            assert_eq!(
+                browser_or_misdirected(&request, ctx)
+                    .err()
+                    .map(|error| error.status),
+                expected,
+                "{host}"
+            );
+        }
+        state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn management_guards_run_before_every_route_specific_gate() {
         use crate::{
             auth::Auth,
-            config::{Config, EndpointSnapshot},
+            config::RequestEndpoints,
             server::{ObjectActivity, State},
             storage::Catalog,
         };
@@ -175,11 +221,7 @@ mod tests {
             admin_allowed_hosts: vec!["dev.example.com".into()],
             ..Config::default()
         };
-        let endpoints = EndpointSnapshot {
-            api_base_url: "http://api.example.com".into(),
-            public_base_url: None,
-            xml_virtual_host_domains: Vec::new(),
-        };
+        let endpoints = RequestEndpoints::explicit("http://api.example.com");
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         let ctx = RequestCtx {
             state: &state,
@@ -221,7 +263,11 @@ mod tests {
             ("api.example.com", true),
             ("evil.example.com", false),
         ] {
-            assert_eq!(host_allowed(host, ctx), expected, "{host}");
+            assert_eq!(
+                host_allowed(host, &config, endpoints.snapshot()),
+                expected,
+                "{host}"
+            );
         }
         state.catalog.close().await.unwrap();
     }

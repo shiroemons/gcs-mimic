@@ -109,7 +109,7 @@ pub(super) async fn insert(
     Ok(Written {
         value: json::object_resource_keyed(
             &record,
-            &ctx.endpoints.api_base_url,
+            ctx.endpoints.api_base_url(),
             params.projection,
             key,
         )?,
@@ -226,7 +226,7 @@ pub(super) async fn multipart(
     Ok(Written {
         value: json::object_resource_keyed(
             &record,
-            &ctx.endpoints.api_base_url,
+            ctx.endpoints.api_base_url(),
             params.projection,
             key,
         )?,

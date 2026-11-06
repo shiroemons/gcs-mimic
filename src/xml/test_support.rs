@@ -1,7 +1,7 @@
 use crate::{
     auth::{Auth, Registry},
     clock::{Clock, SystemClock},
-    config::{Config, EndpointSnapshot},
+    config::{Config, RequestEndpoints},
     json,
     server::{ObjectActivity, State},
     storage::{Catalog, admin::LocalAdmin},
@@ -14,7 +14,7 @@ use tokio::sync::watch;
 pub(super) struct SignedUploadFixture {
     pub(super) state: State,
     pub(super) config: Config,
-    pub(super) endpoints: EndpointSnapshot,
+    pub(super) endpoints: RequestEndpoints,
     pub(super) activity: watch::Sender<ObjectActivity>,
     pub(super) access_id: String,
     pub(super) secret: String,
@@ -46,16 +46,12 @@ impl SignedUploadFixture {
             .create_hmac_key("local", "signer@example.invalid")
             .await
             .unwrap();
-        let endpoints = EndpointSnapshot {
-            api_base_url: "http://localhost".into(),
-            public_base_url: None,
-            xml_virtual_host_domains: Vec::new(),
-        };
+        let endpoints = RequestEndpoints::explicit("http://localhost");
         let (activity, _) = watch::channel(ObjectActivity::default());
         Self {
             state: State {
                 clock,
-                api_base_url: endpoints.api_base_url.clone(),
+                api_base_url: endpoints.api_base_url().to_owned(),
                 ..State::for_test(catalog, auth)
             },
             config: Config {

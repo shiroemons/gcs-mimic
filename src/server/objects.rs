@@ -228,8 +228,13 @@ async fn add_acl(
     snapshot: Option<UploadAclSnapshot>,
 ) -> Result<(), JsonError> {
     let Some(snapshot) = snapshot else {
-        return acl::add_full_projection(ctx.state, ctx.caller, value, &ctx.endpoints.api_base_url)
-            .await;
+        return acl::add_full_projection(
+            ctx.state,
+            ctx.caller,
+            value,
+            ctx.endpoints.api_base_url(),
+        )
+        .await;
     };
     if let Some(snapshot) = snapshot.get().ok_or_else(|| {
         JsonError::from(ObjectError::Unavailable(
@@ -255,7 +260,11 @@ async fn add_acl(
             .object_acl_snapshot(snapshot.clone(), &access)
             .await?
         {
-            json::acl::add_object_acl_fields(value, &ctx.endpoints.api_base_url, &snapshot.entries);
+            json::acl::add_object_acl_fields(
+                value,
+                ctx.endpoints.api_base_url(),
+                &snapshot.entries,
+            );
             if let Some(entity) = snapshot.owner.as_ref().and_then(|owner| owner.entity()) {
                 value["owner"] = serde_json::json!({"entity":entity});
             }
@@ -294,7 +303,7 @@ async fn restore(
         .await?;
     json::object_resource(
         &record,
-        &ctx.endpoints.api_base_url,
+        ctx.endpoints.api_base_url(),
         json::Projection::NoAcl,
     )
 }
@@ -339,7 +348,6 @@ async fn move_object(
         .map_err(|error| match error {
             // Cloud Storage cannot tell a missing source from a denied one for a move.
             ObjectError::ObjectNotFound => {
-                let host = ctx.endpoints.api_base_url.split("://").last().unwrap_or_default();
                 let principal = match ctx.caller {
                     Some(auth::Caller::Principal(identity)) => identity.acl_entity()
                         .and_then(|entity| {
@@ -358,13 +366,13 @@ async fn move_object(
                     "forbidden",
                     format!(
                         "{principal} does not have storage.objects.move access to the Google Cloud Storage object. Permission 'storage.objects.move' denied on resource '//{}/projects/_/buckets/{}/objects/{}' (or it may not exist).",
-                        host.trim_end_matches('/'), bucket, source
+                        ctx.endpoints.api_authority(), bucket, source
                     ),
                 )
             }
             error => error.into(),
         })?;
-    json::object_resource(&record, &ctx.endpoints.api_base_url, projection)
+    json::object_resource(&record, ctx.endpoints.api_base_url(), projection)
 }
 
 async fn list(
@@ -388,7 +396,7 @@ async fn list(
         // The recorded `maxResults=0` listing held only its kind: no items, prefixes or token.
         return Ok(serde_json::json!({"kind": "storage#objects"}));
     }
-    json::object_list(&page, params, &ctx.endpoints.api_base_url)
+    json::object_list(&page, params, ctx.endpoints.api_base_url())
 }
 
 /// Explains an empty soft-deleted listing in debug logs. Diagnostic reads must not change the
@@ -452,7 +460,8 @@ async fn update(
         retention_override,
     )
     .await?;
-    let base = ctx.endpoints.api_base_url.clone();
+    let base = ctx.endpoints.api_base_url().to_owned();
+    let base_source = ctx.endpoints.api_base_source();
     let record = ctx
         .state
         .catalog
@@ -475,10 +484,15 @@ async fn update(
                             ObjectError::PreconditionFailed
                         }
                     })?;
-                json::ObjectMetadataRequest::validate_unchanged(&update.unchanged, record, &base)
+                json::ObjectMetadataRequest::validate_unchanged(
+                    &update.unchanged,
+                    record,
+                    &base,
+                    base_source,
+                )
             },
             access,
         )
         .await?;
-    json::object_resource_keyed(&record, &ctx.endpoints.api_base_url, projection, key)
+    json::object_resource_keyed(&record, ctx.endpoints.api_base_url(), projection, key)
 }

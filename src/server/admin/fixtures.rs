@@ -95,7 +95,7 @@ pub(super) async fn insert(
         })?;
     Ok(json_response(&json::object_resource(
         &record,
-        &object.endpoints.api_base_url,
+        object.endpoints.api_base_url(),
         json::Projection::NoAcl,
     )?))
 }

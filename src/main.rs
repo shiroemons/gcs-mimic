@@ -53,7 +53,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --sync-delete-guard BOOL     true (deletion ingestion pending)
   --sync-reinitialize ID       startup only (exact catalog ID; missing marker only)
   --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 MiB)
-  --api-base-url URL           Derived from bound listener (fixed advertised endpoint)
+  --api-base-url URL           Each request's Host, else the bound listener (set to fix the advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --admin-enabled BOOL         false (local management API; isolate the listener when enabled)
   --admin-principal ID         none (strict instance administrator for local management except sync; required with --admin-enabled in strict mode)

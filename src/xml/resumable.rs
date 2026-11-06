@@ -140,7 +140,7 @@ pub(crate) async fn start(
     // the advertised endpoint, which serves every bucket.
     let location = format!(
         "{}/{}/{}?upload_id={id}",
-        ctx.endpoints.api_base_url,
+        ctx.endpoints.api_base_url(),
         object.bucket,
         object.name()
     );

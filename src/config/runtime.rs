@@ -1,5 +1,6 @@
 use super::Config;
 use crate::url::{PublicOrigin, UrlError, normalize_base_url};
+use hyper::http::uri::Authority;
 use std::{
     fmt,
     sync::{Arc, RwLock},
@@ -12,11 +13,194 @@ pub struct RuntimeEndpoints {
     declared_domains: Option<Arc<[String]>>,
 }
 
+/// Whether an operator chose the advertised API base.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ApiBaseSource {
+    /// `api_base_url` or a runtime `externalUrl` fixed it, so no request can change it.
+    Explicit,
+    /// Nothing fixed it. One address cannot reach the server from both the host and a peer
+    /// container, so each request advertises the authority it reached the server through.
+    Derived,
+}
+
+/// The transport of the connection a request arrived on. `scheme = both` serves HTTP and HTTPS
+/// listeners side by side, so the configured scheme cannot name it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConnectionScheme {
+    Http,
+    Https,
+}
+
+impl ConnectionScheme {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https => "https",
+        }
+    }
+}
+
+/// An absolute API base and the authority it names.
+#[derive(Clone, Debug)]
+struct ApiBase {
+    url: String,
+    authority: Authority,
+}
+
+impl TryFrom<&str> for ApiBase {
+    type Error = UrlError;
+
+    fn try_from(url: &str) -> Result<Self, UrlError> {
+        let uri: hyper::Uri = url.parse().map_err(|_| UrlError::InvalidBaseUrl)?;
+        let authority = uri.authority().ok_or(UrlError::MissingAuthority)?.clone();
+        Ok(Self {
+            url: url.to_owned(),
+            authority,
+        })
+    }
+}
+
+impl ApiBase {
+    /// A base from a runtime `externalUrl`, whose origin must also be a valid public origin.
+    fn from_external_url(value: &str) -> Result<Self, UrlError> {
+        let url = normalize_base_url(value)?;
+        let uri: hyper::Uri = url.parse().map_err(|_| UrlError::InvalidBaseUrl)?;
+        let scheme = uri.scheme_str().ok_or(UrlError::MissingScheme)?;
+        let authority = uri.authority().ok_or(UrlError::MissingAuthority)?;
+        PublicOrigin::parse(&format!("{scheme}://{authority}"))?;
+        Ok(Self {
+            authority: authority.clone(),
+            url,
+        })
+    }
+}
+
+/// The endpoint settings every request shares. Nothing here comes from a request, so a trust
+/// decision that reads only this type cannot be steered by a client's Host.
 #[derive(Clone, Debug)]
 pub(crate) struct EndpointSnapshot {
-    pub(crate) api_base_url: String,
+    /// The explicit base, or the one the bound listener implies.
+    fixed_api_base: ApiBase,
+    api_base_source: ApiBaseSource,
     pub(crate) public_base_url: Option<PublicOrigin>,
     pub(crate) xml_virtual_host_domains: Vec<String>,
+}
+
+impl EndpointSnapshot {
+    /// Endpoints with an explicit API base, for tests that build a request context by hand.
+    #[cfg(test)]
+    pub(crate) fn explicit(
+        api_base_url: &str,
+        public_base_url: Option<PublicOrigin>,
+        xml_virtual_host_domains: Vec<String>,
+    ) -> Self {
+        Self {
+            fixed_api_base: ApiBase::try_from(api_base_url).unwrap(),
+            api_base_source: ApiBaseSource::Explicit,
+            public_base_url,
+            xml_virtual_host_domains,
+        }
+    }
+
+    /// One request's view with no request authority, for tests that have no request head.
+    #[cfg(test)]
+    pub(crate) fn without_request(self: Arc<Self>) -> RequestEndpoints {
+        RequestEndpoints {
+            snapshot: self,
+            requested_api_base: None,
+        }
+    }
+
+    pub(crate) fn fixed_api_authority(&self) -> &Authority {
+        &self.fixed_api_base.authority
+    }
+
+    /// The view one request holds across its awaits.
+    pub(crate) fn for_request(
+        self: Arc<Self>,
+        scheme: ConnectionScheme,
+        uri: &hyper::Uri,
+        headers: &hyper::HeaderMap,
+    ) -> RequestEndpoints {
+        let requested_api_base = match self.api_base_source {
+            ApiBaseSource::Explicit => None,
+            ApiBaseSource::Derived => self.requested_api_base(scheme, uri, headers),
+        };
+        RequestEndpoints {
+            snapshot: self,
+            requested_api_base,
+        }
+    }
+
+    /// The authority the request addressed on its connection's own scheme, when usable. Forwarded
+    /// headers are ignored because no proxy is trusted.
+    fn requested_api_base(
+        &self,
+        scheme: ConnectionScheme,
+        uri: &hyper::Uri,
+        headers: &hyper::HeaderMap,
+    ) -> Option<ApiBase> {
+        // RFC 9112 section 3.2.2: an authority in the request target overrides Host.
+        uri.authority()
+            .cloned()
+            .or_else(|| crate::xml::request_authority(headers))
+            .filter(|authority| self.can_advertise(authority))
+            .map(|authority| ApiBase {
+                url: format!("{}://{authority}", scheme.as_str()),
+                authority,
+            })
+    }
+
+    /// A host that selects an XML virtual bucket names that bucket and not the API, for the same
+    /// reason a configured base may not select one.
+    fn can_advertise(&self, authority: &Authority) -> bool {
+        crate::url::is_advertisable_authority(authority)
+            && crate::xml::bucket_for_authority(authority.as_str(), &self.xml_virtual_host_domains)
+                .is_none()
+    }
+}
+
+/// One request's view of the endpoints. Only this type can hold a base derived from a request, so
+/// a function that takes [`EndpointSnapshot`] instead cannot be handed one.
+#[derive(Debug)]
+pub(crate) struct RequestEndpoints {
+    snapshot: Arc<EndpointSnapshot>,
+    /// Set only when no base is explicit and the request addressed a usable authority.
+    requested_api_base: Option<ApiBase>,
+}
+
+impl RequestEndpoints {
+    /// An explicit API base, for tests that build a request context by hand.
+    #[cfg(test)]
+    pub(crate) fn explicit(api_base_url: &str) -> Self {
+        Arc::new(EndpointSnapshot::explicit(api_base_url, None, Vec::new())).without_request()
+    }
+
+    fn api_base(&self) -> &ApiBase {
+        self.requested_api_base
+            .as_ref()
+            .unwrap_or(&self.snapshot.fixed_api_base)
+    }
+
+    /// The base this request's links use. The client may have chosen it, so it renders links and
+    /// never decides trust.
+    pub(crate) fn api_base_url(&self) -> &str {
+        &self.api_base().url
+    }
+
+    /// The authority of [`Self::api_base_url`], with the same limits on its use.
+    pub(crate) fn api_authority(&self) -> &Authority {
+        &self.api_base().authority
+    }
+
+    pub(crate) fn api_base_source(&self) -> ApiBaseSource {
+        self.snapshot.api_base_source
+    }
+
+    /// The settings no request can influence.
+    pub(crate) fn snapshot(&self) -> &EndpointSnapshot {
+        &self.snapshot
+    }
 }
 
 #[derive(Debug)]
@@ -76,16 +260,17 @@ impl RuntimeEndpoints {
         {
             return Ok(current.clone());
         }
+        let initial = Arc::new(EndpointSnapshot {
+            fixed_api_base: ApiBase::try_from(api_base_url)?,
+            api_base_source: match config.api_base_url {
+                Some(_) => ApiBaseSource::Explicit,
+                None => ApiBaseSource::Derived,
+            },
+            public_base_url: config.public_base_url.clone(),
+            xml_virtual_host_domains: config.xml_virtual_host_domains.clone(),
+        });
         let mut current = self.current.write().map_err(|_| EndpointError::Poisoned)?;
-        Ok(current
-            .get_or_insert_with(|| {
-                Arc::new(EndpointSnapshot {
-                    api_base_url: api_base_url.to_owned(),
-                    public_base_url: config.public_base_url.clone(),
-                    xml_virtual_host_domains: config.xml_virtual_host_domains.clone(),
-                })
-            })
-            .clone())
+        Ok(current.get_or_insert(initial).clone())
     }
 
     pub(crate) fn update(
@@ -100,18 +285,11 @@ impl RuntimeEndpoints {
         // Read the latest committed pair under the write lock to avoid losing a concurrent update.
         let mut candidate = current.as_ref().unwrap_or(&initial).as_ref().clone();
         if let Some(value) = external_url.filter(|value| !value.is_empty()) {
-            candidate.api_base_url = normalize_base_url(value)?;
-            let uri: hyper::Uri = candidate
-                .api_base_url
-                .parse()
-                .map_err(|_| UrlError::InvalidBaseUrl)?;
-            let scheme = uri.scheme_str().ok_or(UrlError::MissingScheme)?;
-            let authority = uri.authority().ok_or(UrlError::MissingAuthority)?;
-            PublicOrigin::parse(&format!("{scheme}://{authority}"))?;
+            candidate.fixed_api_base = ApiBase::from_external_url(value)?;
+            candidate.api_base_source = ApiBaseSource::Explicit;
         }
         if let Some(value) = public_host.filter(|value| !value.is_empty()) {
-            let authority: hyper::http::uri::Authority =
-                value.parse().map_err(|_| EndpointError::PublicHost)?;
+            let authority: Authority = value.parse().map_err(|_| EndpointError::PublicHost)?;
             if authority.as_str().contains('@') || value.contains(['/', '?', '#']) {
                 return Err(EndpointError::PublicHost);
             }
@@ -140,17 +318,12 @@ impl RuntimeEndpoints {
                     .sort_by_key(|domain| std::cmp::Reverse(domain.len()));
             }
         }
-        let uri: hyper::Uri = candidate
-            .api_base_url
-            .parse()
-            .map_err(|_| UrlError::InvalidBaseUrl)?;
-        if uri.authority().is_some_and(|authority| {
-            crate::xml::bucket_for_authority(
-                authority.as_str(),
-                &candidate.xml_virtual_host_domains,
-            )
-            .is_some()
-        }) {
+        if crate::xml::bucket_for_authority(
+            candidate.fixed_api_base.authority.as_str(),
+            &candidate.xml_virtual_host_domains,
+        )
+        .is_some()
+        {
             return Err(EndpointError::ApiVirtualHost);
         }
         *current = Some(Arc::new(candidate));

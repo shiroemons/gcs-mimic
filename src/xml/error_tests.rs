@@ -13,11 +13,11 @@ fn storage_capacity_failures_keep_the_xml_service_unavailable_contract() {
 
 #[test]
 fn legacy_trailing_dot_hosts_do_not_fall_through_to_a_shorter_domain() {
-    let endpoints = EndpointSnapshot {
-        api_base_url: "http://localhost".into(),
-        public_base_url: None,
-        xml_virtual_host_domains: vec!["storage.example.com".into(), "example.com".into()],
-    };
+    let endpoints = EndpointSnapshot::explicit(
+        "http://localhost",
+        None,
+        vec!["storage.example.com".into(), "example.com".into()],
+    );
     let public = "storage.example.com".parse().unwrap();
     let host = "bucket.storage.example.com.".parse().unwrap();
     assert_eq!(

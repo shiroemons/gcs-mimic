@@ -18,7 +18,8 @@ async fn xml_read_validators_wrap_routed_public_and_virtual_host_responses() {
     let endpoints = config
         .runtime_endpoints
         .snapshot(&config, "http://localhost")
-        .unwrap();
+        .unwrap()
+        .without_request();
     let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
     let ctx = RequestCtx {
         state: &state,
@@ -123,7 +124,8 @@ async fn encrypted_head_validators_do_not_bypass_data_key_checks() {
     let endpoints = config
         .runtime_endpoints
         .snapshot(&config, "http://localhost")
-        .unwrap();
+        .unwrap()
+        .without_request();
     let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
     let ctx = RequestCtx {
         state: &state,

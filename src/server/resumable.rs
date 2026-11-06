@@ -3,6 +3,7 @@ use super::upload_drive::{CatalogWait, UploadEnd, UploadSender, drive_upload, up
 use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, stream_upload};
 use crate::{
     bucket::BucketAccess,
+    config::ApiBaseSource,
     json::{
         self, JsonError, ObjectInsertParams,
         resumable::{self, Range},
@@ -47,7 +48,7 @@ pub(super) async fn initiate(
             "Metadata requires application/json",
         ));
     }
-    let base = &ctx.endpoints.api_base_url;
+    let base = ctx.endpoints.api_base_url();
     let location_base = format!("{base}/upload/storage/v1/b/{bucket}/o");
     let query = request.uri().query().unwrap_or_default().to_owned();
     location_base
@@ -487,11 +488,21 @@ pub(crate) async fn transfer(
     }
     if session.state == SessionState::Complete {
         // Completing a session stores its response in the same transaction.
-        let completion = session
+        let mut completion = session
             .completion
-            .as_ref()
+            .clone()
             .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion))?;
-        return Ok(Transfer::Complete(completion.clone()));
+        match ctx.endpoints.api_base_source() {
+            // The response stays exactly as it was stored.
+            ApiBaseSource::Explicit => {}
+            // The stored links name the Host that finished the upload, and a retry can arrive
+            // through another address: a browser finishes on a published port, a peer asks
+            // through the service name.
+            ApiBaseSource::Derived => {
+                json::rebase_object_links(&mut completion, ctx.endpoints.api_base_url());
+            }
+        }
+        return Ok(Transfer::Complete(completion));
     }
     if status_only {
         json::read_body(request.into_body(), 0).await?;
@@ -509,7 +520,7 @@ pub(crate) async fn transfer(
     }
     let permit = state.catalog.admit_object_upload()?;
     let offset = session.offset.max(plan.end);
-    let render = completion_renderer(&session.options, ctx.endpoints.api_base_url.clone())?;
+    let render = completion_renderer(&session.options, ctx.endpoints.api_base_url().to_owned())?;
     let (catalog_wait, progress) = watch::channel(false);
     let chunk = ResumableChunk {
         start: plan.start,

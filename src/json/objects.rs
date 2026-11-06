@@ -795,7 +795,19 @@ pub(crate) fn add_derived_owner(value: &mut Value, object: &ObjectRecord) {
     }
 }
 
-/// Render the selected immutable generation using the configured advertised endpoint.
+/// Point the links of a stored object response at `base`, which must have no path prefix. A
+/// field selection may have dropped either link, and other fields never change.
+pub(crate) fn rebase_object_links(resource: &mut Value, base: &str) {
+    resource
+        .as_object_mut()
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| matches!(key.as_str(), "selfLink" | "mediaLink"))
+        .filter_map(|(_, link)| Some((crate::url::with_origin(link.as_str()?, base)?, link)))
+        .for_each(|(rebased, link)| *link = Value::String(rebased));
+}
+
+/// Render the selected immutable generation using the advertised endpoint of this request.
 pub(crate) fn object_resource(
     object: &ObjectRecord,
     base_url: &str,
