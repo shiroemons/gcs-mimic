@@ -54,27 +54,22 @@ The named volume keeps data when a stopped container is removed.
 | Host application or browser | `http://localhost:4443` |
 | Application on the same Compose network | `http://gcs:4443` |
 
-`localhost` inside a container refers to that container. If your application
-follows API-generated URLs, set `GCS_MIMIC_API_BASE_URL` to the address reachable
-by that application, such as `http://gcs:4443`. A single server advertises one API
-base. Public and signed URLs must use the address reachable by their recipient.
-The migration Compose example explicitly advertises `http://gcs:4443` so
-container SDKs can follow resumable Location. A host/browser needs its own
-published origin, for example `http://localhost:14443`; the walkthrough explains
-unsigned session translation, cancellation 499 and separate worktree ports.
+`localhost` inside a container refers to that container. Links that the API
+returns, such as `Location`, `mediaLink` and `selfLink`, use the Host of each
+request and the scheme of its connection, so a caller gets back the address it
+connected to and the host and other containers can share one server, whichever
+host port is published. You do not need `GCS_MIMIC_API_BASE_URL` for this.
+Public and signed URLs must still use the address reachable by their recipient.
 
-Without an explicit API base, startup derives it from the actual bound
-listener, replacing wildcard IPs with loopback and port zero with the allocated
-port. The ready event includes this effective `api_base_url`. In the image this
-is `http://127.0.0.1:4443` (or `https://`), which is correct for host clients
-only when the published host port is also 4443. With
-`-p 127.0.0.1:14443:4443`, for example, set
-`GCS_MIMIC_API_BASE_URL=http://localhost:14443`. The checked-in
-Compose files instead advertise the published `GCS_MIMIC_PORT` (default 4443)
-using their HTTP/HTTPS mode; an explicit `GCS_MIMIC_API_BASE_URL` wins.
-Docker port-zero mappings require discovering and configuring the assigned host
-port before following links. Neither a container listener nor request headers
-can discover a host port mapping or a proxy's external address.
+Set `GCS_MIMIC_API_BASE_URL` to fix one address for every caller. A reverse proxy
+that rewrites Host needs it, because `Forwarded` and `X-Forwarded-*` are ignored.
+So does the XML virtual host setup: a request to a virtual bucket host names a
+bucket and not the API, so without it those requests get a link to the bound
+address. That fallback also serves an invalid or missing Host. It is the actual
+bound listener, with wildcard IPs replaced by loopback and port zero by the
+allocated port, which is `http://127.0.0.1:4443` (or `https://`) in the image, and
+the ready event reports it as `api_base_url`. The checked-in Compose files pass
+`GCS_MIMIC_API_BASE_URL` through only when it is set in your environment.
 
 ## Load local files
 

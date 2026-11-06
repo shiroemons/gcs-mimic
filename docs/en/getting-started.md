@@ -83,33 +83,28 @@ curl --disable --noproxy '*' --fail "$endpoint/_internal/ready"
 The image runs as UID/GID 10001 on a read-only root. Compose mounts the named
 `gcs-data` volume at `/var/lib/gcs-mimic`, prepared with writable ownership by the
 image. SQLite, WAL, the ownership lock, staging and opaque blobs live there. Memory is limited to 128 MiB,
-CPU to one, PIDs to 64 and file descriptors to 1024; these are configured bounds,
+CPU to one, PIDs to 64 and file descriptors to 4096; these are configured bounds,
 not measured resource requirements. The image also works with `docker run` when
 an explicit writable volume is mounted at that path.
 
-The checked-in Compose HTTP/HTTPS API defaults follow `GCS_MIMIC_PORT` (4443
-when unset). An explicit `GCS_MIMIC_API_BASE_URL` overrides that default.
-Docker's dynamically allocated host port (`GCS_MIMIC_PORT=0`) is unknown inside
-the container: discover it, set the actual advertised endpoint and recreate the
-service before following generated links; the named volume preserves its catalog:
+Later steps recreate the service, so keep the allocated host port for them; the
+named volume preserves its catalog:
 
 ```sh
 export GCS_MIMIC_PORT=${address##*:}
-export GCS_MIMIC_API_BASE_URL="$endpoint"
-docker compose up -d --wait
 ```
 
 Host clients use `$endpoint`. Peers on the Compose network use `http://gcs:4443`.
 Inside a container, localhost refers to that container; `0.0.0.0` is a listener
-address. `selfLink` always uses the one configured origin. Set a peer-reachable
-origin instead if peers must follow those links. Host and forwarded headers are
-never used to construct links. The `gcs-mimic url public` helper builds public
+address. The checked-in Compose files leave `GCS_MIMIC_API_BASE_URL` unset unless it is in
+your environment, so `selfLink`, `mediaLink` and session `Location` follow the Host and the
+connection scheme of each request, and both kinds of client get links they can reach. Set
+it only to fix one origin, for example behind a reverse proxy that rewrites Host: forwarded
+headers are never used to construct links. The `gcs-mimic url public` helper builds public
 object URLs served by the path-style XML endpoint (see the strict section below).
 Use the published host port for a host browser, and the service name for a peer
 container consuming the URL itself. URL construction does not grant access;
-browser cross-origin fetch uses JSON defaults or the XML CORS configuration below. The resumable
-contract uses this same fixed `api_base_url` for session `Location` responses;
-follow the host/peer configuration steps below before initiating a session.
+browser cross-origin fetch uses JSON defaults or the XML CORS configuration below.
 
 ## Create, inspect, list and delete buckets
 
@@ -349,8 +344,9 @@ deduplication; repeated DELETE can therefore return 404 (SPEC-013). Media/multip
 upload and JSON copy tokens support bounded response replay with or without
 generation conditions. Matching retained retries return the original completion;
 conflicting invocations return 400. The local retention is ten minutes, with
-4096 entries and a 64 KiB completion cap; full capacity rejects new tokens with
-503. Current permissions are still checked. Empty/duplicate token headers return
+4096 entries and a 64 KiB completion cap. A full table drops its oldest record, and a
+retry past that publishes again, so a condition or a read-back protects a retry that may
+be that late. Current permissions are still checked. Empty/duplicate token headers return
 400 `invalidParameter`. Other methods remain outside this replay subset.
 See the [replay contract](slices/sdk-upload-replay.md).
 
@@ -469,7 +465,8 @@ done
 Continuation may omit optional parameters/body; repeated values must match the
 first request. The immediately previous token replays its response, including
 the original completed generation, without another publication. Sessions expire
-after a fixed week. At most 128 active sessions and 128 completed responses are
+after a fixed week. Unfinished rewrites are unlimited unless `max_rewrite_sessions` sets a
+limit, and the 128 most recent completed responses are
 retained separately; older completion responses can be evicted before expiry.
 Malformed/mismatched requests fail 400; unavailable, altered or expired keys fail
 local 410. Changed unqualified sources fail 412; explicitly selected retained
@@ -664,7 +661,9 @@ curl --disable --noproxy '*' --fail -X DELETE \
 Finalization returns 200 Object JSON and publishes one generation. Whole-object
 MD5/CRC32C declarations are checked before publication; failed checksums,
 preconditions or permission checks preserve an existing destination. Completed
-status returns the original resource until the session's original deadline.
+status returns the original resource until the session's original deadline, or until the
+session leaves the 4096 most recent finished ones, when it answers 404. Its links name the
+address of the request that asked.
 This session completion record does not implement invocation-token response replay.
 For interrupted requests or retryable 408/429/5xx responses, query status or
 resend the same chunk with bounded backoff; acknowledged bytes cannot be replaced.
@@ -704,15 +703,11 @@ unset session_uri cancel_uri
 
 ### Follow Location from a Compose peer and choose a browser address
 
-The existing Compose environment override sets the JSON configuration key
-`api_base_url`; no additional Compose file is needed. Recreate the service with
-`http://gcs:4443` advertised for a peer, preserving its data volume. The peer
-must follow the returned Location unchanged from its own network. A host's
-`127.0.0.1` would instead address the peer container itself.
+A peer needs no configuration: it connects through `http://gcs:4443`, so Location names
+that address. The peer must follow the returned Location unchanged from its own network.
+A host's `127.0.0.1` would instead address the peer container itself.
 
 ```sh
-export GCS_MIMIC_API_BASE_URL=http://gcs:4443
-docker compose up -d --wait
 docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
   --disable --noproxy '*' --silent --show-error --dump-header - \
   --output /dev/null --write-out '%{http_code}\n' \
@@ -742,37 +737,33 @@ curl --disable --noproxy '*' --fail -X DELETE \
 unset peer_uri
 ```
 
-A host browser needs a host-reachable advertised address such as
-`http://localhost:PORT`, using the published port, not `http://gcs:4443`. The next
-commands check that advertised address using host curl. This selects an address
+A host browser connects to a host-reachable address such as `http://localhost:PORT`,
+using the published port, not `http://gcs:4443`, and gets that address back. The next
+commands check it using host curl. This selects an address
 only: accepting `Origin` does not establish CORS/preflight support, and no browser
-upload is claimed here. Cancel the address-check session and restore the host
-configuration before continuing.
+upload is claimed here. Cancel the address-check session before continuing.
 
 ```sh
-export GCS_MIMIC_API_BASE_URL="http://localhost:${GCS_MIMIC_PORT}"
-docker compose up -d --wait
+browser_origin="http://localhost:${GCS_MIMIC_PORT}"
 status=$(curl --disable --noproxy '*' --silent --show-error -X POST \
   -H 'Content-Length: 0' -H 'Origin: http://localhost:3000' \
   --dump-header "$work_dir/resumable-browser.headers" --output /dev/null \
   --write-out '%{http_code}' \
-  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fbrowser.bin&ifGenerationMatch=0")
+  "$browser_origin/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fbrowser.bin&ifGenerationMatch=0")
 test "$status" = 200
 browser_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
   "$work_dir/resumable-browser.headers")
-[[ "$browser_uri" == "$GCS_MIMIC_API_BASE_URL/"* ]]
+[[ "$browser_uri" == "$browser_origin/"* ]]
 status=$(curl --disable --noproxy '*' --silent --show-error -X DELETE \
   -H 'Content-Length: 0' --output /dev/null --write-out '%{http_code}' "$browser_uri")
 test "$status" = 499
-unset browser_uri
-export GCS_MIMIC_API_BASE_URL="$endpoint"
-docker compose up -d --wait
+unset browser_origin browser_uri
 ```
 
-One fixed base cannot automatically serve both address spaces. Use separate
-configurations as above or a common reachable DNS/proxy endpoint. A configured
-proxy prefix is retained in Location; the proxy must strip it before forwarding.
-Host, Forwarded and X-Forwarded-* never choose the advertised endpoint.
+To fix one address instead, set `GCS_MIMIC_API_BASE_URL` and recreate the service. A
+configured proxy prefix is retained in Location; the proxy must strip it before forwarding.
+Forwarded and X-Forwarded-* never choose the advertised endpoint, so a proxy that rewrites
+Host needs this setting.
 
 ## Compose existing objects
 
@@ -1025,9 +1016,10 @@ test "$status" = 404
 
 Stop/start and ordinary down/up preserve the named volume, exact object bytes and metadata.
 Object and empty-bucket delete return 204 with
-an empty body; the subsequent get returns 404. New native buckets keep deleted and
-replaced objects soft-deleted for seven days; set
-`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0` to delete permanently. Soft-deleted
+an empty body; the subsequent get returns 404. New buckets have no soft delete policy by
+default, unlike Cloud Storage, so an overwrite or delete frees the old bytes at once; set
+`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` to a number of seconds to keep them.
+Buckets that already store a policy keep it. Soft-deleted
 objects do not keep a bucket from being deleted. Local administration routes such as
 `/_internal/reset` are disabled unless `GCS_MIMIC_ADMIN_ENABLED=true`; this journey
 resets by removing the volume instead.
@@ -1604,12 +1596,12 @@ port mapping and the caller's network. For startup errors, check catalog path
 ownership, disk space, another owner process and config overrides. Unknown routes return
 404; recognized unsupported object/bucket semantics return an explicit 400 or 501
 error rather than false success.
-If initiation succeeds but the returned Location is unreachable, check
-`GCS_MIMIC_API_BASE_URL` / `--api-base-url` / JSON `api_base_url` and recreate the
-service with an origin reachable by the client following that URI. Host clients
-need the published host port; peers need `gcs:4443`; browsers need their own
-reachable hostname. Changing the listener, Host/forwarding headers or public URL
-helper does not fix an advertised base. Start a new session after correcting it,
+If initiation succeeds but the returned Location is unreachable, check whether
+`GCS_MIMIC_API_BASE_URL` / `--api-base-url` / JSON `api_base_url` fixes an origin the
+client cannot reach, and whether a proxy rewrites Host. Unset, Location names the address
+the client connected to. Host clients need the published host port; peers need `gcs:4443`;
+browsers need their own reachable hostname. Forwarding headers and the public URL
+helper do not change an advertised base. Start a new session after correcting it,
 and do not expose the old capability URI in diagnostic logs.
 In strict JSON responses, 401 `required` means an anonymous request lacks a
 matching grant, 401

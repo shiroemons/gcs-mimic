@@ -48,7 +48,6 @@ services:
       - "127.0.0.1:4443:4443"
     environment:
       GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_API_BASE_URL: http://gcs:4443
     volumes:
       - ./data:/data:ro # optional: files to preload
       - gcs-data:/var/lib/gcs-mimic
@@ -67,11 +66,12 @@ volumes:
 `docker compose up -d --wait`は、エミュレーターがhealthyになると戻ります。
 
 `http://gcs:4443`の`gcs`はComposeのサービス名です。
-サービス名を変える場合は、`GCS_MIMIC_API_BASE_URL`とアプリ側の設定の両方で`gcs`を置き換えてください。
+サービス名を変える場合は、アプリ側の設定の`gcs`を置き換えてください。
 
-`GCS_MIMIC_API_BASE_URL`は、resumableアップロードのURLなど、エミュレーターが返すリンクに入るアドレスです。
-アプリが使うアドレスを指定します。
-するとホスト上のプログラムは、返ってきたリンクの名前を解決できません。ホストからしか接続しないなら指定しないでください。
+resumableアップロードのURLなど、エミュレーターが返すリンクには、各リクエストの接続先アドレスが入ります。
+このため、アプリとホスト上のプログラムが1台のサーバーを共有できます。
+`GCS_MIMIC_API_BASE_URL`は、そのアドレスを固定するときだけ指定します。例えば`Host`を書き換えるリバースプロキシの後ろに置く場合です。
+0.11.0までのリリースはアドレスを1つに固定するので、ここに`GCS_MIMIC_API_BASE_URL: http://gcs:4443`を追加してください。
 
 ## 初期ファイルを読み込む
 
@@ -171,6 +171,8 @@ gcs_emulator:
 | `/storage`のデータ | 代わりに`/var/lib/gcs-mimic`に保存し、`-filesystem-root`は無視します。古いデータは[`gcs-mimic import fake-gcs-server`（英語）](../en/slices/import-filesystem.md)で変換します。 |
 | `-backend memory` | 上限付きのRAM保存（`GCS_MIMIC_BACKEND=memory`）に読み替えます。データは終了時に消えます。上限は[RAM保存（英語）](../en/slices/memory-backend.md)を参照してください。 |
 | `-event.*`（Pub/Sub通知） | nativeのイベント設定に読み替えます。配信には、`GCS_MIMIC_PUBSUB_EMULATOR_HOST`などで指定するローカルのPub/Subエミュレーターが必要です。Google Pub/Subには接続しません。設定が不完全なら起動を止めます。 |
+| オブジェクトの削除・上書き | 0.12.0以降の既定では本文をすぐに消します。これはCloud Storageとは異なります。残すには`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`に秒数を指定します。0.11.0までのリリースは7日間残し、それらが作ったバケットはこのポリシーを保ちます。 |
+| `-external-url` | 引き続き、返すリンクのアドレスを固定します。0.12.0以降は外してかまいません。外すと各リクエストの接続先を使います。 |
 | `-public-host` | 受け付けます。従来どおりHostヘッダーで照合するには`GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`も必要です。 |
 | `?project=`なしの`GET /storage/v1/b` | Google Cloud Storageと同じく400を返します。SDKは最初からプロジェクトを送ります。 |
 | resumableアップロードの取り消し | 499を返します。Googleが取り消し成功として定めている値で、エラーではありません。 |
@@ -192,7 +194,7 @@ GoはRust子プロセスを使い、`NoListener`はUnix HTTPです。
 | 設定 | 用途 |
 | --- | --- |
 | `GCS_MIMIC_SCHEME` | `https`（既定）、`http`、`both` |
-| `GCS_MIMIC_API_BASE_URL` | エミュレーターが返すリンクに入るアドレス |
+| `GCS_MIMIC_API_BASE_URL` | エミュレーターが返すリンクのアドレスを固定する。未指定なら各リクエストの接続先を使う |
 | `GCS_MIMIC_GRPC_LISTEN` | 任意のgRPC待受。例: `0.0.0.0:4444` |
 | `GCS_MIMIC_CORS_FALLBACK` | `allow-all`で、ブラウザーがどのオリジンからでも公開URLを読める |
 | `GCS_MIMIC_AUTH_MODE` | `strict`でローカルのbearer tokenを検査。[strict認証（英語）](../en/getting-started.md#strict-local-authentication) |

@@ -81,15 +81,24 @@ an error without publishing or replacing the original object.
 
 Schema 35 adds `upload_replays` with an indexed deadline. The local retention
 period is exactly ten minutes from successful publication, without renewal.
-At most 4096 successful invocations and 64 KiB per completion are retained.
+At most the 4096 most recent successful invocations and 64 KiB per completion are retained.
 Expiry is enforced on lookup and reclaimed by subsequent token publications;
-there is no replay maintenance polling task. Full capacity rejects a new token
-with 503 `backendError`; retained duplicates still replay. Oversized completion
+there is no replay maintenance polling task. The records are a window over recent uploads and
+not a quota: a full table drops its oldest record in the publishing transaction, so a rejected
+upload drops nothing, and retained duplicates still replay. Only finished uploads have records,
+so this never touches an upload in progress. Oversized completion
 snapshots reject publication. Expired records may remain physically present
 until the next token operation, while count and per-record size stay bounded.
-Startup validates schema, capacity and completion decoding one row at a time.
-The serialized completion bound is 256 MiB on disk; no completion is evicted
-early to admit new work or silently weaken the ten-minute replay guarantee.
+Startup validates schema and completion decoding one row at a time, and a catalog over the
+window comes back within it on the next publication instead of failing.
+The serialized completion bound is 256 MiB on disk.
+
+**What replay guarantees.** A retry gets its first answer back only while its record exists.
+A retry after the ten minutes, or after 4096 later token-bearing publications dropped its record,
+is a new write and publishes again, with ordinary conditions. This affects only single-request
+uploads and copies that carry an idempotency token. Resumable uploads create no records: their
+session offsets govern chunk retries. A client that cannot tolerate a duplicate publication
+should send `ifGenerationMatch` or read the object back before retrying.
 
 SQLite commit and filesystem publication retain their existing crash protocol.
 A duplicate's redundant blob is reclaimed by reference lookup; a successful
@@ -99,8 +108,8 @@ every filesystem crash window, host power loss or Google's exact cache policy.
 
 ## JSON copy replay
 
-Copy uses the same ten-minute, 4096-entry, 64 KiB completion catalog without
-eviction. Its binding includes the exact method/URI, raw metadata-body digest,
+Copy uses the same ten-minute, 4096-entry, 64 KiB completion catalog, which drops
+its oldest record when full. Its binding includes the exact method/URI, raw metadata-body digest,
 advertised API base, source and destination encryption-key digests,
 authentication profile/principal and both bucket incarnations. A changed
 query, body, key or principal is a conflicting invocation, not a new copy.

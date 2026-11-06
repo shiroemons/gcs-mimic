@@ -165,10 +165,11 @@ layout conventions; no generator or completion policy was changed to silence it.
 
 ## Bounded resources and measured results
 
-Source/configuration bounds are 128 active sessions plus the 128 most recent
+When these results were recorded, the bounds were 128 active sessions plus the 128 most recent
 completed/cancelled records (see [Retained terminal sessions](#retained-terminal-sessions)), eight admitted body
 transfers, two copied 64 KiB channel frames per transfer, a 64 KiB hash-read
-buffer, 32 catalog admissions and one executing SQLite job. Session and blob
+buffer, 32 catalog admissions and one executing SQLite job. Active sessions are now
+unlimited by default and the terminal window holds 4096 records. Session and blob
 IDs are opaque, object names never form disk paths, and transfers hold no SQL
 transaction. Metadata lives in the indexed catalog. These bounds are separate
 from the measured RSS values below.
@@ -209,6 +210,16 @@ memory pressure, and a 1 GiB transfer under a 128 MiB container limit were not
 measured. No equivalent-workload comparison or performance improvement is claimed.
 
 ## Retained terminal sessions
+
+Later change: the fixed 128-session cap is gone. Active sessions are unlimited unless
+`max_resumable_sessions` sets a limit, finished records form a window of the 4096 most
+recent, and records that cannot go yet no longer refuse an initiation. The observations
+below still explain why finished records are kept. The current tests are
+`the_oldest_finished_record_past_the_window_goes_first`,
+`records_awaiting_cleanup_stay_while_creation_succeeds_and_the_excess_carries_over`,
+`a_configured_limit_refuses_only_past_it_and_never_blocks_reopening`,
+`cancelled_sessions_awaiting_cleanup_keep_answering_while_new_uploads_proceed` and
+`retained_completions_answer_status_and_final_retries_until_the_window_passes_them`.
 
 Recorded on 2026-10-31. Completed sessions used to count against the 128-session
 admission cap until their seven-day deadline, so 128 finished uploads made every

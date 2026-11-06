@@ -39,8 +39,8 @@ each native setting; this walkthrough uses the native names. See
 | Before | After in this walkthrough | Why |
 | --- | --- | --- |
 | `-scheme http` | `GCS_MIMIC_SCHEME: http` | Otherwise the default is HTTPS, so existing HTTP clients fail. The image healthcheck follows this setting without an override. |
-| `-host 0.0.0.0 -port 4443` | `GCS_MIMIC_LISTEN: 0.0.0.0:4443` | Peers need a wildcard listener; a loopback-only listener is unreachable from other containers. This repeats the image default. |
-| `-public-host gcs:4443 -external-url http://gcs:4443` | `GCS_MIMIC_API_BASE_URL: http://gcs:4443` | Container SDKs must reach resumable Location. Native path-style reads need no public-host setting; this does not reproduce legacy virtual-host matching or grant permissions. |
+| `-host 0.0.0.0 -port 4443` | Nothing | The image already listens on `0.0.0.0:4443`, which peers need; a loopback-only listener is unreachable from other containers. |
+| `-public-host gcs:4443 -external-url http://gcs:4443` | Nothing | Links that the server returns, including resumable Location, follow the Host of each request, so container SDKs get `gcs:4443` and the host gets its published port. Native path-style reads need no public-host setting; this does not reproduce legacy virtual-host matching or grant permissions. |
 | `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | The default persistent backend uses SQLite and opaque blobs. Keep the source volume separate; its format cannot be mounted as native storage. Memory backend has no equivalent here. |
 | `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount | A `./data:/data:ro` mount alone replays seed on every startup, including empty directories; the buckets file is the way to give buckets CORS or versioning settings. |
 
@@ -78,11 +78,12 @@ records null defaults and local error details.
 
 | Soft-delete call | gcs-mimic behavior |
 | --- | --- |
-| Go `BucketAttrs.SoftDeletePolicy` / Ruby `bucket.soft_delete_policy=` | JSON insert/PATCH/PUT accept 0 or 604800–7776000 retention seconds. Omission at creation gives the GCS default of 604800 seconds, so **a deleted object or bucket now keeps its bytes for seven days**, unlike fake-gcs-server and earlier gcs-mimic releases. To keep deletion permanent and save disk, start the server with `--default-soft-delete-retention-seconds 0` (or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0`), or send `softDeletePolicy.retentionDurationSeconds` 0 when creating a bucket. With `--backend memory` the default is already 0, because retained deleted data would exhaust the RAM budget and fail writes with 503 `Storage capacity exhausted`; set the option explicitly to keep seven days there. Existing buckets and buckets under `--compat-profile legacy-emulator` are unchanged; omission on PATCH/PUT preserves the current policy. |
+| Go `BucketAttrs.SoftDeletePolicy` / Ruby `bucket.soft_delete_policy=` | JSON insert/PATCH/PUT accept 0 or 1–3155760000 retention seconds. Soft delete is off by default on every backend, as in fake-gcs-server: omission at creation stores no policy, and **an overwrite or delete frees its bytes at once**. To keep them, send `softDeletePolicy.retentionDurationSeconds`, or start the server with `--default-soft-delete-retention-seconds N` (or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=N`). This default and range are local: Cloud Storage defaults to seven days and accepts 0 or 7 to 90 days, so a test of its rejection below seven days cannot run here. Buckets that store a policy keep it, including the seven days that 0.11.0 and earlier gave new buckets; omission on PATCH/PUT preserves the current policy. `--compat-profile legacy-emulator` still applies no default. |
 | Go `Query.SoftDeleted`, `Generation(g).SoftDeleted().Attrs`, `Restore` / Ruby `files(soft_deleted: true)`, `file(name, generation:, soft_deleted: true)`, `restore_file` | Deleted/overwritten generations retain bytes until hardDeleteTime; ordinary reads hide them. A bucket with no stored policy and one with an explicit zero both allow listing (200, empty unless retained generations remain); missing generations return 404 on get/restore. This differs from Google's absent-policy errors. Restore creates a new live generation and keeps the original retained generation. Holds and retention still protect deletion/replacement. |
-| Delete a bucket containing only soft-deleted generations | With a positive policy the bucket becomes soft-deleted with its retained generations and can be restored by generation (`buckets.restore`); its objects stay soft-deleted until restored separately. Without a policy it is removed permanently. Buckets created from a seed directory or buckets file get the new default policy; `softDeletePolicy` inside those files remains unsupported; see the [object](slices/sdk-soft-delete-restore.md) and [bucket](slices/bucket-soft-delete-restore.md) soft-delete contracts. |
+| Delete a bucket containing only soft-deleted generations | With a positive policy the bucket becomes soft-deleted with its retained generations and can be restored by generation (`buckets.restore`); its objects stay soft-deleted until restored separately. Without a policy it is removed permanently. Buckets created from a seed directory or buckets file get the server default, and a buckets file entry can set its own `softDeletePolicy`; see the [object](slices/sdk-soft-delete-restore.md) and [bucket](slices/bucket-soft-delete-restore.md) soft-delete contracts. |
 
-For an existing `bucket`, enable seven days before deleting objects. These
+To restore objects from an existing `bucket`, enable a policy before deleting
+them; a retention of seven days matches Cloud Storage's default. These
 setters match the pinned Go Storage v1.70.0 and Ruby Storage 1.62.1 SDK tests
 (`storage`/`time` imports and the existing Go context `ctx` are assumed):
 
@@ -133,8 +134,6 @@ services:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
       GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_LISTEN: 0.0.0.0:4443
-      GCS_MIMIC_API_BASE_URL: http://gcs:4443
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
     volumes:
       - migration-data:/var/lib/gcs-mimic
@@ -143,15 +142,17 @@ volumes:
   migration-data:
 ```
 
-The API base is fixed, not derived from request Host. Without the explicit
-container origin, bind-derived loopback Location points another container back
-to itself. One server advertises one origin: container SDKs use `gcs:4443`, while
-the host/browser uses `localhost` and the published port. The server cannot
-discover Docker port mappings. The image healthcheck needs no override. App
+Connection limits, object size, timeouts and soft delete need no settings for this. Links
+follow the Host of each request and the scheme of its connection, so container SDKs get
+`gcs:4443` while the host/browser gets `localhost` and the published port, from one server.
+Set `GCS_MIMIC_API_BASE_URL` only for one fixed origin: a reverse proxy that rewrites
+Host needs it, because forwarded headers are ignored. With 0.11.0 and earlier, whose
+links are always fixed, add `GCS_MIMIC_API_BASE_URL: http://gcs:4443` here. The image
+healthcheck needs no override. App
 services can wait with `depends_on: {gcs: {condition: service_healthy}}`.
 
 Use a distinct Compose project and host port per worktree; the internal port
-and advertised container URL stay 4443. Run these commands beside the files:
+stays 4443. Run these commands beside the files:
 
 ```sh
 export COMPOSE_FILE=compose.migration.yaml
@@ -208,9 +209,10 @@ one `cors_unconfigured` warning per bucket when an Origin-bearing XML request
 reaches a bucket without rules while the fallback is off. See
 [CORS fallback](slices/cors-fallback.md).
 
-For an unsigned resumable session created by the server, preserve path/query
-when replacing the internal authority with the browser-reachable authority.
-The scenario verifies changed-Host PUT with Content-Range and a preflight.
+A resumable session started from the browser address gets a Location on that address.
+A session URI also works through any other address of the server, so a server that
+starts a session through `gcs:4443` can hand the browser the same path and query on the
+browser-reachable authority. The scenario verifies changed-Host PUT with Content-Range and a preflight.
 Cancellation returns a **499** `clientClosedRequest` JSON envelope, and later
 session access repeats it, as confirmed by the 2026-11-02 live recording of the
 [JSON resumable protocol](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads).
@@ -222,12 +224,11 @@ location=$(curl --fail -sS -D - -o /dev/null \
   -H 'Content-Type: application/json' -H 'X-Upload-Content-Type: text/plain' \
   -d '{}' "$api/upload/storage/v1/b/assets/o?uploadType=resumable&name=cancelled.txt" \
   | awk 'tolower($1)=="location:" {sub("\r$", "", $2); print $2}')
-host_session="$api${location#http://gcs:4443}"
-cancellation_status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$host_session")
+cancellation_status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$location")
 test "$cancellation_status" = 499
 ```
 
-Authority rewriting is scoped to these unsigned permissive sessions. Never
+Authority rewriting is scoped to unsigned permissive sessions. Never
 rewrite a strict signed URL after signing; sign the final recipient-visible URL.
 
 ### Rails Active Storage
@@ -251,12 +252,12 @@ refresh the token at Google. The entry works only with the permissive profile.
 | --- | --- | --- |
 | Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | A [withdrawn release](release-policy.md#withdrawn-releases) (0.6.0 or earlier) does not translate source names | Upgrade to the current release, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
 | Startup rejects `-event.pubsub-topic` or another `FAKE_GCS_EVENT_*` | 0.7.0 and earlier lack delivery; since 0.8.0 event flags map to native settings and require complete local publisher configuration | Upgrade to 0.8.0 or later and supply project/topic and an explicit local Pub/Sub emulator endpoint; provision its topic/subscriptions separately. See the [notification contract](slices/pubsub-notification-delivery.md). |
-| SDK initiation succeeds but its next request cannot connect | Location contains loopback or a host-only address | Set `GCS_MIMIC_API_BASE_URL: http://gcs:4443` for container clients and recreate the service. |
-| Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when translating unsigned URLs. |
+| SDK initiation succeeds but its next request cannot connect | Location contains an address fixed by `GCS_MIMIC_API_BASE_URL` or `-external-url`, or a proxy rewrote Host | Remove the fixed address so links follow each request, or set one every client can reach, and recreate the service. |
+| Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when a server hands an unsigned session URI to a browser. |
 | A newly added empty directory creates no bucket | A [withdrawn release](release-policy.md#withdrawn-releases) (0.2.1 or earlier) imported seed files once | Upgrade to the current release with an empty data volume; it replays seed on every startup. Data from withdrawn releases is unsupported. |
-| HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Use `GCS_MIMIC_SCHEME: http` and `GCS_MIMIC_LISTEN: 0.0.0.0:4443`; let the image's probe inherit them. |
+| HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Use `GCS_MIMIC_SCHEME: http` and leave the image's `GCS_MIMIC_LISTEN` default of `0.0.0.0:4443`; let the image's probe inherit them. |
 | Bucket listing returns 400 `required` ("Required parameter: project") | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
-| Docker reports the host port is in use | Another worktree publishes the same port | Set `GCS_MIMIC_PORT=24443` and a different Compose project; update browser URLs, leaving `http://gcs:4443` unchanged. |
+| Docker reports the host port is in use | Another worktree publishes the same port | Set `GCS_MIMIC_PORT=24443` and a different Compose project; update browser URLs. Peers keep using `http://gcs:4443`. |
 | `curl --fail` reports 499 on session DELETE | Successful JSON resumable cancellation uses 499 | Inspect `%{http_code}` as above and accept 499 for cancellation only. |
 
 ## Goal and current state
@@ -296,22 +297,36 @@ broader target adds no passing full-migration result.
 
 ## Concurrent uploads and storage errors
 
-API uploads have no separate concurrency quota. `max_connections` (default 32)
-bounds active connections; excess connections wait. Raising it to 64 permits
-64 simultaneous uploads without an upload-admission 503. Upload prechecks and
-resumable session creation/read/checkpoint wait for catalog admission within
-the existing catalog deadline; other catalog operations can still return 503
-when their 32-operation admission limit is saturated. Bodies retain 64 KiB chunks
+API uploads have no separate concurrency quota. `max_connections` (default 1024)
+bounds active connections; excess connections wait. Catalog operations also wait for
+admission instead of failing, and a client that disconnects gives up its place. Active
+resumable sessions, unfinished rewrites, XML multipart uploads and derived transfers have
+no count limit by default. Bodies retain 64 KiB chunks
 and a depth-two channel, without collecting the whole object in memory.
+
+A 503 remains possible in these cases:
+
+- A request that outlasts `catalog_wait_timeout_ms` (default 120000), including one waiting
+  for a busy session such as a parallel XML multipart part, or a handler that outlasts
+  `request_timeout_ms` (default 180000).
+- A reset or a seed commit while it runs.
+- `max_resumable_sessions` or `max_rewrite_sessions` that you set.
+- I/O failures and shutdown.
 
 Shutdown waits for active uploads and cleanup within `shutdown_timeout_ms`.
 Disconnecting before EOF aborts publication and cleans staging. New uploads
 after catalog shutdown starts fail with a `catalog is closed` cause.
-JSON object 503 messages also identify catalog saturation, catalog wait timeout,
+JSON object 503 messages also identify the catalog wait timeout, a busy session,
 I/O failure or corruption when safely known; private backend details are hidden.
-For wait timeouts, retry with generation preconditions or consider
-`catalog_wait_timeout_ms=60000`. A completed-body upload can still commit after
+For wait timeouts, retry with generation preconditions or raise
+`catalog_wait_timeout_ms`. A completed-body upload can still commit after
 the response times out: read state before retrying an unconditional write.
+
+Retry and notification records are windows, so a full one drops its oldest entry and the
+write succeeds. A single-request upload or copy retried after its record is gone publishes
+again, and an unreachable Pub/Sub loses its oldest undelivered events; see the
+[replay contract](slices/sdk-upload-replay.md) and the
+[notification contract](slices/pubsub-notification-delivery.md).
 
 The [upload admission contract](slices/migrate-upload-admission.md) records
 12/40-upload tests at 32 connections, 64-upload tests at 64 connections,
@@ -448,7 +463,7 @@ and native `GCS_MIMIC_*` environment variables.
 | `-scheme http` / `https` / `both` | `--scheme`, `GCS_MIMIC_SCHEME` | Both uses primary HTTPS and a second HTTP listener with one advertised API origin |
 | `-host`, `-port` | `--listen IP:PORT`, `GCS_MIMIC_LISTEN` | Combined listener setting; container port publication remains separate |
 | `-port-http` | `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; default primary IP:8000 |
-| `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links; not a public-host allowlist |
+| `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links, which otherwise follow each request's Host; not a public-host allowlist. Removable unless a proxy rewrites Host |
 | `-public-host` | `--public-base-url`, `GCS_MIMIC_PUBLIC_BASE_URL` | HTTP(S) origin; adds a DNS virtual domain. Legacy Host matching requires `--compat-profile legacy-emulator`; native path-style accepts any Host. |
 | `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Exactly identical objects keep their generation. Since 0.8.0, seeding publishes the complete tree atomically, fails the entire replay on a differing protected object, and adds opt-in reseed; live synchronization uses a separate `--sync-dir`. 0.7.0 and earlier lack those additions. |
 | `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |

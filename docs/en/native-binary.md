@@ -13,7 +13,7 @@ Build with Rust 1.99.1 and the committed lockfile:
 cargo +1.99.1 build --release --locked --bin gcs-mimic
 native_dir=$(mktemp -d)
 ./target/release/gcs-mimic serve --scheme http --listen 127.0.0.1:0 --data-dir "$native_dir/data" \
-  --api-base-url http://127.0.0.1:4443 > "$native_dir/server.log" 2>&1 &
+  > "$native_dir/server.log" 2>&1 &
 native_pid=$!
 trap 'kill -TERM "$native_pid" 2>/dev/null || true' EXIT
 for attempt in $(seq 1 100); do
@@ -103,29 +103,36 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--grpc-listen` | `GCS_MIMIC_GRPC_LISTEN` | none (disabled) | JSON key `grpc_listen`; numeric IP:port (for example `127.0.0.1:4444`), port 0 allowed; separate plaintext h2c listener. Set Go `STORAGE_EMULATOR_HOST_GRPC` to its address. It serves the scoped Storage v2 bucket, object, write and read RPCs and the legacy Storage v1 migration profile; other RPCs and unsupported fields return actionable, non-retryable `UNIMPLEMENTED`. See the [Storage v2 bucket](slices/grpc-v2-buckets.md), [object I/O](slices/grpc-v2-object-io.md), [update/copy](slices/grpc-v2-update-copy.md), [bidi read](slices/grpc-v2-bidi-read.md) and [Storage v1](slices/grpc-v1-legacy.md) contracts. |
 | `--tls-cert` | `GCS_MIMIC_TLS_CERT` | built-in development certificate | Optional PEM leaf-first chain, at most 1 MiB; requires matching key |
 | `--tls-key` | `GCS_MIMIC_TLS_KEY` | built-in development key | Optional matching unencrypted PEM private key, at most 1 MiB; requires certificate |
-| `--tls-handshake-timeout-ms` | `GCS_MIMIC_TLS_HANDSHAKE_TIMEOUT_MS` | 5000 | 1–60000; HTTPS only, within connection admission |
+| `--tls-handshake-timeout-ms` | `GCS_MIMIC_TLS_HANDSHAKE_TIMEOUT_MS` | 5000 | 0 disables, no upper limit; HTTPS only, within connection admission |
 | `--data-dir` | `GCS_MIMIC_DATA_DIR` | `data` relative to cwd | Nonempty path; exclusive catalog ownership |
 | `--backend` | `GCS_MIMIC_BACKEND` | `disk` | `disk` or `memory`; memory never opens the data directory and loses all data at exit; see the [RAM backend](slices/memory-backend.md) |
 | `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | JSON key `seed_dir`; stable read-only bucket-directory input applied before readiness on every startup. Wins over `default_seed_dir` |
 | `--default-seed-dir` | `GCS_MIMIC_DEFAULT_SEED_DIR` | none; the image sets `/data` | JSON key `default_seed_dir`. Used only when `seed_dir` is unset, the directory exists and it does not overlap the data or sync directory; otherwise silently ignored |
 | `--seed-content-type` | `GCS_MIMIC_SEED_CONTENT_TYPE` | `extension` | JSON key `seed_content_type`; `extension` uses the pinned filename-extension table, `octet-stream` stores `application/octet-stream`. Also applies to files ingested from `--sync-dir` |
 | `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
+| `--max-seed-entries` | `GCS_MIMIC_MAX_SEED_ENTRIES` | 10000 | 1–100000000; files and directories in `seed_dir`. A seed is one atomic publication, so its memory grows with them |
+| `--max-seed-depth` | `GCS_MIMIC_MAX_SEED_DEPTH` | 32 | 1–1024; directory levels below a seed bucket |
 | `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved |
-| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Actual bound listener URL | Wildcard IP becomes loopback; port 0 becomes the allocated port. Explicit absolute HTTP(S) base remains independent; optional base path, no credentials/query/fragment. Ready includes the effective string |
-| `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024; total across listeners, including TLS handshakes |
-| `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
-| `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 8 | 1–32 |
-| `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | 5000 | 1–60000; request headers, then object response startup and chunk inactivity |
-| `--keep-alive-timeout-ms` | `GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS` | 120000 (2 minutes) | 1–600000 (10 minutes); idle time between HTTP/1.1 requests on one connection |
-| `--object-request-timeout-ms` | `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` | 900000 (15 minutes) | 1–86400000 (24 hours) |
-| `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 30000 | 1–60000 |
-| `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 1–60000 |
-| `--max-object-bytes` | `GCS_MIMIC_MAX_OBJECT_BYTES` | 1073741824 (1 GiB) | 1–5497558138880 (5 TiB) |
+| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Each request's Host and connection scheme | Set it to fix the advertised origin. An invalid or missing Host, or one that selects an XML virtual bucket, falls back to the bound listener URL: wildcard IP becomes loopback and port 0 becomes the allocated port. Explicit absolute HTTP(S) base with optional base path, no credentials/query/fragment. Ready reports the explicit or bound base |
+| `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 1024 | 1–1048576; total across listeners, including TLS handshakes. Startup raises the soft open-file limit to three per connection plus 64, and warns when it cannot |
+| `--max-resumable-sessions` | `GCS_MIMIC_MAX_RESUMABLE_SESSIONS` | 0 (unlimited) | 0–4294967295; active resumable uploads |
+| `--max-rewrite-sessions` | `GCS_MIMIC_MAX_REWRITE_SESSIONS` | 0 (unlimited) | 0–4294967295; unfinished rewrites |
+| `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–1024 |
+| `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 8 | 1–1024 |
+| `--header-read-timeout-ms` | `GCS_MIMIC_HEADER_READ_TIMEOUT_MS` | 30000 (30 seconds) | 0 disables, no upper limit; request head arrival, gRPC handshake and HTTP/2 ping acknowledgement |
+| `--body-inactivity-timeout-ms` | `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS` | 0 (disabled) | 0 disables, no upper limit; silence while an object body or gRPC stream is in flight |
+| `--request-timeout-ms` | `GCS_MIMIC_REQUEST_TIMEOUT_MS` | 180000 (3 minutes) | 0 disables, no upper limit; handler time before a response starts, including small request bodies |
+| `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | none | Alias: sets the three settings above to one value; each of them named explicitly wins, from any source |
+| `--keep-alive-timeout-ms` | `GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS` | 120000 (2 minutes) | 0 disables, no upper limit; idle time between HTTP/1.1 requests on one connection and on gRPC connections |
+| `--object-request-timeout-ms` | `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` | 0 (disabled) | 0 disables, no upper limit; absolute upload/media deadline |
+| `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 120000 (2 minutes) | 0 waits without a limit; upload advisory/commit wait and the wait for a busy upload session |
+| `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 0 waits for unfinished requests without a limit |
+| `--max-object-bytes` | `GCS_MIMIC_MAX_OBJECT_BYTES` | 5497558138880 (5 TiB) | 1–5497558138880 (5 TiB); also caps gzip upload expansion, so lower it on a shared or exposed server |
 | `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity file |
 | `--compat-profile` | `GCS_MIMIC_COMPAT_PROFILE` | `native` | `native` or `legacy-emulator`; JSON key `compat_profile`; independent of authentication. The source bucket profile supplies `seed_project` when creation omits `project`; see the [contract](slices/bucket-core-parity.md). |
 | `--cors-fallback` | `GCS_MIMIC_CORS_FALLBACK` | `none` | `none` or `allow-all`; JSON key `cors_fallback`. XML/public CORS for buckets without stored rules; `allow-all` allows any origin; see [CORS fallback](slices/cors-fallback.md) |
 | `--identity-file` | `GCS_MIMIC_IDENTITY_FILE` | none | JSON identity registry, at most 64 KiB; only with `strict` |
-| `--default-soft-delete-retention-seconds` | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` | 604800 (7 days); 0 with `--backend memory` | 0 or 604800–7776000; applies to new native buckets created without `softDeletePolicy`. Deleted and replaced objects keep their bytes for this long; 0 deletes permanently |
+| `--default-soft-delete-retention-seconds` | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` | 0 (off) | 0, or 1–3155760000; applies to new native buckets created without `softDeletePolicy`, whichever backend. Deleted and replaced objects keep their bytes for this long; 0 frees them at once. Cloud Storage defaults to 604800 and accepts 7 to 90 days, so the default and the range are both local. Buckets that store a policy keep it |
 | `--local-creator-email` | `GCS_MIMIC_LOCAL_CREATOR_EMAIL` | `local-user@gcs-mimic.invalid` | Native permissive profile only: new objects record `user-EMAIL` as `owner` and an OWNER ACL entry. Empty keeps `project-owners-N` alone. It labels the writer and grants nothing |
 | `--admin-enabled` | `GCS_MIMIC_ADMIN_ENABLED` | `false` | Enables the local `/_internal` administration routes, such as reset and reseed; isolate the listener when enabled |
 
@@ -142,8 +149,9 @@ target/debug/gcs-mimic serve --scheme both \
 
 Both listeners use the same catalog, authentication and total connection limit.
 Ready retains the primary `listen` and adds a `listeners` array with each actual
-address/scheme. An implicit API base uses primary HTTPS, including for requests
-made over HTTP; supply `--api-base-url` for another fixed reachable origin.
+address/scheme. Without `--api-base-url`, links use the scheme of the listener each
+request arrived on; the base that ready reports, which a request without a usable Host
+falls back to, uses primary HTTPS. Supply `--api-base-url` for one fixed reachable origin.
 Port zero allocates each listener independently. Either bind failure prevents
 ready and releases the sockets/catalog; shutdown closes both. Compose users
 must publish the second HTTP port explicitly. TLS clients still need CA trust
@@ -154,37 +162,42 @@ file or a file with `permissive` fails before readiness. Run
 `gcs-mimic url public --help` for the URL helper, which accepts no serve options.
 
 HTTP/1.1 connections stay open for further requests, with a 16 KiB parser buffer and
-64 headers. Each request has its own deadline. An idle connection closes when no next
-request starts within `--keep-alive-timeout-ms` (default two minutes), or at once when
-every `--max-connections` slot is taken, so a waiting client can connect; a request
-head that starts must finish within the connection timeout (default five seconds).
-Object routes use a header deadline followed by renewed chunk-inactivity
-deadlines; active transfers can exceed the default five seconds. After confirmed upload EOF,
-body inactivity is suspended while storage finishes. Upload/media requests additionally
-have an absolute 15-minute ceiling that chunks cannot renew. Expiry before a response
+64 headers. Each request has its own deadlines. An idle connection closes when no next
+request starts within `--keep-alive-timeout-ms` (default two minutes). When a client waits
+for a slot at a full server, the connection that turned idle first closes, and only that
+one, so pooled clients keep the others. A request head must arrive within
+`--header-read-timeout-ms` (default 30 seconds).
+
+Cloud Storage [documents no seconds](sources.md#timeouts-and-limits-behind-the-local-defaults)
+for these limits, so the defaults are local choices that a slow client should not reach.
+A stalled upload or download has no limit by default; `--body-inactivity-timeout-ms` sets one,
+and each progressing chunk renews it. Upload/media requests have no absolute ceiling by
+default; `--object-request-timeout-ms` sets one that chunks cannot renew.
+A handler that has not started its response gets `--request-timeout-ms` (default three minutes),
+which also bounds a small request body. Expiry before a response
 returns a retryable error without publication: 408 `uploadBrokenConnection` for object
 uploads and 503 `backendError` for other requests. Expiry during download truncates the
 stream after its headers and closes the connection. A deadline response, or a rejection
 that leaves the request body unread, closes the connection; the server then keeps
 reading and discarding client input for up to 30 seconds, so a rejected upload still
-reads its response instead of a connection reset.
-For large/slow transfers, use `--object-request-timeout-ms 3600000` for one hour or set
-the corresponding environment/JSON value. Advisory checks and post-EOF storage waits each default to 30 seconds,
-capped by the remaining absolute request budget, and return 503 `backendError` on expiry.
+reads its response instead of a connection reset. Accepted TCP connections enable TCP
+keep-alive (30 seconds idle, then every 15 seconds; the OS sets the probe count), so a
+dead peer releases its slot even with every limit disabled.
+Advisory checks and post-EOF storage waits each default to two minutes,
+capped by any remaining absolute request budget, and return 503 `backendError` on expiry.
 After a post-EOF timeout the mutation outcome is unknown: the commit may still complete,
 so re-read state or retry with generation/metageneration preconditions. Complete bodies
 may also commit after disconnect or shutdown. SQLite lock waiting retains five seconds;
 background filesystem work and shutdown catalog close have no separate execution bound.
-Bucket/probe routes retain a total deadline.
-Uploads share the `max_connections` limit (default 32), with excess connections
-waiting for capacity. There is no separate upload admission cap. Each upload uses
+Uploads share the `max_connections` limit (default 1024), with excess connections
+waiting for capacity in the listen backlog (requested at 1024). There is no separate upload
+admission cap. Each upload uses
 a two-slot channel with at most 64 KiB
 per chunk, and independent size checks before publication. Downloads use one channel
 slot and a 64 KiB reader. No transaction or blocking worker waits for incoming body data.
-These inspected bounds are not an RSS/cgroup/CPU benchmark; the 1 GiB default cap has not
-been verified by a 1 GiB transfer under the Compose limit.
 Unknown routes return 404 without body reads; probes retain
-GET/HEAD support and body rejection. Catalog work has 32 admitted calls, one
+GET/HEAD support and body rejection. Catalog work has 32 admission slots that later calls
+wait for, one
 executing job on a dedicated catalog thread, a 2 MiB SQLite cache, at most 64 cached
 prepared statements and no memory map. The runtime bounds the blocking threads used
 for file I/O; catalog jobs do not wait for them. Queued/cancelled operations retain
@@ -193,9 +206,9 @@ publishing partial bytes. Early rejections send a response and half-close the so
 discard at most 256 KiB for at most 100 ms. Generic admitted catalog writes and completed
 upload bodies can still commit after the client disconnects; clients must read back state
 when the response is lost. Trickle uploads cannot renew the absolute request ceiling;
-cancelled uploads remain tracked until their cleanup finishes. Upload prechecks
-and resumable session creation/read/checkpoint calls wait for catalog admission
-within the catalog wait deadline; other catalog calls still reject saturation.
+cancelled uploads remain tracked until their cleanup finishes. A client that drops its
+request gives up its place in the catalog queue. Reset and seed commits still answer 503
+while they run.
 
 Older catalogs migrate automatically, one way and in order, to the current schema 50;
 the log names the versions. A binary supporting only schema 49 cannot open a directory
@@ -285,7 +298,8 @@ the default); `octet-stream` stores
 `application/octet-stream`. Size, MD5 and CRC32C come from
 their bytes. Keep fixtures stable and read-only throughout startup. Symlinks,
 special files, invalid names and overlapping roots fail before readiness.
-Traversal is limited to 10000 entries and 32 nested directories;
+Traversal is limited to `max_seed_entries` entries (default 10000) and `max_seed_depth`
+nested directories (default 32);
 `max_object_bytes` applies per new file. No sidecar metadata is imported.
 
 Seeding runs on every startup while a seed directory is

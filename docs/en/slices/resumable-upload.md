@@ -151,9 +151,11 @@ retryable 400 under an unrecorded local choice. The terminal syntax error and
 its cleanup journal commit together and survive restart; an undersized
 nonfinal chunk alone leaves the session retryable. Other exact error choices
 remain local. Serializing writers per session gives
-one ordered append; a competing writer returns retryable local 503 rather
-than racing on a file offset. Exact malformed/concurrent error parity remains
-SPEC-RSM-EDGES. Different sessions may progress concurrently.
+one ordered append; a competing request waits up to `catalog_wait_timeout_ms` for
+the writer, because a retry can arrive while an abandoned chunk unwinds, and past
+that returns retryable local 503. It never races on a file offset. Exact
+malformed/concurrent error parity remains SPEC-RSM-EDGES. Different sessions may
+progress concurrently.
 
 An interrupted request may leave no newly acknowledged bytes. The local
 contract checkpoints a chunk only after complete transport EOF, file sync and
@@ -247,57 +249,67 @@ requires no migration; newly aborted sessions retain their distinct 410 result.
 
 ## Client-reachable Location
 
-Use the validated, normalized **configured `api_base_url`**, followed by the
-JSON upload path and encoded session identifier. `src/config.rs` and
-`src/url.rs::normalize_base_url` currently accept absolute HTTP(S), reject
-credentials/query/fragment and trim trailing slashes; preserve these semantics
-and any configured proxy prefix. The proxy must strip that prefix before
-forwarding. Never derive Location from the bind address, raw Host, Forwarded
-or X-Forwarded-* headers. Public-object URL configuration grants no permission
-and does not choose this capability endpoint.
+Without an explicit base, Location is the **authority the request addressed**, on
+the scheme of its connection, followed by the JSON upload path and encoded session
+identifier. The authority comes from an absolute request target or else from Host,
+and must be exactly a host and an optional connectable port. An invalid or missing
+Host, or one that selects an XML virtual bucket, falls back to the base resolved
+from the bound listener. Forwarded and X-Forwarded-* headers never apply, because
+no proxy is trusted. A runtime `externalUrl` or an explicit `api_base_url` fixes
+the origin instead. `src/config.rs` and `src/url.rs::normalize_base_url` accept
+absolute HTTP(S), reject credentials/query/fragment and trim trailing slashes; a
+configured proxy prefix is preserved and the proxy must strip it before
+forwarding. Public-object URL configuration grants no permission and does not
+choose this capability endpoint.
 
-| Initiating client | Required advertised configuration and observation |
+| Initiating client | Advertised configuration and observation |
 | --- | --- |
-| Host CLI / SDK | `api_base_url=http://127.0.0.1:PORT`; returned URI uploads from the host |
-| Compose peer | `api_base_url=http://gcs:4443`; the peer follows the returned URI from its own network |
-| Host browser | `api_base_url=http://localhost:PORT`; address is browser reachable, with CORS support separately pending |
-| Reverse proxy | Explicit externally reachable HTTP(S) base/prefix; preserve it exactly and ignore spoofed forwarding headers |
+| Host CLI / SDK | Nothing; connects through `http://127.0.0.1:PORT` and the returned URI uploads from the host |
+| Compose peer | Nothing; connects through `http://gcs:4443` and follows the returned URI from its own network |
+| Host browser | Nothing; connects through `http://localhost:PORT`, a browser-reachable address, with CORS support separately pending |
+| Reverse proxy | Explicit externally reachable HTTP(S) base/prefix when the proxy rewrites Host; preserve it exactly and ignore spoofed forwarding headers |
 
-The broader design/onboarding proposal mentions `validated_request_origin`
-with an allowed-authority list. Neither mode nor allowlist exists in current
-configuration. This slice freezes the available fixed override, rather than
-trusting Host implicitly. One fixed origin cannot automatically serve both
-host and peer address spaces: configure a common reachable DNS/proxy endpoint
-or run the host/peer journeys with separate advertised configurations. The
-remaining automatic multi-origin design is SPEC-RSM-LOCATION.
+A session URI is a capability, so a session opened through one address completes
+through another. A retried final request returns the stored object with links to
+the address of the retry, because the stored links name the address that finished
+the upload; with an explicit base the response stays exactly as it was stored.
+
+Host only renders links here. The broader design/onboarding proposal mentions
+`validated_request_origin` with an allowed-authority list; neither exists, because
+a request authority grants nothing, so a client that sends a false Host only gets
+a false link back. The management Host guard reads only settings that no request
+can change. SPEC-RSM-LOCATION records this resolution.
 
 ## Bounded resources and catalog recovery
 
 Use the existing disk-backed catalog/blob mechanism, not a process-only map.
-The local session cap is **128 active sessions**, the only records that own
-staged bytes. Completed and cancelled records do not count against it: they are
-kept so status queries and repeated final requests receive the original
-outcome, and initiation trims them oldest-first (by initiation time) to the
-**128 most recent** in the same transaction. A cancelled record whose cleanup
-journal entry remains is not trimmed, because maintenance still needs it; if no
-terminal record can be trimmed, initiation fails like a full active table. The
-catalog therefore never holds more than 256 sessions. A record trimmed before
+Active sessions, the only records that own staged bytes, are **unlimited by
+default**, because seven-day expiry reclaims their disk and Cloud Storage documents
+no such limit. `max_resumable_sessions` sets a limit: past it, initiation returns
+**503 backendError** and creates no files or object. Opening a catalog never fails
+on a session count. Completed and cancelled records do not count against the limit:
+they are kept so status queries and repeated final requests receive the original
+outcome, and initiation trims them oldest-first (by initiation time) toward the
+**4096 most recent**, at most 256 per initiation, in the same transaction. A seven-day
+window would leave millions of records under SDKs that open one session per upload,
+and maintenance would slow down with them. A cancelled record whose cleanup journal
+entry remains is not trimmed, because maintenance still needs it, and a record a
+request holds is stepped over; the excess carries over to a later initiation, so
+this bookkeeping never fails a new session. A record trimmed before
 its seven-day deadline answers **404** like an unknown session: the emulator
 keeps no tombstone for it, and 404 is the documented answer for a session URI
 that no longer exists after expiry. The provider keeps answering a completed
 session for the whole week, so this is a deliberate local bound that affects
-only sessions beyond the 128 most recent. Admission is an atomic count/insert
-with immediate **503 backendError** when full; rejected initiation creates no
-files or object. The HTTP `max_connections` setting is
+only sessions beyond the 4096 most recent. The HTTP `max_connections` setting is
 the only API upload concurrency limit; catalog work uses 32 admission slots
-and one executing SQLite job. Upload ownership lasts through cleanup.
-One session has at most one active writer, with no
-unbounded per-session waiter queue.
+that later calls wait for, and one executing SQLite job. Upload ownership lasts
+through cleanup. One session has at most one active writer; other requests for
+it wait up to `catalog_wait_timeout_ms`.
 
 Keep at most two copied 64 KiB channel chunks per admitted body, plus bounded
 hash/parser state; never allocate a chunk-sized or object-sized byte vector.
-Object cap is existing `max_object_bytes` (default 1 GiB, configurable through
-5 TiB). Apply it to declared total, incoming offsets and actual streamed bytes,
+Object cap is existing `max_object_bytes` (default and maximum 5 TiB).
+Apply it to declared total, incoming offsets and actual streamed bytes,
 including unknown-length uploads, using checked arithmetic. Rejected admission,
 length and unsupported requests do not eagerly consume media. Disk usage is
 bounded by retained sessions times object cap, plus in-progress tails bounded
@@ -356,14 +368,14 @@ not additional independent features.
 | BEHAVIOR-OBJECT-010 | RSM-INIT-002 | positive/boundary | Query/path name precedence and encoded Unicode/slash/percent names; fixed/custom metadata and content type survive finalization |
 | BEHAVIOR-OBJECT-010 | RSM-INIT-003 | negative/boundary | Malformed/duplicate fields, metadata/custom cap and known oversized/overflow total fail without session/file mutation |
 | BEHAVIOR-OBJECT-010 | RSM-INIT-004 | permission | Strict anonymous/invalid/insufficient permission denial; creator can initiate new object but cannot overwrite; no body staging on rejection |
-| BEHAVIOR-OBJECT-010 | RSM-INIT-005 | resource/concurrency | 128 active session cap enforced atomically, next initiation 503; rejected initiation leaks no bytes/permits; completed/cancelled records are trimmed to the 128 most recent and never block initiation |
+| BEHAVIOR-OBJECT-010 | RSM-INIT-005 | resource/concurrency | Active sessions are unlimited by default and survive reopening past the former 128; a configured `max_resumable_sessions` is enforced atomically, next initiation 503, leaking no bytes/permits and never blocking reopening; completed/cancelled records are trimmed toward the 4096 most recent and never block initiation |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-001 | positive/boundary | PUT sequential 256 KiB-multiple chunks and smaller last chunk produce exact binary bytes and whole hashes |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-002 | positive/boundary | Unknown total uses bytes start-end/*, learns total only consistently and completes with numeric final total |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-003 | positive/boundary | Single no-range upload, empty object and exact-multiple empty final request finish correctly |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-004 | negative | Gaps, reversed/overflow/duplicate ranges, inconsistent totals and invalid nonfinal size are rejected without corrupting prefix |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-005 | positive/boundary | Complete duplicate and partial overlap ignore persisted bytes, append only tail and never change already acknowledged bytes |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-006 | negative/restart | Interrupted/wrong-length body never acknowledges uncommitted bytes; truncate tail and resend/status recover exact prefix |
-| BEHAVIOR-OBJECT-011 | RSM-CHUNK-007 | concurrency | Two writers on one session serialize/reject safely; separate sessions progress; all permits released after timeout/disconnect |
+| BEHAVIOR-OBJECT-011 | RSM-CHUNK-007 | concurrency | Two writers on one session serialize safely, a retry waits for the abandoned chunk and takes over, and a writer still working past the budget reports a busy session; separate sessions progress; all permits released after timeout/disconnect |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-008 | positive | SDK POST with no-308 header gets HTTP 200 plus override 308 and correct Range; final response removes override |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-009 | resource/boundary | Exact object cap succeeds; cap+1 known/unknown/offset stream fails 413; large/slow upload uses bounded server buffers |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-010 | positive/negative/boundary | Open ranges `bytes start-*/*` and `bytes start-*/N` complete chunked, declared-length, empty and resumed bodies with exact bytes; malformed, gap, total-conflict, short/long, prefix-shrinking and over-cap requests fail without advancing the prefix; injected write/flush/sync/checkpoint failures and power loss keep the acknowledged prefix or the complete object |
@@ -388,9 +400,9 @@ not additional independent features.
 | BEHAVIOR-OBJECT-014 | RSM-RECOVERY-001 | restart | Kill after file write/before offset commit: truncate tail; after offset commit: preserve acknowledged prefix and resume |
 | BEHAVIOR-OBJECT-014 | RSM-RECOVERY-002 | restart | Kill after rename/before Object commit: restore active staging; kill after commit: preserve completed object/snapshot |
 | BEHAVIOR-OBJECT-014 | RSM-RECOVERY-003 | negative/restart | Missing/truncated referenced prefix blocks readiness; orphan, expired, deferred-delete and multi-page recovery stay bounded |
-| DESIGN-057 | RSM-LOC-001 | positive | Host CLI/SDK follows configured host Location and completes upload |
-| DESIGN-057 | RSM-LOC-002 | positive | Compose peer follows peer-reachable advertised Location; browser-address case uses host-reachable endpoint without a CORS claim |
-| DESIGN-057 | RSM-LOC-003 | negative/boundary | Spoofed Host/forwarding cannot change Location; trailing slash/proxy prefix preserved; invalid advertised URLs fail config |
+| DESIGN-057 | RSM-LOC-001 | positive | Host CLI/SDK follows the Location of its own address and completes upload |
+| DESIGN-057 | RSM-LOC-002 | positive | Compose peer follows the Location of its own address, without configuration; browser-address case uses host-reachable endpoint without a CORS claim |
+| DESIGN-057 | RSM-LOC-003 | negative/boundary | Forwarded headers and unusable Host values cannot reach Location; an explicit base ignores Host and preserves its trailing slash/proxy prefix; invalid advertised URLs fail config |
 | DESIGN-082 | RSM-SDK-GO-001 | positive | Default 16 MiB ChunkSize Writer with object larger than threshold performs real resumable POSTs and verifies Attrs/download/checksum |
 | DESIGN-082 | RSM-SDK-GO-002 | positive/boundary | 256 KiB ChunkSize Writer spans several chunks including exact multiple, short final, binary and empty paths; metadata and explicit MD5/CRC32C verified |
 | DESIGN-082 | RSM-SDK-GO-003 | negative/positive | Controlled transport interruption/lost chunk response plus configured safe retry exercises duplicate chunk; eventual exact bytes and one generation |

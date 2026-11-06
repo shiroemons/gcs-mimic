@@ -203,8 +203,9 @@ assert identity changes, not time-derived values or ordering across unrelated ob
 
 `id` contains bucket/name/generation; slash concatenation and ETag encoding are
 opaque local identifiers. They must distinguish generations, remain stable for repeated
-reads and not expose blob paths. Links use configured `api_base_url`, preserving an optional
-base path; neither Host nor forwarded headers can affect them. Percent-encode object names
+reads and not expose blob paths. Links use a configured `api_base_url`, preserving an optional
+base path, and otherwise the request's Host and connection scheme; forwarded headers cannot
+affect them. Percent-encode object names
 once in generated links. `selfLink` has no generation query and addresses the current
 resource; `mediaLink` includes `generation` and selects the direct media endpoint with
 `alt=media`, so following it cannot read replacement bytes (SPEC-012).
@@ -303,7 +304,8 @@ current live generations.
 
 ## Runtime bounds and timeouts
 
-`max_object_bytes` defaults to **1 GiB (1,073,741,824 bytes)**; the supported setting range is
+`max_object_bytes` defaults to **5 TiB (5,497,558,138,880 bytes)**, Cloud Storage's documented
+object size limit; the supported setting range is
 1 byte through 5 TiB. `--max-object-bytes`, `GCS_MIMIC_MAX_OBJECT_BYTES` and JSON
 `max_object_bytes` follow existing CLI > environment > JSON > default precedence. There is no
 unlimited mode. Content-Length above the cap is rejected before reading; the producer and
@@ -313,36 +315,44 @@ Uploads have a two-slot Tokio channel with chunks of at most 64 KiB; a queued ch
 shares an incoming transport frame, which hyper bounds. Hyper parsing remains bounded by its
 16 KiB connection buffer. Downloads use a one-slot http-body-util channel and a 64 KiB reader.
 The disk writer holds no database transaction or blocking worker while waiting for a body.
-Eight upload permits are available, with immediate excess rejection; ordinary catalog
-admission is 32, and one execution permit is acquired before scheduling a short SQLite job.
-The default two blocking workers therefore cannot both be occupied by uploads waiting for
+Uploads have no separate permit count; ordinary catalog
+admission is 32 slots that later calls wait for, and one execution permit is acquired before
+scheduling a short SQLite job.
+The blocking workers therefore cannot be occupied by uploads waiting for
 body input or by catalog jobs waiting for each other. File jobs and the single SQLite job
 share the bounded pool, so simultaneous large writes/fsyncs can delay catalog work;
 throughput/fairness and RSS/cgroup memory are not benchmarked here.
-Connection admission remains the configured `max_connections` (default 32).
+Connection admission remains the configured `max_connections` (default 1024).
 
-`object_request_timeout_ms` defaults to **900000 ms (15 minutes)** and accepts 1–86400000 ms
-(24 hours). `--object-request-timeout-ms`, `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` and JSON
+Cloud Storage [documents no seconds](../sources.md#timeouts-and-limits-behind-the-local-defaults)
+for the limits below and asks for "reasonably long" upload timeouts, so these defaults are
+local choices. Every timeout setting accepts 0 to disable it and has no upper limit.
+
+`object_request_timeout_ms` defaults to **0 (disabled)**, because accepting 5 TiB objects rules
+out a fixed bound on a whole transfer. `--object-request-timeout-ms`, `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` and JSON
 `object_request_timeout_ms` follow CLI > environment > JSON > default precedence.
-The absolute ceiling starts when a recognized upload/media request is dispatched and is
+When set, the absolute ceiling starts when a recognized upload/media request is dispatched and is
 never renewed by upload or download progress. Expiry during upload-body streaming returns
 408 `uploadBrokenConnection`, cancels the unfinished body and preserves the previous
 generation without publishing partial data. Existing cleanup releases admission permits
 after its work ends. Expiry during media download, after the response head, closes the
 connection and truncates the stream; already buffered socket bytes may still reach the
 client. No minimum transfer rate is enforced.
-For large or slow transfers, raise `--object-request-timeout-ms 3600000` to allow one hour,
-or use the corresponding environment/JSON setting; zero never disables the ceiling.
 
-`connection_timeout_ms` remains 5 seconds by default. It is an HTTP header-read deadline;
-for recognized object routes it then bounds inactivity between upload/download chunks and
-response startup. Each progressed chunk renews the deadline, so active transfers may last
-longer than 5 seconds. The awaited upload advisory check suspends body inactivity and
-restarts its deadline before streaming; catalog admission stays bounded at 32 calls.
-`catalog_wait_timeout_ms` defaults to **30000 ms** and accepts 1–60000 ms. CLI
+`header_read_timeout_ms` (default 30000) is the HTTP header-read deadline.
+`request_timeout_ms` (default 180000) bounds a handler before its response starts, including a
+small request body. `body_inactivity_timeout_ms` (default 0, disabled) bounds silence while an
+object body is in flight; each progressed chunk renews it, so active transfers can last longer.
+`connection_timeout_ms` has no default: named, it sets those three to one value, and any of them
+named explicitly wins, whichever source named it.
+Catalog waits suspend these deadlines, and each wait ends on every path out of it; catalog
+admission waits for one of 32 slots.
+`catalog_wait_timeout_ms` defaults to **120000 ms**, shorter than the request deadline so a
+waiting request reports the wait's own failure; 0 waits without a limit. CLI
 `--catalog-wait-timeout-ms`, environment `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` and JSON
 `catalog_wait_timeout_ms` use the same precedence. The advisory check and post-EOF storage
-wait each receive this separate budget, capped by the remaining absolute request budget.
+wait each receive this separate budget, capped by any remaining absolute request budget, and
+it also bounds the wait for a busy upload session.
 A completed upload queued behind another commit can still receive its result beyond the
 inactivity deadline. After Hyper confirms EOF, body inactivity no longer applies; the
 bounded storage wait includes sending the explicit EOF marker, queued writes, sync,
@@ -354,18 +364,19 @@ Success is never returned for an unconfirmed commit. The timeout bounds the resp
 not background filesystem/SQLite execution; ongoing work retains directory ownership and
 its permit until cleanup/commit finishes. Filesystem operations and shutdown catalog close
 still have no separate execution bound. SQLite lock waits retain their five-second busy
-timeout. Backpressured downloads also remain subject to inactivity.
+timeout. Backpressured downloads also remain subject to any configured inactivity limit.
 The upload catalog-wait suspension does not extend GET response startup. Releasing an
 external SQLite lock does not confirm a background upload's commit: SQLite may still be
 sleeping between busy retries. The catalog-timeout regression therefore observes the
 committed catalog row before checking media bytes with its 100 ms GET startup budget;
 both upload 503 assertions and the 500 ms–2 s pre-release bound remain independent.
-Bucket/probe/unknown routes keep a total deadline, now per request, and answer its
-expiry with 503 `backendError`. HTTP/1.1 connections stay open between requests: each
+Bucket/probe/unknown routes answer expiry of `request_timeout_ms` with 503 `backendError`.
+HTTP/1.1 connections stay open between requests: each
 request starts its own deadlines, and an idle connection closes after
-`keep_alive_timeout_ms` (default 120000 ms) or when every connection slot is taken.
+`keep_alive_timeout_ms` (default 120000 ms) or, when a client waits at a full server, if it is
+the connection that turned idle first.
 Graceful drain closes idle connections and still has the independent
-`shutdown_timeout_ms` network bound.
+`shutdown_timeout_ms` network bound, which 0 removes.
 Before confirmed EOF, timeout/disconnect cancels the upload and triggers bounded cleanup
 without publishing partial data; channel closure without an explicit EOF marker is an abort.
 After confirmed EOF, the complete body may commit even if the client disconnects or shutdown
@@ -422,7 +433,7 @@ results in the feature ledger; source research and successful validation are not
 | 38 / OBJ-MEDIA-038 | a%2Fb addresses a/b; a%252Fb addresses literal a%2Fb; plus/space/%/#/? encode distinctly; no double decoding | Adapter + wire |
 | 39 / OBJ-MEDIA-039 | Malformed escapes/UTF-8 fail; nested dot components, leading/trailing/repeated slash and backslash remain logical names, never filesystem paths | Adapter + storage |
 | 40 / OBJ-MEDIA-040 | Naming recommendations (#, wildcard/bracket/control compatibility concerns) are not invented blanket GCS prohibitions | Adapter |
-| 41 / OBJ-MEDIA-041 | Host/forwarded headers cannot alter selfLink/mediaLink; configured base path survives traversal, and mediaLink retains generation | Wire |
+| 41 / OBJ-MEDIA-041 | Forwarded headers never alter selfLink/mediaLink, and Host cannot alter them under a configured base; a configured base path survives traversal, and mediaLink retains generation | Wire |
 | 42 / OBJ-MEDIA-042 | Unsupported requests fail without publication; later multipart/range contracts supersede the original rejection cases. If-Range/ETag conditions remain rejected; GET/DELETE tokens follow SPEC-013 | Adapter + wire |
 | 43 / OBJ-MEDIA-043 | softDeleted=false uses live data; true/restoreToken/versioning-dependent requests never claim historical support | Adapter + wire |
 | 44 / OBJ-MEDIA-044 | Permission omissions are documented; authenticated-looking headers and URL generation do not grant or verify IAM/ACL rights | Scope review |

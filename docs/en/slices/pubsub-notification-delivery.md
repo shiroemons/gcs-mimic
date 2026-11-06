@@ -103,9 +103,13 @@ rule. The queue ID allocator survives reset to avoid reusing an in-flight ID.
 
 The persistent queue is limited to 4096 destination messages and 16 MiB of UTF-8
 topic/message bytes, with at most 128 KiB per encoded publish request. SQLite
-accounting triggers are the final atomic guard. Capacity exhaustion rejects the
-entire mutation with retryable 503 `backendError`; no event is discarded to make
-room. Starting or repairing the configured emulator lets acknowledged messages
+accounting triggers are the final atomic guard. A full queue drops its oldest
+undelivered messages, in the transaction of the object write it reports, until the new
+message fits, and the write succeeds: Cloud Storage does not fail an object write over
+Pub/Sub, so an unreachable emulator costs the oldest events and not the write. A rejected
+write drops nothing. The publisher tolerates a row vanishing under it: what it already
+sent stays sent. `notification_outbox_evicted` warns at most once a minute with the count
+since the last warning. Starting or repairing the configured emulator lets acknowledged messages
 free capacity. Deleting a notification configuration stops future selection but
 does not discard its pending notifications.
 The memory backend's separately configured main-catalog limit can be reached

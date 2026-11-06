@@ -5,6 +5,10 @@ not a Google Cloud rate-limit simulation. No new configuration is introduced.
 
 ## Acceptance cases
 
+These cases use small connection limits on purpose; the default `max_connections` is 1024.
+Calls past the 32 catalog slots now wait instead of failing, so a client that disconnects
+only gives up its place, and sessions past the former caps survive a restart.
+
 - With `max_connections=32`, 12 and 40 simultaneous uploads all succeed.
 - With `max_connections=64`, 64 simultaneous uploads do not fail admission.
 - Resumable initiation followed by one final 128 KiB PUT succeeds for 40 uploads

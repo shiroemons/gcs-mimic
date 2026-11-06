@@ -13,7 +13,8 @@ Scope: DESIGN-084 (PARTIAL), JSON-OBJECTS-011 (PARTIAL), JSON-BUCKETS-010
 - soft-delete-policy-example: document seven-day Go v1.70.0 and Ruby 1.62.1
   policy setters in both languages, matching existing SDK tests.
 - soft-delete-debug-log: one debug event explains an empty softDeleted=true
-  listing without a policy and suggests retentionDurationSeconds=604800.
+  listing without a policy and suggests retentionDurationSeconds=604800. A bucket
+  has no policy by default, and any retention of one second or more is accepted.
   Only debug requests with empty pages perform the extra bucket metadata read;
   diagnostic read failures never change the listing response.
 

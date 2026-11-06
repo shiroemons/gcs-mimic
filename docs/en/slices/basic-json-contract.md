@@ -65,7 +65,8 @@ SPEC-RSM-DISCOVERY-PATH. Schema presence alone establishes no launch stage.
 
 ## Shared request and response rules
 
-Routes are relative to configured `api_base_url`. Split raw paths before
+Routes are relative to the advertised base: a configured `api_base_url`, or else
+each request's Host. Split raw paths before
 exactly-once UTF-8 percent decoding; encode embedded object slashes as `%2F`.
 Path `+` is literal, query `+` is space. Duplicate decoded query keys, malformed
 escapes, invalid scalar syntax and method-inappropriate parameters fail 400.

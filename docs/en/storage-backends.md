@@ -102,9 +102,14 @@ acknowledged prefixes before readiness. A blanket staging purge would destroy
 resumable progress and must be replaced with reference-aware bounded recovery.
 See the [session engine design](design.md#resumable-session-engine-contract).
 
-The 128 active-session limit and existing object-size cap bound staging
-growth, with in-progress API tails bounded by `max_connections` (default 32)
-rather than a separate upload cap; they do not reserve free disk space.
+Active sessions are unlimited by default and the object-size cap is 5 TiB, so
+staging growth is bounded by expiry after seven days, by `max_resumable_sessions`
+and `max_object_bytes` if you set them, and by free disk, with in-progress API
+tails bounded by `max_connections` (default 1024) rather than a separate upload
+cap; none of them reserves free disk space. Soft delete is off by default, so an
+overwrite or delete frees old bytes at once; a stored policy keeps them until its
+hard delete time, when the maintenance pass frees them without waiting for a
+request.
 Disk-full/write/sync failures must surface. Deadline-indexed maintenance must
 reclaim expired staging and terminal records in bounded batches without busy
 polling, and journal/retry failed unlinks. No whole-body buffering, new backend

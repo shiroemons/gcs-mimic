@@ -39,7 +39,9 @@ Multipart decoding consumes and produces at most 64 KiB per blocking step,
 with one output channel slot and the same single decoder permit as metadata.
 Expanded input is bounded by max_object_bytes plus 256 KiB of MIME overhead;
 compressed input allows that budget plus one eighth and 64 KiB for deflate
-overhead. These are local resource limits, not Google API limits. Media itself
+overhead. These are local resource limits, not Google API limits. With the default
+max_object_bytes of 5 TiB a small gzip body can expand that far, so lower the setting on a
+shared server or one listening on `0.0.0.0`. Media itself
 retains the configured max_object_bytes cap and incremental checksum checks.
 The complete media or envelope is never buffered in memory.
 

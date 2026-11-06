@@ -88,9 +88,9 @@ every split point, repeated sources and nested associativity. Never re-read all
 source data merely to calculate the combined checksum.
 
 Stage to a random opaque blob ID, sync and publish using the shared derived-object
-foundation's filesystem/catalog recovery protocol. Copy/compose share a reserved
-128-entry ephemeral quota, independent of 128 continuable transfers; abandoned
-rewrites cannot consume it. API concurrency is bounded by `max_connections`.
+foundation's filesystem/catalog recovery protocol. Derived transfers have no count limit,
+and a configured `max_rewrite_sessions` limits only continuable rewrites, so abandoned
+rewrites cannot consume copy/compose capacity. API concurrency is bounded by `max_connections`.
 The final short transaction
 checks the bucket incarnation, current effective grants, destination conditions
 and active destination hold, then publishes one immutable destination generation

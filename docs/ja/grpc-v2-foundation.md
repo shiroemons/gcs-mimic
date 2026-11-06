@@ -39,29 +39,32 @@ Go SDKは`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`と
 gcs-mimicの未対応とJSON APIへの切り替え例を示します。not foundとは区別できます。
 
 起動は既存の復旧・初期化・seedの後にbindし、ready出力後に受け付けます。
-HTTP・HTTPSと接続上限32本を共有し、接続ごとに最大8ストリーム、メッセージは最大4MiBです。
+HTTP・HTTPSと接続上限1024本を共有し、接続ごとに最大8ストリーム、メッセージは最大4MiBです。
+接続枠が足りなくなっても、gRPCの接続はアイドル接続の回収の対象になりません。接続ごとの8ストリームと、バッチの同時実行数2は固定です。
 SIGTERMでは同じ受付停止・drain・カタログcloseの順で終了します。
 strictは共有AuthでBearerを判定し、ローカルprincipalを各RPCグループへ渡します。
 共有受け口はトークンなしを匿名Callerとして渡し、RPC側の共通関数が現時点では
 `UNAUTHENTICATED`にします。不正なトークンは受け口で拒否し、permissiveは素通しです。
-`connection_timeout_ms`は開いているストリームがない接続の無通信期限です。
+接続の段階ごとに別の設定を使います。HTTP/2のprefaceが届くまでが`header_read_timeout_ms`（既定30000）、
+開いているストリームがない接続の無通信が`keep_alive_timeout_ms`（既定120000）です。
 `grpc_idle_connection_closes_with_goaway`では、期限切れにGOAWAYを送ってから閉じ、HTTPと共有する接続枠を解放します。
 `grpc_idle_never_cuts_in_flight_streams`では、リクエスト開始からレスポンス本文の終了・dropまで数を保持し、
-応答待ちや本文のフレーム間隔が期限を超えてもアイドル扱いしません。ただし、別の無通信上限は適用します。減算はDropで行います。
-`grpc_silent_open_stream_is_bounded`では、ストリームを開いたまま60秒間、
-リクエスト・レスポンスのHEADERS、DATA、trailersが出入りしなければGOAWAYを送り、
-既存の猶予後に閉じてHTTPと共有する接続枠を解放します。PING・PONGは活動に数えません。
-GoのMultiRangeDownloaderが次の範囲を待つ正当な使い方を許しつつ、ローカル開発で異常な無通信を制限するため、内部固定値を60秒とし、設定は増やしません。
+応答待ちや本文のフレーム間隔が期限を超えてもアイドル扱いしません。減算はDropで行います。
+ストリームを開いたままの無通信には`body_inactivity_timeout_ms`（既定0で無効）を使います。
+`grpc_silent_open_stream_is_bounded`では、これを指定した場合に、
+リクエスト・レスポンスのHEADERS、DATA、trailersがその間出入りしなければGOAWAYを送り、
+猶予後に閉じてHTTPと共有する接続枠を解放します。PING・PONGは活動に数えません。
+以前の固定60秒は、GoのMultiRangeDownloaderが次の範囲を待つ正当な使い方を切る場合があり、設定で変えられないので廃止しました。
 `grpc_active_stream_survives_past_bound`では、この上限より短い間隔で送信または受信が続く限り、
 合計時間が上限を超えても切断しません。接続ごとに最後のフレーム時刻を1つ保持します。
 `grpc_dead_peer_is_detected_by_keepalive`では、開いたストリームの相手が応答しなくなった場合、
-間隔・応答期限とも`connection_timeout_ms`のHTTP/2 keepaliveで検出して閉じます。
+間隔・応答期限とも`header_read_timeout_ms`のHTTP/2 keepaliveで検出して閉じます。
+これを0にするとpingを止め、相手の消失はTCP keep-aliveに任せます。プローブ回数はOSの既定です。
 `grpc_goaway_has_bounded_grace`では、GOAWAY後の猶予を、アイドル時は
-`connection_timeout_ms`、SIGTERM時は
-`min(connection_timeout_ms, shutdown_timeout_ms / 2)`に制限します。
-全体の停止予算の半分を接続の後始末・joinに残し、両方が既定の5000msでも正常終了させるためです。
+`header_read_timeout_ms`（0なら5秒）、SIGTERM時はその値と`shutdown_timeout_ms / 2`の小さい方に制限します。
+全体の停止予算の半分を接続の後始末・joinに残し、正常終了させるためです。`shutdown_timeout_ms`が0なら予算の制限はありません。
 すでにアイドルのGOAWAY中でもSIGTERMで猶予を短縮し、共有の停止順序は変えません。
-未完のhandshakeにはGOAWAYを送れない場合があり、猶予後に強制終了します。
+未完のhandshakeにはGOAWAYを送れない場合があり、猶予後に強制終了します。prefaceが届かないまま期限が切れると`grpc_handshake_timeout`を記録します。
 アプリ側のタイマーは接続ごとに1本を共用し、ストリーム数と送受信の変更はwatch通知で受け取ります。
 テストでは同じ接続処理へ短い上限を渡します。無通信上限による切断はInfoで原因と、定期送信またはストリームの開き直しという対処を記録します。
 アイドル切断はDebug、keepalive失敗・猶予切れは原因と設定値の例を含むWarnで記録します。

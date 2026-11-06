@@ -35,7 +35,7 @@ The 64 MiB and 16 MiB values are configurable, provisional defaults for small
 local tests. Neither Google nor SQLite prescribes these numbers. They do not
 guarantee capacity for every thousand-object workload: payloads, metadata,
 history, notification outbox records and simultaneous writes compete for space.
-The ordinary `max_object_bytes` default of 1 GiB remains an independent per-upload
+The ordinary `max_object_bytes` default of 5 TiB remains an independent per-upload
 ceiling, not a claim that a 1 GiB body fits the default RAM aggregate budget.
 A 40 MiB overwrite needs both old and new bodies to coexist before reclamation,
 so even 80 MiB excludes descriptors, other objects and retained readers.
