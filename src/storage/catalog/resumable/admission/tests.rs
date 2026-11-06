@@ -6,13 +6,14 @@ use crate::{
     object::ObjectError,
     storage::catalog::{
         ResumableError,
+        session_limits::MAX_FINISHED_SESSIONS,
         test_fixtures::{bucket, fill_cancelled_sessions},
     },
     test_support::TestDir,
 };
 use std::{num::NonZeroU32, sync::Arc, time::UNIX_EPOCH};
 
-const WINDOW: i64 = MAX_TERMINAL_SESSIONS;
+const WINDOW: i64 = MAX_FINISHED_SESSIONS;
 
 async fn open(dir: &TestDir, clock: &Arc<ManualClock>) -> Catalog {
     Catalog::open_with_clock(&dir.0, clock.clone())
@@ -76,7 +77,7 @@ async fn finished_sessions_stay_inside_a_small_memory_catalog_budget() {
 
 #[test]
 fn trimming_follows_whichever_of_the_count_and_the_bytes_is_over() {
-    let window = MAX_TERMINAL_SESSIONS;
+    let window = MAX_FINISHED_SESSIONS;
     assert_eq!(finished_excess(window, 1, None), 0);
     assert_eq!(finished_excess(window + 3, 1, None), 3);
     assert_eq!(finished_excess(10, 1_000, Some(1_000)), 0);
@@ -242,7 +243,7 @@ async fn one_creation_trims_a_bounded_batch_and_later_ones_finish_the_rest() {
     let (dir, clock) = (TestDir::new(), Arc::new(ManualClock::new(UNIX_EPOCH)));
     let catalog = open_with_bucket(&dir, &clock).await;
     create(&catalog, &clock).await.unwrap();
-    let batch = i64::try_from(MAX_TRIMMED_PER_CREATION).unwrap();
+    let batch = i64::try_from(MAX_TRIMMED_AT_ONCE).unwrap();
     fill_cancelled_sessions(&catalog, WINDOW + batch + 1).await;
     create(&catalog, &clock).await.unwrap();
     assert_exact(counts(&catalog).await, (2, WINDOW + 1));

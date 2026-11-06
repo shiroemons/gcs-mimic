@@ -26,13 +26,12 @@ async fn part(
     end: BodyEnd,
 ) -> Result<Part, Error> {
     let lease = catalog
-        .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+        .lease_xml_part(target.clone(), 1, BucketAccess::Permissive)
         .await?;
     catalog
         .put_xml_part(
             lease,
             PartUpload {
-                number: 1,
                 expected: Default::default(),
                 max_bytes: 1024,
             },
@@ -308,7 +307,7 @@ async fn ram_xml_multipart_close_wakes_stalled_parts_without_publishing_them() {
     let catalog = setup(200_000, Off).await;
     let target = begin(&catalog).await;
     let lease = catalog
-        .lease_xml_multipart(target, BucketAccess::Permissive)
+        .lease_xml_part(target, 1, BucketAccess::Permissive)
         .await
         .unwrap();
     let (sender, body) = mpsc::channel(2);
@@ -321,7 +320,6 @@ async fn ram_xml_multipart_close_wakes_stalled_parts_without_publishing_them() {
             .put_xml_part(
                 lease,
                 PartUpload {
-                    number: 1,
                     expected: Default::default(),
                     max_bytes: 1024,
                 },
@@ -341,6 +339,69 @@ async fn ram_xml_multipart_close_wakes_stalled_parts_without_publishing_them() {
     assert!(sender.is_closed());
 }
 
+/// RAM parts share one byte budget, so a part that disconnects must give back what it staged while
+/// the parts beside it keep writing.
+#[tokio::test]
+async fn ram_xml_multipart_parts_write_side_by_side_and_a_disconnect_frees_its_bytes() {
+    let catalog = setup(64 * 1024, Off).await;
+    let target = begin(&catalog).await;
+    let open = |number: u16, bytes: &'static [u8]| {
+        let (catalog, target) = (catalog.clone(), target.clone());
+        async move {
+            let lease = catalog
+                .lease_xml_part(target, number, BucketAccess::Permissive)
+                .await
+                .unwrap();
+            let (sender, body) = mpsc::channel(2);
+            sender
+                .send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
+                .await
+                .unwrap();
+            let worker = catalog.clone();
+            let request = tokio::spawn(async move {
+                worker
+                    .put_xml_part(
+                        lease,
+                        PartUpload {
+                            expected: Default::default(),
+                            max_bytes: 1024,
+                        },
+                        body,
+                    )
+                    .await
+            });
+            eventually_async("the part to consume its chunk", || async {
+                sender.capacity() == 2
+            })
+            .await;
+            (sender, request)
+        }
+    };
+    let (kept, kept_request) = open(2, b"kept").await;
+    let (cut, cut_request) = open(3, b"cut off").await;
+    part(&catalog, &target, b"first", Complete).await.unwrap();
+    let memory = catalog.0.backend.memory().unwrap();
+    assert_eq!(memory.blob_count(), 1);
+
+    drop(cut);
+    assert!(cut_request.await.unwrap().is_err());
+    assert_eq!(memory.blob_count(), 1);
+
+    kept.send(Ok(UploadChunk::End)).await.unwrap();
+    kept_request.await.unwrap().unwrap();
+    assert_eq!(memory.blob_count(), 2);
+    let (_, listed, _) = catalog
+        .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 100)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed.iter().map(|part| part.number).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert!(!catalog.has_session_writers());
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_replacing_bytes() {
     let clock = Arc::new(crate::clock::ManualClock::new(
@@ -356,7 +417,7 @@ async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_repl
             .query_row([upload], |row| Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?,row.get::<_,Vec<u8>>(2)?,row.get::<_,u32>(3)?))).map_err(crate::storage::failure::object_unavailable)
     }).await.unwrap();
     let lease = catalog
-        .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+        .lease_xml_part(target.clone(), 1, BucketAccess::Permissive)
         .await
         .unwrap();
     let (sender, body) = mpsc::channel(2);
@@ -371,7 +432,6 @@ async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_repl
             .put_xml_part(
                 lease,
                 PartUpload {
-                    number: 1,
                     expected: Default::default(),
                     max_bytes: 1024,
                 },

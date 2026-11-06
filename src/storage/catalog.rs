@@ -203,6 +203,8 @@ struct Inner {
     session_limits: OnceLock<session_limits::SessionLimits>,
     derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
+    /// Whether a bucket delete may have left XML multipart uploads behind.
+    multipart_orphan_scan: AtomicBool,
     maintenance_error: Mutex<Option<BackendCause>>,
     maintenance_started: AtomicBool,
     maintenance_health: crate::task::TaskHealth,

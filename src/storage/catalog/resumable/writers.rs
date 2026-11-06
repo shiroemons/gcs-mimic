@@ -2,13 +2,19 @@ use super::{Catalog, CatalogError, unavailable};
 use crate::storage::{
     blob_id::BlobId, catalog::session_limits::WriterWait, failure::BackendFailure,
 };
-use std::{collections::HashSet, fmt};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
 
 /// Typed namespaces keep unrelated transfer and upload IDs independent.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(in crate::storage::catalog) enum WriterKey {
     Resumable(String),
+    /// A whole XML multipart upload, exclusive of every part of it.
     Multipart(String),
+    /// One part of an XML multipart upload, exclusive of its own number and the whole upload.
+    MultipartPart(String, u16),
     Rewrite(BlobId),
     Derived(BlobId),
 }
@@ -57,19 +63,80 @@ impl From<ClaimError> for CatalogError {
     }
 }
 
+/// Who writes one XML multipart upload right now.
+#[derive(Debug)]
+enum UploadHolders {
+    /// Bodies of these part numbers are streaming. Each number has its own row and staging file,
+    /// so different numbers write side by side, as Cloud Storage lets clients do.
+    Parts(HashSet<u16>),
+    /// Completion and abort read or retire every part, so they need the upload to themselves.
+    Whole,
+}
+
+impl Default for UploadHolders {
+    fn default() -> Self {
+        Self::Parts(HashSet::new())
+    }
+}
+
+#[derive(Debug, Default)]
+struct UploadWriters {
+    holders: UploadHolders,
+    /// Whole-upload requests in line. Any of them keeps new parts out, so steady part traffic
+    /// cannot postpone a completion past its wait budget.
+    whole_waiting: usize,
+}
+
+impl UploadWriters {
+    fn claim_part(&mut self, number: u16) -> bool {
+        match &mut self.holders {
+            UploadHolders::Parts(writing) if self.whole_waiting == 0 => writing.insert(number),
+            UploadHolders::Parts(_) | UploadHolders::Whole => false,
+        }
+    }
+
+    fn claim_whole(&mut self) -> bool {
+        match &self.holders {
+            UploadHolders::Parts(writing) if writing.is_empty() => {
+                self.holders = UploadHolders::Whole;
+                true
+            }
+            UploadHolders::Parts(_) | UploadHolders::Whole => false,
+        }
+    }
+
+    fn is_idle(&self) -> bool {
+        self.whole_waiting == 0
+            && matches!(&self.holders, UploadHolders::Parts(writing) if writing.is_empty())
+    }
+}
+
 #[derive(Default)]
 pub(in crate::storage::catalog) struct SessionWriters {
     held: HashSet<WriterKey>,
+    /// Only uploads someone holds or waits for, so its size follows the requests in flight.
+    uploads: HashMap<String, UploadWriters>,
 }
 
 impl SessionWriters {
     #[cfg(test)]
     pub(in crate::storage::catalog) fn is_empty(&self) -> bool {
-        self.held.is_empty()
+        self.held.is_empty() && self.uploads.is_empty()
+    }
+
+    fn upload(&mut self, id: &str) -> &mut UploadWriters {
+        self.uploads.entry(id.to_owned()).or_default()
     }
 
     fn claim(&mut self, key: &WriterKey) -> Result<(), ClaimError> {
-        if self.held.insert(key.clone()) {
+        let claimed = match key {
+            WriterKey::Multipart(id) => self.upload(id).claim_whole(),
+            WriterKey::MultipartPart(id, number) => self.upload(id).claim_part(*number),
+            WriterKey::Resumable(_) | WriterKey::Rewrite(_) | WriterKey::Derived(_) => {
+                self.held.insert(key.clone())
+            }
+        };
+        if claimed {
             Ok(())
         } else {
             Err(ClaimError::Busy)
@@ -77,7 +144,48 @@ impl SessionWriters {
     }
 
     fn release(&mut self, key: &WriterKey) {
-        self.held.remove(key);
+        match key {
+            WriterKey::Multipart(id) => {
+                self.settle_upload(id, |upload| upload.holders = UploadHolders::default());
+            }
+            WriterKey::MultipartPart(id, number) => self.settle_upload(id, |upload| {
+                if let UploadHolders::Parts(writing) = &mut upload.holders {
+                    writing.remove(number);
+                }
+            }),
+            WriterKey::Resumable(_) | WriterKey::Rewrite(_) | WriterKey::Derived(_) => {
+                self.held.remove(key);
+            }
+        }
+    }
+
+    /// Changes one upload's state and forgets the upload once nobody holds or waits for it.
+    fn settle_upload(&mut self, id: &str, change: impl FnOnce(&mut UploadWriters)) {
+        if let Some(upload) = self.uploads.get_mut(id) {
+            change(upload);
+            if upload.is_idle() {
+                self.uploads.remove(id);
+            }
+        }
+    }
+}
+
+/// A whole-upload request's place in line, given up when the request gets the upload, runs out of
+/// budget or is cancelled. Parts it held back then try again, so it wakes them when it drops.
+struct WholeUploadTurn<'a> {
+    catalog: &'a Catalog,
+    id: &'a str,
+}
+
+impl Drop for WholeUploadTurn<'_> {
+    fn drop(&mut self) {
+        self.catalog
+            .0
+            .session_writers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .settle_upload(self.id, |upload| upload.whole_waiting -= 1);
+        self.catalog.0.writer_released.notify_waiters();
     }
 }
 
@@ -102,7 +210,7 @@ impl Drop for WriterGuard {
                 self.catalog.0.derived_wake.notify_waiters();
                 self.catalog.0.maintenance_wake.notify_one();
             }
-            (WriterKey::Rewrite(_) | WriterKey::Multipart(_), _)
+            (WriterKey::Rewrite(_) | WriterKey::Multipart(_) | WriterKey::MultipartPart(..), _)
             | (WriterKey::Resumable(_), KeyOrigin::Client) => {
                 self.catalog.0.maintenance_wake.notify_one()
             }
@@ -117,6 +225,30 @@ impl Catalog {
     #[cfg(test)]
     pub(crate) fn has_session_writers(&self) -> bool {
         !self.0.session_writers.lock().unwrap().is_empty()
+    }
+
+    /// How many part numbers of an XML multipart upload are writing right now.
+    #[cfg(test)]
+    pub(crate) fn multipart_parts_writing(&self, id: &str) -> usize {
+        match self.0.session_writers.lock().unwrap().uploads.get(id) {
+            Some(UploadWriters {
+                holders: UploadHolders::Parts(writing),
+                ..
+            }) => writing.len(),
+            Some(_) | None => 0,
+        }
+    }
+
+    /// How many whole-upload requests are in line for an XML multipart upload.
+    #[cfg(test)]
+    pub(crate) fn multipart_whole_waiters(&self, id: &str) -> usize {
+        self.0
+            .session_writers
+            .lock()
+            .unwrap()
+            .uploads
+            .get(id)
+            .map_or(0, |upload| upload.whole_waiting)
     }
 
     /// Claims a writer now or fails with `Busy`. Maintenance and session trimming use this form:
@@ -157,6 +289,31 @@ impl Catalog {
                     .unwrap_or(Err(ClaimError::Busy))
             }
         }
+    }
+
+    /// Claims a whole XML multipart upload for a client request. Parts already writing finish
+    /// first, within the same budget as `wait_for_writer`, and parts arriving meanwhile wait
+    /// behind this request.
+    pub(in crate::storage::catalog) async fn wait_for_whole_upload(
+        &self,
+        id: &str,
+    ) -> Result<WriterGuard, ClaimError> {
+        let _turn = self.take_whole_upload_turn(id)?;
+        self.wait_for_writer(WriterKey::Multipart(id.to_owned()), KeyOrigin::Client)
+            .await
+    }
+
+    fn take_whole_upload_turn<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> Result<WholeUploadTurn<'a>, ClaimError> {
+        self.0
+            .session_writers
+            .lock()
+            .map_err(|_| ClaimError::Poisoned)?
+            .upload(id)
+            .whole_waiting += 1;
+        Ok(WholeUploadTurn { catalog: self, id })
     }
 
     async fn claim_released(

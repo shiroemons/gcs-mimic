@@ -9,10 +9,14 @@ use std::io;
 use tokio::sync::{mpsc, oneshot};
 
 pub(crate) struct PartUpload {
-    pub number: u16,
     pub expected: ExpectedHashes,
     pub max_bytes: u64,
 }
+
+/// The bytes the other parts of an upload retain. Every part reads this twice: before its body,
+/// to refuse early, and in its commit, because parts in flight have not counted each other yet.
+const OTHER_PARTS_BYTES: &str =
+    "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2";
 
 fn publication_error(error: Error) -> ObjectError {
     match error {
@@ -25,18 +29,16 @@ fn publication_error(error: Error) -> ObjectError {
 impl Catalog {
     pub(crate) async fn put_xml_part(
         &self,
-        lease: Lease,
+        lease: PartLease,
         request: PartUpload,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<Part, Error> {
-        if !(1..=10000).contains(&request.number) {
-            return Err(Error::InvalidPart);
-        }
         let permit = self.admit_object_upload()?;
         let catalog = self.clone();
         let (_request, cancellation) = oneshot::channel();
         crate::task::spawn_supervised("xml-multipart-part",async move {
             let (_permit,lease)=(permit,lease);
+            let number=lease.number;
             let now=unix_millis(catalog.0.clock.now())?;
             let target=lease.upload.target.clone();
             let access=lease.access.clone();
@@ -44,7 +46,7 @@ impl Catalog {
                 let transaction=connection.transaction().map_err(object_unavailable)?;
                 active(&transaction,&target,&access,now)?;
                 objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
-                sql::scalar::<u64>(&transaction, "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2", params![target.id,request.number]).map_err(object_unavailable).map_err(Error::from)
+                sql::scalar::<u64>(&transaction, OTHER_PARTS_BYTES, params![target.id,number]).map_err(object_unavailable).map_err(Error::from)
             }).await?;
             let budget=request.max_bytes.checked_sub(retained).ok_or(ObjectError::TooLarge)?.min(MAX_PART_BYTES);
             let blob=super::super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
@@ -67,9 +69,11 @@ impl Catalog {
                     let now=unix_millis(clock.now())?;
                     active(&transaction,&target,&access,now)?;
                     objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
-                    sql::exec(&transaction, "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![target.id,request.number]).map_err(object_unavailable)?;
-                    sql::exec(&transaction, "INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated", params![target.id,request.number,id,size,md5.as_slice(),crc32c,now]).map_err(object_unavailable)?;
-                    let stored=part(&transaction,&target.id,request.number)?;
+                    let others=sql::scalar::<u64>(&transaction, OTHER_PARTS_BYTES, params![target.id,number]).map_err(object_unavailable)?;
+                    others.checked_add(size).filter(|total| *total<=request.max_bytes).ok_or(ObjectError::TooLarge)?;
+                    sql::exec(&transaction, "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![target.id,number]).map_err(object_unavailable)?;
+                    sql::exec(&transaction, "INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated", params![target.id,number,id,size,md5.as_slice(),crc32c,now]).map_err(object_unavailable)?;
+                    let stored=part(&transaction,&target.id,number)?;
                     objects::commit_publication(transaction)?;
                     Ok(stored)
                 }).await
@@ -95,7 +99,7 @@ impl Catalog {
 
     pub(crate) async fn complete_xml_multipart(
         &self,
-        lease: Lease,
+        lease: UploadLease,
         parts: Vec<CompletedPart>,
         max_bytes: u64,
     ) -> Result<ObjectRecord, Error> {
@@ -191,7 +195,7 @@ impl Catalog {
 
     async fn xml_completion_total(
         &self,
-        lease: &Lease,
+        lease: &UploadLease,
         requested: Vec<CompletedPart>,
         max_bytes: u64,
     ) -> Result<u64, Error> {
@@ -227,7 +231,7 @@ impl Catalog {
 
     async fn assemble_xml_parts(
         &self,
-        lease: &Lease,
+        lease: &UploadLease,
         parts: &[CompletedPart],
         id: &BlobId,
         total: u64,

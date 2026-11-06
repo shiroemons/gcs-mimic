@@ -99,7 +99,7 @@ impl Catalog {
     ) -> Result<(), CatalogError> {
         let name = name.to_owned();
         let access = access.clone();
-        let maintenance_wake = self.0.maintenance_wake.clone();
+        let catalog = self.clone();
         let clock = self.0.clock.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
@@ -141,7 +141,7 @@ impl Catalog {
             sql::exec(&transaction, "DELETE FROM buckets WHERE name = ?1", [&name])?;
             let result = transaction.commit().map_err(unavailable);
             // Commit failures may be ambiguous; cleanup rechecks the current bucket incarnation.
-            maintenance_wake.notify_one();
+            catalog.schedule_multipart_orphan_scan();
             result
         })
         .await?;
