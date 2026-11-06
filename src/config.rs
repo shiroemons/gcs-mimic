@@ -36,7 +36,7 @@ pub const DEFAULT_LOCAL_CREATOR_EMAIL: &str = "local-user@gcs-mimic.invalid";
 
 /// RFC 9113 section 6.5.2 recommends advertising no fewer than 100 concurrent streams, "so as to
 /// not unnecessarily limit parallelism". A client past the limit queues its calls on its side.
-pub const DEFAULT_MAX_GRPC_STREAMS: NonZeroU32 = NonZeroU32::new(100).unwrap();
+const DEFAULT_MAX_GRPC_STREAMS: NonZeroU32 = NonZeroU32::new(100).unwrap();
 
 const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
