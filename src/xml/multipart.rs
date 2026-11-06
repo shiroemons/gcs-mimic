@@ -359,14 +359,17 @@ async fn complete(
         ));
     }
     let parts = manifest::parse(&bytes)?;
+    // The parts are copied in detached work that commits whatever this request reports, and the
+    // time it takes grows with the object. Timing out would answer 503 for an upload that then
+    // succeeds and leave a retry with NoSuchUpload, so wait for the durable outcome.
+    let wait = crate::server::begin_catalog_wait(ctx.activity).await;
     let record = ctx
-        .await_catalog(ctx.state.catalog.complete_xml_multipart(
-            lease,
-            parts,
-            ctx.config.max_object_bytes,
-        ))
+        .state
+        .catalog
+        .complete_xml_multipart(lease, parts, ctx.config.max_object_bytes)
         .await
         .map_err(|error| storage_error(error, ctx))?;
+    drop(wait);
     let mut body = render::start("CompleteMultipartUploadResult");
     element(
         &mut body,

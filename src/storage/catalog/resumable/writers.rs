@@ -113,6 +113,12 @@ impl Drop for WriterGuard {
 }
 
 impl Catalog {
+    /// Whether any session or transfer writer is held right now.
+    #[cfg(test)]
+    pub(crate) fn has_session_writers(&self) -> bool {
+        !self.0.session_writers.lock().unwrap().is_empty()
+    }
+
     /// Claims a writer now or fails with `Busy`. Maintenance and session trimming use this form:
     /// they skip a held session and come back later, so they never wait behind a client.
     pub(in crate::storage::catalog) fn claim_writer(

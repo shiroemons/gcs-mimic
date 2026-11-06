@@ -1,8 +1,86 @@
 use super::*;
+use gcs_mimic::time_limit::TimeLimit;
 use tokio::task::JoinSet;
 
 /// Three times the catalog's admission slots; a request past them used to fail with 503.
 const REQUESTS: usize = 96;
+
+/// Completing a multipart upload copies its parts in detached work that commits whatever the
+/// request reports, so past the catalog wait it must report that commit. A 503 here left a retry
+/// with NoSuchUpload for an upload that had succeeded.
+#[tokio::test]
+async fn a_multipart_completion_past_the_catalog_wait_reports_its_commit() {
+    const BUDGET_MILLIS: u64 = 500;
+    let h = Harness::start_with_config(
+        Permissive,
+        None,
+        Config {
+            catalog_wait_timeout: TimeLimit::from_millis(BUDGET_MILLIS),
+            ..Default::default()
+        },
+    )
+    .await;
+    let begun = h
+        .request("POST", "/bucket/assembled?uploads", "", b"")
+        .await;
+    assert_eq!(begun.status, 200);
+    let body = String::from_utf8(begun.body).unwrap();
+    let id = body
+        .split("<UploadId>")
+        .nth(1)
+        .and_then(|rest| rest.split("</UploadId>").next())
+        .unwrap();
+    let part = h
+        .request(
+            "PUT",
+            &format!("/bucket/assembled?partNumber=1&uploadId={id}"),
+            "",
+            b"part",
+        )
+        .await;
+    assert_eq!(part.status, 200);
+    let manifest = format!(
+        "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>{}</ETag></Part></CompleteMultipartUpload>",
+        part.headers["etag"]
+    );
+    eventually_async("the part request to release its lease", || async {
+        !h.state.catalog.has_session_writers()
+    })
+    .await;
+    let mut client = TcpStream::connect(&h.address).await.unwrap();
+    client
+        .write_all(
+            format!(
+                "POST /bucket/assembled?uploadId={id} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n",
+                manifest.len()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    // The lease comes before the manifest, so the catalog stalls only the completion itself.
+    eventually_async("the completion to lease its upload", || async {
+        h.state.catalog.has_session_writers()
+    })
+    .await;
+    let held = h.state.catalog.hold_admission();
+    client.write_all(manifest.as_bytes()).await.unwrap();
+    let mut reply = tokio::spawn(Harness::read_response(client));
+    let past_the_budget = Duration::from_millis(2 * BUDGET_MILLIS);
+    assert!(
+        tokio::time::timeout(past_the_budget, &mut reply)
+            .await
+            .is_err(),
+        "the completion waits for its outcome past the catalog wait"
+    );
+    drop(held);
+    assert_eq!(reply.await.unwrap().status, 200);
+    assert_eq!(
+        h.request("GET", "/bucket/assembled", "", b"").await.status,
+        200
+    );
+    h.stop().await;
+}
 
 async fn saturable() -> Arc<Harness> {
     let config = Config {
