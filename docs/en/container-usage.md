@@ -39,6 +39,10 @@ The image supplies `GCS_MIMIC_LISTEN=0.0.0.0:4443` and
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`; override these environment values to
 change the bind port or persistent location. Environment values take precedence
 over a JSON file, as they do in native startup.
+It also sets `SQLITE_TMPDIR=/var/lib/gcs-mimic`, where SQLite spills the journal of a
+large statement, because the root may be read-only. If you move the data directory
+on a read-only root, set `SQLITE_TMPDIR` to the same place, or such a request answers
+503 `disk I/O error`.
 For example, `-e GCS_MIMIC_LISTEN=0.0.0.0:8080 -p 127.0.0.1:8080:8080`
 changes the listener and published port. Use
 `-e GCS_MIMIC_DATA_DIR=/custom-data -v gcs-mimic-data:/custom-data` to change

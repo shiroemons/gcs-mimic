@@ -38,6 +38,10 @@ HTTPSでは組み込みの開発用CAを信頼します。独自CAは`--ca-cert 
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`を環境変数で設定します。
 ポートや保存先を変える場合は、この環境変数を上書きしてください。
 nativeと同じく、環境変数はJSON設定より優先します。
+ルートが読み取り専用でも動くよう、SQLiteが大きな文のジャーナルを書き出す先として
+`SQLITE_TMPDIR=/var/lib/gcs-mimic`も設定します。読み取り専用のルートでデータディレクトリを
+移す場合は`SQLITE_TMPDIR`も同じ場所にしてください。そうしないと、該当するリクエストが
+503 `disk I/O error`になります。
 例えば`-e GCS_MIMIC_LISTEN=0.0.0.0:8080 -p 127.0.0.1:8080:8080`で
 待受と公開ポートを変えます。
 保存先は`-e GCS_MIMIC_DATA_DIR=/custom-data -v gcs-mimic-data:/custom-data`で変えます。

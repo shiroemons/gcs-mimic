@@ -59,3 +59,27 @@ One run of each scenario on the integrated release build, native on macOS arm64,
 | 300 MiB overwrite and delete | Space reclaimed at once | About 615 MiB stayed on disk |
 | `kill -9` twice | No loss among 787 acknowledged writes | Not recorded |
 | 1000 transfers in flight, half uploads and half downloads | About 230 MiB RSS while held, peaks of 266 to 343 MiB | Not recorded |
+
+Ten more runs of the last scenario had no failures. With the CPU saturated (load average above 100), a thousand clients connecting at once sometimes saw `connection reset by peer` right after connecting, and the server logged only `connection failed` for those. macOS caps the listen backlog at `kern.ipc.somaxconn`, 128 here, which is the likely cause.
+
+### In the container
+
+The final image on Docker Desktop for macOS arm64, using a Compose service with only `GCS_MIMIC_SCHEME=http` and mounts at `/data` and the data volume. Memory is what `docker stats` reports, which includes page cache and socket buffers, so it is not comparable with the native RSS above.
+
+| Scenario | Result |
+| --- | --- |
+| Seed from `/data` | The bucket and object exist, and the bucket has no `softDeletePolicy` |
+| Links | A client on `localhost:<published port>` and a peer on `gcs:4443` each got their own address, and each finished a resumable upload |
+| Go SDK, 32 parallel, 800 uploads and read-backs | 0 failures |
+| 96 parallel GETs of 4 MiB, 480 requests | 0 failures |
+| Mixed load, 48 parallel, 15 seconds | 15,064 operations, no 503 or connection error, 53 MiB |
+| 300 resumable uploads left unfinished | All succeed and continue after a restart |
+| 5200 resumable uploads finished, and 5000 created and cancelled, 16 parallel | 0 failures and no `disk I/O error` |
+| A write that stalls for 8 seconds and for 70 seconds | Succeeds |
+| 3 GiB POST and GET | Contents match, 100 MiB |
+| 1000 transfers in flight from the same Docker network, on `compose.yaml` with its read-only root and limits | 0 failures, 442 MiB at most, no OOM kill, 10 MiB afterwards |
+| A 128 MiB data directory, `tmpfs` | 300 MiB upload and a 617 KB gzip body expanding to 300 MiB each answer 503 with guidance; the server stays ready and serves reads, and an upload succeeds after a delete |
+
+Through Docker Desktop's published port, a thousand clients connecting at once got `connection reset by peer` from its port forwarding. The run from the same Docker network had no failures, so this scenario is recorded from there.
+
+Before the image changed, 0.4% to 1.4% of session creations in the container failed with 503 `disk I/O error`, extended code 6410 (`SQLITE_IOERR_GETTEMPPATH`). An insert with a trigger needs a statement journal, which spills to a temporary file past 64 KiB, and `/tmp` in the image was not writable by its user. 0.11.0 had the same `/tmp`, and 5000 create and cancel cycles did not reach it, because its inserts had no trigger on this path. `scripts/smoke-containers.sh` now checks this.
