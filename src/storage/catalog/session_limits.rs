@@ -1,17 +1,16 @@
 //! What the server configures about upload sessions.
 
-use super::{Catalog, resumable::MAX_TERMINAL_SESSIONS};
+use super::Catalog;
 use crate::{
     config::{Backend, Config},
     time_limit::TimeLimit,
 };
 use std::num::NonZeroU32;
 
-/// The RAM catalog budget each finished resumable record may claim. A typical record takes about
-/// 1.6 KiB, so the window of finished records stays under half the budget, and the default 16 MiB
-/// budget still keeps the whole window. Records that outgrew the budget would fail every later
-/// catalog write until they expire, days later, or the server restarts.
-const MEMORY_CATALOG_BYTES_PER_FINISHED_SESSION: u64 = 4096;
+/// Finished resumable records may fill one part in this many of a RAM catalog. The rest stays for
+/// objects and active work: records that outgrew the budget would fail every later catalog write
+/// until they expire, days later, or the server restarts.
+const MEMORY_CATALOG_FINISHED_SESSION_DIVISOR: u64 = 2;
 
 /// How a client request treats a writer someone else holds.
 #[derive(Clone, Copy, Debug, Default)]
@@ -23,25 +22,14 @@ pub(super) enum WriterWait {
     Within(TimeLimit),
 }
 
-#[derive(Clone, Copy, Debug)]
+/// The defaults suit an embedded catalog: a busy writer fails at once and sessions are unlimited.
+#[derive(Clone, Copy, Debug, Default)]
 pub(super) struct SessionLimits {
     pub(super) writer_wait: WriterWait,
     pub(super) active_resumable: Option<NonZeroU32>,
     pub(super) active_rewrite: Option<NonZeroU32>,
-    /// How many finished resumable records stay after trimming.
-    pub(super) finished_resumable: i64,
-}
-
-/// The defaults suit an embedded catalog: a busy writer fails at once and sessions are unlimited.
-impl Default for SessionLimits {
-    fn default() -> Self {
-        Self {
-            writer_wait: WriterWait::default(),
-            active_resumable: None,
-            active_rewrite: None,
-            finished_resumable: MAX_TERMINAL_SESSIONS,
-        }
-    }
+    /// The bytes finished resumable records may fill, where the catalog has a budget.
+    pub(super) finished_resumable_bytes: Option<i64>,
 }
 
 impl From<&Config> for SessionLimits {
@@ -50,14 +38,12 @@ impl From<&Config> for SessionLimits {
             writer_wait: WriterWait::Within(config.catalog_wait_timeout),
             active_resumable: config.max_resumable_sessions,
             active_rewrite: config.max_rewrite_sessions,
-            finished_resumable: match config.backend {
-                Backend::Disk => MAX_TERMINAL_SESSIONS,
+            finished_resumable_bytes: match config.backend {
+                Backend::Disk => None,
                 Backend::Memory => i64::try_from(
-                    config.memory_catalog_max_bytes / MEMORY_CATALOG_BYTES_PER_FINISHED_SESSION,
+                    config.memory_catalog_max_bytes / MEMORY_CATALOG_FINISHED_SESSION_DIVISOR,
                 )
-                .map_or(MAX_TERMINAL_SESSIONS, |fits| {
-                    fits.min(MAX_TERMINAL_SESSIONS)
-                }),
+                .ok(),
             },
         }
     }

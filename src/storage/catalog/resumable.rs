@@ -25,7 +25,7 @@ pub(super) mod golden_tests;
 mod options;
 pub(super) mod writers;
 use admission::admit_session;
-pub(super) use admission::{MAX_TERMINAL_SESSIONS, open};
+pub(super) use admission::open;
 pub(super) use writers::WriterGuard;
 use writers::{KeyOrigin, WriterKey};
 

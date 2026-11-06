@@ -30,44 +30,60 @@ async fn open_with_bucket(dir: &TestDir, clock: &Arc<ManualClock>) -> Catalog {
 }
 
 /// Finished records must not outgrow a RAM catalog's budget: past it every catalog write fails
-/// until the records expire days later, so the window shrinks with the budget.
+/// until the records expire days later. Their metadata decides the size, so counting them is not
+/// enough: a few large records fill the budget as surely as many small ones.
 #[tokio::test]
 async fn finished_sessions_stay_inside_a_small_memory_catalog_budget() {
     const BUDGET: u64 = 1024 * 1024;
-    let catalog = Catalog::open_memory_for_server(
-        64 * 1024 * 1024,
-        BUDGET,
-        Arc::new(crate::clock::SystemClock),
-        crate::storage::admin::LocalAdmin::Disabled,
-    )
-    .await
-    .unwrap();
-    catalog.apply_session_limits(&Config {
-        backend: crate::config::Backend::Memory,
-        memory_catalog_max_bytes: BUDGET,
-        ..Default::default()
-    });
-    catalog
-        .insert_bucket(bucket("bucket", "project"))
+    for (metadata_bytes, sessions) in [(0, 1_500), (30_000, 300)] {
+        let catalog = Catalog::open_memory_for_server(
+            64 * 1024 * 1024,
+            BUDGET,
+            Arc::new(crate::clock::SystemClock),
+            crate::storage::admin::LocalAdmin::Disabled,
+        )
         .await
         .unwrap();
-    // More than the 641 finished sessions that used to exhaust this budget.
-    for index in 0..1_500 {
-        let session = catalog
-            .create_resumable_session(
-                "bucket",
-                &format!("some/typical/object/name-{index}.bin"),
-                crate::storage::ResumableOptions::new(BucketAccess::Permissive),
-                None,
-            )
-            .await
-            .unwrap();
+        catalog.apply_session_limits(&Config {
+            backend: crate::config::Backend::Memory,
+            memory_catalog_max_bytes: BUDGET,
+            ..Default::default()
+        });
         catalog
-            .cancel_resumable_session(&session.id, "bucket")
+            .insert_bucket(bucket("bucket", "project"))
             .await
             .unwrap();
+        for index in 0..sessions {
+            let mut options = crate::storage::ResumableOptions::new(BucketAccess::Permissive);
+            options.metadata.cache_control = Some(Some("x".repeat(metadata_bytes)));
+            let session = catalog
+                .create_resumable_session(
+                    "bucket",
+                    &format!("some/typical/object/name-{index}.bin"),
+                    options,
+                    None,
+                )
+                .await
+                .unwrap();
+            catalog
+                .cancel_resumable_session(&session.id, "bucket")
+                .await
+                .unwrap();
+        }
+        catalog.close().await.unwrap();
     }
-    catalog.close().await.unwrap();
+}
+
+#[test]
+fn trimming_follows_whichever_of_the_count_and_the_bytes_is_over() {
+    let window = MAX_TERMINAL_SESSIONS;
+    assert_eq!(finished_excess(window, 1, None), 0);
+    assert_eq!(finished_excess(window + 3, 1, None), 3);
+    assert_eq!(finished_excess(10, 1_000, Some(1_000)), 0);
+    // Ten records of 100 bytes, 250 over: three go, rounding up.
+    assert_eq!(finished_excess(10, 1_250, Some(1_000)), 3);
+    assert_eq!(finished_excess(window + 3, 1, Some(1_000)), 3);
+    assert_eq!(finished_excess(0, 0, Some(0)), 0);
 }
 
 async fn create(catalog: &Catalog, clock: &ManualClock) -> Result<String, ResumableError> {
