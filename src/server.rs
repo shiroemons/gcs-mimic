@@ -181,6 +181,12 @@ struct DeadlineReply {
     upload: bool,
 }
 
+fn request_timed_out() -> JsonError {
+    JsonError::service_unavailable(
+        "The request timed out before a response was ready; retry the request, or raise request_timeout_ms (0 disables it).",
+    )
+}
+
 pub(crate) fn has_body(headers: &hyper::HeaderMap) -> bool {
     headers.contains_key(hyper::header::TRANSFER_ENCODING)
         || headers
@@ -222,9 +228,7 @@ impl DeadlineReply {
                 "The upload timed out; retry the request, or raise body_inactivity_timeout_ms for slow clients, object_request_timeout_ms for large uploads, or request_timeout_ms for a slow server (0 disables each).",
             )
         } else {
-            JsonError::service_unavailable(
-                "The request timed out before a response was ready; retry the request, or raise request_timeout_ms (0 disables it).",
-            )
+            request_timed_out()
         };
         let mut response = if self.xml {
             boxed(xml::Error::from(error).response(self.body))
@@ -413,12 +417,22 @@ enum BodyPace {
     ClientPaced,
 }
 
+/// Whether a response that has started is waiting for the server rather than for the client.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum ResponseWork {
+    #[default]
+    Idle,
+    /// A batch part is running, under limits of its own (see [`batch_part_expired`]).
+    BatchPart,
+}
+
 #[derive(Clone, Copy, Default)]
 pub(crate) struct ObjectActivity {
     stage: RequestStage,
     deadline: Option<tokio::time::Instant>,
     body_read: BodyRead,
     body_pace: BodyPace,
+    response_work: ResponseWork,
 }
 
 /// Who decides how long the request's current step takes, which selects the limit on it.
@@ -523,6 +537,66 @@ async fn expiry_claimed(activity: &watch::Sender<ObjectActivity>) {
 /// or a catalog wait ended.
 pub(crate) fn record_progress(activity: &watch::Sender<ObjectActivity>) {
     activity.send_modify(ObjectActivity::end_catalog_wait);
+}
+
+/// A batch part running behind a started response. The connection's limit on a silent response
+/// body measures the client, so it stops counting until this guard drops; the part answers for
+/// its own time through [`batch_part_expired`].
+#[must_use = "dropping the guard ends the part's work"]
+pub(crate) struct BatchPartWork<'a>(&'a watch::Sender<ObjectActivity>);
+
+impl<'a> BatchPartWork<'a> {
+    pub(crate) fn begin(connection: &'a watch::Sender<ObjectActivity>) -> Self {
+        connection.send_modify(|progress| progress.response_work = ResponseWork::BatchPart);
+        Self(connection)
+    }
+}
+
+impl Drop for BatchPartWork<'_> {
+    fn drop(&mut self) {
+        self.0
+            .send_modify(|progress| progress.response_work = ResponseWork::Idle);
+    }
+}
+
+/// Starts a batch part's own record of its progress. A part cannot report to the connection: the
+/// response head has left, so a timeout could no longer replace it, and handlers end their
+/// object requests by moving the stage back to running.
+pub(crate) fn new_batch_part_activity() -> watch::Sender<ObjectActivity> {
+    watch::Sender::new(ObjectActivity::default())
+}
+
+/// Resolves once a batch part has claimed its timeout, as the connection's watchdog does for a
+/// whole request. Progress renews the request limit; an enforced object deadline does not; and
+/// neither fires during a catalog wait, whose detached work could commit behind the timeout reply.
+pub(crate) async fn batch_part_expired(activity: &watch::Sender<ObjectActivity>, limit: TimeLimit) {
+    let mut progress = activity.subscribe();
+    let mut request_deadline = limit.deadline();
+    loop {
+        let current = *progress.borrow_and_update();
+        let expiry = current
+            .deadline
+            .map_or(request_deadline, |deadline| deadline.min(request_deadline));
+        tokio::select! {
+            biased;
+            changed = progress.changed() => {
+                if changed.is_err() {
+                    std::future::pending::<()>().await;
+                }
+                request_deadline = limit.deadline();
+            }
+            () = tokio::time::sleep_until(expiry), if current.stage != RequestStage::AwaitingCatalog => {
+                if claim_expiry(activity) == ExpiryClaim::Granted {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// What a batch part answers once [`batch_part_expired`] has claimed its timeout.
+pub(crate) fn batch_part_timeout() -> Response<ResponseBody> {
+    boxed(request_timed_out().into_response())
 }
 
 /// A catalog wait in progress, during which request deadlines are paused. Dropping it ends the
@@ -1315,7 +1389,7 @@ impl ConnectionWatch {
                     if let Err(error) = result { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})); }
                     break UnreadInput::MayRemain;
                 }
-                _ = &mut deadline, if current.stage != RequestStage::AwaitingCatalog => {
+                _ = &mut deadline, if current.stage != RequestStage::AwaitingCatalog && current.response_work == ResponseWork::Idle => {
                     match &phase {
                         ConnectionPhase::TimeoutReply => break UnreadInput::MayRemain,
                         // The connection polled just above can have moved the request on, which

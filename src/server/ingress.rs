@@ -22,7 +22,7 @@ mod upload_gzip;
 pub(crate) enum RequestBody {
     Transport(TransportBody),
     Buffered(Full<Bytes>),
-    Decoded(upload_gzip::DecodedBody),
+    Decoded(super::chunk_body::CheckedBody),
 }
 
 /// A request body arriving from the client. Every adapter reads through here, so the
@@ -334,7 +334,10 @@ mod tests {
     #[tokio::test]
     async fn gzip_metadata_admission_uses_the_server_pool() {
         let dir = crate::test_support::TestDir::new();
-        let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
+        let state = std::sync::Arc::new(State::for_test(
+            Catalog::open(&dir.0).await.unwrap(),
+            Auth::permissive(),
+        ));
         let config = Config::default();
         let endpoints = config
             .runtime_endpoints

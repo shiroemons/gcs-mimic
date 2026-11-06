@@ -8,7 +8,6 @@ use hyper::{
 };
 
 const HEADER_LIMIT: usize = 8192;
-const BODY_LIMIT: usize = 64 * 1024;
 const DISCARD_LIMIT: usize = 4096;
 
 pub(super) fn hop_header(name: &str) -> bool {
@@ -189,9 +188,6 @@ fn part(
         return Err(invalid(
             "Batch parts cannot specify hop-by-hop headers or Host",
         ));
-    }
-    if body.len() > BODY_LIMIT {
-        return Err(invalid("Batch part body exceeds 64 KiB"));
     }
     if let Some(length) = single(&inner, "content-length")?
         && (length.is_empty()

@@ -197,7 +197,10 @@ mod tests {
         .await
         .unwrap();
         let registry = auth::Registry::parse(br#"{"identities":[{"id":"manager","tokens":["manager"]},{"id":"ordinary","tokens":["ordinary"],"project_roles":{"local":["roles/storage.admin"]}}]}"#).unwrap();
-        let state = super::super::State::for_test(catalog, auth::Auth::strict(registry));
+        let state = std::sync::Arc::new(super::super::State::for_test(
+            catalog,
+            auth::Auth::strict(registry),
+        ));
         let config = crate::config::Config {
             admin_enabled: true,
             admin_principal: Some("manager".into()),

@@ -239,7 +239,7 @@ fn queued_native_authority_and_condition_errors_keep_their_http_status() {
 struct Fixture {
     _data: TestDir,
     tree: TestDir,
-    state: State,
+    state: std::sync::Arc<State>,
     config: Config,
     task: crate::sync::Task,
 }
@@ -296,10 +296,10 @@ impl Fixture {
             .unwrap();
         let task = crate::sync::start(catalog.clone(), root, &config).unwrap();
         assert!(task.rescan().await.unwrap().baseline_complete);
-        let state = State {
+        let state = std::sync::Arc::new(State {
             api_base_url: "http://localhost".into(),
             ..State::for_test(catalog, Auth::permissive())
-        };
+        });
         Self {
             _data: data,
             tree,
@@ -856,7 +856,7 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
         )
         .await
         .unwrap();
-    fixture.state.auth=Auth::strict(Registry::parse(&serde_json::to_vec(&json!({"identities":[
+    std::sync::Arc::get_mut(&mut fixture.state).unwrap().auth=Auth::strict(Registry::parse(&serde_json::to_vec(&json!({"identities":[
         {"id":"reader","tokens":["reader"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.objectViewer"]}},
         {"id":"admin","tokens":["admin"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"]}}
     ]})).unwrap()).unwrap());
@@ -1277,7 +1277,7 @@ async fn controls_reject_invalid_input_unsupported_routes_and_excess_admission()
 #[tokio::test]
 async fn status_rechecks_the_owner_union_after_admission_authorization() {
     let mut fixture = Fixture::new(Tree::Empty).await;
-    fixture.state.auth=Auth::strict(Registry::parse(&serde_json::to_vec(&json!({"identities":[
+    std::sync::Arc::get_mut(&mut fixture.state).unwrap().auth=Auth::strict(Registry::parse(&serde_json::to_vec(&json!({"identities":[
         {"id":"seed","tokens":["seed"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"]}},
         {"id":"admin","tokens":["admin"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"],"other-project":["roles/storage.admin"]}}
     ]})).unwrap()).unwrap());
@@ -1339,7 +1339,7 @@ async fn strict_control_authority_precedes_body_parsing_and_requires_each_explic
         )
         .await
         .unwrap();
-    fixture.state.auth=Auth::strict(Registry::parse(&serde_json::to_vec(&json!({"identities":[
+    std::sync::Arc::get_mut(&mut fixture.state).unwrap().auth=Auth::strict(Registry::parse(&serde_json::to_vec(&json!({"identities":[
         {"id":"seed","tokens":["seed"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"]}},
         {"id":"admin","tokens":["admin"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"],"other-project":["roles/storage.admin"]}}
     ]})).unwrap()).unwrap());

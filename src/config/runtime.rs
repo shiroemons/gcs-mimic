@@ -160,7 +160,7 @@ impl EndpointSnapshot {
 
 /// One request's view of the endpoints. Only this type can hold a base derived from a request, so
 /// a function that takes [`EndpointSnapshot`] instead cannot be handed one.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct RequestEndpoints {
     snapshot: Arc<EndpointSnapshot>,
     /// Set only when no base is explicit and the request addressed a usable authority.

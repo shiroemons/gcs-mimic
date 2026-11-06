@@ -269,13 +269,6 @@ fn batch_validates_the_whole_envelope_before_mutating() {
         ),
         part(
             None,
-            "PATCH",
-            BUCKET,
-            "Content-Type: application/json\r\n",
-            &" ".repeat(65537),
-        ),
-        part(
-            None,
             "GET",
             BUCKET,
             &format!("X-Long: {}\r\n", "x".repeat(8192)),
@@ -363,18 +356,19 @@ fn batch_bounds_part_count_total_bytes_and_mime_framing() {
     server
         .request("POST", "/batch/storage/v1", TYPE, padded.as_bytes())
         .status(200);
-    let mut exact = "{}".to_string();
-    exact.extend(std::iter::repeat_n(' ', 65534));
+    // Only the envelope's documented limit bounds a part's body.
+    let mut large = "{}".to_string();
+    large.extend(std::iter::repeat_n(' ', 9_000_000));
     let body = envelope(&[part(
         None,
         "PATCH",
         BUCKET,
         "Content-Type: application/json\r\n",
-        &exact,
+        &large,
     )]);
-    server
-        .request("POST", "/batch/storage/v1", TYPE, &body)
-        .status(200);
+    let reply = server.request("POST", "/batch/storage/v1", TYPE, &body);
+    reply.status(200);
+    assert_eq!(statuses(&reply.body), ["HTTP/1.1 200 OK"]);
     for body in [
         b"--batch-boundary--\r\n".to_vec(),
         hundred[..hundred.len() - 3].to_vec(),
@@ -390,6 +384,58 @@ fn statuses(body: &str) -> Vec<&str> {
     body.lines()
         .filter(|line| line.starts_with("HTTP/1.1 "))
         .collect()
+}
+
+/// A full object list exceeds the former 512 KiB per part, and a few of them the former 10 MB in
+/// all. Both used to answer 413 for a call that had succeeded.
+#[test]
+fn batch_answers_full_object_lists_past_the_former_response_limits() {
+    const OBJECTS: usize = 1000;
+    const LISTS: usize = 10;
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--backend", "memory"]);
+    setup(&server, "");
+    for index in 0..OBJECTS - 2 {
+        let name = format!("{index:04}{}", "n".repeat(300));
+        server
+            .request(
+                "POST",
+                &format!("/upload/storage/v1/b/batch-bucket/o?uploadType=media&name={name}"),
+                "",
+                b"",
+            )
+            .status(200);
+    }
+    let list = part(
+        None,
+        "GET",
+        &format!("{BUCKET}/o?maxResults={OBJECTS}"),
+        "",
+        "",
+    );
+    let reply = server.request(
+        "POST",
+        "/batch/storage/v1",
+        TYPE,
+        &envelope(&vec![list; LISTS]),
+    );
+    reply.status(200);
+    assert_eq!(statuses(&reply.body), vec!["HTTP/1.1 200 OK"; LISTS]);
+    assert!(reply.body.len() > 10_000_000, "{}", reply.body.len());
+    assert!(reply.headers.contains("transfer-encoding: chunked"));
+    assert!(reply.body.ends_with("--gcs_mimic_batch_response--\r\n"));
+    for response in reply
+        .body
+        .split("--gcs_mimic_batch_response\r\n")
+        .filter(|section| !section.is_empty())
+    {
+        let (_, body) = response.split_once("\r\n\r\nHTTP/1.1 ").unwrap();
+        let (head, body) = body.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("200 OK\r\n"), "{head}");
+        let body = body.trim_end_matches("--gcs_mimic_batch_response--\r\n");
+        let page: serde_json::Value = serde_json::from_str(body.trim_end()).unwrap();
+        assert_eq!(page["items"].as_array().unwrap().len(), OBJECTS);
+    }
 }
 
 #[test]

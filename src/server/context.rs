@@ -12,7 +12,7 @@ use crate::{
     object::ObjectError,
 };
 use serde_json::Value;
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 use tokio::{sync::watch, time::Instant};
 
 /// Moves the links of an object resource stored by an earlier request to this request's origin.
@@ -29,7 +29,9 @@ pub(crate) fn rebase_stored_links(endpoints: &RequestEndpoints, resource: &mut V
 /// What every handler needs from the connection that dispatched its request.
 #[derive(Clone, Copy)]
 pub(crate) struct RequestCtx<'a> {
-    pub(crate) state: &'a State,
+    /// Shared rather than borrowed, for work that outlives the handler that started it: a batch
+    /// runs its parts behind a response head that has already left.
+    pub(crate) state: &'a Arc<State>,
     pub(crate) config: &'a Config,
     pub(crate) endpoints: &'a RequestEndpoints,
     /// Reports body and catalog progress to the connection's deadline watchdog.
