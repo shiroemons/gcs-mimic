@@ -14,6 +14,8 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+mod parallel;
+
 async fn setup(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
     let dir = TestDir::new();
     let catalog = Catalog::open_for_server(&dir.0, clock, LocalAdmin::Enabled)
@@ -66,14 +68,13 @@ async fn put(
     bytes: &'static [u8],
 ) -> Result<Part, Error> {
     let lease = catalog
-        .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+        .lease_xml_part(target.clone(), number, BucketAccess::Permissive)
         .await?;
     let body = body(vec![bytes::Bytes::from_static(bytes)]);
     catalog
         .put_xml_part(
             lease,
             PartUpload {
-                number,
                 expected: Default::default(),
                 max_bytes: 64 * 1024 * 1024,
             },
@@ -291,9 +292,15 @@ async fn part_eof_lease_serialization_and_reset_busy_preserve_state() {
     let target = begin(&catalog).await;
     let original = put(&catalog, &target, 1, b"original").await.unwrap();
     let lease = catalog
-        .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+        .lease_xml_part(target.clone(), 1, BucketAccess::Permissive)
         .await
         .unwrap();
+    assert!(matches!(
+        catalog
+            .lease_xml_part(target.clone(), 1, BucketAccess::Permissive)
+            .await,
+        Err(Error::Busy)
+    ));
     assert!(matches!(
         catalog
             .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
@@ -316,7 +323,6 @@ async fn part_eof_lease_serialization_and_reset_busy_preserve_state() {
             .put_xml_part(
                 lease,
                 PartUpload {
-                    number: 1,
                     expected: Default::default(),
                     max_bytes: 1024
                 },
@@ -693,40 +699,6 @@ async fn uploads_past_the_former_limit_survive_reopening_and_a_held_one_does_not
         .unwrap();
     assert_eq!(upload_count(&catalog).await, 0);
     catalog.close().await.unwrap();
-}
-
-#[tokio::test]
-async fn a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget() {
-    for (budget, expected_busy) in [(60_000, false), (20, true)] {
-        let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
-        catalog.apply_session_limits(&crate::config::Config {
-            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(budget),
-            ..Default::default()
-        });
-        let target = begin(&catalog).await;
-        let first = catalog
-            .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
-            .await
-            .unwrap();
-        let worker = catalog.clone();
-        let second = tokio::spawn(async move {
-            worker
-                .lease_xml_multipart(target, BucketAccess::Permissive)
-                .await
-        });
-        if expected_busy {
-            assert!(matches!(second.await.unwrap(), Err(Error::Busy)));
-            drop(first);
-        } else {
-            for _ in 0..32 {
-                tokio::task::yield_now().await;
-            }
-            assert!(!second.is_finished());
-            drop(first);
-            second.await.unwrap().unwrap();
-        }
-        catalog.close().await.unwrap();
-    }
 }
 
 #[test]

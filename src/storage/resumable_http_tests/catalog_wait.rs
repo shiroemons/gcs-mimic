@@ -82,6 +82,92 @@ async fn a_multipart_completion_past_the_catalog_wait_reports_its_commit() {
     h.stop().await;
 }
 
+fn upload_id(begun: Reply) -> String {
+    assert_eq!(begun.status, 200);
+    String::from_utf8(begun.body)
+        .unwrap()
+        .split("<UploadId>")
+        .nth(1)
+        .and_then(|rest| rest.split("</UploadId>").next())
+        .unwrap()
+        .to_owned()
+}
+
+/// Sends a part's head and the start of its body, then stops, as a slow client does.
+async fn stalled_part(h: &Harness, path: &str, start: &[u8], rest: usize) -> TcpStream {
+    let mut client = TcpStream::connect(&h.address).await.unwrap();
+    let head = format!(
+        "PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n",
+        start.len() + rest
+    );
+    client.write_all(head.as_bytes()).await.unwrap();
+    client.write_all(start).await.unwrap();
+    client
+}
+
+/// Parallel parts from one upload are the normal case for SDK transfer managers. A slow part must
+/// not make the others wait, let alone answer 503 once the catalog wait runs out.
+#[tokio::test]
+async fn a_part_succeeds_while_other_parts_of_its_upload_stay_stalled_on_the_wire() {
+    let h = Harness::start_with_config(Permissive, None, Config::default()).await;
+    let id = upload_id(h.request("POST", "/bucket/parallel?uploads", "", b"").await);
+    let part = |number: u16| format!("/bucket/parallel?partNumber={number}&uploadId={id}");
+    let mut first = stalled_part(&h, &part(1), b"one", 4).await;
+    let mut second = stalled_part(&h, &part(2), b"two", 4).await;
+    eventually_async("both parts to lease their numbers", || async {
+        h.state.catalog.multipart_parts_writing(&id) == 2
+    })
+    .await;
+
+    let third = h.request("PUT", &part(3), "", b"three").await;
+    assert_eq!(third.status, 200);
+
+    // A body still streaming stays out of the listing until it commits.
+    let listed = h
+        .request("GET", &format!("/bucket/parallel?uploadId={id}"), "", b"")
+        .await;
+    let listed = String::from_utf8(listed.body).unwrap();
+    assert!(listed.contains("<PartNumber>3</PartNumber>"), "{listed}");
+    assert!(!listed.contains("<PartNumber>1</PartNumber>"), "{listed}");
+    let uploads = h.request("GET", "/bucket?uploads", "", b"").await;
+    let uploads = String::from_utf8(uploads.body).unwrap();
+    assert!(uploads.contains(&id), "{uploads}");
+
+    first.write_all(b"-end").await.unwrap();
+    second.write_all(b"-end").await.unwrap();
+    assert_eq!(Harness::read_response(first).await.status, 200);
+    assert_eq!(Harness::read_response(second).await.status, 200);
+    let listed = h
+        .request("GET", &format!("/bucket/parallel?uploadId={id}"), "", b"")
+        .await;
+    let listed = String::from_utf8(listed.body).unwrap();
+    assert_eq!(listed.matches("<PartNumber>").count(), 3, "{listed}");
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn a_part_disconnected_on_the_wire_gives_back_its_number_and_staged_bytes() {
+    let h = Harness::start_with_config(Permissive, None, Config::default()).await;
+    let id = upload_id(h.request("POST", "/bucket/cut?uploads", "", b"").await);
+    let path = format!("/bucket/cut?partNumber=1&uploadId={id}");
+    let client = stalled_part(&h, &path, b"start", 100).await;
+    eventually_async("the part to lease its number", || async {
+        h.state.catalog.multipart_parts_writing(&id) == 1
+    })
+    .await;
+    drop(client);
+    eventually_async("the disconnect to release the part", || async {
+        !h.state.catalog.has_session_writers()
+    })
+    .await;
+    assert_eq!(
+        std::fs::read_dir(h.dir.0.join("staging")).unwrap().count(),
+        0
+    );
+    assert_eq!(h.request("PUT", &path, "", b"retry").await.status, 200);
+    h.stop().await;
+}
+
 async fn saturable() -> Arc<Harness> {
     let config = Config {
         max_connections: 2 * REQUESTS,

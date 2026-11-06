@@ -46,6 +46,7 @@ CREATE TABLE xml_multipart_deletions (
 PRAGMA user_version = 37;";
 
 pub(crate) const MAX_PARTS: usize = 10_000;
+const MAX_PART_NUMBER: u16 = 10_000;
 pub(crate) const MAX_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 const MIN_PART_BYTES: u64 = 5 * 1024 * 1024;
 const LIFETIME_MILLIS: i64 = 604_800_000;
@@ -131,10 +132,27 @@ pub(crate) struct CompletedPart {
     pub etag: String,
 }
 
-pub(crate) struct Lease {
+/// Writes one part. Other part numbers of the upload may write at the same time, so this lease
+/// offers nothing that reads or retires the whole upload.
+pub(crate) struct PartLease {
+    pub upload: Upload,
+    access: BucketAccess,
+    number: u16,
+    _guard: resumable::WriterGuard,
+}
+
+/// Owns a whole upload: no part is writing, and none starts until this lease drops.
+pub(crate) struct UploadLease {
     pub upload: Upload,
     access: BucketAccess,
     _guard: resumable::WriterGuard,
+}
+
+fn claim_failure(error: ClaimError) -> Error {
+    match error {
+        ClaimError::Busy => Error::Busy,
+        error @ (ClaimError::Poisoned | ClaimError::Catalog(_)) => CatalogError::from(error).into(),
+    }
 }
 
 fn access_for(access: &BucketAccess, permission: Permission) -> BucketAccess {
@@ -265,34 +283,59 @@ impl Catalog {
         Ok(upload)
     }
 
+    /// Leases one part number. Only the same number waits; a body already streaming under another
+    /// number does not hold this one back.
+    pub(crate) async fn lease_xml_part(
+        &self,
+        target: Target,
+        number: u16,
+        access: BucketAccess,
+    ) -> Result<PartLease, Error> {
+        if !(1..=MAX_PART_NUMBER).contains(&number) {
+            return Err(Error::InvalidPart);
+        }
+        let guard = self
+            .wait_for_writer(
+                WriterKey::MultipartPart(target.id.clone(), number),
+                KeyOrigin::Client,
+            )
+            .await
+            .map_err(claim_failure)?;
+        let upload = self.active_upload(target, &access).await?;
+        Ok(PartLease {
+            upload,
+            access,
+            number,
+            _guard: guard,
+        })
+    }
+
+    /// Leases a whole upload for completion or abort, once the parts in flight have finished.
     pub(crate) async fn lease_xml_multipart(
         &self,
         target: Target,
         access: BucketAccess,
-    ) -> Result<Lease, Error> {
-        // Clients commonly upload parts in parallel; each part takes its turn on the upload.
+    ) -> Result<UploadLease, Error> {
         let guard = self
-            .wait_for_writer(WriterKey::Multipart(target.id.clone()), KeyOrigin::Client)
+            .wait_for_whole_upload(&target.id)
             .await
-            .map_err(|error| match error {
-                ClaimError::Busy => Error::Busy,
-                error @ (ClaimError::Poisoned | ClaimError::Catalog(_)) => {
-                    CatalogError::from(error).into()
-                }
-            })?;
-        let checked = access.clone();
-        let now = unix_millis(self.0.clock.now())?;
-        let upload = self
-            .run(move |connection| {
-                let transaction = connection.transaction().map_err(object_unavailable)?;
-                active(&transaction, &target, &checked, now)
-            })
-            .await?;
-        Ok(Lease {
+            .map_err(claim_failure)?;
+        let upload = self.active_upload(target, &access).await?;
+        Ok(UploadLease {
             upload,
             access,
             _guard: guard,
         })
+    }
+
+    async fn active_upload(&self, target: Target, access: &BucketAccess) -> Result<Upload, Error> {
+        let access = access.clone();
+        let now = unix_millis(self.0.clock.now())?;
+        self.run(move |connection| {
+            let transaction = connection.transaction().map_err(object_unavailable)?;
+            active(&transaction, &target, &access, now)
+        })
+        .await
     }
 
     pub(crate) async fn list_xml_parts(
@@ -313,7 +356,7 @@ impl Catalog {
         }).await
     }
 
-    pub(crate) async fn abort_xml_multipart(&self, lease: Lease) -> Result<(), Error> {
+    pub(crate) async fn abort_xml_multipart(&self, lease: UploadLease) -> Result<(), Error> {
         let permit = self.admit_object_upload()?;
         let catalog = self.clone();
         crate::task::spawn_supervised("xml-multipart-abort", async move {

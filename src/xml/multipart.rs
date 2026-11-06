@@ -257,20 +257,22 @@ pub(crate) async fn respond(
         name: path.target.name,
         id,
     };
-    let lease = ctx
-        .await_session_writer(ctx.state.catalog.lease_xml_multipart(target, access))
-        .await
-        .map_err(|error| storage_error(error, ctx))?;
-    if matches!(operation, Operation::Put(_) | Operation::Complete) {
-        let key = json::request_key(request.headers())?;
-        crate::csek::check_data(lease.upload.options.metadata.customer_key_sha256, key).map_err(
-            |error| put::storage_error(ObjectError::CustomerEncryption(error), ctx.caller),
-        )?;
-    }
     match operation {
-        Operation::Put(number) => upload_part(request, lease, number, headers, ctx).await,
-        Operation::Complete => complete(request, lease, headers, ctx).await,
+        Operation::Put(number) => {
+            let lease = ctx
+                .await_session_writer(ctx.state.catalog.lease_xml_part(target, number, access))
+                .await
+                .map_err(|error| storage_error(error, ctx))?;
+            check_customer_key(&request, &lease.upload, ctx)?;
+            upload_part(request, lease, headers, ctx).await
+        }
+        Operation::Complete => {
+            let lease = whole_upload(target, access, ctx).await?;
+            check_customer_key(&request, &lease.upload, ctx)?;
+            complete(request, lease, headers, ctx).await
+        }
         Operation::Abort => {
+            let lease = whole_upload(target, access, ctx).await?;
             empty_body(request, headers.sha256).await?;
             ctx.await_catalog(ctx.state.catalog.abort_xml_multipart(lease))
                 .await
@@ -279,8 +281,30 @@ pub(crate) async fn respond(
             *response.status_mut() = StatusCode::NO_CONTENT;
             Ok(response)
         }
-        _ => Err(Error::invalid("Invalid multipart operation")),
+        Operation::Begin | Operation::Parts | Operation::Uploads => {
+            Err(Error::invalid("Invalid multipart operation"))
+        }
     }
+}
+
+async fn whole_upload(
+    target: storage::Target,
+    access: crate::bucket::BucketAccess,
+    ctx: ObjectCtx<'_>,
+) -> Result<storage::UploadLease, Error> {
+    ctx.await_session_writer(ctx.state.catalog.lease_xml_multipart(target, access))
+        .await
+        .map_err(|error| storage_error(error, ctx))
+}
+
+fn check_customer_key(
+    request: &Request<RequestBody>,
+    upload: &storage::Upload,
+    ctx: ObjectCtx<'_>,
+) -> Result<(), Error> {
+    let key = json::request_key(request.headers())?;
+    crate::csek::check_data(upload.options.metadata.customer_key_sha256, key)
+        .map_err(|error| put::storage_error(ObjectError::CustomerEncryption(error), ctx.caller))
 }
 
 async fn empty_body(
@@ -305,8 +329,7 @@ fn validate_sha256(expected: Option<[u8; 32]>, bytes: &[u8]) -> Result<(), Error
 
 async fn upload_part(
     request: Request<RequestBody>,
-    lease: storage::Lease,
-    number: u16,
+    lease: storage::PartLease,
     headers: put::Headers,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
@@ -314,7 +337,6 @@ async fn upload_part(
     let upload = ctx.state.catalog.put_xml_part(
         lease,
         storage::PartUpload {
-            number,
             expected: headers.expected,
             max_bytes: ctx.config.max_object_bytes,
         },
@@ -347,7 +369,7 @@ async fn upload_part(
 
 async fn complete(
     request: Request<RequestBody>,
-    lease: storage::Lease,
+    lease: storage::UploadLease,
     headers: put::Headers,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
