@@ -71,14 +71,20 @@ lifecycle uses one typed rule representation for gRPC conversion and validation.
 
 The bucket/object catalog is concrete; no generic persistence trait is frozen for future work. Recovery gates readiness. The transport-independent `auth` module resolves strict-mode callers and evaluates permissions from a pinned role snapshot; the JSON adapter maps routes to permissions and renders 401/403 errors. Catalog transactions recheck the observed bucket owner, effective project/bucket grants and overwrite-delete permission against the policy current in that transaction. Bucket insert/list remain project scoped. Whole bucket/object CRUD rows retain their existing limitations. Existing SPEC-001/002/003/004/006/007 gaps do not add bucket CRUD semantics. SPEC-008..013 record object condition precedence, direct-200 downloads, checksum/header/MIME choices and retry-token deviations; they remain open for their affected features.
 
-The server caps connections (default 32), headers (64 and 16 KiB), shutdown drain
+The server caps connections (default 1024), headers (64 and 16 KiB), shutdown drain
 (5 seconds), async workers (2) and blocking workers (8).
+Startup raises the soft `RLIMIT_NOFILE` to three descriptors per connection plus 64; when
+the platform refuses that, it warns and starts anyway.
 Each server limits signature verification to half its blocking pool (at least
 one slot); bounded streaming chunk signatures are checked inline.
-Connection admission stops when full; the requested kernel backlog is 128. Connections stay open between requests
+Once every connection slot is taken, the accept loop holds one client until a slot frees and
+leaves later clients in the kernel backlog, requested at 1024. Accepted TCP sockets enable
+TCP keep-alive (30 seconds idle, then every 15 seconds; the OS sets the probe count), so a
+peer that vanishes without a FIN releases its slot even with every timeout disabled.
+Connections stay open between requests
 for `keep_alive_timeout_ms` (see below). Bucket insert, PATCH, PUT and IAM PUT JSON bodies
 are capped at 64 KiB (`BUCKET_BODY_LIMIT`); probes and bodiless bucket methods reject bodies.
-Object media has a configurable `max_object_bytes` cap: 1 GiB by default, validated
+Object media has a configurable `max_object_bytes` cap: 5 TiB by default, validated
 from 1 byte through 5 TiB via CLI/environment/JSON configuration. Known Content-Length
 overflow is rejected before reading; producer and storage also bound unknown-length streams.
 
@@ -100,31 +106,49 @@ the active count to reach zero through notification after publication or cleanup
 Each upload uses two channel slots with chunks of at most 64 KiB, incremental
 MD5/CRC32C and asynchronous short file jobs. Downloads use one channel slot and a 64 KiB
 reader. Neither a database transaction nor a blocking worker is held waiting for body input.
-Catalog admission remains 32 calls with one executing SQLite job. HTTP/1.1 connections stay
+Catalog admission keeps 32 slots with one executing SQLite job, and a call past them waits its
+turn instead of failing. Nothing in the catalog times out: a handler bounds the wait with its
+own deadline, a dropped caller gives up its place without using a slot, and closing the catalog
+fails the waiters at once. HTTP/1.1 connections stay
 open between requests. Each request's deadlines start when it is dispatched and end when its
 last response byte is written, so idle time between requests is never charged to a request.
-After a response, a connection waits for the next request's first byte for
-`keep_alive_timeout_ms` (default 120000 ms, longer than the Go SDK's 90-second idle pool)
-and then closes without a warning or lingering. The five-second default
-`connection_timeout_ms` bounds request header reads once they start, warning when they
-stall; for an active request it bounds object-route response startup and inactivity between
-chunks, and each progressing chunk renews it. An idle connection holds its
-`max_connections` slot until every slot is taken; then it closes at once, whether or not
-a client is waiting, as nginx reuses idle connections. With `max_connections` of 1, a
-connection therefore closes after each response. Upload advisory checks suspend this
-body-inactivity deadline while waiting for bounded catalog admission/execution; it restarts
-before body streaming. Independently, `object_request_timeout_ms` defaults to 900000 ms
-(validated 1–86400000) from object upload/media request dispatch and never renews on chunks.
+
+Each connection phase has its own limit, because Cloud Storage documents no seconds for any of
+them and asks for "reasonably long" upload timeouts (see
+[timeouts](sources.md#timeouts-and-limits-behind-the-local-defaults)). The values are local
+choices that a slow client should not reach. Every timeout setting accepts 0 to disable it and
+has no upper bound.
+
+| Setting | Default | What it bounds |
+| --- | --- | --- |
+| `header_read_timeout_ms` | 30000 | A request head on a new connection, or once a next request has started; warns when it stalls. Also the gRPC handshake and the HTTP/2 ping wait. |
+| `body_inactivity_timeout_ms` | 0 (disabled) | Silence while a streamed request body or a response body is in flight, and silence on an open gRPC stream. Each progressing chunk renews it. |
+| `request_timeout_ms` | 180000 | The handler's time before its response starts, which also bounds a small request body. |
+| `keep_alive_timeout_ms` | 120000 | Idle time between requests on one connection, longer than the Go SDK's 90-second idle pool; the connection then closes without a warning or lingering. Also idle gRPC connections. |
+| `object_request_timeout_ms` | 0 (disabled) | A whole object upload or media request from dispatch; never renews on chunks. Accepting 5 TiB objects rules out a fixed bound on a transfer. |
+| `catalog_wait_timeout_ms` | 120000 | Each upload advisory or post-EOF catalog wait, and the wait for a busy session. |
+
+`connection_timeout_ms` remains an alias with no default. Named, it sets the header, body
+inactivity and request limits to one value, and any of those three named explicitly wins,
+whichever source named it. `request_timeout_ms` is longer than the catalog wait, so a waiting
+request reports that wait's own failure.
+
+An idle connection holds its `max_connections` slot until a client waits for one. Then the
+connection that turned idle first closes, and only that one: closing an idle connection races
+with a pooled client reusing it, and a POST that loses that race fails. A connection whose next
+request has started passes the wake on, and with nobody idle the wake goes to the next
+connection to turn idle. With `max_connections` of 1, a connection therefore closes after a
+response when another client waits. Catalog waits suspend the request deadlines while they
+last, and each ends on every path out of the waiting code.
 A deadline that expires before the handler answers cancels the handler without
 publication and answers with a retryable status that Cloud Storage documents: object
 uploads (`/upload/...` and XML PUT/POST with a body) receive 408 `uploadBrokenConnection`,
 and other requests receive 503 `backendError`. Once a response head has been sent, expiry
-can only truncate the body, as for a media download after its headers. Large/slow
-transfers can raise `--object-request-timeout-ms` (for example, 3600000 ms for one hour).
-Upload advisory and post-EOF waits each use `catalog_wait_timeout_ms`, default 30000 ms
-(validated 1–60000), capped by the remaining absolute request budget; expiry returns
-503 `backendError`. Both settings use CLI > environment > JSON > default precedence.
-Bucket/probe/unknown routes keep a total deadline per request, answered with 503.
+can only truncate the body, as for a media download after its headers.
+The catalog wait is capped by any remaining `object_request_timeout_ms` budget; expiry returns
+503 `backendError`. Timeout settings use CLI > environment > JSON > default precedence.
+Writing a timeout reply and closing stay bounded at five seconds even with every setting
+disabled. `shutdown_timeout_ms` of 0 waits for unfinished requests without a limit.
 A deadline response closes its connection, as does a rejection that leaves the request
 body unread; every error response to a request that carried a body sends
 `Connection: close`, so pooled clients do not reuse a connection that is closing.
@@ -134,7 +158,7 @@ default `lingering_time`), or until shutdown. Closing with unread input would re
 connection and could discard an early rejection; a client that keeps sending can hold
 its connection slot for that lingering time.
 Shutdown has its independent drain deadline. Compose additionally
-sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. The
+sets 128 MiB memory, one CPU, 64 PIDs and 4096 file descriptors. The
 [local ARM64 resource evidence](evidence/dist-resource-measurement.md) measures idle
 and 1 GiB media/resumable transfers for source bb8dd5c under those resource limits
 with HTTP, permissive/native defaults and swap disabled. This does not verify all
@@ -210,8 +234,9 @@ service. If that rollback cannot be confirmed, the connection is poisoned, which
 permanently revokes readiness; subsequent catalog operations return unavailable
 until a later call confirms the rollback.
 
-Each operation has immediate bounded admission (32 calls), then awaits one execution
+Each operation waits for one of 32 admission slots, then awaits one execution
 permit before queuing its job on a dedicated catalog thread that owns no other work.
+The slots bound the jobs left to run at shutdown, and close fails the waiters at once.
 File content I/O, publication/removal, directory sync and gzip decoding stay on the
 runtime's bounded blocking pool, so a saturated pool cannot hold the execution permit
 while catalog work waits for a pool thread. A serialized metadata job may pin an
@@ -251,11 +276,13 @@ job still owns the resources until its synchronous drop. See the
 implemented as described below, with actual process-crash tests at selected boundaries.
 Power-loss durability and every individual instruction window remain unverified.
 
-`selfLink` uses fixed `api_base_url` (`--api-base-url` / `GCS_MIMIC_API_BASE_URL` /
-JSON, otherwise resolved once from the actual bound listener with wildcard IPs
-replaced by loopback). Ready reports the effective `api_base_url`.
-Explicit advertised origins remain independent of the listener;
-Host and forwarded headers do not influence it. No public URL or permissions follow
+An explicit `api_base_url` (`--api-base-url` / `GCS_MIMIC_API_BASE_URL` / JSON) or runtime
+`externalUrl` fixes `selfLink`. Without one, each request renders links from its own Host and
+the scheme of its connection, because one address cannot reach the server from both the host and
+a peer container. An invalid or missing Host, or one that selects an XML virtual bucket, falls
+back to the base resolved once from the actual bound listener with wildcard IPs replaced by
+loopback. Ready reports that fixed base as the effective `api_base_url`. Forwarded headers never
+influence links. No public URL or permissions follow
 from this setting. See the [slice contract](slices/json-bucket-crud.md) for local
 projectNumber, projection and unsupported-semantics deviations.
 
@@ -351,7 +378,12 @@ Only unreferenced IDs enter the deletion journal. If a damaged journal reference
 blob, runtime reclamation keeps it and reports the conflict while reclaiming other IDs
 in bounded batches. Startup drains the other batches before reporting that conflict;
 a failed startup retry blocks readiness until repaired and names the blob ID.
-Soft-delete expiry journals exactly the IDs deleted by its bounded transaction.
+Soft-delete expiry journals exactly the IDs deleted by its bounded transaction. The
+maintenance scheduler runs it: each pass removes every row past its hard delete time across
+buckets and soft-deleted bucket versions, one batch per catalog turn, then sleeps until the next
+hard delete time without polling. A committed soft delete wakes it. Three consecutive failed
+passes take readiness down until a pass succeeds. New buckets have no soft delete policy by
+default; see [SDK soft delete](slices/sdk-soft-delete-restore.md).
 
 Restoring a soft-deleted generation pins its immutable bytes during selection, publishes
 the pin on the blocking pool, then rechecks source retention, authorization and conditions
@@ -426,8 +458,10 @@ queries cannot retarget them or relax persisted preconditions. Their opaque,
 unguessable capability URI authorizes writes, status and cancellation without
 re-authenticating the delegate. Never log the URI or token.
 
-One session may have at most one active writer; competing writes return local
-retryable 503 without an unbounded waiter queue. Repeated/overlapping writes
+One session may have at most one active writer. A competing request waits for it up to
+`catalog_wait_timeout_ms` (0 waits without a limit), because a client that gave up on a stalled
+chunk retries while the old handler is still unwinding; past that it receives local retryable
+503. Maintenance and session trimming skip a held writer instead of waiting. Repeated/overlapping writes
 must discard the acknowledged prefix with bounded buffers and append only the
 unseen tail. Persisted bytes remain immutable. A chunk checkpoint requires
 complete transport EOF, file sync and a short offset transaction; interruption
@@ -457,12 +491,15 @@ deadlines and blob references; exclude session fields from ordinary object lists
 Validate schema and session invariants before readiness, rejecting future or
 corrupt schemas read-only. No body transfer may hold a SQL transaction.
 
-The admission cap is 128 active sessions. Completed and cancelled records do
-not count against it; initiation trims them oldest-first to the 128 most recent
-in the same transaction, keeping cancelled records whose cleanup is still
-journaled, so the catalog holds at most 256 sessions. Count/trim/insert must be
-atomic; a full table returns immediate 503 `backendError` without files or
-object changes.
+Active sessions are unlimited by default, because expiry reclaims their disk;
+`max_resumable_sessions` sets a limit for those who want one, and past it initiation
+returns 503 `backendError` without files or object changes. Opening a catalog never
+fails on a session count. Completed and cancelled records do not count against the
+limit; initiation trims them oldest-first toward the 4096 most recent, at most 256
+per initiation, in the same transaction, keeping cancelled records whose cleanup is
+still journaled. Records it cannot trim yet carry over to a later initiation, so
+this bookkeeping never fails a new session. Temporary triggers keep exact session
+counts, so admission does not scan the table.
 Share the HTTP connection limit with other uploads, 32 catalog admission slots
 and one executing SQLite job. Session creation, reads and checkpoints wait for
 catalog admission; finalization already waits for the execution slot. HTTP waits
@@ -573,19 +610,24 @@ Public URLs normally address an XML-compatible path such as `http://localhost:44
 
 V4 includes the host in the signed request. Sign the actual browser-facing emulator hostname from the start. Replacing the hostname after signing is incompatible with strict validation. Separate binding (`0.0.0.0:4443`), peer connectivity (`http://gcs:4443` inside Compose), API advertised URLs, and the browser/public endpoint (`http://localhost:4443`). [Canonical requests](https://docs.cloud.google.com/storage/docs/authentication/canonical-requests).
 
-The resumable contract requires absolute `Location` values from configured
-`api_base_url` (`--api-base-url` / `GCS_MIMIC_API_BASE_URL` / JSON), preserving a
-normalized proxy prefix. If unset, resolve it once from the actual bound listener
-with wildcard IPs replaced by loopback. The proxy must strip an explicit prefix
-before forwarding. Never derive it from Host, Forwarded or X-Forwarded-*; public-object URL
-configuration does not choose this capability endpoint or grant permissions.
-Use `http://127.0.0.1:PORT` for a host, `http://gcs:4443` for a Compose peer,
-and a host-reachable address such as `http://localhost:PORT` for a host browser.
-An address check does not establish CORS support. One fixed base cannot
-automatically cover both address spaces: use separate configurations or a common
-reachable DNS/proxy endpoint. The validated-request-origin/allowed-authority
-proposal in the [onboarding contract](getting-started-spec.md) remains deferred;
-this slice freezes the existing fixed override. The
+The resumable contract requires absolute `Location` values. An explicit `api_base_url`
+(`--api-base-url` / `GCS_MIMIC_API_BASE_URL` / JSON) or runtime `externalUrl` fixes them,
+preserving a normalized proxy prefix; the proxy must strip that prefix before forwarding.
+Without one, each request derives them from the authority it addressed and the scheme of its
+connection, so the host and a Compose peer reach one server through their own addresses. The
+authority comes from an absolute request target or else from Host. It must be exactly a host
+and an optional connectable port. An invalid or missing Host, or one that selects an XML
+virtual bucket, falls back to the base resolved once from the actual bound listener with
+wildcard IPs replaced by loopback.
+
+A Host value only renders links, so it can never decide trust: the management Host guard reads
+endpoint state that holds no request-derived value. A client controls the links it gets back
+and nothing else. `Forwarded` and `X-Forwarded-*` stay ignored because no proxy is trusted, so
+a reverse proxy that rewrites Host needs the explicit base. Public-object URL configuration does
+not choose this capability endpoint or grant permissions.
+An address check does not establish CORS support. The
+allowed-authority proposal in the [onboarding contract](getting-started-spec.md) is
+not implemented: request authorities need no allowlist because they grant nothing. The
 [guide](getting-started.md#resume-and-finalize-an-upload-from-the-host) supplies
 the host/peer/address acceptance commands.
 

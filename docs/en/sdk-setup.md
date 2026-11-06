@@ -7,8 +7,9 @@
 - From the host, connect to `http://localhost:4443` (with
   `GCS_MIMIC_SCHEME=http`).
 - From another Compose service, connect to `http://SERVICE:4443`, where
-  `SERVICE` is the emulator's service name (`gcs` in the README), and set
-  `GCS_MIMIC_API_BASE_URL` on the emulator to the same address.
+  `SERVICE` is the emulator's service name (`gcs` in the README). Links that the
+  emulator returns follow the address each client connected to, so
+  `GCS_MIMIC_API_BASE_URL` is not needed.
 - The project ID can be any local name. Clients are anonymous and never
   contact Google or the metadata server.
 

@@ -7,7 +7,7 @@
 [English](../en/sdk-setup.md)
 
 - ホストからは`http://localhost:4443`に接続します（`GCS_MIMIC_SCHEME=http`のとき）。
-- 別のComposeサービスからは`http://サービス名:4443`に接続します。サービス名はエミュレーターのもので、READMEの例では`gcs`です。エミュレーターの`GCS_MIMIC_API_BASE_URL`にも同じアドレスを指定します。
+- 別のComposeサービスからは`http://サービス名:4443`に接続します。サービス名はエミュレーターのもので、READMEの例では`gcs`です。エミュレーターが返すリンクは各クライアントの接続先に合わせるので、`GCS_MIMIC_API_BASE_URL`は不要です。
 - プロジェクトIDは任意のローカル名でかまいません。クライアントは匿名で接続し、Googleやメタデータサーバーには接続しません。
 
 `STORAGE_EMULATOR_HOST`の意味はSDKごとに異なります。

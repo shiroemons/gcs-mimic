@@ -37,16 +37,18 @@ TLS needs both `--tls-cert` and `--tls-key`; a single path fails. The supplied
 PEM chain (leaf first) and private key are loaded and checked before recovery,
 seeding, binding or readiness. Each is capped at 1 MiB. TLS 1.2/1.3 and HTTP/1.1
 are supported; handshakes share `max_connections` and have a separate
-`--tls-handshake-timeout-ms` deadline (default 5000, range 1–60000).
+`--tls-handshake-timeout-ms` deadline (default 5000, 0 disables it, no upper limit).
 Configuration precedence is CLI > `GCS_MIMIC_` environment > JSON > defaults.
 For example, use JSON `scheme`, `tls_cert`, `tls_key`, `tls_handshake_timeout_ms`
 or environment `GCS_MIMIC_SCHEME`, `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY`.
-An omitted API base uses the listener scheme and actual bound address, including
+An omitted API base makes generated links follow the `Host` of each request and the
+scheme of its connection. An invalid or missing `Host` falls back to the listener
+scheme and actual bound address, including
 the allocated port for `--listen 127.0.0.1:0`. Wildcard `0.0.0.0` / `::` becomes
-`127.0.0.1` / `[::1]`. Ready reports the effective `api_base_url`.
-Set `--api-base-url` for a different client-reachable address or proxy prefix.
-Explicit HTTP(S) API bases remain independent for
-reverse proxies. Neither `Host` nor forwarding headers change generated links.
+`127.0.0.1` / `[::1]`. Ready reports this base as `api_base_url`.
+Set `--api-base-url` to fix one client-reachable address or proxy prefix, which no request
+can change. Forwarding headers never change generated links, so a proxy that rewrites
+`Host` needs this setting.
 
 Build and run the same journey with the non-root, read-only source image:
 
@@ -54,19 +56,18 @@ Build and run the same journey with the non-root, read-only source image:
 export COMPOSE_PROJECT_NAME=gcs-mimic-tls-demo-$$
 export GCS_MIMIC_IMAGE=gcs-mimic:tls-dev
 export GCS_MIMIC_PORT=54444
-export GCS_MIMIC_API_BASE_URL=https://localhost:54444
 docker build -t "$GCS_MIMIC_IMAGE" .
 docker compose config --quiet
 docker compose up -d --no-build --wait
-bash scripts/tls-smoke.sh "$GCS_MIMIC_API_BASE_URL" "$cert_dir/ca.pem"
+bash scripts/tls-smoke.sh "https://localhost:$GCS_MIMIC_PORT" "$cert_dir/ca.pem"
 docker compose stop
 docker compose start --wait
 docker compose exec -T --interactive=false gcs \
   gcs-mimic healthcheck --url https://localhost:4443/_internal/ready
 ```
 
-For peers that follow generated links, set `GCS_MIMIC_API_BASE_URL=https://gcs:4443`
-and recreate the service before starting their upload. Host clients and browsers
+Peers that follow generated links connect to `https://gcs:4443` and get that address back,
+and host clients and browsers
 use `https://localhost:54444`. Both names are in the certificate; a container's
 `localhost` names that container. Mount only `ca.pem` in client containers and
 pass it to their TLS client. The public URL helper accepts an independent base
@@ -91,7 +92,7 @@ custom_cert_dir="$tls_work/custom-certs"
 bash scripts/tls-fixtures.sh "$custom_cert_dir"
 export GCS_MIMIC_TLS_DIR="$custom_cert_dir"
 docker compose -f compose.yaml -f compose.tls.yaml up -d --no-build --wait
-bash scripts/tls-smoke.sh "$GCS_MIMIC_API_BASE_URL" "$custom_cert_dir/ca.pem"
+bash scripts/tls-smoke.sh "https://localhost:$GCS_MIMIC_PORT" "$custom_cert_dir/ca.pem"
 ```
 
 Custom probes use `--ca-cert /tls/ca.pem`; the default probe trusts only the

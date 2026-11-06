@@ -179,7 +179,7 @@ max_queued_work = 64
 
 Values above are proposed defaults to benchmark, not measured optimal settings.
 
-For generated API links such as resumable Location, `validated_request_origin` uses only the listener scheme and a request authority present in the explicit allowlist. It never accepts arbitrary forwarded headers. This allows host clients to receive host-reachable links and peer containers to receive container-reachable links. Offer an explicit fixed `api_base_url` override for reverse proxies or deployments needing one advertised origin; document the tradeoff. Public/signed links use the explicit public base URL.
+For generated API links such as resumable Location, the server uses the connection's scheme and the authority each request addressed, when no explicit base is set. It never accepts forwarded headers. This lets host clients receive host-reachable links and peer containers receive container-reachable links. The allowlist in the proposal above is not implemented, because a request authority only renders the links its own client receives and decides nothing. An explicit fixed `api_base_url` overrides this for reverse proxies or deployments needing one advertised origin. Public/signed links use the explicit public base URL.
 
 ## 3. Fixtures, persistence and Docker Compose
 
@@ -208,8 +208,6 @@ services:
     read_only: true
     volumes:
       - gcs-data:/var/lib/gcs-mimic
-    environment:
-      GCS_MIMIC_API_BASE_URL: https://localhost:4443
     healthcheck:
       test: ["CMD", "gcs-mimic", "healthcheck", "--url", "https://localhost:4443/_internal/ready"]
       interval: 2s

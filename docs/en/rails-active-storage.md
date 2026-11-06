@@ -114,7 +114,6 @@ services:
       - "127.0.0.1:4443:4443" # the host port must equal the container port
     environment:
       GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_API_BASE_URL: http://gcs.localhost:4443
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
     volumes:
       - ./buckets.json:/buckets.json:ro

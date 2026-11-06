@@ -150,6 +150,27 @@ test was run. SPEC-RSM-* entries in `compatibility/gaps.json` retain unresolved
 path, error/concurrency, permission timing and automatic multi-origin questions;
 SPEC-013 continues to own invocation-token response replay.
 
+## Timeouts and limits behind the local defaults
+
+Checked on **2026-11-06** for the connection, capacity and soft delete defaults. These pages move, so the table records what each said on that date.
+
+| Source | What it says |
+| --- | --- |
+| [JSON status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes) | 408 `uploadBrokenConnection`: "The request timed out. You should retry the request using truncated exponential backoff." 503 `backendError`: "We encountered an internal error. You should retry the request using truncated exponential backoff." No seconds. |
+| [XML status codes](https://docs.cloud.google.com/storage/docs/xml-api/reference-status) | `RequestTimeout` is listed under 400, not 408: "Your socket connection to the server was not read from or written to within the timeout period." No seconds. |
+| [Best practices](https://docs.cloud.google.com/storage/docs/best-practices) | "For upload traffic, we recommend setting reasonably long timeouts." No seconds. |
+| [Quotas and limits](https://docs.cloud.google.com/storage/quotas) | Maximum object size 5 TiB, "regardless of write method". A resumable session has 7 days from initiation. Simultaneous XML multipart uploads for an object and how long one may stay unfinished are both "Unlimited". No limit on connections or concurrent resumable sessions. |
+| [Retry strategy](https://docs.cloud.google.com/storage/docs/retry-strategy) | Retries HTTP 408, 429 and 5xx. Lists client library timeouts, such as a 120-second Python deadline and 20-second Java read and connect timeouts, but no server timeout. |
+| [Soft delete](https://docs.cloud.google.com/storage/docs/soft-delete) | "The default retention duration is 7 days and you can customize the retention duration between 7 days and 90 days." A retention of 0 disables it. |
+
+**Cloud Storage documents no seconds for waiting on a request head, for silence on a body or for a whole request.** The defaults of `header_read_timeout_ms` (30000), `body_inactivity_timeout_ms` (disabled), `request_timeout_ms` (180000), `object_request_timeout_ms` (disabled) and `catalog_wait_timeout_ms` (120000) are local choices: a slow client should not reach them, and no default bounds a whole upload, as the "reasonably long" recommendation asks. They are not observed provider values.
+
+The following are also local choices, not provider behavior:
+
+- `max_connections` of 1024 and `max_object_bytes` of 5 TiB. Only the object size comes from the quotas page.
+- Unlimited active resumable sessions, unfinished rewrites, XML multipart uploads and derived transfers.
+- Soft delete off by default and retention of 1 second through 3155760000 seconds. Both differ from the page above, as `SPEC-SOFT-DELETE` records.
+
 ## Important scope boundaries
 
 Cache acceleration, geographic redundancy, production durability, Google identity issuance, KMS execution, billing, BigQuery query execution, managed ML enrichment and external network services cannot be certified by a local emulator test. Track their local state/wire simulations separately from external services.

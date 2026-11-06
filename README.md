@@ -58,7 +58,6 @@ services:
       - "127.0.0.1:4443:4443"
     environment:
       GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_API_BASE_URL: http://gcs:4443
     volumes:
       - ./data:/data:ro # optional: files to preload
       - gcs-data:/var/lib/gcs-mimic
@@ -77,12 +76,13 @@ volumes:
 `docker compose up -d --wait` returns once the emulator is healthy.
 
 `gcs` in `http://gcs:4443` is the Compose service name. If you name the
-service differently, replace `gcs` in both `GCS_MIMIC_API_BASE_URL` and the
-app's setting.
+service differently, replace `gcs` in the app's setting.
 
-`GCS_MIMIC_API_BASE_URL` goes into links that the emulator returns, such as
-resumable upload URLs. Set it to the address your app uses. Programs on the
-host then get links they cannot resolve, so omit it if only the host connects.
+Links that the emulator returns, such as resumable upload URLs, use the address
+each request connected to, so the app and programs on the host can share one
+server. Set `GCS_MIMIC_API_BASE_URL` only to fix that address, for example
+behind a reverse proxy that rewrites `Host`. Releases up to 0.11.0 return one
+fixed address, so with them add `GCS_MIMIC_API_BASE_URL: http://gcs:4443` here.
 
 ## Preload files
 
@@ -215,7 +215,7 @@ bucket and CORS setup, Rails in containers and CI.
 | Setting | Purpose |
 | --- | --- |
 | `GCS_MIMIC_SCHEME` | `https` (default), `http` or `both` |
-| `GCS_MIMIC_API_BASE_URL` | Address in links that the emulator returns |
+| `GCS_MIMIC_API_BASE_URL` | Fixes the address in links that the emulator returns; unset, links use the address of each request |
 | `GCS_MIMIC_GRPC_LISTEN` | Optional gRPC listener, for example `0.0.0.0:4444` |
 | `GCS_MIMIC_CORS_FALLBACK` | `allow-all` lets browsers read public URLs from any origin |
 | `GCS_MIMIC_AUTH_MODE` | `strict` checks local bearer tokens; see [strict authentication](docs/en/getting-started.md#strict-local-authentication) |
@@ -285,7 +285,8 @@ For the scoped container workflow, change the image (for example from `fsouza/fa
 | Data in `/storage` | Kept in `/var/lib/gcs-mimic` instead; `-filesystem-root` is ignored. Convert old data with [`gcs-mimic import fake-gcs-server`](docs/en/slices/import-filesystem.md). |
 | `-backend memory` | Selects the bounded RAM backend (`--backend memory`): data is lost at exit and the data directory is never opened. |
 | `-event.*` (Pub/Sub notifications) | Delivered to a local Pub/Sub emulator named by `PUBSUB_EMULATOR_HOST`. Without one, startup fails, so tests that wait for notifications do not hang. |
-| Deleting or overwriting objects | New buckets keep deleted and replaced objects soft-deleted for seven days, as Cloud Storage does. Set `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0` to delete permanently. |
+| Deleting or overwriting objects | Since 0.12.0 the bytes go at once by default, unlike Cloud Storage. Set `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` to a number of seconds to keep them. Releases up to 0.11.0 keep them for seven days, and buckets they created keep that policy. |
+| `-external-url` | Still fixes the address in returned links. Since 0.12.0 you can remove it, so links use the address of each request. |
 | `-public-host` | Accepted; matching the Host header as before also needs `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. |
 | `GET /storage/v1/b` without `?project=` | Returns 400, as in Google Cloud Storage. SDKs send the project already. |
 | Cancelling a resumable upload | Returns 499, which Google documents for a successful cancel; it is not an error. |
