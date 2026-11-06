@@ -533,3 +533,22 @@ fresh download.
   the PHP strict HTTP cases.
 - `mvn compile` in `sdk-scorecard/java` passed. The full scorecard, the Java
   Testcontainers scenario and the release archive workflow were not run locally.
+
+### TCP keep-alive direct edge
+
+`socket2` 0.6.5 is reused to enable TCP keep-alive on accepted sockets, which std
+and Tokio do not expose. The [official registry index](https://index.crates.io/so/ck/socket2)
+identifies it as the latest non-yanked stable and records Rust 1.70 as its minimum.
+It declares `MIT OR Apache-2.0`, and its compressed archive is **60,031 bytes**, with
+SHA-256 `c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4`. The
+[rust-lang repository](https://github.com/rust-lang/socket2) is not archived; its
+last push was 2026-10-18.
+
+The manifest and root lockfile add the application's direct edge to the package
+Tokio already resolves. The resolved version and checksum do not change, and no
+package is added.
+
+A `cargo xtask dependencies check` run reported `socket2: CURRENT`. That run did not
+finish: `proxy.golang.org` timed out with `CHECK_FAILED`, and it reported
+`UPDATE_AVAILABLE` for flate2 1.1.11, not adopted here. The snapshot's freshness
+record therefore stays at the earlier complete run.

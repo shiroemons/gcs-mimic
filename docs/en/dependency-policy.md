@@ -65,6 +65,12 @@ UTC spelling, but the verifier signs the original date value. The dated
 records the license, package digest, size and scoped checks; daily detection
 discovers this actual manifest edge through locked Cargo metadata.
 
+TCP keep-alive on accepted sockets promotes the already resolved `socket2` 0.6.5
+to a direct dependency, because std and Tokio do not expose it. This adds no
+resolved package or version. The
+[dependency evidence](evidence/dependency-refresh.md#tcp-keep-alive-direct-edge)
+records the license, package digest and size.
+
 Sources:
 
 - <https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html>
