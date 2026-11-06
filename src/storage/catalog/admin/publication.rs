@@ -648,13 +648,8 @@ impl Admin {
         let deadline = self.catalog.admin_deadline();
         let request = self
             .catalog
-            .0
-            .publication_requests
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| AdminError::Busy {
-                retry_after: Duration::from_secs(1),
-            })?;
+            .wait_admin(self.catalog.0.publication_requests.clone(), deadline)
+            .await?;
         let batch = self
             .catalog
             .wait_admin(self.catalog.0.publication_batch.clone(), deadline)

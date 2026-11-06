@@ -320,7 +320,6 @@ impl Catalog {
                 uploads_idle: Notify::new(),
                 admin_uploads: Arc::new(Semaphore::new(2)),
                 admin_reads: Arc::new(Semaphore::new(32)),
-                admin_waiters: Arc::new(Semaphore::new(32)),
                 staged_handles: Arc::new(Semaphore::new(256)),
                 publication_batch: Arc::new(Semaphore::new(1)),
                 publication_requests: Arc::new(Semaphore::new(2)),

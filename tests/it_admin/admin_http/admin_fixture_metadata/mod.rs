@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn fixture_publications_past_every_slot_wait_their_turn_and_all_succeed() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--admin-enabled", "true"]);
+    server.populate();
+    let replies = std::thread::scope(|scope| {
+        // Twice the 32 callers the management line once held before refusing the next one.
+        let publications: Vec<_> = (0..64)
+            .map(|index| {
+                let server = &server;
+                scope.spawn(move || {
+                    let metadata =
+                        json!({"bucket":"test-bucket","name":format!("fixture-{index}")});
+                    server.fixture(metadata, b"fixture bytes", "")
+                })
+            })
+            .collect();
+        publications
+            .into_iter()
+            .map(|publication| publication.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    for reply in replies {
+        reply.json_ok();
+    }
+}
+
+#[test]
 fn direct_fixture_acl_holds_and_retention_use_shared_atomic_validation() {
     let dir = TestDir::new();
     let options = [

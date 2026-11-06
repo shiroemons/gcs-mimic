@@ -83,6 +83,40 @@ fn reseed_waits_for_an_active_upload_and_then_replays_fixtures() {
     );
 }
 
+/// Past the two reseeds the server once held before refusing the next one.
+const MANY_RESEEDS: usize = 8;
+
+#[test]
+fn reseeds_past_the_active_one_take_turns_and_all_complete() {
+    let (data, source) = (TestDir::new(), TestDir::new());
+    let server = seeded_server(&data, &source, "60000");
+    let upload = pending_media_upload(&server, "pending", b"hello".len());
+    let replies = std::thread::scope(|scope| {
+        let reseeds: Vec<_> = (0..MANY_RESEEDS)
+            .map(|_| scope.spawn(|| server.request("POST", "/_internal/reseed", "", b"")))
+            .collect();
+        let mut held_back = held_back_media_upload(&server, "held-back", b"fresh".len());
+        // A second and more on, an immediate refusal has already answered.
+        assert!(reseeds.iter().all(|reseed| !reseed.is_finished()));
+        finish_upload(upload);
+        read_upload_go_ahead(&mut held_back);
+        finish_upload_with(&mut held_back, b"fresh");
+        reseeds
+            .into_iter()
+            .map(|reseed| reseed.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    for reply in replies {
+        assert_eq!(reply.json_ok()["outcome"], "imported");
+    }
+    assert_eq!(
+        server
+            .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
+            .body,
+        b"seed"
+    );
+}
+
 #[test]
 fn reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active() {
     let (data, source) = (TestDir::new(), TestDir::new());
