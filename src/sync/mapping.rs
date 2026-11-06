@@ -7,6 +7,7 @@ use crate::storage::admin::{BucketName, ObjectName};
 pub const MARKER: &str = ".gcs-mimic-sync.json";
 pub(crate) const MARKER_STAGING: &str = ".gcs-mimic-sync.json.staging";
 pub(crate) const WORKSPACE: &str = ".gcs-mimic-sync-work";
+pub(crate) const RESERVED_ROOT_ENTRIES: usize = 3;
 pub(crate) fn is_reserved_root_entry(name: &std::ffi::OsStr) -> bool {
     matches!(name.to_str(), Some(MARKER | MARKER_STAGING | WORKSPACE))
 }

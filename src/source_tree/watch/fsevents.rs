@@ -245,7 +245,7 @@ fn allocated(pointer: *mut c_void) -> io::Result<NonNull<c_void>> {
     unsafe_code,
     reason = "FSEvents setup requires CoreFoundation, dispatch and filesystem locality syscalls"
 )]
-pub(super) fn build(root: &File, path: &Path) -> io::Result<Native> {
+pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> io::Result<Native> {
     let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
     // SAFETY: stat has enough writable space, and root remains open throughout setup.
     if unsafe { libc::fstatfs(root.as_raw_fd(), stat.as_mut_ptr()) } < 0 {
@@ -258,7 +258,7 @@ pub(super) fn build(root: &File, path: &Path) -> io::Result<Native> {
             "sync FSEvents observation requires a local filesystem",
         ));
     }
-    let mut scan = crate::sync::tree::TreeScan::new();
+    let mut scan = crate::sync::tree::TreeScan::new(limits);
     while !scan.is_empty() {
         let (next, page) = scan.page(root).map_err(io::Error::other)?;
         scan = next;

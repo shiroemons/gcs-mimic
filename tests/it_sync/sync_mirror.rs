@@ -172,6 +172,85 @@ async fn initial_export_preserves_external_conflicts_and_records_mapping_finding
     catalog.close().await.unwrap();
 }
 
+/// An object past the depth limit is one finding, not a stopped root; a raised limit exports it,
+/// and a limit lowered under a tree that already holds it names the setting to raise again.
+#[tokio::test]
+async fn the_depth_limit_keeps_an_object_out_of_the_tree_until_it_is_raised() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let name = bucket(&catalog, "test-bucket", "owner").await;
+    object(&catalog, &name, "one/shallow", b"shallow").await;
+    object(&catalog, &name, "one/two/deep", b"deep").await;
+    let deep = tree.0.join("test-bucket/one/two/deep");
+
+    let mut settings = config(&data, &tree);
+    settings.max_sync_depth = 2;
+    let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
+    let summary = sync::reconcile(&catalog, &root).await.unwrap();
+    assert_eq!((summary.exported, summary.unrepresentable), (1, 1));
+    assert!(tree.0.join("test-bucket/one/shallow").exists());
+    assert!(!deep.exists());
+    assert_eq!(root.findings_page(0, 256).await.unwrap().len(), 1);
+    drop(root);
+
+    settings.max_sync_depth = 3;
+    let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
+    let summary = sync::reconcile(&catalog, &root).await.unwrap();
+    assert_eq!(summary.exported, 1);
+    assert_eq!(fs::read(&deep).unwrap(), b"deep");
+    drop(root);
+
+    settings.max_sync_depth = 2;
+    let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
+    let failure = sync::reconcile(&catalog, &root).await.unwrap_err();
+    let failure = format!("{failure:?}");
+    assert!(failure.contains("max_sync_depth"), "{failure}");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn the_entry_limit_comes_from_the_configuration_and_survives_a_restart() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let name = bucket(&catalog, "test-bucket", "owner").await;
+    for key in ["a", "b", "c"] {
+        object(&catalog, &name, key, b"body").await;
+    }
+    let mut settings = config(&data, &tree);
+    settings.max_sync_entries = 4;
+    let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
+    assert_eq!(sync::reconcile(&catalog, &root).await.unwrap().exported, 3);
+    drop(root);
+    catalog.close().await.unwrap();
+
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
+    assert_eq!(sync::reconcile(&catalog, &root).await.unwrap().identical, 3);
+    drop(root);
+
+    fs::write(tree.0.join("test-bucket/external"), b"over").unwrap();
+    let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
+    let failure = sync::reconcile(&catalog, &root).await.unwrap_err();
+    let failure = format!("{failure:?}");
+    assert!(failure.contains("max_sync_entries"), "{failure}");
+    drop(root);
+
+    settings.max_sync_entries = 5;
+    let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
+    assert_eq!(
+        sync::reconcile(&catalog, &root)
+            .await
+            .unwrap()
+            .external_only,
+        1
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_reinitialize() {
     let data = TestDir::new();

@@ -15,7 +15,7 @@ mod unsupported;
 use unsupported as imp;
 
 pub(crate) use imp::{child_directory, child_regular};
-pub(crate) use imp::{create_regular_at, directory_at, unlink_file_at};
+pub(crate) use imp::{create_regular_at, directory_at, directory_names_within, unlink_file_at};
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };

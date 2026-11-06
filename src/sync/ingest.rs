@@ -166,7 +166,7 @@ pub(super) async fn rescan_with(
     };
     let mut summary = Reconciliation::default();
     forget_missing_directories(root, interrupt).await?;
-    let mut scan = Scan::new();
+    let mut scan = Scan::new(root.tree_limits());
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
         let (next, entries) = root
             .file_job(move |root| scan.page(root))

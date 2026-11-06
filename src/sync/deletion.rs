@@ -40,10 +40,11 @@ pub(super) fn stale(error: &io::Error) -> bool {
 }
 
 pub(super) async fn absent(root: &RootLease, path: String) -> io::Result<bool> {
+    let limits = root.tree_limits();
     root.file_job(move |root| {
         let path = Path::new(&path);
         if path.is_absolute()
-            || path.iter().count() > 128
+            || !limits.admits_file(path)
             || path
                 .iter()
                 .any(|part| part == "." || part == ".." || part.as_encoded_bytes().len() > 255)

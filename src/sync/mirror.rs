@@ -92,9 +92,10 @@ impl DirectoryWatch {
     async fn new(root: &RootLease) -> io::Result<Self> {
         let lease = root.clone();
         let path = root.watch_path().to_owned();
+        let limits = root.tree_limits();
         let native = root
             .file_job(move |root| {
-                crate::source_tree::watch::build(root, &path).map_err(AdminError::backend)
+                crate::source_tree::watch::build(root, &path, limits).map_err(AdminError::backend)
             })
             .await
             .map_err(io::Error::other)?;
@@ -1161,9 +1162,16 @@ impl LiveObject<'_> {
             Err(AdminError::NotFound) => None,
             Err(error) => return Err(io::Error::other(error)),
         };
-        let path = match mapping::name_to_path(bucket, name) {
-            PathMapping::File(path) => path,
-            PathMapping::Unrepresentable(reason) => {
+        let mapped = match mapping::name_to_path(bucket, name) {
+            PathMapping::File(path) if self.root.tree_limits().admits_file(&path) => Ok(path),
+            // Exporting a level the scans refuse would stop the whole root, so this object alone
+            // stays out of the tree.
+            PathMapping::File(_) => Err(Reason::HostRestriction),
+            PathMapping::Unrepresentable(reason) => Err(reason),
+        };
+        let path = match mapped {
+            Ok(path) => path,
+            Err(reason) => {
                 if let Some(record) = record {
                     self.finding(&record, reason, summary).await?;
                 }
@@ -1989,7 +1997,7 @@ async fn external_files(
     interrupt: Interrupt<'_>,
 ) -> io::Result<(u64, u64, u64)> {
     let mut counts = (0, 0, 0);
-    let mut scan = super::tree::TreeScan::new();
+    let mut scan = super::tree::TreeScan::new(root.tree_limits());
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
         let (next, page) = root
             .file_job(move |root| scan.page(root))

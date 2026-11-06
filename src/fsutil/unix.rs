@@ -13,14 +13,26 @@ use std::{
 };
 
 /// Returns an exact-spelling keyset page without following directory entries.
-#[expect(
-    unsafe_code,
-    reason = "openat, fdopendir and readdir have no safe std equivalent for a pinned descriptor"
-)]
 pub fn directory_names_after(
     directory: &File,
     after: Option<&OsStr>,
     limit: usize,
+) -> io::Result<Vec<OsString>> {
+    directory_names_within(directory, after, limit, usize::MAX)
+}
+
+/// Like [`directory_names_after`], but fails with `InvalidData` past `max_inspected` names. Each
+/// page reads the whole directory, so a tree limit stops an oversized directory on its first page
+/// instead of after all the pages the limit admits.
+#[expect(
+    unsafe_code,
+    reason = "openat, fdopendir and readdir have no safe std equivalent for a pinned descriptor"
+)]
+pub(crate) fn directory_names_within(
+    directory: &File,
+    after: Option<&OsStr>,
+    limit: usize,
+    max_inspected: usize,
 ) -> io::Result<Vec<OsString>> {
     if !(1..=256).contains(&limit) {
         return Err(io::ErrorKind::InvalidInput.into());
@@ -75,7 +87,7 @@ pub fn directory_names_after(
             continue;
         }
         inspected += 1;
-        if inspected > 10_000 || bytes.len() > 4096 {
+        if inspected > max_inspected || bytes.len() > 4096 {
             return Err(io::ErrorKind::InvalidData.into());
         }
         let name = OsStr::from_bytes(bytes);

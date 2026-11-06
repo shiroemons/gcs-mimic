@@ -3,6 +3,9 @@ use crate::time_limit::TimeLimit;
 
 pub(super) const UNKNOWN_SETTING: &str = "Unknown setting; remove it and use --help.";
 pub(super) const MAX_OBJECT_BYTES: u64 = 5 * 1024_u64.pow(4);
+/// A 1024-byte object name cannot nest deeper than this, so a larger limit could admit nothing.
+pub(crate) const MAX_TREE_DEPTH: usize = 1024;
+const MAX_TREE_ENTRIES: u64 = 100_000_000;
 
 super::string_enum! {
     no_default pub(crate) enum Setting {
@@ -27,6 +30,8 @@ super::string_enum! {
         MaxSeedEntries => "max_seed_entries",
         MaxSeedDepth => "max_seed_depth",
         MaxBucketsPerBatch => "max_buckets_per_batch",
+        MaxSyncEntries => "max_sync_entries",
+        MaxSyncDepth => "max_sync_depth",
         SyncDir => "sync_dir",
         SyncDeleteGuard => "sync_delete_guard",
         SyncReinitialize => "sync_reinitialize",
@@ -88,9 +93,8 @@ impl Setting {
             Self::MaxObjectBytes => Some((1, MAX_OBJECT_BYTES)),
             // 0 means unlimited here only; the config holds `Option<NonZeroU32>`.
             Self::MaxResumableSessions | Self::MaxRewriteSessions => Some((0, u32::MAX as u64)),
-            Self::MaxSeedEntries => Some((1, 100_000_000)),
-            // A 1024-byte object name cannot nest deeper than this.
-            Self::MaxSeedDepth => Some((1, 1024)),
+            Self::MaxSeedEntries | Self::MaxSyncEntries => Some((1, MAX_TREE_ENTRIES)),
+            Self::MaxSeedDepth | Self::MaxSyncDepth => Some((1, MAX_TREE_DEPTH as u64)),
             // Each bucket of a batch costs memory until the batch commits as one transaction.
             Self::MaxBucketsPerBatch => Some((1, 1_000_000)),
             Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 1024)),
@@ -143,4 +147,11 @@ impl Setting {
     pub(super) fn time_limit(self, value: &str) -> Result<TimeLimit, SettingFix> {
         self.integer(value).map(TimeLimit::from_millis)
     }
+}
+
+/// Whether a setting does nothing without `sync_dir`, so that naming it alone is a mistake.
+pub(super) fn requires_sync_dir(name: &str) -> bool {
+    name.starts_with("sync_")
+        || name == Setting::MaxSyncEntries.as_str()
+        || name == Setting::MaxSyncDepth.as_str()
 }
