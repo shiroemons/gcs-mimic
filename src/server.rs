@@ -101,7 +101,7 @@ impl Default for WorkPools {
     }
 }
 
-pub(crate) const BUCKET_BODY_LIMIT: usize = 64 * 1024;
+pub(crate) use crate::json::RESOURCE_BODY_LIMIT;
 
 mod batch;
 mod buckets;
@@ -1477,7 +1477,7 @@ async fn validate_bodyless_post(
         .get("content-type")
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.split(';').next() == Some("application/x-www-form-urlencoded"));
-    let body = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let body = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     if !body.is_empty() {
         let params = if form {
             std::str::from_utf8(&body)

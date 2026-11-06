@@ -90,7 +90,10 @@ pub(super) async fn request(
     let (sender, decoded) = chunk_body::channel();
     let complete = Arc::new(AtomicBool::new(false));
     let producer_complete = complete.clone();
-    let expanded_limit = ctx.config.max_object_bytes.saturating_add(256 * 1024);
+    let expanded_limit = ctx
+        .config
+        .max_object_bytes
+        .saturating_add(crate::json::MULTIPART_FRAMING_LIMIT);
     // Stored-gzip media can be incompressible; allow bounded framing/deflate overhead on the wire.
     let compressed_limit = expanded_limit
         .saturating_add(expanded_limit / 8)

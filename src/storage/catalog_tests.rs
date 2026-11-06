@@ -647,7 +647,10 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
             .unwrap()
             .is_none()
     );
-    for rules in [
+    // No size is documented for CORS: the catalog stores what the former 64 KiB limit refused,
+    // and the request body limit is what bounds it now.
+    let mut large = Vec::new();
+    for (index, rules) in [
         vec![CorsRule {
             origin: vec!["a".repeat(65_536)],
             ..Default::default()
@@ -657,20 +660,15 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
             origin: vec!["\\".repeat(40_000)],
             ..Default::default()
         }],
-    ] {
-        let mut oversized = bucket("oversized-cors", "project");
-        oversized.cors = rules;
-        assert!(matches!(
-            catalog.insert_bucket(oversized).await,
-            Err(CatalogError::InvalidMetadata(_))
-        ));
-        assert!(
-            catalog
-                .get_bucket("oversized-cors", PERMISSIVE)
-                .await
-                .unwrap()
-                .is_none()
-        );
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut record = bucket(&format!("large-cors-{index}"), "project");
+        record.cors = rules.clone();
+        let inserted = catalog.insert_bucket(record).await.unwrap();
+        assert_eq!(inserted.cors, rules);
+        large.push(inserted);
     }
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -681,6 +679,15 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
             .unwrap(),
         Some(stored)
     );
+    for inserted in large {
+        assert_eq!(
+            catalog
+                .get_bucket(&inserted.name, PERMISSIVE)
+                .await
+                .unwrap(),
+            Some(inserted)
+        );
+    }
     catalog.close().await.unwrap();
 }
 

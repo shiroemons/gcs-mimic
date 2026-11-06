@@ -9,7 +9,7 @@ use crate::{
     json::{self, JsonError},
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     server::{
-        BUCKET_BODY_LIMIT, ObjectCtx,
+        ObjectCtx, RESOURCE_BODY_LIMIT,
         copy::{self, CopyBudget, CopyJob},
     },
     storage::{CopyReplay, CopyReplaySource, DerivedDestination, ReplayInvocation},
@@ -53,7 +53,7 @@ pub(super) async fn copy(
         .await?;
     let method = request.method().clone();
     let uri = request.uri().clone();
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let request_binding = format!(
         "copy-v1:{method}|{uri}|{}|{:?}|{:?}|{:?}",
         ctx.state.api_base_url,
@@ -214,7 +214,7 @@ pub(super) async fn compose(
             "x-goog-hash",
         ],
     )?;
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut body = json::compose::parse_compose(&bytes, &bucket, &name)?;
     body.destination.customer_key_sha256 = key.map(CustomerKey::sha256);
     let _wait = crate::server::begin_catalog_wait(ctx.activity).await;

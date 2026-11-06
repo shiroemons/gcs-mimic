@@ -12,6 +12,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+const JSON_PART_LIMIT: usize = 16 * 1024 * 1024;
+
 impl Server {
     fn start(dir: &TestDir, limit: u64, deadline: u64) -> Self {
         Self::launch(
@@ -613,12 +615,12 @@ fn obj_multipart_http_media_json_and_custom_metadata_caps() {
         .upload("name=over", &wire(b"{}", None, b"123456", None))
         .json_reason(413, "uploadTooLarge");
     server.get("over").json_reason(404, "notFound");
-    for length in [65536, 65537] {
+    for length in [JSON_PART_LIMIT, JSON_PART_LIMIT + 1] {
         let original = server.get("json").body;
         let mut metadata = b"{}".to_vec();
         metadata.resize(length, b' ');
         let reply = server.upload("name=json", &wire(&metadata, None, b"", None));
-        if length == 65536 {
+        if length == JSON_PART_LIMIT {
             reply.json_ok();
         } else {
             reply.json_reason(413, "uploadTooLarge");
@@ -921,7 +923,8 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
             );
     }
     let mut oversized = socket(&server.address);
-    oversized.write_all(b"POST /upload/storage/v1/b/missing-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 999999\r\n\r\n").unwrap();
+    // Above the media limit plus two JSON parts of 16 MiB and the rest of the framing.
+    oversized.write_all(b"POST /upload/storage/v1/b/missing-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 99999999\r\n\r\n").unwrap();
     Reply::framed(oversized).json_reason(413, "uploadTooLarge");
     for value in [br#"{"unknown":true}"#.as_slice(), br#"{"name":"ignored"}"#] {
         server
@@ -938,12 +941,12 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
     server
         .upload("name=bad", wrong_type.as_bytes())
         .json_reason(400, "invalidParameter");
-    for length in [65536, 65537] {
+    for length in [JSON_PART_LIMIT, JSON_PART_LIMIT + 1] {
         let original = server.get("final").body;
         let mut value = b"{}".to_vec();
         value.resize(length, b' ');
         let reply = server.upload("name=final", &wire(b"{}", None, b"hello", Some(&value)));
-        if length == 65536 {
+        if length == JSON_PART_LIMIT {
             reply.json_ok();
         } else {
             reply.json_reason(413, "uploadTooLarge");

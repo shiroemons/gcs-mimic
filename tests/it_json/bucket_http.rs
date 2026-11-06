@@ -6,6 +6,8 @@ use common::{CleanEnv, TestDir};
 use serde_json::{Value, json};
 use std::{process::Command, time::Duration};
 
+const BODY_LIMIT: usize = 16 * 1024 * 1024;
+
 impl Server {
     fn start(dir: &TestDir) -> Self {
         Self::start_options(dir, &[])
@@ -573,7 +575,7 @@ fn bucket_put_empty_null_and_invalid_inputs() {
             reply.expect_with(400, format_args!("{profile}: {body}: {}", reply.body));
             assert_eq!(server.request("GET", path, "").json(), before);
         }
-        let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(65536));
+        let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(BODY_LIMIT));
         server
             .request("PUT", path, &oversized)
             .json_envelope(413, "uploadTooLarge");
@@ -1383,7 +1385,7 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
             reply.expect_with(400, format_args!("{profile}: {body}: {}", reply.body));
             assert_eq!(server.request("GET", path, "").json(), value);
         }
-        let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(65536));
+        let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(BODY_LIMIT));
         server
             .request("PATCH", path, &oversized)
             .json_envelope(413, "uploadTooLarge");
@@ -3791,14 +3793,18 @@ fn bkt_http_query_body_name_and_route_boundaries() {
             ))
             .json_envelope(400, "invalidArgument");
     }
-    server.raw("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 65537\r\n\r\n").json_envelope(413,"uploadTooLarge");
-    let exact = format!("{}{}", r#"{"name":"exact-cap"}"#, " ".repeat(65536 - 20));
-    assert_eq!(exact.len(), 65536);
+    server.raw("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 16777217\r\n\r\n").json_envelope(413,"uploadTooLarge");
+    let exact = format!(
+        "{}{}",
+        r#"{"name":"exact-cap"}"#,
+        " ".repeat(BODY_LIMIT - 20)
+    );
+    assert_eq!(exact.len(), BODY_LIMIT);
     server
         .request("POST", "/storage/v1/b?project=x", &exact)
         .expect(200);
-    let chunk = " ".repeat(32768);
-    server.raw(&format!("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n8000\r\n{chunk}\r\n8000\r\n{chunk}\r\n1\r\nx\r\n0\r\n\r\n")).json_envelope(413,"uploadTooLarge");
+    let chunk = " ".repeat(BODY_LIMIT / 2);
+    server.raw(&format!("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n800000\r\n{chunk}\r\n800000\r\n{chunk}\r\n1\r\nx\r\n0\r\n\r\n")).json_envelope(413,"uploadTooLarge");
     server.raw("POST /storage/v1/b/abc/o HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\n").json_envelope(400, "badRequest");
     for path in ["/INVALID", "/storage/v1/b/"] {
         server
@@ -4108,7 +4114,6 @@ fn bucket_cors_large_metadata_lists_page_without_loss() {
         .collect::<Vec<_>>();
     for name in &expected {
         let body = json!({"name": name, "cors": rules}).to_string();
-        assert!(body.len() < 64 * 1024);
         let reply = server.request("POST", "/storage/v1/b?project=large", &body);
         reply.expect(200);
     }

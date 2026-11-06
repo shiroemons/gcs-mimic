@@ -342,21 +342,10 @@ pub(crate) fn cors_value(rules: &[CorsRule]) -> serde_json::Value {
     )
 }
 
+/// Cloud Storage documents no limit on CORS rules, so only the input's own bound (a request body
+/// or a gRPC message) limits how many arrive.
 pub(crate) fn validate_cors(rules: &[CorsRule]) -> Result<(), CatalogError> {
-    if rules.len() > 64 * 1024 / 3 {
-        return Err(CatalogError::InvalidMetadata(
-            "Bucket CORS exceeds 64 KiB".into(),
-        ));
-    }
     for rule in rules {
-        if [&rule.origin, &rule.method, &rule.response_header]
-            .iter()
-            .any(|values| values.len() > 32 * 1024)
-        {
-            return Err(CatalogError::InvalidMetadata(
-                "Bucket CORS exceeds 64 KiB".into(),
-            ));
-        }
         if rule.origin.iter().any(|origin| {
             origin.is_empty()
                 || !origin.is_ascii()
@@ -378,31 +367,7 @@ pub(crate) fn validate_cors(rules: &[CorsRule]) -> Result<(), CatalogError> {
             ));
         }
     }
-    if serde_json::to_writer(CorsSize(0), &cors_value(rules)).is_err() {
-        return Err(CatalogError::InvalidMetadata(
-            "Bucket CORS exceeds 64 KiB".into(),
-        ));
-    }
     Ok(())
-}
-
-struct CorsSize(usize);
-
-impl std::io::Write for CorsSize {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0 = self.0.saturating_add(bytes.len());
-        if self.0 > 64 * 1024 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::FileTooLarge,
-                "CORS exceeds 64 KiB",
-            ));
-        }
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
 }
 
 /// Which half of a label pair is validated; only keys must start with a letter.
@@ -525,16 +490,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cors_serialized_size_limit_is_inclusive() {
-        let mut rule = CorsRule {
-            origin: vec!["x".into()],
+    fn cors_accepts_rule_counts_and_sizes_above_the_former_64_kib_limit() {
+        let long_values = CorsRule {
+            origin: vec!["x".repeat(128 * 1024)],
+            method: vec!["GET".into(); 33 * 1024],
+            response_header: vec!["x-test".into(); 33 * 1024],
             ..Default::default()
         };
-        let overhead = cors_value(&[rule.clone()]).to_string().len() - 1;
-        rule.origin[0] = "x".repeat(64 * 1024 - overhead);
-        assert!(validate_cors(&[rule.clone()]).is_ok());
-        rule.origin[0].push('x');
-        assert!(validate_cors(&[rule]).is_err());
+        assert!(validate_cors(&[long_values]).is_ok());
+        let small = CorsRule {
+            origin: vec!["*".into()],
+            ..Default::default()
+        };
+        assert!(validate_cors(&vec![small; 64 * 1024]).is_ok());
+        // Removing the size checks leaves each value's own rules in force.
+        let invalid = CorsRule {
+            origin: vec!["bad origin".into()],
+            ..Default::default()
+        };
+        assert!(validate_cors(&[invalid]).is_err());
     }
 
     #[test]

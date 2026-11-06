@@ -971,11 +971,24 @@ fn iam_principal_and_body_limits() {
         &json!({"bindings":[binding("roles/storage.objectViewer", &longest)]}),
     )
     .success();
+    // The documented principal count with long names takes far more than 64 KiB, and has to
+    // survive storage as well as the request limit.
+    let long_members: Vec<_> = (0..1500)
+        .map(|index| format!("user:{index:04}{}", "x".repeat(250)))
+        .collect();
+    let long = json!({"bindings":[{"role":"roles/storage.objectViewer","members":long_members}]});
+    assert!(long.to_string().len() > 256 * 1024);
+    set(&server, ADMIN, &long).success();
+    assert_eq!(
+        server.get(ADMIN, IAM).success().json()["bindings"][0]["members"],
+        long["bindings"][0]["members"]
+    );
+    const BODY_LIMIT: usize = 16 * 1024 * 1024;
     let exact = format!(
         "{{\"bindings\":[],\"padding\":\"{}\"}}",
-        "x".repeat(65536 - 28)
+        "x".repeat(BODY_LIMIT - 28)
     );
-    assert_eq!(exact.len(), 65536);
+    assert_eq!(exact.len(), BODY_LIMIT);
     server
         .request("PUT", IAM, ADMIN, exact.as_bytes())
         .success();

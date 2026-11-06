@@ -140,8 +140,9 @@ fn gzip_initiation_bounds_compressed_and_expanded_metadata() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
+    const BODY_LIMIT: usize = 16 * 1024 * 1024;
     let mut metadata = br#"{"name":"object"}"#.to_vec();
-    metadata.resize(64 * 1024, b' ');
+    metadata.resize(BODY_LIMIT, b' ');
     let initiated = server.request("POST", PATH, GZIP, &gzip(&metadata));
     initiated.expect(200);
     assert!(initiated.body.is_empty());
@@ -152,7 +153,7 @@ fn gzip_initiation_bounds_compressed_and_expanded_metadata() {
         .request("POST", PATH, GZIP, &gzip(&metadata))
         .status(413);
     server
-        .request("POST", PATH, GZIP, &vec![0; 64 * 1024 + 1])
+        .request("POST", PATH, GZIP, &vec![0; BODY_LIMIT + 1])
         .status(413);
     assert_eq!(sessions(&dir), 1);
 }

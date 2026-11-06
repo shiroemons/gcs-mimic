@@ -7,6 +7,7 @@ const JSON: &str = "Content-Type: application/json\r\n";
 const GZIP: &str = "Content-Type: application/json\r\nContent-Encoding: gzip\r\n";
 const OVERRIDE: &str = "Content-Type: application/json\r\nX-HTTP-Method-Override: PATCH\r\n";
 const BUCKET: &str = "/storage/v1/b/ingress-bucket";
+const BODY_LIMIT: usize = 16 * 1024 * 1024;
 
 #[test]
 fn gzip_json_and_post_patch_override_preserve_conditions_and_object_bytes() {
@@ -124,16 +125,24 @@ fn gzip_input_and_expansion_limits_and_override_scope_fail_closed() {
         )
         .status(200);
     let mut exact = br#"{"labels":{}}"#.to_vec();
-    exact.resize(64 * 1024, b' ');
+    exact.resize(BODY_LIMIT, b' ');
+    let compressed = gzip(&exact);
     server
-        .request("PATCH", BUCKET, GZIP, &gzip(&exact))
+        .request("PATCH", BUCKET, GZIP, &compressed)
         .status(200);
     exact.push(b' ');
+    // A small input that expands past the limit is refused by what it expands to: raising the
+    // limit must not let a compressed body grow without bound.
+    let bomb = gzip(&exact);
+    assert!(bomb.len() < BODY_LIMIT / 100, "{}", bomb.len());
+    server.request("PATCH", BUCKET, GZIP, &bomb).status(413);
+    let far_larger = gzip(&vec![b' '; 8 * BODY_LIMIT]);
+    assert!(far_larger.len() < BODY_LIMIT / 10, "{}", far_larger.len());
     server
-        .request("PATCH", BUCKET, GZIP, &gzip(&exact))
+        .request("PATCH", BUCKET, GZIP, &far_larger)
         .status(413);
     server
-        .request("PATCH", BUCKET, GZIP, &vec![0; 64 * 1024 + 1])
+        .request("PATCH", BUCKET, GZIP, &vec![0; BODY_LIMIT + 1])
         .status(413);
     for (method, path, headers) in [
         ("PATCH", BUCKET, OVERRIDE.to_string()),

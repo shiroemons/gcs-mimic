@@ -1,6 +1,6 @@
 //! Transport input normalization before API routing and operation authorization.
 
-use super::{BUCKET_BODY_LIMIT, BodyPace, BodyRead, ObjectActivity, RequestCtx};
+use super::{BodyPace, BodyRead, ObjectActivity, RESOURCE_BODY_LIMIT, RequestCtx};
 use crate::json::JsonError;
 use flate2::read::MultiGzDecoder;
 use http_body_util::{BodyExt, Full};
@@ -209,7 +209,7 @@ pub(super) async fn decode_metadata(
         .await
         .map_err(JsonError::from)?;
     let (mut parts, mut body) = request.into_parts();
-    if body.size_hint().lower() > BUCKET_BODY_LIMIT as u64 {
+    if body.size_hint().lower() > RESOURCE_BODY_LIMIT as u64 {
         return Err(too_large());
     }
     let mut compressed = Vec::new();
@@ -218,7 +218,7 @@ pub(super) async fn decode_metadata(
             .map_err(|_| bad_request("Could not read compressed request body"))?
             .into_data()
             .map_err(|_| bad_request("Compressed JSON request trailers are unsupported"))?;
-        if data.len() > BUCKET_BODY_LIMIT - compressed.len() {
+        if data.len() > RESOURCE_BODY_LIMIT - compressed.len() {
             return Err(too_large());
         }
         compressed.extend_from_slice(&data);
@@ -233,7 +233,7 @@ pub(super) async fn decode_metadata(
         .map_err(|_| decoder_unavailable())?;
     let decoded = crate::task::run_blocking("json-gzip-decoder", move || {
         let _permit = permit;
-        decode(&compressed, BUCKET_BODY_LIMIT)
+        decode(&compressed, RESOURCE_BODY_LIMIT)
     })
     .await
     .map_err(|_| decoder_unavailable())?
@@ -257,7 +257,10 @@ fn too_large() -> JsonError {
     JsonError::new(
         StatusCode::PAYLOAD_TOO_LARGE,
         "uploadTooLarge",
-        "Compressed or expanded JSON request body exceeds 64 KiB",
+        format!(
+            "Compressed or expanded JSON request body exceeds {}",
+            crate::json::RESOURCE_BODY_LIMIT_TEXT
+        ),
     )
 }
 

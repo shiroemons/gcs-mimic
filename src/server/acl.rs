@@ -195,7 +195,7 @@ pub(super) async fn respond(
             return Ok(response);
         }
         AclOperation::Insert | AclOperation::Patch(_) | AclOperation::Update(_) => {
-            let bytes = json::read_body(request.into_body(), super::BUCKET_BODY_LIMIT).await?;
+            let bytes = json::read_body(request.into_body(), super::RESOURCE_BODY_LIMIT).await?;
             let body = json::acl::parse_acl_body(&bytes, target.kind(), &operation)?;
             let (acl, entry) = state
                 .catalog

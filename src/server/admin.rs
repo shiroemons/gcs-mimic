@@ -1,6 +1,6 @@
 //! Opt-in local management never confers Google API permissions; sync retains its ownership authority.
 
-use super::{BUCKET_BODY_LIMIT, RequestBody, RequestCtx, ResponseBody, boxed, empty_response};
+use super::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, ResponseBody, boxed, empty_response};
 use crate::{
     auth,
     config::EndpointError,
@@ -152,7 +152,7 @@ async fn update(
             "Local configuration does not accept query parameters",
         ));
     }
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let update: Update = serde_json::from_slice(&bytes).map_err(|_| {
         JsonError::invalid_argument(
             "Send one JSON object with string externalUrl and publicHost fields",

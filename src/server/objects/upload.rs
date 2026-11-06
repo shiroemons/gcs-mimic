@@ -149,9 +149,8 @@ pub(super) async fn multipart(
     let boundary = json::multipart_boundary(request.headers())?;
     let token = idempotency_token(request.headers())?;
     let replay_request = replay_binding(&request, ctx, key);
-    // The parser's JSON, header, delimiter-padding and discard caps total less than 256 KiB.
     if content_length(request.headers())
-        .is_some_and(|length| length > max_bytes.saturating_add(256 * 1024))
+        .is_some_and(|length| length > max_bytes.saturating_add(json::MULTIPART_FRAMING_LIMIT))
     {
         return Err(ObjectError::TooLarge.into());
     }
