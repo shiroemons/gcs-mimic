@@ -41,6 +41,33 @@ fn finish_upload_with(upload: &mut BufReader<TcpStream>, body: &[u8]) {
     assert!(reply.starts_with(b"HTTP/1.1 200"));
 }
 
+/// The catalog wait bounds waiting for other work, not how long a tree takes to import.
+#[test]
+fn a_reseed_may_take_longer_than_the_catalog_wait() {
+    let (data, source) = (TestDir::new(), TestDir::new());
+    let server = seeded_server(&data, &source, "50");
+    for index in 0..500 {
+        std::fs::write(source.0.join(format!("test-bucket/extra-{index}")), b"seed").unwrap();
+    }
+    // A wait this short can still expire on a loaded runner, which is a retryable 503.
+    let reply = common::input_fixtures::eventually_some("the reseed", || {
+        let reply = server.request("POST", "/_internal/reseed", "", b"");
+        (reply.status != 503).then_some(reply)
+    });
+    assert_eq!(reply.json_ok()["outcome"], "imported");
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/extra-499?alt=media",
+                "",
+                b""
+            )
+            .body,
+        b"seed"
+    );
+}
+
 #[test]
 fn reseed_waits_for_an_active_upload_and_then_replays_fixtures() {
     let (data, source) = (TestDir::new(), TestDir::new());

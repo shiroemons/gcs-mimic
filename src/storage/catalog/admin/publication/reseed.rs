@@ -29,7 +29,7 @@ pub(crate) struct SeedBatch {
     runtime: tokio::runtime::Handle,
     metadata_bytes: usize,
     metadata_budget: usize,
-    wait_limit: Option<tokio::time::Instant>,
+    request_deadline: Option<tokio::time::Instant>,
 }
 
 /// A batch holds every object's metadata in memory until it commits, so this bounds that memory.
@@ -44,8 +44,15 @@ fn metadata_budget(max_entries: usize) -> usize {
 
 /// A caller with its own budget (an HTTP request) supplies a limit so that waiting ends as a
 /// retryable no-changes `Busy` before the caller gives up; startup waits like other publication.
-fn wait_deadline(catalog: &Catalog, limit: Option<tokio::time::Instant>) -> tokio::time::Instant {
-    limit.unwrap_or_else(|| catalog.admin_deadline())
+/// When a wait that starts now must end. Each wait gets a full budget, so a tree that takes long to
+/// stage leaves its commit as long to wait as a small one; expiring before exclusive ownership can
+/// still confirm that nothing changed.
+fn wait_deadline(
+    catalog: &Catalog,
+    request_deadline: Option<tokio::time::Instant>,
+) -> tokio::time::Instant {
+    let budget = catalog.admin_deadline();
+    request_deadline.map_or(budget, |deadline| deadline.min(budget))
 }
 
 impl Admin {
@@ -56,7 +63,7 @@ impl Admin {
 
     pub(crate) async fn seed_batch_until(
         &self,
-        wait_limit: Option<tokio::time::Instant>,
+        request_deadline: Option<tokio::time::Instant>,
         max_entries: usize,
     ) -> Result<SeedBatch, AdminError> {
         if self.catalog.sync_controls()?.is_some() {
@@ -71,7 +78,7 @@ impl Admin {
                 .try_acquire_owned()
                 .map_err(|_| busy())?,
         );
-        let deadline = wait_deadline(&self.catalog, wait_limit);
+        let deadline = wait_deadline(&self.catalog, request_deadline);
         let admission = self
             .catalog
             .wait_admin(self.catalog.0.publication_batch.clone(), deadline)
@@ -89,7 +96,7 @@ impl Admin {
             runtime: tokio::runtime::Handle::current(),
             metadata_bytes: 0,
             metadata_budget: metadata_budget(max_entries),
-            wait_limit,
+            request_deadline,
         })
     }
 }
@@ -231,7 +238,7 @@ impl SeedBatch {
         // The batch's own read lease would otherwise keep the exclusive gate from ever opening.
         self.activity.take();
         let exclusive = catalog
-            .wait_exclusive(wait_deadline(&catalog, self.wait_limit))
+            .wait_exclusive(wait_deadline(&catalog, self.request_deadline))
             .await?;
         let inner = catalog.0.clone();
         let (outcome, mut batch) = catalog
