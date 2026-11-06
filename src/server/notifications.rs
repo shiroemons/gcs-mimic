@@ -37,7 +37,7 @@ pub(super) async fn respond(
     }
     let mut value = match operation {
         NotificationRequest::Insert { bucket } => {
-            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
             let pending = parse_notification_head(&bytes)?;
             check_topic(state, &bucket, &access, pending.topic()).await?;
             let config = pending.finish()?;

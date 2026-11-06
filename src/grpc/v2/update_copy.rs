@@ -1571,6 +1571,93 @@ mod tests {
         s.state.catalog.close().await.unwrap();
     }
 
+    /// A page must fit the 4 MiB that clients commonly accept in one message, however much the
+    /// objects hold, and paging must still reach every object.
+    #[tokio::test]
+    async fn grpc_object_lists_page_on_their_size_and_reach_every_object() {
+        use prost::Message;
+        const OBJECTS: usize = 600;
+        let (s, _dir) = setup().await;
+        for index in 0..OBJECTS {
+            let name = format!("object-{index:04}");
+            let mut upload = permissive_upload("update-copy-bucket", &name, s.max_object_bytes);
+            upload.metadata.metadata = Some(Some(std::collections::BTreeMap::from([(
+                "key".to_owned(),
+                Some("v".repeat(8000)),
+            )])));
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            tx.send(Ok(UploadChunk::End)).await.unwrap();
+            drop(tx);
+            s.state.catalog.put_object(upload, rx).await.unwrap();
+        }
+        let (mut listed, mut pages, mut token) = (Vec::new(), 0, String::new());
+        loop {
+            let page = s
+                .list_objects(
+                    Request::new(pb::ListObjectsRequest {
+                        parent: "projects/_/buckets/update-copy-bucket".into(),
+                        page_token: std::mem::take(&mut token),
+                        ..Default::default()
+                    }),
+                    None,
+                )
+                .await
+                .unwrap()
+                .into_inner();
+            assert!(
+                page.encoded_len() < 4 * 1024 * 1024,
+                "{}",
+                page.encoded_len()
+            );
+            assert!(!page.objects.is_empty(), "a page must advance");
+            listed.extend(page.objects.into_iter().map(|object| object.name));
+            pages += 1;
+            if page.next_page_token.is_empty() {
+                break;
+            }
+            token = page.next_page_token;
+        }
+        assert!(pages > 1, "{pages}");
+        let expected: Vec<_> = (0..OBJECTS)
+            .map(|index| format!("object-{index:04}"))
+            .collect();
+        assert_eq!(listed, expected);
+        s.state.catalog.close().await.unwrap();
+    }
+
+    /// A budget smaller than any entry still lists one entry per page, prefixes included.
+    #[tokio::test]
+    async fn an_object_page_past_its_budget_still_advances_one_entry_at_a_time() {
+        let (s, _dir) = setup().await;
+        for name in ["dir/a", "dir/b", "top-1", "top-2"] {
+            upload(&s, name, 1).await;
+        }
+        let mut query = crate::storage::ObjectListQuery {
+            bucket: "update-copy-bucket".into(),
+            delimiter: "/".into(),
+            page_bytes: Some(1),
+            ..Default::default()
+        };
+        let mut seen = Vec::new();
+        loop {
+            let page = s
+                .state
+                .catalog
+                .list_objects(query.clone(), 1000, PERMISSIVE)
+                .await
+                .unwrap();
+            assert_eq!(page.items.len() + page.prefixes.len(), 1);
+            seen.extend(page.prefixes);
+            seen.extend(page.items.into_iter().map(|record| record.name));
+            match page.next {
+                Some(next) => query.cursor = Some(next),
+                None => break,
+            }
+        }
+        assert_eq!(seen, ["dir/", "top-1", "top-2"]);
+        s.state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn grpc_list_soft_deleted_objects() {
         let (s, _dir) = setup().await;

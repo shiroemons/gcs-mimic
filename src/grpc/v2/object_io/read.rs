@@ -208,6 +208,7 @@ impl Storage {
             versions: r.versions,
             soft_deleted: r.soft_deleted,
             cursor: None,
+            page_bytes: Some(crate::grpc::LIST_PAGE_BYTES),
         };
         query
             .validate(if r.include_folders_as_prefixes {

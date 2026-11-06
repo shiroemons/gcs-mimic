@@ -89,7 +89,34 @@ pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
         .unwrap();
 }
 
+/// Restores the schema 50 policy table, whose bindings are checked at 64 KiB. Fixtures built at
+/// older versions may have no such table, or already have this one.
+pub(crate) fn downgrade_policy_bindings_schema(connection: &rusqlite::Connection) {
+    let rebuilt: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = 'bucket_policies' AND sql NOT LIKE '%65536%')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if rebuilt {
+        connection
+            .execute_batch(
+                "ALTER TABLE bucket_policies RENAME TO bucket_policies_unchecked;
+                CREATE TABLE bucket_policies (
+                    bucket TEXT PRIMARY KEY COLLATE BINARY,
+                    bindings TEXT NOT NULL CHECK(length(CAST(bindings AS BLOB)) <= 65536),
+                    revision INTEGER NOT NULL CHECK(revision > 0)
+                ) WITHOUT ROWID;
+                INSERT INTO bucket_policies SELECT * FROM bucket_policies_unchecked;
+                DROP TABLE bucket_policies_unchecked;",
+            )
+            .unwrap();
+    }
+}
+
 pub(crate) fn downgrade_deletion_history_schema(connection: &rusqlite::Connection) {
+    downgrade_policy_bindings_schema(connection);
     connection.execute_batch("DROP TRIGGER IF EXISTS sync_deletion_history_root_insert; DROP TRIGGER IF EXISTS sync_deletion_history_baseline; DROP TABLE IF EXISTS sync_deletion_history;").unwrap();
 }
 

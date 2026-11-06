@@ -38,11 +38,12 @@ use policy::Version;
 #[cfg(test)]
 mod failure_tests;
 
-/// One form field value, which bounds the policy document as well.
-const FIELD_CAP: usize = 64 * 1024;
-/// All non-file fields together; they are held in memory until the file part starts.
-const FORM_CAP: usize = 256 * 1024;
-const FIELD_LIMIT: usize = 64;
+/// All non-file fields together, which bounds the policy document as well. They stay in memory
+/// until the file part starts, so a field's name and map entry count too: nothing else would stop
+/// a form of empty fields from growing, now that the number of fields has no limit of its own.
+const FORM_CAP: usize = json::RESOURCE_BODY_LIMIT;
+/// What one field's map entry takes beside its name and value.
+const FIELD_ENTRY_CHARGE: usize = 64;
 const CUSTOM_METADATA_CAP: usize = 8192;
 
 /// Cloud Storage reports unmet conditions as InvalidPolicyDocument with this wording.
@@ -163,6 +164,12 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
     parser: &mut json::Multipart<B>,
 ) -> Result<Form, Error> {
     parser.start().await?;
+    let too_large = || {
+        Error::invalid(format!(
+            "Form fields before the file field are limited to {} in total.",
+            json::RESOURCE_BODY_LIMIT_TEXT
+        ))
+    };
     let mut fields = BTreeMap::new();
     let mut total = 0;
     loop {
@@ -175,22 +182,18 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
         if name == "file" {
             return Ok(Form { fields, filename });
         }
-        if fields.len() == FIELD_LIMIT {
-            return Err(Error::invalid(format!(
-                "The form has more than {FIELD_LIMIT} fields before the file field."
-            )));
+        total += name.len() + FIELD_ENTRY_CHARGE;
+        if total > FORM_CAP {
+            return Err(too_large());
         }
         let mut value = Vec::new();
         while let Some(chunk) = parser.next_chunk().await? {
-            if value.len() + chunk.len() > FIELD_CAP || total + value.len() + chunk.len() > FORM_CAP
-            {
-                return Err(Error::invalid(format!(
-                    "Form fields before the file field are limited to {FIELD_CAP} bytes each and {FORM_CAP} bytes in total."
-                )));
+            if chunk.len() > FORM_CAP - total {
+                return Err(too_large());
             }
+            total += chunk.len();
             value.extend_from_slice(&chunk);
         }
-        total += value.len();
         let value = String::from_utf8(value)
             .map_err(|_| Error::invalid(format!("Form field {name} must be UTF-8.")))?;
         if fields.insert(name.clone(), value).is_some() {
@@ -1279,14 +1282,50 @@ mod tests {
                 StatusCode::BAD_REQUEST
             );
         }
-        let mut long = "--b\r\nContent-Disposition: form-data; name=\"key\"\r\n\r\n".to_owned();
-        long.push_str(&"x".repeat(FIELD_CAP + 1));
-        long.push_str(
-            "\r\n--b\r\nContent-Disposition: form-data; name=\"file\"\r\n\r\nx\r\n--b--\r\n",
+        let file = "\r\n--b\r\nContent-Disposition: form-data; name=\"file\"\r\n\r\nx\r\n--b--\r\n";
+        let head = "--b\r\nContent-Disposition: form-data; name=\"key\"\r\n\r\n";
+        let charged = "key".len() + FIELD_ENTRY_CHARGE;
+        // One field may take the whole budget, far above the former 64 KiB per field.
+        let exact = format!("{head}{}{file}", "x".repeat(FORM_CAP - charged));
+        let mut parser = json::Multipart::new(Full::new(Bytes::from(exact)), "b");
+        assert_eq!(
+            read_form(&mut parser).await.unwrap().fields["key"].len(),
+            FORM_CAP - charged
         );
+        let long = format!("{head}{}{file}", "x".repeat(FORM_CAP - charged + 1));
         let mut parser = json::Multipart::new(Full::new(Bytes::from(long)), "b");
         assert!(
             read_form(&mut parser)
+                .await
+                .unwrap_err()
+                .message
+                .contains("limited to")
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_fields_cannot_grow_the_form_past_its_memory_budget() {
+        let form = |count: usize| {
+            let mut body = String::new();
+            for index in 0..count {
+                body.push_str(&format!(
+                    "--b\r\nContent-Disposition: form-data; name=\"x-goog-meta-{index:06}\"\r\n\r\n\r\n"
+                ));
+            }
+            body.push_str(
+                "--b\r\nContent-Disposition: form-data; name=\"file\"\r\n\r\nx\r\n--b--\r\n",
+            );
+            json::Multipart::new(Full::new(Bytes::from(body)), "b")
+        };
+        // Each entry costs its name and map entry although its value is empty.
+        let charge = "x-goog-meta-000000".len() + FIELD_ENTRY_CHARGE;
+        let fitting = FORM_CAP / charge;
+        assert_eq!(
+            read_form(&mut form(fitting)).await.unwrap().fields.len(),
+            fitting
+        );
+        assert!(
+            read_form(&mut form(fitting + 1))
                 .await
                 .unwrap_err()
                 .message

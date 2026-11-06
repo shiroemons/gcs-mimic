@@ -411,11 +411,27 @@ fn xml_bucket_create_rejects_invalid_bounded_metadata_without_creating() {
             .request("PUT", "/invalid-bucket", headers, "")
             .expect(400);
     }
-    let reply = server.request("PUT", "/invalid-bucket", PROJECT, &"x".repeat(65537));
+    let reply = server.request(
+        "PUT",
+        "/invalid-bucket",
+        PROJECT,
+        &"x".repeat(16 * 1024 * 1024 + 1),
+    );
     reply.expect(413);
     server
         .request("HEAD", "/invalid-bucket", "", "")
         .expect(404);
+    // A document above the former 64 KiB limit reaches the parser, which judges its content.
+    server
+        .request("PUT", "/invalid-bucket", PROJECT, &"x".repeat(65537))
+        .expect(400);
+    let padded = format!(
+        "<CreateBucketConfiguration><StorageClass>NEARLINE</StorageClass></CreateBucketConfiguration>{}",
+        " ".repeat(65537)
+    );
+    server
+        .request("PUT", "/padded-bucket", PROJECT, &padded)
+        .expect(200);
     for path in ["/Invalid_Name", "/ab", "/192.168.1.1", "/google-bucket"] {
         server
             .request("PUT", path, PROJECT, "")

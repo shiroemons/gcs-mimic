@@ -332,6 +332,34 @@ fn v4_rsa_and_hmac_policy_upload_exact_binary_on_disk_and_ram() {
     }
 }
 
+/// The form has no limit on its number of fields, so custom metadata may arrive in many small
+/// ones; the documented 8 KiB total is what still bounds it.
+#[test]
+fn a_policy_form_may_split_its_custom_metadata_over_many_small_fields() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, "disk");
+    server.bucket("policy-bucket");
+    let key = server.key("signer@example.invalid");
+    let names: Vec<_> = (0..1000)
+        .map(|index| format!("x-goog-meta-k{index:03}"))
+        .collect();
+    let mut extras: Vec<_> = names.iter().map(|name| (name.as_str(), "vvvv")).collect();
+    let form = fields(Signer::Hmac(&key), "policy-bucket", "object", &extras, &[]);
+    assert!(form.len() > 1000);
+    server.post("policy-bucket", &form, b"data").expect(204);
+    let stored = server
+        .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
+        .json_ok();
+    assert_eq!(stored["metadata"].as_object().unwrap().len(), 1000);
+    // Each field adds eight bytes, so this value passes the documented total by a single byte.
+    let over = "v".repeat(8192 - 8000 - "big".len() + 1);
+    extras.push(("x-goog-meta-big", over.as_str()));
+    let form = fields(Signer::Hmac(&key), "policy-bucket", "over", &extras, &[]);
+    let reply = server.post("policy-bucket", &form, b"data");
+    reply.expect(400);
+    assert!(String::from_utf8_lossy(&reply.body).contains("MetadataTooLarge"));
+}
+
 #[test]
 fn v4_hmac_policy_keys_revoke_restart_and_never_borrow_key_admin_or_project_permissions() {
     let dir = TestDir::new();

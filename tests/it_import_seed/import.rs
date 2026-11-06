@@ -335,7 +335,7 @@ fn metadata_and_body_limits_empty_files_os_detritus_and_page_counts_are_explicit
     assert_finding(&pages, ".:limits", "source entry limit exceeded");
     let (_dir, mut options) = setup();
     let mut exact = ATTRS.to_vec();
-    exact.resize(65_536, b' ');
+    exact.resize(16 * 1024 * 1024, b' ');
     object(&options.source, "bucket-one/exact", &exact);
     options.max_object_bytes = 5;
     assert!(inspect(options.clone()).0.eligible);
@@ -346,7 +346,7 @@ fn metadata_and_body_limits_empty_files_os_detritus_and_page_counts_are_explicit
     assert_finding(
         &pages,
         "bucket-one/oversize:metadata",
-        "metadata exceeds 64 KiB",
+        "metadata exceeds 16 MiB",
     );
     let (_dir, mut body_options) = setup();
     object(&body_options.source, "bucket-one/body", ATTRS);

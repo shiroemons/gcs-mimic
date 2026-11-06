@@ -316,8 +316,60 @@ pub(crate) fn validate_object_storage_class(class: &str) -> Result<StorageClass,
     })
 }
 
+/// Text and maps always serialize; a failure counts as too large rather than as fitting.
+fn encoded_json_len<T: serde::Serialize + ?Sized>(value: &T) -> usize {
+    serde_json::to_vec(value).map_or(usize::MAX, |encoded| encoded.len())
+}
+
+/// What an object's fixed and custom metadata may take once encoded as JSON.
+///
+/// A session's options, a stored completion and a stored rewrite response keep a copy in columns
+/// checked at 64 KiB, next to the object name in several escaped forms and a `fields` selection
+/// of up to 16 KiB. Refusing here keeps an oversized value from failing those rows' constraints as
+/// a retryable server error after the client has sent its data. Custom metadata stays well inside
+/// this at its documented 8 KiB, unless nearly every byte needs a six-byte JSON escape, and fixed
+/// metadata has no documented size but becomes response headers, whose documented XML API total
+/// is 16 KiB.
+const ENCODED_METADATA_LIMIT: usize = 40 * 1024;
+
 impl ObjectMetadataUpdate {
+    /// Options store the content type both as a session field and inside the metadata.
+    fn encoded_size(&self) -> usize {
+        let text = |value: &Option<Option<String>>| {
+            value
+                .as_ref()
+                .and_then(Option::as_ref)
+                .map_or(0, encoded_json_len)
+        };
+        [
+            text(&self.content_type),
+            text(&self.content_type),
+            text(&self.content_encoding),
+            text(&self.content_disposition),
+            text(&self.content_language),
+            text(&self.cache_control),
+            self.metadata
+                .as_ref()
+                .and_then(Option::as_ref)
+                .map_or(0, encoded_json_len),
+        ]
+        .into_iter()
+        .fold(0, usize::saturating_add)
+    }
+
+    /// Fails an update too large for the rows that keep a copy of it.
+    pub(crate) fn check_encoded_size(&self) -> Result<(), ObjectError> {
+        if self.encoded_size() > ENCODED_METADATA_LIMIT {
+            return Err(ObjectError::InvalidFixedMetadata(format!(
+                "Object metadata exceeds {} KiB once encoded as JSON; shorten its fixed and custom metadata.",
+                ENCODED_METADATA_LIMIT / 1024
+            )));
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate(&self) -> Result<(), ObjectError> {
+        self.check_encoded_size()?;
         if self.metadata_mode == MapMode::Replace
             && self
                 .metadata

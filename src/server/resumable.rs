@@ -54,7 +54,7 @@ pub(super) async fn initiate(
     location_base
         .parse::<hyper::header::HeaderValue>()
         .map_err(|_| JsonError::invalid_parameter("Invalid session endpoint"))?;
-    let bytes = json::read_body(request.into_body(), 64 * 1024).await?;
+    let bytes = json::read_body(request.into_body(), json::RESOURCE_BODY_LIMIT).await?;
     if !bytes.is_empty() && !json_type {
         return Err(JsonError::invalid_parameter(
             "Metadata requires application/json",

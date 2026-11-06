@@ -110,34 +110,34 @@ fn parse_metadata(
             "contentLanguage must not be empty; use null to clear it",
         ));
     }
-    Ok(ObjectMetadataRequest {
-        unchanged,
-        update: ObjectMetadataUpdate {
-            acl: body
-                .get("acl")
-                .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::Object))
-                .transpose()?,
-            predefined_acl: None,
-            replace: mode == WriteMode::Replace,
-            content_type: string(body, "contentType")?,
-            content_encoding: string(body, "contentEncoding")?,
-            content_disposition: string(body, "contentDisposition")?,
-            content_language: string(body, "contentLanguage")?,
-            cache_control: string(body, "cacheControl")?,
-            metadata,
-            metadata_mode: crate::object::MapMode::Merge,
-            temporary_hold: hold(body, "temporaryHold"),
-            custom_time: string(body, "customTime")?,
-            event_based_hold: hold(body, "eventBasedHold"),
-            retention: body
-                .get("retention")
-                .map(super::object_retention::parse)
-                .transpose()?,
-            override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
-            customer_key_sha256: None,
-            storage_class: None,
-        },
-    })
+    let update = ObjectMetadataUpdate {
+        acl: body
+            .get("acl")
+            .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::Object))
+            .transpose()?,
+        predefined_acl: None,
+        replace: mode == WriteMode::Replace,
+        content_type: string(body, "contentType")?,
+        content_encoding: string(body, "contentEncoding")?,
+        content_disposition: string(body, "contentDisposition")?,
+        content_language: string(body, "contentLanguage")?,
+        cache_control: string(body, "cacheControl")?,
+        metadata,
+        metadata_mode: crate::object::MapMode::Merge,
+        temporary_hold: hold(body, "temporaryHold"),
+        custom_time: string(body, "customTime")?,
+        event_based_hold: hold(body, "eventBasedHold"),
+        retention: body
+            .get("retention")
+            .map(super::object_retention::parse)
+            .transpose()?,
+        override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
+        customer_key_sha256: None,
+        storage_class: None,
+    };
+    // A resumable initiation stores this update before anything else validates it.
+    update.check_encoded_size().map_err(JsonError::from)?;
+    Ok(ObjectMetadataRequest { unchanged, update })
 }
 
 /// Collects server-managed fields, which a write may repeat only unchanged, and rejects

@@ -1123,6 +1123,91 @@ mod tests {
         }
     }
 
+    /// The catalog's list budget gives a resource above a client's common 4 MiB limit a page of
+    /// its own, so the buckets around it stay readable, and paging reaches them all.
+    #[tokio::test]
+    async fn grpc_bucket_lists_keep_a_large_bucket_on_its_own_page() {
+        use prost::Message;
+        let dir = TestDir::new();
+        let storage = fixtures::storage_with(
+            Arc::new(crate::server::State::for_test(
+                Catalog::open(&dir.0).await.unwrap(),
+                Auth::permissive(),
+            )),
+            1024,
+        );
+        let origin = format!("https://{}.invalid", "o".repeat(5 * 1024 * 1024));
+        for body in [
+            serde_json::json!({"name":"a-small"}),
+            serde_json::json!({"name":"m-large","cors":[{"origin":[origin]}]}),
+            serde_json::json!({"name":"z-small"}),
+        ] {
+            let record = crate::json::parse_insert(
+                body.to_string().as_bytes(),
+                "p",
+                std::time::SystemTime::now(),
+            )
+            .unwrap();
+            storage.state.catalog.insert_bucket(record).await.unwrap();
+        }
+        let (mut pages, mut token) = (Vec::new(), String::new());
+        loop {
+            let page = storage
+                .list_buckets(
+                    Request::new(pb::ListBucketsRequest {
+                        parent: "projects/p".into(),
+                        page_token: std::mem::take(&mut token),
+                        ..Default::default()
+                    }),
+                    None,
+                )
+                .await
+                .unwrap()
+                .into_inner();
+            pages.push((
+                page.buckets
+                    .iter()
+                    .map(|bucket| bucket.name.clone())
+                    .collect::<Vec<_>>(),
+                page.encoded_len(),
+            ));
+            if page.next_page_token.is_empty() {
+                break;
+            }
+            token = page.next_page_token;
+        }
+        let names: Vec<_> = pages.iter().map(|(names, _)| names.join(",")).collect();
+        assert_eq!(
+            names,
+            [
+                "projects/_/buckets/a-small",
+                "projects/_/buckets/m-large",
+                "projects/_/buckets/z-small"
+            ]
+        );
+        assert!(pages[0].1 < 1024 * 1024 && pages[2].1 < 1024 * 1024);
+        assert!(pages[1].1 > 5 * 1024 * 1024);
+        // A client that keeps a 4 MiB limit can still read that bucket without its large fields.
+        let masked = storage
+            .list_buckets(
+                Request::new(pb::ListBucketsRequest {
+                    parent: "projects/p".into(),
+                    prefix: "m-".into(),
+                    read_mask: Some(prost_types::FieldMask {
+                        paths: vec!["name".into()],
+                    }),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(masked.buckets.len(), 1);
+        assert!(masked.encoded_len() < 1024, "{}", masked.encoded_len());
+        storage.state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn grpc_bucket_list_acl_views_keep_per_bucket_permissions_and_uniform_access() {
         let dir = TestDir::new();

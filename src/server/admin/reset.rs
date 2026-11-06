@@ -2,7 +2,7 @@
 
 use crate::{
     json::{self, JsonError},
-    server::{BUCKET_BODY_LIMIT, DeadlineWatch, RequestBody, RequestCtx, json_response},
+    server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::AdminError,
 };
 use http_body_util::Full;
@@ -61,7 +61,7 @@ async fn reset(
             "Stop directory synchronization and restart without sync_dir before resetting; external files are never reset",
         ));
     }
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let confirmation: Confirmation = if matches!(form, Form::SourceAlias) {
         if !bytes.is_empty() {
             return Err(JsonError::invalid_argument(

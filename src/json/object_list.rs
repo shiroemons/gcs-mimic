@@ -101,6 +101,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         versions: boolean(&mut params, "versions")?,
         soft_deleted: boolean(&mut params, "softDeleted")?,
         cursor: None,
+        page_bytes: None,
     };
     query.validate(if include_folders_as_prefixes {
         FoldersAsPrefixes::Requested

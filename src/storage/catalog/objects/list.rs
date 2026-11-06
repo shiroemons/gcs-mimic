@@ -19,6 +19,32 @@ pub struct ObjectListQuery {
     pub versions: bool,
     pub soft_deleted: bool,
     pub(crate) cursor: Option<ObjectListCursor>,
+    /// Ends a page early, past this estimate of its bytes, for an adapter whose response is one
+    /// message of limited size. A page always holds one entry, so a listing keeps advancing.
+    pub(crate) page_bytes: Option<usize>,
+}
+
+/// About what a listed object adds to a page: its text fields and metadata as stored, plus an
+/// allowance for the fixed fields around them. Being an estimate, it needs a budget well below
+/// the limit that a page's message has to stay under.
+fn listed_bytes(record: &ObjectRecord) -> usize {
+    let text = [
+        record.content_encoding.as_deref(),
+        record.content_disposition.as_deref(),
+        record.content_language.as_deref(),
+        record.cache_control.as_deref(),
+        record.custom_time.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::len)
+    .sum::<usize>();
+    let metadata = record
+        .metadata
+        .iter()
+        .map(|(key, value)| key.len() + value.len())
+        .sum::<usize>();
+    512 + record.name.len() + record.content_type.len() + text + metadata
 }
 
 #[derive(Debug)]
@@ -415,6 +441,7 @@ pub(super) fn list_page_within(
     let mut statements = ListStatements::prepare(connection, ListSource::of(query), bound)?;
     let mut scratch = Vec::new();
     let mut examined = 0;
+    let mut page_bytes = 0usize;
     loop {
         let Some(position) = seek_position(
             connection,
@@ -472,9 +499,21 @@ pub(super) fn list_page_within(
             .match_glob
             .as_ref()
             .is_none_or(|glob| glob.matches(&name));
-        if matches && page.items.len() + page.prefixes.len() == limit {
+        let listed = page.items.len() + page.prefixes.len();
+        if matches && listed == limit {
             page.next = cursor;
             break;
+        }
+        if matches && let Some(budget) = query.page_bytes {
+            page_bytes = page_bytes.saturating_add(if is_prefix {
+                name.len()
+            } else {
+                listed_bytes(&record)
+            });
+            if listed > 0 && page_bytes > budget {
+                page.next = cursor;
+                break;
+            }
         }
         cursor = Some(ObjectListCursor {
             name: name.clone(),

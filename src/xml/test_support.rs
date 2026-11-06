@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 pub(super) struct SignedUploadFixture {
-    pub(super) state: State,
+    pub(super) state: Arc<State>,
     pub(super) config: Config,
     pub(super) endpoints: RequestEndpoints,
     pub(super) activity: watch::Sender<ObjectActivity>,
@@ -49,11 +49,11 @@ impl SignedUploadFixture {
         let endpoints = RequestEndpoints::explicit("http://localhost");
         let (activity, _) = watch::channel(ObjectActivity::default());
         Self {
-            state: State {
+            state: Arc::new(State {
                 clock,
                 api_base_url: endpoints.api_base_url().to_owned(),
                 ..State::for_test(catalog, auth)
-            },
+            }),
             config: Config {
                 max_object_bytes: 1024 * 1024,
                 ..Config::default()

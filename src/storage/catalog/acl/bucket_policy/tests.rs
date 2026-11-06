@@ -174,3 +174,88 @@ async fn legacy_reconciliation_rejects_invalid_or_oversized_acls_and_rolls_back_
     }).await.unwrap();
     catalog.close().await.unwrap();
 }
+
+fn occurrences(policy: &Policy) -> usize {
+    policy
+        .bindings
+        .iter()
+        .map(|binding| binding.members.len())
+        .sum()
+}
+
+/// An entity naming the bucket's own project by ID maps to a member whose canonical entity names
+/// the project by number, so the edit that removes the entry leaves the member bound. Adding the
+/// entry again must not bind it a second time, or a repeated edit would grow the policy for ever.
+#[tokio::test]
+async fn repeated_acl_edits_do_not_grow_the_policy() {
+    let (_data, catalog) = fixture().await;
+    let sizes = catalog
+        .run::<_, crate::bucket::CatalogError>(|connection| {
+            let transaction = connection.transaction().unwrap();
+            let without_entry = project_private("project");
+            let mut with_entry = without_entry.clone();
+            with_entry.push(AclEntry {
+                entity: "project-owners-project".into(),
+                role: AclRole::Reader,
+            });
+            let mut sizes = Vec::new();
+            for entries in [&with_entry, &without_entry].repeat(8) {
+                replace_policy(&transaction, "bucket", entries, None).unwrap();
+                transaction
+                    .execute(
+                        UPSERT_BUCKET_ENTRIES,
+                        params!["bucket", "bucket", serde_json::to_string(entries).unwrap()],
+                    )
+                    .unwrap();
+                sizes.push(occurrences(
+                    &policies::read_policy(&transaction, "bucket").unwrap(),
+                ));
+            }
+            Ok(sizes)
+        })
+        .await
+        .unwrap();
+    assert_eq!(sizes.iter().min(), sizes.iter().max(), "{sizes:?}");
+    catalog.close().await.unwrap();
+}
+
+/// Every writer stores through one check, including those no API request validated.
+#[tokio::test]
+async fn stored_policies_are_refused_as_client_errors_past_their_bounds() {
+    let (_data, catalog) = fixture().await;
+    catalog
+        .run::<_, crate::bucket::CatalogError>(|connection| {
+            let transaction = connection.transaction().unwrap();
+            let members = |count: usize, length: usize| Policy {
+                bindings: vec![Binding {
+                    role: "roles/storage.objectViewer".into(),
+                    members: (0..count)
+                        .map(|index| format!("user:{index:04}{}", "x".repeat(length)))
+                        .collect(),
+                }],
+                etag: None,
+            };
+            // The documented principals with the longest names, plus one full ACL.
+            let mut largest = members(1600, 250);
+            policies::store_policy(&transaction, "bucket", &mut largest).unwrap();
+            for mut refused in [members(1601, 1), members(2, 1024 * 1024)] {
+                let before = policies::read_policy(&transaction, "bucket").unwrap();
+                assert!(matches!(
+                    policies::store_policy(&transaction, "bucket", &mut refused),
+                    Err(crate::bucket::CatalogError::InvalidMetadata(_))
+                ));
+                assert_eq!(
+                    policies::read_policy(&transaction, "bucket").unwrap(),
+                    before
+                );
+                assert!(matches!(
+                    policies::insert_policy(&transaction, "other", &refused),
+                    Err(crate::bucket::CatalogError::InvalidMetadata(_))
+                ));
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+}

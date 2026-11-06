@@ -3,7 +3,7 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    BUCKET_BODY_LIMIT, JSON_RESOURCE_CACHE_CONTROL, JsonCache, QueryPrecondition, State, acl,
+    JSON_RESOURCE_CACHE_CONTROL, JsonCache, QueryPrecondition, RESOURCE_BODY_LIMIT, State, acl,
     authorize_bucket, authorize_project, empty_response, json_response_selected,
     read_metadata_response, validate_bodyless_post,
 };
@@ -369,7 +369,7 @@ async fn write(
 ) -> Result<Value, JsonError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     // Only the native profile checks the body name against the path (recorded 2026-10-31).
     if profile == CompatProfile::Native {
         json::require_matching_bucket_name(&bytes, bucket)?;
@@ -476,7 +476,7 @@ async fn set_iam(
     bucket: &str,
 ) -> Result<Value, JsonError> {
     let if_match = policy_if_match_lines(request.headers());
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let policy = json::parse_policy(&bytes)?;
     let policy =
         ctx.state
@@ -528,7 +528,7 @@ async fn insert(
 ) -> Result<Value, JsonError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut record = json::parse_insert_with_profile(
         &bytes,
         &params.project,
