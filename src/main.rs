@@ -62,6 +62,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
+  --max-resumable-sessions N   0 (0..4294967295; active resumable uploads; 0 is unlimited)
+  --max-rewrite-sessions N     0 (0..4294967295; unfinished rewrites; 0 is unlimited)
   --worker-threads N           2 (1..32)
   --max-blocking-threads N     8 (1..32)
   --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)

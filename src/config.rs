@@ -11,6 +11,7 @@ use crate::{
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::SocketAddr,
+    num::NonZeroU32,
     path::{Path, PathBuf},
 };
 
@@ -184,6 +185,11 @@ pub struct Config {
     pub xml_virtual_host_domains: Vec<String>,
     pub max_connections: usize,
     pub max_object_bytes: u64,
+    /// Active resumable uploads a server keeps; `None` leaves them unlimited, since expiry
+    /// reclaims the disk they use.
+    pub max_resumable_sessions: Option<NonZeroU32>,
+    /// Unfinished rewrites a server keeps; `None` leaves them unlimited.
+    pub max_rewrite_sessions: Option<NonZeroU32>,
     pub worker_threads: usize,
     pub max_blocking_threads: usize,
     pub connection_timeout_ms: u64,
@@ -240,6 +246,8 @@ impl Default for Config {
             xml_virtual_host_domains: Vec::new(),
             max_connections: 32,
             max_object_bytes: 1024 * 1024 * 1024,
+            max_resumable_sessions: None,
+            max_rewrite_sessions: None,
             worker_threads: 2,
             // The catalog keeps one blocking thread busy (including its commit fsync);
             // the rest serve tokio::fs reads, writes and syncs for every connection, so
@@ -544,6 +552,8 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::IdentityFile => apply_access_setting(config, setting, &value),
         Setting::MaxConnections
         | Setting::MaxObjectBytes
+        | Setting::MaxResumableSessions
+        | Setting::MaxRewriteSessions
         | Setting::WorkerThreads
         | Setting::MaxBlockingThreads
         | Setting::ConnectionTimeoutMs
@@ -785,9 +795,17 @@ fn apply_limit_setting(
             ))
         })
     };
+    // The one place 0 means unlimited: past this point the absence of a limit is `None`.
+    let session_limit = || {
+        u32::try_from(value)
+            .map(NonZeroU32::new)
+            .map_err(|_| SettingFix::from(format!("{} must fit in 32 bits", setting.as_str())))
+    };
     match setting {
         Setting::MaxConnections => config.max_connections = count()?,
         Setting::MaxObjectBytes => config.max_object_bytes = value,
+        Setting::MaxResumableSessions => config.max_resumable_sessions = session_limit()?,
+        Setting::MaxRewriteSessions => config.max_rewrite_sessions = session_limit()?,
         Setting::WorkerThreads => config.worker_threads = count()?,
         Setting::MaxBlockingThreads => config.max_blocking_threads = count()?,
         Setting::ConnectionTimeoutMs => config.connection_timeout_ms = value,
@@ -2320,6 +2338,42 @@ mod tests {
             assert!(load_http(&args[..2], &BTreeMap::new()).is_err());
         }
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn session_limits_default_to_unlimited_and_zero_stays_outside_the_config() {
+        let default = Config::default();
+        assert_eq!(default.max_resumable_sessions, None);
+        assert_eq!(default.max_rewrite_sessions, None);
+        type Read = fn(&Config) -> Option<NonZeroU32>;
+        let settings: [(&str, Read); 2] = [
+            ("max_resumable_sessions", |config| {
+                config.max_resumable_sessions
+            }),
+            ("max_rewrite_sessions", |config| config.max_rewrite_sessions),
+        ];
+        for (setting, read) in settings {
+            let flag = format!("--{}", setting.replace('_', "-"));
+            let load = |value: &str| {
+                Config::load(&[flag.clone(), value.to_owned()], &BTreeMap::new()).unwrap()
+            };
+            assert_eq!(read(&load("0")), None);
+            assert_eq!(read(&load("1")), NonZeroU32::new(1));
+            assert_eq!(read(&load("4294967295")), NonZeroU32::new(u32::MAX));
+            assert_rejected(
+                setting,
+                &["4294967296", "-1", "many"],
+                &format!("{setting} must be an integer in 0..=4294967295"),
+            );
+        }
+        let env = BTreeMap::from([(
+            "GCS_MIMIC_MAX_RESUMABLE_SESSIONS".to_owned(),
+            "9".to_owned(),
+        )]);
+        assert_eq!(
+            Config::load(&[], &env).unwrap().max_resumable_sessions,
+            NonZeroU32::new(9)
+        );
     }
 
     #[test]

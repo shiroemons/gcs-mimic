@@ -2,19 +2,23 @@
 
 use super::Catalog;
 use crate::config::Config;
-use std::time::Duration;
+use std::{num::NonZeroU32, time::Duration};
 
-/// The defaults suit an embedded catalog: a busy writer fails at once.
+/// The defaults suit an embedded catalog: a busy writer fails at once and sessions are unlimited.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct SessionLimits {
     /// How long a client request waits for a writer someone else holds.
     pub(super) writer_wait: Option<Duration>,
+    pub(super) active_resumable: Option<NonZeroU32>,
+    pub(super) active_rewrite: Option<NonZeroU32>,
 }
 
 impl From<&Config> for SessionLimits {
     fn from(config: &Config) -> Self {
         Self {
             writer_wait: Some(Duration::from_millis(config.catalog_wait_timeout_ms)),
+            active_resumable: config.max_resumable_sessions,
+            active_rewrite: config.max_rewrite_sessions,
         }
     }
 }

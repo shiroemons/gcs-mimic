@@ -6,6 +6,7 @@ pub(crate) enum BackendFailure {
     CatalogClosed,
     UploadWaitTimeout,
     RetainedSessionLimit,
+    RewriteSessionLimit,
     OutboxLimit,
     FinalizationTimeout,
     CopyDeadline,
@@ -19,6 +20,7 @@ impl BackendFailure {
             Self::CatalogClosed => "catalog is closed",
             Self::UploadWaitTimeout => "upload catalog wait timed out",
             Self::RetainedSessionLimit => "retained upload session limit reached",
+            Self::RewriteSessionLimit => "rewrite session limit reached",
             Self::OutboxLimit => "notification outbox limit reached",
             Self::FinalizationTimeout => "upload finalization timed out",
             Self::CopyDeadline => "copy request deadline exceeded",
@@ -36,7 +38,10 @@ impl BackendFailure {
                 "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit"
             }
             Self::RetainedSessionLimit => {
-                "Object storage is unavailable: retained upload session limit reached; wait for expired sessions to be reclaimed or use single-request media uploads"
+                "Object storage is unavailable: retained upload session limit reached; raise max_resumable_sessions (0 is unlimited), wait for expired sessions to be reclaimed or use single-request media uploads"
+            }
+            Self::RewriteSessionLimit => {
+                "Object storage is unavailable: rewrite session limit reached; raise max_rewrite_sessions (0 is unlimited) or wait for unfinished rewrites to expire"
             }
             Self::OutboxLimit => {
                 "Object storage is unavailable: notification outbox limit reached; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery, then retry with generation preconditions"

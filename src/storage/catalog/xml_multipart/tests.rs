@@ -34,6 +34,19 @@ async fn setup(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
     (dir, catalog)
 }
 
+/// More than one maintenance page, and past the 128 uploads that once refused to open.
+const FORMER_LIMIT_AND_MORE: usize = 300;
+
+async fn upload_count(catalog: &Catalog) -> i64 {
+    catalog
+        .run(|connection| {
+            sql::scalar(connection, "SELECT count(*) FROM xml_multipart_uploads", [])
+                .map_err(crate::storage::failure::unavailable)
+        })
+        .await
+        .unwrap()
+}
+
 async fn begin(catalog: &Catalog) -> Target {
     let options = Options {
         content_type: "text/plain".into(),
@@ -585,26 +598,16 @@ async fn multipart_part_and_completion_crash_and_power_loss_snapshots_recover() 
 }
 
 #[tokio::test]
-async fn injected_clock_expiration_and_session_admission_are_bounded() {
+async fn every_expired_upload_is_retired_in_one_pass_however_many_pages_they_fill() {
     let clock = Arc::new(ManualClock::new(
         UNIX_EPOCH + Duration::from_secs(1_000_000),
     ));
     let (_dir, catalog) = setup(clock.clone()).await;
     let target = begin(&catalog).await;
     put(&catalog, &target, 1, b"expires").await.unwrap();
-    for _ in 1..128 {
+    for _ in 1..FORMER_LIMIT_AND_MORE {
         begin(&catalog).await;
     }
-    let options = Options {
-        content_type: String::new(),
-        metadata: Default::default(),
-    };
-    assert!(
-        catalog
-            .begin_xml_multipart("bucket", "full", options, BucketAccess::Permissive)
-            .await
-            .is_err()
-    );
     clock.advance(Duration::from_secs(604800));
     assert!(matches!(
         catalog
@@ -619,7 +622,76 @@ async fn injected_clock_expiration_and_session_admission_are_bounded() {
             .unwrap()
             .is_none()
     );
+    assert_eq!(upload_count(&catalog).await, 0);
     begin(&catalog).await;
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn uploads_past_the_former_limit_survive_reopening_and_a_held_one_does_not_stall_expiry() {
+    let clock = Arc::new(ManualClock::new(
+        UNIX_EPOCH + Duration::from_secs(1_000_000),
+    ));
+    let (dir, catalog) = setup(clock.clone()).await;
+    let mut uploads = Vec::new();
+    for _ in 0..FORMER_LIMIT_AND_MORE {
+        uploads.push(begin(&catalog).await);
+    }
+    put(&catalog, &uploads[0], 1, b"first part").await.unwrap();
+    put(
+        &catalog,
+        &uploads[FORMER_LIMIT_AND_MORE - 1],
+        1,
+        b"last part",
+    )
+    .await
+    .unwrap();
+    catalog.close().await.unwrap();
+
+    let catalog = Catalog::open_for_server(&dir.0, clock.clone(), LocalAdmin::Disabled)
+        .await
+        .unwrap();
+    assert_eq!(upload_count(&catalog).await, FORMER_LIMIT_AND_MORE as i64);
+    for target in &uploads {
+        drop(
+            catalog
+                .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+                .await
+                .unwrap(),
+        );
+    }
+    // Held uploads are stepped over, and the pages after them still get retired.
+    let held = catalog
+        .lease_xml_multipart(uploads[0].clone(), BucketAccess::Permissive)
+        .await
+        .unwrap();
+    clock.advance(Duration::from_secs(604800));
+    catalog
+        .maintain_xml_multipart(unix_millis(clock.now()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(upload_count(&catalog).await, 1);
+    drop(held);
+    catalog
+        .maintain_xml_multipart(unix_millis(clock.now()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(upload_count(&catalog).await, 0);
+    catalog.close().await.unwrap();
+
+    // Recovery retires every page too, not only the first.
+    let catalog = Catalog::open_for_server(&dir.0, clock.clone(), LocalAdmin::Enabled)
+        .await
+        .unwrap();
+    for _ in 0..FORMER_LIMIT_AND_MORE {
+        begin(&catalog).await;
+    }
+    catalog.close().await.unwrap();
+    clock.advance(Duration::from_secs(604800));
+    let catalog = Catalog::open_for_server(&dir.0, clock, LocalAdmin::Disabled)
+        .await
+        .unwrap();
+    assert_eq!(upload_count(&catalog).await, 0);
     catalog.close().await.unwrap();
 }
 
@@ -666,27 +738,13 @@ fn multipart_errors_preserve_storage_causes() {
 }
 
 #[tokio::test]
-async fn bucket_delete_wakes_cleanup_and_releases_full_multipart_session_capacity() {
+async fn bucket_delete_wakes_cleanup_and_retires_every_upload_of_the_old_bucket() {
     let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
     let target = begin(&catalog).await;
     put(&catalog, &target, 1, b"hidden part").await.unwrap();
-    for _ in 1..128 {
+    for _ in 1..FORMER_LIMIT_AND_MORE {
         begin(&catalog).await;
     }
-    assert!(
-        catalog
-            .begin_xml_multipart(
-                "bucket",
-                "full",
-                Options {
-                    content_type: String::new(),
-                    metadata: Default::default(),
-                },
-                BucketAccess::Permissive
-            )
-            .await
-            .is_err()
-    );
     // Consume the coalesced insertion wake before observing the deletion's own signal.
     catalog.0.maintenance_wake.notified().await;
     let changed = catalog.0.maintenance_wake.notified();
@@ -716,6 +774,7 @@ async fn bucket_delete_wakes_cleanup_and_releases_full_multipart_session_capacit
         .maintain_xml_multipart(unix_millis(SystemClock.now()).unwrap())
         .await
         .unwrap();
+    assert_eq!(upload_count(&catalog).await, 0);
     begin(&catalog).await;
     assert!(matches!(
         catalog

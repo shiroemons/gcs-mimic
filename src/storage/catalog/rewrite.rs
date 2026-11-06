@@ -8,6 +8,7 @@ use super::{
 };
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::failure::BackendFailure;
 use crate::{
     bucket::BucketAccess,
     object::{ObjectConditions, ObjectError, ObjectRecord},
@@ -340,15 +341,11 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> 
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    sql::validate(
-        connection,
-        "SELECT (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL)<=128 AND (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)<=128",
-        "rewrite session limit exceeded",
-    )?;
+    // Row by row: nothing bounds how many sessions a catalog holds, so neither may this check.
     let mut statement = connection.prepare_cached(concat!(
         "SELECT ",
         session_columns!(),
-        " FROM rewrite_sessions ORDER BY id LIMIT 257"
+        " FROM rewrite_sessions ORDER BY id"
     ))?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
@@ -467,13 +464,15 @@ impl Catalog {
             move |connection, transfer| {
                 *callback_owner.lock().map_err(object_unavailable)? =
                     Some(catalog.guard_derived_request(&transfer.id));
-                let count: i64 = sql::scalar(
-                    connection,
-                    "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
-                    [],
-                )?;
-                if count >= 128 {
-                    return Err(object_unavailable("rewrite session limit reached"));
+                if let Some(limit) = catalog.session_limits().active_rewrite {
+                    let count: i64 = sql::scalar(
+                        connection,
+                        "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
+                        [],
+                    )?;
+                    if count >= i64::from(limit.get()) {
+                        return Err(object_unavailable(BackendFailure::RewriteSessionLimit));
+                    }
                 }
                 let request = encode(
                     &start,
@@ -913,15 +912,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others() {
+    async fn unfinished_rewrites_past_the_former_cap_survive_reopening_and_continue() {
         let (catalog, directory, clock) = fixture().await;
+        let mut tokens = Vec::new();
+        for _ in 0..300 {
+            let (token, mut owner) = new_session(&catalog).await.unwrap();
+            owner.disarm();
+            tokens.push(token);
+        }
+        catalog.close().await.unwrap();
+        let catalog = Catalog::open_with_clock(&directory, clock).await.unwrap();
+        for token in &tokens {
+            catalog.rewrite_session(token).await.unwrap();
+        }
+        let progress = catalog
+            .continue_rewrite(
+                &tokens[299],
+                BucketAccess::Permissive,
+                BucketAccess::Permissive,
+                |record| Ok(json!({"generation":record.generation})),
+            )
+            .await
+            .unwrap();
+        assert!(progress.resource.is_some());
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_configured_rewrite_cap_refuses_past_it_and_busy_expiry_does_not_block_others() {
+        let (catalog, directory, clock) = fixture().await;
+        catalog.apply_session_limits(&crate::config::Config {
+            max_rewrite_sessions: std::num::NonZeroU32::new(128),
+            ..Default::default()
+        });
         let mut first = None;
         for index in 0..=128 {
             let result = new_session(&catalog).await;
             if index == 128 {
                 assert!(matches!(
                     result,
-                    Err(RewriteError::Object(ObjectError::Unavailable(_)))
+                    Err(RewriteError::Object(ObjectError::Unavailable(cause)))
+                        if cause.failure() == Some(BackendFailure::RewriteSessionLimit)
                 ));
                 break;
             }

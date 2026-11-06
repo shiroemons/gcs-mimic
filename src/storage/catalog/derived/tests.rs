@@ -826,12 +826,14 @@ async fn validation_sees_same_name_source_before_retirement_and_completion_sees_
 }
 
 #[tokio::test]
-async fn transfer_kinds_have_independent_bounded_quotas_across_restart() {
+async fn transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them() {
+    // Past the 128 of each kind that once failed requests, and more than one recovery page.
+    const TRANSFERS: usize = 300;
     let (catalog, path) = setup().await;
     put(&catalog, "source", b"bytes").await;
     let mut persistent = Vec::new();
     for kind in [TransferKind::Ephemeral, TransferKind::Continuable] {
-        for _ in 0..MAX_TRANSFERS_PER_KIND {
+        for _ in 0..TRANSFERS {
             let transfer = catalog
                 .begin_derived_with_kind(vec![source(&catalog, "source").await.whole()], 5, kind)
                 .await
@@ -840,33 +842,28 @@ async fn transfer_kinds_have_independent_bounded_quotas_across_restart() {
                 persistent.push(transfer);
             }
         }
-        assert_eq!(
-            catalog
-                .begin_derived_with_kind(vec![source(&catalog, "source").await.whole()], 5, kind)
-                .await,
-            Err(object_unavailable("derived transfer limit reached"))
-        );
     }
+    // Each transfer owns its draft and one pinned source.
     assert_eq!(
         fs::read_dir(path.join("staging")).unwrap().count(),
-        4 * MAX_TRANSFERS_PER_KIND
+        4 * TRANSFERS
     );
     catalog.close().await.unwrap();
     drop(catalog);
     let catalog = Catalog::open(&path).await.unwrap();
-    for transfer in persistent {
-        assert_eq!(catalog.get_derived(&transfer.id).await.unwrap(), transfer);
-    }
+    // Only continuable transfers outlive the process that started them.
     assert_eq!(
         fs::read_dir(path.join("staging")).unwrap().count(),
-        2 * MAX_TRANSFERS_PER_KIND
+        2 * TRANSFERS
     );
-    assert_eq!(
-        catalog
-            .begin_derived(vec![source(&catalog, "source").await.whole()], 5)
-            .await,
-        Err(object_unavailable("derived transfer limit reached"))
-    );
+    for transfer in &persistent {
+        assert_eq!(&catalog.get_derived(&transfer.id).await.unwrap(), transfer);
+    }
+    let progress = catalog
+        .advance_derived(&persistent[299].id, 5)
+        .await
+        .unwrap();
+    assert_eq!(progress.offset, 5);
     let ephemeral = catalog
         .begin_derived_ephemeral(vec![source(&catalog, "source").await.whole()], 5)
         .await
@@ -1136,6 +1133,30 @@ async fn injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs() {
     );
     assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
     catalog.close().await.unwrap();
+    fs::remove_dir_all(path).unwrap();
+}
+
+#[tokio::test]
+async fn recovery_reclaims_every_deferred_deletion_past_one_page() {
+    let (catalog, path) = setup().await;
+    catalog.close().await.unwrap();
+    let database = path.join("catalog.sqlite3");
+    let count = |database: &Path| -> i64 {
+        rusqlite::Connection::open(database)
+            .unwrap()
+            .query_row("SELECT count(*) FROM derived_deletions", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch("WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM ids WHERE n < 300) INSERT INTO derived_deletions SELECT printf('%032x', n), printf('%032x', n) FROM ids")
+        .unwrap();
+    assert_eq!(count(&database), 300);
+    let catalog = Catalog::open(&path).await.unwrap();
+    catalog.close().await.unwrap();
+    assert_eq!(count(&database), 0);
     fs::remove_dir_all(path).unwrap();
 }
 

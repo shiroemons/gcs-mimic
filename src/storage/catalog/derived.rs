@@ -22,7 +22,6 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::{fs, path::Path};
 
 const BUFFER_SIZE: usize = 64 * 1024;
-const MAX_TRANSFERS_PER_KIND: usize = 128;
 const LIFETIME_MILLIS: i64 = 604_800_000;
 const EPHEMERAL_LIFETIME_MILLIS: i64 = 900_000;
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN component_count INTEGER CHECK(component_count IS NULL OR component_count > 0);

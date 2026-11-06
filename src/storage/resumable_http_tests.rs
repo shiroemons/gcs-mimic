@@ -930,6 +930,10 @@ async fn initiation_checks_strict_create_and_overwrite_permissions_before_stagin
 #[tokio::test]
 async fn initiation_session_cap_and_status_prefix_are_bounded() {
     let h = Harness::start(1024 * 1024, Permissive, None).await;
+    h.state.catalog.apply_session_limits(&Config {
+        max_resumable_sessions: std::num::NonZeroU32::new(128),
+        ..Default::default()
+    });
     let reply = h.initiate("name=object", "", b"").await;
     let path = h.path(&reply);
     let id = reply.headers["location"]
@@ -966,7 +970,14 @@ async fn initiation_session_cap_and_status_prefix_are_bounded() {
     for _ in 1..128 {
         assert_eq!(h.initiate("name=object", "", b"").await.status, 200);
     }
-    assert_eq!(h.initiate("name=rejected", "", b"").await.status, 503);
+    let rejected = h.initiate("name=rejected", "", b"").await;
+    assert_eq!(rejected.status, 503);
+    assert!(
+        rejected.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("max_resumable_sessions")
+    );
     assert_eq!(
         std::fs::read_dir(h.dir.0.join("staging")).unwrap().count(),
         128

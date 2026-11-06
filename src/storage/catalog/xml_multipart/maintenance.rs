@@ -94,9 +94,11 @@ pub(super) fn pending(connection: &Connection) -> Result<bool, ObjectError> {
     .map_err(object_unavailable)
 }
 
-fn due(connection: &Connection, now: i64) -> Result<Vec<String>, CatalogError> {
-    connection.prepare_cached("SELECT id FROM xml_multipart_uploads u WHERE deadline<=?1 OR NOT EXISTS(SELECT 1 FROM bucket_incarnations b WHERE b.bucket=u.bucket AND b.incarnation=u.incarnation) ORDER BY id LIMIT 128")
-        .and_then(|mut s|s.query_map([now],|r|r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()).map_err(super::super::unavailable)
+/// One page of uploads due for retirement after `after`. Keyset pages keep memory and each job
+/// short however many uploads are due, and let a held upload be stepped over.
+fn due(connection: &Connection, now: i64, after: &str) -> Result<Vec<String>, CatalogError> {
+    connection.prepare_cached("SELECT id FROM xml_multipart_uploads u WHERE id>?2 AND (deadline<=?1 OR NOT EXISTS(SELECT 1 FROM bucket_incarnations b WHERE b.bucket=u.bucket AND b.incarnation=u.incarnation)) ORDER BY id LIMIT 128")
+        .and_then(|mut s|s.query_map(params![now,after],|r|r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()).map_err(super::super::unavailable)
 }
 
 pub(super) fn recover(
@@ -104,13 +106,19 @@ pub(super) fn recover(
     data_dir: &Path,
     now: i64,
 ) -> Result<(), CatalogError> {
-    for id in due(connection, now)? {
-        connection.execute_batch("BEGIN IMMEDIATE")?;
-        if let Err(error) = retire(connection, &id) {
-            connection.execute_batch("ROLLBACK")?;
-            return Err(super::super::unavailable(error));
+    let mut after = String::new();
+    loop {
+        let page = due(connection, now, &after)?;
+        let Some(last) = page.last() else { break };
+        after.clone_from(last);
+        for id in &page {
+            connection.execute_batch("BEGIN IMMEDIATE")?;
+            if let Err(error) = retire(connection, id) {
+                connection.execute_batch("ROLLBACK")?;
+                return Err(super::super::unavailable(error));
+            }
+            connection.execute_batch("COMMIT")?;
         }
-        connection.execute_batch("COMMIT")?;
     }
     loop {
         let ids = pending_ids(connection).map_err(super::super::unavailable)?;
@@ -193,27 +201,43 @@ impl Catalog {
         &self,
         now: i64,
     ) -> Result<Option<SystemTime>, CatalogError> {
-        let catalog = self.clone();
-        let deadline = self
-            .run(move |connection| {
-                for id in due(connection, now)? {
-                    let _guard = match catalog
-                        .claim_writer(WriterKey::Multipart(id.clone()), KeyOrigin::Catalog)
-                    {
-                        Ok(guard) => guard,
-                        Err(ClaimError::Busy) => continue,
-                        Err(error) => return Err(CatalogError::from(error)),
-                    };
-                    let transaction = sql::immediate(connection)?;
-                    retire(&transaction, &id).map_err(super::super::unavailable)?;
-                    transaction.commit()?;
-                }
-                let deadline: Option<i64> = sql::scalar(
+        let mut after = String::new();
+        loop {
+            let catalog = self.clone();
+            let cursor = std::mem::take(&mut after);
+            let last = self
+                .run(move |connection| {
+                    let page = due(connection, now, &cursor)?;
+                    for id in &page {
+                        let _guard = match catalog
+                            .claim_writer(WriterKey::Multipart(id.clone()), KeyOrigin::Catalog)
+                        {
+                            Ok(guard) => guard,
+                            Err(ClaimError::Busy) => continue,
+                            Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => {
+                                return Err(CatalogError::from(error));
+                            }
+                        };
+                        let transaction = sql::immediate(connection)?;
+                        retire(&transaction, id).map_err(super::super::unavailable)?;
+                        transaction.commit()?;
+                    }
+                    Ok(page.into_iter().next_back())
+                })
+                .await?;
+            match last {
+                Some(last) => after = last,
+                None => break,
+            }
+        }
+        let deadline: Option<i64> = self
+            .run(|connection| {
+                sql::scalar(
                     connection,
                     "SELECT min(deadline) FROM xml_multipart_uploads",
                     [],
-                )?;
-                Ok(deadline)
+                )
+                .map_err(super::super::unavailable)
             })
             .await?;
         if self

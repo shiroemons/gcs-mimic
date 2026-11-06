@@ -37,6 +37,8 @@ super::string_enum! {
         XmlVirtualHostDomains => "xml_virtual_host_domains",
         MaxConnections => "max_connections",
         MaxObjectBytes => "max_object_bytes",
+        MaxResumableSessions => "max_resumable_sessions",
+        MaxRewriteSessions => "max_rewrite_sessions",
         WorkerThreads => "worker_threads",
         MaxBlockingThreads => "max_blocking_threads",
         ConnectionTimeoutMs => "connection_timeout_ms",
@@ -69,6 +71,8 @@ impl Setting {
             Self::MemoryCatalogMaxBytes => Some((1024 * 1024, 1024 * 1024 * 1024)),
             Self::MaxConnections => Some((1, 1024)),
             Self::MaxObjectBytes => Some((1, 5 * 1024_u64.pow(4))),
+            // 0 means unlimited here only; the config holds `Option<NonZeroU32>`.
+            Self::MaxResumableSessions | Self::MaxRewriteSessions => Some((0, u32::MAX as u64)),
             Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 32)),
             Self::KeepAliveTimeoutMs => Some((1, 600_000)),
             Self::ObjectRequestTimeoutMs => Some((1, 86_400_000)),

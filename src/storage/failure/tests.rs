@@ -49,7 +49,11 @@ fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
         ),
         (
             RetainedSessionLimit,
-            "Object storage is unavailable: retained upload session limit reached; wait for expired sessions to be reclaimed or use single-request media uploads",
+            "Object storage is unavailable: retained upload session limit reached; raise max_resumable_sessions (0 is unlimited), wait for expired sessions to be reclaimed or use single-request media uploads",
+        ),
+        (
+            RewriteSessionLimit,
+            "Object storage is unavailable: rewrite session limit reached; raise max_rewrite_sessions (0 is unlimited) or wait for unfinished rewrites to expire",
         ),
         (
             OutboxLimit,

@@ -59,14 +59,6 @@ fn begin_transfer(
 ) -> BeginOutcome {
     let mut ambiguous = false;
     let result = (|| {
-        let count: usize = sql::scalar(
-            connection,
-            "SELECT count(*) FROM derived_transfers WHERE ephemeral = ?1",
-            [draft.ephemeral],
-        )?;
-        if count >= MAX_TRANSFERS_PER_KIND {
-            return Err(object_unavailable("derived transfer limit reached"));
-        }
         let transaction = sql::immediate(connection)?;
         sql::exec(
             &transaction,

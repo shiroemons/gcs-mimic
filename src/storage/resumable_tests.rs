@@ -91,6 +91,10 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
 async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
     let dir = TestDir::new();
     let catalog = setup(&dir, Arc::new(ManualClock::new(UNIX_EPOCH))).await;
+    catalog.apply_session_limits(&gcs_mimic::config::Config {
+        max_resumable_sessions: std::num::NonZeroU32::new(128),
+        ..Default::default()
+    });
     for _ in 0..127 {
         catalog
             .create_resumable_session(

@@ -162,6 +162,7 @@ fn recover_on_open(
     }
     connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
     notification_outbox::open(connection)?;
+    resumable::open(connection)?;
     let has_deletion_revision: bool = sql::scalar(
         connection,
         "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets WHERE valid=1 OR authorization!=0)",
@@ -303,6 +304,7 @@ impl Catalog {
             if memory_limits.is_some() {
                 connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
                 notification_outbox::open(&connection)?;
+                resumable::open(&connection)?;
             } else {
                 recover_on_open(&mut connection, &backend, &*clock)?;
             }
