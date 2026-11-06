@@ -693,8 +693,8 @@ and body chunks at 64 KiB. `--max-object-bytes` (`1..5497558138880`) caps a sour
 body, inclusive. These values identify an import, so a resume must repeat the
 values of its first run. The snapshot format holds rows and not directories:
 `--max-entries` counts its rows, and it rejects `--max-depth`. Shared `Diagnostic`
-output goes to stderr in bounded batches with relative path/field keys and concrete remedies. A closed output joins the
-worker and returns failure. No complete object catalog or findings list is kept.
+output goes to stderr in bounded batches with relative path/field keys and
+concrete remedies. A closed output joins the worker and returns failure. No complete object catalog or findings list is kept.
 
 The summary separates `complete` scan traversal from `eligible` supported
 metadata and `bodies_verified`. `buckets` and `objects` count discovered

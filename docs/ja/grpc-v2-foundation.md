@@ -64,7 +64,7 @@ strictは共有AuthでBearerを判定し、ローカルprincipalを各RPCグル�
 間隔・応答期限とも`header_read_timeout_ms`のHTTP/2 keepaliveで検出して閉じます。
 これを0にするとpingを止め、相手の消失はTCP keep-aliveに任せます。プローブは4回で、アイドルな接続の相手の消失は90秒で検出します。
 `grpc_goaway_has_bounded_grace`では、GOAWAY後の猶予を、アイドル時は
-`header_read_timeout_ms`（0なら5秒）、SIGTERM時はその値と`shutdown_timeout_ms / 2`の小さい方に制限します。
+`header_read_timeout_ms`と5秒の短い方（0なら5秒）、SIGTERM時は`header_read_timeout_ms`（0なら5秒）と`shutdown_timeout_ms / 2`の小さい方に制限します。
 全体の停止予算の半分を接続の後始末・joinに残し、正常終了させるためです。`shutdown_timeout_ms`が0なら予算の制限はありません。
 すでにアイドルのGOAWAY中でもSIGTERMで猶予を短縮し、共有の停止順序は変えません。
 未完のhandshakeにはGOAWAYを送れない場合があり、猶予後に強制終了します。prefaceが届かないまま期限が切れると`grpc_handshake_timeout`を記録します。
