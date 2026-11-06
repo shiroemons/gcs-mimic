@@ -13,6 +13,23 @@ fn accept_backoff_doubles_to_cap_and_resets() {
 }
 
 #[cfg(unix)]
+#[tokio::test]
+async fn accepted_tcp_connections_enable_keepalive() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let _client = TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    let listener = Listener::Tcp(listener);
+    let accepted = std::future::poll_fn(|cx| listener.poll_accept(cx))
+        .await
+        .unwrap();
+    let Stream::Tcp(stream) = accepted else {
+        panic!("a TCP listener accepted another stream type");
+    };
+    assert!(socket2::SockRef::from(&stream).keepalive().unwrap());
+}
+
+#[cfg(unix)]
 #[test]
 fn accept_failures_classify_connection_resource_and_listener_errors() {
     for code in [libc::EMFILE, libc::ENFILE, libc::ENOBUFS, libc::ENOMEM] {
