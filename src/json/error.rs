@@ -950,9 +950,7 @@ pub(crate) fn safe_backend_cause(cause: &str) -> &'static str {
         "generation exhausted",
         "metageneration exhausted",
         "bucket metageneration exhausted",
-        "derived transfer limit reached",
         "derived publication catalog admission timed out",
-        "rewrite session limit reached",
         "catalog is closing",
     ];
     SAFE_CAUSES
@@ -1089,9 +1087,9 @@ mod tests {
         }
         for cause in [
             BackendFailure::CatalogClosed,
-            BackendFailure::OperationLimit,
             BackendFailure::UploadWaitTimeout,
             BackendFailure::RetainedSessionLimit,
+            BackendFailure::RewriteSessionLimit,
             BackendFailure::FinalizationTimeout,
             BackendFailure::CopyDeadline,
             BackendFailure::SessionBusy,

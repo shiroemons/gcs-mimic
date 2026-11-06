@@ -285,21 +285,13 @@ impl Catalog {
         self.run(move |connection| {
             #[cfg(unix)]
             backend.sync_staging_dir()?;
-            let count: i64 = sql::scalar(
-                connection,
-                "SELECT count(*) FROM derived_transfers WHERE ephemeral=1",
-                [],
-            )?;
-            if count >= 128 {
-                return Err(object_unavailable("derived transfer limit reached"));
-            }
             sql::exec(
                 connection,
                 "INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)",
                 params![id, total, state.as_slice(), crc32c, now, now + 900000],
             )?;
             file.acknowledge(total);
-            Ok(())
+            Ok::<_, ObjectError>(())
         })
         .await?;
         Ok(())

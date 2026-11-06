@@ -11,7 +11,7 @@ pub(in crate::storage) fn guidance_source_failures() -> Vec<(
     crate::object::ObjectError,
     crate::storage::failure::BackendFailure,
 )> {
-    use super::{ConnectionUnavailable, admission_error, executor, unavailable};
+    use super::{ConnectionUnavailable, executor, unavailable};
     use crate::{
         object::ObjectError,
         storage::failure::{BackendFailure, object_unavailable},
@@ -33,18 +33,6 @@ pub(in crate::storage) fn guidance_source_failures() -> Vec<(
         (
             object_unavailable(ConnectionUnavailable::Closed),
             BackendFailure::CatalogClosed,
-        ),
-        (
-            ObjectError::from(admission_error(&tokio::sync::TryAcquireError::Closed)),
-            BackendFailure::CatalogClosed,
-        ),
-        (
-            ObjectError::from(admission_error(&tokio::sync::TryAcquireError::NoPermits)),
-            BackendFailure::OperationLimit,
-        ),
-        (
-            ObjectError::from(unavailable(BackendFailure::OutboxLimit)),
-            BackendFailure::OutboxLimit,
         ),
     ]
 }
@@ -110,6 +98,23 @@ pub(crate) fn bucket(name: &str, project: &str) -> BucketRecord {
         time_created: UNIX_EPOCH,
         updated: UNIX_EPOCH,
     }
+}
+
+/// Adds `count` CANCELLED sessions cloned from the newest session, each newer than the last, so
+/// retention tests reach the window without paying for that many real uploads. The `n`th row's
+/// ID is `n` as 64 hexadecimal digits. Needs at least one session to clone.
+pub(crate) async fn fill_cancelled_sessions(catalog: &Catalog, count: i64) {
+    catalog
+        .run::<_, crate::bucket::CatalogError>(move |connection| {
+            super::sql::exec(
+                connection,
+                "WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM ids WHERE n < ?1) INSERT INTO resumable_sessions SELECT printf('%064x', n), printf('%032x', n), bucket, name, incarnation, options, total, 0, created + n, deadline + n, 'CANCELLED', NULL FROM ids CROSS JOIN (SELECT * FROM resumable_sessions ORDER BY deadline DESC, id LIMIT 1)",
+                [count],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
 }
 
 pub(crate) async fn seed_bucket(catalog: &Catalog) {

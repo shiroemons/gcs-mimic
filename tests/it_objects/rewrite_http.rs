@@ -102,8 +102,39 @@ fn rewrite_one_call_empty_metadata_fields_and_same_name() {
 }
 
 #[test]
-fn abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart() {
-    let (dir, mut server, payload, source) = setup(false, 1048576 + 7);
+fn abandoned_rewrites_past_the_former_quota_survive_a_restart_and_can_finish() {
+    // One past the 128 unfinished rewrites that used to fail requests and refuse to reopen.
+    const ABANDONED: usize = 129;
+    let (dir, mut server, payload, _source) = setup(false, 1048576 + 7);
+    let tokens: Vec<String> = (0..ABANDONED)
+        .map(|_| {
+            let first = multi(&server, "");
+            assert_eq!(first["done"], false);
+            first["rewriteToken"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    server.stop();
+    let server = Server::start(&dir, false);
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_eq!(
+        common::catalog::count(&connection, "rewrite_sessions"),
+        ABANDONED as i64
+    );
+    let completed = server
+        .request("POST", &continue_path(&tokens[ABANDONED - 1]), ADMIN, b"")
+        .json_ok();
+    assert_eq!(completed["done"], true);
+    assert_eq!(server.get("destination?alt=media").body, payload);
+}
+
+#[test]
+fn a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart() {
+    let args = ["--max-rewrite-sessions", "128"];
+    let dir = TestDir::new();
+    let mut server = Server::start_with_args(&dir, &args);
+    server.bucket();
+    let payload: Vec<_> = (0..1048576 + 7).map(|index| (index % 251) as u8).collect();
+    let source = server.put("source", &payload).json_ok();
     let mut token = None;
     for _ in 0..128 {
         let first = multi(&server, "");
@@ -113,16 +144,20 @@ fn abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart() {
     for restart in [false, true] {
         if restart {
             server.stop();
-            server = Server::start(&dir, false);
+            server = Server::start_with_args(&dir, &args);
         }
-        server
-            .request(
-                "POST",
-                &format!("{BASE}?maxBytesRewrittenPerCall=1048576"),
-                ADMIN,
-                br#"{"storageClass":"NEARLINE"}"#,
-            )
-            .json_reason(503, "backendError");
+        let refused = server.request(
+            "POST",
+            &format!("{BASE}?maxBytesRewrittenPerCall=1048576"),
+            ADMIN,
+            br#"{"storageClass":"NEARLINE"}"#,
+        );
+        assert!(
+            String::from_utf8_lossy(&refused.body).contains("max_rewrite_sessions"),
+            "{}",
+            String::from_utf8_lossy(&refused.body)
+        );
+        refused.json_reason(503, "backendError");
         server.get("destination").json_reason(404, "notFound");
         let copied = server
             .request(

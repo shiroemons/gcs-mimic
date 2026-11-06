@@ -471,7 +471,15 @@ async fn sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permit
     let uploads: Vec<_> = (0..64)
         .map(|_| catalog.admit_object_upload().unwrap())
         .collect();
-    assert!(catalog.get_bucket("test-bucket", PERMISSIVE).await.is_err());
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(20),
+            catalog.get_bucket("test-bucket", PERMISSIVE)
+        )
+        .await
+        .is_err(),
+        "API callers wait while the slots are taken"
+    );
     catalog
         .run_admin(|connection| {
             let transaction = connection.transaction().map_err(unavailable)?;

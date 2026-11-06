@@ -954,6 +954,16 @@ fn fixture_depth_and_entry_count_are_bounded() {
         &mut command(&dir.0.join("deep"), Some(&seed)),
         "32 directory levels",
     );
+    let raised = Server::start(
+        command(&dir.0.join("raised-depth"), Some(&seed)).args(["--max-seed-depth", "33"]),
+        false,
+    );
+    assert_eq!(raised.ready["seed"]["objects"], 2);
+    raised.stop();
+    fails(
+        command(&dir.0.join("few"), Some(&seed)).args(["--max-seed-entries", "2"]),
+        "max_seed_entries",
+    );
     let many = dir.0.join("many");
     fs::create_dir(&many).unwrap();
     for index in 0..10_001 {

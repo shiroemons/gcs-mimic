@@ -7,7 +7,7 @@ use crate::storage::{
 use crate::{
     bucket::BucketAccess,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate},
-    storage::failure::{BackendCause, BackendFailure},
+    storage::failure::BackendCause,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Value, json};
@@ -19,20 +19,16 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+mod admission;
 #[cfg(test)]
 pub(super) mod golden_tests;
 mod options;
 pub(super) mod writers;
+use admission::admit_session;
+pub(super) use admission::open;
 pub(super) use writers::WriterGuard;
 use writers::{KeyOrigin, WriterKey};
 
-/// Caps ACTIVE sessions, the only ones that own staged bytes.
-pub(crate) const MAX_SESSIONS: usize = 128;
-/// Caps COMPLETE and CANCELLED records kept after admission trims them. They exist so status
-/// queries and repeated final requests get the original outcome, which clients ask for soon
-/// after the transition; holding them against the active cap made every initiation fail for
-/// seven days once 128 uploads had finished.
-const MAX_TERMINAL_SESSIONS: i64 = 128;
 pub(crate) const SESSION_LIFETIME: Duration = Duration::from_secs(604800);
 pub(super) const SCHEMA: &str = "CREATE TABLE bucket_incarnations (
     bucket TEXT PRIMARY KEY COLLATE BINARY,
@@ -153,7 +149,7 @@ impl From<CatalogError> for ResumableError {
     }
 }
 
-/// A nonqueued exclusive operation on one session; dropping always releases admission.
+/// An exclusive operation on one session; dropping always releases its writer.
 pub(crate) struct SessionLease {
     pub session: ResumableSession,
     pub(super) guard: std::sync::Arc<WriterGuard>,
@@ -310,78 +306,20 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     sql::validate(
         connection,
-        "SELECT NOT EXISTS(SELECT 1 FROM buckets LEFT JOIN bucket_incarnations ON name = bucket WHERE bucket IS NULL) AND NOT EXISTS(SELECT 1 FROM bucket_incarnations LEFT JOIN buckets ON bucket = name WHERE name IS NULL) AND (SELECT count(*) FROM resumable_sessions WHERE state = 'ACTIVE') <= 128 AND (SELECT count(*) FROM resumable_sessions) <= 256",
+        "SELECT NOT EXISTS(SELECT 1 FROM buckets LEFT JOIN bucket_incarnations ON name = bucket WHERE bucket IS NULL) AND NOT EXISTS(SELECT 1 FROM bucket_incarnations LEFT JOIN buckets ON bucket = name WHERE name IS NULL)",
         "invalid resumable catalog state",
     )?;
-    // Admission keeps at most MAX_SESSIONS active plus MAX_TERMINAL_SESSIONS terminal rows.
+    // Row by row: nothing bounds how many sessions a catalog holds, so neither may this check.
     let mut statement = connection.prepare_cached(concat!(
         "SELECT ",
         session_columns!(),
-        " FROM resumable_sessions ORDER BY id LIMIT 257"
+        " FROM resumable_sessions ORDER BY id"
     ))?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         read_session(row)?;
     }
     Ok(())
-}
-
-/// Checks the active cap and trims the oldest terminal records down to their own cap in the
-/// creating transaction, so the catalog never holds more than both caps together. The returned
-/// leases keep the trimmed sessions out of reach until the transaction ends.
-fn admit_session(
-    transaction: &rusqlite::Transaction<'_>,
-    catalog: &Catalog,
-) -> Result<Vec<WriterGuard>, CatalogError> {
-    let (active, terminal): (usize, i64) = sql::row(
-        transaction,
-        "SELECT coalesce(sum(state = 'ACTIVE'), 0), coalesce(sum(state != 'ACTIVE'), 0) FROM resumable_sessions",
-        [],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
-    if active >= MAX_SESSIONS {
-        return Err(unavailable(BackendFailure::RetainedSessionLimit));
-    }
-    let mut excess = terminal - MAX_TERMINAL_SESSIONS;
-    let mut trimmed = Vec::new();
-    if excess <= 0 {
-        return Ok(trimmed);
-    }
-    // A completed session owns no staging bytes and never its published blob, which object
-    // reclamation tracks. A cancelled one is reclaimable only after its cleanup journal entry
-    // is gone; until then maintenance still needs the row.
-    let candidates: Vec<(String, BlobId, String)> = transaction
-        .prepare_cached("SELECT id, blob_id, state FROM resumable_sessions WHERE state = 'COMPLETE' OR (state = 'CANCELLED' AND NOT EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = resumable_sessions.blob_id)) ORDER BY deadline, id LIMIT 256")
-        .and_then(|mut statement| {
-            statement
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-                .collect()
-        })?;
-    for (id, blob_id, state) in candidates {
-        if excess <= 0 {
-            break;
-        }
-        // A request holding the session (such as a finalizer re-reading its outcome) keeps it.
-        let Ok(guard) = catalog.claim_writer(WriterKey::Resumable(id.clone()), KeyOrigin::Catalog)
-        else {
-            continue;
-        };
-        if state == "COMPLETE" {
-            // Completion normally drops the RAM draft; this covers a failed drop.
-            catalog.0.backend.finish_draft(&blob_id)?;
-        }
-        sql::exec(
-            transaction,
-            "DELETE FROM resumable_sessions WHERE id = ?1",
-            [&id],
-        )?;
-        trimmed.push(guard);
-        excess -= 1;
-    }
-    if excess > 0 {
-        return Err(unavailable(BackendFailure::RetainedSessionLimit));
-    }
-    Ok(trimmed)
 }
 
 impl Catalog {
@@ -418,7 +356,7 @@ impl Catalog {
             let files = catalog.clone();
             crate::task::run_blocking("session-create", move || create_session_bytes(&files, &blob_id)).await.map_err(unavailable)??;
             let metadata = catalog.clone();
-            let result = catalog.run_waiting(move |connection| Ok::<_, ResumableError>(insert_session(connection, &metadata, &request))).await;
+            let result = catalog.run(move |connection| Ok::<_, ResumableError>(insert_session(connection, &metadata, &request))).await;
             let result = result.unwrap_or_else(|error| Err(CreateFailure::Ambiguous(error)));
             catalog.0.maintenance_wake.notify_one();
             match result {
@@ -448,7 +386,7 @@ impl Catalog {
         let id = id.to_owned();
         let bucket = bucket.to_owned();
         let session = self
-            .run_waiting(move |connection| {
+            .run(move |connection| {
                 sql::row(
                     connection,
                     concat!(
@@ -481,7 +419,10 @@ impl Catalog {
         id: &str,
         bucket: &str,
     ) -> Result<SessionLease, ResumableError> {
-        let guard = self.try_resumable_writer(id)?;
+        let guard = self
+            .wait_for_writer(WriterKey::Resumable(id.to_owned()), KeyOrigin::Client)
+            .await
+            .map_err(CatalogError::from)?;
         let session = self.resumable_session(id, bucket).await?;
         Ok(SessionLease {
             session,
@@ -489,6 +430,7 @@ impl Catalog {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {
         self.claim_writer(WriterKey::Resumable(id.to_owned()), KeyOrigin::Client)
             .map_err(CatalogError::from)
@@ -569,7 +511,7 @@ impl Catalog {
                 "Upload options exceed 64 KiB".into(),
             ));
         }
-        let (changed, output) = self.run_waiting::<_, CatalogError>(move |connection| {
+        let (changed, output) = self.run::<_, CatalogError>(move |connection| {
             let changed = sql::exec(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded])?;
             if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset); }
             Ok((changed, output))

@@ -145,7 +145,7 @@ impl UploadCommit {
             if let Some(record) = replay.replay(&transaction, micros, fingerprint)? {
                 return Ok(CommitOutcome::Replayed(record));
             }
-            super::super::upload_replay::capacity(&transaction, micros)?;
+            super::super::upload_replay::make_room(&transaction, micros)?;
         }
         let bucket = BucketPublication::load(&transaction, &self.bucket)?;
         let storage_class = bucket.storage_class(self.metadata.storage_class);
@@ -292,7 +292,7 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         let clock = self.0.clock.clone();
-        self.run_waiting(move |connection| {
+        self.run(move |connection| {
             let transaction = connection.transaction()?;
             let (_, delete_permission) = authorized_bucket(&transaction, &bucket, &access)?;
             let previous = lookup(&transaction, &bucket, &name)?;

@@ -23,9 +23,23 @@ use tokio::sync::mpsc;
 mod error;
 pub use error::SeedError;
 
-const MAX_ENTRIES: usize = 10_000;
-const MAX_DEPTH: usize = 32;
 type Entry = Result<(PathBuf, std::fs::Metadata, usize), SeedError>;
+
+/// The tree a seed accepts, so the walk thread and its errors need no whole configuration.
+#[derive(Clone, Copy)]
+struct TreeLimits {
+    entries: usize,
+    depth: usize,
+}
+
+impl From<&Config> for TreeLimits {
+    fn from(config: &Config) -> Self {
+        Self {
+            entries: config.max_seed_entries,
+            depth: config.max_seed_depth,
+        }
+    }
+}
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "lowercase")]
@@ -80,11 +94,15 @@ pub(crate) async fn reseed(
     import_directory(&admin, config, clock, root, mode, Some(wait_limit)).await
 }
 
-fn walk_error(error: WalkError) -> SeedError {
+fn walk_error(error: WalkError, limits: TreeLimits) -> SeedError {
     match error {
         WalkError::Io(error) => SeedError::Io(error),
-        WalkError::EntryLimit => SeedError::EntryLimit,
-        WalkError::DepthLimit => SeedError::DepthLimit,
+        WalkError::EntryLimit => SeedError::EntryLimit {
+            limit: limits.entries,
+        },
+        WalkError::DepthLimit => SeedError::DepthLimit {
+            limit: limits.depth,
+        },
         WalkError::NotDirectory => SeedError::NotDirectory,
     }
 }
@@ -98,13 +116,14 @@ enum Walked {
     Done,
 }
 
-fn entries(root: PathBuf) -> io::Result<mpsc::Receiver<Walked>> {
+fn entries(root: PathBuf, limits: TreeLimits) -> io::Result<mpsc::Receiver<Walked>> {
     let (send, receive) = mpsc::channel(2);
     crate::task::spawn_thread("seed-walk", move || {
-        let walk = match Walker::new(&root, MAX_ENTRIES, MAX_DEPTH) {
+        let walk = match Walker::new(&root, limits.entries, limits.depth) {
             Ok(walk) => walk,
             Err(error) => {
-                let _ = send.blocking_send(Walked::Entry(Box::new(Err(walk_error(error)))));
+                let failure = walk_error(error, limits);
+                let _ = send.blocking_send(Walked::Entry(Box::new(Err(failure))));
                 return;
             }
         };
@@ -114,10 +133,8 @@ fn entries(root: PathBuf) -> io::Result<mpsc::Receiver<Walked>> {
             entry
         });
         for entry in walk {
-            if send
-                .blocking_send(Walked::Entry(Box::new(entry.map_err(walk_error))))
-                .is_err()
-            {
+            let entry = entry.map_err(|error| walk_error(error, limits));
+            if send.blocking_send(Walked::Entry(Box::new(entry))).is_err() {
                 return;
             }
         }
@@ -140,7 +157,9 @@ async fn import_directory(
     }
     #[cfg(test)]
     tests::injected_source_swap(root);
-    let batch = catalog.seed_batch_until(wait_limit).await?;
+    let batch = catalog
+        .seed_batch_until(wait_limit, config.max_seed_entries)
+        .await?;
     #[cfg(unix)]
     let source_root = batch.open_root(root.to_owned(), inspected).await?;
     let root = tokio::fs::canonicalize(root).await?;
@@ -150,7 +169,7 @@ async fn import_directory(
             return Err(SeedError::Overlap);
         }
     }
-    let mut entries = entries(root.clone())?;
+    let mut entries = entries(root.clone(), TreeLimits::from(config))?;
     let mut seed = Seed {
         batch,
         #[cfg(unix)]

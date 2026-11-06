@@ -12,6 +12,25 @@ use crate::{
 use std::fs;
 
 #[tokio::test]
+async fn the_metadata_budget_grows_with_the_allowed_tree_and_refuses_past_it() {
+    const MIB: usize = 1024 * 1024;
+    assert_eq!(metadata_budget(1), 8 * MIB);
+    assert_eq!(metadata_budget(10_000), 8 * MIB);
+    assert_eq!(metadata_budget(10_001), 16 * MIB);
+    assert_eq!(metadata_budget(usize::MAX), usize::MAX);
+    let (_dir, catalog, admin, _, _) = setup().await;
+    let mut batch = admin.seed_batch_until(None, 10_001).await.unwrap();
+    batch.charge_metadata(16 * MIB).unwrap();
+    let AdminError::Invalid(message) = batch.charge_metadata(1).unwrap_err() else {
+        panic!("a charge past the budget is invalid input");
+    };
+    assert!(message.contains("16 MiB"), "{message}");
+    assert!(message.contains("max_seed_entries"), "{message}");
+    drop(batch);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn seed_project_mismatch_preserves_the_existing_diagnostic() {
     let (_dir, catalog, admin, _, _) = setup().await;
     let mut batch = admin.seed_batch().await.unwrap();
@@ -176,7 +195,7 @@ async fn atomic_seed_cancellation_and_concurrent_admission_preserve_old_namespac
     }
     let limit = tokio::time::Instant::now() + Duration::from_millis(50);
     assert!(matches!(
-        admin.seed_batch_until(Some(limit)).await,
+        admin.seed_batch_until(Some(limit), 10_000).await,
         Err(AdminError::Busy { .. })
     ));
     assert!(matches!(admin.reset().await, Err(AdminError::Busy { .. })));
@@ -434,7 +453,7 @@ async fn atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespa
     drop(drain);
     assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
     let limit = tokio::time::Instant::now() + Duration::from_millis(200);
-    let mut batch = admin.seed_batch_until(Some(limit)).await.unwrap();
+    let mut batch = admin.seed_batch_until(Some(limit), 10_000).await.unwrap();
     add(&mut batch, &dir.0, "object", b"new").await;
     let upload = catalog.admit_object_upload().unwrap();
     assert!(matches!(

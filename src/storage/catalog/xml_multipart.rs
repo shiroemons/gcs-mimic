@@ -238,16 +238,6 @@ impl Catalog {
                 if encoded.len() > 65536 {
                     return Err(ObjectError::TooLarge);
                 }
-                let count: i64 = sql::scalar(
-                    &transaction,
-                    "SELECT count(*) FROM xml_multipart_uploads",
-                    [],
-                )?;
-                if count >= 128 {
-                    return Err(object_unavailable(
-                        "retained multipart session limit reached",
-                    ));
-                }
                 let incarnation: String = bucket_incarnation(&transaction, &target.bucket)?;
                 sql::exec(
                     &transaction,
@@ -280,11 +270,15 @@ impl Catalog {
         target: Target,
         access: BucketAccess,
     ) -> Result<Lease, Error> {
+        // Clients commonly upload parts in parallel; each part takes its turn on the upload.
         let guard = self
-            .claim_writer(WriterKey::Multipart(target.id.clone()), KeyOrigin::Client)
+            .wait_for_writer(WriterKey::Multipart(target.id.clone()), KeyOrigin::Client)
+            .await
             .map_err(|error| match error {
                 ClaimError::Busy => Error::Busy,
-                error => CatalogError::from(error).into(),
+                error @ (ClaimError::Poisoned | ClaimError::Catalog(_)) => {
+                    CatalogError::from(error).into()
+                }
             })?;
         let checked = access.clone();
         let now = unix_millis(self.0.clock.now())?;
@@ -371,15 +365,18 @@ pub(super) fn recover(
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let bounded: bool = sql::scalar(
+    let consistent: bool = sql::scalar(
         connection,
-        "SELECT (SELECT count(*) FROM xml_multipart_uploads)<=128 AND NOT EXISTS(SELECT 1 FROM xml_multipart_parts p LEFT JOIN xml_multipart_uploads u ON u.id=p.upload_id WHERE u.id IS NULL)",
+        "SELECT NOT EXISTS(SELECT 1 FROM xml_multipart_parts p LEFT JOIN xml_multipart_uploads u ON u.id=p.upload_id WHERE u.id IS NULL)",
         [],
     )?;
-    if !bounded {
+    if !consistent {
         return Err(super::unavailable("invalid multipart catalog state"));
     }
-    let mut statement=connection.prepare_cached("SELECT id,bucket,name,incarnation,options,created FROM xml_multipart_uploads ORDER BY id LIMIT 128")?;
+    // Row by row: nothing bounds how many uploads a catalog holds, so neither may this check.
+    let mut statement = connection.prepare_cached(
+        "SELECT id,bucket,name,incarnation,options,created FROM xml_multipart_uploads ORDER BY id",
+    )?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         read_upload(row)?;

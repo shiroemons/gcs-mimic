@@ -7,6 +7,8 @@ use crate::{
     notification::{GlobalConfig, Message, Runtime},
 };
 use rusqlite::{Connection, OptionalExtension, params};
+use serde_json::json;
+use std::sync::{Mutex, PoisonError};
 
 mod worker;
 
@@ -113,6 +115,80 @@ pub(super) fn published(
     )
 }
 
+/// Drops the oldest undelivered messages until one of `bytes` fits, in the transaction of the
+/// object write it reports, so a rejected write drops nothing. Cloud Storage does not fail an
+/// object write over its notifications, so an unreachable Pub/Sub costs the oldest events and not
+/// the write. The publisher tolerates a row vanishing under it: what it already sent stays sent,
+/// and acknowledging or rescheduling a missing row changes nothing.
+fn make_room(connection: &Connection, bytes: i64) -> Result<u64, CatalogError> {
+    let mut evicted = 0;
+    while sql::scalar::<bool>(
+        connection,
+        "SELECT pending_count >= 4096 OR pending_bytes + ?1 > 16777216 FROM notification_outbox_state WHERE singleton = 1",
+        [bytes],
+    )? {
+        let deleted = sql::exec(
+            connection,
+            "DELETE FROM notification_outbox WHERE id = (SELECT min(id) FROM notification_outbox)",
+            [],
+        )?;
+        if deleted == 0 {
+            return Err(CatalogError::Corrupt(
+                "invalid notification outbox accounting".into(),
+            ));
+        }
+        evicted += 1;
+    }
+    Ok(evicted)
+}
+
+/// Evictions not yet reported. An outage evicts on every write, and a line per write would bury
+/// every other event, so warnings are spaced out and carry the count since the last one.
+struct EvictionLog {
+    warned_at: Option<i64>,
+    unreported: u64,
+}
+
+impl EvictionLog {
+    const INTERVAL_MICROS: u64 = 60_000_000;
+
+    /// Records `evicted` messages at `now` and returns how many to report, if a warning is due.
+    fn record(&mut self, evicted: u64, now: i64) -> Option<u64> {
+        self.unreported += evicted;
+        if self
+            .warned_at
+            .is_some_and(|warned_at| now.abs_diff(warned_at) < Self::INTERVAL_MICROS)
+        {
+            return None;
+        }
+        self.warned_at = Some(now);
+        Some(std::mem::take(&mut self.unreported))
+    }
+}
+
+/// Process-wide because a server runs one catalog, and `insert` sees only its connection.
+static EVICTIONS: Mutex<EvictionLog> = Mutex::new(EvictionLog {
+    warned_at: None,
+    unreported: 0,
+});
+
+fn warn_evicted(evicted: u64, now: i64) {
+    let due = EVICTIONS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .record(evicted, now);
+    if let Some(evicted) = due {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Warn,
+            "notification_outbox_evicted",
+            json!({
+                "message": "The notification outbox is full, so the oldest undelivered messages were dropped; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery",
+                "evicted": evicted,
+            }),
+        );
+    }
+}
+
 fn insert(
     connection: &Connection,
     topic: &str,
@@ -120,15 +196,10 @@ fn insert(
     message: &Message<'_>,
 ) -> Result<(), CatalogError> {
     let bytes = i64::try_from(topic.len() + encoded.len()).map_err(unavailable)?;
-    let full: bool = sql::scalar(
-        connection,
-        "SELECT pending_count >= 4096 OR pending_bytes + ?1 > 16777216 FROM notification_outbox_state WHERE singleton = 1",
-        [bytes],
-    )?;
-    if full {
-        return Err(unavailable(
-            crate::storage::failure::BackendFailure::OutboxLimit,
-        ));
+    let due = unix_micros(message.time)?;
+    let evicted = make_room(connection, bytes)?;
+    if evicted > 0 {
+        warn_evicted(evicted, due);
     }
     let id: i64 = sql::optional_scalar(
         connection,
@@ -136,7 +207,6 @@ fn insert(
         [],
     )?
     .ok_or_else(|| unavailable("notification outbox ID exhausted"))?;
-    let due = unix_micros(message.time)?;
     sql::exec(
         connection,
         "INSERT INTO notification_outbox VALUES (?1, ?2, ?3, ?4, 0)",

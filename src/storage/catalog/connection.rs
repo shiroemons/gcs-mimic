@@ -143,39 +143,23 @@ impl Catalog {
             .map_err(unavailable)
     }
 
+    /// Queues one operation on the shared connection. A caller past the queue waits its turn
+    /// instead of failing: jobs run one at a time, so the wait changes latency, not the load on
+    /// SQLite, and a local client cannot act on a rejection except by retrying.
+    ///
+    /// Nothing here times out. Request handlers bound the wait with their own deadlines, and
+    /// dropping this future while it waits gives up the place in line without consuming a slot,
+    /// so a disconnected client costs nothing. Close wakes every waiter with `CatalogClosed`.
     pub(super) async fn run<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
     ) -> Result<T, E> {
-        let admission = self
-            .0
-            .admission
-            .clone()
-            .try_acquire_owned()
-            // A closed catalog is not full: reporting a limit would invite retries at shutdown.
-            .map_err(|error| admission_error(&error))?;
-        self.run_admitted(admission, operation).await
-    }
-
-    pub(super) async fn run_waiting<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
-        &self,
-        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
-    ) -> Result<T, E> {
-        let admission = self
-            .0
-            .admission
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| unavailable(BackendFailure::CatalogClosed))?;
-        self.run_admitted(admission, operation).await
-    }
-
-    pub(super) async fn run_admitted<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
-        &self,
-        admission: tokio::sync::OwnedSemaphorePermit,
-        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
-    ) -> Result<T, E> {
+        let admission = {
+            #[cfg(test)]
+            let _waiting = WaitingForAdmission::enter(&self.0.admission_waiters);
+            self.0.admission.clone().acquire_owned().await
+        }
+        .map_err(|_| unavailable(BackendFailure::CatalogClosed))?;
         let activity = self.activity()?;
         let execution = self
             .0
@@ -203,4 +187,51 @@ impl Catalog {
             .await
             .map_err(unavailable)?
     }
+
+    /// Takes every admission slot, so later `run` calls wait until the returned permit drops.
+    #[cfg(test)]
+    pub(crate) fn hold_admission(&self) -> tokio::sync::OwnedSemaphorePermit {
+        self.0
+            .admission
+            .clone()
+            .try_acquire_many_owned(u32::try_from(MAX_IN_FLIGHT).unwrap())
+            .unwrap()
+    }
+
+    /// The number of `run` calls currently waiting for an admission slot.
+    #[cfg(test)]
+    pub(crate) fn admission_waiters(&self) -> usize {
+        self.0
+            .admission_waiters
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// The admission slots no job or waiter holds.
+    #[cfg(test)]
+    pub(crate) fn free_admission_slots(&self) -> usize {
+        self.0.admission.available_permits()
+    }
 }
+
+/// Counts a caller for as long as it waits for admission. The count falls when the wait ends for
+/// any reason, including the caller being dropped, which is what cancellation tests observe.
+#[cfg(test)]
+struct WaitingForAdmission<'a>(&'a std::sync::atomic::AtomicUsize);
+
+#[cfg(test)]
+impl<'a> WaitingForAdmission<'a> {
+    fn enter(waiters: &'a std::sync::atomic::AtomicUsize) -> Self {
+        waiters.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        Self(waiters)
+    }
+}
+
+#[cfg(test)]
+impl Drop for WaitingForAdmission<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
+#[cfg(test)]
+mod tests;

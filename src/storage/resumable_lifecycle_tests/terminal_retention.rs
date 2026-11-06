@@ -1,5 +1,9 @@
 use super::*;
-use gcs_mimic::storage::{ResumableChunk, ResumableOptions, ResumableSession, SessionState};
+use gcs_mimic::{
+    config::Config,
+    storage::{ResumableChunk, ResumableOptions, ResumableSession, SessionState},
+};
+use std::num::NonZeroU32;
 
 async fn create(
     catalog: &Catalog,
@@ -53,8 +57,9 @@ fn session_counts(dir: &TestDir) -> (i64, i64) {
         .unwrap()
 }
 
+/// Past the 128 active and 128 finished sessions that once failed requests and refused to open.
 #[tokio::test]
-async fn completed_sessions_do_not_block_new_uploads_and_retained_results_stay_bounded() {
+async fn sessions_past_the_former_caps_survive_reopening_and_stay_usable() {
     let dir = TestDir::new();
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
@@ -64,72 +69,78 @@ async fn completed_sessions_do_not_block_new_uploads_and_retained_results_stay_b
         let resource = complete(&catalog, &session.id).await;
         completed.push((session.id, resource));
     }
-    // Only the oldest result beyond the retained-result cap is reclaimed; recent completions
-    // still answer status and repeated final requests with their original resource.
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    let mut active = Vec::new();
+    for _ in 0..300 {
+        active.push(create(&catalog, &clock).await.unwrap());
+    }
+    assert_eq!(session_counts(&dir), (300, 130));
     assert_eq!(
-        catalog
-            .resumable_session(&completed[0].0, "bucket")
-            .await
-            .unwrap_err(),
-        ResumableError::NotFound
+        std::fs::read_dir(dir.0.join("staging")).unwrap().count(),
+        300
     );
-    for (id, resource) in &completed[1..] {
+    catalog.close().await.unwrap();
+
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
+    assert_eq!(session_counts(&dir), (300, 130));
+    // Finished sessions still answer status and repeated final requests with their resource.
+    for (id, resource) in &completed {
         let session = catalog.resumable_session(id, "bucket").await.unwrap();
         assert_eq!(session.state, SessionState::Complete);
         assert_eq!(session.completion.as_ref(), Some(resource));
     }
-    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-
-    // Active sessions keep their own cap, and admission trims results to make the total bounded.
-    let mut active = Vec::new();
-    for _ in 0..128 {
-        active.push(create(&catalog, &clock).await.unwrap());
-    }
-    assert!(matches!(
-        create(&catalog, &clock).await.unwrap_err(),
-        ResumableError::Object(error) if error.to_string().contains("retained upload session limit reached")
-    ));
-    assert_eq!(session_counts(&dir), (128, 128));
-    assert_eq!(
-        std::fs::read_dir(dir.0.join("staging")).unwrap().count(),
-        128
-    );
-
-    // A cancelled session releases its active slot once its staged bytes are reclaimed.
-    assert_eq!(cancel_wire(&catalog, &active[0].id, b"").await, 499);
-    let replacement = create(&catalog, &clock).await.unwrap();
-    assert_eq!(cancel_wire(&catalog, &active[0].id, b"").await, 499);
-    catalog.close().await.unwrap();
-
-    // The doubled bound is a valid catalog state across restart.
-    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
-        .await
-        .unwrap();
-    assert_eq!(session_counts(&dir), (128, 128));
-    let last = completed.last().unwrap();
-    assert_eq!(
-        catalog
-            .resumable_session(&last.0, "bucket")
+    // Every active session is still known, and one past the old cap can finish.
+    for session in &active {
+        let found = catalog
+            .resumable_session(&session.id, "bucket")
             .await
-            .unwrap()
-            .completion
-            .as_ref(),
-        Some(&last.1)
-    );
-    complete(&catalog, &replacement.id).await;
-    assert_eq!(session_counts(&dir), (127, 129));
+            .unwrap();
+        assert_eq!(found.state, SessionState::Active);
+    }
+    complete(&catalog, &active[299].id).await;
+    assert_eq!(cancel_wire(&catalog, &active[0].id, b"").await, 499);
     create(&catalog, &clock).await.unwrap();
-    assert_eq!(session_counts(&dir), (128, 128));
+    assert_eq!(session_counts(&dir), (299, 132));
     catalog.close().await.unwrap();
 }
 
 #[tokio::test]
-async fn cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap() {
+async fn a_configured_cap_applies_only_to_active_sessions() {
+    let dir = TestDir::new();
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
+    let catalog = setup(&dir, clock.clone()).await;
+    catalog.apply_session_limits(&Config {
+        max_resumable_sessions: NonZeroU32::new(2),
+        ..Default::default()
+    });
+    // Finished records never count against it, or every upload would fail once two had finished.
+    for _ in 0..3 {
+        let session = create(&catalog, &clock).await.unwrap();
+        complete(&catalog, &session.id).await;
+    }
+    let first = create(&catalog, &clock).await.unwrap();
+    create(&catalog, &clock).await.unwrap();
+    assert!(matches!(
+        create(&catalog, &clock).await.unwrap_err(),
+        ResumableError::Object(error) if error.to_string().contains("retained upload session limit reached")
+    ));
+    assert_eq!(session_counts(&dir), (2, 3));
+    // A cancelled session releases its active slot once its staged bytes are reclaimed.
+    assert_eq!(cancel_wire(&catalog, &first.id, b"").await, 499);
+    create(&catalog, &clock).await.unwrap();
+    assert_eq!(cancel_wire(&catalog, &first.id, b"").await, 499);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_sessions_awaiting_cleanup_keep_answering_while_new_uploads_proceed() {
     let dir = TestDir::new();
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
     let catalog = setup(&dir, clock.clone()).await;
     let mut cancelled = Vec::new();
-    for _ in 0..129 {
+    for _ in 0..3 {
         let session = create(&catalog, &clock).await.unwrap();
         // A directory in place of the staging file makes cleanup fail and keep its journal.
         let stage = session.blob_id.staging_path(&dir.0);
@@ -138,14 +149,8 @@ async fn cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap(
         assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
         cancelled.push(session.id);
     }
-    assert_eq!(session_counts(&dir), (0, 129));
-    // Trimming would drop the record maintenance needs to finish cleanup, so admission refuses
-    // rather than growing past the bound.
-    assert!(matches!(
-        create(&catalog, &clock).await.unwrap_err(),
-        ResumableError::Object(error) if error.to_string().contains("retained upload session limit reached")
-    ));
-    assert_eq!(session_counts(&dir), (0, 129));
+    create(&catalog, &clock).await.unwrap();
+    assert_eq!(session_counts(&dir), (1, 3));
     for id in &cancelled {
         assert_eq!(cancel_wire(&catalog, id, b"").await, 499);
     }

@@ -19,13 +19,6 @@ use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock, Semaphore};
 
 type Activity = OwnedRwLockReadGuard<()>;
 
-fn admission_error(error: &tokio::sync::TryAcquireError) -> CatalogError {
-    unavailable(match error {
-        tokio::sync::TryAcquireError::Closed => BackendFailure::CatalogClosed,
-        tokio::sync::TryAcquireError::NoPermits => BackendFailure::OperationLimit,
-    })
-}
-
 #[cfg(test)]
 mod memory_tests;
 #[cfg(test)]
@@ -52,6 +45,7 @@ pub(crate) use upload_replay::UploadAclSnapshot;
 pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation};
 
 mod resumable_maintenance;
+mod session_limits;
 pub(crate) mod xml_multipart;
 
 mod executor;
@@ -141,6 +135,9 @@ use schema::{
 };
 use schema::{MIGRATIONS, initialize_catalog, validate_schema, validate_schema_version};
 
+/// Calls beyond this many wait for admission rather than for the execution permit. Execution
+/// finishes what it has queued even while closing, so this bounds the jobs left to run at
+/// shutdown; `close` fails the admission waiters at once.
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
@@ -200,6 +197,10 @@ struct Inner {
     backend: BlobBackend,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<resumable::writers::SessionWriters>,
+    /// Wakes requests waiting for a writer. One waker serves every session: a release with no
+    /// waiter costs an atomic check, and waiters on a busy session are few and short-lived.
+    writer_released: Notify,
+    session_limits: OnceLock<session_limits::SessionLimits>,
     derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
     maintenance_error: Mutex<Option<BackendCause>>,
@@ -214,6 +215,8 @@ struct Inner {
     fail_rollback: AtomicBool,
     #[cfg(test)]
     maintenance_panics: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    admission_waiters: std::sync::atomic::AtomicUsize,
 }
 
 struct Resources {
@@ -276,8 +279,7 @@ impl Drop for UploadGuard {
     }
 }
 
-/// A single SQLite connection with at most 32 catalog calls.
-/// Metadata jobs execute serially; upload prechecks wait for admission, other excess calls fail.
+/// A single SQLite connection. Metadata jobs execute serially, and callers wait for their turn.
 #[derive(Clone)]
 pub struct Catalog(Arc<Inner>);
 

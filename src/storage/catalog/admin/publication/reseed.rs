@@ -28,7 +28,18 @@ pub(crate) struct SeedBatch {
     request: Arc<OwnedSemaphorePermit>,
     runtime: tokio::runtime::Handle,
     metadata_bytes: usize,
+    metadata_budget: usize,
     wait_limit: Option<tokio::time::Instant>,
+}
+
+/// A batch holds every object's metadata in memory until it commits, so this bounds that memory.
+/// It scales with the tree size the operator allowed: a larger seed is a deliberate choice, and
+/// fixed bytes would refuse it long before its entry limit.
+fn metadata_budget(max_entries: usize) -> usize {
+    const BYTES_PER_10K_ENTRIES: usize = 8 * 1024 * 1024;
+    max_entries
+        .div_ceil(10_000)
+        .saturating_mul(BYTES_PER_10K_ENTRIES)
 }
 
 /// A caller with its own budget (an HTTP request) supplies a limit so that waiting ends as a
@@ -40,12 +51,13 @@ fn wait_deadline(limit: Option<tokio::time::Instant>) -> tokio::time::Instant {
 impl Admin {
     #[cfg(test)]
     pub(crate) async fn seed_batch(&self) -> Result<SeedBatch, AdminError> {
-        self.seed_batch_until(None).await
+        self.seed_batch_until(None, 10_000).await
     }
 
     pub(crate) async fn seed_batch_until(
         &self,
         wait_limit: Option<tokio::time::Instant>,
+        max_entries: usize,
     ) -> Result<SeedBatch, AdminError> {
         if self.catalog.sync_controls()?.is_some() {
             return Err(AdminError::Precondition);
@@ -78,6 +90,7 @@ impl Admin {
             request,
             runtime: tokio::runtime::Handle::current(),
             metadata_bytes: 0,
+            metadata_budget: metadata_budget(max_entries),
             wait_limit,
         })
     }
@@ -109,11 +122,17 @@ fn metadata_size(value: &impl std::fmt::Debug) -> Result<usize, AdminError> {
 
 impl SeedBatch {
     fn charge_metadata(&mut self, bytes: usize) -> Result<(), AdminError> {
+        let budget = self.metadata_budget;
         self.metadata_bytes = self
             .metadata_bytes
             .checked_add(bytes)
-            .filter(|size| *size <= 8 * 1024 * 1024)
-            .ok_or_else(|| AdminError::Invalid("seed metadata exceeds 8 MiB".into()))?;
+            .filter(|size| *size <= budget)
+            .ok_or_else(|| {
+                AdminError::Invalid(format!(
+                    "seed metadata exceeds {} MiB; raise max_seed_entries",
+                    budget / (1024 * 1024)
+                ))
+            })?;
         Ok(())
     }
 
@@ -182,9 +201,6 @@ impl SeedBatch {
         request: Publication,
         source: File,
     ) -> Result<(), AdminError> {
-        if self.entries.len() >= 10_000 {
-            return Err(AdminError::Invalid("seed exceeds 10000 objects".into()));
-        }
         request.metadata.validate()?;
         self.charge_metadata(
             bucket.as_str().len()

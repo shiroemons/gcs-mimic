@@ -48,6 +48,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --seed-dir PATH              none (read-only fixtures; replayed on every startup)
   --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
+  --max-seed-entries N         10000 (1..100000000; files and directories in seed_dir; memory grows with them)
+  --max-seed-depth N           32 (1..1024; directory levels below a seed bucket)
   --seed-content-type MODE     extension (extension|octet-stream; pinned MIME table)
   --sync-dir PATH              none (existing working tree; initial export after ready)
   --sync-delete-guard BOOL     true (deletion ingestion pending)
@@ -62,12 +64,14 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
+  --max-resumable-sessions N   0 (0..4294967295; active resumable uploads; 0 is unlimited)
+  --max-rewrite-sessions N     0 (0..4294967295; unfinished rewrites; 0 is unlimited)
   --worker-threads N           2 (1..32)
   --max-blocking-threads N     8 (1..32)
   --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)
   --keep-alive-timeout-ms N    120000 (1..600000; idle time between HTTP/1.1 requests)
   --object-request-timeout-ms N 900000 (1..86400000; absolute upload/media deadline)
-  --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait)
+  --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait and wait for a busy upload session)
   --shutdown-timeout-ms N      5000 (1..60000)
   --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
@@ -879,7 +883,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "08b02b593f11d66b466c742a65f13be9276d65ebc7d2493b29058a9a958b5808"
+            "7267d9b102ee9b31f04e74775635e5e3f7d5fd0231d5bf2e669a4ae60bc35c42"
         );
     }
 

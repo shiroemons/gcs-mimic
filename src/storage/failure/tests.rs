@@ -44,20 +44,16 @@ fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
             "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying",
         ),
         (
-            OperationLimit,
-            "Object storage is unavailable: catalog operation limit reached; retry with fewer concurrent requests (for example, 16)",
-        ),
-        (
             UploadWaitTimeout,
             "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit",
         ),
         (
             RetainedSessionLimit,
-            "Object storage is unavailable: retained upload session limit reached; wait for expired sessions to be reclaimed or use single-request media uploads",
+            "Object storage is unavailable: retained upload session limit reached; raise max_resumable_sessions (0 is unlimited), wait for expired sessions to be reclaimed or use single-request media uploads",
         ),
         (
-            OutboxLimit,
-            "Object storage is unavailable: notification outbox limit reached; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery, then retry with generation preconditions",
+            RewriteSessionLimit,
+            "Object storage is unavailable: rewrite session limit reached; raise max_rewrite_sessions (0 is unlimited) or wait for unfinished rewrites to expire",
         ),
         (
             FinalizationTimeout,
@@ -69,7 +65,7 @@ fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
         ),
         (
             SessionBusy,
-            "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session",
+            "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session, or increase catalog_wait_timeout_ms (for example, 60000)",
         ),
         (
             MissingCompletion,

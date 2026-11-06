@@ -1,6 +1,7 @@
 use super::{
-    BlobBackend, Catalog, CatalogError, ResumableError, SessionState, UnixMicros, unavailable,
-    unix_millis,
+    BlobBackend, Catalog, CatalogError, ResumableError, SessionState, UnixMicros,
+    resumable::writers::{ClaimError, KeyOrigin, WriterKey},
+    unavailable, unix_millis,
 };
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
@@ -55,7 +56,10 @@ fn cleanup_page(
     now: i64,
     after: &str,
 ) -> Result<Vec<(String, BlobId, i64)>, CatalogError> {
-    connection.prepare_cached("SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND deadline <= ?2 UNION ALL SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND state = 'CANCELLED' AND deadline > ?2 AND EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = resumable_sessions.blob_id) ORDER BY id LIMIT ?3")?
+    // Requests wake maintenance, so this runs per request and must not read every session. Both
+    // arms start from what is due: the deadline index, and the journal (CROSS JOIN keeps SQLite
+    // from scanning sessions in id order instead).
+    connection.prepare_cached("SELECT id, blob_id, deadline FROM resumable_sessions INDEXED BY resumable_sessions_deadline WHERE deadline <= ?2 AND id > ?1 UNION ALL SELECT session.id, session.blob_id, session.deadline FROM pending_blob_deletions AS pending CROSS JOIN resumable_sessions AS session ON session.blob_id = pending.blob_id WHERE session.id > ?1 AND session.state = 'CANCELLED' AND session.deadline > ?2 ORDER BY id LIMIT ?3")?
         .query_map(params![after, now, PAGE_SIZE], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<rusqlite::Result<_>>().map_err(unavailable)
 }
@@ -324,26 +328,16 @@ impl Catalog {
             };
             after = last.0.clone();
             for (id, blob_id, deadline) in rows {
-                let catalog = self;
-                let writer = match catalog
-                    .claim_writer(
-                        super::resumable::writers::WriterKey::Resumable(id.clone()),
-                        super::resumable::writers::KeyOrigin::Catalog,
-                    )
-                    .map_err(CatalogError::from)
-                {
-                    Ok(writer) => Arc::new(writer),
-                    Err(CatalogError::Unavailable(cause))
-                        if cause.failure()
-                            == Some(crate::storage::failure::BackendFailure::SessionBusy) =>
-                    {
-                        continue;
-                    }
-                    Err(error) => {
-                        sweep.fail("resumable session", error);
-                        continue;
-                    }
-                };
+                // A held session is swept once its request releases it, so this never waits.
+                let writer =
+                    match self.claim_writer(WriterKey::Resumable(id.clone()), KeyOrigin::Catalog) {
+                        Ok(writer) => Arc::new(writer),
+                        Err(ClaimError::Busy) => continue,
+                        Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => {
+                            sweep.fail("resumable session", error.into());
+                            continue;
+                        }
+                    };
                 let result = async {
                     self.clean_session_storage(&writer, blob_id).await?;
                     if deadline <= now {
