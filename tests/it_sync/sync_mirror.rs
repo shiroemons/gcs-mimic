@@ -399,6 +399,10 @@ fn sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready()
     common::stop_server(&mut child, &mut stdout);
 }
 
+/// A hang guard, not a latency bound. A root that pauses keeps its server running and logs nothing
+/// more, so without this a pass that cannot finish would wait forever instead of failing.
+const STARTUP_PROGRESS_GUARD: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// Runs a server over `tree` until its startup pass ends, reads `object` of `test-bucket`, then
 /// stops the server and returns what it logged.
 fn startup_events(
@@ -430,16 +434,34 @@ fn startup_events(
     let ready: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(ready["event"], "ready", "{line}");
     let address = ready["listen"].as_str().unwrap().to_owned();
-    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let stderr = child.stderr.take().unwrap();
+    let (send, receive) = std::sync::mpsc::channel::<serde_json::Value>();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            if send
+                .send(serde_json::from_str(&line.unwrap()).unwrap())
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
     let mut events = Vec::new();
     loop {
-        line.clear();
-        assert_ne!(stderr.read_line(&mut line).unwrap(), 0, "{events:?}");
-        let event: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_ne!(event["event"], "sync_stopped", "{line}");
-        let name = event["event"].clone();
-        events.push(event);
-        if name == "sync_reconciled" {
+        let event = receive.recv_timeout(STARTUP_PROGRESS_GUARD);
+        let reconciled = event
+            .as_ref()
+            .is_ok_and(|event| event["event"] == "sync_reconciled");
+        let stopped = event
+            .as_ref()
+            .is_ok_and(|event| event["event"] == "sync_stopped");
+        events.extend(event.as_ref().ok().cloned());
+        if event.is_err() || stopped {
+            // The server would otherwise outlive the failed test.
+            let _ = child.kill();
+            panic!("the startup pass did not finish: {event:?} after {events:?}");
+        }
+        if reconciled {
             break;
         }
     }
@@ -451,9 +473,7 @@ fn startup_events(
     assert_eq!(read.status, 200, "{}", String::from_utf8_lossy(&read.body));
     assert_eq!(read.body, b"deep");
     common::stop_server(&mut child, &mut stdout);
-    for line in stderr.lines() {
-        events.push(serde_json::from_str(&line.unwrap()).unwrap());
-    }
+    events.extend(receive);
     events
 }
 
