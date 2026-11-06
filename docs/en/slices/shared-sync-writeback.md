@@ -58,8 +58,8 @@ cannot be erased with an older proof. Conflict registration and recovery retain
 the original project, incarnation and generation, including after recreation.
 
 A catalog-owned execution semaphore serializes transitions across independently
-obtained writeback handles. Admission is bounded by the existing 32 waiters and
-30-second Busy deadline. After admission, owned tasks retain the execution gate,
+obtained writeback handles. Callers wait for their turn and receive Busy past
+`catalog_wait_timeout_ms`. After admission, owned tasks retain the execution gate,
 workspace, root and catalog leases until file and SQL jobs drain, even if the
 calling future is cancelled. SQLite transactions never wait for file I/O.
 Administrative API reads remain available while a writeback job drains.

@@ -31,8 +31,10 @@ Marker/root validation surrounds file jobs and rescans and precedes ingestion
 publication. The existing generation/incarnation conditions, streaming hashes,
 metadata inheritance and equal-hash suppression remain shared.
 
-Linux admits at most 1022 watched directories and retains one inotify descriptor
-per set; registration closes each temporary directory descriptor immediately.
+Linux watches as many directories as `max_sync_entries` allows and retains one inotify
+descriptor per set, because a watch holds no descriptor of its own; registration closes each
+temporary directory descriptor immediately. When the kernel refuses a watch, the message names
+`fs.inotify.max_user_watches` instead of reporting a full disk.
 macOS FSEvents uses a two-descriptor notification pipe rather than a descriptor
 for each file, and requires a local filesystem. Traversal processes 256-entry
 pages and caps depth and inspected entries instead of retaining a whole tree.

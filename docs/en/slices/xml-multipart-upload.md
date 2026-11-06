@@ -135,17 +135,18 @@ unowned staging through existing scans. The injected clock and existing
 next-deadline scheduler perform expiry without idle polling.
 
 Owned activity and writer leases cover staging, body transfer, completion and
-cleanup after caller cancellation. Local instance reset waits up to one second
-for those leases to drain and returns busy if they remain active. When idle, it
-journals all multipart staging IDs and clears all three tables. An already
+cleanup after caller cancellation. Local instance reset waits up to
+`catalog_wait_timeout_ms` for those leases to drain and returns busy if they remain active.
+When idle, it journals all multipart staging IDs and clears all three tables. An already
 opened ordinary immutable reader remains independent.
 
 ## Deliberate local limits
 
-- Sessions are not limited by count, as in Google, and opening a catalog never fails on one. They expire seven days after initiation, while Google permits unlimited idle duration.
-- One mutating operation owns a session at a time. A concurrent part write, completion or abort waits its turn up to `catalog_wait_timeout_ms` (0 waits without a limit), then receives retryable 503. Parallel parts therefore take turns, so a part whose transfer outlasts that budget can make another part fail with 503. This safely serializes overwrite/abort/complete races; simultaneous part writes are not Google-parity behavior.
+- Sessions are not limited by count, as in Google, and opening a catalog never fails on one. They expire seven days after initiation, while Google permits unlimited idle duration. This is a deliberate owner decision: abandoned parts do not appear in object listings, so they would keep using a local disk without anyone noticing. `/_internal/reset` and abort also remove them.
+- Different part numbers of one upload write at the same time, as Cloud Storage lets clients do. A later write of the same number waits its turn, and the last to finish wins. Completion and abort own the whole upload: they wait for the parts in flight and hold back parts that arrive after them, so steady part traffic cannot postpone them. Every such wait lasts up to `catalog_wait_timeout_ms` (0 waits without a limit), then receives retryable 503. Maintenance steps over an upload with any part writing.
+- With the default `body_inactivity_timeout_ms` of 0, a part whose body stops holds a completion until that budget ends, and new parts wait behind the completion meanwhile. Past the budget the completion answers 503, nothing is left behind, and the part resumes.
 - Once a completion owns its session, it waits for its outcome however long the assembly takes. The parts are copied in detached work that commits whatever the request reports, so a timeout would answer 503 for an upload that then succeeds and leave a retry with NoSuchUpload.
-- The retained part-byte budget equals max_object_bytes per session. A replacement and completion may each temporarily need an additional body-sized staged file. These disk bounds do not guarantee free space or a particular process RSS.
+- The retained part-byte budget equals max_object_bytes per session. Parts in flight have not counted each other when their bodies start, so each commit checks the total again and only the part that passes the budget fails with `TooLarge`. A replacement and completion may each temporarily need an additional body-sized staged file. These disk bounds do not guarantee free space or a particular process RSS.
 - Completion documents are capped at 2 MiB, part ETags at 128 bytes, and part count at 10000. The pull parser retains only the current scalar and selected part metadata, without building a document tree. The 64 KiB/256-element creation-document limits do not apply. XML 1.0 declarations, legal whitespace/quotes, recognized default or prefixed namespaces, standard/numeric references, CDATA and comments are supported. DTDs, external/custom entities, invalid declarations, unknown namespaces, duplicate fields/attributes, extra/multiple roots and trailing content are rejected. Namespace attributes are capped at 16 per element and 128 bindings in scope; the schema fixes nesting to three levels. Unknown provider XML extension behavior is not inferred.
 - Listed maxima must be positive uint32 values and are capped at 1000. Names and echoed listing filters that XML 1.0 cannot represent are rejected explicitly. Exact provider error wording/order, multipart object ETag encoding, owner fields, lifecycle AbortIncompleteMultipartUpload execution, billing, archival transitions, cross-platform power-loss semantics and broader optional headers remain outside this scope.
 

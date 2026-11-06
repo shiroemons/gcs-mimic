@@ -10,7 +10,7 @@ strict startup. See [runtime observation](continuous-directory-observation.md),
 
 ## Deletion inventory
 
-A complete, error-free scan observes at most 10,000 entries in bounded pages.
+A complete, error-free scan observes at most `max_sync_entries` entries in bounded pages.
 Only representable tracked live generations that still match their bucket
 incarnation contribute to the root-wide baseline. Ignored findings, stale API
 generations and incomplete/unobserved state cannot become deletion candidates.

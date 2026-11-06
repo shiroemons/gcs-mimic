@@ -8,9 +8,11 @@ owns the RAM backend. None is a Google API operation. The compatibility ledger r
 
 ## Accepted boundary
 
-An idle instance may be reset atomically. Reset waits up to one second for
-in-flight catalog work and unpublished-body leases to drain; work that remains
-active past that deadline returns 503 without mutation. Active directory
+An idle instance may be reset atomically. Reset waits up to
+`catalog_wait_timeout_ms` and the request deadline for in-flight catalog work and
+unpublished-body leases to drain, and for a seed commit under way; work that remains
+active past that deadline returns 503 without mutation. Requests that arrive
+meanwhile wait, then run against the cleared state. Active directory
 synchronization and incomplete import return 409. The operation never follows
 or modifies a seed, import-source or sync directory. An already opened immutable
 reader may finish with its selected bytes.
@@ -57,25 +59,40 @@ include noncurrent and soft-deleted generations. For example:
 
 ## Quiescence and transaction
 
-One shared Tokio read/write gate protects catalog activity. SQL jobs retain owned
-read leases through their executor completion, including cancellation. Upload
+One shared Tokio read/write gate protects catalog activity. A SQL job holds no lease:
+an exclusive job owns the single execution permit for as long as it runs, so the permit
+already keeps them apart, and a queue of SQL callers cannot hold the gate shut. Upload
 admission, resumable/rewrite/derived writers, unconsumed derived sources, staged
 administrative files, appendable writers and asynchronous reclamation retain
-leases while unpublished bytes or cleanup can still affect state. Reset uses the
-bounded administrative admission and execution queues with a shared one-second
-deadline, capped by the HTTP catalog wait budget and remaining request deadline.
-Expiry before exclusive ownership returns the same no-changes Busy response even
-when `catalog_wait_timeout_ms` is shorter than one second. It retries the exclusive
-activity lease every 10 ms, releasing execution between attempts. It never queues
-a writer: existing uploads and maintenance must
-still be able to acquire read leases for their remaining catalog jobs. No activity
-or execution lease is held while sleeping. New activity cannot enter once reset
-owns the exclusive lease. Saturated administrative admission also returns busy.
-If the deadline expires, reset returns 503 with
-`Retry-After: 1` and makes no changes; finish active uploads or cleanup before
-retrying. Continuous activity can exhaust this deadline rather than starving
-ordinary requests. No body buffering, forced cancellation or long database
-transaction is introduced. Existing immutable read descriptors are intentionally independent.
+leases while unpublished bytes or cleanup can still affect state. Reset waits for its
+turn in the administrative admission and execution queues up to
+`catalog_wait_timeout_ms` and the remaining request deadline, and spends that budget on
+waiting only: the work after it keeps a budget of its own. Expiry before exclusive
+ownership returns the no-changes Busy response.
+
+While reset waits, it reserves the gate. New work that would take a lease lines up behind
+the reservation, so a steady stream of uploads cannot keep reset out. Reads keep running,
+and work that already holds a lease finishes, because reset may be waiting for that very
+lease. Once reset owns the gate, requests wait for it to end and then run against the state
+it left. The reservation ends on every path out of the wait, a client that disconnects gives
+up the wait and changes nothing, and catalog close wakes every waiter.
+
+A seed batch gives up its lease for its commit while, on the memory backend, its bodies
+already sit in the RAM store. Clearing the store then would leave rows without bytes, so
+reset that finds a seed commit under way lets go of the gate and waits for the commit
+holding nothing, which leaves no cycle. A batch that has not reached its commit still holds
+its lease and is drained as usual.
+
+If the deadline expires, reset returns 503 with `Retry-After: 1` and makes no changes; finish
+active uploads or cleanup before retrying. No body buffering, forced cancellation or long
+database transaction is introduced. Existing immutable read descriptors are intentionally
+independent.
+
+A client that stays connected and stops sending an upload body holds its lease. Reset then
+waits up to `catalog_wait_timeout_ms`, new uploads wait behind it for that long, and reset ends
+with 503 "made no changes". The client disconnecting clears it at once. With
+`catalog_wait_timeout_ms` of 0 this lasts until reset's own client disconnects.
+`body_inactivity_timeout_ms`, disabled by default, bounds such a stalled body.
 
 Startup maintenance runs derived, resumable, rewrite, multipart and soft-deleted
 bucket sweeps even on a fresh catalog. Its SQL jobs can overlap the first bucket
@@ -126,12 +143,17 @@ validates and stages the complete configured fixture tree before publishing it.
 
 Storage tests in `src/storage/catalog/admin/reset/tests.rs` hold a running catalog
 job until reset is waiting, then release it and verify the reset succeeds. They
-also verify that catalog reads can acquire leases while reset waits for an upload
-lease. Cancelling reset during retry sleep or execution admission restores its
+also verify that catalog reads keep running while reset waits for an upload
+lease. Cancelling reset during its wait or execution admission restores its
 administrative permits; normal catalog reads, a later reset and close succeed.
+`src/storage/catalog/activity/tests.rs` covers requests that wait for a running reset
+and then see the cleared state, a steady stream of new work that cannot starve an
+exclusive job, work under way that finishes ahead of it, and closing while callers wait.
+`a_reset_queued_ahead_of_a_seed_commit_leaves_no_object_without_its_bytes` covers the seed
+commit.
 The existing tests exercise revision and
 catalog-identity preservation, open-reader completion, busy upload/source leases,
-new-activity rejection under the exclusive lease, incomplete-import refusal,
+new activity held back under the exclusive lease, incomplete-import refusal,
 failed and ambiguous commit, deferred cleanup and restart. Snapshot and Unix
 power-loss-model cases cover before/after commit and the new unlink/sync seams.
 The existing power-loss model does not undo unlinks; these cases do not establish
@@ -142,7 +164,10 @@ session invalidation, stale generation and policy identity after recreation,
 restart, an active `100 Continue` upload, strict manager/IAM separation and active
 sync refusal with preserved external bytes. The active-upload case also runs with
 a 500 ms catalog wait budget, preserving the no-changes message, `Retry-After: 1`,
-existing bytes and the upload's ability to finish. All execute offline on loopback.
+existing bytes and the upload's ability to finish.
+`requests_during_a_reset_wait_and_then_see_the_cleared_state` and
+`a_disconnected_reset_gives_up_its_wait_and_changes_nothing` cover the wait on the wire.
+All execute offline on loopback.
 
 Verification on 2026-11-04: `cargo check --locked --tests` passed;
 `cargo test --locked --lib storage::catalog::admin::reset` passed all eleven cases.
@@ -178,7 +203,7 @@ Any later persistent feature must add its state and byte namespaces to this rese
 transaction and its recovery tests. Schema 37 includes XML multipart sessions,
 parts and deferred part deletions: reset journals their opaque staging IDs before
 clearing parts, sessions and cleanup records. Multipart stream/completion leases
-keep reset busy until their owned work finishes. The multipart wire and storage
+hold reset back until their owned work finishes or its wait budget ends. The multipart wire and storage
 tests exercise session invalidation, staging reclamation, restart and the busy
 boundary. Current reset also clears notification outboxes and the later shared
 synchronization state. [Atomic reseed](atomic-seed-reseed.md) reuses the same
