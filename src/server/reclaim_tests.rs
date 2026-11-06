@@ -1,15 +1,24 @@
 //! A full server takes back one idle connection per waiting client, the oldest first.
 
 use super::*;
-use std::{
-    pin::Pin,
-    task::{Context, Waker},
-};
+use std::task::{Context, Waker};
 
-fn woken(turn: &mut Pin<Box<Notified<'_>>>) -> bool {
-    turn.as_mut()
+fn woken(turn: &mut IdleTurn<'_>) -> bool {
+    turn.turn
+        .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()))
         .is_ready()
+}
+
+/// Enabling takes a stored wake, and dropping the `Notified` afterwards would lose it.
+#[test]
+fn a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line() {
+    let slots = SlotReclaim::default();
+    let _request = slots.request();
+    drop(slots.join_line());
+    let mut next = slots.join_line();
+    assert!(woken(&mut next));
+    assert!(slots.take_request());
 }
 
 #[test]
@@ -57,7 +66,7 @@ fn a_busy_connection_can_hand_its_wake_to_the_next_in_line() {
     let mut younger = slots.join_line();
     let _request = slots.request();
     assert!(woken(&mut oldest));
-    slots.pass_on();
+    drop(oldest);
     assert!(woken(&mut younger));
     assert!(slots.take_request());
 }

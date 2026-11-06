@@ -839,11 +839,11 @@ impl SlotReclaim {
         SlotRequest(self)
     }
 
-    fn join_line(&self) -> std::pin::Pin<Box<Notified<'_>>> {
+    fn join_line(&self) -> IdleTurn<'_> {
         let mut turn = Box::pin(self.idle_line.notified());
         // An unpolled `Notified` is not in line yet, and the line's order is the point.
         turn.as_mut().enable();
-        turn
+        IdleTurn { slots: self, turn }
     }
 
     /// A wake can outlive the request that sent it, when another connection ended first and
@@ -855,9 +855,23 @@ impl SlotReclaim {
     fn is_wanted(&self) -> bool {
         self.wanted.load(Ordering::Acquire)
     }
+}
 
-    fn pass_on(&self) {
-        self.idle_line.notify_one();
+/// A place in the idle line, which a connection holds for as long as it stays idle.
+struct IdleTurn<'a> {
+    slots: &'a SlotReclaim,
+    turn: std::pin::Pin<Box<Notified<'a>>>,
+}
+
+impl Drop for IdleTurn<'_> {
+    /// Hands a waiting client's wake to the next connection in line on every way out of the idle
+    /// phase. A `Notified` forwards a wake it received while queued, but not the stored one it
+    /// took when enabled, so a connection leaving before its next poll would lose that one and
+    /// the client would wait for some other connection to end.
+    fn drop(&mut self) {
+        if self.slots.is_wanted() {
+            self.slots.idle_line.notify_one();
+        }
     }
 }
 
@@ -1179,9 +1193,7 @@ enum ConnectionPhase<'a> {
     FirstHead,
     /// The next request, between keep-alive requests. The place in the idle line lives here, so
     /// leaving this phase gives it up, and passes on any wake it received, on every path.
-    Idle {
-        turn: std::pin::Pin<Box<Notified<'a>>>,
-    },
+    Idle { turn: IdleTurn<'a> },
     /// The rest of a next request's head, which has started arriving.
     NextHead,
     /// A request's handler, or its bodies.
@@ -1195,7 +1207,7 @@ impl ConnectionPhase<'_> {
     /// phases. The place in line outlives this future, so `select!` can drop it at any time.
     async fn idle_turn(&mut self) {
         match self {
-            Self::Idle { turn } => turn.as_mut().await,
+            Self::Idle { turn } => turn.turn.as_mut().await,
             Self::FirstHead | Self::NextHead | Self::Request | Self::TimeoutReply => {
                 std::future::pending().await
             }
@@ -1324,10 +1336,10 @@ impl ConnectionWatch {
                 () = phase.idle_turn() => {
                     if slots.is_wanted() && reads.arrived_since_idle() {
                         // The next request already started arriving, so this slot is not idle:
-                        // the waiting client needs the next connection in line.
+                        // the waiting client needs the next connection in line, which leaving
+                        // the idle phase wakes.
                         phase = ConnectionPhase::NextHead;
                         deadline.as_mut().reset(limits.header_read.deadline());
-                        slots.pass_on();
                     } else if slots.take_request() {
                         break UnreadInput::None;
                     } else {
