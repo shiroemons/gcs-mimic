@@ -482,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn fields_bound_length_and_depth_but_not_the_selection_count() {
+    fn fields_bound_length_depth_and_selection_count() {
         let exact = format!("metadata/{}", "k".repeat(MAX_LENGTH - 9));
         assert_eq!(exact.len(), crate::json::MAX_QUERY_BYTES);
         assert!(Fields::parse(&exact, "Object").is_ok());
@@ -493,7 +493,7 @@ mod tests {
                 .as_u16(),
             400
         );
-        // Far more selections than the former limit of 256, at the length a query can carry.
+        // The length alone bounds the selections, far above the former limit of 256.
         let selections = "name,".repeat(MAX_LENGTH / 5 - 1) + "name";
         assert!(selections.len() <= MAX_LENGTH);
         assert!(Fields::parse(&selections, "Object").is_ok());
