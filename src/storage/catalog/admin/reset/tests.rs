@@ -304,7 +304,6 @@ async fn cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_res
     let (_dir, catalog, admin) = setup().await;
     let upload = catalog.admit_object_upload().unwrap();
     let reads = catalog.0.admin_reads.available_permits();
-    let waiters = catalog.0.admin_waiters.available_permits();
     for hold_execution in [false, true] {
         let held = hold_execution.then(|| catalog.0.execution.clone().try_acquire_owned().unwrap());
         let execution = catalog.0.execution.available_permits();
@@ -314,7 +313,6 @@ async fn cancelled_reset_wait_releases_admission_and_allows_catalog_work_and_res
                 .is_err()
         );
         assert_eq!(catalog.0.admin_reads.available_permits(), reads);
-        assert_eq!(catalog.0.admin_waiters.available_permits(), waiters);
         assert_eq!(catalog.0.execution.available_permits(), execution);
         drop(held);
     }

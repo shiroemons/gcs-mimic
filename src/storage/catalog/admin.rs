@@ -408,6 +408,10 @@ impl Catalog {
         }
     }
 
+    /// Waits for a slot until `deadline` or until the catalog closes.
+    ///
+    /// The line needs no limit of its own: the server's connections already bound who can stand in
+    /// it, each caller leaves by its deadline, and dropping a wait gives up its place at no cost.
     pub(super) async fn wait_admin(
         &self,
         slots: Arc<Semaphore>,
@@ -424,14 +428,6 @@ impl Catalog {
                 retry_after: Duration::from_secs(1),
             });
         }
-        let _queue = self
-            .0
-            .admin_waiters
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| AdminError::Busy {
-                retry_after: Duration::from_secs(1),
-            })?;
         tokio::select! {
             biased;
             _ = shutdown => Err(AdminError::Closed),

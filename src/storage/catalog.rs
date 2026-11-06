@@ -176,9 +176,10 @@ struct Inner {
     uploads_idle: Notify,
     admin_uploads: Arc<Semaphore>,
     admin_reads: Arc<Semaphore>,
-    admin_waiters: Arc<Semaphore>,
     staged_handles: Arc<Semaphore>,
     publication_batch: Arc<Semaphore>,
+    /// Held by a publication request until its batch and every staged cleanup it left are done,
+    /// which is what `close` waits for. Callers past the permits wait for one like any other slot.
     publication_requests: Arc<Semaphore>,
     writeback_execution: Arc<Semaphore>,
     file_workers: admin::FileWorkers,
@@ -316,7 +317,6 @@ impl Catalog {
             && !self.0.admission.is_closed()
             && !self.0.admin_uploads.is_closed()
             && !self.0.admin_reads.is_closed()
-            && !self.0.admin_waiters.is_closed()
     }
 }
 

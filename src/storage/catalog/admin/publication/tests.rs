@@ -631,36 +631,158 @@ async fn publication_partial_batch_allows_staging_without_a_second_batch() {
     catalog.close().await.unwrap();
 }
 
+/// Past the one active and one waiting batch that publication once held before refusing the next.
+const QUEUED_BATCHES: usize = 8;
+/// Long enough that no test reaches it unless the behaviour under test is broken.
+const LONG_WAIT: crate::time_limit::TimeLimit = crate::time_limit::TimeLimit::from_millis(60_000);
+
+/// Staged batches, each spawned so that it stands in the publication line with its lease.
+async fn spawn_batches(
+    admin: &Admin,
+    dir: &std::path::Path,
+) -> Vec<tokio::task::JoinHandle<Result<BatchResult, AdminError>>> {
+    let mut batches = Vec::new();
+    for index in 0..QUEUED_BATCHES {
+        let name = format!("queued-{index}");
+        let input = entry(admin, dir, &name, name.as_bytes()).await;
+        let worker = admin.clone();
+        batches.push(tokio::spawn(async move {
+            worker.publish_objects(vec![input]).await
+        }));
+        tokio::task::yield_now().await;
+    }
+    batches
+}
+
 #[tokio::test]
-async fn publication_admits_only_one_active_and_one_waiting_batch() {
+async fn publication_past_the_active_batch_takes_turns_and_every_batch_commits() {
     let (dir, catalog, admin, _, _) = setup().await;
-    let a = entry(&admin, &dir.0, "a", b"a").await;
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
-    let worker = admin.clone();
-    let active = tokio::spawn(async move { worker.publish_objects(vec![a]).await });
-    eventually_async("the active batch to hold its permit", || async {
-        catalog.0.publication_batch.available_permits() == 0
-    })
-    .await;
-    let b = entry(&admin, &dir.0, "b", b"b").await;
-    let worker = admin.clone();
-    let queued = tokio::spawn(async move { worker.publish_objects(vec![b]).await });
-    eventually_async("the queued batch to hold its permit", || async {
+    let batches = spawn_batches(&admin, &dir.0).await;
+    eventually_async("the batches to fill the request slots", || async {
         catalog.0.publication_requests.available_permits() == 0
     })
     .await;
-    let c = entry(&admin, &dir.0, "c", b"c").await;
-    assert!(matches!(
-        admin.publish_objects(vec![c]).await,
-        Err(AdminError::Busy { .. })
-    ));
-    assert!(!active.is_finished());
-    assert!(!queued.is_finished());
+    assert!(batches.iter().all(|batch| !batch.is_finished()));
     drop(execution);
-    assert!(active.await.unwrap().unwrap().results[0].is_ok());
-    assert!(queued.await.unwrap().unwrap().results[0].is_ok());
+    for batch in batches {
+        assert!(batch.await.unwrap().unwrap().results[0].is_ok());
+    }
     catalog.close().await.unwrap();
-    assert_eq!(blob_count(&dir.0), 2);
+    assert_eq!(blob_count(&dir.0), QUEUED_BATCHES);
+}
+
+#[tokio::test]
+async fn a_reset_drains_the_publications_waiting_in_line() {
+    let (dir, catalog, admin, bucket, _) = setup().await;
+    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let batches = spawn_batches(&admin, &dir.0).await;
+    let worker = admin.clone();
+    let reset = tokio::spawn(async move { worker.reset_until(LONG_WAIT.deadline()).await });
+    eventually_async("the reset to line up", || async {
+        catalog.0.admin_reads.available_permits() == 31
+    })
+    .await;
+    drop(execution);
+    // Each batch waits under the lease of its staged object, so the reset can start only once
+    // the line has moved on: neither may wait for the other.
+    for batch in batches {
+        assert!(batch.await.unwrap().unwrap().results[0].is_ok());
+    }
+    reset.await.unwrap().unwrap();
+    assert!(admin.get_bucket(&bucket).await.unwrap().is_none());
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_seed_commit_and_a_publication_behind_it_end_by_their_deadlines() {
+    let (dir, catalog, admin, _, _) = setup().await;
+    let mut batch = admin.seed_batch().await.unwrap();
+    let input = entry(&admin, &dir.0, "behind", b"behind").await;
+    batch
+        .object(
+            BucketName::new("test-bucket").unwrap(),
+            ObjectName::new("seeded").unwrap(),
+            request(None),
+            source(&dir.0, b"seeded"),
+        )
+        .await
+        .unwrap();
+    catalog.apply_session_limits(&crate::config::Config {
+        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(500),
+        ..Default::default()
+    });
+    // The publication holds a lease the commit must drain and waits for the batch slot the commit
+    // holds. Neither can finish the other, so only the deadline may end this.
+    let worker = admin.clone();
+    let publication = tokio::spawn(async move { worker.publish_objects(vec![input]).await });
+    let commit = batch.commit(SeedMode::Merge);
+    let (publication, commit) = tokio::join!(publication, commit);
+    let (publication, commit) = (publication.unwrap().err(), commit.err());
+    assert!(
+        matches!(
+            (&publication, &commit),
+            (
+                Some(AdminError::Busy { .. }),
+                None | Some(AdminError::Busy { .. })
+            ) | (None, Some(AdminError::Busy { .. }))
+        ),
+        "{publication:?} {commit:?}"
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn closing_wakes_every_publication_waiting_for_its_turn() {
+    let (dir, catalog, admin, _, _) = setup().await;
+    let requests = catalog
+        .0
+        .publication_requests
+        .clone()
+        .acquire_many_owned(2)
+        .await
+        .unwrap();
+    let batches = spawn_batches(&admin, &dir.0).await;
+    let worker = catalog.clone();
+    let close = tokio::spawn(async move { worker.close().await });
+    // Their own deadline is 30 s away, so only the close can end the wait this soon.
+    for batch in batches {
+        let result = tokio::time::timeout(Duration::from_secs(10), batch)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.err(), Some(AdminError::Closed));
+    }
+    assert!(!close.is_finished());
+    drop(requests);
+    close.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_cancelled_publication_gives_up_its_place_and_returns_its_lease() {
+    let (dir, catalog, admin, bucket, _) = setup().await;
+    let requests = catalog
+        .0
+        .publication_requests
+        .clone()
+        .acquire_many_owned(2)
+        .await
+        .unwrap();
+    let batches = spawn_batches(&admin, &dir.0).await;
+    for batch in &batches {
+        batch.abort();
+    }
+    for batch in batches {
+        assert!(batch.await.err().is_some_and(|error| error.is_cancelled()));
+    }
+    drop(requests);
+    assert_eq!(catalog.0.publication_requests.available_permits(), 2);
+    assert_eq!(catalog.0.publication_batch.available_permits(), 1);
+    // A lease left behind by a cancelled wait would keep this reset out until it gives up.
+    admin.reset_until(LONG_WAIT.deadline()).await.unwrap();
+    assert!(admin.get_bucket(&bucket).await.unwrap().is_none());
+    catalog.close().await.unwrap();
+    assert_eq!(blob_count(&dir.0), 0);
 }
 
 #[tokio::test]

@@ -197,6 +197,36 @@ fn requests_during_a_reset_wait_and_then_see_the_cleared_state() {
     server.request("GET", OBJECT, "", b"").expect(404);
 }
 
+/// Twice the 32 callers the management line once held before refusing the next one.
+const MANY_RESETS: usize = 64;
+
+#[test]
+fn management_calls_past_every_slot_wait_their_turn_and_all_succeed() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--admin-enabled", "true"]);
+    server.populate();
+    let mut active = pending_media_upload(&server, "pending", b"hello".len());
+    let replies = std::thread::scope(|scope| {
+        let resets: Vec<_> = (0..MANY_RESETS)
+            .map(|_| scope.spawn(|| server.request("POST", "/_internal/reset", "", CONFIRM)))
+            .collect();
+        drop(held_back_media_upload(&server, "held-back", b"fresh".len()));
+        // A second and more on, an immediate refusal has already answered.
+        assert!(resets.iter().all(|reset| !reset.is_finished()));
+        active.get_mut().write_all(b"hello").unwrap();
+        let finished = common::read_http_response(&mut active, Body::Expected).unwrap();
+        assert!(finished.starts_with(b"HTTP/1.1 200"));
+        resets
+            .into_iter()
+            .map(|reset| reset.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    for reply in replies {
+        reply.json_ok();
+    }
+    server.request("GET", OBJECT, "", b"").expect(404);
+}
+
 #[test]
 fn a_disconnected_reset_gives_up_its_wait_and_changes_nothing() {
     let dir = TestDir::new();

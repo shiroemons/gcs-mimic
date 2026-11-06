@@ -390,10 +390,14 @@ async fn import_publication_progress_rejects_foreign_project_records_and_failure
 }
 
 #[tokio::test]
-async fn import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix() {
+async fn import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix() {
     let (dir, catalog, admin, source) = setup(2).await;
     bucket(&admin, &source).await;
     let item = entry(&dir, &admin, 2, "object", b"retained").await;
+    catalog.apply_session_limits(&crate::config::Config {
+        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(50),
+        ..Default::default()
+    });
     let slots = catalog
         .0
         .publication_requests
@@ -418,6 +422,13 @@ async fn import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix
             .cursor,
         1
     );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn import_publication_cancelled_caller_drains_commit() {
+    let (dir, catalog, admin, source) = setup(2).await;
+    bucket(&admin, &source).await;
     let item = entry(&dir, &admin, 2, "object", b"retained").await;
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
     let worker = admin.clone();

@@ -7,7 +7,7 @@ use crate::{
         admin::tests::{body, request, setup},
         fault::{Fault, Step},
     },
-    test_support::{TestDir, joined},
+    test_support::{TestDir, eventually_async, joined},
 };
 use std::fs;
 
@@ -665,7 +665,7 @@ async fn seed_admission_waits_for_a_competing_batch_to_finish() {
 #[tokio::test]
 async fn cancelled_seed_waits_release_admission_and_allow_reset() {
     let (dir, catalog, admin, _bucket, _name) = setup().await;
-    let waiters = catalog.0.admin_waiters.available_permits();
+    let requests = catalog.0.publication_requests.available_permits();
     let first = admin.seed_batch().await.unwrap();
     assert!(
         tokio::time::timeout(Duration::from_millis(20), admin.seed_batch())
@@ -686,13 +686,127 @@ async fn cancelled_seed_waits_release_admission_and_allow_reset() {
             .is_err()
     );
     drop(upload);
-    assert_eq!(catalog.0.admin_waiters.available_permits(), waiters);
+    // The cancelled commit hands its staged object to a detached cleanup, which owns the request.
+    eventually_async("the cancelled batch's request to be returned", || async {
+        catalog.0.publication_requests.available_permits() == requests
+    })
+    .await;
     // Cancelled waits leave no lease behind, so an exclusive reset can still proceed.
     tokio::time::timeout(Duration::from_secs(3), admin.reset())
         .await
         .unwrap()
         .unwrap();
     catalog.close().await.unwrap();
+}
+
+/// Past the two requests a seed could once share before the next one was refused.
+const QUEUED_SEEDS: usize = 8;
+
+/// A seed that runs a whole batch once its turn comes. It names its bucket, so it succeeds on the
+/// empty catalog a reset leaves as well.
+fn spawn_seed(
+    admin: &Admin,
+    directory: &Path,
+    index: usize,
+) -> tokio::task::JoinHandle<Result<Counts, AdminError>> {
+    let (admin, directory) = (admin.clone(), directory.to_owned());
+    tokio::spawn(async move {
+        let mut batch = admin.seed_batch().await?;
+        batch.bucket(BucketDefinition::default_for(
+            &BucketName::new("test-bucket")?,
+            "project",
+            &SystemClock,
+        )?)?;
+        let name = format!("queued-{index}");
+        add(&mut batch, &directory, &name, name.as_bytes()).await;
+        batch.commit(SeedMode::Merge).await
+    })
+}
+
+#[tokio::test]
+async fn seeds_past_the_active_batch_take_turns_and_all_commit() {
+    let (dir, catalog, admin, _bucket, _name) = setup().await;
+    let active = admin.seed_batch().await.unwrap();
+    let seeds: Vec<_> = (0..QUEUED_SEEDS)
+        .map(|index| spawn_seed(&admin, &dir.0, index))
+        .collect();
+    eventually_async("the seeds to fill the request slots", || async {
+        catalog.0.publication_requests.available_permits() == 0
+    })
+    .await;
+    drop(active);
+    for seed in seeds {
+        assert_eq!(seed.await.unwrap().unwrap().objects, 1);
+    }
+    for index in 0..QUEUED_SEEDS {
+        let name = format!("queued-{index}");
+        assert_eq!(bytes(&admin, &name).await, name.as_bytes());
+    }
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_reset_passes_the_seeds_waiting_in_line_and_they_run_after_it() {
+    let (dir, catalog, admin, _bucket, _name) = setup().await;
+    let active = admin.seed_batch().await.unwrap();
+    let seeds: Vec<_> = (0..QUEUED_SEEDS)
+        .map(|index| spawn_seed(&admin, &dir.0, index))
+        .collect();
+    eventually_async("the seeds to fill the request slots", || async {
+        catalog.0.publication_requests.available_permits() == 0
+    })
+    .await;
+    let worker = admin.clone();
+    let reset = tokio::spawn(async move {
+        worker
+            .reset_until(crate::time_limit::TimeLimit::from_millis(60_000).deadline())
+            .await
+    });
+    eventually_async("the reset to line up", || async {
+        catalog.0.admin_reads.available_permits() == 31
+    })
+    .await;
+    // Only the active batch's lease stands in the reset's way: seeds in line hold none.
+    drop(active);
+    // Within the seeds' own wait of 30 s, so a reset held up by the line fails here.
+    tokio::time::timeout(Duration::from_secs(20), reset)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    for seed in seeds {
+        assert_eq!(seed.await.unwrap().unwrap().objects, 1);
+    }
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn closing_wakes_every_seed_waiting_for_its_turn() {
+    let (dir, catalog, admin, _bucket, _name) = setup().await;
+    let requests = catalog
+        .0
+        .publication_requests
+        .clone()
+        .acquire_many_owned(2)
+        .await
+        .unwrap();
+    let seeds: Vec<_> = (0..QUEUED_SEEDS)
+        .map(|index| spawn_seed(&admin, &dir.0, index))
+        .collect();
+    tokio::task::yield_now().await;
+    let worker = catalog.clone();
+    let close = tokio::spawn(async move { worker.close().await });
+    // Their own deadline is 30 s away, so only the close can end the wait this soon.
+    for seed in seeds {
+        let result = tokio::time::timeout(Duration::from_secs(10), seed)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.err(), Some(AdminError::Closed));
+    }
+    assert!(!close.is_finished());
+    drop(requests);
+    close.await.unwrap().unwrap();
 }
 
 #[tokio::test]

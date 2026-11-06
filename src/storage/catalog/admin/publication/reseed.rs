@@ -69,16 +69,12 @@ impl Admin {
         if self.catalog.sync_controls()?.is_some() {
             return Err(AdminError::Precondition);
         }
-        // The request slot bounds queued publication callers, so it is refused rather than awaited.
+        let deadline = wait_deadline(&self.catalog, request_deadline);
         let request = Arc::new(
             self.catalog
-                .0
-                .publication_requests
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| busy())?,
+                .wait_admin(self.catalog.0.publication_requests.clone(), deadline)
+                .await?,
         );
-        let deadline = wait_deadline(&self.catalog, request_deadline);
         let admission = self
             .catalog
             .wait_admin(self.catalog.0.publication_batch.clone(), deadline)
@@ -98,12 +94,6 @@ impl Admin {
             metadata_budget: metadata_budget(max_entries),
             request_deadline,
         })
-    }
-}
-
-fn busy() -> AdminError {
-    AdminError::Busy {
-        retry_after: Duration::from_secs(1),
     }
 }
 

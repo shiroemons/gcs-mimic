@@ -146,6 +146,43 @@ impl Drop for SyncServer {
 }
 
 #[test]
+fn controls_past_the_mirror_queue_take_turns_and_all_succeed() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/body"), b"initial").unwrap();
+    let mut server = SyncServer::start(&data.0, &tree.0);
+    server.rescan();
+    let replies = std::thread::scope(|scope| {
+        // Twice the 32 controls the server once handled before refusing the next one.
+        let controls: Vec<_> = (0..64)
+            .map(|index| {
+                let (method, path, payload): (_, _, &[u8]) = match index % 8 {
+                    0 => ("POST", "/_internal/sync/rescan", b"{}"),
+                    1 => ("GET", "/_internal/sync", b""),
+                    _ => ("POST", "/_internal/sync/wait", br#"{"timeout_ms":60000}"#),
+                };
+                let server = &server;
+                scope.spawn(move || server.request(method, path, payload))
+            })
+            .collect();
+        controls
+            .into_iter()
+            .map(|control| control.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    for reply in replies {
+        assert!(
+            [200, 202].contains(&reply.status),
+            "{}: {}",
+            reply.status,
+            String::from_utf8_lossy(&reply.body)
+        );
+    }
+    server.stop();
+}
+
+#[test]
 fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_errors() {
     let data = TestDir::new();
     let tree = TestDir::new();

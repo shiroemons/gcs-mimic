@@ -752,7 +752,7 @@ async fn admin_admission_is_independent_of_saturated_api_slots() {
 }
 
 #[tokio::test]
-async fn admin_wait_deadlines_queue_limit_and_closed_state_are_typed() {
+async fn admin_wait_deadlines_and_closed_state_are_typed() {
     let (_dir, catalog, admin, bucket, _) = setup().await;
     assert!(matches!(
         catalog
@@ -787,24 +787,96 @@ async fn admin_wait_deadlines_queue_limit_and_closed_state_are_typed() {
         Err(AdminError::Busy { .. })
     ));
     drop(execution);
-    let queue = catalog
-        .0
-        .admin_waiters
-        .clone()
-        .acquire_many_owned(32)
-        .await
-        .unwrap();
-    assert!(matches!(
-        admin.get_bucket(&bucket).await,
-        Err(AdminError::Busy { .. })
-    ));
-    drop(queue);
     catalog.close().await.unwrap();
     assert!(!catalog.is_healthy());
     assert_eq!(
         admin.get_bucket(&bucket).await.unwrap_err(),
         AdminError::Closed
     );
+}
+
+/// Twice the 32 callers the management line once held before refusing the next one.
+const MANY_CALLS: usize = 64;
+
+fn spawn_gets(
+    admin: &Admin,
+    bucket: &BucketName,
+) -> Vec<tokio::task::JoinHandle<Result<Option<BucketRecord>, AdminError>>> {
+    (0..MANY_CALLS)
+        .map(|_| {
+            let (admin, bucket) = (admin.clone(), bucket.clone());
+            tokio::spawn(async move { admin.get_bucket(&bucket).await })
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn management_calls_past_every_slot_wait_their_turn_and_all_succeed() {
+    let (_dir, catalog, admin, bucket, _) = setup().await;
+    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let calls = spawn_gets(&admin, &bucket);
+    eventually_async("the read slots to fill", || async {
+        catalog.0.admin_reads.available_permits() == 0
+    })
+    .await;
+    drop(execution);
+    for call in calls {
+        assert!(call.await.unwrap().unwrap().is_some());
+    }
+    assert_eq!(catalog.0.admin_reads.available_permits(), 32);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn closing_wakes_every_management_call_waiting_for_a_slot() {
+    let (_dir, catalog, admin, bucket, _) = setup().await;
+    let reads = catalog
+        .0
+        .admin_reads
+        .clone()
+        .acquire_many_owned(32)
+        .await
+        .unwrap();
+    let calls = spawn_gets(&admin, &bucket);
+    tokio::task::yield_now().await;
+    let worker = catalog.clone();
+    let close = tokio::spawn(async move { worker.close().await });
+    // The calls' own deadline is 30 s away, so only the close can end their wait this soon.
+    for call in calls {
+        let result = tokio::time::timeout(Duration::from_secs(10), call)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.unwrap_err(), AdminError::Closed);
+    }
+    assert!(!close.is_finished());
+    drop(reads);
+    close.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_cancelled_management_call_gives_up_its_place_and_nothing_else() {
+    let (_dir, catalog, admin, bucket, _) = setup().await;
+    let reads = catalog
+        .0
+        .admin_reads
+        .clone()
+        .acquire_many_owned(32)
+        .await
+        .unwrap();
+    let mut calls = spawn_gets(&admin, &bucket);
+    let last = calls.pop().unwrap();
+    tokio::task::yield_now().await;
+    for call in &calls {
+        call.abort();
+    }
+    for call in calls {
+        assert!(call.await.unwrap_err().is_cancelled());
+    }
+    drop(reads);
+    assert!(last.await.unwrap().unwrap().is_some());
+    assert_eq!(catalog.0.admin_reads.available_permits(), 32);
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]
