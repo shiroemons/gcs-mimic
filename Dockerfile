@@ -37,14 +37,15 @@ RUN case "$TARGETARCH" in \
     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT \
     && cargo run --locked --offline --release --package xtask -- release notices "$target" /distribution-licenses \
     && install -d -o 10001 -g 10001 /runtime-data \
-    && install -d -m 1777 /runtime-tmp
+    && install -d -m 1777 /runtime-root/tmp
 
 FROM scratch AS runtime
 LABEL org.opencontainers.image.source="https://github.com/shiroemons/gcs-mimic"
 LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
 WORKDIR /app
-# Imports spool to the temporary directory; scratch has none.
-COPY --link --from=build /runtime-tmp/ /tmp/
+# Imports spool to the temporary directory; scratch has none. Copying its parent keeps the mode,
+# which `COPY dir/ dest/` would drop, leaving a directory the unprivileged user cannot write.
+COPY --link --from=build /runtime-root/ /
 COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
 COPY --link --from=build /gcs-mimic /usr/local/bin/gcs-mimic
 COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
@@ -56,5 +57,7 @@ HEALTHCHECK --interval=2s --timeout=2s --start-period=2s --retries=15 CMD ["gcs-
 ENTRYPOINT ["gcs-mimic"]
 # Like fake-gcs-server's `-data /data`, a bucket/object tree mounted at /data seeds every start.
 # scratch defines no PATH, and the exec-form HEALTHCHECK resolves `gcs-mimic` through it.
-ENV PATH=/usr/local/bin GCS_MIMIC_LISTEN=0.0.0.0:4443 GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic GCS_MIMIC_DEFAULT_SEED_DIR=/data
+# A large statement spills its journal to a temporary file, which /tmp cannot hold on a read-only
+# root; the data volume always can, and SQLite unlinks these files as soon as it opens them.
+ENV PATH=/usr/local/bin GCS_MIMIC_LISTEN=0.0.0.0:4443 GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic GCS_MIMIC_DEFAULT_SEED_DIR=/data SQLITE_TMPDIR=/var/lib/gcs-mimic
 CMD ["serve"]
