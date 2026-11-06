@@ -328,6 +328,11 @@ fn failure(error: AdminError) -> JsonError {
             "Existing object is protected by a hold or retention",
         ),
         AdminError::Forbidden => return AuthFailure::Forbidden.into(),
+        AdminError::Busy { .. } => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "backendError",
+            "Fixture publication waited longer than catalog_wait_timeout_ms for other catalog work and made no changes; retry after that work completes, or raise catalog_wait_timeout_ms (0 disables it)",
+        ),
         _ => (
             StatusCode::SERVICE_UNAVAILABLE,
             "backendError",
@@ -335,4 +340,18 @@ fn failure(error: AdminError) -> JsonError {
         ),
     };
     JsonError::new(status, reason, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wait_past_the_catalog_wait_names_the_setting_instead_of_blaming_storage() {
+        let error = failure(AdminError::Busy {
+            retry_after: Duration::from_secs(1),
+        });
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(error.message.contains("catalog_wait_timeout_ms"));
+    }
 }
