@@ -81,9 +81,9 @@ and precedence between multiple invalid inputs were not differentially verified.
   Selecting a missing map key can leave an empty enclosing map. Fields already
   omitted by the existing supported resource renderer remain omitted; selecting
   them does not implement ACL, owner or other unmodeled semantics.
-- The decoded selector is at most **4096 UTF-8 bytes**, **32 path/parenthesis
-  levels** and **256 parsed field segments**, including duplicates and wildcards.
-  Exceeding a cap returns 400 `invalidParameter` before mutation. These are
+- The decoded selector may use the whole query that carries it, **16 KiB**, with
+  no limit of its own on field segments, and **32 path/parenthesis levels**, which
+  protect the parser's stack. Exceeding a cap returns 400 `invalidParameter` before mutation. These are
   explicit emulator resource limits, not claims about Google service caps.
 - Parsing and pruning remain in the JSON adapter. The pinned schema is parsed
   once through `LazyLock`; there are no new dependencies or network accesses.

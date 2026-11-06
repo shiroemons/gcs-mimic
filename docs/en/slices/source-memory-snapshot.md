@@ -14,7 +14,7 @@ hexadecimal ordinal filename, beginning at `0000000000000001`; ordinals increase
 by one across all object records. Never derive a path from an object name.
 
 Every JSON Lines record ends with a newline. Each complete line is bounded to
-128 KiB, while the serialized source attributes remain bounded to 64 KiB.
+32 MiB, while the serialized source attributes are bounded to 16 MiB.
 Traversal, manifest records and each object body use the import's existing
 limits. Symlinks, special files, unknown fields, duplicate members, missing or
 extra blobs, incomplete records and trailing data fail visibly.

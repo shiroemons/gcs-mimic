@@ -180,7 +180,7 @@ are ignored, as are name and unknown body/versioning children. None is persisted
 new supported behavior. Query predefinedAcl, predefinedDefaultObjectAcl and
 userProject return 400 badRequest; invalid projection and GET-only generation/softDeleted
 return 400 invalidParameter, including softDeleted=false.
-The existing bounded query parser and 64 KiB metadata body cap apply.
+The existing bounded query parser and 16 MiB JSON body cap apply.
 
 ## Reference profile differences
 

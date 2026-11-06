@@ -124,7 +124,7 @@ are 1000 for `noAcl` and 200 for `full`; `full` adds `acl`, `defaultObjectAcl` a
 official region, dual-region and multi-region list and the documented storage
 classes are accepted. Recognized unsupported settings, such as `billing`, and invalid
 names/queries return 400.
-Insert bodies are capped at 64 KiB; get/list/delete require no body.
+Insert bodies are capped at 16 MiB; get/list/delete require no body.
 
 Peer-container curl uses a digest-pinned, test-only official curl image:
 
@@ -535,7 +535,7 @@ second. A metadata contentType must match the media part's Content-Type, ignorin
 parameters such as `charset`; a mismatch returns 400 and publishes nothing, as Cloud
 Storage does. An omitted, null or empty contentType uses the media part's type.
 Custom metadata is limited to 8192 UTF-8 key/value bytes. The media cap excludes
-framing, and each JSON part is limited to 65536 bytes.
+framing, and each JSON part is limited to 16 MiB.
 
 ```sh
 printf 'Hello multipart.\n' > "$work_dir/multipart-media.txt"

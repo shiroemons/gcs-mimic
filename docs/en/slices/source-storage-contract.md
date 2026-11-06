@@ -405,7 +405,7 @@ metadata-only report as checksum evidence.
 Use the planned common directory iterator, overlap checks and pure streaming
 hasher from `import-dry-run`. Native seed follows `max_seed_entries` and
 `max_seed_depth`; source import likewise uses explicit bounded traversal
-(`--max-entries`, `--max-depth`), 64 KiB attribute records, 64 KiB body buffers
+(`--max-entries`, `--max-depth`), 16 MiB attribute records, 64 KiB body buffers
 and pages of at most 256 entries over a bounded two-page channel. Exhausting a
 limit is a diagnostic, never success or silent truncation. `max_object_bytes`
 applies inclusively; zero-byte bodies remain valid. Do not retain an entire
@@ -688,13 +688,15 @@ at most 256 combined records/findings, and `import_summary` with exact counts.
 One dedicated OS thread scans and hashes through a two-page bounded channel.
 The walk caps all entries (including sidecars) at `--max-entries`
 (`1..100000000`) and directory depth at `--max-depth` (`1..1024`) below a bucket;
-hitting either cap makes inspection incomplete. Metadata records cap at 64 KiB
-and body chunks at 64 KiB. `--max-object-bytes` (`1..5497558138880`) caps a source
+hitting either cap makes inspection incomplete. Metadata records cap at 16 MiB,
+the limit of any other JSON document, a snapshot row at twice that, and body
+chunks at 64 KiB. `--max-object-bytes` (`1..5497558138880`) caps a source
 body, inclusive. These values identify an import, so a resume must repeat the
 values of its first run. The snapshot format holds rows and not directories:
 `--max-entries` counts its rows, and it rejects `--max-depth`. Shared `Diagnostic`
 output goes to stderr in bounded batches with relative path/field keys and
-concrete remedies. A closed output joins the worker and returns failure. No complete object catalog or findings list is kept.
+concrete remedies. A closed output joins the worker and returns failure. No
+complete object catalog or findings list is kept.
 
 The summary separates `complete` scan traversal from `eligible` supported
 metadata and `bodies_verified`. `buckets` and `objects` count discovered

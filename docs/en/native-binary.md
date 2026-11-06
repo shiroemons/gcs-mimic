@@ -118,7 +118,7 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--max-buckets-per-batch` | `GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | See `serve --help` | 1–1000000; buckets one `--buckets-file` or one seed may declare, not all buckets of the server. Either is one atomic publication, so its memory grows with them |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Each request's Host and connection scheme | Set it to fix the advertised origin. A Host that selects an XML virtual bucket uses the configured domain with the same port, never the bucket label. An invalid or missing Host falls back to the bound listener URL: wildcard IP becomes loopback and port 0 becomes the allocated port. Explicit absolute HTTP(S) base with optional base path, no credentials/query/fragment. Ready reports the explicit or bound base |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 1024 | 1–1048576; total across listeners, including TLS handshakes. Startup raises the soft open-file limit to three per connection plus 64, and warns when it cannot |
-| `--max-grpc-streams` | `GCS_MIMIC_MAX_GRPC_STREAMS` | 100 | 1–65536; requires `grpc_listen`. Concurrent streams per gRPC connection. Each can buffer a message of up to 4 MiB, so one connection can reach 400 MiB; lower it to limit that memory. With a gRPC listener, startup also raises the open-file limit toward connections times streams times two, without a warning when that falls short |
+| `--max-grpc-streams` | `GCS_MIMIC_MAX_GRPC_STREAMS` | 100 | 1–65536; requires `grpc_listen`. Concurrent streams per gRPC connection. Each can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests; lower it to limit that memory. With a gRPC listener, startup also raises the open-file limit toward connections times streams times two, without a warning when that falls short |
 | `--max-resumable-sessions` | `GCS_MIMIC_MAX_RESUMABLE_SESSIONS` | 0 (unlimited) | 0–4294967295; active resumable uploads |
 | `--max-rewrite-sessions` | `GCS_MIMIC_MAX_REWRITE_SESSIONS` | 0 (unlimited) | 0–4294967295; unfinished rewrites |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–1024 |
@@ -217,9 +217,9 @@ or seed commit wait and then run against the state it left. A client that stays 
 without sending its upload body holds up a reset for up to `catalog_wait_timeout_ms`, and new
 uploads wait behind the reset meanwhile. The reset then answers 503 and changes nothing.
 
-Older catalogs migrate automatically, one way and in order, to the current schema 50;
-the log names the versions. A binary supporting only schema 49 cannot open a directory
-migrated to 50. Version 0.8.0 used schema 48 and 0.7.0 schema 35. Back up the stopped
+Older catalogs migrate automatically, one way and in order, to the current schema 51;
+the log names the versions. A binary supporting only schema 50 cannot open a directory
+migrated to 51. Version 0.8.0 used schema 48 and 0.7.0 schema 35. Back up the stopped
 data directory before upgrading, and restore it with its matching executable to roll back.
 Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs are rejected
 without changing their data; automatic recovery of deleted v2 generations is unavailable.
@@ -249,8 +249,8 @@ Initialization runs before seed, using local administrative authority in strict
 and permissive modes, and grants no API permissions. Invalid entries stop startup
 with complete diagnostics and no ready event. IAM policies, ACLs, lifecycle, UBLA
 and unknown fields are rejected even when empty or disabled. Limits are
-`max_buckets_per_batch` buckets, a file of 1 KiB per allowed bucket and at least 1 MiB,
-and 64 KiB per entry. See the [schema](slices/bucket-initialization.md)
+`max_buckets_per_batch` buckets, a file of 1 KiB per allowed bucket and at least 32 MiB,
+and 16 MiB per entry. See the [schema](slices/bucket-initialization.md)
 and [read-only Compose example](container-usage.md#initialize-bucket-settings).
 
 ## Seed a native catalog and read a byte range

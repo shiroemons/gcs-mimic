@@ -81,7 +81,7 @@ The following existing defaults and validation remain unchanged:
 | `auth_mode`, `identity_file` | `permissive`, unset | `strict` requires a nonempty registry path; permissive rejects a supplied registry |
 | `xml_virtual_host_domains` | Empty/disabled | At most 32 distinct validated DNS names; existing [virtual-host rules](xml-virtual-host.md) |
 | `max_connections` | `1024` | `1..1048576`; all listeners and pending TLS handshakes share this total; startup raises the soft `RLIMIT_NOFILE` to three per connection plus 64 and warns if it cannot; with `grpc_listen` the raise also aims at connections times streams times two, and falling short of that part stays silent |
-| `max_grpc_streams` | `100` | `1..65536`; requires `grpc_listen`; RFC 9113 section 6.5.2 recommends no less than 100. Each stream can buffer a message of up to 4 MiB, so one connection can reach 400 MiB, close to the Compose `mem_limit` of 512 MiB; lower it to limit that memory |
+| `max_grpc_streams` | `100` | `1..65536`; requires `grpc_listen`; RFC 9113 section 6.5.2 recommends no less than 100. Each stream can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests, close to the Compose `mem_limit` of 512 MiB; lower it to limit that memory |
 | `max_object_bytes` | `5497558138880` | `1..5497558138880` bytes |
 | `max_resumable_sessions`, `max_rewrite_sessions` | `0`, `0` | Each `0..4294967295`; 0 is unlimited |
 | `max_seed_entries`, `max_seed_depth` | `10000`, `32` | `1..100000000`, `1..1024` |

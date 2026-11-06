@@ -18,7 +18,7 @@ ListObjectsは共有の型付きクエリを直接作り、JSONのURLや一覧�
 
 CancelResumableWrite は、JSON の session URI への DELETE と同じカタログ処理で resumable session を取り消します。書き込み途中のバイトも破棄され、オブジェクトは公開されません。取り消した後の QueryWriteStatus・WriteObject・BidiWriteObject、2 回目の取消、未知・不正な upload_id は NOT_FOUND になります。確定済みの upload は FAILED_PRECONDITION です。別の書き込みが session を使用中なら `catalog_wait_timeout_ms` まで待ち、それでも解放されなければ再試行できる UNAVAILABLE です。strict では `storage.objects.create` が必要で、viewer は PERMISSION_DENIED、匿名は UNAUTHENTICATED になり、session はそのまま残ります。確定済み・2 回目・書き込み中の status は Google が定めていないため、ローカルで選んだ挙動です。
 
-本文の送受信は上限付きで、本文全体を集約しません。既存の 4 MiB メッセージ制限、64 KiB の本文チャンク、max_object_bytes を使い、新しい設定は追加しません。単発書き込みは resumable session の保存枠を使いません。
+本文の送受信は上限付きで、本文全体を集約しません。既存の 4 MiB の受信メッセージ制限、64 KiB の本文チャンク、max_object_bytes を使い、新しい設定は追加しません。ListObjects のページは約 2 MiB で区切って次ページのトークンを返し、進むように必ず 1 件を含みます。単発書き込みは resumable session の保存枠を使いません。
 
 未対応は、単発書き込みの途中の flush/state_lookup、ネストした read_mask、soft-deletedオブジェクトのGetObject、暗号化、所有者の`entity_id`とACLの`entity_alt`などです。soft-deletedの一覧は[SDK互換（英語）](../en/slices/grpc-v2-sdk-parity.md)で扱います。GetObjectと一覧のmaskは`Object`の全トップレベルフィールドと`*`を受け付けます。応答にはJSONと同じ`etag`と`update_storage_class_time`が入ります。`acl`と`owner`はmaskで指定したとき（または`*`）だけ返し、JSONの`projection=full`と同じ共有処理で作るため、UBLAが有効な場合や`storage.objects.getIamPolicy`がない場合は空になります。appendable オブジェクトは [Rapid append の契約](grpc-v2-rapid-append.md) で扱います。受け付けて無視せず UNIMPLEMENTED を返します。メタデータはローカル上限 8 KiB、明示的な resumable session は共有処理の保存上限 128 件・7 日間に従います。プロバイダーと完全に一致するエラー順序や、同じ upload_id の複数ストリームの競合は未検証です。
 

@@ -27,7 +27,7 @@ PAP・UBLA、lifecycle、retentionPolicy、softDeletePolicyも同じ扱いです
 空の本文ではなく、空オブジェクト`{}`を送る場合も設定を保ち、metagenerationを1増やします。
 指定したlabelsはマップ全体を置き換え、nullまたは空マップで消します。
 `versioning:{}`は無効化します。明示したnull・空値の項目別の契約、
-不正入力の400、64 KiBを超える本文の413、未対応の意味を持つ値の400 badRequestは維持します。
+不正入力の400、16 MiBを超える本文の413、未対応の意味を持つ値の400 badRequestは維持します。
 権限・更新条件・IAMポリシー・既存オブジェクトの保護も変えません。
 
 この方針はRuby SDKの長年の呼び方から選んだローカルの互換動作です。

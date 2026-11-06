@@ -187,6 +187,13 @@ gcs-mimic removes fixed limits unless Cloud Storage documents them as part of it
 | Compose sources | 32 per request | [Quotas and limits](https://docs.cloud.google.com/storage/quotas): 32. [Composite objects](https://docs.cloud.google.com/storage/docs/composite-objects): "You can compose between 1 and 32 source objects." |
 | JSON batch | 100 calls; a request smaller than 10,000,000 bytes | [Batch](https://docs.cloud.google.com/storage/docs/batch): at most 100 calls, and "The total batch request payload must be less than 10MB." [Quotas and limits](https://docs.cloud.google.com/storage/quotas) writes "Less than 10 MiB". |
 
+The following are local memory guards, not provider limits, and each answers as a client error:
+
+- JSON documents of 16 MiB. The pages above give no size for them. A bucket can legally hold 1,000 lifecycle prefixes and suffixes of up to 1,024 bytes, and CORS has no documented count.
+- A stored policy of 1,600 principal occurrences, the documented 1,500 plus one full ACL of 100, and of 1 MiB. An ACL entity of 272 bytes, the longest form a project ID allows.
+- Fixed and custom object metadata of 40 KiB once encoded as JSON, within which custom metadata keeps its documented 8 KiB.
+- A gRPC request of 4 MiB, a Storage v2 response of 33 MiB and a Storage v1 response of 4 MiB. A batch part response of 1 GiB, above the largest response that documented limits allow.
+
 **An unfinished XML multipart upload is the one deliberate difference.** [Multipart uploads](https://docs.cloud.google.com/storage/docs/multipart-uploads) says "There is no limit to how long a multipart upload and its uploaded parts can remain unfinished or idle in a bucket", and the quotas page lists "Unlimited". gcs-mimic expires one after seven days. This is an owner decision: abandoned parts do not appear in object listings, so on a local machine they would keep using disk without anyone noticing. `/_internal/reset` and an abort also remove them.
 
 ## Important scope boundaries

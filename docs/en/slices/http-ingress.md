@@ -19,7 +19,8 @@ It also decodes JSON metadata for exact POST requests to
 /upload/storage/v1/b/{bucket}/o with uploadType=resumable and no upload_id.
 Session chunk requests retain their existing Content-Encoding rejection and
 invalid-session behavior; transport compression never sets stored contentEncoding.
-Compressed input and expanded input each have a 64 KiB limit. Concatenated gzip
+Compressed input and expanded input each have the 16 MiB JSON limit, so a small
+compressed body cannot grow past it. Concatenated gzip
 members are decoded as one representation. Invalid headers, deflate data, CRC32,
 ISIZE, truncated members, trailing garbage and HTTP trailers fail before routing
 any metadata mutation. Expansion runs as one bounded blocking job at a time;
@@ -37,8 +38,8 @@ contentEncoding query parameter still sets the stored metadata independently.
 
 Multipart decoding consumes and produces at most 64 KiB per blocking step,
 with one output channel slot and the same single decoder permit as metadata.
-Expanded input is bounded by max_object_bytes plus 256 KiB of MIME overhead;
-compressed input allows that budget plus one eighth and 64 KiB for deflate
+Expanded input is bounded by max_object_bytes plus two 16 MiB JSON parts and
+256 KiB of MIME overhead; compressed input allows that budget plus one eighth and 64 KiB for deflate
 overhead. These are local resource limits, not Google API limits. With the default
 max_object_bytes of 5 TiB a small gzip body can expand that far, so lower the setting on a
 shared server or one listening on `0.0.0.0`. Media itself

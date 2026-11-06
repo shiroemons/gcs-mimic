@@ -88,14 +88,17 @@ peer that vanishes without a FIN releases its slot after 90 seconds on every pla
 every timeout disabled. A socket with unacknowledged data falls under the kernel's retransmission
 limit instead.
 Connections stay open between requests
-for `keep_alive_timeout_ms` (see below). Bucket insert, PATCH, PUT and IAM PUT JSON bodies
-are capped at 64 KiB (`BUCKET_BODY_LIMIT`); probes and bodiless bucket methods reject bodies.
+for `keep_alive_timeout_ms` (see below). Every JSON document shares one limit of 16 MiB
+(`json::RESOURCE_BODY_LIMIT`): request bodies, gzip bodies once expanded, multipart metadata
+parts, XML bucket metadata, initialization entries and import metadata. Cloud Storage documents
+no size for these, so it is a memory guard that real data does not reach, not a contract. Probes
+and bodiless bucket methods reject bodies.
 Object media has a configurable `max_object_bytes` cap: 5 TiB by default, validated
 from 1 byte through 5 TiB via CLI/environment/JSON configuration. Known Content-Length
 overflow is rejected before reading; producer and storage also bound unknown-length streams.
 
 JSON multipart removes MIME framing in the adapter before shared bounded staging
-and atomic publication. Metadata and optional final checksum JSON each have a 64 KiB
+and atomic publication. Metadata and optional final checksum JSON each have the 16 MiB
 cap; part header blocks and delimiter suffixes have 8 KiB caps, and preamble/epilogue
 each have a 4 KiB cap. Publication waits for complete framing, checksums and transport
 EOF. Media/multipart invocation tokens use bounded persistent response replay,
@@ -311,7 +314,10 @@ projectNumber, projection and unsupported-semantics deviations.
 
 ### Bucket IAM policies
 
-`bucket_policies` stores one row per bucket, with bindings bounded to 64 KiB and
+`bucket_policies` stores one row per bucket, with bindings bounded where they are
+encoded, whichever API writes them, to 1,600 principal occurrences (the documented 1,500 plus
+one full ACL of 100) and 1 MiB. Past either is a client error, and a column check keeps 1 MiB
+behind that encoder. Each row also holds
 a catalog-wide monotonically allocated revision encoded as an opaque base64 etag.
 Creation commits the bucket and its default policy together. Deletion removes
 both in one transaction; the allocator survives deletion, so recreation cannot

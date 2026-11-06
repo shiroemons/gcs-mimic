@@ -399,7 +399,8 @@ enforces the policy conditions and expiration.
 Uploads use the same streaming write path as XML PUT. Success returns 204 by
 default, an empty 200, a 201 `PostResponse` XML document with `Location`,
 `Bucket`, `Key` and `ETag`, or 303 to `success_action_redirect` (the redirect URL
-is used unchanged). Fields before the file are limited to 64 KiB each and
-256 KiB in total. Exact provider error wording, redirect query parameters and
+is used unchanged). Fields before the file have no limit on their number or
+individual size and share a total of 16 MiB, and custom metadata keeps its
+documented 8 KiB. Exact provider error wording, redirect query parameters and
 browser CORS for `POST /BUCKET` are not verified; see
 `compatibility/features.json` and [the policy variant evidence](slices/xml-post-policy-variants.md).
