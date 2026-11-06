@@ -145,6 +145,46 @@ async fn a_part_succeeds_while_other_parts_of_its_upload_stay_stalled_on_the_wir
     h.stop().await;
 }
 
+/// Past the wait only what really conflicts with the stalled body answers the retryable 503, and
+/// that request leaves nothing behind that holds back the next part.
+#[tokio::test]
+async fn only_a_conflicting_request_answers_503_past_the_catalog_wait() {
+    let h = Harness::start_with_config(
+        Permissive,
+        None,
+        Config {
+            catalog_wait_timeout: TimeLimit::from_millis(2_000),
+            ..Default::default()
+        },
+    )
+    .await;
+    let id = upload_id(h.request("POST", "/bucket/busy?uploads", "", b"").await);
+    let part = |number: u16| format!("/bucket/busy?partNumber={number}&uploadId={id}");
+    let mut stalled = stalled_part(&h, &part(1), b"one", 4).await;
+    eventually_async("the part to lease its number", || async {
+        h.state.catalog.multipart_parts_writing(&id) == 1
+    })
+    .await;
+
+    let same_number = h.request("PUT", &part(1), "", b"retry").await;
+    assert_eq!(same_number.status, 503);
+    let manifest = b"<CompleteMultipartUpload></CompleteMultipartUpload>";
+    let whole = h
+        .request("POST", &format!("/bucket/busy?uploadId={id}"), "", manifest)
+        .await;
+    assert_eq!(whole.status, 503);
+    assert!(
+        String::from_utf8(whole.body)
+            .unwrap()
+            .contains("<Code>ServiceUnavailable</Code>")
+    );
+    assert_eq!(h.request("PUT", &part(2), "", b"two").await.status, 200);
+
+    stalled.write_all(b"-end").await.unwrap();
+    assert_eq!(Harness::read_response(stalled).await.status, 200);
+    h.stop().await;
+}
+
 #[tokio::test]
 async fn a_part_disconnected_on_the_wire_gives_back_its_number_and_staged_bytes() {
     let h = Harness::start_with_config(Permissive, None, Config::default()).await;

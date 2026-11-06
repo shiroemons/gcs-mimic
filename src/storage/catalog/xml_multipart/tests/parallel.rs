@@ -2,18 +2,16 @@
 
 use super::super::super::fault::Crash;
 use super::*;
-use crate::{config::Config, hashing::Hasher, time_limit::TimeLimit};
+use crate::{config::Config, hashing::Hasher, test_support::HANG_GUARD, time_limit::TimeLimit};
 use bytes::Bytes;
 use std::any::Any;
 use tokio::task::JoinHandle;
 
 const PART_LIMIT: u64 = 64 * 1024 * 1024;
 
-/// Far past any wait in these tests, so a request parked on a holder resumes only when woken.
-const PATIENT_MILLIS: u64 = 600_000;
-
-/// Fails a request that was never woken, instead of letting it park for `PATIENT_MILLIS`.
-const HANG_GUARD: Duration = Duration::from_secs(60);
+/// Past `HANG_GUARD`, so a request parked on a holder resumes only when woken, and a test fails
+/// on the guard rather than on this budget.
+const PATIENT_MILLIS: u64 = 120_000;
 
 async fn patient(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
     let (dir, catalog) = setup(clock).await;
@@ -304,6 +302,9 @@ async fn a_cancelled_whole_request_lets_the_parts_it_held_back_continue() {
     .await;
     let (worker, later) = (catalog.clone(), target.clone());
     let held_back = tokio::spawn(async move { put(&worker, &later, 2, b"held back").await });
+    for _ in 0..32 {
+        tokio::task::yield_now().await;
+    }
     assert!(!held_back.is_finished());
 
     waiting.abort();
