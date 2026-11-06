@@ -351,7 +351,7 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         catalog_wait.send_replace(true);
         let publication =
-            move |connection: &mut rusqlite::Connection| -> Result<Value, ResumableError> {
+            move |connection: &mut rusqlite::Connection| -> Result<(Value, objects::Retired), ResumableError> {
                 let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 check_session_publishable(&transaction, &session, clock.now())?;
                 let (_, delete_permission) =
@@ -381,7 +381,7 @@ impl Catalog {
                         principals.as_ref(),
                     )?),
                 };
-                let (_, _retired, resource) = objects::publish_in_transaction(
+                let (_, retired, resource) = objects::publish_in_transaction(
                     &transaction,
                     previous.as_ref(),
                     &bucket,
@@ -415,18 +415,17 @@ impl Catalog {
                 )?;
                 sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'", params![resource.to_string(),session.id]).map_err(object_unavailable)?;
                 objects::commit_publication(transaction)?;
-                Ok(resource)
+                Ok((resource, retired))
             };
-        let result = self
+        let (resource, retired) = self
             .run_upload(move |connection| Ok(publication(connection)))
-            .await?;
-        if result.is_ok() {
-            self.0
-                .backend
-                .finish_draft(&lease.session.blob_id)
-                .map_err(object_unavailable)?;
-            self.reclaim_after_commit().await;
-        }
-        result
+            .await??;
+        self.schedule_expiry(retired);
+        self.0
+            .backend
+            .finish_draft(&lease.session.blob_id)
+            .map_err(object_unavailable)?;
+        self.reclaim_after_commit().await;
+        Ok(resource)
     }
 }

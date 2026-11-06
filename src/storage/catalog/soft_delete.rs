@@ -1,4 +1,4 @@
-use super::{Catalog, objects, unix_micros};
+use super::{Catalog, CatalogError, UnixMicros, objects, unavailable, unix_micros};
 use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
@@ -6,9 +6,27 @@ use crate::{
 };
 use objects::{SELECT_SOFT_DELETED_GENERATION, authorized_bucket, object_unavailable, read_object};
 use rusqlite::{Connection, OptionalExtension, params};
+use std::time::SystemTime;
 
 #[cfg(all(test, unix))]
 mod durability_tests;
+#[cfg(test)]
+mod expiry_tests;
+
+/// The bucket key and hard delete time of the earliest retained deletion, across live buckets
+/// and the internal keys of soft-deleted bucket versions.
+///
+/// `objects_soft_expiry` leads with the bucket, so a plain `min(hard_delete_time)` reads every
+/// soft-deleted row on every maintenance pass. This walks the distinct bucket keys instead, at
+/// one index seek each.
+const EARLIEST_EXPIRY: &str = "WITH RECURSIVE keys(bucket) AS (
+        SELECT min(bucket) FROM objects WHERE soft_delete_time IS NOT NULL
+        UNION ALL
+        SELECT (SELECT min(bucket) FROM objects WHERE soft_delete_time IS NOT NULL AND bucket > keys.bucket)
+            FROM keys WHERE keys.bucket IS NOT NULL
+    )
+    SELECT bucket, (SELECT min(hard_delete_time) FROM objects WHERE soft_delete_time IS NOT NULL AND bucket = keys.bucket) AS expiry
+    FROM keys WHERE bucket IS NOT NULL ORDER BY expiry LIMIT 1";
 
 /// The two authorities a restore checks in its publication transaction.
 #[derive(Clone, Copy)]
@@ -17,16 +35,20 @@ pub(crate) struct RestoreAccess<'a> {
     pub(crate) create: &'a BucketAccess,
 }
 
+/// Permanently removes up to 100 expired rows of one bucket key and journals their blobs in the
+/// same transaction, so a crash can neither lose the deletion nor free a referenced blob.
+/// Returns how many rows it removed.
 pub(super) fn purge_expired(
     connection: &mut Connection,
     bucket: &str,
-    now: i64,
-) -> Result<(), ObjectError> {
+    now: UnixMicros,
+) -> Result<usize, ObjectError> {
     let transaction = sql::immediate(connection)?;
     let ids = transaction.prepare_cached(
         "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time, name, generation LIMIT 100) RETURNING blob_id",
     )?.query_map(params![bucket, now], |row| row.get::<_, crate::storage::BlobId>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let removed = ids.len();
     for id in ids {
         sql::exec(
             &transaction,
@@ -34,7 +56,40 @@ pub(super) fn purge_expired(
             [id],
         )?;
     }
-    transaction.commit().map_err(object_unavailable)
+    #[cfg(test)]
+    super::fault::hit(
+        &super::fault::database_dir(&transaction),
+        super::fault::Step::ExpiryCommit,
+    )
+    .map_err(object_unavailable)?;
+    transaction.commit().map_err(object_unavailable)?;
+    Ok(removed)
+}
+
+/// What one catalog turn of the expiry sweep did.
+enum ExpiryStep {
+    /// One batch was removed; more rows may be due.
+    Purged,
+    /// Nothing is due; holds the next hard delete time, if any.
+    Idle(Option<UnixMicros>),
+}
+
+fn expiry_step(connection: &mut Connection, now: UnixMicros) -> Result<ExpiryStep, CatalogError> {
+    let earliest: Option<(String, UnixMicros)> = sql::row(connection, EARLIEST_EXPIRY, [], |row| {
+        Ok((row.get(0)?, row.get(1)?))
+    })
+    .optional()?;
+    match earliest {
+        Some((bucket, expiry)) if expiry <= now => {
+            match purge_expired(connection, &bucket, now).map_err(unavailable)? {
+                // The lookup and the purge share this connection, so a due row cannot vanish
+                // between them; looping on nothing would pin the catalog thread.
+                0 => Err(unavailable("soft delete expiry removed no due row")),
+                _ => Ok(ExpiryStep::Purged),
+            }
+        }
+        next => Ok(ExpiryStep::Idle(next.map(|(_, expiry)| expiry))),
+    }
 }
 
 fn selected(
@@ -111,7 +166,7 @@ fn restore_in_transaction(
     id: crate::storage::BlobId,
     published: Result<std::io::Result<()>, crate::task::BlockingFailed>,
     clock: &dyn crate::clock::Clock,
-) -> Result<ObjectRecord, ObjectError> {
+) -> Result<(ObjectRecord, objects::Retired), ObjectError> {
     let transaction = sql::immediate(connection)?;
     let now = objects::PublicationTime::read(clock)?;
     let (objects::StoredObject { mut record, blob }, previous) =
@@ -129,7 +184,7 @@ fn restore_in_transaction(
     record.time_deleted = None;
     record.soft_delete_time = None;
     record.hard_delete_time = None;
-    let (record, _, ()) = objects::publish_in_transaction(
+    let (record, retired, ()) = objects::publish_in_transaction(
         &transaction,
         previous.as_ref(),
         &bucket,
@@ -148,10 +203,44 @@ fn restore_in_transaction(
         },
     )?;
     objects::commit_publication(transaction)?;
-    Ok(record)
+    Ok((record, retired))
 }
 
 impl Catalog {
+    /// Tells the maintenance scheduler about a committed soft delete: it may be asleep until a
+    /// later deadline, or for good. A commit that reports an error after succeeding skips this,
+    /// and the row then waits for the next pass; reads hide it on time either way.
+    pub(super) fn schedule_expiry(&self, retired: objects::Retired) {
+        match retired {
+            objects::Retired::SoftDeleted => self.0.maintenance_wake.notify_one(),
+            objects::Retired::Nothing | objects::Retired::Journaled => {}
+        }
+    }
+
+    /// Removes every soft-deleted object past its hard delete time and returns the next such
+    /// time, for the maintenance scheduler's deadline. Reads already hide expired rows, so this
+    /// only frees space; the deletion journal sweep that follows it removes their blobs.
+    pub(super) async fn maintain_soft_deleted_objects(
+        &self,
+        now: UnixMicros,
+    ) -> Result<Option<SystemTime>, CatalogError> {
+        loop {
+            // One catalog turn per batch: requests run between batches however long the backlog.
+            let step = self
+                .run::<_, CatalogError>(move |connection| expiry_step(connection, now))
+                .await?;
+            match step {
+                ExpiryStep::Purged => {}
+                ExpiryStep::Idle(next) => {
+                    return next
+                        .map(UnixMicros::system_time)
+                        .transpose()
+                        .map_err(unavailable);
+                }
+            }
+        }
+    }
+
     pub(crate) async fn get_soft_deleted_object(
         &self,
         target: ObjectTarget<i64>,
@@ -236,7 +325,7 @@ impl Catalog {
             .run_upload(move |connection| {
                 authorized_bucket(connection, &selection.target.bucket, &selection.restore)?;
                 let now = objects::PublicationTime::read(clock.as_ref())?;
-                purge_expired(connection, &selection.target.bucket, now.micros)?;
+                purge_expired(connection, &selection.target.bucket, now.time.try_into()?)?;
                 let transaction = connection.transaction()?;
                 let (source, _) = restore_candidate(&transaction, &selection, now)?;
                 Ok(backend.pin(&source.blob, &id).map(|()| source.blob))
@@ -256,10 +345,20 @@ impl Catalog {
             super::fault::hit(&self.0.data_dir, super::fault::Step::RestorePinned)
                 .map_err(object_unavailable)?;
             let clock = self.0.clock.clone();
-            self.run_upload(move |connection| {
-                restore_in_transaction(connection, &request, source, id, published, clock.as_ref())
-            })
-            .await
+            let (record, retired) = self
+                .run_upload(move |connection| {
+                    restore_in_transaction(
+                        connection,
+                        &request,
+                        source,
+                        id,
+                        published,
+                        clock.as_ref(),
+                    )
+                })
+                .await?;
+            self.schedule_expiry(retired);
+            Ok(record)
         }
         .await;
         if pin_attempted && outcome.is_err() {
@@ -287,7 +386,7 @@ mod tests {
             WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 201)
             INSERT INTO objects SELECT 'bucket', 'item', n, printf('%032x',n), 1, 10 FROM entries;
             INSERT INTO objects VALUES('other','item',202,'other',1,10),('bucket','later',203,'later',1,20);").unwrap();
-        purge_expired(&mut connection, "bucket", 10).unwrap();
+        purge_expired(&mut connection, "bucket", UnixMicros(10)).unwrap();
         assert_eq!(
             connection
                 .query_row(
@@ -308,7 +407,7 @@ mod tests {
             .unwrap();
         assert_eq!((remaining, pending), (103, 100));
         connection.execute_batch("CREATE TRIGGER reject_expiry BEFORE DELETE ON objects BEGIN SELECT RAISE(ABORT,'expiry rejected'); END;").unwrap();
-        assert!(purge_expired(&mut connection, "bucket", 10).is_err());
+        assert!(purge_expired(&mut connection, "bucket", UnixMicros(10)).is_err());
         assert_eq!(
             connection
                 .query_row("SELECT count(*) FROM objects", [], |row| row
@@ -333,7 +432,7 @@ mod tests {
             WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 201)
             INSERT INTO objects SELECT 'bucket', 'item', n, printf('%032x',n), 1, 10 FROM entries;
             CREATE TRIGGER change_expiry AFTER INSERT ON pending_blob_deletions BEGIN UPDATE objects SET hard_delete_time=20 WHERE blob_id=NEW.blob_id; END;").unwrap();
-        purge_expired(&mut connection, "bucket", 10).unwrap();
+        purge_expired(&mut connection, "bucket", UnixMicros(10)).unwrap();
         assert_eq!(
             connection
                 .query_row(
@@ -352,7 +451,7 @@ mod tests {
             101
         );
         connection.execute_batch("CREATE TRIGGER reject_journal BEFORE INSERT ON pending_blob_deletions BEGIN SELECT RAISE(ABORT,'journal rejected'); END;").unwrap();
-        assert!(purge_expired(&mut connection, "bucket", 10).is_err());
+        assert!(purge_expired(&mut connection, "bucket", UnixMicros(10)).is_err());
         assert_eq!(
             connection
                 .query_row("SELECT count(*) FROM objects", [], |row| row

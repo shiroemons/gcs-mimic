@@ -1,5 +1,6 @@
 use super::{
-    BlobBackend, Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis,
+    BlobBackend, Catalog, CatalogError, ResumableError, SessionState, UnixMicros, unavailable,
+    unix_millis,
 };
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
@@ -273,7 +274,12 @@ impl Catalog {
     }
 
     async fn maintain_resumable_inner(&self) -> Result<Option<SystemTime>, CatalogError> {
-        let now = unix_millis(self.0.clock.now())?;
+        let reading = self.0.clock.now();
+        // Session deadlines are stored in milliseconds, hard delete times in microseconds. Each
+        // sweep gets its own unit from one reading: truncating to milliseconds would leave a row
+        // due within the current millisecond unpurged and spin the scheduler until the next one.
+        let now = unix_millis(reading)?;
+        let hard_delete_now = UnixMicros::try_from(reading)?;
         let mut sweep = SweepOutcome::default();
         sweep.record(
             "derived transfer",
@@ -287,8 +293,14 @@ impl Catalog {
         sweep.record("XML multipart", self.maintain_xml_multipart(now).await);
         sweep.record(
             "soft-deleted bucket",
-            self.maintain_soft_deleted_buckets(now).await,
+            self.maintain_soft_deleted_buckets(hard_delete_now).await,
         );
+        sweep.record(
+            "soft-deleted object",
+            self.maintain_soft_deleted_objects(hard_delete_now).await,
+        );
+        // Last, so one pass also removes the blobs of every row the sweeps above journaled.
+        sweep.record("deletion journal", self.maintain_deletion_journal().await);
         sweep.finish()
     }
 

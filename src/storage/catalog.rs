@@ -314,6 +314,38 @@ impl Catalog {
     }
 }
 
+/// A hard delete time, or a clock reading compared with one: whole microseconds since the Unix
+/// epoch. A maintenance pass also handles session deadlines in milliseconds as plain `i64`; this
+/// type keeps a reading in one unit from reaching a sweep that expects the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct UnixMicros(i64);
+
+impl UnixMicros {
+    fn system_time(self) -> rusqlite::Result<SystemTime> {
+        system_time_micros(self.0)
+    }
+}
+
+impl TryFrom<SystemTime> for UnixMicros {
+    type Error = CatalogError;
+
+    fn try_from(time: SystemTime) -> Result<Self, CatalogError> {
+        unix_micros(time).map(Self)
+    }
+}
+
+impl rusqlite::ToSql for UnixMicros {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
+}
+
+impl rusqlite::types::FromSql for UnixMicros {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        i64::column_result(value).map(Self)
+    }
+}
+
 fn unix_millis(time: SystemTime) -> Result<i64, CatalogError> {
     unix_timestamp(time, 1_000_000)
 }

@@ -188,6 +188,11 @@ impl Store {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(super) fn blob_count(&self) -> usize {
+        self.blobs.lock().unwrap().len()
+    }
+
     pub(super) fn clear(&self) -> io::Result<()> {
         self.drafts
             .lock()

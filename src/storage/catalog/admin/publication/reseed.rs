@@ -257,6 +257,8 @@ impl SeedBatch {
                 serde_json::json!({"message":error.to_string()}),
             );
         }
+        // Any element may have replaced a version in a bucket that retains deletions.
+        catalog.0.maintenance_wake.notify_one();
         catalog.reclaim_after_commit().await;
         outcome
     }

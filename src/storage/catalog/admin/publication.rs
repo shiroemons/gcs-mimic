@@ -793,6 +793,8 @@ async fn run_batch(
             return Err(AdminError::from(error));
         }
     };
+    // Any element may have replaced a version in a bucket that retains deletions.
+    catalog.0.maintenance_wake.notify_one();
     let unattempted = entries.split_off(attempted);
     cleanup_entries(entries).await?;
     catalog.reclaim_after_commit().await;
