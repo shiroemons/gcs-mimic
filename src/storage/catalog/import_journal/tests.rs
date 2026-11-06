@@ -118,7 +118,7 @@ async fn commit(
                     std::time::SystemTime::now(),
                 )
                 .unwrap();
-                super::super::insert_bucket_in_transaction(&transaction, &mut record, 0)?;
+                super::super::insert_bucket_in_transaction(&transaction, &mut record, None)?;
             }
             transaction.commit().map_err(unavailable)
         })

@@ -27,7 +27,7 @@ impl ObjectListParams {
             && page.prefixes.is_empty()
             && page.next.is_none())
         .then_some(
-            "Returning an empty soft-deleted listing because softDeletePolicy is not configured; set softDeletePolicy.retentionDurationSeconds=604800 on the bucket to retain future deletions for seven days",
+            "Returning an empty soft-deleted listing because softDeletePolicy is not configured; set softDeletePolicy.retentionDurationSeconds to a positive number of seconds on the bucket to retain future deletions",
         )
     }
 }
@@ -211,7 +211,7 @@ mod tests {
         };
         let message = params.empty_soft_deleted_message(&page, None).unwrap();
         assert!(message.contains("not configured"));
-        assert!(message.contains("retentionDurationSeconds=604800"));
+        assert!(message.contains("retentionDurationSeconds to a positive number of seconds"));
         assert_eq!(
             object_list(&page, &params, "http://localhost:4443").unwrap(),
             json!({"kind":"storage#objects"})

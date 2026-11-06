@@ -162,8 +162,8 @@ pub struct Config {
     pub seed_project: String,
     pub seed_content_type: crate::mime::SeedContentType,
     pub default_location: String,
-    /// Soft delete retention (seconds) given to a new bucket that names no policy; 0 disables it.
-    pub default_soft_delete_retention_seconds: u64,
+    /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
+    pub default_soft_delete_retention_seconds: Option<std::num::NonZeroU64>,
     pub buckets_file: Option<PathBuf>,
     pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
@@ -222,7 +222,9 @@ impl Default for Config {
             seed_project: "local-project".into(),
             seed_content_type: crate::mime::SeedContentType::Extension,
             default_location: "US".into(),
-            default_soft_delete_retention_seconds: 604_800,
+            // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
+            // so a local disk or RAM budget is not spent on bytes nobody will restore.
+            default_soft_delete_retention_seconds: None,
             buckets_file: None,
             api_base_url: None,
             public_base_url: None,
@@ -687,12 +689,12 @@ fn apply_storage_setting(
                 .to_owned();
         }
         Setting::DefaultSoftDeleteRetentionSeconds => {
-            // Cloud Storage accepts 0 (disabled) or 7 to 90 days.
             config.default_soft_delete_retention_seconds = value
-                .parse::<u64>()
+                .parse::<i64>()
                 .ok()
-                .filter(|seconds| *seconds == 0 || (604_800..=7_776_000).contains(seconds))
-                .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 604800..=7776000; use 604800 for the Cloud Storage default")?;
+                .and_then(|seconds| crate::bucket::SoftDeleteRetention::try_from(seconds).ok())
+                .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=3155760000 seconds; use 604800 for the Cloud Storage default of seven days")?
+                .enabled();
         }
         Setting::BucketsFile => {
             if value.is_empty() {
@@ -918,7 +920,7 @@ impl ConfigurationReport {
         }
         // Zero is what the legacy profile does anyway, so only a positive request conflicts.
         if config.compat_profile == CompatProfile::LegacyEmulator
-            && config.default_soft_delete_retention_seconds != 0
+            && config.default_soft_delete_retention_seconds.is_some()
             && let Some(input) = settings.get("default_soft_delete_retention_seconds")
             && !self
                 .invalid

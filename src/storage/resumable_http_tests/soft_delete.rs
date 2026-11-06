@@ -91,9 +91,9 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
     let effective = configured["softDeletePolicy"]["effectiveTime"].clone();
     for invalid in [
         json!(-1),
-        json!(1),
-        json!(604799),
-        json!(7776001),
+        json!(3_155_760_001_u64),
+        json!("3155760001"),
+        json!("9223372036854775808"),
         json!(1.5),
         json!(true),
         json!("abc"),
@@ -130,13 +130,25 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
         );
     }
     h.clock.advance(Duration::from_secs(1));
-    let increased = policy(&h, 7776000).await;
+    let increased = policy(&h, 3_155_760_000).await;
+    assert_eq!(
+        increased["softDeletePolicy"]["retentionDurationSeconds"],
+        "3155760000"
+    );
     assert_ne!(increased["softDeletePolicy"]["effectiveTime"], effective);
     let decreased = policy(&h, 604800).await;
     assert_eq!(
         decreased["softDeletePolicy"]["effectiveTime"],
         increased["softDeletePolicy"]["effectiveTime"]
     );
+    // Any retention below the Cloud Storage minimum of seven days is a deliberate local choice.
+    for seconds in [1, 5, 604_799, 7_776_001] {
+        let short = policy(&h, seconds).await;
+        assert_eq!(
+            short["softDeletePolicy"]["retentionDurationSeconds"],
+            seconds.to_string()
+        );
+    }
     let disabled = policy(&h, 0).await;
     assert_eq!(
         disabled["softDeletePolicy"]["retentionDurationSeconds"],
@@ -225,6 +237,80 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
         .await
         .error(403, "forbidden");
     }
+    h.stop().await;
+}
+
+fn blob_files(h: &Harness) -> usize {
+    std::fs::read_dir(h.dir.0.join("blobs"))
+        .unwrap()
+        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
+        .sum()
+}
+
+#[tokio::test]
+async fn short_retention_keeps_lists_and_restores_a_deletion_then_frees_its_body_when_due() {
+    let h = Harness::start(1024, Permissive, None).await;
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
+    policy(&h, 5).await;
+
+    let kept = upload(&h, "kept", b"kept").await;
+    let generation = kept["generation"].as_str().unwrap();
+    let delete = h
+        .request("DELETE", "/storage/v1/b/bucket/o/kept", ADMIN, b"")
+        .await;
+    assert_eq!(delete.status, 204);
+    let listed = retained(&h).await;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["generation"], kept["generation"]);
+    assert_eq!(blob_files(&h), 1);
+
+    let restored = h
+        .request(
+            "POST",
+            &format!("/storage/v1/b/bucket/o/kept/restore?generation={generation}"),
+            ADMIN,
+            b"",
+        )
+        .await;
+    assert_eq!(restored.status, 200, "{}", restored.json());
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/kept?alt=media", ADMIN, b"")
+            .await
+            .body,
+        b"kept"
+    );
+
+    // Overwriting retains the replaced generation for the same five seconds.
+    upload(&h, "overwritten", b"first").await;
+    upload(&h, "overwritten", b"second").await;
+    assert_eq!(retained(&h).await.len(), 2);
+    let before_expiry = blob_files(&h);
+    h.clock.advance(Duration::from_secs(4));
+    assert_eq!(
+        h.state.catalog.maintain_resumable_sessions().await.unwrap(),
+        Some(UNIX_EPOCH + Duration::from_secs(1005))
+    );
+    assert_eq!(blob_files(&h), before_expiry);
+
+    h.clock.advance(Duration::from_secs(1));
+    assert_eq!(
+        h.state.catalog.maintain_resumable_sessions().await.unwrap(),
+        None
+    );
+    assert!(retained(&h).await.is_empty());
+    // Only the restored object and the live overwrite still own files.
+    assert_eq!(blob_files(&h), 2);
+    assert_eq!(
+        h.request(
+            "GET",
+            "/storage/v1/b/bucket/o/overwritten?alt=media",
+            ADMIN,
+            b""
+        )
+        .await
+        .body,
+        b"second"
+    );
     h.stop().await;
 }
 

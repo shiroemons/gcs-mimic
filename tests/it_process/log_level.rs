@@ -111,7 +111,7 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
             assert_eq!(event["level"], "debug");
             let message = event["message"].as_str().unwrap();
             assert!(message.contains("not configured"));
-            assert!(message.contains("retentionDurationSeconds=604800"));
+            assert!(message.contains("retentionDurationSeconds to a positive number of seconds"));
         }
         assert!(!String::from_utf8_lossy(&stderr).contains("secret"));
         assert!(

@@ -8,20 +8,7 @@ use std::time::Duration;
 
 impl Server {
     fn start(dir: &TestDir, options: &[&str]) -> Self {
-        Self::start_with(dir, options, false)
-    }
-
-    /// Starts without the suite's pinned default so the genuine, unconfigured default applies.
-    fn start_unconfigured(dir: &TestDir, options: &[&str]) -> Self {
-        Self::start_with(dir, options, true)
-    }
-
-    fn start_with(dir: &TestDir, options: &[&str], unconfigured: bool) -> Self {
-        let mut command = http_command(&dir.0.join("data"));
-        if unconfigured {
-            command.env_remove("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS");
-        }
-        Self::launch(command.args(options))
+        Self::launch(http_command(&dir.0.join("data")).args(options))
     }
 
     fn send(&self, token: Option<&str>, method: &str, path: &str, body: &str) -> Reply {
@@ -379,12 +366,12 @@ fn strict_soft_deleted_bucket_access_uses_project_permissions() {
     );
 }
 
-/// The suite's servers start with the default off (see `common::server_command`); this option
-/// turns on Cloud Storage's seven-day default for new buckets.
+/// Servers keep no deleted data unless asked; this option gives new buckets the seven days that
+/// Cloud Storage applies by default.
 const DEFAULT_ON: [&str; 2] = ["--default-soft-delete-retention-seconds", "604800"];
 
 #[test]
-fn new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted() {
+fn configured_default_gives_a_new_bucket_that_policy_and_soft_deletes_it() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &DEFAULT_ON);
     let bucket = create(&server, "defaulted", None);
@@ -416,22 +403,85 @@ fn new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted() 
 }
 
 #[test]
-fn unconfigured_native_server_gives_new_buckets_the_seven_day_default() {
+fn unconfigured_native_server_frees_overwritten_and_deleted_bodies_at_once() {
     let dir = TestDir::new();
-    let server = Server::start_unconfigured(&dir, &[]);
+    let server = Server::start(&dir, &[]);
     let bucket = create(&server, "genuine-default", None);
+    assert!(bucket.get("softDeletePolicy").is_none(), "{bucket}");
+    let blob_files = || {
+        std::fs::read_dir(dir.0.join("data").join("blobs"))
+            .unwrap()
+            .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
+            .sum::<usize>()
+    };
+
+    let first = server.upload("genuine-default", "object", "first");
+    assert_eq!(blob_files(), 1);
+    let second = server.upload("genuine-default", "object", "second");
+    assert_ne!(first["generation"], second["generation"]);
+    // Both responses are sent only after reclamation, so nothing here depends on timing.
     assert_eq!(
-        bucket["softDeletePolicy"]["retentionDurationSeconds"],
-        "604800"
+        blob_files(),
+        1,
+        "the overwritten body must not stay on disk"
     );
+    let listed = server
+        .request(
+            "GET",
+            "/storage/v1/b/genuine-default/o?softDeleted=true",
+            "",
+        )
+        .json_ok();
+    assert!(listed.get("items").is_none(), "{listed}");
+
+    server
+        .request("DELETE", "/storage/v1/b/genuine-default/o/object", "")
+        .expect(204);
+    assert_eq!(blob_files(), 0, "the deleted body must not stay on disk");
+    let generation = second["generation"].as_str().unwrap();
+    server
+        .request(
+            "GET",
+            &format!(
+                "/storage/v1/b/genuine-default/o/object?softDeleted=true&generation={generation}"
+            ),
+            "",
+        )
+        .json_reason_value(404, "notFound");
 }
 
 #[test]
 fn unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy() {
     let dir = TestDir::new();
-    let server = Server::start_unconfigured(&dir, &["--compat-profile", "legacy-emulator"]);
+    let server = Server::start(&dir, &["--compat-profile", "legacy-emulator"]);
     let bucket = create(&server, "legacy-default", None);
     assert!(bucket.get("softDeletePolicy").is_none(), "{bucket}");
+}
+
+#[test]
+fn lowering_the_default_keeps_the_stored_policy_of_existing_buckets() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, &DEFAULT_ON);
+    let stored = create(&server, "upgraded", None)["softDeletePolicy"].clone();
+    assert_eq!(stored["retentionDurationSeconds"], "604800");
+    server.stop();
+
+    // As after an upgrade from a release whose default was seven days.
+    let server = Server::start(&dir, &[]);
+    let kept = server
+        .request("GET", "/storage/v1/b/upgraded", "")
+        .json_ok();
+    assert_eq!(kept["softDeletePolicy"], stored);
+    let object = server.upload("upgraded", "object", "retained");
+    server
+        .request("DELETE", "/storage/v1/b/upgraded/o/object", "")
+        .expect(204);
+    let retained = server
+        .request("GET", "/storage/v1/b/upgraded/o?softDeleted=true", "")
+        .json_ok();
+    assert_eq!(retained["items"][0]["generation"], object["generation"]);
+    let fresh = create(&server, "fresh", None);
+    assert!(fresh.get("softDeletePolicy").is_none(), "{fresh}");
 }
 
 #[test]
@@ -477,7 +527,7 @@ fn zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchang
 
 #[test]
 fn invalid_default_retention_is_rejected_at_startup() {
-    for value in ["1", "604799", "7776001", "-1", "week"] {
+    for value in ["3155760001", "18446744073709551616", "-1", "1.5", "week"] {
         let output = common::server_command()
             .args([
                 "serve",

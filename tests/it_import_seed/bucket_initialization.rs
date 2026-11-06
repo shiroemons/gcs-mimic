@@ -673,7 +673,8 @@ fn soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_ove
         json!([
             {"name":"default-bucket"},
             {"name":"permanent-bucket","softDeletePolicy":{"retentionDurationSeconds":"0"}},
-            {"name":"long-bucket","softDeletePolicy":{"retentionDurationSeconds":1209600}}
+            {"name":"long-bucket","softDeletePolicy":{"retentionDurationSeconds":1209600}},
+            {"name":"brief-bucket","softDeletePolicy":{"retentionDurationSeconds":"5"}}
         ]),
     );
     let seed = dir.0.join("seed");
@@ -693,6 +694,7 @@ fn soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_ove
     assert_eq!(retention("default-bucket"), "604800");
     assert_eq!(retention("seeded-bucket"), "604800");
     assert_eq!(retention("long-bucket"), "1209600");
+    assert_eq!(retention("brief-bucket"), "5");
     // An explicit zero is kept as sent and reported as "0": the bucket is deleted permanently.
     assert_eq!(retention("permanent-bucket"), "0");
     server.stop();
@@ -704,7 +706,7 @@ fn invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutatio
     input(
         &dir.0,
         json!([
-            {"name":"bad-low","softDeletePolicy":{"retentionDurationSeconds":"1"}},
+            {"name":"bad-high","softDeletePolicy":{"retentionDurationSeconds":"3155760001"}},
             {"name":"bad-shape","softDeletePolicy":5},
             {"name":"bad-field","softDeletePolicy":{"effectiveTime":"2026-01-01T00:00:00Z"}}
         ]),

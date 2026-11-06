@@ -1529,7 +1529,10 @@ fn bucket_soft_delete_defaults_and_invalid_shapes_preserve_policy() {
             for value in [
                 json!([]),
                 json!(false),
-                json!({"retentionDurationSeconds":"1"}),
+                json!({"retentionDurationSeconds":"-1"}),
+                json!({"retentionDurationSeconds":"3155760001"}),
+                json!({"retentionDurationSeconds":"9223372036854775808"}),
+                json!({"retentionDurationSeconds":"1.5"}),
             ] {
                 let before = server.request("GET", path, "").json();
                 server

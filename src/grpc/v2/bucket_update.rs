@@ -146,7 +146,7 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                 ));
             }
             update.soft_delete_retention =
-                Some(bucket::soft_delete_retention(duration.seconds).map_err(input_error)?);
+                Some(bucket::SoftDeleteRetention::try_from(duration.seconds).map_err(input_error)?);
         }
         "iam_config"
         | "iam_config.uniform_bucket_level_access"
@@ -343,7 +343,7 @@ mod tests {
             assert_eq!(error.code(), tonic::Code::InvalidArgument);
             assert!(!error.message().contains("retentionPeriod"));
         }
-        for seconds in [-1, 1, 604799, 7776001] {
+        for seconds in [-1, 3_155_760_001, i64::MAX] {
             let config = pb::Bucket {
                 soft_delete_policy: Some(pb::bucket::SoftDeletePolicy {
                     retention_duration: Some(prost_types::Duration { seconds, nanos: 0 }),
@@ -358,6 +358,39 @@ mod tests {
                 tonic::Code::InvalidArgument
             );
         }
+        for seconds in [0, 1, 5, 604_799, 7_776_001, 3_155_760_000] {
+            let config = pb::Bucket {
+                soft_delete_policy: Some(pb::bucket::SoftDeletePolicy {
+                    retention_duration: Some(prost_types::Duration { seconds, nanos: 0 }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let update = from_proto(&config, &["soft_delete_policy".into()]).unwrap();
+            assert_eq!(
+                update
+                    .soft_delete_retention
+                    .map(|retention| retention.seconds()),
+                u64::try_from(seconds).ok()
+            );
+        }
+        let config = pb::Bucket {
+            soft_delete_policy: Some(pb::bucket::SoftDeletePolicy {
+                retention_duration: Some(prost_types::Duration {
+                    seconds: 5,
+                    nanos: 500_000_000,
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            from_proto(&config, &["soft_delete_policy".into()])
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unimplemented,
+            "a fractional duration must not round to a different retention"
+        );
         let config = pb::Bucket {
             cors: vec![pb::bucket::Cors {
                 origin: vec!["invalid origin".into()],

@@ -54,7 +54,7 @@ impl RootLease {
                 if known || create.is_none() { return Ok(false); }
                 let record = create.as_mut().ok_or_else(|| unavailable("missing default bucket"))?;
                 // A bucket mirroring a working tree keeps no deletion history on disk.
-                insert_bucket_in_transaction(&tx, record, 0)?;
+                insert_bucket_in_transaction(&tx, record, None)?;
                 change_journal::append(&tx, Origin::SyncIngest, change_journal::ChangeKind::BucketCreate, &name, None)?;
                 incarnation = Some(bucket_incarnation(&tx, &name)?);
             }

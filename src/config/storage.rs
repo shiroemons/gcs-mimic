@@ -46,11 +46,6 @@ impl ConfigurationReport {
             }
             return;
         }
-        // Deleted data kept by soft delete counts against the fixed RAM budget, so the seven-day
-        // default would exhaust it after a few create/delete cycles. An explicit setting wins.
-        if !settings.contains_key("default_soft_delete_retention_seconds") {
-            self.config.default_soft_delete_retention_seconds = 0;
-        }
         for key in ["sync_dir", "sync_reinitialize"] {
             if let Some(input) = settings.get(key) {
                 self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
@@ -64,10 +59,10 @@ impl ConfigurationReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, num::NonZeroU64};
 
     #[test]
-    fn memory_backend_defaults_soft_delete_off_unless_the_setting_is_explicit() {
+    fn every_backend_defaults_soft_delete_off_unless_the_setting_is_explicit() {
         let load = |args: &[&str], env: &[(&str, &str)]| {
             Config::load(
                 &args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
@@ -75,43 +70,27 @@ mod tests {
                     .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
                     .collect(),
             )
-            .unwrap()
-            .default_soft_delete_retention_seconds
+            .map(|config| config.default_soft_delete_retention_seconds)
         };
-        assert_eq!(load(&[], &[]), 604_800);
-        assert_eq!(load(&["--backend", "memory"], &[]), 0);
-        assert_eq!(
-            load(
-                &["--backend", "memory"],
-                &[("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS", "604800")]
-            ),
-            604_800
-        );
-        assert_eq!(
-            load(
-                &[
-                    "--backend",
-                    "memory",
-                    "--default-soft-delete-retention-seconds",
-                    "1209600"
-                ],
-                &[]
-            ),
-            1_209_600
-        );
-        assert_eq!(
-            load(
-                &[
-                    "--backend",
-                    "memory",
-                    "--default-soft-delete-retention-seconds",
-                    "0"
-                ],
-                &[]
-            ),
-            0
-        );
-        assert_eq!(load(&["--backend", "disk"], &[]), 604_800);
+        const FLAG: &str = "--default-soft-delete-retention-seconds";
+        const ENV: &str = "GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS";
+        for backend in ["disk", "memory"] {
+            assert_eq!(load(&["--backend", backend], &[]).unwrap(), None);
+            assert_eq!(
+                load(&["--backend", backend], &[(ENV, "604800")]).unwrap(),
+                NonZeroU64::new(604_800)
+            );
+            for seconds in [0, 1, 5, 1_209_600, 3_155_760_000_u64] {
+                assert_eq!(
+                    load(&["--backend", backend, FLAG, &seconds.to_string()], &[]).unwrap(),
+                    NonZeroU64::new(seconds)
+                );
+            }
+        }
+        assert_eq!(load(&[], &[]).unwrap(), None);
+        for rejected in ["3155760001", "18446744073709551616", "-1", "1.5", "week"] {
+            assert!(load(&[FLAG, rejected], &[]).is_err(), "{rejected}");
+        }
     }
 
     #[test]

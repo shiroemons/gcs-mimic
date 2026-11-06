@@ -121,10 +121,6 @@ impl CleanEnv for Command {
 pub(crate) fn server_command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"));
     command.clean_env();
-    // New buckets get Cloud Storage's seven-day soft delete by default. Most tests exercise
-    // permanent deletion and exact blob counts, so the suite's servers start with the default
-    // off; a test that studies the default passes the CLI option, which outranks this variable.
-    command.env("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS", "0");
     #[cfg(windows)]
     {
         use std::{os::windows::process::CommandExt, sync::Once};

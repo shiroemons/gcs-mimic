@@ -76,8 +76,8 @@ impl Catalog {
             if update.object_retention_enabled.is_some_and(|enabled| enabled != record.object_retention_enabled) {
                 return Err(CatalogError::InvalidMetadata("objectRetention can only be enabled when the bucket is created (enableObjectRetention=true) and can never be disabled; omit objectRetention".into()));
             }
-            if let Some(duration) = update.soft_delete_retention {
-                apply_soft_delete_retention(&mut record, duration, clock.now())?;
+            if let Some(retention) = update.soft_delete_retention {
+                apply_soft_delete_retention(&mut record, retention, clock.now());
             }
             apply_retention_policy(&mut record, &update, conditions.if_metageneration_match, clock.now())?;
             validate_retention_expiration(&transaction, &record)?;
@@ -174,14 +174,10 @@ fn apply_uniform_access(
 
 fn apply_soft_delete_retention(
     record: &mut BucketRecord,
-    duration: u64,
+    retention: crate::bucket::SoftDeleteRetention,
     now: SystemTime,
-) -> Result<(), CatalogError> {
-    if duration != 0 && !(604800..=7776000).contains(&duration) {
-        return Err(CatalogError::InvalidMetadata(
-            "Soft delete policy must have a retention duration between 3 days and 90 days.".into(),
-        ));
-    }
+) {
+    let duration = retention.seconds();
     let effective_time = record
         .soft_delete_policy
         .as_ref()
@@ -191,7 +187,6 @@ fn apply_soft_delete_retention(
         retention_duration_seconds: duration,
         effective_time,
     });
-    Ok(())
 }
 
 /// Locks, sets or clears the bucket retention policy; a locked policy never shrinks.
