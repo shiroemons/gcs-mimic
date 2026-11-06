@@ -282,27 +282,47 @@ impl Catalog {
         })
     }
 
-    /// The lease for a client request's writer, once any exclusive job is done. No caller holds a
-    /// lease here, so lining up behind a job still draining the catalog cannot wait for itself.
-    async fn client_activity(&self) -> Result<Activity, ClaimError> {
-        self.await_activity(Work::New)
+    /// The lease for a client request's writer, once any exclusive job is done. `work` says
+    /// whether the caller may line up behind a job still draining the catalog.
+    async fn client_activity(&self, work: Work) -> Result<Activity, ClaimError> {
+        self.await_activity(work)
             .await
             .map_err(|closed| ClaimError::Catalog(closed.into()))
     }
 
-    /// Claims a writer for a client request, waiting up to the configured writer wait for the
-    /// current holder to finish. A client that gave up on a stalled request retries while the
-    /// old handler is still unwinding; the retry should take over rather than fail for a state
-    /// that clears by itself. Past the budget the holder is really working, so it stays `Busy`.
+    /// Claims a writer for a client request that holds no lease yet, waiting up to the configured
+    /// writer wait for the current holder to finish. A client that gave up on a stalled request
+    /// retries while the old handler is still unwinding; the retry should take over rather than
+    /// fail for a state that clears by itself. Past the budget the holder is really working, so
+    /// it stays `Busy`.
     pub(in crate::storage::catalog) async fn wait_for_writer(
         &self,
         key: WriterKey,
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
+        self.wait_to_claim(Work::New, key, origin).await
+    }
+
+    /// As [`Self::wait_for_writer`], for a request that already holds a lease. Lining up behind a
+    /// job draining the catalog could then wait for that very lease.
+    pub(in crate::storage::catalog) async fn wait_for_writer_under_way(
+        &self,
+        key: WriterKey,
+        origin: KeyOrigin,
+    ) -> Result<WriterGuard, ClaimError> {
+        self.wait_to_claim(Work::UnderWay, key, origin).await
+    }
+
+    async fn wait_to_claim(
+        &self,
+        work: Work,
+        key: WriterKey,
+        origin: KeyOrigin,
+    ) -> Result<WriterGuard, ClaimError> {
         match self.session_limits().writer_wait {
-            WriterWait::Fail => self.claim_leased(self.client_activity().await?, key, origin),
+            WriterWait::Fail => self.claim_leased(self.client_activity(work).await?, key, origin),
             WriterWait::Within(limit) => {
-                tokio::time::timeout_at(limit.deadline(), self.claim_released(key, origin))
+                tokio::time::timeout_at(limit.deadline(), self.claim_released(work, key, origin))
                     .await
                     .unwrap_or(Err(ClaimError::Busy))
             }
@@ -336,6 +356,7 @@ impl Catalog {
 
     async fn claim_released(
         &self,
+        work: Work,
         key: WriterKey,
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
@@ -345,7 +366,7 @@ impl Catalog {
             // Registered before the claim and the closed check, so a release or a close right
             // after them still wakes this waiter.
             released.as_mut().enable();
-            let activity = self.client_activity().await?;
+            let activity = self.client_activity(work).await?;
             match self.claim_leased(activity, key.clone(), origin) {
                 Ok(guard) => return Ok(guard),
                 Err(ClaimError::Busy) if self.0.admission.is_closed() => {

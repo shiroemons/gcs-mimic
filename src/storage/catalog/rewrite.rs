@@ -581,6 +581,14 @@ impl Catalog {
             .wait_for_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
             .await
             .map_err(CatalogError::from)?;
+        // A request cancelled mid-step leaves that step running detached, holding the transfer. It
+        // may yet finish the rewrite, so wait it out before reading the state this call acts on.
+        // This writer keeps any later step out, so the claim need not outlive the wait.
+        drop(
+            self.wait_for_writer_under_way(WriterKey::Derived(session.id), KeyOrigin::Catalog)
+                .await
+                .map_err(CatalogError::from)?,
+        );
         let selected_token = token.to_owned();
         let now = unix_millis(self.0.clock.now())?;
         let source_check = source_access.clone();
@@ -1329,6 +1337,137 @@ mod tests {
         assert!(!retry.is_finished());
         drop(running);
         retry.await.unwrap().unwrap();
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// A long catalog wait, so that only the behaviour under test can end a wait.
+    fn apply_long_writer_wait(catalog: &Catalog) {
+        catalog.apply_session_limits(&crate::config::Config {
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
+            ..Default::default()
+        });
+    }
+
+    fn spawn_continuation(
+        catalog: &Catalog,
+        token: String,
+    ) -> tokio::task::JoinHandle<Result<RewriteProgress, RewriteError>> {
+        let worker = catalog.clone();
+        tokio::spawn(async move {
+            worker
+                .continue_rewrite(
+                    &token,
+                    BucketAccess::Permissive,
+                    BucketAccess::Permissive,
+                    |record| Ok(json!({"generation":record.generation})),
+                )
+                .await
+        })
+    }
+
+    /// Waits until a continuation holds its session, the step before it waits for a transfer.
+    async fn claimed_its_session(catalog: &Catalog, session: BlobId) {
+        crate::test_support::eventually_async("the continuation to claim its session", || async {
+            matches!(
+                catalog.claim_writer(WriterKey::Rewrite(session), KeyOrigin::Catalog),
+                Err(ClaimError::Busy)
+            )
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_retried_continuation_waits_for_the_step_its_cancelled_request_left_running() {
+        let (catalog, directory, _clock) = fixture().await;
+        apply_long_writer_wait(&catalog);
+        let (token, mut owner) = new_session(&catalog).await.unwrap();
+        owner.disarm();
+        let session = catalog.rewrite_session(&token).await.unwrap();
+        let detached = catalog
+            .claim_writer(WriterKey::Derived(session.id), KeyOrigin::Catalog)
+            .unwrap();
+        let mut retry = spawn_continuation(&catalog, token);
+        claimed_its_session(&catalog, session.id).await;
+        // Refusing takes one catalog job, far less than this bound on an idle machine, and a slow
+        // machine can only make this check pass where it should not, never fail where it should.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), &mut retry)
+                .await
+                .is_err()
+        );
+        drop(detached);
+        assert!(retry.await.unwrap().unwrap().resource.is_some());
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_retry_during_a_detached_publication_returns_the_stored_result() {
+        use crate::storage::catalog::fault::{Fault, Step};
+        use std::sync::Mutex;
+        let (catalog, directory, _clock) = fixture().await;
+        apply_long_writer_wait(&catalog);
+        let (token, mut owner) = new_session(&catalog).await.unwrap();
+        owner.disarm();
+        let session = catalog.rewrite_session(&token).await.unwrap();
+        let (entered, reached) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        catalog.inject(
+            Step::BeforePublish,
+            0,
+            Fault::Block {
+                entered: Arc::new(Mutex::new(Some(entered))),
+                release: Arc::new(Mutex::new(released)),
+            },
+        );
+        let cancelled = spawn_continuation(&catalog, token.clone());
+        reached.await.unwrap();
+        cancelled.abort();
+        assert!(cancelled.await.unwrap_err().is_cancelled());
+        let retry = spawn_continuation(&catalog, token);
+        claimed_its_session(&catalog, session.id).await;
+        release.send(()).unwrap();
+        // Reading the session before the publication ended would find its transfer gone.
+        let progress = retry.await.unwrap().unwrap();
+        assert!(progress.resource.is_some());
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_retried_continuation_finishes_ahead_of_a_job_draining_its_lease() {
+        let (catalog, directory, _clock) = fixture().await;
+        apply_long_writer_wait(&catalog);
+        let (token, mut owner) = new_session(&catalog).await.unwrap();
+        owner.disarm();
+        let session = catalog.rewrite_session(&token).await.unwrap();
+        let detached = catalog
+            .claim_writer(WriterKey::Derived(session.id), KeyOrigin::Catalog)
+            .unwrap();
+        let retry = spawn_continuation(&catalog, token);
+        claimed_its_session(&catalog, session.id).await;
+        let admin = catalog.admin(crate::storage::admin::Origin::Seed);
+        let reset = tokio::spawn(async move {
+            admin
+                .reset_until(crate::time_limit::TimeLimit::from_millis(60_000).deadline())
+                .await
+                .map(drop)
+        });
+        crate::test_support::eventually_async("the reset to line up", || async {
+            catalog.0.admin_reads.available_permits() == 31
+        })
+        .await;
+        drop(detached);
+        // Lining up behind the reset would wait for the lease the retry itself holds.
+        assert!(
+            crate::test_support::joined(retry)
+                .await
+                .unwrap()
+                .resource
+                .is_some()
+        );
+        crate::test_support::joined(reset).await.unwrap();
         catalog.close().await.unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }
