@@ -7,7 +7,7 @@ use super::{ObjectActivity, State, authorize_bucket, await_upload_catalog};
 use crate::{
     auth::Caller,
     bucket::BucketAccess,
-    config::{Config, EndpointSnapshot},
+    config::{Config, RequestEndpoints},
     json::JsonError,
     object::ObjectError,
 };
@@ -19,7 +19,7 @@ use tokio::{sync::watch, time::Instant};
 pub(crate) struct RequestCtx<'a> {
     pub(crate) state: &'a State,
     pub(crate) config: &'a Config,
-    pub(crate) endpoints: &'a EndpointSnapshot,
+    pub(crate) endpoints: &'a RequestEndpoints,
     /// Reports body and catalog progress to the connection's deadline watchdog.
     pub(crate) activity: &'a watch::Sender<ObjectActivity>,
 }
@@ -69,7 +69,7 @@ impl<'a> RequestCtx<'a> {
 pub(crate) struct ObjectCtx<'a> {
     pub(crate) state: &'a State,
     pub(crate) config: &'a Config,
-    pub(crate) endpoints: &'a EndpointSnapshot,
+    pub(crate) endpoints: &'a RequestEndpoints,
     pub(crate) activity: &'a watch::Sender<ObjectActivity>,
     /// `None` in permissive mode, where requests are not authorized.
     pub(crate) caller: Option<Caller<'a>>,

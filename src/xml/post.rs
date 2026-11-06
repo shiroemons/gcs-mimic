@@ -667,7 +667,7 @@ pub(crate) async fn respond(
         declared_length,
     };
     let record = stream_file(&mut parser, ctx, upload, sender, limits).await?;
-    success_response(success, &record, &ctx.endpoints.api_base_url)
+    success_response(success, &record, ctx.endpoints.api_base_url())
 }
 
 /// Authenticates a form upload from its policy fields, or from its Authorization header when

@@ -88,8 +88,9 @@ pub(crate) use objects::{
 pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, RangeRequest,
     UploadRequest, add_derived_owner, declared_hashes, object_media_headers, object_resource,
-    parse_object_upload_headers, range_request, route_object_with_profile, unsupported_upload_type,
-    validate_keyed_object_headers, validate_object_get_headers, validate_object_name,
+    parse_object_upload_headers, range_request, rebase_object_links, route_object_with_profile,
+    unsupported_upload_type, validate_keyed_object_headers, validate_object_get_headers,
+    validate_object_name,
 };
 pub(crate) use page_token::{
     decode_all_projects_page_token, decode_object_page_token, decode_page_token,

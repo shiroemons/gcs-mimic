@@ -23,7 +23,9 @@ mod test_support;
 #[cfg(test)]
 mod unix_tests;
 pub use runtime::RuntimeEndpoints;
-pub(crate) use runtime::{EndpointError, EndpointSnapshot};
+pub(crate) use runtime::{
+    ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,
+};
 pub(crate) use setting::Setting;
 pub use storage::Backend;
 

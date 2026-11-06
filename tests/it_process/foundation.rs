@@ -361,6 +361,17 @@ fn request(address: SocketAddr, request: &str) -> String {
     String::from_utf8(response).unwrap()
 }
 
+fn location_of(response: &str) -> &str {
+    response
+        .lines()
+        .find_map(|line| {
+            line.split_once(':')
+                .filter(|(key, _)| key.eq_ignore_ascii_case("location"))
+                .map(|(_, value)| value.trim())
+        })
+        .unwrap()
+}
+
 fn dual_tls_request(
     ca: &std::path::Path,
     address: SocketAddr,
@@ -464,20 +475,19 @@ fn dual_listener_shares_state_and_https_primary_resumable_origin() {
         );
         let response = request(
             secondary,
-            "POST /upload/storage/v1/b/dual-bucket/o?uploadType=resumable&name=file HTTP/1.1\r\nHost: attacker.invalid\r\nForwarded: host=attacker.invalid;proto=http\r\nContent-Length: 0\r\n\r\n",
+            "POST /upload/storage/v1/b/dual-bucket/o?uploadType=resumable&name=file HTTP/1.1\r\nHost: attacker.invalid\r\nForwarded: host=forwarded.invalid;proto=https\r\nContent-Length: 0\r\n\r\n",
         );
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-        let location = response
-            .lines()
-            .find_map(|line| {
-                line.split_once(':')
-                    .filter(|(key, _)| key.eq_ignore_ascii_case("location"))
-                    .map(|(_, value)| value.trim())
-            })
-            .unwrap();
-        let path = location
-            .strip_prefix(&base)
-            .expect("one HTTPS primary origin");
+        // The plain listener advertises its own scheme and the request's Host; forwarded
+        // headers claim neither. Only an explicit base overrides them.
+        let session_base = if explicit {
+            base.clone()
+        } else {
+            "http://attacker.invalid".to_owned()
+        };
+        let path = location_of(&response)
+            .strip_prefix(&session_base)
+            .expect("explicit base or this request's Host and scheme");
         let object = dual_tls_request(
             &ca,
             primary,
@@ -682,26 +692,45 @@ fn api_origin_ready_and_resumable_locations_use_bound_addresses() {
             "POST /storage/v1/b?project=local-project HTTP/1.1\r\nHost: attacker.invalid\r\nForwarded: host=attacker.invalid;proto=https\r\nContent-Type: application/json\r\nContent-Length: 21\r\n\r\n{\"name\":\"api-origin\"}",
         );
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        // A request without Host has only the bound address to advertise.
         let response = request(
             address,
-            "POST /upload/storage/v1/b/api-origin/o?uploadType=resumable&name=file HTTP/1.1\r\nHost: attacker.invalid\r\nX-Forwarded-Host: attacker.invalid\r\nX-Forwarded-Proto: https\r\nContent-Length: 0\r\n\r\n",
+            "POST /upload/storage/v1/b/api-origin/o?uploadType=resumable&name=file HTTP/1.0\r\nContent-Length: 0\r\n\r\n",
         );
-        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-        let location = response
-            .lines()
-            .find_map(|line| {
-                line.split_once(':')
-                    .filter(|(key, _)| key.eq_ignore_ascii_case("location"))
-                    .map(|(_, value)| value.trim())
-            })
-            .unwrap();
-        let path = location
+        assert!(response.starts_with("HTTP/1.0 200"), "{response}");
+        let path = location_of(&response)
             .strip_prefix(&base)
             .expect("Location uses ready API base");
         let response = request(
             address,
             &format!(
-                "PUT {path} HTTP/1.1\r\nHost: attacker.invalid\r\nContent-Length: 3\r\nContent-Range: bytes 0-2/3\r\n\r\nabc"
+                "PUT {path} HTTP/1.0\r\nContent-Length: 3\r\nContent-Range: bytes 0-2/3\r\n\r\nabc"
+            ),
+        );
+        assert!(response.starts_with("HTTP/1.0 200"), "{response}");
+        let object: serde_json::Value =
+            serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+        for key in ["selfLink", "mediaLink"] {
+            assert!(
+                object[key]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(&format!("{base}/"))
+            );
+        }
+        // Host replaces the bound address, and forwarded headers claim nothing.
+        let response = request(
+            address,
+            "POST /upload/storage/v1/b/api-origin/o?uploadType=resumable&name=hosted HTTP/1.1\r\nHost: attacker.invalid\r\nX-Forwarded-Host: forwarded.invalid\r\nX-Forwarded-Proto: https\r\nContent-Length: 0\r\n\r\n",
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let path = location_of(&response)
+            .strip_prefix("http://attacker.invalid")
+            .expect("Location uses the request Host");
+        let response = request(
+            address,
+            &format!(
+                "PUT {path} HTTP/1.1\r\nHost: attacker.invalid\r\nX-Forwarded-Host: forwarded.invalid\r\nContent-Length: 3\r\nContent-Range: bytes 0-2/3\r\n\r\nabc"
             ),
         );
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
@@ -712,7 +741,7 @@ fn api_origin_ready_and_resumable_locations_use_bound_addresses() {
                 object[key]
                     .as_str()
                     .unwrap()
-                    .starts_with(&format!("{base}/"))
+                    .starts_with("http://attacker.invalid/")
             );
         }
         common::stop_server(&mut child, &mut stdout);

@@ -15,10 +15,17 @@ struct Server {
     child: Child,
     stdout: BufReader<ChildStdout>,
     path: PathBuf,
+    ready: serde_json::Value,
 }
 
 impl Server {
     fn start(directory: &Path) -> Self {
+        let server = Self::launch(directory, &["--api-base-url", "https://advertised.invalid"]);
+        assert_eq!(server.ready["api_base_url"], "https://advertised.invalid");
+        server
+    }
+
+    fn launch(directory: &Path, args: &[&str]) -> Self {
         fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
         let path = directory.join("s");
         let mut child = common::server_command()
@@ -31,12 +38,8 @@ impl Server {
                 "--unix-socket",
             ])
             .arg(&path)
-            .args([
-                "--api-base-url",
-                "https://advertised.invalid",
-                "--max-connections",
-                "4",
-            ])
+            .args(args)
+            .args(["--max-connections", "4"])
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
@@ -49,7 +52,6 @@ impl Server {
         assert_eq!(ready["unix_socket"], path.to_str().unwrap());
         assert!(ready["listen"].is_null());
         assert_eq!(ready["listeners"], serde_json::json!([]));
-        assert_eq!(ready["api_base_url"], "https://advertised.invalid");
         assert_eq!(
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o600
@@ -58,6 +60,7 @@ impl Server {
             child,
             stdout,
             path,
+            ready,
         }
     }
 
@@ -124,6 +127,24 @@ fn unix_wire_uses_shared_crud_conditions_parallel_clients_and_graceful_cleanup()
         "graceful shutdown must await socket cleanup"
     );
     assert!(UnixStream::connect(&server.path).is_err());
+}
+
+#[test]
+fn unix_links_use_http_and_the_request_host_without_an_explicit_base() {
+    let directory = common::TestDir::new();
+    let mut server = Server::launch(&directory.0, &[]);
+    assert_eq!(server.ready["api_base_url"], "http://localhost");
+    let created = server.request(
+        "POST",
+        "/storage/v1/b?project=local",
+        br#"{"name":"unix-links"}"#,
+    );
+    assert!(created.starts_with("HTTP/1.1 200"), "{created}");
+    assert!(
+        created.contains("\"http://original.invalid/storage/v1/b/unix-links\""),
+        "{created}"
+    );
+    common::stop_server(&mut server.child, &mut server.stdout);
 }
 
 #[test]

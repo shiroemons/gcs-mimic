@@ -1,4 +1,5 @@
 use super::JsonError;
+use crate::config::ApiBaseSource;
 use crate::object::{ObjectError, ObjectMetadataUpdate, ObjectRecord};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -13,6 +14,7 @@ impl ObjectMetadataRequest {
         unchanged: &Map<String, Value>,
         record: &ObjectRecord,
         base: &str,
+        source: ApiBaseSource,
     ) -> Result<(), ObjectError> {
         let resource = super::object_resource(record, base, super::Projection::Full)
             .map_err(ObjectError::backend)?;
@@ -31,7 +33,21 @@ impl ObjectMetadataRequest {
                     .as_ref()
                     .and_then(|owner| owner.entity())
                     .is_some_and(|entity| *value == serde_json::json!({"entity":entity}));
-            if resource.get(key) != Some(value) && !same_integer && !same_owner {
+            let same_link = match source {
+                ApiBaseSource::Explicit => false,
+                // A derived link names whichever Host read the resource, so a client may repeat
+                // one it read through another address.
+                ApiBaseSource::Derived => {
+                    matches!(key.as_str(), "selfLink" | "mediaLink")
+                        && value
+                            .as_str()
+                            .zip(resource.get(key).and_then(Value::as_str))
+                            .is_some_and(|(sent, rendered)| {
+                                crate::url::same_below_origin(sent, rendered)
+                            })
+                }
+            };
+            if resource.get(key) != Some(value) && !same_integer && !same_owner && !same_link {
                 return Err(ObjectError::UnsupportedMetadata(key.clone()));
             }
         }

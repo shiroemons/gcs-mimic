@@ -272,7 +272,8 @@ mod tests {
         let endpoints = config
             .runtime_endpoints
             .snapshot(&config, "http://localhost")
-            .unwrap();
+            .unwrap()
+            .without_request();
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         let ctx = RequestCtx {
             state: &state,

@@ -2,7 +2,7 @@ use crate::{
     auth::{self, Auth, Caller},
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
-    config::Config,
+    config::{Config, ConnectionScheme},
     http_conditions::{EtagError, etag_not_modified},
     json::{self, JsonError},
     object::{ObjectError, UploadChunk},
@@ -656,9 +656,25 @@ async fn serve_http(
                 Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
             }
         };
-        serve_connection(stream, state, config, stopping, saturated).await;
+        serve_connection(
+            stream,
+            ConnectionScheme::Https,
+            state,
+            config,
+            stopping,
+            saturated,
+        )
+        .await;
     } else {
-        serve_connection(stream, state, config, stopping, saturated).await;
+        serve_connection(
+            stream,
+            ConnectionScheme::Http,
+            state,
+            config,
+            stopping,
+            saturated,
+        )
+        .await;
     }
 }
 
@@ -724,6 +740,7 @@ fn http1_builder() -> http1::Builder {
 
 async fn serve_connection(
     stream: impl AsyncRead + AsyncWrite + Unpin,
+    scheme: ConnectionScheme,
     state: Arc<State>,
     config: Arc<Config>,
     mut stopping: watch::Receiver<bool>,
@@ -745,6 +762,7 @@ async fn serve_connection(
     let (expire, expired) = watch::channel(false);
     let builder = http1_builder();
     let service = ConnectionService {
+        scheme,
         state,
         config,
         activity: activity.clone(),
@@ -794,6 +812,7 @@ async fn serve_connection(
 /// The per-request half of a connection: hyper calls it once for every request head.
 #[derive(Clone)]
 struct ConnectionService {
+    scheme: ConnectionScheme,
     state: Arc<State>,
     config: Arc<Config>,
     activity: watch::Sender<ObjectActivity>,
@@ -824,6 +843,7 @@ impl ConnectionService {
         request: Request<Incoming>,
     ) -> Result<Response<ResponseBody>, Infallible> {
         let Self {
+            scheme,
             state,
             config,
             activity,
@@ -854,7 +874,7 @@ impl ConnectionService {
             .runtime_endpoints
             .snapshot(&config, &state.api_base_url)
         {
-            Ok(endpoints) => endpoints,
+            Ok(endpoints) => endpoints.for_request(scheme, request.uri(), request.headers()),
             Err(_) => {
                 return Ok(boxed(
                     JsonError::service_unavailable(
@@ -865,7 +885,7 @@ impl ConnectionService {
                 .map(|body| finished.track(body)));
             }
         };
-        let expiry = DeadlineReply::new(&request, &config, &endpoints);
+        let expiry = DeadlineReply::new(&request, &config, endpoints.snapshot());
         let format =
             json::ResponseFormat::for_request(request.uri().query(), config.compat_profile);
         let ctx = RequestCtx {

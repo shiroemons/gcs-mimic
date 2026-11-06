@@ -327,7 +327,8 @@ impl Fixture {
             .config
             .runtime_endpoints
             .snapshot(&self.config, &self.state.api_base_url)
-            .unwrap();
+            .unwrap()
+            .without_request();
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         let mut request = Request::builder().method(method).uri(path);
         if let Some(token) = token {

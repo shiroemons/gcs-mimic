@@ -32,6 +32,44 @@ fn request(
     common::http::receive_eof(stream, common::http::Body::for_method(method)).into_last()
 }
 
+/// Links are not credentials, so strict mode derives them like permissive mode. The signing test
+/// below runs on the same derived configuration and proves signatures still bind the real Host.
+#[test]
+fn strict_mode_links_follow_the_request_host_without_an_explicit_base() {
+    let dir = TestDir::new();
+    let server = Server::launch(http_command(&dir.0).args([
+        "--auth-mode",
+        "strict",
+        "--identity-file",
+        "config/identities.json",
+    ]));
+    let admin = "Authorization: Bearer local-admin-token\r\nContent-Type: application/json\r\n";
+    request(
+        &server,
+        "POST",
+        "/storage/v1/b?project=local-project",
+        "gcs:4443",
+        admin,
+        br#"{"name":"example-bucket"}"#,
+    )
+    .expect(200);
+    for host in ["gcs:4443", "localhost:54321"] {
+        let object = request(
+            &server,
+            "POST",
+            "/upload/storage/v1/b/example-bucket/o?uploadType=media&name=linked",
+            host,
+            admin,
+            b"bytes",
+        )
+        .json_ok();
+        assert_eq!(
+            object["selfLink"],
+            format!("http://{host}/storage/v1/b/example-bucket/o/linked")
+        );
+    }
+}
+
 #[test]
 fn signing_cli_urls_verify_through_the_live_xml_route() {
     let dir = TestDir::new();

@@ -106,7 +106,7 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
         super::body_progress(ctx.activity);
     }
     let permit = PARSERS.acquire().await.map_err(|_| parser_unavailable())?;
-    let api_base_url = ctx.endpoints.api_base_url.clone();
+    let api_base_url = ctx.endpoints.api_base_url().to_owned();
     let parts = crate::task::run_blocking("batch-parser", move || {
         let _permit = permit;
         parse::parts(
@@ -280,7 +280,8 @@ mod tests {
         let endpoints = config
             .runtime_endpoints
             .snapshot(&config, "http://localhost")
-            .unwrap();
+            .unwrap()
+            .without_request();
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         let ctx = RequestCtx {
             state: &state,

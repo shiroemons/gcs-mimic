@@ -417,7 +417,7 @@ fn legacy_public_authority<'a>(
         .map(crate::url::PublicOrigin::authority)
 }
 
-fn request_authority(headers: &HeaderMap) -> Option<hyper::http::uri::Authority> {
+pub(crate) fn request_authority(headers: &HeaderMap) -> Option<hyper::http::uri::Authority> {
     let mut hosts = headers.get_all("host").iter();
     let authority: hyper::http::uri::Authority = hosts.next()?.to_str().ok()?.parse().ok()?;
     if hosts.next().is_some()
@@ -503,11 +503,11 @@ pub(crate) fn select_object(
     headers: &HeaderMap,
     config: &Config,
 ) -> Result<Option<ObjectPath>, Error> {
-    let endpoints = EndpointSnapshot {
-        api_base_url: config.effective_api_base_url(config.listen),
-        public_base_url: config.public_base_url.clone(),
-        xml_virtual_host_domains: config.xml_virtual_host_domains.clone(),
-    };
+    let endpoints = EndpointSnapshot::explicit(
+        &config.effective_api_base_url(config.listen),
+        config.public_base_url.clone(),
+        config.xml_virtual_host_domains.clone(),
+    );
     select_object_with_endpoints(uri, headers, config, &endpoints)
 }
 

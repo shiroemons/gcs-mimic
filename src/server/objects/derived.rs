@@ -102,7 +102,7 @@ pub(super) async fn copy(
     };
     let mut value = json::object_resource_keyed(
         &record,
-        &ctx.endpoints.api_base_url,
+        ctx.endpoints.api_base_url(),
         projection,
         destination_key,
     )?;
@@ -252,7 +252,7 @@ pub(super) async fn compose(
         })?;
     json::object_resource_keyed(
         &record,
-        &ctx.endpoints.api_base_url,
+        ctx.endpoints.api_base_url(),
         json::Projection::NoAcl,
         key,
     )
