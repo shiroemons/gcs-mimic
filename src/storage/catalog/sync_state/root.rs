@@ -6,10 +6,7 @@ use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     fsutil::{self, FileIdentity, FsError},
-    storage::{
-        admin::{AdminError, WAIT_TIMEOUT},
-        lock,
-    },
+    storage::{admin::AdminError, lock},
     sync::mapping::{MARKER, MARKER_STAGING},
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -604,10 +601,7 @@ impl SyncState {
     ) -> Result<RootLease, RootError> {
         let permit = self
             .0
-            .wait_admin(
-                self.0.0.admin_reads.clone(),
-                tokio::time::Instant::now() + WAIT_TIMEOUT,
-            )
+            .wait_admin(self.0.0.admin_reads.clone(), self.0.admin_deadline())
             .await?;
         let path = path.as_ref().to_owned();
         let data_dir = self.0.0.data_dir.clone();

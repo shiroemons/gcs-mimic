@@ -8,9 +8,10 @@ use crate::{
         admin::{BucketDefinition, BucketName, LocalAdmin, ObjectName, Publication, PublishMode},
     },
     test_support::TestDir,
+    time_limit::TimeLimit,
 };
 use bytes::Bytes;
-use std::{io, sync::Arc};
+use std::{io, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 async fn setup() -> (TestDir, Catalog, Admin) {
@@ -205,15 +206,22 @@ async fn reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive
         .unwrap();
     assert!(matches!(admin.reset().await, Err(AdminError::Busy { .. })));
     drop(source);
-    let exclusive = catalog.0.activity.clone().try_write_owned().unwrap();
+    let exclusive = catalog
+        .wait_exclusive(TimeLimit::from_millis(3_000).deadline())
+        .await
+        .unwrap();
+    // The forms that never wait report the job; maintenance skips its turn on these.
     assert!(catalog.admit_object_upload().is_err());
     assert!(catalog.try_resumable_writer("session").is_err());
-    assert!(
-        admin
-            .get_bucket(&BucketName::new("reset-bucket").unwrap())
-            .await
-            .is_err()
-    );
+    // A management call waits for the job instead, and gives up only at its own deadline.
+    assert!(matches!(
+        catalog
+            .run_admin_until(TimeLimit::from_millis(20).deadline(), |_| {
+                Ok::<_, AdminError>(())
+            })
+            .await,
+        Err(AdminError::Busy { .. })
+    ));
     drop(exclusive);
     assert_eq!(
         admin

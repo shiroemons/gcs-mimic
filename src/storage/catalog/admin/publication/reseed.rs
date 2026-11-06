@@ -44,8 +44,8 @@ fn metadata_budget(max_entries: usize) -> usize {
 
 /// A caller with its own budget (an HTTP request) supplies a limit so that waiting ends as a
 /// retryable no-changes `Busy` before the caller gives up; startup waits like other publication.
-fn wait_deadline(limit: Option<tokio::time::Instant>) -> tokio::time::Instant {
-    limit.unwrap_or_else(|| tokio::time::Instant::now() + WAIT_TIMEOUT)
+fn wait_deadline(catalog: &Catalog, limit: Option<tokio::time::Instant>) -> tokio::time::Instant {
+    limit.unwrap_or_else(|| catalog.admin_deadline())
 }
 
 impl Admin {
@@ -71,15 +71,13 @@ impl Admin {
                 .try_acquire_owned()
                 .map_err(|_| busy())?,
         );
+        let deadline = wait_deadline(&self.catalog, wait_limit);
         let admission = self
             .catalog
-            .wait_admin(
-                self.catalog.0.publication_batch.clone(),
-                wait_deadline(wait_limit),
-            )
+            .wait_admin(self.catalog.0.publication_batch.clone(), deadline)
             .await?;
         // Taken after the wait so that a waiting seed never holds back an exclusive reset.
-        let activity = self.catalog.activity()?;
+        let activity = self.catalog.admin_activity(Work::New, deadline).await?;
         Ok(SeedBatch {
             admin: self.clone(),
             buckets: Vec::new(),
@@ -232,15 +230,15 @@ impl SeedBatch {
         std::mem::swap(&mut self.entries, &mut self.prepared);
         // The batch's own read lease would otherwise keep the exclusive gate from ever opening.
         self.activity.take();
-        let (exclusive, execution) = catalog
-            .wait_exclusive(wait_deadline(self.wait_limit))
+        let exclusive = catalog
+            .wait_exclusive(wait_deadline(&catalog, self.wait_limit))
             .await?;
         let inner = catalog.0.clone();
         let (outcome, mut batch) = catalog
             .0
             .executor
             .run(move || {
-                let (_execution, _exclusive) = (execution, exclusive);
+                let _exclusive = exclusive;
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Debug,
                     "seed_commit_started",

@@ -305,7 +305,7 @@ impl Catalog {
             create: access.create.clone(),
         };
         let catalog = self.clone();
-        let permit = self.admit_object_upload()?;
+        let permit = self.wait_object_upload().await?;
         // Cancellation must retain ownership until publication and cleanup have settled.
         crate::task::spawn_supervised("object-restore", async move {
             let _permit = permit;

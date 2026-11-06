@@ -1,13 +1,14 @@
-//! Instance-local reset owns the same gate as SQL jobs and unpublished byte leases.
+//! Instance-local reset owns SQL execution and the gate that unpublished byte leases hold.
 
 use super::super::{BlobBackend, ConnectionUnavailable, objects};
 use super::{Admin, AdminError};
 use crate::storage::catalog::sql;
 use crate::{bucket::CatalogError, storage::failure::unavailable};
 use rusqlite::Connection;
-use std::{path::Path, time::Duration};
+use std::path::Path;
 
-const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(1);
+#[cfg(test)]
+const QUIESCENCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,19 +29,18 @@ impl Admin {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<ResetOutcome, AdminError> {
-        let deadline = deadline.min(tokio::time::Instant::now() + QUIESCENCE_TIMEOUT);
         let admission = self
             .catalog
             .wait_admin(self.catalog.0.admin_reads.clone(), deadline)
             .await?;
-        let (exclusive, execution) = self.catalog.wait_exclusive(deadline).await?;
+        let exclusive = self.catalog.wait_exclusive(deadline).await?;
         let inner = self.catalog.0.clone();
         self.catalog
             .0
             .executor
             .run(move || {
                 // Cancellation cannot release admission while the owned transaction/cleanup runs.
-                let (_admission, _exclusive, _execution) = (admission, exclusive, execution);
+                let (_admission, _exclusive) = (admission, exclusive);
                 let result = inner.with_connection(|connection| reset(connection, &inner.backend));
                 inner.maintenance_wake.notify_one();
                 match result {

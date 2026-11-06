@@ -15,7 +15,7 @@
 //! }
 //! ```
 
-use super::{Catalog, objects, read_bucket, select_bucket, unavailable};
+use super::{Catalog, Work, objects, read_bucket, select_bucket, unavailable};
 use crate::storage::catalog::sql;
 use crate::storage::failure::{BackendCause, IoCause};
 use crate::{
@@ -30,7 +30,6 @@ use rusqlite::Connection;
 use std::{fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
-pub(crate) const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const MAX_PAGE: usize = 256;
 
 pub(crate) mod imported_identity;
@@ -445,27 +444,6 @@ impl Catalog {
         }
     }
 
-    /// Waits until in-flight catalog work drains, then owns SQL execution and the exclusive
-    /// activity gate together; expiry returns `Busy` before anything is mutated.
-    pub(super) async fn wait_exclusive(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<(tokio::sync::OwnedRwLockWriteGuard<()>, OwnedSemaphorePermit), AdminError> {
-        loop {
-            let execution = self.wait_admin(self.0.execution.clone(), deadline).await?;
-            // Queuing a writer would reject the nested SQL read leases needed by draining uploads.
-            if let Ok(exclusive) = self.0.activity.clone().try_write_owned() {
-                return Ok((exclusive, execution));
-            }
-            // Draining work may need the execution slot to finish and release its lease.
-            drop(execution);
-            tokio::time::sleep_until(
-                deadline.min(tokio::time::Instant::now() + Duration::from_millis(10)),
-            )
-            .await;
-        }
-    }
-
     pub(super) async fn run_admin<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
@@ -482,16 +460,15 @@ impl Catalog {
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
     ) -> Result<T, E> {
-        let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
-        self.run_admin_until(deadline, operation).await
+        self.run_admin_until(self.admin_deadline(), operation).await
     }
 
+    /// As with [`Self::run`], the execution permit keeps this job apart from an exclusive job.
     async fn run_admin_until<T: Send + 'static, E: From<AdminError> + Send + 'static>(
         &self,
         deadline: tokio::time::Instant,
         operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
     ) -> Result<T, E> {
-        let activity = self.activity().map_err(AdminError::from)?;
         let admission = self
             .wait_admin(self.0.admin_reads.clone(), deadline)
             .await?;
@@ -500,7 +477,7 @@ impl Catalog {
         self.0
             .executor
             .run(move || {
-                let (_admission, _execution, _activity) = (admission, execution, activity);
+                let (_admission, _execution) = (admission, execution);
                 let result = match inner.with_connection(operation) {
                     Ok(result) => result,
                     Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed.into()),
@@ -737,10 +714,10 @@ impl Admin {
                 "archived identities require imported file-batch publication".into(),
             ));
         }
-        let activity = self.catalog.activity()?;
         crate::object::validate_fixed_metadata("contentType", &request.content_type)?;
         request.metadata.validate()?;
-        let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
+        let deadline = self.catalog.admin_deadline();
+        let activity = self.catalog.admin_activity(Work::New, deadline).await?;
         let permit = self
             .catalog
             .wait_admin(self.catalog.0.admin_uploads.clone(), deadline)

@@ -164,16 +164,70 @@ fn reset_is_explicit_clears_session_history_and_preserves_revision_high_water_af
 }
 
 #[test]
-fn reset_rejects_active_upload_without_changing_existing_bytes() {
-    assert_active_upload_reset("30000");
+fn requests_during_a_reset_wait_and_then_see_the_cleared_state() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--admin-enabled", "true"]);
+    server.populate();
+    let mut active = pending_media_upload(&server, "pending", b"hello".len());
+    let (reply, mut held_back) = std::thread::scope(|scope| {
+        let reset = scope.spawn(|| server.request("POST", "/_internal/reset", "", CONFIRM));
+        let held_back = held_back_media_upload(&server, "held-back", b"fresh".len());
+        // The reset is still waiting, a second and more after it started.
+        assert!(!reset.is_finished());
+        // Only new uploads line up behind it; reads are not stopped by a stalled upload.
+        assert_eq!(
+            server
+                .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
+                .body,
+            b"original"
+        );
+        active.get_mut().write_all(b"hello").unwrap();
+        let finished = common::read_http_response(&mut active, Body::Expected).unwrap();
+        assert!(finished.starts_with(b"HTTP/1.1 200"));
+        (reset.join().unwrap(), held_back)
+    });
+    reply.json_ok();
+    // The bucket went with the reset, so the upload is refused for that, before its body.
+    let reply = common::read_http_response(&mut held_back, Body::Expected).unwrap();
+    assert!(
+        reply.starts_with(b"HTTP/1.1 404"),
+        "{}",
+        String::from_utf8_lossy(&reply)
+    );
+    server.request("GET", OBJECT, "", b"").expect(404);
+}
+
+#[test]
+fn a_disconnected_reset_gives_up_its_wait_and_changes_nothing() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--admin-enabled", "true"]);
+    server.populate();
+    let _active = pending_media_upload(&server, "pending", b"hello".len());
+    let mut reset = TcpStream::connect(&server.address).unwrap();
+    write!(
+        reset,
+        "POST /_internal/reset HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n",
+        CONFIRM.len()
+    )
+    .unwrap();
+    reset.write_all(CONFIRM).unwrap();
+    drop(held_back_media_upload(&server, "held-back", b"fresh".len()));
+    drop(reset);
+    // The first upload is still active, so only the end of the wait can let this one through.
+    common::input_fixtures::eventually_some("uploads to be let through again", || {
+        let upload = start_media_upload(&server, "let-through", b"fresh".len());
+        upload_is_held_back(upload).is_none().then_some(())
+    });
+    assert_eq!(
+        server
+            .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
+            .body,
+        b"original"
+    );
 }
 
 #[test]
 fn reset_short_catalog_wait_reports_no_changes() {
-    assert_active_upload_reset("500");
-}
-
-fn assert_active_upload_reset(catalog_wait_ms: &str) {
     let dir = TestDir::new();
     // The catalog wait applies to every request, so on a loaded runner a short one also
     // times out the ordinary setup uploads, which are not under test. Populate with the
@@ -188,7 +242,7 @@ fn assert_active_upload_reset(catalog_wait_ms: &str) {
             "--admin-enabled",
             "true",
             "--catalog-wait-timeout-ms",
-            catalog_wait_ms,
+            "500",
         ],
     );
     let mut reader = pending_media_upload(&server, "pending", b"hello".len());

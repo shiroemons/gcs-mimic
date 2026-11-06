@@ -2,7 +2,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::super::{
-    admin::{AdminError, BucketName, Generation, ObjectName, WAIT_TIMEOUT},
+    admin::{AdminError, BucketName, Generation, ObjectName},
     change_journal::JournalFence,
     objects, unavailable,
 };
@@ -893,7 +893,7 @@ async fn serialized<T: Send + 'static>(
         .catalog()
         .wait_admin(
             lease.catalog().0.writeback_execution.clone(),
-            tokio::time::Instant::now() + WAIT_TIMEOUT,
+            lease.catalog().admin_deadline(),
         )
         .await?;
     // Cancellation can release a waiting request, but never an executing file/SQL transition.

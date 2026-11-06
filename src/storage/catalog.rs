@@ -15,9 +15,10 @@ use std::{
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock, Semaphore};
+use tokio::sync::{Notify, Semaphore};
 
-type Activity = OwnedRwLockReadGuard<()>;
+mod activity;
+use activity::{Activity, ActivityGate, Work};
 
 #[cfg(test)]
 mod memory_tests;
@@ -165,7 +166,7 @@ fn bucket_incarnation(connection: &Connection, bucket: &str) -> rusqlite::Result
 
 struct Inner {
     principals: OnceLock<principals::Profile>,
-    activity: Arc<RwLock<()>>,
+    activity: ActivityGate,
     resources: Mutex<Option<Resources>>,
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,

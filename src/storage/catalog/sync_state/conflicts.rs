@@ -13,7 +13,7 @@ use crate::{
     hashing::Hashes,
     object::{ObjectError, ObjectRecord},
     storage::{
-        admin::{AdminError, Generation, ObjectName, WAIT_TIMEOUT},
+        admin::{AdminError, Generation, ObjectName},
         catalog::{objects, unavailable},
     },
 };
@@ -280,7 +280,7 @@ impl RootLease {
             .catalog()
             .wait_admin(
                 self.catalog().0.writeback_execution.clone(),
-                tokio::time::Instant::now() + WAIT_TIMEOUT,
+                self.catalog().admin_deadline(),
             )
             .await?;
         crate::task::spawn_supervised("sync-conflict", async move {

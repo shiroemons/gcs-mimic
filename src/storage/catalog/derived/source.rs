@@ -224,7 +224,7 @@ impl Catalog {
                 "derived request requires 1 to 32 sources".into(),
             ));
         }
-        let activity = std::sync::Arc::new(self.activity()?);
+        let activity = std::sync::Arc::new(self.await_activity(Work::New).await?);
         let backend = self.0.backend.clone();
         self.run(move |connection| {
             let transaction = connection.transaction()?;

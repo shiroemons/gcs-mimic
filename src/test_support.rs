@@ -253,6 +253,15 @@ pub(crate) fn eventually_some<T>(what: &str, mut attempt: impl FnMut() -> Option
     }
 }
 
+/// Joins a task that something else has to wake, failing instead of hanging when the wakeup is
+/// lost. Not for paused-time tests, for the same reason as [`eventually_async`].
+pub(crate) async fn joined<T>(task: tokio::task::JoinHandle<T>) -> T {
+    tokio::time::timeout(HANG_GUARD, task)
+        .await
+        .unwrap_or_else(|_| panic!("the task was still waiting after {HANG_GUARD:?}"))
+        .unwrap()
+}
+
 /// Async counterpart of [`eventually`] for tests on a tokio runtime. Not for
 /// paused-time tests: their clock jumps over the guard while blocking work runs.
 pub(crate) async fn eventually_async<F, Fut>(what: &str, mut condition: F)

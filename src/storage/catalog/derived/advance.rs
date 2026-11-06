@@ -16,7 +16,7 @@ impl Catalog {
         id: &BlobId,
         budget: u64,
     ) -> Result<DerivedTransfer, ObjectError> {
-        let permit = self.admit_object_upload()?;
+        let permit = self.continue_object_upload().await?;
         let guard = self.derived_guard(id)?;
         let catalog = self.clone();
         let id = *id;

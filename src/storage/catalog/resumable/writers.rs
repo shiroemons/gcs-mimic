@@ -1,4 +1,5 @@
-use super::{Catalog, CatalogError, unavailable};
+use super::{Catalog, CatalogError, Work, unavailable};
+use crate::storage::catalog::Activity;
 use crate::storage::{
     blob_id::BlobId, catalog::session_limits::WriterWait, failure::BackendFailure,
 };
@@ -193,7 +194,7 @@ pub(in crate::storage::catalog) struct WriterGuard {
     pub(super) catalog: Catalog,
     key: WriterKey,
     origin: KeyOrigin,
-    _activity: super::super::Activity,
+    _activity: Activity,
 }
 
 impl Drop for WriterGuard {
@@ -259,6 +260,15 @@ impl Catalog {
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
         let activity = self.activity().map_err(ClaimError::Catalog)?;
+        self.claim_leased(activity, key, origin)
+    }
+
+    fn claim_leased(
+        &self,
+        activity: Activity,
+        key: WriterKey,
+        origin: KeyOrigin,
+    ) -> Result<WriterGuard, ClaimError> {
         self.0
             .session_writers
             .lock()
@@ -272,6 +282,14 @@ impl Catalog {
         })
     }
 
+    /// The lease for a client request's writer, once any exclusive job is done. No caller holds a
+    /// lease here, so lining up behind a job still draining the catalog cannot wait for itself.
+    async fn client_activity(&self) -> Result<Activity, ClaimError> {
+        self.await_activity(Work::New)
+            .await
+            .map_err(|closed| ClaimError::Catalog(closed.into()))
+    }
+
     /// Claims a writer for a client request, waiting up to the configured writer wait for the
     /// current holder to finish. A client that gave up on a stalled request retries while the
     /// old handler is still unwinding; the retry should take over rather than fail for a state
@@ -282,7 +300,7 @@ impl Catalog {
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
         match self.session_limits().writer_wait {
-            WriterWait::Fail => self.claim_writer(key, origin),
+            WriterWait::Fail => self.claim_leased(self.client_activity().await?, key, origin),
             WriterWait::Within(limit) => {
                 tokio::time::timeout_at(limit.deadline(), self.claim_released(key, origin))
                     .await
@@ -327,7 +345,8 @@ impl Catalog {
             // Registered before the claim and the closed check, so a release or a close right
             // after them still wakes this waiter.
             released.as_mut().enable();
-            match self.claim_writer(key.clone(), origin) {
+            let activity = self.client_activity().await?;
+            match self.claim_leased(activity, key.clone(), origin) {
                 Ok(guard) => return Ok(guard),
                 Err(ClaimError::Busy) if self.0.admission.is_closed() => {
                     return Err(ClaimError::Catalog(unavailable(

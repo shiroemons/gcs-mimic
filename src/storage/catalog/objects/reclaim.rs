@@ -184,7 +184,9 @@ impl Catalog {
 
     /// Reclaims up to `RECLAIM_PAGE` journaled blobs and returns how many it selected.
     async fn reclaim_page(&self) -> Result<usize, ObjectError> {
-        let activity = self.activity()?;
+        // An upload reclaims under its own lease after it commits, so this must not line up behind
+        // an exclusive job that is waiting for that upload to finish.
+        let activity = self.await_activity(Work::UnderWay).await?;
         let permit = self
             .0
             .reclamation

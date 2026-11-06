@@ -1,4 +1,4 @@
-use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
+use super::{Activity, Catalog, UploadGuard, Work, system_time_micros, unavailable, unix_micros};
 use crate::storage::{BlobId, catalog::sql};
 use crate::{
     bucket::{BucketAccess, CatalogError, StorageClass},

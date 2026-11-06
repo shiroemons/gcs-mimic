@@ -64,7 +64,9 @@ pub(super) async fn insert(
         return Err(ObjectError::TooLarge.into());
     }
     // Complete the advisory check before body-derived errors can race its result.
-    let mut permit = ctx.state.catalog.admit_object_upload()?;
+    let mut permit = ctx
+        .await_catalog(ctx.state.catalog.wait_object_upload())
+        .await?;
     ctx.await_catalog(ctx.state.catalog.check_upload_replay(
         &bucket,
         &name,
@@ -153,7 +155,7 @@ pub(super) async fn multipart(
     {
         return Err(ObjectError::TooLarge.into());
     }
-    let mut permit = catalog.admit_object_upload()?;
+    let mut permit = ctx.await_catalog(catalog.wait_object_upload()).await?;
     // The final name may be in metadata; check the bucket before reading any body.
     ctx.await_catalog(catalog.check_upload_replay(
         &bucket,
