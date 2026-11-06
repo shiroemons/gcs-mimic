@@ -20,7 +20,8 @@ use std::{
 #[cfg(unix)]
 mod tests;
 
-const LINE_CAP: u64 = 128 * 1024;
+/// A line holds one source attribute document plus the wrapper fields around it.
+const LINE_CAP: u64 = 2 * fsutil::SOURCE_METADATA_CAP as u64;
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -329,7 +330,7 @@ fn check_attribute_cap(bytes: &[u8]) -> Result<(), ImportFailure> {
     }
     let raw: Attributes = serde_json::from_slice(bytes)?;
     if raw.attributes.get().len() > fsutil::SOURCE_METADATA_CAP {
-        return Err(corrupt("source attributes exceed 64 KiB"));
+        return Err(corrupt("source attributes exceed 16 MiB"));
     }
     Ok(())
 }

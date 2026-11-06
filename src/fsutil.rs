@@ -938,13 +938,16 @@ pub(crate) fn move_write_through(
     }
 }
 
-pub(crate) const SOURCE_METADATA_CAP: usize = 65_536;
+pub(crate) const SOURCE_METADATA_CAP: usize = crate::json::RESOURCE_BODY_LIMIT;
 
-pub(crate) struct SourceMetadataBuffer(Box<[u8; SOURCE_METADATA_CAP + 1]>);
+/// The field stays private, so a caller cannot supply a smaller allocation. A zeroed allocation
+/// this large is mapped lazily and only pages an attribute reaches take memory; building it as an
+/// array first would put it on the stack.
+pub(crate) struct SourceMetadataBuffer(Box<[u8]>);
 
 impl Default for SourceMetadataBuffer {
     fn default() -> Self {
-        Self(Box::new([0; SOURCE_METADATA_CAP + 1]))
+        Self(vec![0; SOURCE_METADATA_CAP + 1].into_boxed_slice())
     }
 }
 

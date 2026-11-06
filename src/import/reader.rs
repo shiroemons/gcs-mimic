@@ -317,8 +317,8 @@ fn read_json_file(path: &Path) -> Result<Vec<u8>, ImportFailure> {
     if bytes.len() > SOURCE_METADATA_CAP {
         return Err(ImportFailure::corrupt(
             "metadata",
-            "metadata exceeds 64 KiB",
-            "Restore a metadata record of at most 65536 bytes from the original export; do not truncate JSON.",
+            "metadata exceeds 16 MiB",
+            "Restore a metadata record of at most 16 MiB from the original export; do not truncate JSON.",
         ));
     }
     before.check(&Fingerprint::of_file(&file)?)?;
@@ -369,8 +369,8 @@ fn xattr_failure(error: SourceMetadataError) -> ImportFailure {
         ),
         SourceMetadataError::TooLarge => ImportFailure::corrupt(
             "user.metadata",
-            "user.metadata exceeds 64 KiB",
-            "Restore a complete attribute of at most 65536 bytes; do not truncate its JSON.",
+            "user.metadata exceeds 16 MiB",
+            "Restore a complete attribute of at most 16 MiB; do not truncate its JSON.",
         ),
     }
 }
