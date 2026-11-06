@@ -79,7 +79,9 @@ validators extend the frozen profile. Other methods return 405 with `Allow: POST
 An absent body copies supported editable metadata from the source, excluding
 source ACLs, holds and retention. Destination bucket defaults still apply.
 A JSON `null` body has the same inheritance behavior, as an explicit local
-interpretation for official generated clients' nil optional resources.
+interpretation for official generated clients' nil optional resources. Inheriting
+more than 40 KiB of encoded metadata fails with 400 before any byte is copied, and
+a request that supplies metadata passes.
 A supplied Object body constructs destination metadata using the copy
 foundation's declared omission/null rules. Cover both absent body and `{}`;
 they must not be conflated. Fixed content fields, custom metadata, supported
