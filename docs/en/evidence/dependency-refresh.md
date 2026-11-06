@@ -550,5 +550,22 @@ package is added.
 
 A `cargo xtask dependencies check` run reported `socket2: CURRENT`. That run did not
 finish: `proxy.golang.org` timed out with `CHECK_FAILED`, and it reported
-`UPDATE_AVAILABLE` for flate2 1.1.11, not adopted here. The snapshot's freshness
-record therefore stays at the earlier complete run.
+`UPDATE_AVAILABLE` for flate2 1.1.11, adopted in the later refresh below.
+
+### Later refresh on 2026-11-06
+
+| Input | Before | After |
+| --- | --- | --- |
+| flate2 | 1.1.10 | 1.1.11, SHA-256 `626d4928326b646e70f65ed36fc7cf9f206bdb68a0019ee7c6b4709da4e084c4` |
+| composer:2.11.1 | `sha256:3d1eb9437516b0ba88c46a0bb05826451a1ab178d29adacb5ded26dad0899ae4` | `sha256:8de2184c6de224f4689e8f80ed5f5edaf0030b6b8b7839a22a2bcb6722ac87d0` |
+
+flate2 1.1.11 was published on 2026-11-06. The [official registry](https://crates.io/crates/flate2/1.1.11)
+records `MIT OR Apache-2.0`, Rust 1.67 as its minimum and a compressed archive of **89,270 bytes**; the
+[rust-lang repository](https://github.com/rust-lang/flate2-rs) is not archived. The lockfile changes only
+its version and checksum, and no package is added.
+
+The Composer index changed while its `linux/amd64` and `linux/arm64` manifests stayed at the recorded
+digests, so the PHP suites run the same images.
+
+`GITHUB_TOKEN=... cargo xtask dependencies check` at 2026-11-06T12:29:07Z exited 0 with 119 `CURRENT`
+inputs; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`. The gzip tests passed with the new flate2.
