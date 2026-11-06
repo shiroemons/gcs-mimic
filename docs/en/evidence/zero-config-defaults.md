@@ -51,10 +51,11 @@ One run of each scenario on the integrated release build, native on macOS arm64,
 | Scenario | Result | 0.11.0 |
 | --- | --- | --- |
 | Go SDK, 32 parallel, 800 uploads and read-backs | 0 failures | 17 to 22 failures |
-| 96 parallel GETs of 4 MiB, 480 requests | 0 failures | Not recorded |
+| 96 parallel GETs of 4 MiB, 480 requests | 0 failures | 0 failures, queued behind its 32 connections |
 | Mixed load, 48 parallel, 15 seconds | 27,444 operations, no 503 or connection error, peak RSS 38 MiB | 449 responses of 503 and many connection errors |
 | 300 resumable uploads left unfinished | All succeed and continue after a restart | 503 from the 129th |
 | A write that stalls for 8 seconds and for 70 seconds | Succeeds | Not recorded |
 | 3 GiB POST and GET | Contents match, peak RSS 17 MiB | Not recorded |
-| 300 MiB overwrite and delete | Space reclaimed at once | Not recorded |
+| 300 MiB overwrite and delete | Space reclaimed at once | About 615 MiB stayed on disk |
 | `kill -9` twice | No loss among 787 acknowledged writes | Not recorded |
+| 1000 transfers in flight, half uploads and half downloads | About 230 MiB RSS while held, peaks of 266 to 343 MiB | Not recorded |

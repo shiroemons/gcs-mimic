@@ -158,9 +158,10 @@ default `lingering_time`), or until shutdown. Closing with unread input would re
 connection and could discard an early rejection; a client that keeps sending can hold
 its connection slot for that lingering time.
 Shutdown has its independent drain deadline. Compose additionally
-sets 128 MiB memory, one CPU, 64 PIDs and 4096 file descriptors. The
+sets 512 MiB memory, one CPU, 64 PIDs and 4096 file descriptors, because a thousand
+transfers in flight measured about 230 MiB. The
 [local ARM64 resource evidence](evidence/dist-resource-measurement.md) measures idle
-and 1 GiB media/resumable transfers for source bb8dd5c under those resource limits
+and 1 GiB media/resumable transfers for source bb8dd5c under the earlier 128 MiB and 1024 descriptor limits
 with HTTP, permissive/native defaults and swap disabled. This does not verify all
 Compose settings, other platforms, parallel transfers or a published release image.
 Resumable expiry uses one next-deadline scheduler, with no

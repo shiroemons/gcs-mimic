@@ -77,11 +77,12 @@ Resolve at most 32 source metadata records and immutable blob handles under a
 short catalog snapshot. No SQL transaction or blocking worker waits for streaming.
 One admitted compose streams the pinned files in order with bounded 64 KiB chunks,
 one source transfer active at a time, retaining upload ownership through cleanup.
-The request-owned transfer has a fixed 15-minute lifetime from transfer creation;
+The request-owned transfer's lifetime ends 15 minutes after its latest progress, so it
+reclaims only a transfer nobody is working on and a large source may take longer;
 publication after that deadline returns local 410 and preserves the old objects.
-Raising object_request_timeout_ms does not extend this ephemeral lifetime. It is
-a local resource limit, not a guarantee of completing the maximum object size
-within that time or of interrupting a stalled filesystem call at a precise instant.
+object_request_timeout_ms is separate and disabled by default. The lifetime is a local
+resource limit, not a guarantee of interrupting a stalled filesystem call at a precise
+instant.
 CRC32C is combined from source CRC32Cs and lengths using the existing crc32c crate;
 property tests compare it with direct calculation, including empty/binary inputs,
 every split point, repeated sources and nested associativity. Never re-read all

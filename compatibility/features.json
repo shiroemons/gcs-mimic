@@ -27898,6 +27898,7 @@
             "sessions_past_the_former_caps_survive_reopening_and_stay_usable",
             "cancelled_sessions_awaiting_cleanup_keep_answering_while_new_uploads_proceed",
             "retained_completions_answer_status_and_final_retries_until_the_window_passes_them",
+            "finished_sessions_stay_inside_a_small_memory_catalog_budget",
             "the_oldest_finished_record_past_the_window_goes_first",
             "a_held_record_is_stepped_over_and_the_next_oldest_goes_instead",
             "records_awaiting_cleanup_stay_while_creation_succeeds_and_the_excess_carries_over",
@@ -27921,6 +27922,7 @@
         "sessions_past_the_former_caps_survive_reopening_and_stay_usable",
         "cancelled_sessions_awaiting_cleanup_keep_answering_while_new_uploads_proceed",
         "retained_completions_answer_status_and_final_retries_until_the_window_passes_them",
+        "finished_sessions_stay_inside_a_small_memory_catalog_budget",
         "the_oldest_finished_record_past_the_window_goes_first",
         "a_held_record_is_stepped_over_and_the_next_oldest_goes_instead",
         "records_awaiting_cleanup_stay_while_creation_succeeds_and_the_excess_carries_over",
@@ -27943,6 +27945,7 @@
             "sessions_past_the_former_caps_survive_reopening_and_stay_usable",
             "cancelled_sessions_awaiting_cleanup_keep_answering_while_new_uploads_proceed",
             "retained_completions_answer_status_and_final_retries_until_the_window_passes_them",
+            "finished_sessions_stay_inside_a_small_memory_catalog_budget",
             "the_oldest_finished_record_past_the_window_goes_first",
             "a_held_record_is_stepped_over_and_the_next_oldest_goes_instead",
             "records_awaiting_cleanup_stay_while_creation_succeeds_and_the_excess_carries_over",
@@ -35513,11 +35516,11 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id":"multipart-wire","description":"Verify bounded part streaming/replacement, checksums, required keys, strict permissions, EOF and checkpoint failure preservation with restart.","result":"PASS","test_ids":["multipart-wire"]},
-        {"id":"multipart-parallel-parts","description":"Parallel parts of one upload take turns: a part waits for the lease up to catalog_wait_timeout_ms and fails with 503 only past it, so a transfer that outlasts the budget can fail another part.","result":"PASS","test_ids":["a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget"]},
+        {"id":"multipart-parallel-parts","description":"Parallel parts of one upload take turns: a part waits for the lease up to catalog_wait_timeout_ms and fails with 503 only past it, so a transfer that outlasts the budget can fail another part.","result":"PASS","test_ids":["a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit"]},
         {"id":"multipart-remaining","description":"Verify final SDK/container execution and remaining provider concurrent-part/header/error behavior.","result":"PENDING","test_ids":["multipart-remaining"]}
       ],
-      "test_ids": ["multipart-wire", "multipart-remaining", "a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget"],
-      "verification": [{"command":"cargo test --locked --lib -- xml_multipart","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget"]},{"command":"cargo check --tests; cargo test --test xml_multipart_http; cargo test --lib multipart","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart-wire"]}],
+      "test_ids": ["multipart-wire", "multipart-remaining", "a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit"],
+      "verification": [{"command":"cargo test --locked --lib -- xml_multipart","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget", "a_multipart_completion_past_the_catalog_wait_reports_its_commit"]},{"command":"cargo check --tests; cargo test --test xml_multipart_http; cargo test --lib multipart","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart-wire"]}],
       "sdk_evidence": [],
       "known_deviations": ["Mutating session operations serialize with retryable busy errors; aggregate retained parts share max_object_bytes and RAM storage budgets where selected. Full provider concurrency/header/error and final SDK/container cases remain pending."],
       "implemented_in": null,
@@ -48459,6 +48462,7 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_encoded_names_and_invalid_names",
             "every_rendered_link_follows_the_host_of_its_request",
+            "a_repeated_call_on_a_finished_rewrite_renders_links_for_its_own_host",
             "forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link",
             "stored_response_links_move_to_the_new_origin_without_touching_other_fields"
           ]
@@ -48608,6 +48612,7 @@
         "TestObjectResumableWriter",
         "ruby-api-default-https",
         "every_rendered_link_follows_the_host_of_its_request",
+        "a_repeated_call_on_a_finished_rewrite_renders_links_for_its_own_host",
         "an_explicit_base_ignores_the_host",
         "explicit_base_ignores_the_request_host",
         "management_routes_refuse_a_host_that_only_the_derived_base_would_name",
@@ -48626,7 +48631,7 @@
         "unix_links_use_http_and_the_request_host_without_an_explicit_base"
       ],
       "verification": [
-        {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- request_host_http; cargo test --locked --test it_process -- unix_transport; cargo test --locked --test it_xml_auth -- sign_url","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","an_explicit_base_ignores_the_host","explicit_base_ignores_the_request_host","management_routes_refuse_a_host_that_only_the_derived_base_would_name","management_host_is_not_admitted_by_a_base_derived_from_the_same_host","a_metadata_write_may_repeat_links_read_through_another_host","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","stored_response_links_move_to_the_new_origin_without_touching_other_fields","advertised_scheme_follows_the_connection_and_forwarded_headers_do_not_apply","request_host_sets_the_advertised_base_and_never_the_fixed_one","unusable_request_authorities_keep_the_fixed_base","absolute_form_target_overrides_host_and_is_validated_the_same_way","an_xml_virtual_host_is_not_advertised_as_the_api_base","only_an_external_url_update_fixes_a_derived_base","runtime_external_url_fixes_the_base_and_a_public_host_alone_does_not","strict_mode_links_follow_the_request_host_without_an_explicit_base","unix_links_use_http_and_the_request_host_without_an_explicit_base"]},
+        {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- request_host_http; cargo test --locked --test it_process -- unix_transport; cargo test --locked --test it_xml_auth -- sign_url","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","a_repeated_call_on_a_finished_rewrite_renders_links_for_its_own_host","an_explicit_base_ignores_the_host","explicit_base_ignores_the_request_host","management_routes_refuse_a_host_that_only_the_derived_base_would_name","management_host_is_not_admitted_by_a_base_derived_from_the_same_host","a_metadata_write_may_repeat_links_read_through_another_host","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","stored_response_links_move_to_the_new_origin_without_touching_other_fields","advertised_scheme_follows_the_connection_and_forwarded_headers_do_not_apply","request_host_sets_the_advertised_base_and_never_the_fixed_one","unusable_request_authorities_keep_the_fixed_base","absolute_form_target_overrides_host_and_is_validated_the_same_way","an_xml_virtual_host_is_not_advertised_as_the_api_base","only_an_external_url_update_fixes_a_derived_base","runtime_external_url_fixes_the_base_and_a_public_host_alone_does_not","strict_mode_links_follow_the_request_host_without_an_explicit_base","unix_links_use_http_and_the_request_host_without_an_explicit_base"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -59014,6 +59019,7 @@
             "keep_alive_serves_sequential_requests_until_idle_timeout",
             "keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns",
             "full_server_reclaims_idle_keep_alive_slots_for_waiting_clients",
+            "a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line",
             "transfer_timeout_precedence_and_bounds",
             "bkt_http_deadline_before_response_returns_backend_error",
             "full_server_closes_only_the_oldest_idle_connection_per_waiting_client",
@@ -59056,6 +59062,7 @@
         "keep_alive_serves_sequential_requests_until_idle_timeout",
         "keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns",
         "full_server_reclaims_idle_keep_alive_slots_for_waiting_clients",
+        "a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line",
         "transfer_timeout_precedence_and_bounds",
         "gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate",
         "invalid_gzip_initiations_never_create_sessions",
@@ -59095,6 +59102,7 @@
             "keep_alive_serves_sequential_requests_until_idle_timeout",
             "keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns",
             "full_server_reclaims_idle_keep_alive_slots_for_waiting_clients",
+            "a_stored_wake_taken_by_a_connection_that_leaves_reaches_the_next_in_line",
             "transfer_timeout_precedence_and_bounds"
           ]
         }

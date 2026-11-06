@@ -82,7 +82,7 @@ curl --disable --noproxy '*' --fail "$endpoint/_internal/ready"
 
 The image runs as UID/GID 10001 on a read-only root. Compose mounts the named
 `gcs-data` volume at `/var/lib/gcs-mimic`, prepared with writable ownership by the
-image. SQLite, WAL, the ownership lock, staging and opaque blobs live there. Memory is limited to 128 MiB,
+image. SQLite, WAL, the ownership lock, staging and opaque blobs live there. Memory is limited to 512 MiB,
 CPU to one, PIDs to 64 and file descriptors to 4096; these are configured bounds,
 not measured resource requirements. The image also works with `docker run` when
 an explicit writable volume is mounted at that path.
