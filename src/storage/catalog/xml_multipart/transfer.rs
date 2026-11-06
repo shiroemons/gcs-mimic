@@ -111,7 +111,7 @@ impl Catalog {
             if part.number <= previous {
                 return Err(Error::InvalidPartOrder);
             }
-            if part.number > 10000 {
+            if part.number > MAX_PART_NUMBER {
                 return Err(Error::InvalidPart);
             }
             previous = part.number;
