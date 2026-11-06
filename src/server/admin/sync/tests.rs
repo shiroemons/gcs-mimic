@@ -10,7 +10,7 @@ use crate::{
         admin::{BucketDefinition, BucketName, Generation, ObjectName, Origin},
         sync_state::writeback::{Limits, Writeback},
     },
-    test_support::{TestDir, eventually_async, eventually_some_async},
+    test_support::{TestDir, eventually_async, eventually_some_async, joined},
 };
 use http_body_util::BodyExt;
 use std::{fs, time::Duration};
@@ -1157,7 +1157,7 @@ async fn protected_findings_pages_cover_every_target_with_a_final_null_cursor() 
 }
 
 #[tokio::test]
-async fn controls_reject_invalid_input_unsupported_routes_and_excess_admission() {
+async fn controls_reject_invalid_input_and_unsupported_routes() {
     let fixture = Fixture::new(Tree::Empty).await;
     assert_eq!(fixture.status().await["auth_mode"], "permissive");
     for query in [
@@ -1253,24 +1253,137 @@ async fn controls_reject_invalid_input_unsupported_routes_and_excess_admission()
     assert_eq!(waited["timed_out"], false);
     assert_eq!(waited["reason"], "Ready");
     assert!(waited["journal_fence"]["sequence"].is_u64());
-    let (control, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
-    let permits = control
-        .admission
-        .clone()
-        .acquire_many_owned(32)
-        .await
-        .unwrap();
-    assert_eq!(
-        status_of(fixture.request("GET", "/_internal/sync", b"", None).await),
-        StatusCode::SERVICE_UNAVAILABLE
-    );
-    drop(permits);
-    drop(root);
     fixture
         .state
         .ready
         .store(false, std::sync::atomic::Ordering::Release);
     assert_eq!(fixture.status().await["state"], "Unhealthy");
+    fixture.finish().await;
+}
+
+/// Twice the 32 control requests the server once handled before refusing the next one.
+const MANY_CONTROLS: usize = 64;
+const LONG_WAIT: &[u8] = br#"{"timeout_ms":60000}"#;
+
+type ControlTask = tokio::task::JoinHandle<Result<Response<Full<Bytes>>, JsonError>>;
+
+/// A request on its own task, so that it can be left waiting, cancelled or awaited on its own.
+fn spawn_control(
+    fixture: &Arc<Fixture>,
+    path: &'static str,
+    payload: &'static [u8],
+) -> ControlTask {
+    let fixture = fixture.clone();
+    tokio::spawn(async move { fixture.request("POST", path, payload, None).await })
+}
+
+impl Fixture {
+    /// Fills the mirror's queue, so that every command waits in line until the permit drops.
+    async fn hold_the_mirror_queue(&self) -> tokio::sync::mpsc::OwnedPermit<Command> {
+        let (control, _) = self.state.catalog.sync_controls().unwrap().unwrap();
+        control.sender.reserve_owned().await.unwrap()
+    }
+}
+
+/// Rescans and waits, the commands that need no prior state; all commands share one queue.
+fn spawn_commands(fixture: &Arc<Fixture>) -> Vec<ControlTask> {
+    (0..MANY_CONTROLS)
+        .map(|index| match index % 8 {
+            0 => spawn_control(fixture, "/_internal/sync/rescan", b"{}"),
+            _ => spawn_control(fixture, "/_internal/sync/wait", LONG_WAIT),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn commands_past_the_mirror_queue_wait_their_turn_and_all_succeed() {
+    let fixture = Arc::new(Fixture::new(Tree::Empty).await);
+    let turn = fixture.hold_the_mirror_queue().await;
+    let commands = spawn_commands(&fixture);
+    // Authorization runs in catalog order, so this status follows every command into the queue.
+    // Being answered at all also shows that the commands in line take no slot from it.
+    assert_eq!(fixture.status().await["auth_mode"], "permissive");
+    assert!(commands.iter().all(|command| !command.is_finished()));
+    drop(turn);
+    for command in commands {
+        let response = joined(command).await.unwrap();
+        assert!(
+            [StatusCode::OK, StatusCode::ACCEPTED].contains(&response.status()),
+            "{}",
+            response.status()
+        );
+    }
+    Arc::into_inner(fixture).unwrap().finish().await;
+}
+
+#[tokio::test]
+async fn a_cancelled_command_gives_up_its_place_in_the_mirror_queue() {
+    let fixture = Arc::new(Fixture::new(Tree::Empty).await);
+    let turn = fixture.hold_the_mirror_queue().await;
+    let commands = spawn_commands(&fixture);
+    assert_eq!(fixture.status().await["auth_mode"], "permissive");
+    for command in &commands {
+        command.abort();
+    }
+    for command in commands {
+        assert!(command.await.unwrap_err().is_cancelled());
+    }
+    drop(turn);
+    let (control, _) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+    assert_eq!(control.sender.capacity(), control.sender.max_capacity());
+    let waited = fixture
+        .request("POST", "/_internal/sync/wait", b"{}", None)
+        .await
+        .unwrap();
+    assert_eq!(body(waited).await["completed"], true);
+    drop(control);
+    Arc::into_inner(fixture).unwrap().finish().await;
+}
+
+#[tokio::test]
+async fn stopping_the_mirror_wakes_every_command_waiting_in_its_queue() {
+    let fixture = Arc::new(Fixture::new(Tree::Empty).await);
+    let turn = fixture.hold_the_mirror_queue().await;
+    let commands = spawn_commands(&fixture);
+    assert_eq!(fixture.status().await["auth_mode"], "permissive");
+    fixture.task.stop();
+    // Their own timeout is 60 s away, so only the stop can end the wait this soon.
+    for command in commands {
+        let result = tokio::time::timeout(Duration::from_secs(10), command)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(status_of(result), StatusCode::SERVICE_UNAVAILABLE);
+    }
+    drop(turn);
+    Arc::into_inner(fixture).unwrap().finish().await;
+}
+
+#[tokio::test]
+async fn commands_in_line_end_at_their_own_deadlines() {
+    let mut fixture = Fixture::new(Tree::Empty).await;
+    fixture.config.object_request_timeout = crate::time_limit::TimeLimit::from_millis(50);
+    let turn = fixture.hold_the_mirror_queue().await;
+    let waited = fixture
+        .request(
+            "POST",
+            "/_internal/sync/wait",
+            br#"{"timeout_ms":50}"#,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(waited.status(), StatusCode::REQUEST_TIMEOUT);
+    assert_eq!(body(waited).await["timed_out"], true);
+    assert_eq!(
+        status_of(
+            fixture
+                .request("POST", "/_internal/sync/rescan", b"{}", None)
+                .await
+        ),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    drop(turn);
     fixture.finish().await;
 }
 

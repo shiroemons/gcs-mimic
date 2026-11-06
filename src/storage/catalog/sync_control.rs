@@ -5,7 +5,7 @@ use crate::{
     sync::control::{Command, Registration},
 };
 use std::sync::Arc;
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::mpsc;
 
 impl Catalog {
     pub(crate) async fn wait_for_sync_shutdown(&self) {
@@ -29,7 +29,6 @@ impl Catalog {
             session: crate::hashing::encode_lower(&session),
             root: Arc::downgrade(root),
             sender,
-            admission: Arc::new(Semaphore::new(32)),
         });
         Ok(())
     }
@@ -44,10 +43,7 @@ impl Catalog {
     }
 
     pub(crate) fn clear_sync_controls(&self) -> Result<(), CatalogError> {
-        let mut registration = self.0.sync_control.lock().map_err(unavailable)?;
-        if let Some(control) = registration.take() {
-            control.admission.close();
-        }
+        *self.0.sync_control.lock().map_err(unavailable)? = None;
         Ok(())
     }
 }

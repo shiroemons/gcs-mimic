@@ -9,7 +9,7 @@ use std::{
     io,
     sync::{Arc, Weak},
 };
-use tokio::sync::{Semaphore, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 pub(crate) enum Command {
     Resolve {
@@ -88,5 +88,4 @@ pub(crate) struct Registration {
     pub session: String,
     pub root: Weak<RootLease>,
     pub sender: mpsc::Sender<Command>,
-    pub admission: Arc<Semaphore>,
 }

@@ -104,11 +104,6 @@ async fn control(
                 "Directory synchronization is not running",
             )
         })?;
-    let _admission = registration
-        .admission
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| busy())?;
     let caller = ctx
         .state
         .auth
@@ -215,20 +210,16 @@ async fn wait(
     crate::server::begin_catalog_wait_until(ctx.activity, Some(deadline)).await;
     let (reply, receive) = tokio::sync::oneshot::channel();
     let settling = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    registration
-        .sender
-        .try_send(Command::Wait {
-            deadline,
-            settling: settling.clone(),
-            reply,
-            identity,
-        })
-        .map_err(|_| busy())?;
-    let observed = tokio::time::timeout_at(deadline, receive).await;
+    let command = Command::Wait {
+        deadline,
+        settling: settling.clone(),
+        reply,
+        identity,
+    };
+    // Time spent in line counts: the caller asked for an answer within this timeout.
+    let observed = tokio::time::timeout_at(deadline, submit(&registration, command, receive)).await;
     let result = match observed {
-        Ok(result) => result
-            .map_err(|_| busy())?
-            .map_err(|error| control_error(&error))?,
+        Ok(result) => result?.map_err(|error| control_error(&error))?,
         Err(_) if settling.load(std::sync::atomic::Ordering::Acquire) => {
             crate::sync::control::WaitResult::result(
                 crate::sync::control::WaitReason::SourceChanging,
@@ -270,15 +261,12 @@ async fn mutate(
             ));
         }
         let (reply, receive) = tokio::sync::oneshot::channel();
-        registration
-            .sender
-            .try_send(Command::Approve {
-                revision: body.deletion_set,
-                reply,
-                identity,
-            })
-            .map_err(|_| busy())?;
-        let set = observe(ctx, receive)
+        let command = Command::Approve {
+            revision: body.deletion_set,
+            reply,
+            identity,
+        };
+        let set = observe(ctx, &registration, command, receive)
             .await?
             .map_err(|error| control_error(&error))?;
         json!({"operation_id":set.revision,"candidate_count":set.candidate_count})
@@ -289,11 +277,8 @@ async fn mutate(
         let mut operation = [0; 16];
         getrandom::fill(&mut operation).map_err(|_| busy())?;
         let (reply, receive) = tokio::sync::oneshot::channel();
-        registration
-            .sender
-            .try_send(Command::Rescan { reply, identity })
-            .map_err(|_| busy())?;
-        let summary = observe(ctx, receive)
+        let command = Command::Rescan { reply, identity };
+        let summary = observe(ctx, &registration, command, receive)
             .await?
             .map_err(|error| control_error(&error))?;
         json!({"operation_id":crate::hashing::encode_lower(&operation),"completed":!summary.source_changing && !summary.interrupted,"reason":summary.source_changing.then_some(crate::sync::control::WaitReason::SourceChanging),"reconciliation":summary})
@@ -303,14 +288,35 @@ async fn mutate(
     Ok(response)
 }
 
+/// Hands a command to the mirror and waits for its reply. The mirror works through commands one at
+/// a time behind a short queue, so a caller waits here for its turn. Dropping this future gives up
+/// the place in line, and the mirror stopping closes the queue, which wakes every caller in it.
+async fn submit<T>(
+    registration: &Registration,
+    command: Command,
+    receive: tokio::sync::oneshot::Receiver<T>,
+) -> Result<T, JsonError> {
+    registration
+        .sender
+        .send(command)
+        .await
+        .map_err(|_| busy())?;
+    receive.await.map_err(|_| busy())
+}
+
 async fn observe<T>(
     ctx: RequestCtx<'_>,
+    registration: &Registration,
+    command: Command,
     receive: tokio::sync::oneshot::Receiver<T>,
 ) -> Result<T, JsonError> {
     crate::server::begin_catalog_wait_until(ctx.activity, None).await;
-    let result =
-        tokio::time::timeout_at(ctx.config.object_request_timeout.deadline(), receive).await;
-    result.map_err(|_| busy())?.map_err(|_| busy())
+    tokio::time::timeout_at(
+        ctx.config.object_request_timeout.deadline(),
+        submit(registration, command, receive),
+    )
+    .await
+    .map_err(|_| busy())?
 }
 
 #[derive(Default)]

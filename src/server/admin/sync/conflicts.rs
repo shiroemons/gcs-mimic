@@ -177,15 +177,14 @@ pub(super) async fn resolve(
     let bytes = json::read_body(request.into_body(), 64 * 1024).await?;
     let request = parse(&bytes)?;
     let (reply, receive) = tokio::sync::oneshot::channel();
-    registration
-        .sender
-        .try_send(Command::Resolve {
-            request,
-            reply,
-            identity,
-        })
-        .map_err(|_| busy())?;
-    let outcome = observe(ctx, receive).await?.map_err(error)?;
+    let command = Command::Resolve {
+        request,
+        reply,
+        identity,
+    };
+    let outcome = observe(ctx, &registration, command, receive)
+        .await?
+        .map_err(error)?;
     let mut response = bounded(&json!(outcome))?;
     *response.status_mut() = StatusCode::ACCEPTED;
     Ok(response)
