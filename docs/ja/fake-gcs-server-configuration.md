@@ -46,18 +46,29 @@ appendableオブジェクト（[Rapid appendの契約](grpc-v2-rapid-append.md)�
 
 ## 並行アップロードと503
 
-APIのアップロードに専用の本数枠はありません。`max_connections`（既定32）が同時接続数を制限し、超えた接続は待ちます。
-64へ上げた場合の64本、既定32での12本・40本の同時アップロードを通信テストで確認しています。
-アップロードの事前確認とresumableの作成・読込・checkpointは、既存のカタログ期限内で受付枠が空くまで待ちます。
+APIのアップロードに専用の本数枠はありません。`max_connections`（既定1024）が同時接続数を制限し、超えた接続は待ちます。
+上限を32にした場合の12本・40本、64にした場合の64本の同時アップロードを通信テストで確認しています。
+カタログの呼び出しは、受付枠が埋まっていても失敗せず順番を待ちます。クライアントが切断すれば、その待ちは取り消されます。
 resumableの開始から128 KiBの最終PUTまで、32接続で40本、64接続で64本が成功することも確認しています。
-ほかのカタログ呼び出しは、同時32件の枠が埋まると503になります。
+未完了のresumable、rewrite、XMLマルチパート、派生転送の件数は既定で無制限です。
 本文は64 KiBのチャンクと深さ2のチャネルで転送します。
+
+503が残るのは次の場合です。
+
+- リクエストが`catalog_wait_timeout_ms`（既定120000）を超えたとき。XMLマルチパートの並列パートのように、ビジーなセッションを待つ場合を含みます。ハンドラーが`request_timeout_ms`（既定180000）を超えたときも同じです。
+- resetと初期ファイルのコミットの実行中。
+- 自分で指定した`max_resumable_sessions`、`max_rewrite_sessions`を超えたとき。
+- I/O障害と停止処理の間。
 
 停止時は`shutdown_timeout_ms`の範囲でアップロードと後始末を待ちます。
 EOF前の切断では公開せず一時ファイルを削除し、カタログの停止開始後に新しく受け付けたアップロードは`catalog is closed`を含む503になります。
-JSONのオブジェクト503は、安全に表示できる受付枠の飽和、カタログ待機のタイムアウト、I/O、破損の原因と対処を示します。
-タイムアウトでは世代条件付きで再試行するか、`catalog_wait_timeout_ms=60000`などを検討してください。
+JSONのオブジェクト503は、安全に表示できるカタログ待機のタイムアウト、ビジーなセッション、I/O、破損の原因と対処を示します。
+タイムアウトでは世代条件付きで再試行するか、`catalog_wait_timeout_ms`を増やしてください。
 本文の受信完了後は応答がタイムアウトしても公開が完了しうるため、条件なしで再試行する前に状態を読み直します。
+
+再送と通知の記録には上限があり、満杯なら最も古い記録を捨てて書き込みを通します。
+単発のアップロードやコピーは、記録が捨てられた後に再送すると新しく公開します。Pub/Subに届かない間は、最も古い未配信のイベントが失われます。
+[再送の範囲](sdk-upload-replay.md)と[通知契約（英語）](../en/slices/pubsub-notification-delivery.md)を参照してください。
 内部エラーの任意の文字列や保存先のパスは公開しません。
 
 機能IDはDESIGN-070・DESIGN-071です。GET・一覧の並行処理、停止・切断時の後始末も含む検証と制限は、
@@ -172,7 +183,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | HTTP・HTTPS | `GCS_MIMIC_SCHEME` | `http`・`https`・`both`。bothではprimaryがHTTPS |
 | 待受ホスト・ポート | `GCS_MIMIC_LISTEN` | `IP:port`を1つ指定 |
 | 追加のHTTP待受 | `GCS_MIMIC_LISTEN_HTTP` | both専用。既定はprimaryのIPと8000番 |
-| API応答に載せる接続先 | `GCS_MIMIC_API_BASE_URL` | 公開URLの生成とは別 |
+| API応答に載せる接続先 | 指定なし。固定するなら`GCS_MIMIC_API_BASE_URL` | リンクは各リクエストのHostと接続のスキームに従う。この設定はAPIのoriginを1つに固定し、公開URLの生成とは別。Hostを書き換えるプロキシでは必要 |
 | 公開origin | `GCS_MIMIC_PUBLIC_BASE_URL` | DNS名のXML仮想ホストと、任意指定のlegacy Host照合に使用 |
 | 初期ファイル | `GCS_MIMIC_SEED_DIR`、`GCS_MIMIC_DEFAULT_SEED_DIR`（イメージでは`/data`） | 起動のたびに反映する。APIでのメタデータ変更を含め、違いがあれば新しい世代にし、完全に同じオブジェクトだけ世代を残す。reseedのルートはない |
 | 初期ファイルのContent-Type | `GCS_MIMIC_SEED_CONTENT_TYPE` | 既定は拡張子から決める`extension`。`octet-stream`で以前の既定値に戻す |
@@ -188,7 +199,9 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | メモリ保存モード | `GCS_MIMIC_BACKEND=memory`・`--backend memory`・JSONの`backend` | 揮発するチャンクとメモリ上のSQLite。既定は本文64 MiB・ページ16 MiBで設定でき、プロセスRSSとは別。既存のディスクデータには触れない。[RAM契約（英語）](../en/slices/memory-backend.md) |
 | イベント通知先・絞り込み | `GCS_MIMIC_PUBSUB_EMULATOR_HOST`・`PUBSUB_EMULATOR_HOST`とnative・旧イベント設定 | 明示したローカルのHTTPエミュレーターと用意済みのtopic、上限付きの永続outboxで少なくとも1回配信する。通知設定の作成時にtopicの存在を確かめる。接続先がなければGoogleへは接続せず失敗する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md) |
 | 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`。JSONバケットAPIと同じ名前に対応。空文字・JSONのnullは`US` |
-| 新規バケットのsoft delete既定の保持期間 | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`・`--default-soft-delete-retention-seconds`・JSONの`default_soft_delete_retention_seconds` | `softDeletePolicy`を指定せずに作ったバケットに与える保持期間。既定は`604800`秒（7日、Cloud Storageと同じ）。ただし`--backend memory`では、削除したデータが固定のメモリ予算を占め続けるため既定は`0`です（`604800`を含め、明示した値はそのまま適用されます）。`0`または`604800`～`7776000`を指定できます。`0`にすると保持ポリシーを持たず、オブジェクトやバケットの削除で本文を即座に解放します（従来およびfake-gcs-serverと同じ。ディスクの節約になります）。既存のバケット、`import`とディレクトリ同期で作るバケットは変わりません。リクエストで明示したポリシー（0を含む）が優先されます。legacy-emulatorプロファイルは既定を適用せず、正の値を拒否します |
+| 新規バケットのsoft delete既定の保持期間 | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`・`--default-soft-delete-retention-seconds`・JSONの`default_soft_delete_retention_seconds` | `softDeletePolicy`を指定せずに作ったバケットに与える保持期間。既定はすべての保存方式で`0`で、ポリシーを保存しません。オブジェクトの削除や上書きで本文をすぐに解放します（fake-gcs-serverと同じ）。`0`または`1`～`3155760000`を指定でき、`604800`がCloud Storageの既定の7日です。Cloud Storageが受け付けるのは0または7～90日だけなので、既定と範囲はどちらもローカル独自の仕様です。既存のバケットは保存済みのポリシーを保ちます（0.11.0までが付けた7日も同じです）。`import`とディレクトリ同期で作るバケットは変わりません。リクエストで明示したポリシー（0を含む）が優先されます。legacy-emulatorプロファイルは既定を適用せず、正の値を拒否します |
+| 接続・セッション・初期ファイルの上限 | `GCS_MIMIC_MAX_CONNECTIONS`、`GCS_MIMIC_MAX_OBJECT_BYTES`、`GCS_MIMIC_MAX_RESUMABLE_SESSIONS`、`GCS_MIMIC_MAX_REWRITE_SESSIONS`、`GCS_MIMIC_MAX_SEED_ENTRIES`、`GCS_MIMIC_MAX_SEED_DEPTH` | 移行元に同等の設定はありません。既定（1024、5 TiB、無制限、無制限、10000、32）は通常の移行では変更不要です。共有環境や公開するサーバーでは`max_object_bytes`を下げてください。[すべての設定（英語）](../en/native-binary.md#native-binary-and-configuration) |
+| 接続とリクエストのタイムアウト | `GCS_MIMIC_HEADER_READ_TIMEOUT_MS`、`GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`、`GCS_MIMIC_REQUEST_TIMEOUT_MS`、`GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS`、`GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS`、`GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 既定は30000、無効、180000、120000、無効、120000ミリ秒です。Cloud Storageはこれらの秒数を公開していないので、[ローカルの判断（英語）](../en/sources.md#timeouts-and-limits-behind-the-local-defaults)です。それぞれ`0`で無効になります。`GCS_MIMIC_CONNECTION_TIMEOUT_MS`は最初の3つの別名として残ります |
 | 作成者として扱うローカル主体 | `GCS_MIMIC_LOCAL_CREATOR_EMAIL`・`--local-creator-email`・JSONの`local_creator_email` | nativeのpermissiveのみ。認証なしで書いたオブジェクトの`owner`と、ACLの`user-`のOWNERエントリに記録するメールアドレス（Cloud Storageが呼び出し元を記録するのと同じ）。既定は`local-user@gcs-mimic.invalid`（予約ドメイン）。空にすると無効になり`project-owners-N`に戻る。作成者の記録だけに使い、権限は与えない。値を変えると次の起動で既存オブジェクトの作成者名も変わる。strictでは登録した呼び出し元が、legacyでは何も記録されないため、どちらでも空でない値を明示すると拒否される |
 | ログレベル選択 | `GCS_MIMIC_LOG_LEVEL`・`--log-level`・JSONの`log_level` | 既定は`info`。`debug`・`info`・`warn`・`error`、`warning`は`warn`の別名。診断とstdoutのready/stoppedは常に表示 |
 
@@ -201,8 +214,8 @@ target/debug/gcs-mimic serve --scheme both \
 
 両方の待受でカタログ・認証・接続数上限を共有し、TLSの握手待ちも上限に含めます。
 readyの`listen`はprimaryを保持し、`listeners`に実際の待受アドレスとschemeを追加します。
-API originの既定はprimaryのHTTPSです。HTTPで開始したresumable uploadも同じoriginを通知します。
-別の接続先を通知する場合は`--api-base-url`を指定してください。
+`--api-base-url`を指定しなければ、リンクはリクエストが届いた待受のスキームを使います。readyが示すAPI origin（使えるHostがないリクエストの代替先）はprimaryのHTTPSです。
+接続先を1つに固定する場合は`--api-base-url`を指定してください。
 `--listen-http`はboth以外で拒否します。同じ非ゼロの待受アドレスも拒否します。
 両方をポート0にすると独立して空きポートを確保します。
 どちらかのbindに失敗するとreadyを出さず、socketとカタログのlockを解放します。

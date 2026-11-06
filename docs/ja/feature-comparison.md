@@ -35,7 +35,7 @@ gcp-storage-emulator`v2026.07.19`です。基本比較は2026-10-23、
 Rangeは開始・終了・末尾からの取得が対象で、If-Rangeや透過的な展開は除きます。
 composeはgcs-mimicの宣言済みローカル範囲で、1〜32個の世代を固定した入力を扱います。
 soft delete・復元は[SDKスコアカード](../../sdk-scorecard/results/2026-10-29-5/summary.md)の
-5つのSDKでの実行結果に基づきます。
+5つのSDKでの実行結果に基づきます。gcs-mimicのsoft deleteは既定で無効で、1秒以上の任意の保持期間を受け付けます。どちらもCloud Storageとは異なります。
 
 | メタデータの操作 | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
 | --- | --- | --- | --- |

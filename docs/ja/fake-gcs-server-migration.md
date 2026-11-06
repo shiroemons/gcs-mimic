@@ -47,8 +47,8 @@ Railsは既存の検証優先対象です。このconsumer調査で代表的なR
 | 書き換え前 | 書き換え後 | 必要な理由・違い |
 | --- | --- | --- |
 | `-scheme http` | `GCS_MIMIC_SCHEME: http` | 省略時はHTTPSなので、既存のHTTPクライアントが接続できません。イメージのhealthcheckもこの値に従います。 |
-| `-host 0.0.0.0 -port 4443` | `GCS_MIMIC_LISTEN: 0.0.0.0:4443` | ループバックだけで待ち受けると他のコンテナから接続できません。イメージの既定値を明示しています。 |
-| `-public-host gcs:4443 -external-url http://gcs:4443` | `GCS_MIMIC_API_BASE_URL: http://gcs:4443` | コンテナのSDKがresumableのLocationへ接続するために必要です。nativeのpath-style読み取りにはpublic-host設定が不要です。旧来の仮想ホスト判定や公開権限は再現しません。 |
+| `-host 0.0.0.0 -port 4443` | 指定なし | イメージは最初から`0.0.0.0:4443`で待ち受けます。ループバックだけで待ち受けると他のコンテナから接続できないため、この既定が必要です。 |
+| `-public-host gcs:4443 -external-url http://gcs:4443` | 指定なし | resumableのLocationなど、サーバーが返すリンクは各リクエストのHostに従います。コンテナのSDKは`gcs:4443`を、ホストは公開ポートを受け取ります。nativeのpath-style読み取りにはpublic-host設定が不要です。旧来の仮想ホスト判定や公開権限は再現しません。 |
 | `-backend filesystem -filesystem-root /storage` | `/var/lib/gcs-mimic`へ名前付きボリューム | 既定はSQLiteと内部blobの永続ストレージです。保存形式が違うため、移行元のボリュームは別に保管します。`-backend memory`は上限付きのRAM保存に読み替えますが、この手順では使いません。 |
 | 空のバケットディレクトリを置く`-data /data` | `GCS_MIMIC_BUCKETS_FILE: /buckets.json`と読み取り専用マウント | `./data:/data:ro`のマウントだけで起動のたびにseedを反映し、空のディレクトリもバケットになります。バケットにCORSやバージョニングを設定するには、バケットファイルを使います。 |
 
@@ -67,11 +67,11 @@ Railsは既存の検証優先対象です。このconsumer調査で代表的なR
 
 | soft deleteの操作 | gcs-mimicでの動作 |
 | --- | --- |
-| Go `BucketAttrs.SoftDeletePolicy`、Ruby `bucket.soft_delete_policy=` | JSON APIで0または604800～7776000秒を設定できます。作成時に省略するとGCSと同じ既定の604800秒になり、**削除したオブジェクトやバケットの本文が7日間残ります**（fake-gcs-serverや従来のgcs-mimicとは異なります）。削除を即座に完全削除にしてディスクを節約するには、サーバーを`--default-soft-delete-retention-seconds 0`（または`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0`）で起動するか、バケット作成時に`softDeletePolicy.retentionDurationSeconds`へ0を指定します。`--backend memory`では、削除したデータが残るとメモリ予算を使い切り、書き込みが503 `Storage capacity exhausted`になるため、既定がすでに0です。メモリバックエンドで7日間保持するには、オプションを明示します。既存のバケットと`--compat-profile legacy-emulator`は変わりません。PATCH・PUTで省略した場合は既存設定を保持します。 |
+| Go `BucketAttrs.SoftDeletePolicy`、Ruby `bucket.soft_delete_policy=` | JSON APIで0または1～3155760000秒を設定できます。soft deleteはfake-gcs-serverと同じく、すべての保存方式で既定では無効です。作成時に省略するとポリシーを保存せず、**上書きや削除の直後に本文を解放します**。残すには`softDeletePolicy.retentionDurationSeconds`を指定するか、サーバーを`--default-soft-delete-retention-seconds N`（または`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=N`）で起動します。この既定と範囲はローカル独自の仕様です。Cloud Storageの既定は7日で、受け付けるのは0または7～90日なので、7日未満を拒否する動作はここでは試せません。ポリシーを保存済みのバケットは、0.11.0までが新規バケットに付けた7日も含めてそのまま残ります。PATCH・PUTで省略した場合は既存設定を保持します。`--compat-profile legacy-emulator`は引き続き既定を適用しません。 |
 | 削除済み一覧・世代指定のメタデータ取得・restore | 古い本文を期限まで保持し、復元では新世代を作ります。元の削除済み世代は残ります。ポリシーを持たないバケットと0を明示したバケットはいずれも一覧200となり、保持中の世代がなければ空です。該当世代がなければget・restoreは404です。ポリシーなしを400にするGoogleの仕様とは異なります。ホールドと保持ポリシーによる拒否も引き続き適用します。 |
-| 削除済み世代だけのバケットを削除 | 正の保持期間があれば、バケットは保持中の世代ごとsoft deleteされ、generationを指定して復元できます（`buckets.restore`）。オブジェクトはsoft deleteされたままで、別途復元します。保持期間がなければ完全削除します。初期化ファイルの設定は未対応です。[対応範囲](sdk-soft-delete-restore.md)を参照してください。 |
+| 削除済み世代だけのバケットを削除 | 正の保持期間があれば、バケットは保持中の世代ごとsoft deleteされ、generationを指定して復元できます（`buckets.restore`）。オブジェクトはsoft deleteされたままで、別途復元します。保持期間がなければ完全削除します。初期ファイルやバケットファイルで作るバケットにはサーバーの既定を使い、バケットファイルの項目では`softDeletePolicy`も指定できます。[対応範囲](sdk-soft-delete-restore.md)を参照してください。 |
 
-既存の`bucket`へ、削除前に7日のポリシーを付けます。固定したGo Storage v1.70.0と
+既存の`bucket`のオブジェクトを復元できるようにするには、削除前にポリシーを付けます。7日はCloud Storageの既定と同じ値です。固定したGo Storage v1.70.0と
 Ruby Storage 1.62.1のSDKテストで確認した呼び方です。
 Goでは`storage`・`time`のimportと既存の`ctx`を前提にします。
 
@@ -112,8 +112,6 @@ services:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
       GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_LISTEN: 0.0.0.0:4443
-      GCS_MIMIC_API_BASE_URL: http://gcs:4443
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
     volumes:
       - migration-data:/var/lib/gcs-mimic
@@ -122,11 +120,12 @@ volumes:
   migration-data:
 ```
 
-APIの通知先は1つに固定し、リクエストのHostからは組み立てません。
-`GCS_MIMIC_API_BASE_URL`を省略すると、bind先から導出したループバックのLocationを
-他のコンテナが受け取り、自分自身へ接続してしまいます。コンテナのSDKには`gcs:4443`、
-ホストやブラウザーには公開ポートの`localhost`を使います。
-サーバーはDockerのポート割り当てを自動取得できません。
+接続数の上限、オブジェクトサイズ、タイムアウト、soft deleteのための設定は要りません。
+リンクは各リクエストのHostと接続のスキームから組み立てるので、1台のサーバーでも、コンテナのSDKは`gcs:4443`を、
+ホストやブラウザーは`localhost`と公開ポートを受け取ります。
+`GCS_MIMIC_API_BASE_URL`は通知先を1つに固定するときだけ指定します。
+転送ヘッダーは無視するので、Hostを書き換えるリバースプロキシでは指定が必要です。
+リンクが常に固定される0.11.0までのリリースでは、ここに`GCS_MIMIC_API_BASE_URL: http://gcs:4443`を追加してください。
 healthcheckの上書きは不要です。アプリの起動待ちは
 `depends_on: {gcs: {condition: service_healthy}}`で指定できます。
 
@@ -148,7 +147,7 @@ test "$(curl --fail "$api/storage/v1/b/assets/o/hello.txt?alt=media")" = hello
 
 作業ツリーごとにComposeプロジェクト名とホスト側ポートを変えます。
 2つ目なら`COMPOSE_PROJECT_NAME=assets-migration-two`、`GCS_MIMIC_PORT=24443`が例です。
-内部ポートと通知する`http://gcs:4443`は変えません。名前付きボリュームもプロジェクト別です。
+内部ポートは4443のままです。名前付きボリュームもプロジェクト別です。
 同じファイル・プロジェクトを指定して`docker compose down`で停止すると、データは残ります。
 
 ## 別オリジンからアップロード・読み取りする
@@ -185,8 +184,9 @@ gcs-mimicでは、バケットに`cors`を設定するまでこのfetchはCORS�
 バケットごとに1回だけ`cors_unconfigured`の警告をログに出します。
 詳しくは[CORSフォールバックの仕様](../en/slices/cors-fallback.md)（英語）を参照してください。
 
-サーバーが作った署名なしのresumable URLをブラウザーへ渡す場合は、pathとqueryを保ち、
-到達可能なオリジンへ置き換えます。シナリオはHost変更後のPUT、Content-Range、preflightを確認します。
+ブラウザーのアドレスで開始したresumableセッションのLocationは、そのアドレスになります。
+セッションURIはサーバーの別のアドレスでも使えます。`gcs:4443`経由で開始したサーバーがブラウザーへ渡す場合は、
+pathとqueryを保ち、到達可能なオリジンへ置き換えます。シナリオはHost変更後のPUT、Content-Range、preflightを確認します。
 取り消しのDELETEは[JSON resumableの仕様](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads)どおり
 `clientClosedRequest`のJSONエンベロープと**499**を返します。
 その後のセッションアクセスも同じ499応答になります。
@@ -197,13 +197,12 @@ location=$(curl --fail -sS -D - -o /dev/null \
   -H 'Content-Type: application/json' -H 'X-Upload-Content-Type: text/plain' \
   -d '{}' "$api/upload/storage/v1/b/assets/o?uploadType=resumable&name=cancelled.txt" \
   | awk 'tolower($1)=="location:" {sub("\r$", "", $2); print $2}')
-host_session="$api${location#http://gcs:4443}"
-cancellation_status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$host_session")
+cancellation_status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$location")
 test "$cancellation_status" = 499
 ```
 
 `curl --fail`は499をエラー扱いするため、取り消しではコードを明示的に検査します。
-このオリジン変更は署名なしのpermissiveセッションに限ります。
+オリジンの置き換えは署名なしのpermissiveセッションに限ります。
 strictの署名URLは最終的に利用者がアクセスするURLで署名し、後から書き換えません。
 
 ## Rails Active Storage
@@ -225,12 +224,12 @@ googleauth 1.17.6は、既定のuniverseのサービスアカウントではGoog
 | --- | --- | --- |
 | `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | [撤回したリリース](release-policy.md#撤回したリリース)（0.6.0以前）は旧設定名を読み替えない | 現行版に上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
 | `-event.pubsub-topic`などの`FAKE_GCS_EVENT_*`で起動が止まる | 0.7.0以前は配信がない。0.8.0以降は完全なローカル配信設定が必要 | project・topicと、明示したローカルPub/Subエミュレーターの接続先を指定し、topicとsubscriptionは別に用意する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md)を参照。 |
-| SDKの開始は成功するが次の接続が失敗する | Locationがループバックかホスト専用のURL | コンテナ向けに`GCS_MIMIC_API_BASE_URL: http://gcs:4443`を指定し、サービスを再作成する。 |
-| ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使い、署名なしセッションのpath/queryを保って変換する。 |
+| SDKの開始は成功するが次の接続が失敗する | Locationが`GCS_MIMIC_API_BASE_URL`や`-external-url`で固定したアドレスになっている、またはプロキシがHostを書き換えている | 固定をやめてリンクを各リクエストに従わせるか、すべてのクライアントから届くアドレスを指定し、サービスを再作成する。 |
+| ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使う。サーバーが署名なしセッションURIをブラウザーへ渡すときは、path/queryを保って変換する。 |
 | 後から足した空ディレクトリがバケットにならない | [撤回したリリース](release-policy.md#撤回したリリース)（0.2.1以前）は初期ファイルを一度だけ読み込んでいた | 空のデータボリュームで現行版に上げる。起動のたびにseedを反映する。撤回したリリースのデータはサポートしない。 |
-| HTTPで接続できない・probeがunhealthy | スキームや待受設定の不一致 | `GCS_MIMIC_SCHEME: http`と`GCS_MIMIC_LISTEN: 0.0.0.0:4443`を使い、probeにも継承させる。 |
+| HTTPで接続できない・probeがunhealthy | スキームや待受設定の不一致 | `GCS_MIMIC_SCHEME: http`を指定し、`GCS_MIMIC_LISTEN`はイメージの既定`0.0.0.0:4443`のままにして、probeにも継承させる。 |
 | 一覧で400 required（Required parameter: project）が返る | nativeではprojectが必須 | `/storage/v1/b?project=local-project`を使う。既存のlegacyプロファイルは省略時にseed_projectを使う。 |
-| ホスト側ポートが使用中 | 別の作業ツリーと重複 | `GCS_MIMIC_PORT=24443`と別プロジェクト名を指定し、ブラウザーのURLも変更する。内部URLは変えない。 |
+| ホスト側ポートが使用中 | 別の作業ツリーと重複 | `GCS_MIMIC_PORT=24443`と別プロジェクト名を指定し、ブラウザーのURLも変更する。コンテナからの接続先`http://gcs:4443`は変えない。 |
 | 取り消しの`curl --fail`が499で失敗する | JSON resumableの取り消し成功は499 | 上の例のように`%{http_code}`で検査し、取り消しに限って499を成功とする。 |
 
 英語版と同じく、移行元の比較ではコピー再実行・preflight・取り消し後の応答とRubyメタデータに
