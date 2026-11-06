@@ -665,6 +665,7 @@ impl pb::storage_server::Storage for Storage {
             delimiter: r.delimiter,
             include_trailing_delimiter: r.include_trailing_delimiter,
             versions: r.versions,
+            page_bytes: Some(crate::grpc::LIST_PAGE_BYTES),
             ..Default::default()
         };
         if !r.page_token.is_empty() {
