@@ -40,6 +40,7 @@ super::string_enum! {
         LocalCreatorEmail => "local_creator_email",
         XmlVirtualHostDomains => "xml_virtual_host_domains",
         MaxConnections => "max_connections",
+        MaxGrpcStreams => "max_grpc_streams",
         MaxObjectBytes => "max_object_bytes",
         MaxResumableSessions => "max_resumable_sessions",
         MaxRewriteSessions => "max_rewrite_sessions",
@@ -83,6 +84,8 @@ impl Setting {
             Self::MemoryMaxBytes => Some((1, 1024_u64.pow(4))),
             Self::MemoryCatalogMaxBytes => Some((1024 * 1024, 1024_u64.pow(4))),
             Self::MaxConnections => Some((1, 1_048_576)),
+            // A stream's memory is bounded but counts per connection, so the ceiling stays finite.
+            Self::MaxGrpcStreams => Some((1, 65_536)),
             // Cloud Storage's documented object size limit, whatever the write method.
             Self::MaxObjectBytes => Some((1, MAX_OBJECT_BYTES)),
             // 0 means unlimited here only; the config holds `Option<NonZeroU32>`.

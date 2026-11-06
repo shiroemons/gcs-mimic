@@ -149,16 +149,21 @@ fn shutdown_grace(peer_wait: Duration, shutdown: TimeLimit) -> Duration {
         .map_or(peer_wait, |budget| peer_wait.min(budget / 2))
 }
 
-fn http2_builder(ping_wait: TimeLimit) -> http2::Builder<TokioExecutor> {
+fn http2_builder(config: &Config) -> http2::Builder<TokioExecutor> {
     let mut builder = http2::Builder::new(TokioExecutor::new());
+    // What a stream can hold is bounded, but only per stream, so a connection's ceiling grows
+    // with the stream limit. Sending holds this buffer and one 64 KiB frame, about 13 MiB across
+    // 100 streams. HTTP/2 flow control limits unreleased input to 1 MiB per connection, but tonic
+    // releases it into a message of up to 4 MiB per stream, so 100 streams carrying that size at
+    // once could reach 400 MiB. Those messages take a client that fills them on every stream.
     builder
-        .max_concurrent_streams(8)
+        .max_concurrent_streams(config.max_grpc_streams.get())
         .max_header_list_size(16 * 1024)
         .max_send_buf_size(64 * 1024)
         .timer(TokioTimer::new());
     // A zero interval would ping in a loop and a zero timeout would fail the first ping, so a
     // disabled wait turns pings off and leaves dead peers to TCP keep-alive.
-    match ping_wait.duration() {
+    match config.header_read_timeout.duration() {
         Some(wait) => builder.keep_alive_interval(wait).keep_alive_timeout(wait),
         None => builder.keep_alive_interval(None::<Duration>),
     };
@@ -181,7 +186,7 @@ async fn serve_with_service<S, F>(
     let header_read = config.header_read_timeout;
     let reads = Arc::new(ReadActivity::default());
     let peer_wait = header_read.duration().unwrap_or(DRAIN_GRACE);
-    let connection = http2_builder(header_read).serve_connection(
+    let connection = http2_builder(config).serve_connection(
         TokioIo::new(CountingIo {
             inner: stream,
             reads: reads.clone(),

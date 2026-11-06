@@ -1,5 +1,5 @@
 use super::*;
-use crate::server::chunk_body;
+use crate::{server::chunk_body, test_support::eventually_async};
 use bytes::Bytes;
 mod memory;
 use tokio::{
@@ -449,6 +449,74 @@ async fn grpc_disabled_and_largest_limits_keep_every_phase_open() {
             timeout(DEADLINE * 5, task).await.unwrap().unwrap();
         }
     }
+}
+
+/// The server's SETTINGS names the limit, that many streams run at once, and it refuses the next.
+async fn assert_stream_limit(config: Config, limit: u32) {
+    let entered = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let counter = entered.clone();
+    let (mut client, _stop, _task) = start_with(config, move |request| {
+        counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        pending_stream(request)
+    })
+    .await;
+    handshake(&mut client).await;
+    let (kind, flags, settings) = frame(&mut client).await.unwrap();
+    assert_eq!(
+        (kind, flags),
+        (4, 0),
+        "the server speaks first with SETTINGS"
+    );
+    let advertised = settings
+        .as_chunks::<6>()
+        .0
+        .iter()
+        .find(|setting| setting[..2] == [0, 3])
+        .map(|setting| u32::from_be_bytes(setting[2..].try_into().unwrap()));
+    assert_eq!(advertised, Some(limit));
+    acknowledge(&mut client, kind, flags, &settings).await;
+    for stream in 0..=limit {
+        request(&mut client, 2 * stream + 1).await;
+    }
+    timeout(DEADLINE * 20, async {
+        loop {
+            let (kind, flags, data) = frame(&mut client).await.unwrap();
+            if kind == 3 {
+                assert_eq!(data, [0, 0, 0, 7], "the stream past the limit is refused");
+                break;
+            }
+            acknowledge(&mut client, kind, flags, &data).await;
+        }
+    })
+    .await
+    .unwrap();
+    eventually_async("the streams within the limit to start", || {
+        let entered = entered.clone();
+        async move { entered.load(std::sync::atomic::Ordering::Acquire) == limit }
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn grpc_stream_limit_defaults_to_100_streams_per_connection() {
+    let config = Config {
+        // No keepalive ping can fail while the test writes every stream.
+        header_read_timeout: TimeLimit::from_millis(60_000),
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..Config::default()
+    };
+    assert_stream_limit(config, 100).await;
+}
+
+#[tokio::test]
+async fn grpc_stream_limit_follows_the_setting() {
+    let config = Config {
+        header_read_timeout: TimeLimit::from_millis(60_000),
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        max_grpc_streams: std::num::NonZeroU32::new(2).unwrap(),
+        ..Config::default()
+    };
+    assert_stream_limit(config, 2).await;
 }
 
 #[test]
