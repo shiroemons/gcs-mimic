@@ -908,7 +908,12 @@ fn config_route_is_disabled_by_default_and_changes_only_future_http_links() {
         .request("POST", "/_internal/config", "", b"{}")
         .expect(405);
     server
-        .request("PUT", "/_internal/config", "", &vec![b' '; 65537])
+        .request(
+            "PUT",
+            "/_internal/config",
+            "",
+            &vec![b' '; 16 * 1024 * 1024 + 1],
+        )
         .expect(413);
     server
         .request(

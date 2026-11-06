@@ -394,7 +394,7 @@ fn source_management_methods_bodies_and_authority_are_explicit() {
             .request("POST", &format!("{path}?path=untrusted"), manager, b"")
             .expect(400);
         server
-            .request("POST", path, manager, &vec![b' '; 65537])
+            .request("POST", path, manager, &vec![b' '; 16 * 1024 * 1024 + 1])
             .expect(413);
     }
     server
