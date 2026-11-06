@@ -33,7 +33,7 @@ use std::{
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
-    sync::{Notify, Semaphore, watch},
+    sync::{Notify, Semaphore, futures::Notified, watch},
     task::JoinSet,
 };
 
@@ -670,19 +670,20 @@ async fn serve_transports(
         listeners.push((transport::Listener::Tcp(listener), None));
     }
     let (stop, _) = watch::channel(false);
-    // True while every connection slot is taken, so idle keep-alive connections
-    // give their slots to waiting clients, as nginx reuses idle connections.
-    let (full, _) = watch::channel(false);
+    let slots = Arc::new(SlotReclaim::default());
     let max_connections = config.max_connections;
     let mut connections = JoinSet::new();
     let mut next_listener = 0;
+    // Later clients stay in the listen backlog until this one has a slot, so a full server asks
+    // for one idle slot at a time.
+    let mut held: Option<HeldClient<'_>> = None;
     let starter = ConnectionStarter {
         listeners: &listeners,
         grpc_index,
         config: &config,
         state: &state,
         stop: &stop,
-        full: &full,
+        slots: &slots,
     };
     let pause = tokio::time::sleep(Duration::ZERO);
     tokio::pin!(pause);
@@ -697,9 +698,14 @@ async fn serve_transports(
                 if let Err(error) = result {
                     report_connection_task_failure(&error);
                 }
-                full.send_replace(connections.len() >= max_connections);
+                if connections.len() < max_connections
+                    && let Some(HeldClient { index, stream, .. }) = held.take()
+                    && let Err(error) = starter.start(&mut connections, index, stream)
+                {
+                    break Err(error);
+                }
             }
-            incoming = std::future::poll_fn(|cx| poll_incoming(&listeners, next_listener, cx)), if connections.len() < max_connections && !paused => {
+            incoming = std::future::poll_fn(|cx| poll_incoming(&listeners, next_listener, cx)), if held.is_none() && !paused => {
                 let (index, stream) = match incoming {
                     Ok(incoming) => incoming,
                     Err((index, error)) => {
@@ -717,13 +723,15 @@ async fn serve_transports(
                 };
                 backoff.accepted();
                 next_listener = (index + 1) % listeners.len();
-                if let Err(error) = starter.start(&mut connections, index, stream) {
+                if connections.len() >= max_connections {
+                    held = Some(HeldClient { index, stream, _request: slots.request() });
+                } else if let Err(error) = starter.start(&mut connections, index, stream) {
                     break Err(error);
                 }
-                full.send_replace(connections.len() >= max_connections);
             }
         }
     };
+    drop(held);
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Info,
         "stopping",
@@ -757,7 +765,7 @@ struct ConnectionStarter<'a> {
     config: &'a Arc<Config>,
     state: &'a Arc<State>,
     stop: &'a watch::Sender<bool>,
-    full: &'a watch::Sender<bool>,
+    slots: &'a Arc<SlotReclaim>,
 }
 
 impl ConnectionStarter<'_> {
@@ -775,23 +783,81 @@ impl ConnectionStarter<'_> {
         let state = self.state.clone();
         let config = self.config.clone();
         let stopping = self.stop.subscribe();
-        let saturated = self.full.subscribe();
+        let slots = self.slots.clone();
         let connection = async move {
             match stream {
                 transport::Stream::Tcp(stream) if grpc_index == Some(index) => {
                     crate::grpc::serve_connection(stream, &config, state, stopping).await;
                 }
                 transport::Stream::Tcp(stream) => {
-                    serve_http(stream, acceptor, state, config, stopping, saturated).await;
+                    serve_http(stream, acceptor, state, config, stopping, slots).await;
                 }
                 #[cfg(unix)]
                 transport::Stream::Unix(stream) => {
-                    serve_http(stream, None, state, config, stopping, saturated).await;
+                    serve_http(stream, None, state, config, stopping, slots).await;
                 }
             }
         };
         connections.spawn(with_test_hooks(connection));
         Ok(())
+    }
+}
+
+/// Hands a connection slot from the longest-idle keep-alive connection to a client waiting at a
+/// full server, as nginx reuses idle connections. Closing an idle connection races with a
+/// pooled client reusing it, and a POST that loses that race fails, so only as many close as
+/// clients need a slot.
+#[derive(Default)]
+struct SlotReclaim {
+    /// True while a `SlotRequest` lives and no connection has taken it.
+    wanted: AtomicBool,
+    /// Idle connections wait here in the order they became idle; `notify_one` wakes the oldest.
+    /// With nobody waiting it stores a wake for the next connection to become idle.
+    idle_line: Notify,
+}
+
+/// A client accepted while every slot is taken.
+struct HeldClient<'a> {
+    index: usize,
+    stream: transport::Stream,
+    _request: SlotRequest<'a>,
+}
+
+/// Asks idle connections for a slot until it drops, when the client got one by any route.
+struct SlotRequest<'a>(&'a SlotReclaim);
+
+impl Drop for SlotRequest<'_> {
+    fn drop(&mut self) {
+        self.0.wanted.store(false, Ordering::Release);
+    }
+}
+
+impl SlotReclaim {
+    fn request(&self) -> SlotRequest<'_> {
+        self.wanted.store(true, Ordering::Release);
+        self.idle_line.notify_one();
+        SlotRequest(self)
+    }
+
+    fn join_line(&self) -> std::pin::Pin<Box<Notified<'_>>> {
+        let mut turn = Box::pin(self.idle_line.notified());
+        // An unpolled `Notified` is not in line yet, and the line's order is the point.
+        turn.as_mut().enable();
+        turn
+    }
+
+    /// A wake can outlive the request that sent it, when another connection ended first and
+    /// gave the client a slot. Only the connection that takes the request closes.
+    fn take_request(&self) -> bool {
+        self.wanted.swap(false, Ordering::AcqRel)
+    }
+
+    fn is_wanted(&self) -> bool {
+        self.wanted.load(Ordering::Acquire)
+    }
+
+    fn pass_on(&self) {
+        self.idle_line.notify_one();
     }
 }
 
@@ -832,7 +898,7 @@ async fn serve_http(
     state: Arc<State>,
     config: Arc<Config>,
     mut stopping: watch::Receiver<bool>,
-    saturated: watch::Receiver<bool>,
+    slots: Arc<SlotReclaim>,
 ) {
     if let Some(acceptor) = acceptor {
         let handshake = tokio::time::timeout_at(
@@ -848,9 +914,9 @@ async fn serve_http(
                 Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
             }
         };
-        serve_connection(stream, state, config, stopping, saturated).await;
+        serve_connection(stream, state, config, stopping, slots).await;
     } else {
-        serve_connection(stream, state, config, stopping, saturated).await;
+        serve_connection(stream, state, config, stopping, slots).await;
     }
 }
 
@@ -898,6 +964,8 @@ mod drain_tests;
 #[cfg(test)]
 mod protocol_tests;
 #[cfg(test)]
+mod reclaim_tests;
+#[cfg(test)]
 mod upload_frame_tests;
 
 /// hyper's per-connection read buffer limit. It bounds how much hyper reserves before each
@@ -919,7 +987,7 @@ async fn serve_connection(
     state: Arc<State>,
     config: Arc<Config>,
     mut stopping: watch::Receiver<bool>,
-    mut saturated: watch::Receiver<bool>,
+    slots: Arc<SlotReclaim>,
 ) {
     let limits = ConnectionLimits::new(&config);
     let (activity, progress) = watch::channel(ObjectActivity::default());
@@ -943,10 +1011,9 @@ async fn serve_connection(
         activity,
         reads,
         limits,
+        slots,
     };
-    let unread = watch
-        .run(&mut connection, &mut stopping, &mut saturated)
-        .await;
+    let unread = watch.run(&mut connection, &mut stopping).await;
     // Send FIN after the response, then read and discard what the client still sends,
     // like an HTTP server's lingering close: closing with unread input sends a reset
     // that can discard an early rejection before the client reads it. The phase ends
@@ -1087,18 +1154,33 @@ impl ConnectionLimits {
 }
 
 /// What a connection is waiting for, which selects the limit on how long that may take.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ConnectionPhase {
+enum ConnectionPhase<'a> {
     /// A new connection's first request head.
     FirstHead,
-    /// The next request, between keep-alive requests.
-    Idle,
+    /// The next request, between keep-alive requests. The place in the idle line lives here, so
+    /// leaving this phase gives it up, and passes on any wake it received, on every path.
+    Idle {
+        turn: std::pin::Pin<Box<Notified<'a>>>,
+    },
     /// The rest of a next request's head, which has started arriving.
     NextHead,
     /// A request's handler, or its bodies.
     Request,
     /// The write of a timeout reply, bounded by `CLOSE_BUDGET` because the client may not read.
     TimeoutReply,
+}
+
+impl ConnectionPhase<'_> {
+    /// Resolves when an idle connection reaches the front of the idle line, and never in other
+    /// phases. The place in line outlives this future, so `select!` can drop it at any time.
+    async fn idle_turn(&mut self) {
+        match self {
+            Self::Idle { turn } => turn.as_mut().await,
+            Self::FirstHead | Self::NextHead | Self::Request | Self::TimeoutReply => {
+                std::future::pending().await
+            }
+        }
+    }
 }
 
 /// Whether the lingering close has client input to discard after the connection stops serving.
@@ -1124,6 +1206,7 @@ struct ConnectionWatch {
     activity: watch::Sender<ObjectActivity>,
     reads: Arc<ReadActivity>,
     limits: ConnectionLimits,
+    slots: Arc<SlotReclaim>,
 }
 
 impl ConnectionWatch {
@@ -1132,13 +1215,13 @@ impl ConnectionWatch {
         self,
         connection: &mut http1::Connection<TokioIo<CountingIo<S>>, ConnectionService>,
         stopping: &mut watch::Receiver<bool>,
-        saturated: &mut watch::Receiver<bool>,
     ) -> UnreadInput {
         let Self {
             mut progress,
             activity,
             reads,
             limits,
+            slots,
         } = self;
         let deadline = tokio::time::sleep_until(limits.header_read.deadline());
         // Waited on only after a request sets its deadline, which resets this first.
@@ -1161,14 +1244,14 @@ impl ConnectionWatch {
                             deadline.as_mut().reset(limits.during_request(&current).deadline());
                         }
                         // A whole request can run within one poll, so this phase can already be
-                        // `Idle` and this is still a new idle period.
+                        // `Idle` and this is still a new idle period, at the back of the line.
                         RequestStage::Finished => {
-                            phase = ConnectionPhase::Idle;
+                            phase = ConnectionPhase::Idle { turn: slots.join_line() };
                             deadline.as_mut().reset(limits.keep_alive.deadline());
                         }
                     }
                 },
-                _ = reads.arrived.notified(), if matches!(phase, ConnectionPhase::Idle) => {
+                _ = reads.arrived.notified(), if matches!(phase, ConnectionPhase::Idle { .. }) => {
                     if reads.arrived_since_idle() {
                         phase = ConnectionPhase::NextHead;
                         deadline.as_mut().reset(limits.header_read.deadline());
@@ -1203,7 +1286,7 @@ impl ConnectionWatch {
                             break UnreadInput::MayRemain;
                         }
                         // An idle keep-alive connection closes quietly.
-                        ConnectionPhase::Idle => break if reads.arrived_since_idle() { UnreadInput::MayRemain } else { UnreadInput::None },
+                        ConnectionPhase::Idle { .. } => break if reads.arrived_since_idle() { UnreadInput::MayRemain } else { UnreadInput::None },
                         ConnectionPhase::Request => match claim_expiry(&activity) {
                             ExpiryClaim::Granted => {
                                 warn_connection_timeout(current.step().timeout_message());
@@ -1218,12 +1301,18 @@ impl ConnectionWatch {
                         },
                     }
                 },
-                _ = saturated.wait_for(|full| *full), if matches!(phase, ConnectionPhase::Idle) => {
-                    // A full server takes the slot back for a waiting client unless the
-                    // next request has already started arriving.
-                    if !reads.arrived_since_idle() { break UnreadInput::None; }
-                    phase = ConnectionPhase::NextHead;
-                    deadline.as_mut().reset(limits.header_read.deadline());
+                () = phase.idle_turn() => {
+                    if slots.is_wanted() && reads.arrived_since_idle() {
+                        // The next request already started arriving, so this slot is not idle:
+                        // the waiting client needs the next connection in line.
+                        phase = ConnectionPhase::NextHead;
+                        deadline.as_mut().reset(limits.header_read.deadline());
+                        slots.pass_on();
+                    } else if slots.take_request() {
+                        break UnreadInput::None;
+                    } else {
+                        phase = ConnectionPhase::Idle { turn: slots.join_line() };
+                    }
                 },
                 Ok(()) = stopping.changed() => {
                     std::pin::Pin::new(&mut *connection).graceful_shutdown();

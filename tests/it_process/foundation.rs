@@ -1052,6 +1052,17 @@ async fn full_server_reclaims_idle_keep_alive_slots_for_waiting_clients() {
 
 const HEALTH: &[u8] = b"GET /_internal/health HTTP/1.1\r\nHost: localhost\r\n\r\n";
 
+/// Connects `count` clients and completes one request on each, so they turn idle in order.
+fn idle_connections(address: SocketAddr, count: usize) -> Vec<BufReader<TcpStream>> {
+    (0..count)
+        .map(|_| {
+            let mut connection = BufReader::new(stream(address));
+            assert!(exchange(&mut connection, HEALTH).starts_with("HTTP/1.1 200"));
+            connection
+        })
+        .collect()
+}
+
 /// Waits up to `wait` for the server to send or close, without consuming what it sent.
 fn peek_for(connection: &BufReader<TcpStream>, wait: Duration) -> std::io::Result<usize> {
     let stream = connection.get_ref();
@@ -1063,6 +1074,10 @@ fn peek_for(connection: &BufReader<TcpStream>, wait: Duration) -> std::io::Resul
     peeked
 }
 
+fn closed(connection: &BufReader<TcpStream>, wait: Duration) -> bool {
+    matches!(peek_for(connection, wait), Ok(0))
+}
+
 /// Holds for `wait` and reports whether the server neither sent anything nor closed meanwhile.
 fn quiet(connection: &BufReader<TcpStream>, wait: Duration) -> bool {
     peek_for(connection, wait).is_err_and(|error| {
@@ -1071,6 +1086,35 @@ fn quiet(connection: &BufReader<TcpStream>, wait: Duration) -> bool {
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
         )
     })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn full_server_closes_only_the_oldest_idle_connection_per_waiting_client() {
+    let config = Config {
+        max_connections: 3,
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..common::http_config()
+    };
+    let (address, _, stop, task, _dir) = start(config).await;
+    let mut idle = idle_connections(address, 3);
+    let mut waiting = BufReader::new(stream(address));
+    assert!(exchange(&mut waiting, HEALTH).starts_with("HTTP/1.1 200"));
+    assert!(closed(&idle[0], Duration::from_secs(2)), "oldest stays");
+    // The two younger connections keep working, so their pooled clients never see a close.
+    for connection in &mut idle[1..] {
+        assert!(quiet(connection, Duration::from_millis(100)));
+        assert!(exchange(connection, HEALTH).starts_with("HTTP/1.1 200"));
+    }
+    // Those two requests started new idle periods, so the first client to have waited is the
+    // next oldest now.
+    let mut second = BufReader::new(stream(address));
+    assert!(exchange(&mut second, HEALTH).starts_with("HTTP/1.1 200"));
+    assert!(closed(&waiting, Duration::from_secs(2)), "next oldest");
+    for connection in &idle[1..] {
+        assert!(quiet(connection, Duration::from_millis(100)));
+    }
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
 }
 
 /// A request that finishes within one poll of the connection still starts a new idle period.
@@ -1086,6 +1130,89 @@ async fn each_request_renews_the_keep_alive_deadline() {
         assert!(exchange(&mut connection, HEALTH).starts_with("HTTP/1.1 200"));
         assert!(quiet(&connection, Duration::from_millis(500)));
     }
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn full_server_without_a_waiting_client_keeps_its_idle_connections() {
+    let config = Config {
+        max_connections: 2,
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..common::http_config()
+    };
+    let (address, _, stop, task, _dir) = start(config).await;
+    let mut idle = idle_connections(address, 2);
+    for connection in &mut idle {
+        assert!(quiet(connection, Duration::from_millis(200)));
+        assert!(exchange(connection, HEALTH).starts_with("HTTP/1.1 200"));
+    }
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connection_receiving_its_next_request_passes_the_wake_to_the_next_idle_one() {
+    let config = Config {
+        max_connections: 2,
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..common::http_config()
+    };
+    let (address, _, stop, task, _dir) = start(config).await;
+    let mut idle = idle_connections(address, 2);
+    let (head, rest) = HEALTH.split_at(10);
+    idle[0].get_mut().write_all(head).unwrap();
+    // The oldest connection must have read the partial head before the next client arrives.
+    assert!(quiet(&idle[0], Duration::from_millis(100)));
+    let mut waiting = BufReader::new(stream(address));
+    assert!(exchange(&mut waiting, HEALTH).starts_with("HTTP/1.1 200"));
+    assert!(closed(&idle[1], Duration::from_secs(2)));
+    assert!(exchange(&mut idle[0], rest).starts_with("HTTP/1.1 200"));
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
+}
+
+/// A wake sent while no connection was idle goes to the first one that turns idle.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_waiting_client_gets_the_slot_of_a_request_that_finishes_later() {
+    let config = Config {
+        max_connections: 1,
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..common::http_config()
+    };
+    let (address, _, stop, task, _dir) = start(config).await;
+    let mut busy = BufReader::new(stream(address));
+    let (head, rest) = HEALTH.split_at(HEALTH.len() - 2);
+    busy.get_mut().write_all(head).unwrap();
+    let mut waiting = BufReader::new(stream(address));
+    waiting.get_mut().write_all(HEALTH).unwrap();
+    assert!(quiet(&waiting, Duration::from_millis(100)), "no slot yet");
+    assert!(exchange(&mut busy, rest).starts_with("HTTP/1.1 200"));
+    let response =
+        common::read_http_response(&mut waiting, Body::Expected).expect("the slot was handed on");
+    assert!(response.starts_with(b"HTTP/1.1 200"));
+    assert!(closed(&busy, Duration::from_secs(2)));
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
+}
+
+/// The wake also outlives a client that got its slot another way, and must not close anything.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stale_wake_does_not_close_the_next_idle_connection() {
+    let config = Config {
+        max_connections: 1,
+        header_read_timeout: TimeLimit::from_millis(500),
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..common::http_config()
+    };
+    let (address, _, stop, task, _dir) = start(config).await;
+    let mut stalled = stream(address);
+    stalled.write_all(&HEALTH[..10]).unwrap();
+    let mut waiting = BufReader::new(stream(address));
+    // The stalled head times out, which frees the slot without any idle connection closing.
+    assert!(exchange(&mut waiting, HEALTH).starts_with("HTTP/1.1 200"));
+    assert!(quiet(&waiting, Duration::from_millis(200)));
+    assert!(exchange(&mut waiting, HEALTH).starts_with("HTTP/1.1 200"));
     stop.send(()).unwrap();
     task.await.unwrap().unwrap();
 }
