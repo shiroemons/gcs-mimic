@@ -187,6 +187,59 @@ async fn requests_during_a_running_reset_wait_and_then_see_the_cleared_state() {
 }
 
 #[tokio::test]
+async fn a_copy_replay_that_meets_a_starting_job_waits_for_it_instead_of_failing() {
+    let (_dir, catalog, admin) = setup().await;
+    catalog
+        .put_object(
+            permissive_upload(BUCKET, "source", 16),
+            one_chunk(b"source"),
+        )
+        .await
+        .unwrap();
+    // Holding the permit lines the replay's first job up ahead of the reset, so the reset owns the
+    // catalog by the time that job's result gets back to the replay.
+    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let worker = catalog.clone();
+    let replay = tokio::spawn(async move {
+        worker
+            .prepare_copy_replay(
+                BUCKET,
+                "target",
+                Default::default(),
+                &BucketAccess::Permissive,
+                crate::storage::CopyReplaySource {
+                    bucket: BUCKET,
+                    name: "source",
+                    generation: None,
+                    access: &BucketAccess::Permissive,
+                },
+                crate::storage::ReplayInvocation {
+                    token: Some("invocation"),
+                    request: "copy",
+                },
+            )
+            .await
+            .map(drop)
+    });
+    settle().await;
+    let (reached, release) = block_next_commit(&catalog);
+    let reset = spawn_reset(&admin);
+    settle().await;
+    drop(execution);
+    reached.await.unwrap();
+    settle().await;
+    assert!(!replay.is_finished());
+    release.send(()).unwrap();
+    joined(reset).await.unwrap();
+    // It then runs against the state the reset left.
+    assert!(matches!(
+        joined(replay).await,
+        Err(ObjectError::BucketNotFound)
+    ));
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_client_waiting_for_a_session_writer_also_waits_out_an_exclusive_job() {
     let (_dir, catalog, _admin) = setup().await;
     catalog.apply_session_limits(&Config {

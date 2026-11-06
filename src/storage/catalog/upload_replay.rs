@@ -436,7 +436,8 @@ impl Catalog {
             .await?;
         let request = serde_json::to_string(&(invocation.request, &source_incarnation))
             .map_err(objects::object_unavailable)?;
-        let mut permit = self.admit_object_upload()?;
+        // No lease is held here, so an exclusive job may have started since the job above.
+        let mut permit = self.wait_object_upload().await?;
         self.check_upload_replay(
             bucket,
             name,
