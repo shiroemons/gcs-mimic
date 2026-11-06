@@ -63,8 +63,10 @@ An explicit `admin_principal` requires strict mode and enabled administration.
 It uses the registry ID's visible-ASCII format and must name a loaded identity;
 invalid combinations and unknown IDs fail before catalog creation or readiness.
 
-After discovering a dynamically mapped host port, update the advertised API
-endpoint and optional public authority before clients initiate uploads:
+Without an explicit base, links already follow each request's Host, so a dynamically
+mapped host port needs no update. To fix the advertised API endpoint instead, or to set
+the optional public authority, update them before clients initiate uploads. A runtime
+`externalUrl` fixes the base from then on; a `publicHost` alone leaves links following Host:
 
 ```sh
 curl --fail -X PUT -H 'Content-Type: application/json' \
@@ -76,7 +78,7 @@ For strict mode set `--admin-principal ID` and use that registered principal's
 bearer token. Port 49152 is an example; use the
 actual mapped port. The successful response is an empty HTTP 200.
 
-- `externalUrl` is an absolute HTTP(S) base URL. An optional proxy path is preserved and trailing slashes are normalized. Credentials, query, fragment, malformed authorities and port zero are rejected. Host and forwarded headers never select this value.
+- `externalUrl` is an absolute HTTP(S) base URL. An optional proxy path is preserved and trailing slashes are normalized. Credentials, query, fragment, malformed authorities and port zero are rejected. Host and forwarded headers never select this value, and once set no request can change it.
 - `publicHost` is a host authority, optionally with a port or bracketed IPv6 address. Scheme, credentials and path are rejected. Public-origin validation and the 32 distinct DNS-domain cap apply. The listener's primary scheme supplies the public origin's scheme.
 - Both values are validated and replaced together. A failure changes neither. A newly conflicting API host that would select an XML virtual bucket is rejected. Missing, null or empty-string values leave the corresponding setting unchanged; unknown fields are ignored. Wrong known-field types, non-object bodies, duplicate known fields, trailing JSON and query parameters are rejected. Bodies are bounded to 64 KiB.
 - Concurrent partial updates merge against the latest committed pair under a short write lock. No lock crosses an await. A request retains one immutable, reference-counted endpoint snapshot through routing, authorization, upload publication and response generation. Ordinary requests clone no authentication registry, catalog or whole configuration. Poisoned endpoint state returns 503 visibly.
@@ -130,8 +132,8 @@ holds/retention, sync/import and crash-recovery cases. They remain unimplemented
 no stub returns success. A temporary disk-backed catalog is not a true RAM
 backend and does not establish DESIGN-077 or a total-storage budget.
 
-Automatic request-origin selection and trusted proxies remain deferred under
-SPEC-RSM-LOCATION. One advertised origin does not solve disjoint host/container
-DNS spaces. Offline URL helper commands and gRPC-rendered JSON links retain
+Trusted proxies remain deferred, so a proxy that rewrites Host needs an explicit base.
+The management Host guard reads only settings that no request can change, so a
+request-derived base never admits the name it came from. Offline URL helper commands and gRPC-rendered JSON links retain
 their startup configuration. Final SDK, container and Testcontainers-wrapper
 verification belongs to the integrated source, not this native slice.

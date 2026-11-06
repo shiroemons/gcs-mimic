@@ -26,7 +26,8 @@ is asserted by the runtime wire tests. The complete guide was not rerun against 
 
 - JSON media upload, metadata get, whole-object download and delete preserve exact bytes,
   MIME type, size, MD5/CRC32C and the selected generation. Names are decoded once and stored
-  through opaque blob IDs. Configured links ignore request Host and forwarded headers.
+  through opaque blob IDs. Configured links ignore request Host and forwarded headers; since
+  this was recorded, links without a configured base follow the request's Host.
 - Generation/metageneration match checks, empty GET not-match 304, mutation 412, live
   generation selection and nonempty-bucket 409 are covered. Eight simultaneous
   create-if-absent requests have one winner; failed requests preserve the previous object.

@@ -66,8 +66,8 @@ and [buckets.restore](https://docs.cloud.google.com/storage/docs/json_api/v1/buc
   `hardDeleteTime = max(now + retention, latest retained object hardDeleteTime)`.
   The bucket incarnation, notification configurations and sync state are dropped
   as for permanent deletion. A bucket with no stored policy or a zero policy
-  keeps permanent deletion; new native buckets get a seven-day policy unless the
-  server default is 0 or the request says otherwise. Permission, metageneration
+  keeps permanent deletion; new native buckets get no policy unless the
+  server default or the request names one. Permission, metageneration
   conditions and the live-object emptiness check run first and are unchanged.
 - BUCKET-SOFT-DELETE-OBJECTS: soft-deleted objects stay with their bucket version.
   They are re-keyed to an internal name that no bucket name can take, so a new
@@ -134,5 +134,6 @@ configurations, managed folders, `userProject`, HNS restore tokens, soft-deleted
 listing across projects, XML API access to soft-deleted buckets, exact provider
 error reasons and precedence, and real-cloud differential evidence.
 
-New native buckets receive the seven-day default policy; see SOFT-DELETE-DEFAULT
-in [the object contract](sdk-soft-delete-restore.md).
+New native buckets have no policy by default, unlike Cloud Storage, so bucket
+deletion is permanent unless a policy was set; see SOFT-DELETE-DEFAULT in
+[the object contract](sdk-soft-delete-restore.md).

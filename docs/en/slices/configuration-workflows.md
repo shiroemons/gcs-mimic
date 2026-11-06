@@ -73,26 +73,34 @@ The following existing defaults and validation remain unchanged:
 | `listen` | `127.0.0.1:4443` | IP socket address; port 0 allowed; binds only |
 | `scheme` | `https` | `http`, `https` or `both`; both uses primary HTTPS and secondary HTTP |
 | `tls_cert`, `tls_key` | Bundled public development pair | Both custom nonempty paths or neither; PEM size/trust rules in [TLS contract](local-tls.md) |
-| `tls_handshake_timeout_ms` | `5000` | `1..60000`; HTTP rejects TLS settings |
+| `tls_handshake_timeout_ms` | `5000` | 0 disables, no upper limit; HTTP rejects TLS settings |
 | `data_dir` | `data` | Nonempty; native catalog/blob destination, not a legacy root |
 | `seed_dir` | Unset | Nonempty when supplied; one-time seed input |
 | `seed_project` | `local-project` | Existing project validator |
 | `compat_profile` | `native` | `native` or `legacy-emulator`; independent of authentication |
 | `auth_mode`, `identity_file` | `permissive`, unset | `strict` requires a nonempty registry path; permissive rejects a supplied registry |
 | `xml_virtual_host_domains` | Empty/disabled | At most 32 distinct validated DNS names; existing [virtual-host rules](xml-virtual-host.md) |
-| `max_connections` | `32` | `1..1024`; all listeners and pending TLS handshakes share this total |
-| `max_object_bytes` | `1073741824` | `1..5497558138880` bytes |
-| `worker_threads`, `max_blocking_threads` | `2`, `2` | Each `1..32` |
-| `connection_timeout_ms`, `shutdown_timeout_ms` | `5000`, `5000` | Each `1..60000` |
-| `object_request_timeout_ms` | `900000` | `1..86400000` |
-| `catalog_wait_timeout_ms` | `30000` | `1..60000` |
-| `keep_alive_timeout_ms` | `120000` | `1..600000`; idle time between HTTP/1.1 requests |
+| `max_connections` | `1024` | `1..1048576`; all listeners and pending TLS handshakes share this total; startup raises the soft `RLIMIT_NOFILE` to three per connection plus 64 and warns if it cannot |
+| `max_object_bytes` | `5497558138880` | `1..5497558138880` bytes |
+| `max_resumable_sessions`, `max_rewrite_sessions` | `0`, `0` | Each `0..4294967295`; 0 is unlimited |
+| `max_seed_entries`, `max_seed_depth` | `10000`, `32` | `1..100000000`, `1..1024` |
+| `worker_threads`, `max_blocking_threads` | `2`, `8` | Each `1..1024` |
+| `memory_max_bytes`, `memory_catalog_max_bytes` | `67108864`, `16777216` | `1..1099511627776`, `1048576..1099511627776`; only with `backend=memory` |
+| `default_soft_delete_retention_seconds` | `0` | `0`, or `1..3155760000`; a local range and default, unlike Cloud Storage's seven days and 7 to 90 days |
+| `header_read_timeout_ms` | `30000` | 0 disables, no upper limit; a request head, the gRPC handshake and the HTTP/2 ping wait |
+| `body_inactivity_timeout_ms` | `0` | 0 disables, no upper limit; silence while an object body or gRPC stream is in flight |
+| `request_timeout_ms` | `180000` | 0 disables, no upper limit; a handler's time before its response starts |
+| `connection_timeout_ms` | Unset | 0 disables, no upper limit; alias that sets the three above, each of which wins when named explicitly, from any source |
+| `shutdown_timeout_ms` | `5000` | 0 waits for unfinished requests without a limit |
+| `object_request_timeout_ms` | `0` | 0 disables, no upper limit |
+| `catalog_wait_timeout_ms` | `120000` | 0 waits without a limit; also the wait for a busy session |
+| `keep_alive_timeout_ms` | `120000` | 0 disables, no upper limit; idle time between HTTP/1.1 requests and on gRPC connections |
 
 ### Endpoint roles and reserved settings
 
 | Setting | Contract/default after its implementing slice | Validation and observable effect |
 | --- | --- | --- |
-| `api_base_url` | Explicit fixed base, otherwise derive once after bind (`config-api-origin-default`) | Absolute HTTP(S) URL without userinfo, query or fragment; trim trailing slashes; preserve a proxy path prefix. Explicit value wins even if its scheme differs from the listener. All selfLink/mediaLink/resumable Location values use this one base; never request Host/Forwarded. |
+| `api_base_url` | Explicit fixed base, otherwise each request's Host and connection scheme, with a fallback derived once after bind (`config-api-origin-default`) | Absolute HTTP(S) URL without userinfo, query or fragment; trim trailing slashes; preserve a proxy path prefix. Explicit value wins even if its scheme differs from the listener, and all selfLink/mediaLink/resumable Location values then use this one base. Unset, an invalid or missing Host, or one that selects an XML virtual bucket, uses the fallback. Forwarded headers never apply. |
 | `public_base_url` | Unset (`config-public-origin`) | `--public-base-url` / `GCS_MIMIC_PUBLIC_BASE_URL`; absolute HTTP(S) origin with optional port and root path only; no userinfo/query/fragment. Remove root/trailing slashes, lowercase DNS, omit scheme-default ports (HTTP 80/HTTPS 443), preserve other ports and bracket IPv6. Normalization is idempotent. Supplies the three effects below. |
 | `listen_http` | Only for `scheme=both`: primary bind IP with port `8000` (`config-dual-listener`) | `--listen-http` / `GCS_MIMIC_LISTEN_HTTP`; IP socket address, port 0 allowed; reject when scheme is not `both`. Primary `listen` serves HTTPS, second listener HTTP. Bind failure on either prevents ready and releases both listeners. |
 | `log_level` | `info` (`config-log-level`) | `--log-level` / `GCS_MIMIC_LOG_LEVEL`; `debug`, `info`, `warn`, `error`, accepting `warning` as `warn`. Reject other levels. Filtering must affect emitted events; fatal validation diagnostics and stdout lifecycle events remain visible. |
@@ -108,7 +116,10 @@ unsupported and recommend `compat_profile=native` with, for example,
 `default_location=EU`. Broader legacy regional configuration remains a separate
 BEHAVIOR-BUCKET-003 acceptance scope, not a silent mapping of `US-CENTRAL1` to US.
 
-For an implicit API base, use the primary listener's actual bound port, including
+Without an explicit API base, each request renders links from its own Host and
+connection scheme, because one address cannot reach the server from both the host and a
+peer container. For the fallback that an invalid or missing Host uses, and that ready
+reports, use the primary listener's actual bound port, including
 port 0; replace `0.0.0.0` with `127.0.0.1` and `::` with `[::1]`. Preserve
 other bound IPs, bracket IPv6 and use HTTPS for `both`. Resolve the base before
 constructing `State` and ready. `config-api-origin-default` owns changing
@@ -121,11 +132,11 @@ the actual bound port immediately after bind in `startup.rs`, before constructin
 `State` or ready. This is value
 resolution within the existing bind-to-State boundary, not a startup-phase
 reordering; it does not depend on `shared-startup-phases`. Shared state owns
-any later phase restructuring and preserves this boundary. Compose overrides for HTTP and
-HTTPS must use their actual host-published port, for example
-`https://localhost:${GCS_MIMIC_PORT:-4443}`. One fixed origin cannot serve unrelated
-host/peer/browser address spaces; select one mutually reachable name or separate
-instances. Proxy-derived origins/allowed-host policy remain DESIGN-056 work.
+any later phase restructuring and preserves this boundary. A Compose environment that fixes
+the base must use the actual host-published port, for example
+`https://localhost:${GCS_MIMIC_PORT:-4443}`, and one fixed origin cannot serve unrelated
+host/peer/browser address spaces; leaving it unset lets each request use its own.
+Proxy-derived origins/allowed-host policy remain DESIGN-056 work.
 
 `public_base_url` has exactly these effects:
 
@@ -169,7 +180,7 @@ or existing explicit XML-domain validation.
 Ready currently always includes `public_base_url` as a normalized string or
 JSON null, and `public_virtual_host_enabled` as a boolean (false when absent or
 IP). `config-public-origin` owns these two keys. `api_base_url` always contains
-the effective string resolved after bind by `config-api-origin-default`.
+the explicit base, or the fallback resolved after bind by `config-api-origin-default`.
 Shared state's `ReadyEvent` retains the
 implemented keys. No setting creates DNS/certificates, grants IAM/ACL access or changes
 PAP. Helpers encode/sign the final host, port, path, query and required headers;
@@ -589,12 +600,16 @@ The selected DESIGN-055 / UX-003 scope requires:
   a different scheme and proxy prefix, override the bound address.
 - Reject API/XML-domain collisions before catalog access or bind using the
   explicit host or substituted listen host, including numeric DNS suffixes.
-  Ignore request Host/Forwarded headers when generating links and Locations.
-- Compose HTTP/HTTPS defaults follow the published host port. A container smoke
-  test follows a resumable Location after changing that port; an explicit API
+  Ignore Forwarded headers when generating links and Locations, and let request Host
+  render them only without an explicit base. The management Host guard reads only
+  settings that no request can change.
+- The checked-in Compose files pass `GCS_MIMIC_API_BASE_URL` through only when it is
+  in the environment, so links follow the published host port on their own. A container
+  smoke test follows a resumable Location after changing that port; an explicit API
   base override remains authoritative.
 
-`scheme=both` now resolves an implicit API base from the HTTPS primary listener.
+`scheme=both` resolves the fallback API base from the HTTPS primary listener; links
+otherwise use the scheme of the listener each request arrived on.
 The dual-listener integration cases below cover this extension of the API-origin
 slice. Parent feature rows remain PARTIAL.
 
@@ -617,9 +632,10 @@ alternates between ready listeners and stops accepting from both at the shared
 `max_connections` limit, including pending TLS handshakes. Shutdown closes both
 sockets before draining connections and closing the catalog once.
 
-HTTP does not redirect to HTTPS. All links and resumable Locations use the one
-fixed API base, which defaults to primary HTTPS even for HTTP requests. An
-explicit API base overrides that default, including a proxy prefix. Both
+HTTP does not redirect to HTTPS. Links and resumable Locations use the scheme of the
+connection each request arrived on, and a request without a usable Host gets the fallback,
+which is primary HTTPS even for HTTP requests. An
+explicit API base overrides both, including a proxy prefix. Both
 listeners apply the same authentication and storage behavior; enabling HTTP
 does not grant permissions or change public/signed URL construction. No
 Discovery/protobuf field, storage transition or provider gap changes.

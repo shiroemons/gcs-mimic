@@ -2,6 +2,8 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+Later change: `connection_timeout_ms` is now an alias, and `header_read_timeout_ms` (default 30000), `body_inactivity_timeout_ms` (default disabled) and `request_timeout_ms` (default 180000) replaced its single deadline. A full server now closes only the connection that turned idle first, once per waiting client, and only while a client waits (`full_server_closes_only_the_oldest_idle_connection_per_waiting_client`, `full_server_without_a_waiting_client_keeps_its_idle_connections`, `a_request_wakes_only_the_connection_that_turned_idle_first`). The record below keeps the values of its date.
+
 Verified **2026-10-28** for AUDIT-010 at code commit `7564c5a` on `main`,
 which gives keep-alive connections their own idle timeout on top of the
 persistent connections from `a51400d`, the deadline responses and lingering

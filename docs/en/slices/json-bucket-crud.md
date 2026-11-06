@@ -179,12 +179,13 @@ Emitted bucket resource fields, in the recorded Cloud Storage order: `kind="stor
 the legacy profile omits it), `metageneration`, `location`, `storageClass`, `etag`, `timeCreated`,
 `updated`, `softDeletePolicy` when configured, `iamConfiguration` (`bucketPolicyOnly`,
 `uniformBucketLevelAccess`, `publicAccessPrevention`), `locationType`, and `labels` only when nonempty. All int64/uint64 fields are JSON strings.
-`selfLink` uses the fixed `api_base_url` configuration and percent-encodes the bucket segment.
-The default is `http://127.0.0.1:4443`; CLI `--api-base-url` overrides environment
-`GCS_MIMIC_API_BASE_URL`, JSON `api_base_url`, then the default. It accepts an absolute
-HTTP(S) base with an optional path, without credentials/query/fragment. Neither Host nor
-forwarded headers influence links. Set it explicitly for non-default ports or proxies;
-one fixed endpoint cannot simultaneously advertise host and Compose DNS origins.
+`selfLink` percent-encodes the bucket segment. Its origin is the `api_base_url` configuration
+when set: CLI `--api-base-url` overrides environment `GCS_MIMIC_API_BASE_URL`, then JSON
+`api_base_url`. It accepts an absolute HTTP(S) base with an optional path, without
+credentials/query/fragment. Unset, each request uses its own Host and connection scheme, so a
+host and a Compose peer both get links they can reach. An invalid or missing Host falls back to
+the base derived from the bound listener. Forwarded headers never influence links, so a proxy
+that rewrites Host needs the setting.
 Creation uses metageneration 1 and equal creation/update timestamps, truncated to milliseconds.
 Times use UTC RFC 3339 with exactly three fractional digits; dates outside years 0000–9999
 return a 503 instead of panicking. ETags include creation time and metageneration so recreating

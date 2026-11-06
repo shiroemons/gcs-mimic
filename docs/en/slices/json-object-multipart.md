@@ -39,7 +39,7 @@ fidelity before IMPLEMENTED can be claimed.
 | Concurrent create-if-absent | Exactly one successful generation; other request returns 412 |
 | Failed overwrite | Previous bytes, metadata and generation remain visible |
 | Streaming media size cap | Apply max_object_bytes to media bytes, excluding multipart framing; excess returns 413 |
-| Admission and advisory checks | Immediate bounded admission; bucket check before metadata; selected-name conditions before media |
+| Admission and advisory checks | Bounded admission that waits its turn; bucket check before metadata; selected-name conditions before media |
 | Transfer/catalog deadlines | Reuse media inactivity, absolute request and catalog-wait limits |
 | Persistence | Successful bytes, metadata, hashes and generation survive restart |
 | Recognized unsupported/unknown metadata | Explicit 501; no accepted-but-ignored semantics except documented bucket override |

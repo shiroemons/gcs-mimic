@@ -163,8 +163,8 @@ progress. A permission failure inside publication uses the shared terminal clean
 and discards progress, including revocation in the narrow check-to-publish window.
 Sessions expire
 after a fixed 604800 seconds from creation, including at deadline equality;
-calls do not renew the deadline. Limit active sessions to 128, independently of
-the 128 ephemeral copy/compose transfer slots, and separately
+calls do not renew the deadline. Unfinished rewrites are unlimited unless
+`max_rewrite_sessions` sets a limit, which never counts ephemeral copy/compose transfers. Separately
 cache at most 128 completed responses, evicting the earliest-created session
 (ordered by its deadline and ID) when full, excluding the current completion.
 Eviction makes that completed token unavailable without changing its destination.
@@ -218,10 +218,10 @@ destination blobs remain protected by catalog references.
 
 The initial cancellation owner is in memory. A crash or shutdown between durable
 session creation and handing off its first response can leave an unreachable token
-and active state until the fixed expiry. Continuable and ephemeral transfers
-have separate 128-entry quotas, for at most 256 transfers; abandoned rewrites
-cannot exhaust copy/compose capacity. Recovery preserves continuable accounting
-and discards ephemeral transfers. A full continuable quota still rejects a new
+and active state until the fixed expiry. Derived transfers have no count limit, so
+abandoned rewrites cannot exhaust copy/compose capacity. Recovery reads keyset pages, so its
+memory does not grow with the catalog, preserves continuable transfers
+and discards ephemeral transfers. A configured `max_rewrite_sessions` rejects a further
 rewrite with 503 backendError, including after restart, without shortening the
 seven-day token lifetime. API concurrency is bounded by `max_connections`.
 Completed-cache eviction uses

@@ -5,10 +5,11 @@
 Each server admits two batch envelopes, including response bodies being sent.
 Admission precedes body reads and stays held until the response body is consumed
 or dropped on disconnect. Additional batches wait without reading their bodies;
-on HTTP connections the earlier of connection_timeout_ms (inactivity, default
-5000 ms) and object_request_timeout_ms (batch admission, default 900000 ms)
-ends the wait with JSON 503 backendError. Expiry of the connection's inactivity
-deadline also closes the connection with `Connection: close`. Request and response
+on HTTP connections the earlier of request_timeout_ms (default
+180000 ms) and object_request_timeout_ms (batch admission, default 0, disabled)
+ends the wait with JSON 503 backendError. Expiry of the request
+deadline also closes the connection with `Connection: close`. An admitted envelope's body
+then runs under body_inactivity_timeout_ms, like an object body. Request and response
 budgets remain 10,000,000 bytes each, so admitted payload buffers are bounded by two pairs of
 those budgets; this is not a bound on whole-process RSS. Outer authentication
 still supplies defaults that an individual part may override.

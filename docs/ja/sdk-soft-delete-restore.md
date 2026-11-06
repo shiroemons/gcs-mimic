@@ -7,15 +7,19 @@
 [英語の契約と検証結果](../en/slices/sdk-soft-delete-restore.md)を正本とします。
 
 バケットのinsert・PATCH・PUTで`softDeletePolicy.retentionDurationSeconds`を設定します。
-0は無効、604800秒から7776000秒は有効です。範囲外の値は状態を変えず400で拒否します。
+0は無効、1秒から3155760000秒は有効です。範囲外の値は状態を変えず400で拒否します。
 get・listで保持秒数と`effectiveTime`を返し、期間を延ばしたときだけ有効時刻を更新します。
 空設定と`null`は省略と同じです。
-ポリシーを指定せずに作った新しいバケットは、Cloud Storageと同じ604800秒（7日）になり、`effectiveTime`は`timeCreated`と同じです。
+ポリシーを指定せずに作った新しいバケットには、どの保存方式でもポリシーを保存せず、`softDeletePolicy`を返しません。
+上書きと削除の直後に本文を解放します。
 サーバー設定`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`（`--default-soft-delete-retention-seconds`、
-JSONでは`default_soft_delete_retention_seconds`）で変えられ、0にするとポリシーを保存せず、従来どおり完全削除になります。
-`--backend memory`は明示しない限り0です。リクエストで明示したポリシーは0を含めてそのまま保存し、
-既存のバケットは保存済みの設定を保ちます。`import`・同期ディレクトリ・legacy-emulatorで作るバケットには既定を付けません。
-初期ファイルとバケット設定ファイルで作るバケットには既定を付けます。
+JSONでは`default_soft_delete_retention_seconds`）で新規バケットの既定を変えられ、0より大きい値では`effectiveTime`が`timeCreated`と同じになります。
+リクエストで明示したポリシーは0を含めてそのまま保存します。
+既存のバケットは保存済みの設定を保つので、0.11.0までが付けた7日はアップグレード後も残ります。`import`・同期ディレクトリ・legacy-emulatorで作るバケットには既定を付けません。
+初期ファイルとバケット設定ファイルで作るバケットにはサーバーの既定を付け、バケット設定ファイルの項目ではポリシーも指定できます。
+
+Cloud Storageの既定は7日で、受け付けるのは0または7～90日です。**既定と範囲の両方がローカル独自の仕様**で、
+短い保持期間で期限切れを試せるようにするためのものです。7日未満を拒否する動作を試すテストはできません。
 これらの仕様差と90日境界の資料間の違いはSPEC-SOFT-DELETEに記録しています。
 
 既存の`bucket`に7日を設定する例です。固定したGo Storage v1.70.0と
@@ -59,16 +63,18 @@ strictでは`storage.objects.restore`と`storage.objects.create`が必要です�
 Rubyが送るform本文は、検証済みURL queryと完全に一致する場合だけ受け付けます。
 
 注入クロックで期限切れを判定し、取得・一覧・復元で存在しない扱いにします。
-同じバケットの削除・削除済み一覧・復元のついでに、最大100件ずつ回収します。
-タイマー、ポーリング、起動時の全件走査は追加していません。
+期限切れの行と本文は保守処理が回収し、リクエストを待ちません。バッチごとに短いトランザクションで全バケットの期限切れを消し、次の`hardDeleteTime`まで眠ります。
+soft deleteの確定で起こすのでポーリングはしません。
+回収に3回連続で失敗するとreadinessが落ち、成功すると戻ります。
 soft-deletedだけが残るバケットは削除できます。正の保持期間がなければその世代と一緒に完全削除し、
 あればそれらを保持したsoft-deletedのバケット版になります。
 バケット自体のsoft deleteとJSON-BUCKETS-010は[バケットのsoft delete契約（英語）](../en/slices/bucket-soft-delete-restore.md)で扱います。
 HNS、ACLコピー、Autoclass、ライフサイクル実行と伝播の再現もPENDINGです。
 
 スキーマ26への列追加で設定と削除済み世代を永続化します。既定の保持期間を変えるサーバー設定を1つ追加しており、新しい依存はありません。
-対象Rustテスト7件、Go・RubyのHTTP全SDK検証は通過しています。
-最終の`RUST_TEST_THREADS=8 just check`も通過し、591行の台帳と生成マトリクスを検査しています。
+導入時に対象Rustテスト7件、Go・RubyのHTTP全SDK検証は通過しています。
+導入時の`RUST_TEST_THREADS=8 just check`も通過し、当時の591行の台帳と生成マトリクスを検査しています。
+既定の変更後の検証は[英語の契約](../en/slices/sdk-soft-delete-restore.md)にあります。
 受け入れケースはSOFT-DELETE-CONFIG、DEFAULT、DELETE、OVERWRITE、LIST-GET、RESTORE、
 EXPIRY、BUCKET-DELETE、AUTH、PERSIST、SDKです。検証の詳細は英語の検証節を参照してください。
 HTTPS、コンテナ、ガイドの通し実行、実クラウド照合、性能測定はこのスライスでは実施していません。

@@ -89,7 +89,7 @@ The entry allowlist is `name`, `location`, `storageClass`, `labels`, `cors`, `ve
 | `versioning` | Object with optional boolean `enabled`; omitted object/member defaults false; null is invalid |
 | `defaultEventBasedHold` | Boolean; omitted false; null invalid |
 | `iamConfiguration` | Object with optional `publicAccessPrevention` of `inherited` or `enforced`; omitted object/member defaults inherited; null invalid |
-| `softDeletePolicy` | Object with optional `retentionDurationSeconds` (0 or 604800 to 7776000, as an integer or string), validated like the JSON API; `effectiveTime` is output-only and rejected. Omitted takes `default_soft_delete_retention_seconds`; an explicit 0 opts the bucket out of that default. |
+| `softDeletePolicy` | Object with optional `retentionDurationSeconds` (0 or 1 to 3155760000, as an integer or string), validated like the JSON API; `effectiveTime` is output-only and rejected. Omitted takes `default_soft_delete_retention_seconds`, which is off unless set; an explicit 0 opts the bucket out of that default. |
 | `project` | Initializer-only override, removed before native bucket parsing |
 
 The `default_location` setting supplies the omitted/null/empty native location for the initializer; nonempty entry location wins. The default is `US`. This does not enable a global location setting in `legacy-emulator` or alter Configuration's rejection of that setting there.

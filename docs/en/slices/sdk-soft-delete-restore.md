@@ -27,21 +27,25 @@ adds one explanation and a `retentionDurationSeconds=604800` repair per empty
 policy-free request. See [local credentials and listing notes](sdk-local-auth-softdelete-notes.md)
 for the separate diagnostic checks; no HTTP response is changed.
 
-- SOFT-DELETE-CONFIG: insert/PATCH/PUT accept integral retention seconds, 0 or
-  604800 through 7776000; get/list return retentionDurationSeconds/effectiveTime.
-  Invalid values return 400 without mutation; null/empty means unspecified.
-- SOFT-DELETE-DEFAULT: a new bucket created without a policy receives Cloud
-  Storage's default, `retentionDurationSeconds` 604800 with `effectiveTime`
-  equal to `timeCreated` (observed 2026-10-31). The server setting
+- SOFT-DELETE-CONFIG: insert/PATCH/PUT, the buckets file and gRPC accept integral
+  retention seconds, 0 or 1 through 3155760000; get/list return
+  retentionDurationSeconds/effectiveTime. Invalid values return 400 without
+  mutation; null/empty means unspecified. Cloud Storage accepts only 0 or 7 to 90
+  days, so a test of its rejection below seven days cannot run against the emulator.
+- SOFT-DELETE-DEFAULT: a new bucket created without a policy gets none, on every
+  backend, so `softDeletePolicy` is omitted and an overwrite or delete frees the
+  old body at once. Cloud Storage defaults to seven days, so this default and the
+  range above are deliberate local choices (SPEC-SOFT-DELETE). The server setting
   `default_soft_delete_retention_seconds` (`--default-soft-delete-retention-seconds`,
   `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`, JSON `default_soft_delete_retention_seconds`;
-  0 or 604800 through 7776000, default 604800, or 0 with `--backend memory`
-  unless set) changes it; 0 stores no policy, so
-  deletion is permanent and uses no extra disk, as before the default existed.
+  0 or 1 through 3155760000, default 0) gives new buckets a policy, with
+  `effectiveTime` equal to `timeCreated`; 604800 matches Cloud Storage's default
+  as recorded on 2026-10-31.
   An explicit policy in the request, zero included, is kept as sent. Existing
-  buckets keep their stored policy. Buckets created by `import`, directory sync
+  buckets keep their stored policy, including the seven days that 0.11.0 and earlier
+  gave new buckets. Buckets created by `import`, directory sync
   or the legacy-emulator profile get no default; seed files and the buckets file
-  use it. A bucket with no policy (an older bucket, or a zero default) and a
+  use it. A bucket with no policy and a
   bucket with an explicit zero both allow softDeleted=true listing (200, empty
   unless retained generations remain); missing soft-deleted generations return
   404 notFound on metadata GET and restore.
@@ -64,9 +68,12 @@ for the separate diagnostic checks; no HTTP response is changed.
   response never contains them. The restored generation keeps the bucket
   default object ACL for later full reads. See
   [restore projection evidence](../evidence/object-restore-projection.md).
-- SOFT-DELETE-EXPIRY: injected-clock deadlines hide expired generations; delete,
-  soft-deleted list and restore reclaim at most 100 expired rows per bucket call.
-  No polling, timer or startup scan is added.
+- SOFT-DELETE-EXPIRY: injected-clock deadlines hide expired generations. The
+  maintenance scheduler frees them without waiting for a request: each pass
+  removes every due row across buckets and soft-deleted bucket versions, at most
+  100 rows per catalog turn, then drains the deletion journal and sleeps until the
+  next hard delete time. A committed soft delete wakes it, so nothing polls, and
+  three consecutive failed passes take readiness down until one succeeds.
 - SOFT-DELETE-BUCKET-DELETE: a bucket containing only soft-deleted generations can
   be deleted. Without a positive policy it is deleted permanently together with
   those generations; with one it becomes a soft-deleted bucket version that keeps
@@ -76,8 +83,7 @@ for the separate diagnostic checks; no HTTP response is changed.
 - SOFT-DELETE-PERSIST: additive catalog schema 26 preserves policy and generations.
 - SOFT-DELETE-SDK: bounded Go and Ruby default high-level configure/delete/list/
   metadata/restore/read journeys.
-- PENDING: bucket restore/soft deletion, initialization-file softDeletePolicy,
-  HNS tokens, ACL copying, Autoclass, lifecycle execution, provider propagation,
+- PENDING: HNS tokens, ACL copying, Autoclass, lifecycle execution, provider propagation,
   exhaustive error precedence and real-cloud differential evidence.
 
 ## Sources and local choices
@@ -94,9 +100,11 @@ The bucket reference says less than 90 days while the overview says 7–90 days;
 the local inclusive upper boundary follows the requested range and overview.
 effectiveTime changes on increases; policy changes do not change existing object
 deadlines. Null/empty behavior lacks an explicit provider guarantee and is a
-local normalization. Like GCS, new native buckets default to seven days; the
-server setting above turns that off. Bucket soft deletion follows the bucket's
-policy at deletion time.
+local normalization. Unlike GCS, new native buckets have no policy by default; the
+server setting above turns one on. Bucket soft deletion follows the bucket's
+policy at deletion time. The differential cases `soft-delete-below-minimum` and
+`patch-soft-delete-below-minimum` record Cloud Storage's 400 as their `expect_status`;
+the emulator returns 200, and the run reports them as a `note`.
 The official list and restore references require a soft delete policy and
 document 400 errors when it is absent. Locally omission and explicit zero are
 equivalent: listing and generation lookup depend on retained objects, not on
@@ -116,9 +124,9 @@ Restore allocates an opaque blob ID and links immutable source bytes. A durable
 pending-deletion entry precedes linking; publication, generation assignment and
 removal of that entry commit atomically. Existing recovery handles uncommitted
 links, and cleanup rechecks catalog references. There is no body-sized buffer or
-copy, and no new startup scan or maintenance task. Expiry uses indexed,
-bucket-scoped batches of at most 100 rows; filters hide every expired row even
-when an earlier batch leaves physical cleanup for another call.
+copy, and no new startup scan. Expiry uses indexed, bucket-scoped batches of at
+most 100 rows, each in its own short transaction that journals the blobs it
+removes; filters hide every expired row until the maintenance pass reaches it.
 
 Ruby's pinned generated client repeats query parameters in a form POST body.
 The adapter accepts an empty body or a form map exactly equal to the validated

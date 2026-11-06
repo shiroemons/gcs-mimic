@@ -78,7 +78,7 @@ The batch transaction budget is **20 ms** of monotonic elapsed execution: check 
 
 ### Handle budget and publication protection
 
-Protected IDs include connected API uploads (bounded by `max_connections`), 2 × 128 derived transfers, 128 resumable sessions, 2 management slots and 256 staged batch handles. Upload owners remain protected after disconnect until cleanup, so these counts do not establish a fixed catalog-wide bound. Existing session byte/object caps and disk-full handling still apply.
+Protected IDs include connected API uploads (bounded by `max_connections`), derived transfers and resumable sessions (unlimited by default), 2 management slots and 256 staged batch handles. Upload owners remain protected after disconnect until cleanup, so these counts do not establish a fixed catalog-wide bound. Existing session byte/object caps and disk-full handling still apply.
 
 The batch's active, staged-next, queued, unattempted and resolving handles share the **same 256-handle budget**, in addition to the two single-object management slots. A partial committing batch permits next-batch staging in the remaining capacity; a full 256-handle batch backpressures staging until outcomes resolve. A second 256-handle queue is forbidden. Unattempted work returned by count/time closure retains its charges, reducing the capacity for new staging. Budget admission waits with a deadline; cancellation does not release protection while side effects can still occur. Test full-budget backpressure, release after cleanup, partial-batch staging/commit overlap and shutdown under saturation. Benchmark full-batch backpressure versus partial-batch overlap when implemented; this slice makes no overlap speed claim.
 

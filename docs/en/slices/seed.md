@@ -238,8 +238,10 @@ original seed diagnostic; successful lock release is then unproven.
 Replay is sequential. A dedicated traversal thread sends entries over a two-slot
 channel using the shared bounded, sorted Walker. File publication clones
 to immutable staging where supported or copies with fixed buffers, hashing the
-staged bytes once on the shared administrative file workers. Retained metadata is
-capped at 8 MiB and buckets at 1,000; one batch lease bounds whole-tree ownership.
+staged bytes once on the shared administrative file workers. Retained metadata
+has a budget that grows with `max_seed_entries` and buckets are capped at 1,000;
+one batch lease bounds whole-tree ownership. A seed is one atomic publication, so
+its memory grows with the tree until it commits.
 `max_object_bytes` applies to every fixture file on every replay, with a
 metadata check before reading and the publisher's streamed cap at staging; a
 fixture larger than a later, smaller cap fails startup even when the live object
@@ -247,14 +249,16 @@ matches. Disk seeding never collects the body in memory; RAM seeding retains
 bounded chunks under the configured shared byte budget.
 
 Traversal counts all files and directories, including hidden entries and bucket
-directories, with a total cap of 10000 entries and 32 directory levels below each
-bucket. Sorted directory-entry vectors and the pending stack share that global
-entry budget; directory iterators are closed before descent. Logical names are
-bounded to 1024 UTF-8 bytes. These limits bound traversal memory and open handles
-without a general directory-walking dependency. They are local usability limits,
-not Google bucket/object limits. Filesystem/SQLite operation duration and overall
-seed duration have no additional wall-clock bound. Replaying an unchanged tree
-reads every fixture body once per startup.
+directories, with a total cap of `max_seed_entries` entries (default 10000, up to
+100000000) and `max_seed_depth` directory levels (default 32, up to 1024) below
+each bucket. Exceeding either names its setting. Sorted directory-entry vectors
+and the pending stack share that global entry budget; directory iterators are
+closed before descent. Logical names are bounded to 1024 UTF-8 bytes. These
+limits bound traversal memory and open handles without a general
+directory-walking dependency. They are local usability limits, not Google
+bucket/object limits. Filesystem/SQLite operation duration and overall seed
+duration have no additional wall-clock bound. Replaying an unchanged tree reads
+every fixture body once per startup.
 
 ## Getting-started snippet for integration
 

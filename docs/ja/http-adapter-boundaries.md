@@ -19,9 +19,9 @@ permissiveでは認証がなく、JSON APIのCORSは任意のOriginを許可し�
 HTTPバッチ（BEHAVIOR-COMMON-008）は、サーバーごとに最大2本です。
 要求を読み始める前に枠を確保し、応答本文の消費または切断まで保持します。
 満杯の場合は本文を読まずに順番を待ち、枠が空くと処理を開始します。
-HTTP接続での待機はconnection_timeout_msの無操作期限（既定5000ms）と
-object_request_timeout_msのバッチ受付期限（既定900000ms）の早い方で打ち切り、
-JSONの503 backendErrorを返します。接続の無操作期限で打ち切った場合は、
+HTTP接続での待機はrequest_timeout_msのハンドラー期限（既定180000ms）と
+object_request_timeout_msのバッチ受付期限（既定0で無効）の早い方で打ち切り、
+JSONの503 backendErrorを返します。ハンドラー期限で打ち切った場合は、
 `Connection: close`を付けて接続を閉じます。
 要求・応答の各10,000,000バイト上限は維持します。これはプロセス全体のRSS上限ではありません。
 外側の認証情報は各partで上書きでき、認可はpartごとに評価します。

@@ -13,7 +13,7 @@ Feature IDs: UX-012, DESIGN-061, UX-001. This slice changes documentation and th
 | TestMigrationAppScenarioParallelBrowser | Twelve concurrent Origin-bearing raw HTTP uploads all succeed, return CORS headers and preserve distinct bytes on anonymous reads |
 | migration-scenario-coverage | Map every operation in onboarding plan section 9 to existing Go/raw HTTP/Ruby scenario assertions; preserve source comparison limitations |
 
-The Location decision is final: keep bind-derived defaults, explicitly advertise `http://gcs:4443` in the migration Compose example, add no startup warning and do not derive Location from request Host. The single advertised origin serves container SDKs; host/browser clients use their reachable origin. Only unsigned permissive session URLs may have their authority rewritten while preserving path and query. No design requirement changes.
+Location decision, revised after a later migration check: without an explicit base, Location and resource links follow the request's Host and connection scheme, so the migration Compose example sets no `GCS_MIMIC_API_BASE_URL` or `GCS_MIMIC_LISTEN`, and container SDKs and host/browser clients reach one server through their own addresses. Forwarded headers stay ignored. Only unsigned permissive session URLs may have their authority rewritten while preserving path and query. The verification below ran with the earlier example, which advertised `http://gcs:4443`.
 
 ## Scenario coverage
 
