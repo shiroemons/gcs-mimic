@@ -26,7 +26,11 @@ async fn accepted_tcp_connections_enable_keepalive() {
     let Stream::Tcp(stream) = accepted else {
         panic!("a TCP listener accepted another stream type");
     };
-    assert!(socket2::SockRef::from(&stream).keepalive().unwrap());
+    let socket = socket2::SockRef::from(&stream);
+    assert!(socket.keepalive().unwrap());
+    assert_eq!(socket.tcp_keepalive_time().unwrap(), KEEPALIVE_IDLE);
+    assert_eq!(socket.tcp_keepalive_interval().unwrap(), KEEPALIVE_INTERVAL);
+    assert_eq!(socket.tcp_keepalive_retries().unwrap(), KEEPALIVE_PROBES);
 }
 
 #[cfg(unix)]
