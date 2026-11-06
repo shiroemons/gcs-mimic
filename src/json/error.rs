@@ -26,6 +26,10 @@ pub(crate) const PRECONDITION_NOT_HELD: &str =
 /// The prefix of Cloud Storage's missing-object message, followed by `<bucket>/<object>`.
 const NO_SUCH_OBJECT: &str = "No such object: ";
 
+/// How long a malformed body an error quotes. A resource body may be far longer, and the quote
+/// appears twice in the response, so past this it would make the answer larger than the request.
+const QUOTED_BODY_LIMIT: usize = 64 * 1024;
+
 /// Where Cloud Storage's parser expected the `:` after the first key and what it said.
 /// The first key may be bare, as in the recorded `{not json` and `oops` inputs.
 fn missing_colon(text: &str) -> Option<(String, String, usize)> {
@@ -427,6 +431,10 @@ impl JsonError {
     /// under the position where its lenient parser stopped, which the recorded object-resource
     /// failures show for a missing `:` after the first key.
     pub(crate) fn parse_error(input: &[u8], cause: &serde_json::Error) -> Self {
+        if input.len() > QUOTED_BODY_LIMIT {
+            return Self::invalid(format!("Parse Error: {cause}"))
+                .with_kind(ErrorKind::MalformedJson);
+        }
         let text = String::from_utf8_lossy(input);
         let (reason, shown, column) = missing_colon(&text).unwrap_or_else(|| {
             // A body that ends inside a value is reported with an empty context line (recorded
@@ -976,6 +984,24 @@ impl std::error::Error for JsonError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_malformed_body_is_not_quoted_back() {
+        let parse = |input: &[u8]| {
+            let cause = serde_json::from_slice::<serde_json::Value>(input).unwrap_err();
+            JsonError::parse_error(input, &cause)
+        };
+        assert!(parse(b"{\"a\":}").message.contains("{\"a\":}\n"));
+        let mut long = vec![b' '; QUOTED_BODY_LIMIT];
+        long.push(b'x');
+        let error = parse(&long);
+        assert!(error.message.len() < 1024, "{}", error.message.len());
+        assert_eq!(error.kind, ErrorKind::MalformedJson);
+        // The bare-key form walks the body by character before it can report anything.
+        let mut bare = vec![b'x'; QUOTED_BODY_LIMIT];
+        bare.push(b'x');
+        assert!(parse(&bare).message.len() < 1024);
+    }
 
     #[test]
     fn error_classification_does_not_depend_on_the_public_wording() {
