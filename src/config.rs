@@ -2574,6 +2574,7 @@ mod tests {
         );
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn sync_tree_limits_default_to_unlimited_and_mean_nothing_without_a_sync_dir() {
         let default = Config::default();
