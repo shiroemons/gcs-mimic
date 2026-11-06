@@ -536,7 +536,9 @@ fn seed_failure(error: &SeedError) -> String {
             return "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry.".into();
         }
         // These name the configured limit and the setting that changes it.
-        SeedError::DepthLimit { .. } | SeedError::EntryLimit { .. } => {
+        SeedError::DepthLimit { .. }
+        | SeedError::EntryLimit { .. }
+        | SeedError::BucketLimit { .. } => {
             return format!("seed import: {error}.");
         }
         SeedError::BucketName(_) => "Invalid bucket name",
@@ -666,6 +668,10 @@ mod tests {
             (
                 SeedError::DepthLimit { limit: 32 },
                 "seed import: fixture exceeds 32 directory levels below a bucket; raise max_seed_depth or flatten the tree.",
+            ),
+            (
+                SeedError::BucketLimit { limit: 1000 },
+                "seed import: fixture exceeds 1000 buckets; raise max_buckets_per_batch or reduce the tree.",
             ),
         ] {
             let error = SeedError::Import(Box::new(SeedError::Entry {

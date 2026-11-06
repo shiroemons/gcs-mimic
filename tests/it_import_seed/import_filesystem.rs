@@ -349,8 +349,192 @@ fn filesystem_import_foreign_options_refuse_without_poisoning_original_resume() 
     interrupted(&options);
     let mut foreign = options.clone();
     foreign.max_object_bytes -= 1;
-    assert!(execute(foreign).is_err());
+    let failure = execute(foreign).unwrap_err().to_string();
+    assert!(failure.contains("--max-object-bytes"), "{failure}");
+    let mut foreign = options.clone();
+    foreign.max_entries += 1;
+    let failure = execute(foreign).unwrap_err().to_string();
+    assert!(failure.contains("--max-entries"), "{failure}");
+    let mut foreign = options.clone();
+    foreign.max_depth += 1;
+    let failure = execute(foreign).unwrap_err().to_string();
+    assert!(failure.contains("--max-depth"), "{failure}");
     assert_eq!(execute(options).unwrap().bytes_hashed, 5);
+}
+
+fn cli(options: &Options, limits: &[&str]) -> std::process::Output {
+    common::server_command()
+        .args(["import", "fake-gcs-server", "--source"])
+        .arg(&options.source)
+        .arg("--data-dir")
+        .arg(&options.destination)
+        .args(["--metadata-mode", "sidecar", "--source-platform", "unix"])
+        .args(limits)
+        .output()
+        .unwrap()
+}
+
+/// Asserts a failed run names an option in its diagnostics and leaves nothing to resume.
+fn refuses(options: &Options, limits: &[&str], option: &str) {
+    let output = cli(options, limits);
+    assert!(!output.status.success());
+    let report = [output.stdout, output.stderr].concat();
+    let report = String::from_utf8_lossy(&report);
+    assert!(report.contains(option), "{limits:?}: {report}");
+    assert!(!options.destination.exists(), "{limits:?}");
+}
+
+fn served_objects(options: &Options, bucket: &str) -> usize {
+    runtime().block_on(async {
+        let catalog = Catalog::open(&options.destination).await.unwrap();
+        let page = catalog
+            .admin(Origin::Import)
+            .list_objects(&BucketName::new(bucket).unwrap(), Default::default(), 256)
+            .await
+            .unwrap();
+        catalog.close().await.unwrap();
+        page.items.len()
+    })
+}
+
+/// A 5-byte body at a 4-byte limit stands in for a body past the default 1 GiB: the same cap
+/// decides both, and a real one would spend the test's time hashing it twice.
+#[test]
+fn the_object_size_option_is_inclusive_and_reaches_the_catalog() {
+    let (_dir, options) = fixture();
+    refuses(
+        &options,
+        &["--dry-run", "--max-object-bytes", "4"],
+        "--max-object-bytes",
+    );
+    let output = cli(&options, &["--max-object-bytes", "5"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(served_objects(&options, "bucket-one"), 2);
+}
+
+#[test]
+fn the_default_object_size_holds_at_one_gib_and_the_option_goes_past_it() {
+    const ONE_GIB: u64 = 1_073_741_824;
+    let (_dir, options) = fixture();
+    // Sparse bodies: a dry run compares their sizes and reads none of their bytes.
+    let body = File::options()
+        .write(true)
+        .open(options.source.join("bucket-one/a"))
+        .unwrap();
+    body.set_len(ONE_GIB).unwrap();
+    assert!(cli(&options, &["--dry-run"]).status.success());
+    body.set_len(ONE_GIB + 1).unwrap();
+    refuses(&options, &["--dry-run"], "--max-object-bytes");
+    let raised = (ONE_GIB + 1).to_string();
+    let output = cli(&options, &["--dry-run", "--max-object-bytes", &raised]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn the_entry_and_depth_options_are_inclusive_and_their_failures_name_them() {
+    let (_dir, options) = fixture();
+    let nested = options
+        .source
+        .join("bucket-one")
+        .join(std::iter::repeat_n("d", 33).collect::<std::path::PathBuf>());
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("deep"), b"hello").unwrap();
+    fs::write(nested.join("deep.metadata"), ATTRS).unwrap();
+    // Seven entries of the fixture, 33 directories and the two files inside the deepest.
+    const ENTRIES: &str = "42";
+    refuses(
+        &options,
+        &["--dry-run", "--max-entries", ENTRIES],
+        "--max-depth",
+    );
+    refuses(
+        &options,
+        &["--dry-run", "--max-depth", "33", "--max-entries", "41"],
+        "--max-entries",
+    );
+    refuses(&options, &["--dry-run", "--max-depth", "32"], "--max-depth");
+    let output = cli(&options, &["--max-depth", "33", "--max-entries", ENTRIES]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(served_objects(&options, "bucket-one"), 3);
+}
+
+#[test]
+fn limit_options_reject_values_out_of_range_and_repeats() {
+    let (_dir, options) = fixture();
+    for (option, bad, maximum) in [
+        ("--max-object-bytes", "5497558138881", "5497558138880"),
+        ("--max-entries", "100000001", "100000000"),
+        ("--max-depth", "1025", "1024"),
+    ] {
+        for value in ["0", bad, "many", "-1"] {
+            let output = cli(&options, &[option, value]);
+            assert!(!output.status.success(), "{option} {value}");
+            let report = String::from_utf8_lossy(&output.stderr).into_owned();
+            assert!(report.contains(option), "{option} {value}: {report}");
+            if value != "-1" {
+                assert!(report.contains(maximum), "{option} {value}: {report}");
+            }
+        }
+        let output = cli(&options, &[option, "7", option, "7"]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("duplicate"));
+    }
+    assert!(!options.destination.exists());
+    let help = common::server_command()
+        .args(["import", "fake-gcs-server", "--help"])
+        .output()
+        .unwrap();
+    let help = String::from_utf8(help.stdout).unwrap();
+    for option in ["--max-object-bytes", "--max-entries", "--max-depth"] {
+        assert!(help.contains(option), "{help}");
+    }
+}
+
+/// The CLI path to the same identity check: an unfinished import started with the defaults refuses
+/// other limits, names them and still resumes with the defaults, so the defaults must not move.
+#[test]
+fn a_resume_with_other_limits_names_them_and_the_defaults_still_resume() {
+    let (_dir, options) = fixture();
+    interrupted(&options);
+    for limits in [
+        ["--max-object-bytes", "1073741825"],
+        ["--max-entries", "10001"],
+        ["--max-depth", "33"],
+    ] {
+        let output = cli(&options, &limits);
+        assert!(!output.status.success(), "{limits:?}");
+        let report = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(report.contains(limits[0]), "{limits:?}: {report}");
+    }
+    let same = cli(
+        &options,
+        &[
+            "--max-object-bytes",
+            "1073741824",
+            "--max-entries",
+            "10000",
+            "--max-depth",
+            "32",
+        ],
+    );
+    assert!(
+        same.status.success(),
+        "{}",
+        String::from_utf8_lossy(&same.stderr)
+    );
+    assert_eq!(served_objects(&options, "bucket-one"), 2);
 }
 
 #[test]

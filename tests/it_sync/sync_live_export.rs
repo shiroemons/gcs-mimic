@@ -84,6 +84,36 @@ impl SyncServer {
 }
 
 #[test]
+fn a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    for name in ["one", "two", "three"] {
+        fs::write(tree.0.join("test-bucket").join(name), b"body").unwrap();
+    }
+    let mut server = SyncServer::start_with_args(&data.0, &tree.0, &["--max-sync-entries", "3"]);
+    let (waited, _) = server.wait(br#"{"timeout_ms":30000}"#);
+    waited.expect(409);
+    let waited: Value = serde_json::from_slice(&waited.body).unwrap();
+    assert_eq!(waited["reason"], "Paused");
+    server.request("GET", "/_internal/ready", b"").expect(503);
+    server.stop();
+    for _ in 0..2 {
+        let mut server =
+            SyncServer::start_with_args(&data.0, &tree.0, &["--max-sync-entries", "4"]);
+        server.wait(br#"{"timeout_ms":30000}"#).0.expect(200);
+        server.request("GET", "/_internal/ready", b"").expect(200);
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b/test-bucket/o/three?alt=media", b"")
+                .body,
+            b"body"
+        );
+        server.stop();
+    }
+}
+
+#[test]
 fn live_wait_observes_source_work_beyond_the_connection_inactivity_budget() {
     let data = TestDir::new();
     let tree = TestDir::new();

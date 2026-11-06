@@ -238,7 +238,7 @@ impl BodyStream {
             return Err(ImportFailure::corrupt(
                 "Size",
                 "body exceeds max_object_bytes",
-                "Use a source body within the configured inclusive object-size cap; do not truncate stored data.",
+                "Raise --max-object-bytes, or use a source body within the inclusive object-size cap; do not truncate stored data.",
             ));
         }
         Ok(Self {
@@ -1164,13 +1164,13 @@ fn walk_failure(error: WalkError, max_depth: usize) -> ImportFailure {
         WalkError::EntryLimit => ImportFailure::corrupt(
             "limits",
             "source entry limit exceeded",
-            "Provide a snapshot within the configured entry limit, including sidecars; split the source before retrying.",
+            "Raise --max-entries, or split the source to fit the entry limit, which counts sidecars, before retrying.",
         ),
         WalkError::DepthLimit => ImportFailure::corrupt(
             "limits",
             "source depth limit exceeded",
             format!(
-                "Provide source directories within {max_depth} levels below a bucket; do not silently flatten object names."
+                "Raise --max-depth, or provide source directories within {max_depth} levels below a bucket; do not silently flatten object names."
             ),
         ),
         WalkError::NotDirectory => ImportFailure::corrupt(

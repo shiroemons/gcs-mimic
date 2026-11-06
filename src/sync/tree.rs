@@ -2,13 +2,72 @@
 
 use super::mapping::Reason;
 use crate::fsutil::{self, Child, DirectoryOpen};
-use crate::{fsutil::FileIdentity, storage::admin::AdminError};
+use crate::{config::Config, fsutil::FileIdentity, storage::admin::AdminError};
 use std::{collections::VecDeque, ffi::OsString, path::PathBuf};
 use std::{fs::File, io, path::Path};
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
 
+pub(crate) const DEFAULT_ENTRIES: usize = 10_000;
+pub(crate) const DEFAULT_DEPTH: usize = 128;
+
+/// What a synchronized tree may hold. Every walker applies the same numbers, because a tree that
+/// one of them accepts and another refuses would stop the root only after it was exported.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TreeLimits {
+    pub(crate) entries: usize,
+    /// Directory levels below the root, counting the bucket.
+    pub(crate) depth: usize,
+}
+
+impl Default for TreeLimits {
+    fn default() -> Self {
+        Self {
+            entries: DEFAULT_ENTRIES,
+            depth: DEFAULT_DEPTH,
+        }
+    }
+}
+
+impl From<&Config> for TreeLimits {
+    fn from(config: &Config) -> Self {
+        Self {
+            entries: config.max_sync_entries,
+            depth: config.max_sync_depth,
+        }
+    }
+}
+
+impl TreeLimits {
+    /// Whether a file at this root-relative path lies within the depth limit.
+    pub(crate) fn admits_file(self, path: &Path) -> bool {
+        path.iter().count() <= self.depth.saturating_add(1)
+    }
+
+    /// The names one directory can hold in a tree that fits. Reserved root entries are not
+    /// entries of the tree, so they must not take a place from one.
+    pub(crate) fn directory_names(self) -> usize {
+        self.entries
+            .saturating_add(super::mapping::RESERVED_ROOT_ENTRIES)
+    }
+
+    pub(crate) fn too_many_entries(self) -> AdminError {
+        AdminError::Invalid(format!(
+            "sync tree exceeds {} inspected entries; preserve the tree, then raise max_sync_entries or reduce its size before rescanning",
+            self.entries
+        ))
+    }
+
+    pub(crate) fn too_deep(self) -> AdminError {
+        AdminError::Invalid(format!(
+            "sync tree exceeds {} levels; raise max_sync_depth or reduce its depth",
+            self.depth
+        ))
+    }
+}
+
 pub(crate) struct TreeScan {
+    limits: TreeLimits,
     frames: Vec<Frame>,
     pub(crate) visited: usize,
 }
@@ -43,8 +102,9 @@ impl Frame {
     }
 }
 impl TreeScan {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(limits: TreeLimits) -> Self {
         Self {
+            limits,
             frames: vec![Frame::new(PathBuf::new(), None)],
             visited: 0,
         }
@@ -119,7 +179,12 @@ impl TreeScan {
             };
             let directory = directories.last().ok_or(AdminError::Precondition)?;
             if frame.buffered.is_empty() && !frame.exhausted {
-                match fsutil::directory_names_after(directory, frame.after.as_deref(), 256) {
+                match fsutil::directory_names_within(
+                    directory,
+                    frame.after.as_deref(),
+                    256,
+                    self.limits.directory_names(),
+                ) {
                     Ok(page) => {
                         frame.exhausted = page.len() < 256;
                         frame.after = page.last().cloned().or(frame.after.take());
@@ -136,7 +201,7 @@ impl TreeScan {
                         directories.pop();
                         continue;
                     }
-                    Err(error) => return Err(error.into()),
+                    Err(_) => return Err(self.limits.too_many_entries()),
                 }
             }
             let Some(name) = frame.buffered.pop_front() else {
@@ -148,8 +213,8 @@ impl TreeScan {
                 continue;
             }
             self.visited += 1;
-            if self.visited > 10_000 {
-                return Err(AdminError::Invalid("sync tree exceeds 10000 inspected entries; preserve the tree and reduce its size before rescanning".into()));
+            if self.visited > self.limits.entries {
+                return Err(self.limits.too_many_entries());
             }
             let path = frame.path.join(&name);
             let mut entry = TreeEntry {
@@ -160,10 +225,9 @@ impl TreeScan {
             };
             match fsutil::child_directory(directory, &name, DirectoryOpen::Existing) {
                 Ok(Child::Directory { file, .. }) => {
-                    if self.frames.len() >= 128 {
-                        return Err(AdminError::Invalid(
-                            "sync tree exceeds 128 levels; reduce its depth".into(),
-                        ));
+                    // The root's frame is level 0, so this count is the level of the child.
+                    if self.frames.len() > self.limits.depth {
+                        return Err(self.limits.too_deep());
                     }
                     let stat = identity(&file)?;
                     self.frames
@@ -229,8 +293,13 @@ pub(crate) fn parent(root: &File, path: &Path, open: ParentOpen) -> Result<File,
     {
         return Err(ParentError::Finding(Reason::InvalidName));
     }
-    for (depth, component) in path.iter().enumerate() {
-        if depth >= 128 || component.as_encoded_bytes().len() > 255 {
+    // Export checks the configured depth with `TreeLimits::admits_file` before a path gets here.
+    // This only refuses what no configuration could allow, and does so before creating anything.
+    if path.iter().count() > crate::config::MAX_TREE_DEPTH {
+        return Err(ParentError::Finding(Reason::HostRestriction));
+    }
+    for component in path {
+        if component.as_encoded_bytes().len() > 255 {
             return Err(ParentError::Finding(Reason::HostRestriction));
         }
         if matches!(component.to_str(), Some("." | "..")) {

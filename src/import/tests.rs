@@ -366,3 +366,19 @@ fn ordinary_xattr_objects_do_not_get_a_detritus_probe() {
     assert_eq!(summary.bytes_hashed, 0);
     assert_eq!(READS.load(Ordering::SeqCst), 2);
 }
+
+/// An unfinished import's identity includes its limits, so a default that moved would refuse to
+/// resume what an earlier release started. The options raise a limit; they must not move these.
+#[test]
+fn the_defaults_that_identify_an_import_stay_where_they_were() {
+    let options = Options::new(
+        "source".into(),
+        "destination".into(),
+        MetadataMode::Sidecar,
+        SourcePlatform::Unix,
+    );
+    let fields = option_fields(&options);
+    assert_eq!(fields[3], 1_073_741_824u64.to_be_bytes());
+    assert_eq!(fields[4], 10_000u64.to_be_bytes());
+    assert_eq!(fields[5], 32u64.to_be_bytes());
+}

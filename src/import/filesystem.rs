@@ -30,6 +30,13 @@ fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
 
+/// A resume compares one digest of these inputs, so it cannot tell which of them differs.
+fn other_import() -> io::Error {
+    invalid(
+        "data-dir: destination is not the same unfinished import with matching options; repeat the --source, --source-format, --metadata-mode, --source-platform, --max-object-bytes, --max-entries and --max-depth of its first run, or choose a new empty destination",
+    )
+}
+
 pub(super) fn sha(bytes: &[u8]) -> [u8; 32] {
     let mut result = [0; 32];
     result.copy_from_slice(digest(&SHA256, bytes).as_ref());
@@ -442,19 +449,39 @@ async fn run(
         Some(metadata_scan(options, baseline, BaselineMode::Record, diagnostics).await?)
     };
     let catalog = if start == ImportStart::Resume {
-        Catalog::resume_import(&options.destination, source).await.map_err(|error| {
-            if matches!(error, crate::bucket::CatalogError::PreconditionFailed) {
-                ImportError::from(invalid("data-dir: destination is not the same unfinished import with matching options"))
-            } else if let Some(ResumeError::PermanentlyFailed { reason }) = crate::error::causes(&error).find_map(|cause| cause.downcast_ref::<ResumeError>()) {
-                io::Error::new(io::ErrorKind::InvalidData, ResumeError::PermanentlyFailed { reason: reason.clone() }).into()
-            } else {
-                #[cfg(not(unix))]
-                if crate::error::causes(&error).any(|cause| matches!(cause.downcast_ref::<ResumeError>(), Some(ResumeError::MissingLock))) {
-                    return io::Error::new(io::ErrorKind::InvalidData, ResumeError::MissingLock).into();
+        Catalog::resume_import(&options.destination, source)
+            .await
+            .map_err(|error| {
+                if matches!(error, crate::bucket::CatalogError::PreconditionFailed) {
+                    ImportError::from(other_import())
+                } else if let Some(ResumeError::PermanentlyFailed { reason }) =
+                    crate::error::causes(&error)
+                        .find_map(|cause| cause.downcast_ref::<ResumeError>())
+                {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        ResumeError::PermanentlyFailed {
+                            reason: reason.clone(),
+                        },
+                    )
+                    .into()
+                } else {
+                    #[cfg(not(unix))]
+                    if crate::error::causes(&error).any(|cause| {
+                        matches!(
+                            cause.downcast_ref::<ResumeError>(),
+                            Some(ResumeError::MissingLock)
+                        )
+                    }) {
+                        return io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            ResumeError::MissingLock,
+                        )
+                        .into();
+                    }
+                    ImportError::from(error)
                 }
-                ImportError::from(error)
-            }
-        })?
+            })?
     } else {
         Catalog::open(&options.destination).await?
     };
@@ -462,7 +489,7 @@ async fn run(
         let journal = catalog.import_journal();
         let original = journal.progress().await?;
         if start == ImportStart::Resume && !original.as_ref().is_some_and(|state| state.active && state.binding.source == source) {
-            return Err(invalid("data-dir: destination is not the same unfinished import with matching options").into());
+            return Err(other_import().into());
         }
         if let Some(failure) = original.as_ref().and_then(|state| state.failure.as_ref()) {
             return Err(io::Error::new(io::ErrorKind::InvalidData, ResumeError::PermanentlyFailed { reason: failure.clone() }).into());

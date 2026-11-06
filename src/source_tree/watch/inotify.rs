@@ -5,10 +5,10 @@ use std::{
     ffi::OsString,
     os::fd::{FromRawFd, OwnedFd, RawFd},
 };
-pub(super) const MAX_WATCHES: usize = 1022;
 pub(crate) struct Native {
     queue: OwnedFd,
     pub(super) count: usize,
+    max_watches: usize,
 }
 impl AsRawFd for Native {
     fn as_raw_fd(&self) -> RawFd {
@@ -16,8 +16,10 @@ impl AsRawFd for Native {
     }
 }
 
-pub(super) fn build(root: &File) -> io::Result<Native> {
-    let mut native = Native::new()?;
+pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
+    // A watch holds no descriptor, only kernel memory, so nothing but the tree itself bounds them:
+    // each watched directory below the root is an entry that the scan counts too.
+    let mut native = Native::new(limits.entries.saturating_add(1))?;
     native.register(root)?;
     let mut stack = vec![(
         root.try_clone()?,
@@ -27,7 +29,19 @@ pub(super) fn build(root: &File) -> io::Result<Native> {
     )];
     while let Some((directory, after, buffered, exhausted)) = stack.last_mut() {
         if buffered.is_empty() && !*exhausted {
-            let page = fsutil::directory_names_after(directory, after.as_deref(), 256)?;
+            let page = fsutil::directory_names_within(
+                directory,
+                after.as_deref(),
+                256,
+                limits.directory_names(),
+            )
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::InvalidData {
+                    io::Error::other(limits.too_many_entries())
+                } else {
+                    error
+                }
+            })?;
             *exhausted = page.len() < 256;
             *after = page.last().cloned().or(after.take());
             *buffered = page.into();
@@ -46,10 +60,8 @@ pub(super) fn build(root: &File) -> io::Result<Native> {
             .0;
         match fsutil::child_directory(directory, &name, fsutil::DirectoryOpen::Existing) {
             Ok(fsutil::Child::Directory { file, .. }) => {
-                if depth >= 128 {
-                    return Err(io::Error::other(
-                        "sync watch tree exceeds 128 directory levels",
-                    ));
+                if depth > limits.depth {
+                    return Err(io::Error::other(limits.too_deep()));
                 }
                 native.register(&file)?;
                 stack.push((file, None, VecDeque::new(), false));
@@ -72,7 +84,7 @@ impl Native {
         unsafe_code,
         reason = "inotify has no standard-library queue constructor"
     )]
-    pub(super) fn new() -> io::Result<Self> {
+    pub(super) fn new(max_watches: usize) -> io::Result<Self> {
         // SAFETY: the syscall returns a fresh owned descriptor and takes no pointers.
         let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
         if fd < 0 {
@@ -83,6 +95,7 @@ impl Native {
             // ownership exactly once to the value responsible for closing it.
             queue: unsafe { OwnedFd::from_raw_fd(fd) },
             count: 0,
+            max_watches,
         })
     }
     #[expect(
@@ -90,10 +103,11 @@ impl Native {
         reason = "inotify watches must be registered through libc"
     )]
     pub(super) fn register(&mut self, file: &File) -> io::Result<()> {
-        if self.count == MAX_WATCHES {
-            return Err(io::Error::other(
-                "sync native watch limit (1022 directories) exceeded; reduce the tree instead of leaving directories unobserved",
-            ));
+        if self.count == self.max_watches {
+            return Err(io::Error::other(format!(
+                "sync native watch limit ({} directories) exceeded; raise max_sync_entries or reduce the tree instead of leaving directories unobserved",
+                self.max_watches
+            )));
         }
         let path = std::ffi::CString::new(format!("/proc/self/fd/{}", file.as_raw_fd()))
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -109,7 +123,16 @@ impl Native {
             | libc::IN_MOVE_SELF;
         // SAFETY: the terminated proc path refers to the descriptor kept live through this call.
         if unsafe { libc::inotify_add_watch(self.queue.as_raw_fd(), path.as_ptr(), mask) } < 0 {
-            return Err(io::Error::last_os_error());
+            let error = io::Error::last_os_error();
+            return Err(if error.raw_os_error() == Some(libc::ENOSPC) {
+                // ENOSPC here is the kernel's watch budget, not disk space.
+                io::Error::other(crate::storage::failure::BackendCause::with_source(
+                    "the kernel's inotify watch limit is exhausted; raise fs.inotify.max_user_watches on the host or reduce the tree",
+                    error,
+                ))
+            } else {
+                error
+            });
         }
         self.count += 1;
         Ok(())

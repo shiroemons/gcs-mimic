@@ -456,13 +456,14 @@ async fn scan_entry_limit_fails_before_an_inventory_can_be_declared_complete() {
     fs::write(tree.0.join("b"), b"b").unwrap();
     let result = root
         .file_job(|root| {
-            let mut scan = Scan::new();
+            let mut scan = Scan::new(Default::default());
             scan.visited = 9999;
             scan.page(root)
         })
         .await;
     assert!(
-        matches!(result,Err(RootError::Admin(AdminError::Invalid(reason))) if reason.contains("10000"))
+        matches!(result,Err(RootError::Admin(AdminError::Invalid(reason)))
+            if reason.contains("10000") && reason.contains("max_sync_entries"))
     );
     drop(root);
     catalog.close().await.unwrap();

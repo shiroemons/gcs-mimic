@@ -6,7 +6,7 @@ use crate::{
     bounded_file::{self, ReadError},
     bucket::BucketRecord,
     clock::Clock,
-    config::CompatProfile,
+    config::{CompatProfile, DEFAULT_MAX_BUCKETS_PER_BATCH},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     json::{parse_insert_with_profile, validate_project},
     storage::{
@@ -26,8 +26,10 @@ use std::{
 };
 
 pub(crate) const FILE_LIMIT: usize = 1024 * 1024;
+/// What each allowed bucket adds to a file, about what the default limit gets per bucket: a fixed
+/// size would otherwise refuse a file long before it reached the configured bucket limit.
+const FILE_BYTES_PER_BUCKET: usize = 1024;
 pub(crate) const ENTRY_LIMIT: usize = 64 * 1024;
-pub(crate) const BUCKET_LIMIT: usize = 1000;
 pub(crate) const DIAGNOSTIC_LIMIT: usize = 256;
 pub(crate) const DIAGNOSTIC_BYTES_LIMIT: usize = 64 * 1024;
 const ARRAY_DIAGNOSTIC_LIMIT: usize = 4;
@@ -49,14 +51,27 @@ const fn decimal_width(mut value: usize) -> usize {
     }
     width
 }
-const MAX_INDEX_RANGES: usize = BUCKET_LIMIT.div_ceil(2);
-const MAX_RANGE_BYTES: usize =
-    "buckets[".len() + 2 * decimal_width(BUCKET_LIMIT - 1) + "..], ".len();
 const MAX_REASON_BYTES: usize = REASON_COUNT * (REASON_LABEL_BYTES + decimal_width(usize::MAX) + 3);
-const MAX_SUMMARY_RECORD_BYTES: usize =
-    MAX_INDEX_RANGES * MAX_RANGE_BYTES + 3 * MAX_REASON_BYTES + 512;
+const SUMMARY_TEXT_BYTES: usize = 512;
 const SUMMARY_ENVELOPE_BYTES: usize = 512;
+const MORE_RANGES_BYTES: usize = " and ".len() + decimal_width(usize::MAX) + " more ranges".len();
+/// The bucket limit is configured, so no count of ranges can be proven to fit: `entry_ranges`
+/// stops at this many bytes instead, which keeps the summary inside its reservation at any limit.
+const RANGE_BYTES_LIMIT: usize = SUMMARY_BYTES_RESERVE
+    - SUMMARY_ENVELOPE_BYTES
+    - SUMMARY_TEXT_BYTES
+    - 3 * MAX_REASON_BYTES
+    - MORE_RANGES_BYTES;
+const MAX_SUMMARY_RECORD_BYTES: usize =
+    RANGE_BYTES_LIMIT + MORE_RANGES_BYTES + 3 * MAX_REASON_BYTES + SUMMARY_TEXT_BYTES;
 const _: () = assert!(MAX_SUMMARY_RECORD_BYTES + SUMMARY_ENVELOPE_BYTES <= SUMMARY_BYTES_RESERVE);
+// Alternating failures make the most ranges. They all fit at the default limit, so only a limit
+// someone raised can ever shorten this list.
+const _: () = assert!(
+    DEFAULT_MAX_BUCKETS_PER_BATCH.div_ceil(2)
+        * ("buckets[".len() + 2 * decimal_width(DEFAULT_MAX_BUCKETS_PER_BATCH - 1) + "..], ".len())
+        <= RANGE_BYTES_LIMIT
+);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Reason {
@@ -123,14 +138,23 @@ struct Retained {
     group: [u8; 32],
 }
 
+/// What the diagnostics say about a failing entry. Passing entries take no space, so a clean
+/// file of any size costs nothing here, and a failing entry costs far less than parsing it did.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EntryReport {
+    /// Failed, but only the summary mentions it so far.
+    Counted,
+    Detailed,
+}
+
 struct Collected {
+    bucket_limit: usize,
     root: Vec<Retained>,
     entries: Vec<Retained>,
     root_bytes: usize,
     entry_bytes: usize,
     total: usize,
-    entry_seen: [bool; BUCKET_LIMIT],
-    entry_retained: [bool; BUCKET_LIMIT],
+    entry_reports: BTreeMap<usize, EntryReport>,
     root_seen: BTreeSet<(RootKey, Reason)>,
     root_unknown_seen: BTreeSet<[u8; 32]>,
     groups: BTreeMap<([u8; 32], Reason), u8>,
@@ -138,16 +162,17 @@ struct Collected {
     first_reasons: BTreeMap<&'static str, usize>,
     root_reasons: BTreeMap<&'static str, usize>,
 }
-impl Default for Collected {
-    fn default() -> Self {
+
+impl Collected {
+    fn new(bucket_limit: usize) -> Self {
         Self {
+            bucket_limit,
             root: Vec::new(),
             entries: Vec::new(),
             root_bytes: 0,
             entry_bytes: 0,
             total: 0,
-            entry_seen: [false; BUCKET_LIMIT],
-            entry_retained: [false; BUCKET_LIMIT],
+            entry_reports: BTreeMap::new(),
             root_seen: BTreeSet::new(),
             root_unknown_seen: BTreeSet::new(),
             groups: BTreeMap::new(),
@@ -156,9 +181,7 @@ impl Default for Collected {
             root_reasons: BTreeMap::new(),
         }
     }
-}
 
-impl Collected {
     fn count(&self) -> usize {
         self.total
     }
@@ -173,23 +196,18 @@ impl Collected {
             .strip_prefix("buckets[")
             .and_then(|suffix| suffix.split_once(']'))
             .and_then(|(index, _)| index.parse::<usize>().ok())
-            .filter(|index| *index < BUCKET_LIMIT);
+            .filter(|index| *index < self.bucket_limit);
         let root_key = RootKey::parse(&key);
         let group = (group_digest(&key), reason);
-        let priority = if let Some((seen, retained)) = entry.and_then(|index| {
-            self.entry_seen
-                .get_mut(index)
-                .zip(self.entry_retained.get(index))
-        }) {
-            let first = !*seen;
-            *seen = true;
-            if first {
-                *self.first_reasons.entry(reason.label()).or_default() += 1;
-            }
-            if *retained {
-                Priority::Extra
-            } else {
-                Priority::FirstKey
+        let priority = if let Some(index) = entry {
+            match self.entry_reports.get(&index) {
+                None => {
+                    self.entry_reports.insert(index, EntryReport::Counted);
+                    *self.first_reasons.entry(reason.label()).or_default() += 1;
+                    Priority::FirstKey
+                }
+                Some(EntryReport::Counted) => Priority::FirstKey,
+                Some(EntryReport::Detailed) => Priority::Extra,
             }
         } else {
             *self.root_reasons.entry(reason.label()).or_default() += 1;
@@ -259,8 +277,8 @@ impl Collected {
             )
         };
         if stored {
-            if let Some(retained) = entry.and_then(|index| self.entry_retained.get_mut(index)) {
-                *retained = true;
+            if let Some(index) = entry {
+                self.entry_reports.insert(index, EntryReport::Detailed);
             } else {
                 self.root_seen.clear();
                 self.root_unknown_seen.clear();
@@ -287,18 +305,12 @@ impl Collected {
                     *count -= 1;
                 }
             }
-            let missing: Vec<_> = self
-                .entry_seen
-                .iter()
-                .zip(self.entry_retained)
-                .map(|(seen, retained)| *seen && !retained)
-                .collect();
             let summary = Diagnostic::new(
                 DiagnosticSource::Initializer,
                 "$",
                 format!(
                     "Omitted {omitted} additional diagnostics (limits: {ARRAY_DIAGNOSTIC_LIMIT} details per normalized path/reason, {DIAGNOSTIC_LIMIT} records, {DIAGNOSTIC_BYTES_LIMIT} rendered bytes). Buckets without details: {}; first-error reasons: {}; omitted reasons: {}; root reasons: {}. Fix the reported fields and retry.",
-                    entry_ranges(&missing),
+                    entry_ranges(&self.entry_reports),
                     reason_counts(&self.first_reasons),
                     reason_counts(&omitted_reasons),
                     reason_counts(&self.root_reasons)
@@ -448,26 +460,41 @@ fn reason_counts(counts: &BTreeMap<&str, usize>) -> String {
     }
 }
 
-fn entry_ranges(seen: &[bool]) -> String {
-    let mut ranges = Vec::new();
-    let mut entries = seen.iter().enumerate().peekable();
-    while let Some((first, _)) = entries.find(|(_, seen)| **seen) {
-        let mut index = first;
-        while entries.peek().is_some_and(|(_, seen)| **seen) {
-            if let Some((next, _)) = entries.next() {
-                index = next;
-            }
+/// Lists the failing entries without details, up to `RANGE_BYTES_LIMIT` and then only as a count.
+fn entry_ranges(reports: &BTreeMap<usize, EntryReport>) -> String {
+    let mut text = String::new();
+    let mut more = 0usize;
+    let mut counted = reports
+        .iter()
+        .filter(|(_, report)| **report == EntryReport::Counted)
+        .map(|(index, _)| *index)
+        .peekable();
+    while let Some(first) = counted.next() {
+        let mut last = first;
+        while let Some(next) = counted.next_if(|next| *next == last + 1) {
+            last = next;
         }
-        if first == index {
-            ranges.push(format!("buckets[{first}]"));
+        if more != 0 {
+            more += 1;
+            continue;
+        }
+        let range = if first == last {
+            format!("buckets[{first}]")
         } else {
-            ranges.push(format!("buckets[{first}..{index}]"));
+            format!("buckets[{first}..{last}]")
+        };
+        let separator = if text.is_empty() { "" } else { ", " };
+        if text.len() + separator.len() + range.len() > RANGE_BYTES_LIMIT {
+            more = 1;
+            continue;
         }
+        text.push_str(separator);
+        text.push_str(&range);
     }
-    if ranges.is_empty() {
-        "none".into()
-    } else {
-        ranges.join(", ")
+    match (text.is_empty(), more) {
+        (true, _) => "none".into(),
+        (false, 0) => text,
+        (false, more) => format!("{text} and {more} more ranges"),
     }
 }
 
@@ -630,7 +657,7 @@ fn value(raw: &RawValue) -> Result<Value, Diagnostics> {
         DiagnosticSource::Initializer, "$", "Cannot decode JSON resource; use a bounded UTF-8 JSON document with native bucket settings."))
 }
 
-fn duplicates(raw: &RawValue, key: &str, diagnostics: &mut Collected) {
+fn duplicates(raw: &RawValue, key: &str, bucket_limit: usize, diagnostics: &mut Collected) {
     if raw.get().starts_with('{') {
         if let Some(Members(fields)) = members(raw) {
             let mut seen = BTreeMap::new();
@@ -648,7 +675,7 @@ fn duplicates(raw: &RawValue, key: &str, diagnostics: &mut Collected) {
                         ),
                     );
                 }
-                duplicates(raw, &field, diagnostics);
+                duplicates(raw, &field, bucket_limit, diagnostics);
             }
         }
     } else if raw.get().starts_with('[')
@@ -657,13 +684,13 @@ fn duplicates(raw: &RawValue, key: &str, diagnostics: &mut Collected) {
         for (index, raw) in items
             .iter()
             .take(if key == "buckets" {
-                BUCKET_LIMIT
+                bucket_limit
             } else {
                 usize::MAX
             })
             .enumerate()
         {
-            duplicates(raw, &format!("{key}[{index}]"), diagnostics);
+            duplicates(raw, &format!("{key}[{index}]"), bucket_limit, diagnostics);
         }
     }
 }
@@ -1043,8 +1070,15 @@ pub async fn apply(
     };
     let project = config.seed_project.clone();
     let default_location = config.default_location.clone();
+    let bucket_limit = config.max_buckets_per_batch;
     let records = crate::task::run_blocking("bucket-initializer", move || {
-        load(&path, &project, clock.as_ref(), &default_location)
+        load(
+            &path,
+            &project,
+            clock.as_ref(),
+            &default_location,
+            bucket_limit,
+        )
     })
     .await
     .map_err(|_| {
@@ -1096,7 +1130,8 @@ pub async fn apply(
 
 fn initialization_failure(error: &AdminError) -> std::io::Error {
     let reason = match error {
-        AdminError::DiskFull(_) => "disk full",
+        // A RAM catalog fills long before a disk does: its budget is 16 MiB by default.
+        AdminError::DiskFull(_) => "disk full; with backend memory, raise memory_catalog_max_bytes",
         AdminError::Busy { .. } => "administrative admission timed out",
         AdminError::Closed => "catalog closed",
         AdminError::Corrupt(_) => "catalog corrupt",
@@ -1113,12 +1148,26 @@ fn initialization_failure(error: &AdminError) -> std::io::Error {
     ))
 }
 
+fn file_limit(bucket_limit: usize) -> usize {
+    bucket_limit
+        .saturating_mul(FILE_BYTES_PER_BUCKET)
+        .max(FILE_LIMIT)
+}
+
+fn file_limit_fix(bucket_limit: usize) -> String {
+    format!(
+        "Bucket initialization file exceeds {} bytes; reduce it, or raise max_buckets_per_batch, which allows 1 KiB per bucket and at least 1 MiB in all.",
+        file_limit(bucket_limit)
+    )
+}
+
 /// Read one selected regular file; relative paths use the process working directory.
 pub(crate) fn load(
     file: &Path,
     seed_project: &str,
     clock: &dyn Clock,
     default_location: &str,
+    bucket_limit: usize,
 ) -> Result<Vec<BucketRecord>, Diagnostics> {
     let read_failure = || {
         Diagnostics::error(
@@ -1139,12 +1188,12 @@ pub(crate) fn load(
     if !file.metadata().map_err(|_| read_failure())?.is_file() {
         return Err(read_failure());
     }
-    let bytes = bounded_file::read_from(file, FILE_LIMIT as u64).map_err(|error| Diagnostics::error(
+    let bytes = bounded_file::read_from(file, file_limit(bucket_limit) as u64).map_err(|error| Diagnostics::error(
         DiagnosticSource::Initializer, "buckets_file", match error {
-            ReadError::Limit => "Bucket initialization file exceeds 1 MiB; reduce it to at most 1,048,576 bytes.",
-            ReadError::Io(_) => "Cannot read bucket initialization file; select a readable local JSON file, for example buckets.json.",
+            ReadError::Limit => file_limit_fix(bucket_limit),
+            ReadError::Io(_) => "Cannot read bucket initialization file; select a readable local JSON file, for example buckets.json.".into(),
         }))?;
-    parse(&bytes, seed_project, clock, default_location)
+    parse(&bytes, seed_project, clock, default_location, bucket_limit)
 }
 
 /// Validate the entire document before returning any records, always using native semantics.
@@ -1153,12 +1202,14 @@ pub(crate) fn parse(
     seed_project: &str,
     clock: &dyn Clock,
     default_location: &str,
+    bucket_limit: usize,
 ) -> Result<Vec<BucketRecord>, Diagnostics> {
     let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
-    if bytes.len() > FILE_LIMIT {
-        return Err(failure(
+    if bytes.len() > file_limit(bucket_limit) {
+        return Err(Diagnostics::error(
+            DiagnosticSource::Initializer,
             "buckets_file",
-            "Bucket initialization file exceeds 1 MiB; reduce it to at most 1,048,576 bytes.",
+            file_limit_fix(bucket_limit),
         ));
     }
     // Value enforces UTF-8, finite numbers and serde's recursion bound before raw traversal.
@@ -1175,8 +1226,8 @@ pub(crate) fn parse(
             "Expected an object; use {\"version\":1,\"buckets\":[]}.",
         ));
     };
-    let mut diagnostics = Collected::default();
-    duplicates(raw, "", &mut diagnostics);
+    let mut diagnostics = Collected::new(bucket_limit);
+    duplicates(raw, "", bucket_limit, &mut diagnostics);
     closed::<Document>(&root, "", &mut diagnostics);
     let find = |name: &str| {
         root.0
@@ -1235,21 +1286,21 @@ pub(crate) fn parse(
             );
             continue;
         };
-        if entries.len() > BUCKET_LIMIT {
+        if entries.len() > bucket_limit {
             error(
                 &mut diagnostics,
                 Reason::Limit,
                 "buckets",
                 format!(
-                    "Too many buckets; keep at most 1000 entries. Remaining {} entries were not inspected.",
-                    entries.len() - BUCKET_LIMIT
+                    "Too many buckets; keep at most {bucket_limit} entries or raise max_buckets_per_batch. Remaining {} entries were not inspected.",
+                    entries.len() - bucket_limit
                 ),
             );
         }
         if !version_valid {
             continue;
         }
-        for (index, raw) in entries.iter().take(BUCKET_LIMIT).enumerate() {
+        for (index, raw) in entries.iter().take(bucket_limit).enumerate() {
             if let Some(entry) = check_entry(raw, index, now, &mut names, &mut diagnostics)? {
                 checked.push(entry);
             }
@@ -1415,8 +1466,59 @@ mod tests {
         }
     }
 
+    const DEFAULT_LIMIT: usize = DEFAULT_MAX_BUCKETS_PER_BATCH;
+
+    fn parse(
+        bytes: &[u8],
+        seed_project: &str,
+        clock: &dyn Clock,
+        default_location: &str,
+    ) -> Result<Vec<BucketRecord>, Diagnostics> {
+        super::parse(bytes, seed_project, clock, default_location, DEFAULT_LIMIT)
+    }
+
+    fn load(
+        file: &Path,
+        seed_project: &str,
+        clock: &dyn Clock,
+        default_location: &str,
+    ) -> Result<Vec<BucketRecord>, Diagnostics> {
+        super::load(file, seed_project, clock, default_location, DEFAULT_LIMIT)
+    }
+
+    fn parsed_within(document: &str, limit: usize) -> Result<Vec<BucketRecord>, Diagnostics> {
+        super::parse(
+            document.as_bytes(),
+            "seed-project",
+            &FixedClock,
+            "US",
+            limit,
+        )
+    }
+
     fn parsed(document: &str) -> Result<Vec<BucketRecord>, Diagnostics> {
-        parse(document.as_bytes(), "seed-project", &FixedClock, "US")
+        parsed_within(document, DEFAULT_LIMIT)
+    }
+
+    fn rendered_bytes(errors: &Diagnostics) -> usize {
+        let mut output = Vec::new();
+        errors.write(&mut output).unwrap();
+        output.len()
+    }
+
+    /// Every entry is valid unless `failing` says otherwise, and valid names stay unique.
+    fn document_of(failing: impl Iterator<Item = bool>) -> String {
+        let entries = failing
+            .enumerate()
+            .map(|(index, failing)| {
+                if failing {
+                    json!({"name":format!("bad name-{index}")})
+                } else {
+                    json!({"name":format!("bucket-{index:07}")})
+                }
+            })
+            .collect::<Vec<_>>();
+        json!({"version":1,"buckets":entries}).to_string()
     }
 
     fn keys(document: &str) -> Vec<String> {
@@ -1528,6 +1630,17 @@ mod tests {
         }
 
         #[test]
+        fn arbitrary_bytes_never_panic_at_any_limit(
+            bytes in prop::collection::vec(any::<u8>(), 0..4096),
+            limit in prop_oneof![Just(1usize), 1usize..=1_000_000, Just(1_000_000)],
+        ) {
+            if let Err(errors) = super::parse(&bytes, "seed-project", &FixedClock, "US", limit) {
+                prop_assert!(errors.is_err());
+                prop_assert!(rendered_bytes(&errors) <= DIAGNOSTIC_BYTES_LIMIT);
+            }
+        }
+
+        #[test]
         fn arbitrary_json_shapes_and_depths_never_panic(value in arbitrary_json(), depth in 0..160usize) {
             let _ = parsed(&value.to_string());
             let nested = format!("{}{}{}", "[".repeat(depth), value, "]".repeat(depth));
@@ -1550,6 +1663,26 @@ mod tests {
             match parsed(&document.to_string()) {
                 Ok(records) => { prop_assert_eq!(records.len(), 1); prop_assert_eq!(records[0].name.as_str(), resource["name"].as_str().unwrap()); }
                 Err(errors) => { prop_assert!(errors.errors.iter().all(|record| record.key != "$" || record.fix.starts_with("Omitted")), "{errors:?}"); }
+            }
+        }
+    }
+
+    proptest! {
+        // Each case parses a whole document, so a few cases keep the suite fast.
+        #![proptest_config(ProptestConfig::with_cases(16))]
+
+        #[test]
+        fn any_failure_pattern_at_any_limit_stays_within_the_diagnostic_bounds(
+            failing in prop::collection::vec(any::<bool>(), 0..3000),
+            limit in prop_oneof![1usize..3000, Just(1_000_000)],
+        ) {
+            let document = document_of(failing.iter().copied());
+            let result = parsed_within(&document, limit);
+            let expect_success = failing.len() <= limit && !failing.iter().any(|failing| *failing);
+            prop_assert_eq!(result.is_ok(), expect_success);
+            if let Err(errors) = result {
+                prop_assert!(errors.errors.len() <= DIAGNOSTIC_LIMIT);
+                prop_assert!(rendered_bytes(&errors) <= DIAGNOSTIC_BYTES_LIMIT);
             }
         }
     }
@@ -1779,7 +1912,7 @@ mod tests {
     #[test]
     fn first_error_summaries_cover_all_entries_with_bounded_ranges() {
         for alternating in [false, true] {
-            let entries = (0..BUCKET_LIMIT).map(|index| json!({"name":if !alternating || index % 2 == 0 { format!("bad name-{index}") } else { format!("bucket-{index:04}") }})).collect::<Vec<_>>();
+            let entries = (0..DEFAULT_LIMIT).map(|index| json!({"name":if !alternating || index % 2 == 0 { format!("bad name-{index}") } else { format!("bucket-{index:04}") }})).collect::<Vec<_>>();
             let errors = parsed(&json!({"version":1,"buckets":entries}).to_string()).unwrap_err();
             let summary = &errors.errors.last().unwrap().fix;
             if alternating {
@@ -1790,11 +1923,102 @@ mod tests {
                 assert!(summary.contains("buckets[239..999]"));
                 assert!(summary.contains("native-value=1000"));
             }
+            assert!(!summary.contains("more ranges"), "{summary}");
             assert!(errors.errors.len() <= DIAGNOSTIC_LIMIT);
-            let mut rendered = Vec::new();
-            errors.write(&mut rendered).unwrap();
-            assert!(rendered.len() <= DIAGNOSTIC_BYTES_LIMIT);
+            assert!(rendered_bytes(&errors) <= DIAGNOSTIC_BYTES_LIMIT);
         }
+    }
+
+    /// Alternating failures make one range per failing entry: without a byte limit on the list,
+    /// this summary alone would be about 400 KiB against a 64 KiB budget for the whole report.
+    #[test]
+    fn a_raised_limit_shortens_the_summary_and_counts_the_ranges_it_left_out() {
+        const COUNT: usize = 40_000;
+        let document = document_of((0..COUNT).map(|index| index % 2 == 0));
+        let errors = parsed_within(&document, COUNT).unwrap_err();
+        assert!(errors.errors.len() <= DIAGNOSTIC_LIMIT);
+        assert!(rendered_bytes(&errors) <= DIAGNOSTIC_BYTES_LIMIT);
+        let summary = &errors.errors.last().unwrap().fix;
+        assert!(summary.contains("native-value=20000"), "{summary}");
+        let (ranges, rest) = summary
+            .split_once(" more ranges; ")
+            .expect("a list past the byte limit ends with a count");
+        let (ranges, more) = ranges.rsplit_once(" and ").unwrap();
+        let listed = ranges.matches("buckets[").count();
+        let detailed = errors.errors.len() - 1;
+        assert_eq!(
+            listed + more.parse::<usize>().unwrap() + detailed,
+            COUNT / 2
+        );
+        assert!(rest.starts_with("first-error reasons:"), "{summary}");
+    }
+
+    #[test]
+    fn the_bucket_limit_is_inclusive_and_its_failure_names_the_setting() {
+        for limit in [1, 2, DEFAULT_LIMIT + 1, 5000] {
+            let at_limit = document_of((0..limit).map(|_| false));
+            assert_eq!(parsed_within(&at_limit, limit).unwrap().len(), limit);
+            let past_limit = document_of((0..=limit).map(|_| false));
+            let errors = parsed_within(&past_limit, limit).unwrap_err();
+            assert_eq!(errors.errors.len(), 1, "{errors}");
+            assert_eq!(errors.errors[0].key, "buckets");
+            assert!(
+                errors.errors[0]
+                    .fix
+                    .contains(&format!("at most {limit} entries")),
+                "{errors}"
+            );
+            assert!(
+                errors.errors[0].fix.contains("max_buckets_per_batch"),
+                "{errors}"
+            );
+            assert!(
+                errors.errors[0]
+                    .fix
+                    .contains("Remaining 1 entries were not inspected"),
+                "{errors}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_one_mib() {
+        assert_eq!(file_limit(1), FILE_LIMIT);
+        assert_eq!(file_limit(DEFAULT_LIMIT), FILE_LIMIT);
+        assert_eq!(file_limit(FILE_LIMIT / FILE_BYTES_PER_BUCKET), FILE_LIMIT);
+        assert_eq!(file_limit(2000), 2000 * FILE_BYTES_PER_BUCKET);
+        assert_eq!(file_limit(1_000_000), 1_000_000 * FILE_BYTES_PER_BUCKET);
+
+        let directory = crate::test_support::TestDir::new();
+        let file = directory.0.join("buckets.json");
+        let limit = 2000;
+        let empty = r#"{"version":1,"buckets":[]}"#;
+        let fill = |extra: usize| {
+            format!(
+                "{empty}{}",
+                " ".repeat(file_limit(limit) - empty.len() + extra)
+            )
+        };
+        assert!(parsed_within(&fill(0), limit).is_ok());
+        for failure in [
+            parsed_within(&fill(1), limit).unwrap_err(),
+            {
+                fs::write(&file, fill(1)).unwrap();
+                super::load(&file, "seed-project", &FixedClock, "US", limit).unwrap_err()
+            },
+            {
+                fs::write(&file, fill(0)).unwrap();
+                load(&file, "seed-project", &FixedClock, "US").unwrap_err()
+            },
+        ] {
+            assert_eq!(failure.errors[0].key, "buckets_file");
+            assert!(
+                failure.errors[0].fix.contains("max_buckets_per_batch"),
+                "{failure}"
+            );
+        }
+        fs::write(&file, fill(0)).unwrap();
+        assert!(super::load(&file, "seed-project", &FixedClock, "US", limit).is_ok());
     }
 
     #[test]
@@ -1834,7 +2058,7 @@ mod tests {
 
     #[test]
     fn entries_after_the_count_limit_are_not_interpreted() {
-        let mut entries = (0..BUCKET_LIMIT)
+        let mut entries = (0..DEFAULT_LIMIT)
             .map(|index| json!({"name":format!("bucket-{index:04}")}))
             .collect::<Vec<_>>();
         entries.push(json!({"unknown":true}));
@@ -2151,7 +2375,7 @@ mod tests {
         assert!(!errors.to_string().contains("secret"));
         assert_eq!(distance("aa", "ab"), 1);
         let raw: &RawValue = serde_json::from_str(r#"{"":1}"#).unwrap();
-        let mut errors = Collected::default();
+        let mut errors = Collected::new(DEFAULT_LIMIT);
         closed::<Document>(&members(raw).unwrap(), "", &mut errors);
         assert!(errors.finish().errors[0].fix.contains("use buckets,"));
     }
@@ -2200,6 +2424,17 @@ mod tests {
         assert_eq!(
             initialization_failure(&AdminError::Corrupt("invalid stored enum".into())).to_string(),
             "buckets_file: Cannot initialize buckets (catalog corrupt); inspect the native catalog and available disk space, then restart to retry create-missing."
+        );
+    }
+
+    #[test]
+    fn a_full_catalog_names_the_budget_of_a_memory_backend() {
+        let failure = initialization_failure(&AdminError::DiskFull(
+            std::io::ErrorKind::StorageFull.into(),
+        ));
+        assert!(
+            failure.to_string().contains("memory_catalog_max_bytes"),
+            "{failure}"
         );
     }
 

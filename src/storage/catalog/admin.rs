@@ -31,7 +31,6 @@ use std::{fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
 pub(crate) const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
-pub(crate) const MAX_BUCKETS: usize = 1000;
 pub(crate) const MAX_PAGE: usize = 256;
 
 pub(crate) mod imported_identity;
@@ -576,15 +575,12 @@ impl Admin {
             .ok_or_else(|| AdminError::Backend("missing ensured bucket".into()))
     }
 
+    /// Publishes every bucket in one transaction. The initialization file that supplies a batch
+    /// has already enforced `max_buckets_per_batch`, so a batch needs no second count here.
     pub(crate) async fn ensure_buckets(
         &self,
         records: Vec<BucketDefinition>,
     ) -> Result<Vec<EnsureBucket>, AdminError> {
-        if records.len() > MAX_BUCKETS {
-            return Err(AdminError::Invalid(
-                "bucket batch exceeds 1000 entries".into(),
-            ));
-        }
         let mut names = std::collections::HashSet::new();
         if records.iter().any(|record| !names.insert(&record.0.name)) {
             return Err(AdminError::Invalid("duplicate bucket name".into()));

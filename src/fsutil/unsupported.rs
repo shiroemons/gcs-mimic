@@ -23,6 +23,15 @@ pub fn directory_names_after(
     Err(io::ErrorKind::Unsupported.into())
 }
 
+pub(crate) fn directory_names_within(
+    directory: &File,
+    after: Option<&OsStr>,
+    limit: usize,
+    _: usize,
+) -> io::Result<Vec<OsString>> {
+    directory_names_after(directory, after, limit)
+}
+
 pub fn directory_writable(_: &File) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }

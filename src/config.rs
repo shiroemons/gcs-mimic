@@ -28,11 +28,14 @@ pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
     ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,
 };
-pub(crate) use setting::Setting;
+pub(crate) use setting::{MAX_OBJECT_BYTES, MAX_TREE_DEPTH, MAX_TREE_ENTRIES, Setting};
 pub use storage::Backend;
 
 /// Reserved-domain (RFC 2606) address, so it can never name a real Google account.
 pub const DEFAULT_LOCAL_CREATOR_EMAIL: &str = "local-user@gcs-mimic.invalid";
+/// Cloud Storage documents no limit on buckets per project, so this is a local choice. It sizes
+/// one startup transaction, not how many buckets a server can hold.
+pub(crate) const DEFAULT_MAX_BUCKETS_PER_BATCH: usize = 1000;
 
 /// RFC 9113 section 6.5.2 recommends advertising no fewer than 100 concurrent streams, "so as to
 /// not unnecessarily limit parallelism". A client past the limit queues its calls on its side.
@@ -174,6 +177,14 @@ pub struct Config {
     pub max_seed_entries: usize,
     /// Directory levels a seed tree may nest below a bucket.
     pub max_seed_depth: usize,
+    /// Buckets one initialization file or one seed may declare; other buckets of the server do
+    /// not count. Either is one atomic publication, so its memory grows with the batch.
+    pub max_buckets_per_batch: usize,
+    /// Files and directories a synchronized tree may hold. A scan keeps one page per directory
+    /// level, so a larger tree takes longer but holds no more memory.
+    pub max_sync_entries: usize,
+    /// Directory levels a synchronized tree may nest below `sync_dir`, counting the bucket.
+    pub max_sync_depth: usize,
     pub default_location: String,
     /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
     pub default_soft_delete_retention_seconds: Option<std::num::NonZeroU64>,
@@ -251,6 +262,9 @@ impl Default for Config {
             seed_content_type: crate::mime::SeedContentType::Extension,
             max_seed_entries: 10_000,
             max_seed_depth: 32,
+            max_buckets_per_batch: DEFAULT_MAX_BUCKETS_PER_BATCH,
+            max_sync_entries: crate::sync::tree::DEFAULT_ENTRIES,
+            max_sync_depth: crate::sync::tree::DEFAULT_DEPTH,
             default_location: "US".into(),
             // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
             // so a local disk or RAM budget is not spent on bytes nobody will restore.
@@ -589,6 +603,9 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::MaxRewriteSessions
         | Setting::MaxSeedEntries
         | Setting::MaxSeedDepth
+        | Setting::MaxBucketsPerBatch
+        | Setting::MaxSyncEntries
+        | Setting::MaxSyncDepth
         | Setting::WorkerThreads
         | Setting::MaxBlockingThreads => apply_limit_setting(config, setting, &value),
         Setting::ConnectionTimeoutMs
@@ -853,6 +870,9 @@ fn apply_limit_setting(
         Setting::MaxRewriteSessions => config.max_rewrite_sessions = session_limit()?,
         Setting::MaxSeedEntries => config.max_seed_entries = count()?,
         Setting::MaxSeedDepth => config.max_seed_depth = count()?,
+        Setting::MaxBucketsPerBatch => config.max_buckets_per_batch = count()?,
+        Setting::MaxSyncEntries => config.max_sync_entries = count()?,
+        Setting::MaxSyncDepth => config.max_sync_depth = count()?,
         Setting::WorkerThreads => config.worker_threads = count()?,
         Setting::MaxBlockingThreads => config.max_blocking_threads = count()?,
         _ => return Err(unknown_setting()),
@@ -945,11 +965,14 @@ impl ConfigurationReport {
         if config.sync_dir.is_none() && !self.invalid.contains("sync_dir") {
             for input in settings
                 .values()
-                .filter(|input| input.name.starts_with("sync_"))
+                .filter(|input| setting::requires_sync_dir(&input.name))
             {
                 if self.invalid.insert(input.name.clone()) {
-                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
-                        "This setting requires sync_dir; supply --sync-dir DIRECTORY or remove the guard/reinitialization setting."));
+                    self.diagnostics.errors.push(Diagnostic::new(
+                        input.source,
+                        &input.key,
+                        "This setting requires sync_dir; supply --sync-dir DIRECTORY or remove this setting.",
+                    ));
                 }
             }
         }
@@ -2509,6 +2532,109 @@ mod tests {
             &["0", "1025"],
             "max_seed_depth must be an integer in 1..=1024",
         );
+    }
+
+    #[test]
+    fn the_bucket_batch_limit_keeps_its_default_and_rejects_values_out_of_range() {
+        assert_eq!(Config::default().max_buckets_per_batch, 1000);
+        let args = ["--max-buckets-per-batch", "1000000"].map(str::to_owned);
+        let config = Config::load(&args, &BTreeMap::new()).unwrap();
+        assert_eq!(config.max_buckets_per_batch, 1_000_000);
+        let env = BTreeMap::from([("GCS_MIMIC_MAX_BUCKETS_PER_BATCH".to_owned(), "1".to_owned())]);
+        assert_eq!(Config::load(&[], &env).unwrap().max_buckets_per_batch, 1);
+        let directory = TestDir::new();
+        let file = directory.0.join("config.json");
+        std::fs::write(&file, r#"{"max_buckets_per_batch":2000}"#).unwrap();
+        let args = ["--config".to_owned(), file.to_str().unwrap().to_owned()];
+        assert_eq!(
+            Config::load(&args, &BTreeMap::new())
+                .unwrap()
+                .max_buckets_per_batch,
+            2000
+        );
+        assert_rejected(
+            "max_buckets_per_batch",
+            &["0", "1000001"],
+            "max_buckets_per_batch must be an integer in 1..=1000000",
+        );
+    }
+
+    #[test]
+    fn sync_tree_limits_keep_their_defaults_and_mean_nothing_without_a_sync_dir() {
+        let default = Config::default();
+        assert_eq!(
+            (default.max_sync_entries, default.max_sync_depth),
+            (10_000, 128)
+        );
+        let tree = TestDir::new();
+        let data = TestDir::new();
+        let args = [
+            "--sync-dir",
+            tree.0.to_str().unwrap(),
+            "--data-dir",
+            data.0.to_str().unwrap(),
+            "--max-sync-entries",
+            "100000000",
+            "--max-sync-depth",
+            "1024",
+        ]
+        .map(str::to_owned);
+        let config = Config::load(&args, &BTreeMap::new()).unwrap();
+        assert_eq!(
+            (config.max_sync_entries, config.max_sync_depth),
+            (100_000_000, 1024)
+        );
+        for (flag, env) in [
+            ("--max-sync-entries", "GCS_MIMIC_MAX_SYNC_ENTRIES"),
+            ("--max-sync-depth", "GCS_MIMIC_MAX_SYNC_DEPTH"),
+        ] {
+            for (key, args, env) in [
+                (flag, vec![flag.to_owned(), "5".to_owned()], BTreeMap::new()),
+                (
+                    env,
+                    Vec::new(),
+                    BTreeMap::from([(env.to_owned(), "5".to_owned())]),
+                ),
+            ] {
+                let errors = Config::load(&args, &env).unwrap_err();
+                assert!(
+                    errors
+                        .errors
+                        .iter()
+                        .any(|error| error.key == key && error.fix.contains("requires sync_dir")),
+                    "{errors}"
+                );
+            }
+        }
+        for (setting, values, fix) in [
+            (
+                "--max-sync-entries",
+                ["0", "100000001"],
+                "max_sync_entries must be an integer in 1..=100000000",
+            ),
+            (
+                "--max-sync-depth",
+                ["0", "1025"],
+                "max_sync_depth must be an integer in 1..=1024",
+            ),
+        ] {
+            for value in values {
+                let args = [
+                    "--sync-dir",
+                    tree.0.to_str().unwrap(),
+                    "--data-dir",
+                    data.0.to_str().unwrap(),
+                    setting,
+                    value,
+                ]
+                .map(str::to_owned);
+                let errors = Config::load(&args, &BTreeMap::new()).unwrap_err();
+                assert!(
+                    errors.errors.iter().any(|error| error.fix.contains(fix)),
+                    "{errors}"
+                );
+            }
+        }
     }
 
     #[test]

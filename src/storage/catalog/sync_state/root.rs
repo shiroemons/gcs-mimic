@@ -464,12 +464,20 @@ pub struct RootLease {
     marker_identity: FileIdentity,
     authority: Arc<super::authority::ControlAuthority>,
     stopping: Option<tokio::sync::watch::Receiver<bool>>,
+    tree_limits: crate::sync::tree::TreeLimits,
     pub(super) published_observation: super::observation::publication::Published,
 }
 impl RootLease {
     pub(crate) fn with_shutdown(mut self, stopping: tokio::sync::watch::Receiver<bool>) -> Self {
         self.stopping = Some(stopping);
         self
+    }
+    pub(crate) fn with_tree_limits(mut self, limits: crate::sync::tree::TreeLimits) -> Self {
+        self.tree_limits = limits;
+        self
+    }
+    pub(crate) fn tree_limits(&self) -> crate::sync::tree::TreeLimits {
+        self.tree_limits
     }
     pub(crate) fn stop_signal(&self) -> Option<tokio::sync::watch::Receiver<bool>> {
         self.stopping.clone()
@@ -697,6 +705,7 @@ impl SyncState {
             marker_identity,
             authority: Arc::new(super::authority::ControlAuthority::Permissive),
             stopping: None,
+            tree_limits: Default::default(),
             published_observation: Default::default(),
         })
     }

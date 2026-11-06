@@ -176,6 +176,7 @@ async fn import_directory(
         source_root,
         config,
         clock,
+        buckets: 0,
     };
     let mut skipped_os_metadata = 0;
     loop {
@@ -224,6 +225,7 @@ struct Seed<'a> {
     source_root: std::sync::Arc<std::fs::File>,
     config: &'a Config,
     clock: &'a dyn Clock,
+    buckets: usize,
 }
 
 /// One walked fixture entry.
@@ -297,9 +299,14 @@ impl Seed<'_> {
     }
 
     fn bucket(&mut self, leaf: &str) -> Result<(), SeedError> {
+        let limit = self.config.max_buckets_per_batch;
+        if self.buckets >= limit {
+            return Err(SeedError::BucketLimit { limit });
+        }
         let name = BucketName::new(leaf).map_err(SeedError::BucketName)?;
         let record = BucketDefinition::default_for(&name, &self.config.seed_project, self.clock)?;
         self.batch.bucket(record)?;
+        self.buckets += 1;
         Ok(())
     }
 

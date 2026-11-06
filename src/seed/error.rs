@@ -10,6 +10,7 @@ pub enum SeedError {
     RelativePath(StripPrefixError),
     EntryLimit { limit: usize },
     DepthLimit { limit: usize },
+    BucketLimit { limit: usize },
     NotDirectory,
     Overlap,
     WalkStopped,
@@ -35,6 +36,10 @@ impl fmt::Display for SeedError {
             Self::DepthLimit { limit } => write!(
                 f,
                 "fixture exceeds {limit} directory levels below a bucket; raise max_seed_depth or flatten the tree"
+            ),
+            Self::BucketLimit { limit } => write!(
+                f,
+                "fixture exceeds {limit} buckets; raise max_buckets_per_batch or reduce the tree"
             ),
             Self::NotDirectory => f.write_str("seed_dir must be a directory, not a symlink"),
             Self::Overlap => f.write_str("seed_dir and data_dir must not overlap"),

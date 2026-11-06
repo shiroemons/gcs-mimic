@@ -1,4 +1,5 @@
 //! Native notifications trigger bounded descriptor-relative rescans.
+use crate::sync::tree::TreeLimits;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::fd::AsRawFd;
 use std::{fs::File, io, path::Path};
@@ -92,19 +93,19 @@ impl Watch {
         }
     }
 }
-pub(crate) fn build(root: &File, path: &Path) -> io::Result<Native> {
+pub(crate) fn build(root: &File, path: &Path, limits: TreeLimits) -> io::Result<Native> {
     #[cfg(target_os = "macos")]
     {
-        fsevents::build(root, path)
+        fsevents::build(root, path, limits)
     }
     #[cfg(target_os = "linux")]
     {
         let _ = path;
-        inotify::build(root)
+        inotify::build(root, limits)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        let _ = (root, path);
+        let _ = (root, path, limits);
         Err(io::ErrorKind::Unsupported.into())
     }
 }

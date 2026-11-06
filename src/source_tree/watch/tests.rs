@@ -11,7 +11,15 @@ async fn native_watch_covers_more_than_a_thousand_files_without_per_file_descrip
         fs::write(root.0.join(format!("bucket/body-{index}")), b"initial").unwrap();
     }
     let directory = fsutil::open_directory_nofollow(&root.0).unwrap();
-    let watcher = Watch::new(build(&directory, &root.0.canonicalize().unwrap()).unwrap()).unwrap();
+    let watcher = Watch::new(
+        build(
+            &directory,
+            &root.0.canonicalize().unwrap(),
+            TreeLimits::default(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     fs::write(root.0.join("bucket/body-1099"), b"in-place change").unwrap();
     tokio::time::timeout(Duration::from_secs(3), watcher.changed())
         .await
@@ -45,8 +53,15 @@ async fn native_watch_observes_nested_writes_atomic_replacement_and_directory_ch
     let body = root.0.join("bucket/nested/body");
     fs::write(&body, b"initial").unwrap();
     let directory = fsutil::open_directory_nofollow(&root.0).unwrap();
-    let mut watcher =
-        Watch::new(build(&directory, &root.0.canonicalize().unwrap()).unwrap()).unwrap();
+    let mut watcher = Watch::new(
+        build(
+            &directory,
+            &root.0.canonicalize().unwrap(),
+            TreeLimits::default(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert_idle(&watcher).await;
     for operation in ["write", "replace", "new-directory", "delete"] {
         match operation {
@@ -64,7 +79,15 @@ async fn native_watch_observes_nested_writes_atomic_replacement_and_directory_ch
             .await
             .unwrap()
             .unwrap();
-        watcher = Watch::new(build(&directory, &root.0.canonicalize().unwrap()).unwrap()).unwrap();
+        watcher = Watch::new(
+            build(
+                &directory,
+                &root.0.canonicalize().unwrap(),
+                TreeLimits::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         // A straggler from this operation must not satisfy the next one's check.
         assert_idle(&watcher).await;
     }
@@ -77,7 +100,15 @@ async fn native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity()
     fs::write(outside.0.join("body"), b"outside").unwrap();
     std::os::unix::fs::symlink(&outside.0, root.0.join("link")).unwrap();
     let directory = fsutil::open_directory_nofollow(&root.0).unwrap();
-    let watcher = Watch::new(build(&directory, &root.0.canonicalize().unwrap()).unwrap()).unwrap();
+    let watcher = Watch::new(
+        build(
+            &directory,
+            &root.0.canonicalize().unwrap(),
+            TreeLimits::default(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     // Drain FSEvents stragglers from the setup first, so a change seen after the
     // outside write can only come from that write.
     assert_idle(&watcher).await;
@@ -89,13 +120,74 @@ async fn native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity()
     );
     #[cfg(target_os = "linux")]
     {
-        let mut full = inotify::Native::new().unwrap();
-        full.count = inotify::MAX_WATCHES;
-        assert!(
-            full.register(&directory)
-                .unwrap_err()
-                .to_string()
-                .contains("limit")
-        );
+        let mut full = inotify::Native::new(1).unwrap();
+        full.register(&directory).unwrap();
+        let failure = full.register(&directory).unwrap_err().to_string();
+        assert!(failure.contains("1 directories"), "{failure}");
+        assert!(failure.contains("max_sync_entries"), "{failure}");
     }
+}
+
+fn built(root: &TestDir, limits: TreeLimits) -> io::Result<Native> {
+    let directory = fsutil::open_directory_nofollow(&root.0)?;
+    build(&directory, &root.0.canonicalize()?, limits)
+}
+
+/// Linux used to stop at 1022 watched directories whatever the tree limit allowed, so a tree the
+/// scans accepted could not start. A watch holds no descriptor, so only the tree limit bounds it.
+#[test]
+fn a_watch_follows_the_tree_limit_instead_of_a_fixed_directory_count() {
+    const DIRECTORIES: usize = 1100;
+    let root = TestDir::new();
+    fs::create_dir(root.0.join("bucket")).unwrap();
+    for index in 1..DIRECTORIES {
+        fs::create_dir(root.0.join(format!("bucket/{index:04}"))).unwrap();
+    }
+    built(&root, TreeLimits::default()).unwrap();
+    let exact = TreeLimits {
+        entries: DIRECTORIES,
+        ..TreeLimits::default()
+    };
+    built(&root, exact).unwrap();
+    let short = TreeLimits {
+        entries: DIRECTORIES - 1,
+        ..TreeLimits::default()
+    };
+    let failure = built(&root, short).err().unwrap().to_string();
+    assert!(failure.contains("max_sync_entries"), "{failure}");
+}
+
+#[test]
+fn a_watch_applies_the_depth_limit_inclusively_and_names_the_setting() {
+    let root = TestDir::new();
+    fs::create_dir_all(root.0.join("one/two/three")).unwrap();
+    let limits = |depth| TreeLimits {
+        depth,
+        ..TreeLimits::default()
+    };
+    built(&root, limits(3)).unwrap();
+    let failure = built(&root, limits(2)).err().unwrap().to_string();
+    assert!(failure.contains("2 levels"), "{failure}");
+    assert!(failure.contains("max_sync_depth"), "{failure}");
+}
+
+/// One directory larger than the former 10,000-name inspection cap must work under a raised limit.
+#[test]
+fn a_watch_inspects_a_directory_as_large_as_the_tree_limit() {
+    const FILES: usize = 10_050;
+    let root = TestDir::new();
+    fs::create_dir(root.0.join("bucket")).unwrap();
+    for index in 0..FILES {
+        fs::write(root.0.join(format!("bucket/{index:05}")), b"").unwrap();
+    }
+    let failure = built(&root, TreeLimits::default())
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(failure.contains("max_sync_entries"), "{failure}");
+    let raised = TreeLimits {
+        entries: FILES + 1,
+        ..TreeLimits::default()
+    };
+    built(&root, raised).unwrap();
 }

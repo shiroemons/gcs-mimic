@@ -186,9 +186,6 @@ impl SeedBatch {
     }
 
     pub(crate) fn bucket(&mut self, definition: BucketDefinition) -> Result<(), AdminError> {
-        if self.buckets.len() >= MAX_BUCKETS {
-            return Err(AdminError::Invalid("seed exceeds 1000 buckets".into()));
-        }
         self.charge_metadata(metadata_size(&definition.0)?)?;
         self.buckets.push(definition);
         Ok(())
