@@ -15,7 +15,7 @@ Each command ran through `bash scripts/with-test-tmpdir.sh`, with the pinned too
 | Command | Result |
 | --- | --- |
 | `cargo test --locked --lib -- soft_delete catalog::connection::tests resumable_http_tests resumable::admission::tests resumable::writers resumable_lifecycle_tests config:: time_limit fd_limit reclaim_tests notification_outbox upload_replay xml_multipart grpc::tests catalog::rewrite catalog::derived url::tests session_limits server::transport deadline_claim` | 386 passed |
-| `cargo test --locked --lib -- management_host_is_not_admitted consecutive_failed_passes a_tree_past_the_default_limits grpc_missing_preface seed::tests server::admin::guard task::tests` | 39 passed |
+| `cargo test --locked --lib -- management_host_is_not_admitted consecutive_failed_passes a_tree_past_the_former_limits grpc_missing_preface seed::tests server::admin::guard task::tests` | 39 passed |
 | `cargo test --locked --test it_protocol -- request_host_http phase_deadlines upload_admission` | 24 passed |
 | `cargo test --locked --test it_json -- bucket_soft_delete_http` | 11 passed |
 | `cargo test --locked --test it_objects -- rewrite_http` | 27 passed |

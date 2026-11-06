@@ -54,10 +54,13 @@ catalog member was exported can leave that first file in place; classifying all
 members before any export is PENDING. Legacy buckets rejected by the native
 typed bucket API are counted as unrepresentable and skipped; per-object durable
 findings for those legacy buckets require a later shared typed interface.
-A tree is capped at `max_sync_entries` inspected entries (`1..100000000`), which also
-bounds one directory, pages at 256, traversal at `max_sync_depth` levels below the root,
-counting the bucket (`1..1024`), and individual components at 255 bytes. A scan, a watch and
-export all accept exactly that depth. Exceeding an inventory bound
+A tree has no entry or depth limit by default (`max_sync_entries` and `max_sync_depth` are 0),
+so time grows with the tree. A named `max_sync_entries` (up to 2^64−1) also bounds one
+directory, and a named `max_sync_depth` (up to 1024) counts levels below the root, the bucket
+included. Pages stay at 256 and individual components at 255 bytes. A scan, a watch and export
+all accept exactly that depth. Without a limit a walk still stops at 1024 levels, which keeps its
+descriptors bounded and is deeper than any object name can nest. Past 10,000 entries without a
+limit, the process logs one `sync_tree_large` warning. Exceeding an inventory bound
 stops reconciliation without inferring deletion. No catalog-sized in-memory
 inventory is built. Linux runs the sync integration tests in the
 `x86_64-unknown-linux-musl` CI lane and the container smoke's sync stage on
@@ -225,13 +228,14 @@ Collect diagnostics by original source/key with a concrete fix before mutation.
 | --- | --- | --- |
 | `sync_dir` | Unset: disabled | Nonempty existing writable directory, not a symlink. This is the only required setting to enable sync. Canonicalize and reject equality or ancestor/descendant overlap with `data_dir` or `seed_dir`, including aliases. Reserve and revalidate the root identity rather than following a replaced root. |
 | `sync_delete_guard` | `true` | `false` disables only the count/percentage guard. Marker, complete-scan, incarnation and generation protections remain mandatory. |
-| `max_sync_entries` | See `serve --help` | `1..100000000`; requires `sync_dir`. Files and directories in `sync_dir`, also the watches Linux may use. A scan keeps one page per directory level, so a larger tree takes longer but holds no more memory. |
-| `max_sync_depth` | See `serve --help` | `1..1024`; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket. |
+| `max_sync_entries` | `0` (unlimited) | `0..=2^64−1`; requires `sync_dir`. Files and directories in `sync_dir`, also the watches Linux may use. A scan keeps one page per directory level, so a larger tree takes longer but holds no more memory. |
+| `max_sync_depth` | `0` (unlimited) | `0..=1024`; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket. Without a limit a walk stops at 1024. |
 
 Local development rarely needs tuning, so the internal policy is fixed at a
 1000 ms quiet deadline, a deletion guard for at least 100 objects and strictly
-more than 50%, and retained/in-progress conflict limits of 1 TiB and a count of entries.
-Exporting over a tracked file reserves its whole size, so a tracked file larger than 1 TiB,
+more than 50%, and retained/in-progress conflict limits of 1 TiB and 1,000,000 entries, the
+most the schema accepts. Reopening a root replaces a budget that a catalog stored under the
+former limits. Exporting over a tracked file reserves its whole size, so a tracked file larger than 1 TiB,
 under the 5 TiB object limit, pauses its root with nothing to resolve.
 Zero-byte conflicts still consume an entry; no automatic eviction is permitted.
 Settling is a stability heuristic: stat before/after staging and retry changed
@@ -284,7 +288,7 @@ are out of scope and are not run for this increment.
 `Task::rescan` serializes requests through a one-entry channel and returns counts;
 there is no HTTP/CLI endpoint or periodic scan. A depth-bounded cursor stores only
 one name per ancestor and hands at most 256 observations to async code. The scan
-is capped at `max_sync_entries` inspected entries and `max_sync_depth` levels. A quiet interval is
+stops at a named `max_sync_entries` or `max_sync_depth`, and otherwise at 1024 levels. A quiet interval is
 applied only to changed/racy candidates in a page and wakes on shutdown; unchanged
 files require no timer or body read. Descriptor-relative identity checks run before/after
 shared staging; a changing or replaced file is deferred to the next requested
@@ -1019,7 +1023,7 @@ logical target/key, scope and remedy; paginate details and aggregate counts.
 | `DeletionApproval` | External deletions paused; status/ready summary/event | Inspect exact revision, approve it, or restore files and rescan; changed candidates require fresh approval. |
 | `MarkerMismatch` | Pre-bind failure, or whole-root pause if discovered later | Repair mount/root; for intentional missing-marker reactivation back up and use the one-shot option; preserve foreign/malformed trees and choose a fresh directory. |
 | `Conflict` | Path finding after successful preservation; `conflicts`, status/event | Restore the retained revision with inspected expected generation, or explicitly discard it; reinspection resolves stale conditions. Other paths continue. |
-| `ConflictCapacity` | Root ingestion and destructive write-back paused; status/ready/event and paged recovery findings | Resolve/discard registered conflicts within the fixed 1 TiB and entry limits, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
+| `ConflictCapacity` | Root ingestion and destructive write-back paused; status/ready/event and paged recovery findings | Resolve/discard registered conflicts within the fixed 1 TiB and 1,000,000-entry limits, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
 | `Unrepresentable` | Path finding; paged status findings/event | Rename/copy-delete through API into a representable name, remove the collision/unsafe external entry without following it and rescan, or retain API-only access. Never silently normalize. |
 | `ProtectedDeletion` | Path restored and blocked; paged status findings/event | Release hold/retention through a supported API, then delete the file again. If protection cannot be released, retain the restored file/API object. |
 | `SourceChanging` | Path deferred until quiet deadline; status | Finish/stop the writer then rescan/wait. Continuously changing input times out wait without publishing partial bytes. |

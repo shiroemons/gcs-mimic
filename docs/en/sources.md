@@ -170,7 +170,8 @@ The following are also local choices, not provider behavior:
 - `max_connections` of 1024 and `max_object_bytes` of 5 TiB. Only the object size comes from the quotas page.
 - Unlimited active resumable sessions, unfinished rewrites, XML multipart uploads and derived transfers.
 - Soft delete off by default and retention of 1 second through 3155760000 seconds. Both differ from the page above, as `SPEC-SOFT-DELETE` records.
-- `max_buckets_per_batch`, `max_sync_entries`, `max_sync_depth`, `max_seed_entries`, `max_seed_depth` and the `import` limits. The quotas page states no number of buckets per project or objects per bucket, so these only size what one local operation takes on.
+- `max_buckets_per_batch`, `max_sync_entries`, `max_sync_depth`, `max_seed_entries`, `max_seed_depth` and the `import` limits, all unlimited by default. The quotas page states no number of buckets per project or objects per bucket, and these inputs are trusted and local, so a named value only sizes what one local operation takes on.
+- A synchronized tree that stops at 1024 levels, a bucket file of 1 GiB, an identity file of 16 MiB with a token of 8 KiB, and 1,000,000 retained conflict entries.
 
 **`max_grpc_streams` defaults to 100 because of a protocol recommendation, not an observed provider value.** [RFC 9113 section 6.5.2](https://www.rfc-editor.org/rfc/rfc9113.html#section-6.5.2) says of `SETTINGS_MAX_CONCURRENT_STREAMS`: "It is recommended that this value be no smaller than 100, so as to not unnecessarily limit parallelism."
 

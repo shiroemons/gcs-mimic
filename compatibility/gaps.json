@@ -1563,7 +1563,7 @@
     },
     {
       "title": "Strict identity registry format",
-      "resolution": "The future onboarding specification sketched a TOML identity file. The implemented registry is a bounded JSON file (config/identities.json, at most 64 KiB) because the runtime configuration is already flat JSON; no TOML parser was added. This is an emulator-local format with no Google contract. See docs/en/slices/strict-auth.md."
+      "resolution": "The future onboarding specification sketched a TOML identity file. The implemented registry is a bounded JSON file (config/identities.json, at most 16 MiB) because the runtime configuration is already flat JSON; no TOML parser was added. This is an emulator-local format with no Google contract. See docs/en/slices/strict-auth.md."
     },
     {
       "title": "Local TLS configuration and Google transport boundary",
