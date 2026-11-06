@@ -138,6 +138,26 @@ async fn closing_fails_waiters_at_once_and_runs_the_calls_already_admitted() {
     close.await.unwrap().unwrap();
 }
 
+/// A pass that failed here used to count against readiness, so a busy server could report itself
+/// unhealthy for nothing more than being busy.
+#[tokio::test]
+async fn a_maintenance_pass_waits_its_turn_instead_of_failing() {
+    let dir = TestDir::new();
+    let catalog = open(&dir).await;
+    let held = catalog.hold_admission();
+    let worker = catalog.clone();
+    let pass = tokio::spawn(async move { worker.maintain_resumable_sessions().await });
+    eventually_async("the pass to wait for admission", || async {
+        catalog.admission_waiters() == 1
+    })
+    .await;
+    assert!(!pass.is_finished());
+    drop(held);
+    pass.await.unwrap().unwrap();
+    assert_eq!(catalog.resumable_maintenance_error(), None);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn derived_transfers_wait_for_admission_while_the_queue_is_full() {
     let dir = TestDir::new();
