@@ -110,12 +110,12 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--default-seed-dir` | `GCS_MIMIC_DEFAULT_SEED_DIR` | none; the image sets `/data` | JSON key `default_seed_dir`. Used only when `seed_dir` is unset, the directory exists and it does not overlap the data or sync directory; otherwise silently ignored |
 | `--seed-content-type` | `GCS_MIMIC_SEED_CONTENT_TYPE` | `extension` | JSON key `seed_content_type`; `extension` uses the pinned filename-extension table, `octet-stream` stores `application/octet-stream`. Also applies to files ingested from `--sync-dir` |
 | `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
-| `--max-seed-entries` | `GCS_MIMIC_MAX_SEED_ENTRIES` | 10000 | 1–100000000; files and directories in `seed_dir`. A seed is one atomic publication, so its memory grows with them |
-| `--max-seed-depth` | `GCS_MIMIC_MAX_SEED_DEPTH` | 32 | 1–1024; directory levels below a seed bucket |
-| `--max-sync-entries` | `GCS_MIMIC_MAX_SYNC_ENTRIES` | See `serve --help` | 1–100000000; requires `sync_dir`. Files and directories in `sync_dir`, also the watches Linux may use. A scan takes longer but holds no more memory |
-| `--max-sync-depth` | `GCS_MIMIC_MAX_SYNC_DEPTH` | See `serve --help` | 1–1024; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket |
-| `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved |
-| `--max-buckets-per-batch` | `GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | See `serve --help` | 1–1000000; buckets one `--buckets-file` or one seed may declare, not all buckets of the server. Either is one atomic publication, so its memory grows with them |
+| `--max-seed-entries` | `GCS_MIMIC_MAX_SEED_ENTRIES` | 0 (unlimited) | 0–2^64−1; files and directories in `seed_dir`. A seed is one atomic publication, so its memory and time grow with the tree. A positive value stops there and names the setting. Without one, a tree past 10,000 entries logs `seed_tree_large` once per start |
+| `--max-seed-depth` | `GCS_MIMIC_MAX_SEED_DEPTH` | 0 (unlimited) | 0–1024; directory levels below a seed bucket |
+| `--max-sync-entries` | `GCS_MIMIC_MAX_SYNC_ENTRIES` | 0 (unlimited) | 0–2^64−1; requires `sync_dir`. Files and directories in `sync_dir`, also the watches Linux may use. Time grows with the tree. A positive value stops there and names the setting. Without one, a tree past 10,000 entries logs `sync_tree_large` once per process |
+| `--max-sync-depth` | `GCS_MIMIC_MAX_SYNC_DEPTH` | 0 (unlimited) | 0–1024; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket. Without a limit a walk still stops at 1024 levels, which keeps its descriptors bounded and is deeper than any object name can nest |
+| `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved. At most 1 GiB, or with `max_buckets_per_batch` set, 1 KiB per allowed bucket and at least 32 MiB |
+| `--max-buckets-per-batch` | `GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | 0 (unlimited) | 0–2^64−1; buckets one `--buckets-file` or one seed may declare, not all buckets of the server. Either is one atomic publication, so its memory grows with them |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Each request's Host and connection scheme | Set it to fix the advertised origin. A Host that selects an XML virtual bucket uses the configured domain with the same port, never the bucket label. An invalid or missing Host falls back to the bound listener URL: wildcard IP becomes loopback and port 0 becomes the allocated port. Explicit absolute HTTP(S) base with optional base path, no credentials/query/fragment. Ready reports the explicit or bound base |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 1024 | 1–1048576; total across listeners, including TLS handshakes. Startup raises the soft open-file limit to three per connection plus 64, and warns when it cannot |
 | `--max-grpc-streams` | `GCS_MIMIC_MAX_GRPC_STREAMS` | 100 | 1–65536; requires `grpc_listen`. Concurrent streams per gRPC connection. Each can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests; lower it to limit that memory. With a gRPC listener, startup also raises the open-file limit toward connections times streams times two, without a warning when that falls short |
@@ -135,7 +135,7 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity file |
 | `--compat-profile` | `GCS_MIMIC_COMPAT_PROFILE` | `native` | `native` or `legacy-emulator`; JSON key `compat_profile`; independent of authentication. The source bucket profile supplies `seed_project` when creation omits `project`; see the [contract](slices/bucket-core-parity.md). |
 | `--cors-fallback` | `GCS_MIMIC_CORS_FALLBACK` | `none` | `none` or `allow-all`; JSON key `cors_fallback`. XML/public CORS for buckets without stored rules; `allow-all` allows any origin; see [CORS fallback](slices/cors-fallback.md) |
-| `--identity-file` | `GCS_MIMIC_IDENTITY_FILE` | none | JSON identity registry, at most 64 KiB; only with `strict` |
+| `--identity-file` | `GCS_MIMIC_IDENTITY_FILE` | none | JSON identity registry, at most 16 MiB with no limit on its number of identities; only with `strict` |
 | `--default-soft-delete-retention-seconds` | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` | 0 (off) | 0, or 1–3155760000; applies to new native buckets created without `softDeletePolicy`, whichever backend. Deleted and replaced objects keep their bytes for this long; 0 frees them at once. Cloud Storage defaults to 604800 and accepts 7 to 90 days, so the default and the range are both local. Buckets that store a policy keep it |
 | `--local-creator-email` | `GCS_MIMIC_LOCAL_CREATOR_EMAIL` | `local-user@gcs-mimic.invalid` | Native permissive profile only: new objects record `user-EMAIL` as `owner` and an OWNER ACL entry. Empty keeps `project-owners-N` alone. It labels the writer and grants nothing |
 | `--admin-enabled` | `GCS_MIMIC_ADMIN_ENABLED` | `false` | Enables the local `/_internal` administration routes, such as reset and reseed; isolate the listener when enabled |
@@ -249,8 +249,8 @@ Initialization runs before seed, using local administrative authority in strict
 and permissive modes, and grants no API permissions. Invalid entries stop startup
 with complete diagnostics and no ready event. IAM policies, ACLs, lifecycle, UBLA
 and unknown fields are rejected even when empty or disabled. Limits are
-`max_buckets_per_batch` buckets, a file of 1 KiB per allowed bucket and at least 32 MiB,
-and 16 MiB per entry. See the [schema](slices/bucket-initialization.md)
+16 MiB per entry and a file of 1 GiB. With `max_buckets_per_batch` set, the file instead
+has 1 KiB per allowed bucket and at least 32 MiB. See the [schema](slices/bucket-initialization.md)
 and [read-only Compose example](container-usage.md#initialize-bucket-settings).
 
 ## Seed a native catalog and read a byte range
@@ -306,9 +306,11 @@ the default); `octet-stream` stores
 `application/octet-stream`. Size, MD5 and CRC32C come from
 their bytes. Keep fixtures stable and read-only throughout startup. Symlinks,
 special files, invalid names and overlapping roots fail before readiness.
-Traversal is limited to `max_seed_entries` entries (default 10000) and `max_seed_depth`
-nested directories (default 32);
-`max_object_bytes` applies per new file. No sidecar metadata is imported.
+Traversal has no limit by default, so memory and time grow with the tree; a tree past 10,000
+entries logs `seed_tree_large` once per start. A positive `max_seed_entries` or
+`max_seed_depth` stops there and names the setting. Seeding uses absolute paths, so on macOS
+a path past `PATH_MAX` (1024 bytes) fails with the operating system's error for a name that is
+too long. `max_object_bytes` applies per new file. No sidecar metadata is imported.
 
 Seeding runs on every startup while a seed directory is
 in effect. Missing buckets are created and existing ones keep their settings;

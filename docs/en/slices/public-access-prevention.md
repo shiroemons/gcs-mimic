@@ -124,8 +124,8 @@ Add the optional top-level field to the strict `identity_file`:
 ```
 
 This is **LOCAL_SIMULATION** of an already-resolved parent organization/project
-constraint. It supports at most 64 distinct valid project identifiers within the
-existing 64 KiB registry limit. The registry rejects duplicates; direct catalog
+constraint. It supports any number of distinct valid project identifiers within
+the 16 MiB registry limit. The registry rejects duplicates; direct catalog
 callers' duplicate valid projects are idempotently deduplicated. The server loads
 it before seeding/listening and reloads it only on restart. An absent/empty list
 means no parent enforcement.
@@ -151,7 +151,7 @@ propagation delay or external cache invalidation is simulated.
 | `pap_resumable_finalization_rechecks_public_initiator` | Both public principal sets can initiate before enforcement but cannot publish afterward, even through the session capability; existing object metadata/generation/bytes survive |
 | `pap_copy_rewrite_compose_recheck_public_source_and_destination_grants` | Public-only copy/rewrite/compose denied under source or destination PAP, including a pre-admitted multi-call rewrite; source/destination metadata/generation/bytes survive and compose deletes no source |
 | `pap_signed_requests_suppress_all_authenticated_users_grants` | Valid registered public-only signer GET/HEAD/PUT denied under PAP without changing object metadata/generation/bytes |
-| `pap_parent_fixture_rejects_malformed_and_unbounded_projects` | Reject malformed, duplicate, invalid and over-limit fixture projects |
+| `pap_parent_fixture_rejects_malformed_and_repeated_projects` | Reject malformed, duplicate and invalid fixture projects |
 | `pap_mutations_require_update_and_set_iam_permissions` | Update-only authority can change labels while repeating or omitting either stored PAP value; both mutation methods reject actual PAP changes atomically |
 | `TestPublicAccessPrevention` | Pinned Go BucketAttrs insert/get/update, anonymous denial, policy preservation/rejection, unmodified official signed GET/PUT at a guarded default-port authority, disable/reactivation |
 

@@ -71,7 +71,8 @@ page-initiated requests before their instance authority checks.
 
 ### Identity registry
 
-The registry is a JSON file read once at startup, bounded to 64 KiB:
+The registry is a trusted JSON file read once at startup, bounded to 16 MiB with
+no limit on the number of entries in any list:
 
 ```json
 {
@@ -88,13 +89,13 @@ The registry is a JSON file read once at startup, bounded to 64 KiB:
 | Field | Rule |
 | --- | --- |
 | Top level | Object with required `identities` and optional `public_access_prevention_projects`; other keys fail |
-| `identities` | 1..=256 objects with `id`, `tokens` and optional `project_roles`/`public_keys`/`acl_entity` |
+| `identities` | At least one object with `id`, `tokens` and optional `project_roles`/`public_keys`/`acl_entity` |
 | `id` | 1..=254 bytes of visible ASCII (0x21..=0x7E), unique |
-| `tokens` | Required array of 0..=16 per identity, each token 1..=512 bytes of visible ASCII, unique across the registry; three dot-separated segments are rejected as JWT-shaped |
-| `project_roles` | 0..=64 project IDs validated like `buckets.insert`/`buckets.list`; each value is 1..=32 distinct role names from the snapshot |
-| `public_keys` | Optional array of 1..=8 RSA SubjectPublicKeyInfo PEM strings, each at most 4096 bytes; see the [key contract](signed-download.md#keys-and-profiles) |
+| `tokens` | Required array per identity, possibly empty, each token 1..=8192 bytes of visible ASCII, the bound a JWT has, unique across the registry; three dot-separated segments are rejected as JWT-shaped |
+| `project_roles` | Project IDs validated like `buckets.insert`/`buckets.list`; each value is a nonempty list of distinct role names from the snapshot |
+| `public_keys` | Optional nonempty array of RSA SubjectPublicKeyInfo PEM strings, each at most 4096 bytes; see the [key contract](signed-download.md#keys-and-profiles) |
 | `acl_entity` | Optional canonical `user-EMAIL` or `user-ID`, at most 259 bytes; unique across every principal's explicit alias and natural user entity |
-| `public_access_prevention_projects` | Optional array of at most 64 validated project IDs; startup-only local parent-policy simulation |
+| `public_access_prevention_projects` | Optional array of distinct validated project IDs; startup-only local parent-policy simulation |
 
 An empty token array registers a principal for separately authenticated RSA/JWT
 keys or catalog-managed HMAC keys. Registration alone grants no authenticated

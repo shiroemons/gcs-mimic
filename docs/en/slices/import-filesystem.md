@@ -48,7 +48,14 @@ gcs-mimic import fake-gcs-server --source source-snapshot \
 
 Select `xattr` for a snapshot using extended attributes. The metadata mode and
 source path platform are required; no automatic detection or fallback occurs.
-The same invocation resumes a matching unfinished import. `--dry-run` retains
+The same invocation resumes a matching unfinished import. `--max-object-bytes`
+defaults to 5 TiB, and `--max-entries` and `--max-depth` to no limit; `0` means
+the same for each. The JSON report gives `max_entries` and `max_depth` as `null`
+when unlimited. Each is part of the import's identity, so a resume must repeat
+the values of its first run. An import that an earlier release started with its
+defaults recorded 1 GiB, 10000 entries and 32 levels: a resume naming no limit
+that is refused retries once with those values, and naming them also works.
+`--dry-run` retains
 read-only inspection, and its optional `--verify-bodies` verifies checksums.
 Actual import always verifies checksums and rejects `--verify-bodies` as an
 inspection-only option. Server configuration and authentication profiles do not

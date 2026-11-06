@@ -62,7 +62,7 @@ Test identifiers below are the exact integration test function names in
 | seed-top-level-file | A regular file directly under the seed root is skipped with a `seed_skipped` warning and startup reaches readiness | `top_level_files_are_skipped_with_a_warning` | PASS |
 | seed-retry | A failed replay emits no ready event, publishes no partial bucket/object and releases ownership; a repaired tree succeeds and project mismatch remains rejected | `interrupted_import_retries_without_overwrite_and_releases_lock` | See [atomic replay](atomic-seed-reseed.md) |
 | seed-invalid | Reject invalid bucket/object names, missing/overlapping configured roots and oversize files; accept zero bytes and the inclusive file-size cap | `invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive` | PASS |
-| seed-walk | Accept 32 nested directories below a bucket; reject deeper trees and more than 10000 entries | `fixture_depth_and_entry_count_are_bounded` | PASS |
+| seed-walk | Accept a tree at a named limit; reject a deeper tree or more entries with a message that names the setting | `named_fixture_limits_are_inclusive_and_name_their_settings` | PASS |
 | seed-links | Reject a symlink root, symlink entry and Unix socket without readiness | `symlinks_and_special_files_fail_closed` | PASS on macOS ARM64; Unix-only test |
 | seed-utf8 | Reject non-UTF-8 filesystem names on a filesystem that permits their creation | `non_utf8_fixture_names_fail_closed` | PASS on Linux ARM64 before replay (test unchanged); macOS rejects fixture creation |
 | seed-migration | Populated v4 catalog migrates to the current schema, then replay restores the fixture at its name and keeps migrated API-only objects; existing v1/v3 migration coverage remains green | `populated_v4_catalog_migrates_and_replays_seed`; `src/storage/object_tests.rs::v1_migration_is_transactional_and_current_schema_reopens_idempotently`; `src/storage/object_tests.rs::metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog` | PASS |
@@ -240,9 +240,10 @@ Replay is sequential. A dedicated traversal thread sends entries over a two-slot
 channel using the shared bounded, sorted Walker. File publication clones
 to immutable staging where supported or copies with fixed buffers, hashing the
 staged bytes once on the shared administrative file workers. Retained metadata
-has a budget that grows with `max_seed_entries` and buckets are capped at `max_buckets_per_batch`;
-one batch lease bounds whole-tree ownership. A seed is one atomic publication, so
-its memory grows with the tree until it commits.
+has no budget of its own by default. A named `max_seed_entries` gives it one that
+scales with the limit, and a named `max_buckets_per_batch` caps the buckets; one
+batch lease bounds whole-tree ownership. A seed is one atomic publication, so its
+memory and time grow with the tree until it commits.
 `max_object_bytes` applies to every fixture file on every replay, with a
 metadata check before reading and the publisher's streamed cap at staging; a
 fixture larger than a later, smaller cap fails startup even when the live object
@@ -250,13 +251,16 @@ matches. Disk seeding never collects the body in memory; RAM seeding retains
 bounded chunks under the configured shared byte budget.
 
 Traversal counts all files and directories, including hidden entries and bucket
-directories, with a total cap of `max_seed_entries` entries (default 10000, up to
-100000000) and `max_seed_depth` directory levels (default 32, up to 1024) below
-each bucket. Exceeding either names its setting. Sorted directory-entry vectors
-and the pending stack share that global entry budget; directory iterators are
-closed before descent. Logical names are bounded to 1024 UTF-8 bytes. These
-limits bound traversal memory and open handles without a general
-directory-walking dependency. They are local usability limits, not Google
+directories. `max_seed_entries` (default 0, unlimited, up to 2^64−1) and
+`max_seed_depth` (default 0, unlimited, up to 1024) stop it at a positive value
+below each bucket, and exceeding either names its setting. Without a limit, a
+tree past 10,000 entries logs one `seed_tree_large` warning per start, because a
+tree that large is often a mistaken path. The walker uses absolute paths, so on
+macOS a path past `PATH_MAX` (1024 bytes) fails with the operating system's error
+for a name that is too long. Sorted directory-entry vectors and the pending stack
+share a named entry budget; directory iterators are closed before descent. Logical
+names are bounded to 1024 UTF-8 bytes. Named limits bound traversal memory and
+open handles without a general directory-walking dependency. They are local usability limits, not Google
 bucket/object limits. Filesystem/SQLite operation duration and overall seed
 duration have no additional wall-clock bound. Replaying an unchanged tree reads
 every fixture body once per startup.

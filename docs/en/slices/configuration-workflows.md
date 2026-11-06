@@ -84,9 +84,9 @@ The following existing defaults and validation remain unchanged:
 | `max_grpc_streams` | `100` | `1..65536`; requires `grpc_listen`; RFC 9113 section 6.5.2 recommends no less than 100. Each stream can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests, close to the Compose `mem_limit` of 512 MiB; lower it to limit that memory |
 | `max_object_bytes` | `5497558138880` | `1..5497558138880` bytes |
 | `max_resumable_sessions`, `max_rewrite_sessions` | `0`, `0` | Each `0..4294967295`; 0 is unlimited |
-| `max_seed_entries`, `max_seed_depth` | `10000`, `32` | `1..100000000`, `1..1024` |
-| `max_buckets_per_batch` | See `serve --help` | `1..1000000`; buckets one initialization file or one seed may declare, not all buckets of the server |
-| `max_sync_entries`, `max_sync_depth` | See `serve --help` | `1..100000000`, `1..1024`; require `sync_dir`; files and directories in `sync_dir`, also the watches Linux may use, and levels below `sync_dir` counting the bucket |
+| `max_seed_entries`, `max_seed_depth` | `0`, `0` | `0..=2^64−1`, `0..=1024`; 0 is unlimited, so memory and time grow with the tree; a positive value stops there and names the setting; past 10,000 entries without a limit, `seed_tree_large` warns once per start |
+| `max_buckets_per_batch` | `0` | `0..=2^64−1`; 0 is unlimited; buckets one initialization file or one seed may declare, not all buckets of the server |
+| `max_sync_entries`, `max_sync_depth` | `0`, `0` | `0..=2^64−1`, `0..=1024`; 0 is unlimited, though a walk stops at 1024 levels; require `sync_dir`; files and directories in `sync_dir`, also the watches Linux may use, and levels below `sync_dir` counting the bucket; past 10,000 entries without a limit, `sync_tree_large` warns once per process |
 | `worker_threads`, `max_blocking_threads` | `2`, `8` | Each `1..1024` |
 | `memory_max_bytes`, `memory_catalog_max_bytes` | `67108864`, `16777216` | `1..1099511627776`, `1048576..1099511627776`; only with `backend=memory` |
 | `default_soft_delete_retention_seconds` | `0` | `0`, or `1..3155760000`; a local range and default, unlike Cloud Storage's seven days and 7 to 90 days |

@@ -289,7 +289,7 @@ strictでもローカル管理として初期化し、API権限は付与しま�
 IAMポリシー、ACL、lifecycle、UBLA、未知フィールドは空・無効でも拒否します。
 0.8.0以降は`softDeletePolicy`を指定できます。既定ではsoft deleteが無効なので、使うバケットで`retentionDurationSeconds`に1秒以上を指定します。
 JSON APIの固定CORSとXMLのバケット別CORSは別です。
-上限はバケット数が`max_buckets_per_batch`、ファイルが許可したバケットあたり1KiB（最低32MiB）、各項目が16MiBです。
+各項目の上限は16MiB、ファイルの上限は1GiBです。`max_buckets_per_batch`を指定すると、バケット数はその値までになり、ファイルの上限は許可したバケットあたり1KiB（最低32MiB）になります。
 JSON-BUCKETS-002、JSON-BUCKETS-008、DESIGN-062はPARTIAL、
 BEHAVIOR-BUCKET-009はIMPLEMENTEDを維持します。
 詳細は[英語の契約](../en/slices/bucket-initialization.md)を参照してください。

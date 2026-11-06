@@ -404,8 +404,8 @@ metadata-only report as checksum evidence.
 
 Use the planned common directory iterator, overlap checks and pure streaming
 hasher from `import-dry-run`. Native seed follows `max_seed_entries` and
-`max_seed_depth`; source import likewise uses explicit bounded traversal
-(`--max-entries`, `--max-depth`), 16 MiB attribute records, 64 KiB body buffers
+`max_seed_depth`; source import likewise uses traversal that named limits can
+stop (`--max-entries`, `--max-depth`), 16 MiB attribute records, 64 KiB body buffers
 and pages of at most 256 entries over a bounded two-page channel. Exhausting a
 limit is a diagnostic, never success or silent truncation. `max_object_bytes`
 applies inclusively; zero-byte bodies remain valid. Do not retain an entire
@@ -686,14 +686,19 @@ permissions, mtime, ctime and xattrs are unchanged; reads can update atime.
 Stdout is JSON Lines: one `import_report` header, `import_page` records with
 at most 256 combined records/findings, and `import_summary` with exact counts.
 One dedicated OS thread scans and hashes through a two-page bounded channel.
-The walk caps all entries (including sidecars) at `--max-entries`
-(`1..100000000`) and directory depth at `--max-depth` (`1..1024`) below a bucket;
-hitting either cap makes inspection incomplete. Metadata records cap at 16 MiB,
-the limit of any other JSON document, a snapshot row at twice that, and body
-chunks at 64 KiB. `--max-object-bytes` (`1..5497558138880`) caps a source
+The walk has no limit on entries or depth by default. `--max-entries` (default 0,
+unlimited) caps all entries including sidecars, and `--max-depth` (default 0,
+unlimited, up to 1024) caps directory depth below a bucket; hitting either cap
+makes inspection incomplete. The JSON report gives `max_entries` and `max_depth`
+as `null` when unlimited. Metadata records cap at 16 MiB, the limit of any other
+JSON document, a snapshot row at twice that, and body chunks at 64 KiB.
+`--max-object-bytes` (default and `0` both 5497558138880, 5 TiB) caps a source
 body, inclusive. These values identify an import, so a resume must repeat the
-values of its first run. The snapshot format holds rows and not directories:
-`--max-entries` counts its rows, and it rejects `--max-depth`. Shared `Diagnostic`
+values of its first run. An import that an earlier release started with its
+defaults recorded 1 GiB, 10000 entries and 32 levels, so a resume that names no
+limit and is refused retries once with those values, and naming them also works.
+The snapshot format holds rows and not directories: `--max-entries` counts its
+rows, and it rejects `--max-depth`. Shared `Diagnostic`
 output goes to stderr in bounded batches with relative path/field keys and
 concrete remedies. A closed output joins the worker and returns failure. No
 complete object catalog or findings list is kept.

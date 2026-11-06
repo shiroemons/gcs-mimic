@@ -31,13 +31,13 @@ Marker/root validation surrounds file jobs and rescans and precedes ingestion
 publication. The existing generation/incarnation conditions, streaming hashes,
 metadata inheritance and equal-hash suppression remain shared.
 
-Linux watches as many directories as `max_sync_entries` allows and retains one inotify
-descriptor per set, because a watch holds no descriptor of its own; registration closes each
+Linux watches every directory of the tree, up to a named `max_sync_entries`, and retains one
+inotify descriptor per set, because a watch holds no descriptor of its own; registration closes each
 temporary directory descriptor immediately. When the kernel refuses a watch, the message names
 `fs.inotify.max_user_watches` instead of reporting a full disk.
 macOS FSEvents uses a two-descriptor notification pipe rather than a descriptor
 for each file, and requires a local filesystem. Traversal processes 256-entry
-pages and caps depth and inspected entries instead of retaining a whole tree.
+pages and stops at named depth and entry limits instead of retaining a whole tree.
 The operating system's actual descriptor limit still applies; the application
 does not raise it. Exceeding capacity, unsupported watch setup or a permanently
 unwatched subtree fails visibly and keeps readiness off.

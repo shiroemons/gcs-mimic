@@ -33,7 +33,7 @@ RAM staging uses the existing process-local Store and its byte budget. Old and n
 
 ## Admission, cancellation and source safety
 
-Traversal retains the existing two-slot channel and the `max_seed_entries` and `max_seed_depth` bounds. A batch accepts at most `max_buckets_per_batch` buckets and accounts its retained metadata against a budget that grows with `max_seed_entries`. Source reads and staging use fixed 64 KiB buffers on the existing bounded file workers. Holding a single batch admission lease avoids deadlocking a tree larger than the ordinary 256 staged-handle budget.
+Traversal retains the existing two-slot channel, and `max_seed_entries` and `max_seed_depth` are unlimited unless named, so memory and time grow with the tree. A named `max_buckets_per_batch` caps the buckets of a batch, and a named `max_seed_entries` scales a budget for its retained metadata. Source reads and staging use fixed 64 KiB buffers on the existing bounded file workers. Holding a single batch admission lease avoids deadlocking a tree larger than the ordinary 256 staged-handle budget.
 
 Batch cancellation transfers all remaining entries to one supervised sequential cleanup owner. Preparation work retains its current entry until filesystem work finishes; SQL work owns the complete batch through commit confirmation. Catalog close waits for shared ownership to drain. Cancellation before SQL admission publishes nothing. Once the owned SQL operation is running, disconnect or a response timeout can leave a completed whole batch; callers must inspect state rather than infer rollback from a missing response. No partial namespace is returned as success.
 
