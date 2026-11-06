@@ -956,15 +956,25 @@ fn rewrite_completed_cache_evicts_without_rejecting_new_rewrites() {
     let first: String = connection
         .query_row("SELECT token FROM rewrite_sessions", [], |row| row.get(0))
         .unwrap();
-    for _ in 0..129 {
-        assert_eq!(
-            server.request("POST", BASE, ADMIN, b"").json_ok()["done"],
-            true
-        );
-    }
+    // Copies of the finished row fill the window without thousands of requests. Their later
+    // deadlines leave the original as the oldest record.
+    connection
+        .execute(
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<4095) INSERT INTO rewrite_sessions SELECT printf('%032x',i), printf('%064x',i), printf('%064x',i), r.request, r.offset, r.total, r.deadline+i, r.response, NULL FROM n, (SELECT * FROM rewrite_sessions LIMIT 1) r",
+            [],
+        )
+        .unwrap();
+    // A full window still answers its oldest record.
+    server
+        .request("POST", &continue_path(&first), ADMIN, b"")
+        .json_ok();
+    assert_eq!(
+        server.request("POST", BASE, ADMIN, b"").json_ok()["done"],
+        true
+    );
     assert_eq!(
         common::catalog::count(&connection, "rewrite_sessions WHERE transfer_id IS NULL"),
-        128
+        4096
     );
     assert_eq!(
         common::catalog::count(
@@ -976,6 +986,9 @@ fn rewrite_completed_cache_evicts_without_rejecting_new_rewrites() {
     server
         .request("POST", &continue_path(&first), ADMIN, b"")
         .json_reason(410, "gone");
+    server
+        .request("POST", &continue_path(&format!("{:064x}", 1)), ADMIN, b"")
+        .json_ok();
     assert_eq!(server.get("destination?alt=media").body, payload);
 }
 

@@ -2,16 +2,16 @@
 
 use super::writers::{ClaimError, KeyOrigin, WriterGuard, WriterKey};
 use super::{Catalog, CatalogError, unavailable};
-use crate::storage::{blob_id::BlobId, catalog::sql, failure::BackendFailure};
+use crate::storage::{
+    blob_id::BlobId,
+    catalog::{
+        session_limits::{MAX_TRIMMED_AT_ONCE, finished_excess},
+        sql,
+    },
+    failure::BackendFailure,
+};
 use rusqlite::{Connection, Transaction};
 
-/// How many COMPLETE and CANCELLED records stay after trimming. They exist so status queries and
-/// repeated final requests get the original outcome, which clients ask for soon after the
-/// transition. A seven-day window would not do: an SDK that opens one session per upload would
-/// leave millions of records, and every maintenance pass would slow down with them.
-const MAX_TERMINAL_SESSIONS: i64 = 4096;
-/// Keeps one creation's transaction short; a larger excess carries over to the next creation.
-const MAX_TRIMMED_PER_CREATION: usize = 256;
 /// Candidates read beyond the excess, so a few held sessions do not cut the trim short.
 const TRIM_SLACK: usize = 16;
 
@@ -68,24 +68,6 @@ pub(in crate::storage::catalog) fn open(connection: &Connection) -> Result<(), C
         .map_err(unavailable)
 }
 
-/// How many finished records to trim. Their sizes vary, so the average estimates how many free a
-/// byte excess, and a later creation trims whatever remains.
-fn finished_excess(terminal: i64, terminal_bytes: i64, budget: Option<i64>) -> usize {
-    // A count under the window is negative and fails the conversion: nothing to trim.
-    let over_window = usize::try_from(terminal - MAX_TERMINAL_SESSIONS).unwrap_or_default();
-    let over_budget = budget
-        .filter(|budget| terminal_bytes > *budget)
-        .and_then(|budget| {
-            let average = terminal_bytes.checked_div(terminal)?;
-            (terminal_bytes - budget)
-                .checked_div(average)?
-                .checked_add(1)
-        })
-        .and_then(|records| usize::try_from(records).ok())
-        .unwrap_or_default();
-    over_window.max(over_budget)
-}
-
 /// Checks the configured limit on active sessions and trims the oldest finished records in the
 /// creating transaction. Only the limit can refuse: records that cannot go yet carry their excess
 /// to a later creation, because a client should not fail over bookkeeping it cannot influence.
@@ -107,8 +89,8 @@ pub(super) fn admit_session(
     {
         return Err(unavailable(BackendFailure::RetainedSessionLimit));
     }
-    let excess = finished_excess(terminal, terminal_bytes, limits.finished_resumable_bytes);
-    trim_finished(transaction, catalog, excess.min(MAX_TRIMMED_PER_CREATION))
+    let excess = finished_excess(terminal, terminal_bytes, limits.finished_session_bytes);
+    trim_finished(transaction, catalog, excess.min(MAX_TRIMMED_AT_ONCE))
 }
 
 fn trim_finished(

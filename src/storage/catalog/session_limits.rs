@@ -7,10 +7,38 @@ use crate::{
 };
 use std::num::NonZeroU32;
 
-/// Finished resumable records may fill one part in this many of a RAM catalog. The rest stays for
-/// objects and active work: records that outgrew the budget would fail every later catalog write
-/// until they expire, days later, or the server restarts.
-const MEMORY_CATALOG_FINISHED_SESSION_DIVISOR: u64 = 2;
+/// The finished records of one session kind may fill one part in this many of a RAM catalog.
+/// Resumable sessions and rewrites each get one, and the rest stays for objects and active work:
+/// records that outgrew the budget would fail every later catalog write until they expire, days
+/// later, or the server restarts.
+const MEMORY_CATALOG_FINISHED_SESSION_DIVISOR: u64 = 4;
+
+/// How many finished records of one session kind stay after trimming. They exist so status queries
+/// and repeated final requests get the original outcome, which clients ask for soon after the
+/// transition. A seven-day window would not do: an SDK that opens one session per upload would
+/// leave millions of records, and every maintenance pass would slow down with them.
+pub(super) const MAX_FINISHED_SESSIONS: i64 = 4096;
+
+/// Keeps one transaction short; a larger excess carries over to the next one that trims.
+pub(super) const MAX_TRIMMED_AT_ONCE: usize = 256;
+
+/// How many finished records to trim. Their sizes vary, so the average estimates how many free a
+/// byte excess, and a later trim removes whatever remains.
+pub(super) fn finished_excess(finished: i64, finished_bytes: i64, budget: Option<i64>) -> usize {
+    // A count under the window is negative and fails the conversion: nothing to trim.
+    let over_window = usize::try_from(finished - MAX_FINISHED_SESSIONS).unwrap_or_default();
+    let over_budget = budget
+        .filter(|budget| finished_bytes > *budget)
+        .and_then(|budget| {
+            let average = finished_bytes.checked_div(finished)?;
+            (finished_bytes - budget)
+                .checked_div(average)?
+                .checked_add(1)
+        })
+        .and_then(|records| usize::try_from(records).ok())
+        .unwrap_or_default();
+    over_window.max(over_budget)
+}
 
 /// How a client request treats a writer someone else holds.
 #[derive(Clone, Copy, Debug, Default)]
@@ -28,8 +56,8 @@ pub(super) struct SessionLimits {
     pub(super) writer_wait: WriterWait,
     pub(super) active_resumable: Option<NonZeroU32>,
     pub(super) active_rewrite: Option<NonZeroU32>,
-    /// The bytes finished resumable records may fill, where the catalog has a budget.
-    pub(super) finished_resumable_bytes: Option<i64>,
+    /// The bytes the finished records of one session kind may fill, where the catalog has a budget.
+    pub(super) finished_session_bytes: Option<i64>,
 }
 
 impl From<&Config> for SessionLimits {
@@ -38,7 +66,7 @@ impl From<&Config> for SessionLimits {
             writer_wait: WriterWait::Within(config.catalog_wait_timeout),
             active_resumable: config.max_resumable_sessions,
             active_rewrite: config.max_rewrite_sessions,
-            finished_resumable_bytes: match config.backend {
+            finished_session_bytes: match config.backend {
                 Backend::Disk => None,
                 Backend::Memory => i64::try_from(
                     config.memory_catalog_max_bytes / MEMORY_CATALOG_FINISHED_SESSION_DIVISOR,

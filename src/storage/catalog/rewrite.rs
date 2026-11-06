@@ -4,6 +4,7 @@ use super::{
     resumable,
     resumable::writers::{ClaimError, KeyOrigin, WriterKey},
     rewrite_token::RewriteToken,
+    session_limits::{MAX_TRIMMED_AT_ONCE, finished_excess},
     system_time_millis, unix_millis,
 };
 use crate::storage::blob_id::BlobId;
@@ -375,6 +376,47 @@ pub(super) fn recover_due(connection: &mut Connection, now: i64) -> Result<(), C
     transaction.commit().map_err(super::unavailable)
 }
 
+/// Drops the oldest finished rewrites past the shared window, keeping the one this request just
+/// finished. A rewrite never fails over this bookkeeping, and an excess past one transaction's
+/// batch carries over to the next completion.
+///
+/// shortcut: eviction follows creation deadlines; add completion ordering for recent-finish
+/// retention.
+fn trim_finished(
+    connection: &Connection,
+    finished_now: &BlobId,
+    budget: Option<i64>,
+) -> Result<(), ObjectError> {
+    // Only a budget needs the stored sizes, and adding them up reads every finished row. A
+    // completion is rare next to a resumable creation, so this reads them instead of keeping
+    // running totals the way resumable admission does.
+    let (finished, finished_bytes) = match budget {
+        None => (
+            sql::scalar(
+                connection,
+                "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL",
+                [],
+            )?,
+            0,
+        ),
+        Some(_) => sql::row(
+            connection,
+            "SELECT count(*), coalesce(sum(2048 + length(CAST(request AS BLOB)) + length(CAST(response AS BLOB))), 0) FROM rewrite_sessions WHERE transfer_id IS NULL",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?,
+    };
+    let excess = finished_excess(finished, finished_bytes, budget).min(MAX_TRIMMED_AT_ONCE);
+    if excess > 0 {
+        sql::exec(
+            connection,
+            "DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT ?2)",
+            params![finished_now, excess],
+        )?;
+    }
+    Ok(())
+}
+
 fn check_source(
     connection: &Connection,
     session: &RewriteSession,
@@ -605,6 +647,7 @@ impl Catalog {
             let clock = self.0.clock.clone();
             let validate_session = session.clone();
             let completed_session = session.clone();
+            let finished_budget = self.session_limits().finished_session_bytes;
             let (sender, receiver) = tokio::sync::oneshot::channel();
             // shortcut: publish-time permission failures discard progress; specialize cleanup when retry must survive revocation.
             self.publish_derived_prepared(&id,destination,move |connection,record| {
@@ -617,8 +660,7 @@ impl Catalog {
             },move |connection,record| {
                 let response=json!({"offset":record.size,"resource":render(record)?});
                 sql::exec(connection, "UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1", params![session.id,response.to_string()])?;
-                // shortcut: eviction follows creation deadlines; add completion ordering for recent-finish retention.
-                sql::exec(connection, "DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT max((SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)-128,0))", [&session.id])?;
+                trim_finished(connection, &session.id, finished_budget)?;
                 // The stored response remains authoritative if its network receiver disappears.
                 let _=sender.send(response);
                 Ok(())
@@ -714,6 +756,7 @@ impl Catalog {
 
 #[cfg(test)]
 mod tests {
+    use super::super::session_limits::MAX_FINISHED_SESSIONS;
     use super::*;
     use crate::clock::ManualClock;
     use crate::storage::test_fixtures::{PERMISSIVE, body, bucket, live, permissive_upload};
@@ -1039,6 +1082,179 @@ mod tests {
         );
         catalog.close().await.unwrap();
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    async fn finish_rewrite(catalog: &Catalog) -> String {
+        let (token, mut owner) = new_session(catalog).await.unwrap();
+        owner.disarm();
+        let finished = continue_to_end(catalog, &token).await.unwrap();
+        assert!(finished.resource.is_some());
+        token
+    }
+
+    async fn continue_to_end(
+        catalog: &Catalog,
+        token: &str,
+    ) -> Result<RewriteProgress, RewriteError> {
+        catalog
+            .continue_rewrite(
+                token,
+                BucketAccess::Permissive,
+                BucketAccess::Permissive,
+                |record| Ok(json!({"generation":record.generation})),
+            )
+            .await
+    }
+
+    async fn finished_count(catalog: &Catalog) -> i64 {
+        catalog
+            .run(|connection| {
+                sql::scalar(
+                    connection,
+                    "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL",
+                    [],
+                )
+                .map_err(super::super::unavailable)
+            })
+            .await
+            .unwrap()
+    }
+
+    /// Copies a real finished row, so reopening still validates every record. The small IDs sort
+    /// before any generated one at the same deadline, making these the oldest in that order.
+    async fn fill_finished_rewrites(catalog: &Catalog, count: i64) {
+        catalog
+            .run::<_, CatalogError>(move |connection| {
+                sql::exec(
+                    connection,
+                    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<?1) INSERT INTO rewrite_sessions SELECT printf('%032x',i), printf('%064x',i), printf('%064x',i), r.request, r.offset, r.total, r.deadline, r.response, NULL FROM n, (SELECT * FROM rewrite_sessions WHERE transfer_id IS NULL LIMIT 1) r",
+                    [count],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    fn filled_token(index: i64) -> String {
+        format!("{index:064x}")
+    }
+
+    #[tokio::test]
+    async fn finished_rewrites_past_the_former_window_still_replay() {
+        let (catalog, directory, clock) = fixture().await;
+        let first = finish_rewrite(&catalog).await;
+        for _ in 0..128 {
+            finish_rewrite(&catalog).await;
+        }
+        assert_eq!(finished_count(&catalog).await, 129);
+        assert!(
+            continue_to_end(&catalog, &first)
+                .await
+                .unwrap()
+                .resource
+                .is_some()
+        );
+        // The longer window must also pass the checks of a later open.
+        catalog.close().await.unwrap();
+        let catalog = Catalog::open_with_clock(&directory, clock).await.unwrap();
+        assert_eq!(finished_count(&catalog).await, 129);
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_oldest_finished_rewrite_past_the_window_goes_first() {
+        let (catalog, directory, clock) = fixture().await;
+        let real = finish_rewrite(&catalog).await;
+        fill_finished_rewrites(&catalog, MAX_FINISHED_SESSIONS - 1).await;
+        assert_eq!(finished_count(&catalog).await, MAX_FINISHED_SESSIONS);
+
+        let newest = finish_rewrite(&catalog).await;
+
+        assert_eq!(finished_count(&catalog).await, MAX_FINISHED_SESSIONS);
+        assert!(matches!(
+            catalog.rewrite_session(&filled_token(1)).await,
+            Err(RewriteError::Gone)
+        ));
+        catalog.rewrite_session(&filled_token(2)).await.unwrap();
+        catalog.rewrite_session(&real).await.unwrap();
+        assert!(
+            continue_to_end(&catalog, &newest)
+                .await
+                .unwrap()
+                .resource
+                .is_some()
+        );
+        catalog.close().await.unwrap();
+        let catalog = Catalog::open_with_clock(&directory, clock).await.unwrap();
+        assert_eq!(finished_count(&catalog).await, MAX_FINISHED_SESSIONS);
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn one_completion_trims_a_bounded_batch_and_later_ones_finish_the_rest() {
+        let (catalog, directory, _clock) = fixture().await;
+        finish_rewrite(&catalog).await;
+        let batch = i64::try_from(MAX_TRIMMED_AT_ONCE).unwrap();
+        fill_finished_rewrites(&catalog, MAX_FINISHED_SESSIONS + batch).await;
+        finish_rewrite(&catalog).await;
+        assert_eq!(finished_count(&catalog).await, MAX_FINISHED_SESSIONS + 2);
+        finish_rewrite(&catalog).await;
+        assert_eq!(finished_count(&catalog).await, MAX_FINISHED_SESSIONS);
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// Finished rewrites must not outgrow a RAM catalog: past its budget every catalog write fails
+    /// until the records expire days later. A response large enough that the former count-only
+    /// window filled the catalog long before it trimmed anything shows the bytes decide.
+    #[tokio::test]
+    async fn finished_rewrites_stay_inside_a_small_memory_catalog_budget() {
+        const BUDGET: u64 = 1024 * 1024;
+        let catalog = Catalog::open_memory_for_server(
+            64 * 1024 * 1024,
+            BUDGET,
+            Arc::new(crate::clock::SystemClock),
+            crate::storage::admin::LocalAdmin::Disabled,
+        )
+        .await
+        .unwrap();
+        catalog.apply_session_limits(&crate::config::Config {
+            backend: crate::config::Backend::Memory,
+            memory_catalog_max_bytes: BUDGET,
+            ..Default::default()
+        });
+        catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        catalog
+            .put_object(permissive_upload("bucket", "source", 8), body(vec![]))
+            .await
+            .unwrap();
+        let padding = "x".repeat(30_000);
+        let mut newest = None;
+        for _ in 0..300 {
+            let (token, mut owner) = new_session(&catalog).await.unwrap();
+            owner.disarm();
+            let padding = padding.clone();
+            catalog
+                .continue_rewrite(
+                    &token,
+                    BucketAccess::Permissive,
+                    BucketAccess::Permissive,
+                    move |_| Ok(json!({ "padding": padding })),
+                )
+                .await
+                .unwrap();
+            newest = Some(token);
+        }
+        let kept = finished_count(&catalog).await;
+        assert!((2..=10).contains(&kept), "{kept} records kept");
+        catalog.rewrite_session(&newest.unwrap()).await.unwrap();
+        catalog.close().await.unwrap();
     }
 
     #[tokio::test]
