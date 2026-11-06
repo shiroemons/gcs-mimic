@@ -12,7 +12,8 @@ services:
       GCS_MIMIC_API_BASE_URL:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    mem_limit: 128m
+    # A transfer in flight uses about 230 KiB, so 1024 connections need more than the idle size.
+    mem_limit: 512m
     cpus: 1.0
     pids_limit: 64
     ulimits:
