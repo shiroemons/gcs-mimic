@@ -2,9 +2,9 @@ use super::{JsonError, parse_query};
 use serde_json::Value;
 use std::{collections::BTreeMap, sync::LazyLock};
 
-const MAX_LENGTH: usize = 4096;
+/// A query string holds no more than this, so it also bounds the selections: each takes two bytes.
+const MAX_LENGTH: usize = super::MAX_QUERY_BYTES;
 const MAX_DEPTH: usize = 32;
-const MAX_COUNT: usize = 256;
 
 // Validate against the same pinned Discovery schema as the compatibility inventory,
 // including optional fields absent from a particular rendered resource.
@@ -88,7 +88,7 @@ impl Fields {
 
     fn syntax(value: &str, empty_segments: EmptySegments) -> Result<Self, JsonError> {
         if value.len() > MAX_LENGTH {
-            return Err(invalid("fields exceeds 4096 bytes"));
+            return Err(invalid("fields exceeds 16 KiB"));
         }
         if value.is_empty() || value.chars().any(char::is_whitespace) {
             return Err(unsupported("empty or whitespace-containing fields"));
@@ -97,7 +97,6 @@ impl Fields {
             empty_segments,
             source: value,
             rest: value,
-            count: 0,
         };
         let fields = parser.list(0)?;
         if !parser.rest.is_empty() {
@@ -196,7 +195,6 @@ struct Parser<'a> {
     /// The whole expression, which Cloud Storage quotes when a parenthesis is unmatched.
     source: &'a str,
     rest: &'a str,
-    count: usize,
 }
 
 impl Parser<'_> {
@@ -217,9 +215,8 @@ impl Parser<'_> {
     }
 
     fn path(&mut self, depth: usize) -> Result<Fields, JsonError> {
-        self.count += 1;
-        if depth >= MAX_DEPTH || self.count > MAX_COUNT {
-            return Err(invalid("fields exceeds depth 32 or 256 selections"));
+        if depth >= MAX_DEPTH {
+            return Err(invalid("fields exceeds depth 32"));
         }
         let end = self
             .rest
@@ -487,6 +484,7 @@ mod tests {
     #[test]
     fn fields_bound_length_depth_and_selection_count() {
         let exact = format!("metadata/{}", "k".repeat(MAX_LENGTH - 9));
+        assert_eq!(exact.len(), crate::json::MAX_QUERY_BYTES);
         assert!(Fields::parse(&exact, "Object").is_ok());
         assert_eq!(
             Fields::parse(&(exact + "k"), "Object")
@@ -495,14 +493,10 @@ mod tests {
                 .as_u16(),
             400
         );
-        assert!(Fields::parse(&vec!["name"; MAX_COUNT].join(","), "Object").is_ok());
-        assert_eq!(
-            Fields::parse(&vec!["name"; MAX_COUNT + 1].join(","), "Object")
-                .unwrap_err()
-                .status
-                .as_u16(),
-            400
-        );
+        // The length alone bounds the selections, far above the former limit of 256.
+        let selections = "name,".repeat(MAX_LENGTH / 5 - 1) + "name";
+        assert!(selections.len() <= MAX_LENGTH);
+        assert!(Fields::parse(&selections, "Object").is_ok());
         for separator in ["/", "("] {
             let value = if separator == "/" {
                 vec!["a"; MAX_DEPTH].join("/")
@@ -518,7 +512,6 @@ mod tests {
                     empty_segments: EmptySegments::Reject,
                     source: &value,
                     rest: &value,
-                    count: 0
                 }
                 .list(0)
                 .is_ok()
@@ -529,7 +522,6 @@ mod tests {
                     empty_segments: EmptySegments::Reject,
                     source: &deeper,
                     rest: &deeper,
-                    count: 0
                 }
                 .list(0)
                 .is_err()

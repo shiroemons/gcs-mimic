@@ -24,6 +24,10 @@ pub mod generated {
     include!("generated/mod.rs");
 }
 
+/// What an object list page aims to take. gRPC clients commonly accept 4 MiB in one message unless
+/// told otherwise, and a page's size is an estimate, so this leaves room below that.
+pub(crate) const LIST_PAGE_BYTES: usize = 2 * 1024 * 1024;
+
 use crate::{
     config::Config,
     server::{CountingIo, IdleTurn, ReadActivity, SlotReclaim, State},
@@ -215,7 +219,10 @@ fn http2_builder(config: &Config) -> http2::Builder<TokioExecutor> {
     // with the stream limit. An object read holds this buffer and one 64 KiB frame, about 13 MiB
     // across 100 streams. HTTP/2 flow control limits unreleased input to 1 MiB per connection,
     // but tonic releases it into a message of up to 4 MiB per stream, so 100 streams carrying
-    // that size at once could reach 400 MiB. A lower max_grpc_streams brings that down.
+    // that size at once could reach 400 MiB. Each stream also holds its encoded response until the
+    // client takes it: list pages stay near 2 MiB or hold one bucket, and only a bucket resource
+    // that large takes more, up to the response limit in `v2`. A lower max_grpc_streams brings
+    // all of that down.
     builder
         .max_concurrent_streams(config.max_grpc_streams.get())
         .max_header_list_size(16 * 1024)

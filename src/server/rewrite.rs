@@ -115,7 +115,7 @@ pub(super) async fn respond(
             return Err(JsonError::unsupported_object(name));
         }
     }
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let body = if bytes.is_empty() {
         None
     } else {

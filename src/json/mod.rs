@@ -36,7 +36,7 @@ pub(crate) mod resumable;
 pub(crate) mod resumable_cancel;
 pub(crate) mod rewrite;
 
-pub(crate) use body::read_body;
+pub(crate) use body::{RESOURCE_BODY_LIMIT, RESOURCE_BODY_LIMIT_TEXT, read_body};
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
     BucketAclWrite, PredefinedAclTarget, UniformAccess, bucket_etag, bucket_predefined_acls,
@@ -69,8 +69,9 @@ pub(crate) use iam::{
     check_testable_permission, parse_policy, policy_resource, test_permissions_query,
 };
 pub(crate) use multipart::{
-    Multipart, PartKind, batch_boundary, check_declared_content_type, form_data_boundary,
-    is_multipart_content_type, multipart_boundary, multipart_metadata,
+    FRAMING_LIMIT as MULTIPART_FRAMING_LIMIT, Multipart, PartKind, batch_boundary,
+    check_declared_content_type, form_data_boundary, is_multipart_content_type, multipart_boundary,
+    multipart_metadata,
 };
 pub(crate) use object_copy::ObjectCopyParams;
 pub(crate) use object_list::{ObjectListParams, object_list};

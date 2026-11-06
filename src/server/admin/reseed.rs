@@ -3,7 +3,7 @@
 use crate::{
     json::{self, JsonError},
     seed::SeedError,
-    server::{BUCKET_BODY_LIMIT, DeadlineWatch, RequestBody, RequestCtx, json_response},
+    server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::AdminError,
 };
 use http_body_util::Full;
@@ -54,7 +54,7 @@ async fn reseed(
             "Stop synchronization and restart without sync_dir before reseeding; external files are never reset",
         ));
     }
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     if !bytes.is_empty() {
         return Err(JsonError::invalid_argument(
             "Reseed accepts only an empty body; the source is configured at startup",

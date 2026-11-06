@@ -206,15 +206,9 @@ const CONDITIONS: &[&str] = &[
 ];
 
 pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
+    // `MAX_LIFECYCLE_RULES_PER_BUCKET` in the pinned `storage.proto`.
     if rules.len() > 100 {
         return Err(invalid("rule count (maximum 100)", "100 or fewer rules"));
-    }
-    if serde_json::to_string(rules)
-        .map_err(|error| invalid("rules", error.to_string().as_str()))?
-        .len()
-        > 64 * 1024
-    {
-        return Err(invalid("configuration size", "at most 64 KiB"));
     }
     let mut prefixes_suffixes = 0;
     for (rule_index, rule) in rules.iter().enumerate() {

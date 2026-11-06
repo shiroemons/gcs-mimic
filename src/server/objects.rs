@@ -7,7 +7,7 @@ mod upload;
 
 use super::RequestBody as Incoming;
 use super::{
-    BUCKET_BODY_LIMIT, JsonCache, ObjectCtx, ResponseBody, acl, boxed, empty_response,
+    JsonCache, ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody, acl, boxed, empty_response,
     json_response_selected, resumable, retention_access, validate_bodyless_post,
 };
 use crate::{
@@ -320,7 +320,7 @@ async fn move_object(
         projection,
     } = params;
     json::validate_object_get_headers(request.headers())?;
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     // The Node SDK serializes empty options as {}, without move semantics.
     if !bytes.is_empty()
         && serde_json::from_slice::<Value>(&bytes).ok() != Some(serde_json::json!({}))
@@ -450,7 +450,7 @@ async fn update(
     let key = json::request_key(request.headers())?;
     let etags = request.headers().clone();
     // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
-    let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
     retention_access::authorize_update(
         ctx.state,

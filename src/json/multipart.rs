@@ -10,7 +10,10 @@ use hyper::{
 
 const HEADER_CAP: usize = 8192;
 const DISCARD_CAP: usize = 4096;
-const JSON_CAP: usize = 64 * 1024;
+const JSON_CAP: usize = super::RESOURCE_BODY_LIMIT;
+/// What a multipart upload may send besides its media: the metadata and checksum parts at
+/// `JSON_CAP` each, and the headers, delimiter padding and discarded text, which stay under 256 KiB.
+pub(crate) const FRAMING_LIMIT: u64 = 2 * JSON_CAP as u64 + 256 * 1024;
 
 fn invalid() -> JsonError {
     JsonError::invalid_parameter("Invalid multipart/related framing")
@@ -555,7 +558,10 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 return Err(JsonError::new(
                     StatusCode::PAYLOAD_TOO_LARGE,
                     "uploadTooLarge",
-                    "Multipart metadata exceeds 64 KiB",
+                    format!(
+                        "Multipart metadata exceeds {}",
+                        super::RESOURCE_BODY_LIMIT_TEXT
+                    ),
                 ));
             }
             bytes.extend_from_slice(&chunk);
@@ -604,7 +610,10 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 return Err(JsonError::new(
                     StatusCode::PAYLOAD_TOO_LARGE,
                     "uploadTooLarge",
-                    "Multipart checksums exceed 64 KiB",
+                    format!(
+                        "Multipart checksums exceed {}",
+                        super::RESOURCE_BODY_LIMIT_TEXT
+                    ),
                 ));
             }
             bytes.extend_from_slice(&chunk);

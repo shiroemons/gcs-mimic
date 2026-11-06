@@ -207,16 +207,24 @@ pub(super) fn replace_policy(
             bindings.entry(role).or_default().extend(grantees);
         }
     }
-    policy
-        .bindings
-        .extend(bindings.into_iter().map(|(role, mut members)| {
-            members.sort();
-            members.dedup();
-            Binding {
+    for (role, mut members) in bindings {
+        members.sort();
+        members.dedup();
+        // A member whose canonical entity is not the one an edit named stayed bound above, because
+        // that entity did not change. Adding it again would grow the policy with every edit.
+        members.retain(|member| {
+            !policy
+                .bindings
+                .iter()
+                .any(|binding| binding.role == role && binding.members.contains(member))
+        });
+        if !members.is_empty() {
+            policy.bindings.push(Binding {
                 role: role.into(),
                 members,
-            }
-        }));
+            });
+        }
+    }
     policies::store_policy(connection, bucket, &mut policy)?;
     mark_bound(connection, bucket)
 }

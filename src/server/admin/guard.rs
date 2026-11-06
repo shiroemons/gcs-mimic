@@ -170,7 +170,10 @@ mod tests {
             storage::Catalog,
         };
         let dir = crate::test_support::TestDir::new();
-        let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
+        let state = std::sync::Arc::new(State::for_test(
+            Catalog::open(&dir.0).await.unwrap(),
+            Auth::permissive(),
+        ));
         let config = Config::default();
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         for (host, expected) in [
@@ -216,7 +219,10 @@ mod tests {
             storage::Catalog,
         };
         let dir = crate::test_support::TestDir::new();
-        let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
+        let state = std::sync::Arc::new(State::for_test(
+            Catalog::open(&dir.0).await.unwrap(),
+            Auth::permissive(),
+        ));
         let config = Config {
             admin_allowed_hosts: vec!["dev.example.com".into()],
             ..Config::default()

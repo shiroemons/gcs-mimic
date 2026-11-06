@@ -9,55 +9,14 @@ use flate2::bufread::MultiGzDecoder;
 use http_body_util::BodyExt;
 use hyper::{
     Request,
-    body::{Body, Frame},
     header::{CONTENT_ENCODING, CONTENT_LENGTH, TRANSFER_ENCODING},
 };
 use std::{
     io::{self, BufRead, Read},
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    task::{Context, Poll},
+    sync::Arc,
 };
 
 const CHUNK_BYTES: usize = 64 * 1024;
-
-/// The explicit completion flag prevents a failed producer from appearing as clean EOF.
-pub(crate) struct DecodedBody {
-    body: chunk_body::ChunkBody,
-    complete: Arc<AtomicBool>,
-    ended: bool,
-}
-
-impl Body for DecodedBody {
-    type Data = Bytes;
-    type Error = io::Error;
-
-    fn poll_frame(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, io::Error>>> {
-        if self.ended {
-            return Poll::Ready(None);
-        }
-        match Pin::new(&mut self.body).poll_frame(cx) {
-            Poll::Ready(None) => {
-                self.ended = true;
-                if self.complete.load(Ordering::Acquire) {
-                    Poll::Ready(None)
-                } else {
-                    Poll::Ready(Some(Err(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "Gzip producer ended before validated EOF",
-                    ))))
-                }
-            }
-            frame => frame,
-        }
-    }
-}
 
 pub(super) async fn request(
     request: Request<RequestBody>,
@@ -87,10 +46,12 @@ pub(super) async fn request(
     parts.headers.remove(CONTENT_LENGTH);
     parts.headers.remove(TRANSFER_ENCODING);
     parts.headers.remove("trailer");
-    let (sender, decoded) = chunk_body::channel();
-    let complete = Arc::new(AtomicBool::new(false));
-    let producer_complete = complete.clone();
-    let expanded_limit = ctx.config.max_object_bytes.saturating_add(256 * 1024);
+    let (sender, completion, decoded) =
+        chunk_body::checked_channel("Gzip producer ended before validated EOF");
+    let expanded_limit = ctx
+        .config
+        .max_object_bytes
+        .saturating_add(crate::json::MULTIPART_FRAMING_LIMIT);
     // Stored-gzip media can be incompressible; allow bounded framing/deflate overhead on the wire.
     let compressed_limit = expanded_limit
         .saturating_add(expanded_limit / 8)
@@ -102,20 +63,13 @@ pub(super) async fn request(
             _ = sender.closed() => return,
         };
         match result {
-            Ok(()) => producer_complete.store(true, Ordering::Release),
+            Ok(()) => completion.mark(),
             Err(error) => {
                 let _ = sender.send(Err(error)).await;
             }
         }
     });
-    Ok(Request::from_parts(
-        parts,
-        RequestBody::Decoded(DecodedBody {
-            body: decoded,
-            complete,
-            ended: false,
-        }),
-    ))
+    Ok(Request::from_parts(parts, RequestBody::Decoded(decoded)))
 }
 
 #[derive(Default)]
@@ -223,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_panicking_producer_never_becomes_validated_eof() {
-        let (sender, body) = chunk_body::channel();
+        let (sender, _completion, mut body) = chunk_body::checked_channel("producer ended early");
         let producer = crate::task::spawn_supervised("test-gzip-producer", async move {
             sender
                 .send(Ok(Bytes::from_static(b"complete MIME boundary")))
@@ -231,11 +185,6 @@ mod tests {
                 .unwrap();
             panic!("injected producer panic");
         });
-        let mut body = DecodedBody {
-            body,
-            complete: Arc::new(AtomicBool::new(false)),
-            ended: false,
-        };
         assert_eq!(
             body.frame().await.unwrap().unwrap().into_data().unwrap(),
             "complete MIME boundary"

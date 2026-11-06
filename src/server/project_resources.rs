@@ -1,7 +1,7 @@
 //! Dispatch for project-scoped JSON resources: HMAC keys and the service agent.
 use super::RequestBody as Incoming;
 use super::{
-    BUCKET_BODY_LIMIT, State, authorize_project, empty_response, json_response,
+    RESOURCE_BODY_LIMIT, State, authorize_project, empty_response, json_response,
     validate_bodyless_post,
 };
 use crate::auth::{AuthFailure, Caller, Permission};
@@ -105,7 +105,7 @@ pub(super) async fn respond(
             json::hmac_key_list(&page, &params, base_url)?
         }
         ProjectRequest::UpdateHmacKey { project, access_id } => {
-            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
             let update = json::parse_hmac_key_update(&bytes)?;
             let record = state
                 .catalog

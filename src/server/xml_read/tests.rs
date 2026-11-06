@@ -10,7 +10,10 @@ use http_body_util::{BodyExt, Full};
 #[tokio::test]
 async fn xml_read_validators_wrap_routed_public_and_virtual_host_responses() {
     let dir = crate::test_support::TestDir::new();
-    let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
+    let state = std::sync::Arc::new(State::for_test(
+        Catalog::open(&dir.0).await.unwrap(),
+        Auth::permissive(),
+    ));
     let config = Config {
         xml_virtual_host_domains: vec!["storage.invalid".into()],
         ..Config::default()
@@ -119,7 +122,10 @@ async fn xml_read_validators_wrap_routed_public_and_virtual_host_responses() {
 #[tokio::test]
 async fn encrypted_head_validators_do_not_bypass_data_key_checks() {
     let dir = crate::test_support::TestDir::new();
-    let state = State::for_test(Catalog::open(&dir.0).await.unwrap(), Auth::permissive());
+    let state = std::sync::Arc::new(State::for_test(
+        Catalog::open(&dir.0).await.unwrap(),
+        Auth::permissive(),
+    ));
     let config = Config::default();
     let endpoints = config
         .runtime_endpoints

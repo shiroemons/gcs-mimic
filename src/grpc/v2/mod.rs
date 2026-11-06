@@ -41,8 +41,15 @@ pub(crate) fn service(
         compat_profile,
     })
     .max_decoding_message_size(4 * 1024 * 1024)
-    .max_encoding_message_size(4 * 1024 * 1024)
+    .max_encoding_message_size(MAX_RESPONSE_BYTES)
 }
+
+/// The largest response message: one bucket resource, which the JSON API can store above the 4 MiB
+/// of a request message. Its CORS and lifecycle rules can each reach the JSON body limit in separate
+/// writes, protobuf takes no more than the JSON they came from, and the rest of a resource is small
+/// beside them. Lists stay far below this by paging on their size. What a client agrees to receive
+/// is its own setting, so one left at a common default of 4 MiB fails such a read on its side.
+const MAX_RESPONSE_BYTES: usize = 2 * crate::json::RESOURCE_BODY_LIMIT + 1024 * 1024;
 
 /// The Storage v2 method that serves a Storage Control bucket IAM call.
 ///

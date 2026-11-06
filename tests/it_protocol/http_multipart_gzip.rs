@@ -139,6 +139,20 @@ fn multipart_gzip_keeps_stored_encoding_separate_and_never_decodes_the_media_par
     );
 }
 
+/// The expanded budget has to follow the parser's own limit on a metadata part: a smaller budget
+/// would refuse the envelope before the parser ever reached that limit.
+#[test]
+fn multipart_gzip_admits_metadata_above_the_former_framing_budget() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--max-object-bytes", "64"]);
+    bucket(&server, "");
+    let padded = format!("{{\"name\":\"object\"}}{}", " ".repeat(1024 * 1024));
+    let body = gzip(&multipart(&padded, b"media"));
+    let reply = server.request("POST", PATH, TYPE, &body);
+    reply.status(200);
+    assert_eq!(reply.json()["size"], "5");
+}
+
 /// Cloud Storage decompresses a media upload sent with `Content-Encoding: gzip` before
 /// storing it, even when the query also declares `contentEncoding=gzip` (observed 2026-10-31).
 #[test]

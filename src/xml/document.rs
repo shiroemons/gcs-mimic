@@ -22,7 +22,7 @@ pub(super) fn malformed() -> Error {
 }
 
 pub(super) fn read(bytes: &[u8]) -> Result<Element, Error> {
-    let mut reader = reader(bytes, 64 * 1024)?;
+    let mut reader = reader(bytes, crate::json::RESOURCE_BODY_LIMIT)?;
     let mut stack: Vec<Element> = Vec::new();
     let mut root = None;
     let mut namespace = None;

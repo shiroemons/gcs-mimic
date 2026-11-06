@@ -12,6 +12,10 @@ use hyper::body::{Body, Frame};
 use std::{
     io,
     pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Poll},
 };
 use tokio::sync::mpsc;
@@ -39,6 +43,68 @@ impl Body for ChunkBody {
         self.receiver
             .poll_recv(cx)
             .map(|item| item.map(|chunk| chunk.map(Frame::data)))
+    }
+}
+
+/// The producer's word that it sent everything, which a [`CheckedBody`] requires to end cleanly.
+pub(crate) struct Completion(Arc<AtomicBool>);
+
+impl Completion {
+    pub(crate) fn mark(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+/// A body that fails instead of ending unless its producer marked it complete, so a producer that
+/// panicked or stopped early cannot pass for a finished body.
+pub(crate) struct CheckedBody {
+    body: ChunkBody,
+    complete: Arc<AtomicBool>,
+    ended: bool,
+    failure: &'static str,
+}
+
+/// `failure` is the error a reader sees when the producer ends without marking completion.
+pub(crate) fn checked_channel(failure: &'static str) -> (ChunkSender, Completion, CheckedBody) {
+    let (sender, body) = channel();
+    let complete = Arc::new(AtomicBool::new(false));
+    (
+        sender,
+        Completion(complete.clone()),
+        CheckedBody {
+            body,
+            complete,
+            ended: false,
+            failure,
+        },
+    )
+}
+
+impl Body for CheckedBody {
+    type Data = Bytes;
+    type Error = io::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, io::Error>>> {
+        if self.ended {
+            return Poll::Ready(None);
+        }
+        match Pin::new(&mut self.body).poll_frame(cx) {
+            Poll::Ready(None) => {
+                self.ended = true;
+                if self.complete.load(Ordering::Acquire) {
+                    Poll::Ready(None)
+                } else {
+                    Poll::Ready(Some(Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        self.failure,
+                    ))))
+                }
+            }
+            frame => frame,
+        }
     }
 }
 

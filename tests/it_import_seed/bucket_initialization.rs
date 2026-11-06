@@ -392,7 +392,28 @@ fn initialized_settings_are_independent_and_api_changes_survive_restart() {
     server.stop();
 }
 
-/// A file that needs both the raised bucket limit and the file size that follows from it.
+/// An entry and a file above their former limits of 64 KiB and 1 MiB reach the catalog whole.
+#[test]
+fn a_large_bucket_entry_starts_and_survives_a_restart() {
+    let dir = TestDir::new();
+    let cors: Vec<_> = (0..2000)
+        .map(|index| json!({"origin":[format!("https://{index:04}{}.invalid", "o".repeat(1000))]}))
+        .collect();
+    input(&dir.0, json!([{"name":"large-bucket","cors":cors}]));
+    let size = fs::metadata(dir.0.join("buckets.json")).unwrap().len();
+    assert!(size > 1024 * 1024, "{size}");
+    let path = "/storage/v1/b/large-bucket";
+    let server = Server::start(&mut selected(&dir.0));
+    counts(&server, 1, 0, 0);
+    assert_eq!(server.json("GET", path, Value::Null)["cors"], json!(cors));
+    server.stop();
+    let server = Server::start(&mut selected(&dir.0));
+    counts(&server, 0, 1, 0);
+    assert_eq!(server.json("GET", path, Value::Null)["cors"], json!(cors));
+    server.stop();
+}
+
+/// A file with more buckets than the default limit allows, at about the size each may add.
 fn large_file(root: &Path, count: usize) {
     let filler = "x".repeat(63);
     let entries = (0..count)

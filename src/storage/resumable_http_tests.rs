@@ -830,7 +830,7 @@ async fn invalid_initiation_and_status_leave_no_session_or_file() {
         h.initiate(
             "name=a",
             "Content-Type: application/json\r\n",
-            &vec![b' '; 65537]
+            &vec![b' '; crate::json::RESOURCE_BODY_LIMIT + 1]
         )
         .await
         .status,
