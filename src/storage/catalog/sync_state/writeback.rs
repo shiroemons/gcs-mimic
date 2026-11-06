@@ -156,14 +156,11 @@ pub(crate) struct Limits {
     bytes: u64,
     entries: u64,
 }
-const MAX_RETAINED_BYTES: u64 = 1 << 40;
-const MAX_RETAINED_ENTRIES: u64 = 1_000_000;
 
 impl Limits {
     pub(crate) fn new(bytes: u64, entries: u64) -> Result<Self, Error> {
-        if !(1..=MAX_RETAINED_BYTES).contains(&bytes)
-            || !(1..=MAX_RETAINED_ENTRIES).contains(&entries)
-        {
+        use super::conflicts::{MAX_BYTES, MAX_ENTRIES};
+        if !(1..=MAX_BYTES).contains(&bytes) || !(1..=MAX_ENTRIES).contains(&entries) {
             return Err(AdminError::Invalid("invalid write-back limits".into()).into());
         }
         Ok(Self { bytes, entries })

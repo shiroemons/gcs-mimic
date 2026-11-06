@@ -566,6 +566,43 @@ async fn conflict_workspace_copy_charges_both_bodies_and_refuses_overflow() {
     fixture.close().await;
 }
 
+/// A catalog from a release that allowed 1,000 entries stores that budget: reopening the root has
+/// to replace it, or an upgraded root would keep pausing where the former constant did.
+#[tokio::test]
+async fn retained_entries_pass_the_former_thousand_and_stop_at_the_schema_bound() {
+    let fixture = Fixture::new().await;
+    fixture.lease.default_writeback().await.unwrap();
+    let root = fixture.lease.status().root_id.as_bytes();
+    let retain = |entries: u64| {
+        fixture.lease.conflict_db(move |connection| {
+            connection
+                .prepare_cached(
+                    "UPDATE sync_writeback_roots SET max_entries=1000,entries=?2 WHERE root_id=?1",
+                )?
+                .execute(params![root, entries])?;
+            Ok(())
+        })
+    };
+    let capture = async || {
+        fixture
+            .lease
+            .capture_conflict(
+                fixture.request().await,
+                File::open(fixture.tree.0.join("external")).unwrap(),
+            )
+            .await
+    };
+    retain(1000).await.unwrap();
+    assert!(matches!(capture().await, Err(Error::Capacity)));
+    fixture.lease.default_writeback().await.unwrap();
+    capture().await.unwrap();
+    assert_eq!(fixture.page().await.usage.entries, 1001);
+    retain(MAX_ENTRIES).await.unwrap();
+    fixture.lease.default_writeback().await.unwrap();
+    assert!(matches!(capture().await, Err(Error::Capacity)));
+    fixture.close().await;
+}
+
 #[tokio::test]
 async fn conflict_capturing_copy_without_registration_has_an_explicit_discard_remedy() {
     let fixture = Fixture::new().await;

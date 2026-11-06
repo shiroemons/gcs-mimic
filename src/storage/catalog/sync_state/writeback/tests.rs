@@ -33,7 +33,8 @@ fn complete_phase_matches_static_active_row_predicates() {
 
 #[test]
 fn retained_limits_match_static_schema_bounds() {
-    assert!(SCHEMA.contains(&format!("max_bytes BETWEEN 1 AND {MAX_RETAINED_BYTES}")));
-    assert!(SCHEMA.contains(&format!("max_entries BETWEEN 1 AND {MAX_RETAINED_ENTRIES}")));
-    assert!(SCHEMA.contains(&format!("entries BETWEEN 0 AND {MAX_RETAINED_ENTRIES}")));
+    use super::super::conflicts::{MAX_BYTES, MAX_ENTRIES};
+    assert!(SCHEMA.contains(&format!("max_bytes BETWEEN 1 AND {MAX_BYTES}")));
+    assert!(SCHEMA.contains(&format!("max_entries BETWEEN 1 AND {MAX_ENTRIES}")));
+    assert!(SCHEMA.contains(&format!("entries BETWEEN 0 AND {MAX_ENTRIES}")));
 }

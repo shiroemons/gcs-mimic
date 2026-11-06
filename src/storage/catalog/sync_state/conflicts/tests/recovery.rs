@@ -221,6 +221,12 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
 #[tokio::test]
 async fn conflict_exact_entry_capacity_counts_zero_length_reservations() {
     let fixture = Fixture::new().await;
+    // A smaller budget than the default, which would take a million rows to reach.
+    fixture
+        .lease
+        .writeback(writeback::Limits::new(MAX_BYTES, 1000).unwrap())
+        .await
+        .unwrap();
     let captured = fixture.capture().await;
     let id = captured.id.clone();
     fixture.lease.conflict_db(move|connection| {
