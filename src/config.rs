@@ -196,7 +196,8 @@ pub struct Config {
     pub event_list: String,
     pub xml_virtual_host_domains: Vec<String>,
     pub max_connections: usize,
-    /// Streams each gRPC connection may run at once.
+    /// Streams each gRPC connection may run at once. Each can buffer a message of up to 4 MiB,
+    /// so lowering this limits a connection's memory.
     pub max_grpc_streams: NonZeroU32,
     pub max_object_bytes: u64,
     /// Active resumable uploads a server keeps; `None` leaves them unlimited, since expiry

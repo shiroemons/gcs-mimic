@@ -63,7 +63,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --local-creator-email EMAIL local-user@gcs-mimic.invalid (permissive native: creator recorded as owner and ACL OWNER of new objects; empty disables; grants nothing)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          1024 (1..1048576; shared across listeners and TLS handshakes; raises the soft open-file limit to match)
-  --max-grpc-streams N         100 (1..65536; concurrent streams per gRPC connection; memory per connection grows with it; requires --grpc-listen)
+  --max-grpc-streams N         100 (1..65536; concurrent streams per gRPC connection; each can buffer a message of up to 4 MiB, so lower it to limit memory; requires --grpc-listen)
   --max-object-bytes N         5497558138880 (1..5497558138880; streamed upload cap)
   --max-resumable-sessions N   0 (0..4294967295; active resumable uploads; 0 is unlimited)
   --max-rewrite-sessions N     0 (0..4294967295; unfinished rewrites; 0 is unlimited)
@@ -369,6 +369,10 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         .warnings
         .extend(gcs_mimic::fd_limit::raise_for_connections(
             report.config.max_connections,
+            report
+                .config
+                .grpc_listen
+                .map(|_| report.config.max_grpc_streams),
         ));
     report.diagnostics.write(io::stderr().lock())?;
     let config = report.config;
@@ -893,7 +897,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "4c6687768a85964f66e17b1c87c8fa8998d77105c6d37ec8c11f2575d0574705"
+            "c5b55ebeed4fbe380f1b3816ea1c472e042065131727fb75235ca838405bd893"
         );
     }
 
