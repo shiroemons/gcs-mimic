@@ -16,12 +16,13 @@ CREATE TABLE policy_revision (
 ) WITHOUT ROWID;
 PRAGMA user_version = 6;";
 
-/// A policy's documented 1,500 principals can take more than the 64 KiB this column first allowed,
-/// and a failed constraint would surface as a retryable server error. The principal count is what
-/// bounds the column now. No table references this one, so dropping it cascades nothing.
-pub(super) const UNBOUNDED_BINDINGS_SCHEMA: &str = "CREATE TABLE bucket_policies_rebuilt (
+/// A policy's documented 1,500 principals can take more than the 64 KiB this column first allowed.
+/// The new check backs up [`encoded_bindings`], which refuses a larger policy as a client error
+/// before this could fail as a retryable server error. No table references this one, so dropping
+/// it cascades nothing.
+pub(super) const RAISED_BINDINGS_SCHEMA: &str = "CREATE TABLE bucket_policies_rebuilt (
     bucket TEXT PRIMARY KEY COLLATE BINARY,
-    bindings TEXT NOT NULL,
+    bindings TEXT NOT NULL CHECK(length(CAST(bindings AS BLOB)) <= 1048576),
     revision INTEGER NOT NULL CHECK(revision > 0)
 ) WITHOUT ROWID;
 INSERT INTO bucket_policies_rebuilt SELECT bucket, bindings, revision FROM bucket_policies;
@@ -29,7 +30,36 @@ DROP TABLE bucket_policies;
 ALTER TABLE bucket_policies_rebuilt RENAME TO bucket_policies;
 PRAGMA user_version = 51;";
 
+/// The API refuses more than the documented 1,500 principals, but an ACL edit adds members of its
+/// own, up to one full ACL.
+const MAX_STORED_MEMBERS: usize = 1500 + crate::acl::MAX_ENTRIES;
+/// Matches the column's check. Every stored member fits in about 270 bytes, so real policies stay
+/// under half of this; only unbounded text such as a custom role name can reach it.
+const MAX_BINDINGS_BYTES: usize = 1024 * 1024;
+
 const SELECT_BUCKET_PROJECT: &str = "SELECT project FROM buckets WHERE name = ?1";
+
+/// Encodes a policy for its row. Every writer passes here, whichever API it serves, so nothing can
+/// grow the column past its bounds or fail its check as a retryable server error.
+fn encoded_bindings(policy: &Policy) -> Result<String, CatalogError> {
+    let members: usize = policy
+        .bindings
+        .iter()
+        .map(|binding| binding.members.len())
+        .sum();
+    if members > MAX_STORED_MEMBERS {
+        return Err(CatalogError::InvalidMetadata(format!(
+            "Policy exceeds {MAX_STORED_MEMBERS} principal occurrences, counting the ACL's grants; remove some before adding more."
+        )));
+    }
+    let encoded = policy.bindings_json().to_string();
+    if encoded.len() > MAX_BINDINGS_BYTES {
+        return Err(CatalogError::InvalidMetadata(
+            "Policy exceeds 1 MiB once encoded; shorten its role names.".into(),
+        ));
+    }
+    Ok(encoded)
+}
 
 #[expect(
     clippy::disallowed_methods,
@@ -80,11 +110,12 @@ pub(super) fn insert_policy(
     bucket: &str,
     policy: &Policy,
 ) -> Result<(), CatalogError> {
+    let encoded = encoded_bindings(policy)?;
     let revision = next_revision(connection)?;
     sql::exec(
         connection,
         "INSERT INTO bucket_policies VALUES (?1, ?2, ?3)",
-        params![bucket, policy.bindings_json().to_string(), revision],
+        params![bucket, encoded, revision],
     )?;
     Ok(())
 }
@@ -105,11 +136,12 @@ pub(super) fn store_policy(
     bucket: &str,
     policy: &mut Policy,
 ) -> Result<(), CatalogError> {
+    let encoded = encoded_bindings(policy)?;
     let revision = next_revision(connection)?;
     sql::exec(
         connection,
         "UPDATE bucket_policies SET bindings = ?2, revision = ?3 WHERE bucket = ?1",
-        params![bucket, policy.bindings_json().to_string(), revision],
+        params![bucket, encoded, revision],
     )?;
     policy.etag = Some(crate::json::policy_etag(revision));
     Ok(())

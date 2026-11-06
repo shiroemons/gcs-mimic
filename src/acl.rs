@@ -182,7 +182,12 @@ pub(crate) enum AclError {
     TooManyEntries,
     DuplicateEntity(String),
     InvalidEntity(String),
-    InvalidRole { kind: AclKind, role: String },
+    /// Names no entity, so that a rejected value of any size is not repeated to the client.
+    EntityTooLong,
+    InvalidRole {
+        kind: AclKind,
+        role: String,
+    },
 }
 
 impl fmt::Display for AclError {
@@ -194,6 +199,9 @@ impl fmt::Display for AclError {
                 f,
                 "Invalid ACL entity {entity:?}; use user-EMAIL, group-EMAIL, domain-DOMAIN, project-owners-PROJECT, allUsers or allAuthenticatedUsers (for example, user-liz@example.com)"
             ),
+            Self::EntityTooLong => {
+                write!(f, "An ACL entity can hold at most {MAX_ENTITY_BYTES} bytes")
+            }
             Self::InvalidRole { kind, role } => write!(
                 f,
                 "Invalid ACL role {role:?}; use one of {} (for example, READER)",
@@ -233,8 +241,16 @@ pub(crate) enum Entity<'a> {
     ProjectTeam { team: &'a str, project: &'a str },
 }
 
+/// The longest entity: `project-viewers-` and a project ID of up to 256 bytes. Emails take at most
+/// 254 bytes and domains 253, so each kind of entity fits, and ACLs and the policies derived from
+/// them stay bounded by their entry counts.
+const MAX_ENTITY_BYTES: usize = 272;
+
 impl<'a> Entity<'a> {
     pub(crate) fn parse(entity: &'a str) -> Result<Self, AclError> {
+        if entity.len() > MAX_ENTITY_BYTES {
+            return Err(AclError::EntityTooLong);
+        }
         let invalid = || AclError::InvalidEntity(entity.to_owned());
         let email = |value: &str| {
             value.split_once('@').is_some_and(|(local, domain)| {
@@ -556,6 +572,25 @@ mod tests {
         ] {
             assert_eq!(Entity::parse(entity), Ok(parsed), "{entity}");
         }
+        // Each kind's longest value fits, and only the length refuses what follows it.
+        let email = format!("{}@example.com", "x".repeat(254 - "@example.com".len()));
+        for entity in [
+            format!("user-{email}"),
+            format!("group-{email}"),
+            format!("project-viewers-{}", "p".repeat(256)),
+        ] {
+            assert!(Entity::parse(&entity).is_ok(), "{entity}");
+        }
+        let longest = format!("project-viewers-{}", "p".repeat(256));
+        assert_eq!(longest.len(), MAX_ENTITY_BYTES);
+        assert_eq!(
+            Entity::parse(&format!("{longest}p")),
+            Err(AclError::EntityTooLong)
+        );
+        assert_eq!(
+            Entity::parse(&format!("user-{}@example.com", "x".repeat(16 * 1024))),
+            Err(AclError::EntityTooLong)
+        );
         for entity in [
             "",
             "allusers",
