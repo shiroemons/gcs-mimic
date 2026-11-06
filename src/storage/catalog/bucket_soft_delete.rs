@@ -8,9 +8,9 @@
 //! copied, linked or renamed.
 
 use super::{
-    Catalog, acl::reconcile_bucket_policy, bucket_columns, bucket_metadata_charge, change_journal,
-    policies::next_revision, principals::Profile, read_bucket, select_bucket, system_time_micros,
-    unavailable, unix_micros,
+    Catalog, UnixMicros, acl::reconcile_bucket_policy, bucket_columns, bucket_metadata_charge,
+    change_journal, policies::next_revision, principals::Profile, read_bucket, select_bucket,
+    system_time_micros, unavailable, unix_micros,
 };
 use crate::bucket::{BucketAccess, BucketRecord, CatalogError, SoftDeletedBucket};
 use crate::storage::catalog::sql;
@@ -268,7 +268,7 @@ fn restore_in_transaction(
 
 /// Permanently removes up to `PURGE_BATCH` expired versions with their retained objects and
 /// returns how many it removed. Blob files are reclaimed through the deletion journal.
-fn purge_batch(connection: &mut Connection, now: i64) -> Result<i64, CatalogError> {
+fn purge_batch(connection: &mut Connection, now: UnixMicros) -> Result<i64, CatalogError> {
     let transaction = sql::immediate(connection)?;
     let expired = transaction
         .prepare_cached(
@@ -296,7 +296,7 @@ fn purge_batch(connection: &mut Connection, now: i64) -> Result<i64, CatalogErro
     i64::try_from(expired.len()).map_err(unavailable)
 }
 
-fn earliest_hard_delete(connection: &Connection) -> Result<Option<i64>, CatalogError> {
+fn earliest_hard_delete(connection: &Connection) -> Result<Option<UnixMicros>, CatalogError> {
     sql::scalar(
         connection,
         "SELECT min(hard_delete_time) FROM soft_deleted_buckets",
@@ -397,37 +397,27 @@ impl Catalog {
     }
 
     /// Removes expired versions and returns the next hard delete time, for the maintenance
-    /// scheduler's deadline. Reads already hide expired versions, so this only frees space.
-    /// `now_millis` is the pass's single clock reading, shared with the other sweeps.
+    /// scheduler's deadline. Reads already hide expired versions, so this only frees space; the
+    /// deletion journal sweep that follows it removes their blobs, however many a version held.
     pub(super) async fn maintain_soft_deleted_buckets(
         &self,
-        now_millis: i64,
+        now: UnixMicros,
     ) -> Result<Option<SystemTime>, CatalogError> {
-        let now = now_millis
-            .checked_mul(1000)
-            .ok_or_else(|| unavailable("maintenance time overflow"))?;
-        let (purged, next) = self
-            .run::<_, CatalogError>(move |connection| {
-                // Every maintenance pass reaches this sweep, including passes that requests
-                // wake. Taking the write lock only when a version is due keeps a pass with
-                // nothing to purge from waiting on another writer and holding the connection.
-                let mut next = earliest_hard_delete(connection)?;
-                let mut purged = 0;
-                while next.is_some_and(|time| time <= now) {
-                    let removed = purge_batch(connection, now)?;
-                    purged += removed;
-                    next = earliest_hard_delete(connection)?;
-                    if removed == 0 {
-                        break;
-                    }
+        self.run::<_, CatalogError>(move |connection| {
+            // Every maintenance pass reaches this sweep, including passes that requests
+            // wake. Taking the write lock only when a version is due keeps a pass with
+            // nothing to purge from waiting on another writer and holding the connection.
+            let mut next = earliest_hard_delete(connection)?;
+            while next.is_some_and(|time| time <= now) {
+                let removed = purge_batch(connection, now)?;
+                next = earliest_hard_delete(connection)?;
+                if removed == 0 {
+                    break;
                 }
-                Ok((purged, next.map(system_time_micros).transpose()?))
-            })
-            .await?;
-        if purged > 0 {
-            self.reclaim_after_commit().await;
-        }
-        Ok(next)
+            }
+            Ok(next.map(UnixMicros::system_time).transpose()?)
+        })
+        .await
     }
 }
 

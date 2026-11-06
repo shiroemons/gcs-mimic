@@ -86,7 +86,7 @@ pub(super) use list::{SeekStart, list_page, prefix_end};
 pub(crate) use publication::Versioning;
 pub(super) use publication::{
     BucketPublication, DeletePermission, GenerationAssignment, NewVersion, PublicationDefaults,
-    PublicationTime, RequestKind, Retirement, acl_update_error, publish_in_transaction,
+    PublicationTime, RequestKind, Retired, Retirement, acl_update_error, publish_in_transaction,
     retention_expiration,
 };
 use publication::{RetirementContext, retire_previous};
@@ -283,17 +283,19 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         let access = access.clone();
         let clock = self.0.clock.clone();
-        self.run(move |connection| {
-            delete_selected(
-                connection,
-                clock.as_ref(),
-                &target,
-                conditions,
-                &access,
-                None,
-            )
-        })
-        .await?;
+        let retired = self
+            .run(move |connection| {
+                delete_selected(
+                    connection,
+                    clock.as_ref(),
+                    &target,
+                    conditions,
+                    &access,
+                    None,
+                )
+            })
+            .await?;
+        self.schedule_expiry(retired);
         self.reclaim_after_commit().await;
         Ok(())
     }
@@ -369,14 +371,14 @@ pub(super) fn delete_selected(
     conditions: ObjectConditions,
     access: &BucketAccess,
     sync_binding: Option<&super::sync_state::SyncBinding>,
-) -> Result<(), ObjectError> {
+) -> Result<Retired, ObjectError> {
     let ObjectTarget {
         bucket,
         name,
         generation,
     } = target;
     authorized_bucket(connection, bucket, access)?;
-    super::soft_delete::purge_expired(connection, bucket, unix_micros(clock.now())?)?;
+    super::soft_delete::purge_expired(connection, bucket, clock.now().try_into()?)?;
     let transaction = sql::immediate(connection)?;
     let StoredObject { record, blob: id } = selected(
         &transaction,
@@ -408,7 +410,7 @@ pub(super) fn delete_selected(
         super::change_journal::ChangeKind::Delete,
         &record,
     )?;
-    retire_previous(
+    let retired = retire_previous(
         &transaction,
         Some(&StoredObject { record, blob: id }),
         retirement,
@@ -421,7 +423,7 @@ pub(super) fn delete_selected(
         },
     )?;
     transaction.commit()?;
-    Ok(())
+    Ok(retired)
 }
 
 pub(super) use crate::storage::failure::object_unavailable;

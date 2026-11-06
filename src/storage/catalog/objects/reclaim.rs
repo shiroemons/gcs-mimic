@@ -13,6 +13,9 @@ pub(in crate::storage::catalog) fn blob_referenced(
 
 pub(super) const JOURNAL_CONFLICT: &str = "SELECT pending.blob_id FROM pending_blob_deletions AS pending JOIN objects ON objects.blob_id = pending.blob_id ORDER BY pending.blob_id LIMIT 1";
 
+/// Journal rows one reclamation handles between its catalog transactions.
+const RECLAIM_PAGE: usize = 128;
+
 pub(super) fn live_journal_error(id: BlobId) -> ObjectError {
     object_unavailable(format!(
         "deletion journal blob {id}: deletion journal references a live blob; its file is kept"
@@ -68,9 +71,12 @@ impl Journaled {
     }
 }
 
-impl From<Option<BlobId>> for Journaled {
-    fn from(value: Option<BlobId>) -> Self {
-        Self(value.is_some())
+impl From<Retired> for Journaled {
+    fn from(retired: Retired) -> Self {
+        match retired {
+            Retired::Journaled => Self::SOME,
+            Retired::Nothing | Retired::SoftDeleted => Self::NOTHING,
+        }
     }
 }
 
@@ -154,10 +160,30 @@ impl Catalog {
                 "blob_reclaim_deferred",
                 serde_json::json!({"message":format!("deferred blob reclamation: {error}")}),
             );
+            // The request has succeeded; the maintenance loop owns the retry from here.
+            self.0.maintenance_wake.notify_one();
         }
     }
 
     pub(in crate::storage::catalog) async fn reclaim_pending(&self) -> Result<(), ObjectError> {
+        self.reclaim_page().await.map(drop)
+    }
+
+    /// Reclaims the whole journal, one bounded page at a time, for the maintenance scheduler.
+    ///
+    /// A request reclaims one page, enough for what it journaled, and leaves anything more behind
+    /// when a sweep or a bucket deletion journaled a larger batch or an earlier reclamation
+    /// failed. A failure here fails the pass, so the scheduler retries it and readiness reports
+    /// a journal that cannot drain.
+    pub(in crate::storage::catalog) async fn maintain_deletion_journal(
+        &self,
+    ) -> Result<Option<std::time::SystemTime>, CatalogError> {
+        while self.reclaim_page().await.map_err(unavailable)? == RECLAIM_PAGE {}
+        Ok(None)
+    }
+
+    /// Reclaims up to `RECLAIM_PAGE` journaled blobs and returns how many it selected.
+    async fn reclaim_page(&self) -> Result<usize, ObjectError> {
         let activity = self.activity()?;
         let permit = self
             .0
@@ -175,17 +201,18 @@ impl Catalog {
                     let ids = connection
                         .prepare_cached(
                             // Cancelled sessions need their marker until staging cleanup also succeeds.
-                            "SELECT blob_id FROM pending_blob_deletions AS pending WHERE NOT EXISTS (SELECT 1 FROM resumable_sessions AS session WHERE session.blob_id = pending.blob_id AND session.state != 'COMPLETE') AND NOT EXISTS (SELECT 1 FROM objects WHERE objects.blob_id = pending.blob_id) ORDER BY blob_id LIMIT 128",
+                            "SELECT blob_id FROM pending_blob_deletions AS pending WHERE NOT EXISTS (SELECT 1 FROM resumable_sessions AS session WHERE session.blob_id = pending.blob_id AND session.state != 'COMPLETE') AND NOT EXISTS (SELECT 1 FROM objects WHERE objects.blob_id = pending.blob_id) ORDER BY blob_id LIMIT ?1",
                         )?
-                        .query_map([], |row| row.get::<_, BlobId>(0))?
+                        .query_map([RECLAIM_PAGE], |row| row.get::<_, BlobId>(0))?
                         .collect::<rusqlite::Result<Vec<_>>>()?;
                     let conflict: Option<BlobId> = sql::optional_scalar(connection, JOURNAL_CONFLICT, [])?;
                     Ok((ids, conflict))
                 })
                 .await?;
             if ids.is_empty() {
-                return conflict.map_or(Ok(()), |id| Err(live_journal_error(id)));
+                return conflict.map_or(Ok(0), |id| Err(live_journal_error(id)));
             }
+            let selected = ids.len();
             let backend = catalog.0.backend.clone();
             let (removed, failure) =
                 crate::task::run_blocking("blob-reclamation", move || backend.reclaim_batch(ids))
@@ -212,7 +239,7 @@ impl Catalog {
                 })
                 .await?;
             failure.map_or_else(
-                || conflict.map_or(Ok(()), |id| Err(live_journal_error(id))),
+                || conflict.map_or(Ok(selected), |id| Err(live_journal_error(id))),
                 Err,
             )
         });

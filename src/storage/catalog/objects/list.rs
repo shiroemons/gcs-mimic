@@ -51,11 +51,15 @@ impl Catalog {
             .run(move |connection| {
                 // The catalog worker serializes mutations; each seek ends before glob matching.
                 authorized_bucket(connection, &query.bucket, &access)?;
-                let now = unix_micros(clock.now())?;
+                let time = clock.now();
                 if query.soft_deleted {
-                    super::super::soft_delete::purge_expired(connection, &query.bucket, now)?;
+                    super::super::soft_delete::purge_expired(
+                        connection,
+                        &query.bucket,
+                        time.try_into()?,
+                    )?;
                 }
-                let mut page = list_page_at(connection, &query, limit, now)?;
+                let mut page = list_page_at(connection, &query, limit, unix_micros(time)?)?;
                 page.bucket_metageneration =
                     Some(bucket_metageneration(connection, &query.bucket)?);
                 Ok(page)

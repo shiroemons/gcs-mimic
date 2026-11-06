@@ -171,7 +171,7 @@ fn create_policies(bucket: &pb::Bucket, body: &mut Map<String, Value>) -> Result
                 if field == "retentionPolicy" {
                     crate::bucket::retention_period(duration.seconds)?;
                 } else {
-                    crate::bucket::soft_delete_retention(duration.seconds)?;
+                    crate::bucket::SoftDeleteRetention::try_from(duration.seconds)?;
                 }
                 body.insert(field.into(), json!({key: duration.seconds.to_string()}));
             }

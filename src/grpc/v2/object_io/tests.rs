@@ -601,7 +601,7 @@ async fn grpc_derived_writes_return_owner_and_acl() {
             "grpc-io",
             crate::bucket::BucketMetadataUpdate {
                 versioning_enabled: Some(false),
-                soft_delete_retention: Some(604800),
+                soft_delete_retention: Some(604800_i64.try_into().unwrap()),
                 ..Default::default()
             },
             Default::default(),

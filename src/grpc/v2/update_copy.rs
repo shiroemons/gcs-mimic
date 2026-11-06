@@ -967,7 +967,12 @@ mod tests {
         assert_eq!(update.autoclass.unwrap().enabled, Some(false));
         assert_eq!(update.versioning_enabled, Some(false));
         assert_eq!(update.retention_period, Some(None));
-        assert_eq!(update.soft_delete_retention, Some(0));
+        assert_eq!(
+            update
+                .soft_delete_retention
+                .map(|retention| retention.seconds()),
+            Some(0)
+        );
         assert!(update.cors.unwrap().is_empty());
         assert_eq!(update.public_access_prevention_enforced, Some(false));
         assert_eq!(update.uniform_bucket_level_access_enabled, Some(false));

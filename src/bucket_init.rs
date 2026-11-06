@@ -782,7 +782,7 @@ fn example(field: &str) -> &'static str {
         "defaultEventBasedHold" => "\"defaultEventBasedHold\":false",
         "iamConfiguration" => "\"iamConfiguration\":{\"publicAccessPrevention\":\"inherited\"}",
         "softDeletePolicy" | "retentionDurationSeconds" => {
-            "\"softDeletePolicy\":{\"retentionDurationSeconds\":\"0\"} (0 or 604800 to 7776000)"
+            "\"softDeletePolicy\":{\"retentionDurationSeconds\":\"0\"} (0 or 1 to 3155760000)"
         }
         _ => "\"publicAccessPrevention\":\"inherited\"",
     }

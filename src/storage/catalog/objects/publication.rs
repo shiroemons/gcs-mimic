@@ -1,4 +1,6 @@
+use super::super::UnixMicros;
 use super::*;
+use std::num::NonZeroI64;
 
 /// The new version a publication transaction records: its blob, how its generation is
 /// assigned, the publication time and the origin the change journal reports.
@@ -27,7 +29,8 @@ pub(in crate::storage::catalog) struct BucketPublication {
     pub(in crate::storage::catalog) versioning: Versioning,
     pub(in crate::storage::catalog) default_event_hold: bool,
     retention_period: Option<u64>,
-    soft_delete_seconds: i64,
+    /// How long a removed generation stays soft deleted; `None` removes it at once.
+    soft_delete_seconds: Option<NonZeroI64>,
 }
 
 impl BucketPublication {
@@ -60,7 +63,8 @@ impl BucketPublication {
             },
             default_event_hold,
             retention_period,
-            soft_delete_seconds,
+            soft_delete_seconds: NonZeroI64::new(soft_delete_seconds)
+                .filter(|seconds| seconds.is_positive()),
         })
     }
 
@@ -84,15 +88,17 @@ impl BucketPublication {
             .transpose()
     }
 
-    fn soft_delete_deadline(&self, micros: i64) -> Result<Option<i64>, ObjectError> {
-        if self.soft_delete_seconds <= 0 {
-            return Ok(None);
-        }
+    fn soft_delete_deadline(&self, micros: i64) -> Result<Option<UnixMicros>, ObjectError> {
         self.soft_delete_seconds
-            .checked_mul(1_000_000)
-            .and_then(|duration| micros.checked_add(duration))
-            .map(Some)
-            .ok_or(ObjectError::InvalidMetadata)
+            .map(|seconds| {
+                seconds
+                    .get()
+                    .checked_mul(1_000_000)
+                    .and_then(|duration| micros.checked_add(duration))
+                    .map(UnixMicros)
+                    .ok_or(ObjectError::InvalidMetadata)
+            })
+            .transpose()
     }
 }
 
@@ -222,6 +228,18 @@ pub(in crate::storage::catalog) enum Retirement {
     Removed,
 }
 
+/// What retiring a live generation leaves for after its transaction commits.
+#[must_use = "a soft delete requires Catalog::schedule_expiry after its commit"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::storage::catalog) enum Retired {
+    /// Nothing: there was no live generation, or it stays readable as noncurrent.
+    Nothing,
+    /// The generation now has a hard delete time the maintenance scheduler does not know.
+    SoftDeleted,
+    /// The generation is gone and its blob waits in the deletion journal.
+    Journaled,
+}
+
 /// Which failure an unmet not-match precondition reports: reads answer 304.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::storage::catalog) enum RequestKind {
@@ -242,7 +260,7 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
     bucket: &BucketPublication,
     version: NewVersion<'_>,
     prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
-) -> Result<(ObjectRecord, Option<BlobId>, T), ObjectError> {
+) -> Result<(ObjectRecord, Retired, T), ObjectError> {
     let NewVersion {
         blob_id,
         assignment,
@@ -392,7 +410,7 @@ pub(super) fn retire_previous(
     retirement: Retirement,
     bucket: &BucketPublication,
     context: RetirementContext,
-) -> Result<Option<BlobId>, ObjectError> {
+) -> Result<Retired, ObjectError> {
     let RetirementContext {
         micros,
         origin,
@@ -400,7 +418,7 @@ pub(super) fn retire_previous(
         notification_mode,
     } = context;
     let Some(StoredObject { record, blob: id }) = previous else {
-        return Ok(None);
+        return Ok(Retired::Nothing);
     };
     if origin != super::super::admin::Origin::Import && notification_mode == NotificationMode::Emit
     {
@@ -417,28 +435,33 @@ pub(super) fn retire_previous(
             },
         )?;
     }
-    if retirement == Retirement::Noncurrent {
-        sql::exec(
-            connection,
-            "UPDATE objects SET time_deleted = ?2 WHERE blob_id = ?1",
-            params![id, micros],
-        )?;
-        Ok(None)
-    } else {
-        if let Some(deadline) = bucket.soft_delete_deadline(micros)? {
+    match retirement {
+        Retirement::Noncurrent => {
             sql::exec(
                 connection,
-                "UPDATE objects SET time_deleted = COALESCE(time_deleted, ?2), soft_delete_time = ?2, hard_delete_time = ?3 WHERE blob_id = ?1",
-                params![id, micros, deadline],
+                "UPDATE objects SET time_deleted = ?2 WHERE blob_id = ?1",
+                params![id, micros],
             )?;
-            return Ok(None);
+            Ok(Retired::Nothing)
         }
-        sql::exec(connection, "DELETE FROM objects WHERE blob_id = ?1", [id])?;
-        sql::exec(
-            connection,
-            "INSERT INTO pending_blob_deletions VALUES (?1)",
-            [id],
-        )?;
-        Ok(Some(*id))
+        Retirement::Removed => match bucket.soft_delete_deadline(micros)? {
+            Some(deadline) => {
+                sql::exec(
+                    connection,
+                    "UPDATE objects SET time_deleted = COALESCE(time_deleted, ?2), soft_delete_time = ?2, hard_delete_time = ?3 WHERE blob_id = ?1",
+                    params![id, micros, deadline],
+                )?;
+                Ok(Retired::SoftDeleted)
+            }
+            None => {
+                sql::exec(connection, "DELETE FROM objects WHERE blob_id = ?1", [id])?;
+                sql::exec(
+                    connection,
+                    "INSERT INTO pending_blob_deletions VALUES (?1)",
+                    [id],
+                )?;
+                Ok(Retired::Journaled)
+            }
+        },
     }
 }

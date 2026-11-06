@@ -183,6 +183,7 @@ where
         owner_profile: principals.as_ref(),
         acl: super::super::acl::PublicationAcl::InheritDefault,
     };
+    // Publishing a transfer always wakes the maintenance scheduler once it settles.
     let (record, _retired, ()) = objects::publish_in_transaction(
         transaction,
         previous.as_ref(),

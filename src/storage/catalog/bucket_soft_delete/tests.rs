@@ -31,7 +31,7 @@ async fn set_retention(catalog: &Catalog, name: &str, seconds: u64) -> BucketRec
         .patch_bucket(
             name,
             BucketMetadataUpdate {
-                soft_delete_retention: Some(seconds),
+                soft_delete_retention: Some(i64::try_from(seconds).unwrap().try_into().unwrap()),
                 ..Default::default()
             },
             Default::default(),

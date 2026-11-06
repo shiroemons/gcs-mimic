@@ -46,14 +46,12 @@ pub(crate) struct LocalServer {
 
 impl LocalServer {
     /// Starts the native profile on loopback ports chosen by the OS (HTTP and
-    /// plaintext gRPC), with the default soft-delete retention off, and waits
-    /// for its ready event.
+    /// plaintext gRPC) and waits for its ready event.
     pub(crate) fn start(binary: &Path, work: &Path) -> Result<Self> {
         let pubsub = pubsub::Stub::start().map_err(|e| format!("Pub/Sub stub: {e}"))?;
         let log = work.join("server.log");
         let child = Command::new(binary)
             .env_clear()
-            .env("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS", "0")
             .env("PUBSUB_EMULATOR_HOST", &pubsub.endpoint)
             .args(["serve", "--scheme", "http", "--listen", "127.0.0.1:0"])
             .args(["--grpc-listen", "127.0.0.1:0"])

@@ -3,6 +3,7 @@ use super::*;
 enum CommitOutcome {
     Published {
         record: ObjectRecord,
+        retired: Retired,
         journaled: Journaled,
     },
     Replayed(ObjectRecord),
@@ -216,6 +217,7 @@ impl UploadCommit {
         commit_publication(transaction)?;
         Ok(CommitOutcome::Published {
             record,
+            retired,
             journaled: Journaled::from(retired) | appendable,
         })
     }
@@ -448,7 +450,10 @@ impl Catalog {
             }
             .await;
             match &result {
-                Ok(CommitOutcome::Published { journaled, .. }) => {
+                Ok(CommitOutcome::Published {
+                    retired, journaled, ..
+                }) => {
+                    catalog.schedule_expiry(*retired);
                     catalog.reclaim_if(*journaled).await
                 }
                 Ok(CommitOutcome::Replayed(_) | CommitOutcome::Unchanged(_)) | Err(_) => {

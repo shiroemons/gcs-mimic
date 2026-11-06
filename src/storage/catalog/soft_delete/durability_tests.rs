@@ -283,11 +283,7 @@ async fn expired_restore_source_is_rechecked_after_pinning() {
     let expired_clock = clock.clone();
     let error = catalog
         .run_upload(move |connection| {
-            purge_expired(
-                connection,
-                "bucket",
-                super::super::unix_micros(expired_clock.now())?,
-            )?;
+            purge_expired(connection, "bucket", expired_clock.now().try_into()?)?;
             restore_in_transaction(
                 connection,
                 &request,

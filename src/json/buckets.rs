@@ -305,8 +305,8 @@ pub(crate) fn parse_insert_with_profile(
     timestamp(now)?;
     Ok(BucketRecord {
         soft_delete_policy: parse_soft_delete_retention(body.get("softDeletePolicy"))?.map(
-            |retention_duration_seconds| crate::bucket::SoftDeletePolicy {
-                retention_duration_seconds,
+            |retention| crate::bucket::SoftDeletePolicy {
+                retention_duration_seconds: retention.seconds(),
                 effective_time: now,
             },
         ),
@@ -680,7 +680,9 @@ fn int64_setting(value: &Value) -> Result<i64, JsonError> {
 /// The soft-delete retention of a policy member. An absent member, a null policy and an empty
 /// policy all leave the setting alone: Cloud Storage answered a null policy with the unchanged
 /// resource (recorded 2026-10-31).
-fn parse_soft_delete_retention(value: Option<&Value>) -> Result<Option<u64>, JsonError> {
+fn parse_soft_delete_retention(
+    value: Option<&Value>,
+) -> Result<Option<crate::bucket::SoftDeleteRetention>, JsonError> {
     let Some(value) = value.filter(|v| !v.is_null()) else {
         return Ok(None);
     };
@@ -693,7 +695,7 @@ fn parse_soft_delete_retention(value: Option<&Value>) -> Result<Option<u64>, Jso
     else {
         return Ok(None);
     };
-    crate::bucket::soft_delete_retention(int64_setting(duration)?)
+    crate::bucket::SoftDeleteRetention::try_from(int64_setting(duration)?)
         .map(Some)
         .map_err(Into::into)
 }

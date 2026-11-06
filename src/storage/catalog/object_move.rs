@@ -53,7 +53,7 @@ impl Catalog {
         let source_delete = access.source_delete.clone();
         let destination_create = access.destination_create.clone();
         let clock = self.0.clock.clone();
-        let record = self
+        let (record, retired) = self
             .run(move |connection| {
                 let transaction = sql::immediate(connection)?;
                 let super::objects::StoredObject {
@@ -119,7 +119,7 @@ impl Catalog {
                 record.time_created = now;
                 record.updated = now;
                 record.time_deleted = None;
-                let (record, _, ()) = publish_in_transaction(
+                let (record, retired, ()) = publish_in_transaction(
                     &transaction,
                     previous.as_ref(),
                     &publication,
@@ -140,9 +140,10 @@ impl Catalog {
                     },
                 )?;
                 transaction.commit()?;
-                Ok(record)
+                Ok((record, retired))
             })
             .await?;
+        self.schedule_expiry(retired);
         self.reclaim_after_commit().await;
         Ok(record)
     }

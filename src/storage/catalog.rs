@@ -192,7 +192,8 @@ struct Inner {
     notification_started: AtomicBool,
     /// The local Pub/Sub emulator, set once when the publisher starts; also answers topic lookups.
     pubsub_endpoint: OnceLock<crate::notification::Endpoint>,
-    /// Retention a new bucket without an explicit softDeletePolicy receives; 0 gives none.
+    /// Retention a new bucket without an explicit softDeletePolicy receives, an
+    /// `Option<NonZeroU64>` in atomic form: read it through `default_soft_delete_retention()`.
     default_soft_delete_retention: AtomicU64,
     notification_attempts: Arc<Semaphore>,
     data_dir: PathBuf,
@@ -311,6 +312,38 @@ impl Catalog {
             && !self.0.admin_uploads.is_closed()
             && !self.0.admin_reads.is_closed()
             && !self.0.admin_waiters.is_closed()
+    }
+}
+
+/// A hard delete time, or a clock reading compared with one: whole microseconds since the Unix
+/// epoch. A maintenance pass also handles session deadlines in milliseconds as plain `i64`; this
+/// type keeps a reading in one unit from reaching a sweep that expects the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct UnixMicros(i64);
+
+impl UnixMicros {
+    fn system_time(self) -> rusqlite::Result<SystemTime> {
+        system_time_micros(self.0)
+    }
+}
+
+impl TryFrom<SystemTime> for UnixMicros {
+    type Error = CatalogError;
+
+    fn try_from(time: SystemTime) -> Result<Self, CatalogError> {
+        unix_micros(time).map(Self)
+    }
+}
+
+impl rusqlite::ToSql for UnixMicros {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
+}
+
+impl rusqlite::types::FromSql for UnixMicros {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        i64::column_result(value).map(Self)
     }
 }
 

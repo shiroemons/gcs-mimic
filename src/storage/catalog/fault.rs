@@ -58,6 +58,8 @@ pub(crate) enum Step {
     SyncMarkerPublished,
     /// Before probing a failed or rolled-back publication's reference.
     DiscardProbe,
+    /// Before committing an expired soft-deleted batch and its deletion journal rows together.
+    ExpiryCommit,
     /// Before unlinking a journaled blob.
     ReclaimUnlink,
     /// After unlinking a shard's blobs, before its directory sync.

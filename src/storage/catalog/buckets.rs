@@ -1,4 +1,5 @@
 use super::*;
+use std::num::NonZeroU64;
 
 const INSERT_BUCKET: &str = concat!(
     "INSERT INTO buckets (",
@@ -15,17 +16,20 @@ const SELECT_BUCKET: &str = concat!(
 impl Catalog {
     /// Sets the soft delete retention that a bucket created without a policy receives. The
     /// server applies its configuration before any bucket is created; an embedded catalog keeps
-    /// 0, which leaves such buckets without a policy.
-    pub fn set_default_soft_delete_retention(&self, seconds: u64) {
-        self.0
-            .default_soft_delete_retention
-            .store(seconds, std::sync::atomic::Ordering::Relaxed);
+    /// `None`, which leaves such buckets without a policy.
+    pub fn set_default_soft_delete_retention(&self, retention: Option<NonZeroU64>) {
+        self.0.default_soft_delete_retention.store(
+            retention.map_or(0, NonZeroU64::get),
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 
-    pub(crate) fn default_soft_delete_retention(&self) -> u64 {
-        self.0
-            .default_soft_delete_retention
-            .load(std::sync::atomic::Ordering::Relaxed)
+    pub(crate) fn default_soft_delete_retention(&self) -> Option<NonZeroU64> {
+        NonZeroU64::new(
+            self.0
+                .default_soft_delete_retention
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     pub(crate) async fn insert_bucket(
@@ -156,14 +160,16 @@ const MAX_GENERATION_SEED: i64 = 9_000_000_000_000_000_000;
 pub(super) fn insert_bucket_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     record: &mut BucketRecord,
-    default_soft_delete_retention: u64,
+    default_soft_delete_retention: Option<NonZeroU64>,
 ) -> Result<(), CatalogError> {
-    // Cloud Storage gives a new bucket that names no policy a seven-day one whose
-    // effectiveTime is the creation time. An explicit policy, zero included, is kept as
-    // sent. A zero default leaves the bucket without a policy, as before the default existed.
-    if record.soft_delete_policy.is_none() && default_soft_delete_retention > 0 {
+    // A server default gives a new bucket that names no policy that retention, with effectiveTime
+    // at the creation time, as Cloud Storage does with its seven days. An explicit policy, zero
+    // included, is kept as sent. Without a default the bucket stays without a policy.
+    if record.soft_delete_policy.is_none()
+        && let Some(retention) = default_soft_delete_retention
+    {
         record.soft_delete_policy = Some(crate::bucket::SoftDeletePolicy {
-            retention_duration_seconds: default_soft_delete_retention,
+            retention_duration_seconds: retention.get(),
             effective_time: record.time_created,
         });
     }

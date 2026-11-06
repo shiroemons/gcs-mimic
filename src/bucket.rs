@@ -188,7 +188,7 @@ pub(crate) struct BucketMetadataUpdate {
     pub cors: Option<Vec<CorsRule>>,
     pub lifecycle: Option<Vec<serde_json::Value>>,
     pub retention_period: Option<Option<u64>>,
-    pub soft_delete_retention: Option<u64>,
+    pub(crate) soft_delete_retention: Option<SoftDeleteRetention>,
     pub lock_retention_policy: bool,
     /// An echoed `objectRetention` value; it must match the stored state.
     pub object_retention_enabled: Option<bool>,
@@ -439,15 +439,41 @@ pub(crate) fn validate_update_storage_class(class: &str) -> Result<StorageClass,
 }
 
 pub(crate) const SOFT_DELETE_RANGE_MESSAGE: &str =
-    "Soft delete policy must have a retention duration between 3 days and 90 days.";
+    "Soft delete policy must have a retention duration of 0 (disabled) or 1 to 3155760000 seconds.";
 pub(crate) const RETENTION_RANGE_MESSAGE: &str =
     "Retention policy must have a retention period greater than 0 and less than 100 years.";
 
-pub(crate) fn soft_delete_retention(seconds: i64) -> Result<u64, CatalogError> {
-    u64::try_from(seconds)
-        .ok()
-        .filter(|value| *value == 0 || (604800..=7776000).contains(value))
-        .ok_or_else(|| CatalogError::InvalidMetadata(SOFT_DELETE_RANGE_MESSAGE.into()))
+/// A soft delete retention the emulator accepts, in seconds. Zero is a setting of its own: the
+/// API stores and returns it, and it means deletions are permanent.
+///
+/// Cloud Storage accepts only 0 or 7 to 90 days. The emulator deliberately accepts any shorter
+/// duration too, so local tests can watch deleted data expire without waiting a week. The ceiling
+/// keeps a hard delete time inside the catalog's 64-bit microsecond timestamps for any clock
+/// reading the wire format can represent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SoftDeleteRetention(u64);
+
+impl SoftDeleteRetention {
+    pub(crate) fn seconds(self) -> u64 {
+        self.0
+    }
+
+    /// The retention to keep deletions for, or `None` when they are permanent.
+    pub(crate) fn enabled(self) -> Option<std::num::NonZeroU64> {
+        std::num::NonZeroU64::new(self.0)
+    }
+}
+
+impl TryFrom<i64> for SoftDeleteRetention {
+    type Error = CatalogError;
+
+    fn try_from(seconds: i64) -> Result<Self, CatalogError> {
+        u64::try_from(seconds)
+            .ok()
+            .filter(|seconds| *seconds <= crate::object::retention::MAX_RETENTION.as_secs())
+            .map(Self)
+            .ok_or_else(|| CatalogError::InvalidMetadata(SOFT_DELETE_RANGE_MESSAGE.into()))
+    }
 }
 
 pub(crate) fn retention_period(seconds: i64) -> Result<u64, CatalogError> {

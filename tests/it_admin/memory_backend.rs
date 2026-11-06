@@ -14,12 +14,6 @@ use std::{
 const AUTH: &str = "Authorization: Bearer admin\r\n";
 const OBJECT: &str = "/storage/v1/b/test-bucket/o/value";
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SoftDeleteEnv {
-    Pinned,
-    Unset,
-}
-
 struct Server {
     child: Child,
     stdout: BufReader<ChildStdout>,
@@ -30,16 +24,7 @@ struct Server {
 
 impl Server {
     fn start(data: &Path, options: &[&str]) -> Self {
-        Self::start_with(data, options, SoftDeleteEnv::Pinned)
-    }
-
-    fn start_with(data: &Path, options: &[&str], env: SoftDeleteEnv) -> Self {
-        let mut command = common::server_command();
-        if env == SoftDeleteEnv::Unset {
-            // The suite pins the default to 0; the memory default is only reachable without it.
-            command.env_remove("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS");
-        }
-        let mut child = command
+        let mut child = common::server_command()
             .args([
                 "serve",
                 "--scheme",
@@ -1026,7 +1011,7 @@ const SMALL_BUDGET: [&str; 2] = ["--memory-max-bytes", "260"];
 fn memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity() {
     let dir = common::TestDir::new();
     let data = dir.0.join("never-created");
-    let mut server = Server::start_with(&data, &SMALL_BUDGET, SoftDeleteEnv::Unset);
+    let mut server = Server::start(&data, &SMALL_BUDGET);
     server.bucket(false);
     for round in 0..8 {
         let put = server.put(b"body");
@@ -1041,10 +1026,7 @@ fn memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exh
     let bucket = server
         .request("GET", "/storage/v1/b/test-bucket", AUTH, b"")
         .json_ok();
-    assert_ne!(
-        bucket["softDeletePolicy"]["retentionDurationSeconds"],
-        "604800"
-    );
+    assert!(bucket.get("softDeletePolicy").is_none(), "{bucket}");
     server.stop();
 }
 
@@ -1054,7 +1036,7 @@ fn memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_nam
     let data = dir.0.join("never-created");
     let mut options = SMALL_BUDGET.to_vec();
     options.extend(["--default-soft-delete-retention-seconds", "604800"]);
-    let mut server = Server::start_with(&data, &options, SoftDeleteEnv::Unset);
+    let mut server = Server::start(&data, &options);
     server.bucket(false);
     let bucket = server
         .request("GET", "/storage/v1/b/test-bucket", AUTH, b"")
