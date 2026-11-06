@@ -423,11 +423,32 @@ impl ObjectMetadataUpdate {
     }
 
     /// Applies the update to a published generation, where a PUT also clears the holds it omits.
+    /// Edits of one field at a time may not add up past what a later copy could inherit.
     pub(crate) fn apply_to_existing(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
         if self.replace {
             record.clear_holds();
         }
-        self.apply(record)
+        self.apply(record)?;
+        Self::inheriting(record).check_encoded_size()
+    }
+
+    /// The update that gives a new object the editable metadata of `source`, except its holds.
+    pub(crate) fn inheriting(source: &ObjectRecord) -> Self {
+        Self {
+            content_type: Some(Some(source.content_type.clone())),
+            content_encoding: Some(source.content_encoding.clone()),
+            content_disposition: Some(source.content_disposition.clone()),
+            content_language: Some(source.content_language.clone()),
+            cache_control: Some(source.cache_control.clone()),
+            metadata: Some(Some(
+                source
+                    .metadata
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Some(value.clone())))
+                    .collect(),
+            )),
+            ..Default::default()
+        }
     }
 
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {

@@ -52,22 +52,11 @@ pub(crate) fn derived_metadata(
         || std::str::from_utf8(bytes)
             .is_ok_and(|value| matches!(value.trim_matches([' ', '\t', '\r', '\n']), "null" | "{}"))
     {
+        let update = ObjectMetadataUpdate::inheriting(source);
+        // Publishing checks this as well, but only after the whole body has been copied.
+        update.check_encoded_size().map_err(JsonError::from)?;
         return Ok((
-            ObjectMetadataUpdate {
-                content_type: Some(Some(source.content_type.clone())),
-                content_encoding: Some(source.content_encoding.clone()),
-                content_disposition: Some(source.content_disposition.clone()),
-                content_language: Some(source.content_language.clone()),
-                cache_control: Some(source.cache_control.clone()),
-                metadata: Some(Some(
-                    source
-                        .metadata
-                        .iter()
-                        .map(|(key, value)| (key.clone(), Some(value.clone())))
-                        .collect(),
-                )),
-                ..Default::default()
-            },
+            update,
             Some(source.storage_class),
             ExpectedHashes::default(),
         ));
@@ -292,6 +281,41 @@ mod tests {
                 ]
             ])
         );
+    }
+
+    #[test]
+    fn metadata_too_large_to_inherit_fails_before_a_copy_starts() {
+        let mut source = crate::json::object_tests::record();
+        source.content_disposition = Some("x".repeat(41 * 1024));
+        assert!(derived_metadata(b"", &source).is_err());
+        assert!(derived_metadata(b"{\"contentType\":\"text/plain\"}", &source).is_ok());
+    }
+
+    #[test]
+    fn metadata_edits_cannot_add_up_past_what_a_copy_may_inherit() {
+        let mut record = crate::json::object_tests::record();
+        let edit = |update: ObjectMetadataUpdate, record: &mut ObjectRecord| {
+            update.apply_to_existing(record)
+        };
+        edit(
+            ObjectMetadataUpdate {
+                content_disposition: Some(Some("x".repeat(30 * 1024))),
+                ..Default::default()
+            },
+            &mut record,
+        )
+        .unwrap();
+        let second = edit(
+            ObjectMetadataUpdate {
+                cache_control: Some(Some("x".repeat(30 * 1024))),
+                ..Default::default()
+            },
+            &mut record,
+        );
+        assert!(matches!(
+            second,
+            Err(crate::object::ObjectError::InvalidFixedMetadata(_))
+        ));
     }
 
     #[test]
