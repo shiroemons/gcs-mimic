@@ -49,7 +49,7 @@ fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
         ),
         (
             UploadWaitTimeout,
-            "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit",
+            "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 300000; 0 disables it); a completed upload may still commit",
         ),
         (
             RetainedSessionLimit,
@@ -61,11 +61,11 @@ fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
         ),
         (
             FinalizationTimeout,
-            "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)",
+            "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)",
         ),
         (
             CopyDeadline,
-            "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)",
+            "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)",
         ),
         (
             SessionBusy,

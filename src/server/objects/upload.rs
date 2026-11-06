@@ -13,7 +13,6 @@ use crate::{
     server::{ObjectCtx, stream_upload},
     storage::{ObjectUpload, ReplayInvocation},
 };
-use http_body_util::BodyExt;
 use hyper::{
     HeaderMap, Request,
     body::{Body, Bytes},
@@ -99,7 +98,7 @@ pub(super) async fn insert(
         permit,
     );
     let producer = async {
-        stream_upload(request.into_body(), &sender, max_bytes, ctx.activity, None)
+        stream_upload(request.into_body(), &sender, max_bytes, None)
             .await
             .map(|_| UploadEnd::Eof)
     };
@@ -172,12 +171,7 @@ pub(super) async fn multipart(
         &mut permit,
     ))
     .await?;
-    let activity = ctx.activity;
-    let body = request.into_body().map_frame(|frame| {
-        activity.send_modify(|progress| progress.awaiting_catalog = false);
-        frame
-    });
-    let mut multipart = json::Multipart::related(body, &boundary);
+    let mut multipart = json::Multipart::related(request.into_body(), &boundary);
     let bytes = multipart.metadata().await?;
     let name_known = name.is_some();
     let (name, mut metadata, expected) = json::multipart_metadata(&bytes, name, expected)?;

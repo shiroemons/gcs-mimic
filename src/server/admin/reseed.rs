@@ -65,7 +65,7 @@ async fn reseed(
     let config = ctx.config;
     let ctx = ctx.object(None, deadline);
     // Expiry before exclusive ownership can still confirm that reseed made no changes.
-    let wait_limit = deadline.min(tokio::time::Instant::now() + ctx.catalog_timeout());
+    let wait_limit = deadline.min(config.catalog_wait_timeout.deadline());
     let outcome = ctx
         .await_catalog(async {
             crate::seed::reseed(&admin, config, clock, wait_limit)

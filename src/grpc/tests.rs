@@ -12,16 +12,43 @@ use tokio::{
 
 const DEADLINE: Duration = Duration::from_millis(150);
 
+fn limit(duration: Duration) -> TimeLimit {
+    TimeLimit::from_millis(duration.as_millis() as u64)
+}
+
+fn config() -> Config {
+    Config {
+        header_read_timeout: limit(DEADLINE),
+        keep_alive_timeout: limit(DEADLINE),
+        ..Config::default()
+    }
+}
+
 async fn start<S, F>(service: S) -> (TcpStream, watch::Sender<bool>, JoinHandle<()>)
 where
     S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
     F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
 {
-    start_with_bound(STREAM_INACTIVITY_TIMEOUT, service).await
+    start_with(config(), service).await
 }
 
 async fn start_with_bound<S, F>(
     bound: Duration,
+    service: S,
+) -> (TcpStream, watch::Sender<bool>, JoinHandle<()>)
+where
+    S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
+    F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
+{
+    let config = Config {
+        body_inactivity_timeout: limit(bound),
+        ..config()
+    };
+    start_with(config, service).await
+}
+
+async fn start_with<S, F>(
+    config: Config,
     service: S,
 ) -> (TcpStream, watch::Sender<bool>, JoinHandle<()>)
 where
@@ -35,13 +62,27 @@ where
     let (server, _) = listener.accept().await.unwrap();
     let (stop, stopping) = watch::channel(false);
     let task = tokio::spawn(async move {
-        let config = Config {
-            connection_timeout_ms: DEADLINE.as_millis() as u64,
-            ..Config::default()
-        };
-        serve_with_service(server, &config, stopping, bound, service).await;
+        serve_with_service(server, &config, stopping, service).await;
     });
     (client, stop, task)
+}
+
+/// Reads frames for `wait`, acknowledging what asks for it, and returns the kinds seen.
+async fn frames_for(client: &mut TcpStream, wait: Duration) -> Vec<u8> {
+    let until = Instant::now() + wait;
+    let mut kinds = Vec::new();
+    while let Ok(Some((kind, flags, data))) = tokio::time::timeout_at(until, frame(client)).await {
+        kinds.push(kind);
+        acknowledge(client, kind, flags, &data).await;
+    }
+    kinds
+}
+
+/// A service whose every stream stays open without a response.
+fn pending_stream(
+    _: hyper::Request<tonic::body::Body>,
+) -> std::future::Pending<Result<hyper::Response<tonic::body::Body>, Infallible>> {
+    std::future::pending()
 }
 
 // One write per frame: a peer that already closed accepts the first write and resets the
@@ -189,13 +230,8 @@ async fn grpc_idle_never_cuts_in_flight_streams() {
     timeout(DEADLINE * 5, entered.notified()).await.unwrap();
     // Cover both the pending response future and the live response body.
     for phase in 0..2 {
-        let until = Instant::now() + DEADLINE * 3;
-        while let Ok(Some((kind, flags, data))) =
-            tokio::time::timeout_at(until, frame(&mut client)).await
-        {
-            assert_ne!(kind, 7, "open stream must not receive idle GOAWAY");
-            acknowledge(&mut client, kind, flags, &data).await;
-        }
+        let kinds = frames_for(&mut client, DEADLINE * 3).await;
+        assert!(!kinds.contains(&7), "open stream got GOAWAY: {kinds:?}");
         assert!(!task.is_finished());
         if phase == 0 {
             release.notify_one();
@@ -353,6 +389,83 @@ async fn grpc_goaway_has_bounded_grace() {
     let (_client, _stop, task) =
         start(|_| async { Ok(hyper::Response::new(tonic::body::Body::empty())) }).await;
     timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn grpc_idle_connection_outlives_the_handshake_deadline() {
+    let config = Config {
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..config()
+    };
+    let (mut client, _stop, task) = start_with(config, pending_stream).await;
+    handshake(&mut client).await;
+    let kinds = frames_for(&mut client, DEADLINE * 4).await;
+    assert!(!kinds.contains(&7), "idle connection got GOAWAY: {kinds:?}");
+    // The ping wait stays on the header deadline, so pings still check the peer meanwhile.
+    assert!(kinds.contains(&6), "no keepalive ping: {kinds:?}");
+    assert!(!task.is_finished());
+}
+
+#[tokio::test]
+async fn grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone() {
+    let config = Config {
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..config()
+    };
+    let (_client, _stop, task) = start_with(config, pending_stream).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+}
+
+/// Zero must disable, not expire at once, and no value may overflow time arithmetic or reach
+/// hyper as a zero interval. Dead peers then depend on TCP keep-alive.
+#[tokio::test]
+async fn grpc_disabled_and_largest_limits_keep_every_phase_open() {
+    for value in [TimeLimit::DISABLED, TimeLimit::from_millis(u64::MAX)] {
+        for open_stream in [true, false] {
+            let config = Config {
+                header_read_timeout: value,
+                keep_alive_timeout: value,
+                body_inactivity_timeout: value,
+                shutdown_timeout: limit(DEADLINE),
+                ..Config::default()
+            };
+            let (mut client, stop, mut task) = start_with(config, pending_stream).await;
+            if open_stream {
+                handshake(&mut client).await;
+                request(&mut client, 1).await;
+                let kinds = frames_for(&mut client, DEADLINE * 3).await;
+                assert!(!kinds.contains(&7), "{value:?}: GOAWAY in {kinds:?}");
+                assert!(!kinds.contains(&6), "{value:?}: PING in {kinds:?}");
+            }
+            // Without a preface the client stays silent: acknowledging the server's SETTINGS
+            // would make the connection fail.
+            let open = timeout(DEADLINE * 3, &mut task).await;
+            assert!(open.is_err(), "{value:?} closed the connection");
+            // Stopping still ends the connection after GOAWAY.
+            stop.send_replace(true);
+            if open_stream {
+                closed_with_goaway(&mut client).await;
+            }
+            timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn grpc_shutdown_grace_is_never_zero() {
+    let peer_wait = Duration::from_secs(5);
+    for (shutdown_ms, expected) in [
+        (0, peer_wait),
+        (u64::MAX, peer_wait),
+        (20_000, peer_wait),
+        (5_000, Duration::from_millis(2_500)),
+        (1, Duration::from_micros(500)),
+    ] {
+        assert_eq!(
+            shutdown_grace(peer_wait, TimeLimit::from_millis(shutdown_ms)),
+            expected
+        );
+    }
 }
 
 #[test]

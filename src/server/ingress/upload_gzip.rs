@@ -3,10 +3,7 @@
 //! storing it (observed 2026-10-31). The stored bytes are the decoded body in both cases.
 
 use super::{RequestBody, RequestCtx, bad_request};
-use crate::{
-    json::JsonError,
-    server::{ObjectActivity, chunk_body},
-};
+use crate::{json::JsonError, server::chunk_body};
 use bytes::{Buf, Bytes};
 use flate2::bufread::MultiGzDecoder;
 use http_body_util::BodyExt;
@@ -24,7 +21,6 @@ use std::{
     },
     task::{Context, Poll},
 };
-use tokio::sync::watch;
 
 const CHUNK_BYTES: usize = 64 * 1024;
 
@@ -94,7 +90,6 @@ pub(super) async fn request(
     let (sender, decoded) = chunk_body::channel();
     let complete = Arc::new(AtomicBool::new(false));
     let producer_complete = complete.clone();
-    let activity = ctx.activity.clone();
     let expanded_limit = ctx.config.max_object_bytes.saturating_add(256 * 1024);
     // Stored-gzip media can be incompressible; allow bounded framing/deflate overhead on the wire.
     let compressed_limit = expanded_limit
@@ -103,7 +98,7 @@ pub(super) async fn request(
     let decoders = ctx.state.pools.gzip_decoders.clone();
     crate::task::spawn_supervised("gzip-upload-input", async move {
         let result = tokio::select! {
-            result = stream(body, &sender, &activity, compressed_limit, expanded_limit, decoders) => result,
+            result = stream(body, &sender, compressed_limit, expanded_limit, decoders) => result,
             _ = sender.closed() => return,
         };
         match result {
@@ -152,7 +147,6 @@ impl Read for Input {
 async fn stream(
     mut body: RequestBody,
     sender: &chunk_body::ChunkSender,
-    activity: &watch::Sender<ObjectActivity>,
     compressed_limit: u64,
     expanded_limit: u64,
     decoders: Arc<tokio::sync::Semaphore>,
@@ -206,7 +200,6 @@ async fn stream(
                                 .ok_or_else(|| {
                                     io::Error::other("Compressed upload exceeds its wire budget")
                                 })?;
-                            super::super::body_progress(activity);
                         }
                         Some(Err(error)) => return Err(error),
                         None => {
@@ -260,13 +253,11 @@ mod tests {
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         encoder.write_all(&vec![b'x'; 200_000]).unwrap();
         let compressed = Bytes::from(encoder.finish().unwrap());
-        let (activity, _) = watch::channel(ObjectActivity::default());
         for (input, output) in [(compressed.len() as u64 - 1, 500_000), (500_000, 100)] {
             let (sender, _body) = chunk_body::channel();
             let error = stream(
                 RequestBody::Buffered(Full::new(compressed.clone())),
                 &sender,
-                &activity,
                 input,
                 output,
                 Arc::new(tokio::sync::Semaphore::new(1)),

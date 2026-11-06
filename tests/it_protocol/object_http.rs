@@ -1,6 +1,7 @@
 use crate::common;
 use crate::common::process::declare_server;
 
+mod phase_deadlines;
 mod resumable_open_end;
 mod upload_admission;
 mod upload_replay;
@@ -43,7 +44,11 @@ impl Server {
             "https://advertised.invalid/api",
             "--max-object-bytes",
             &limit.to_string(),
-            "--connection-timeout-ms",
+            "--header-read-timeout-ms",
+            &timeout.to_string(),
+            "--body-inactivity-timeout-ms",
+            &timeout.to_string(),
+            "--request-timeout-ms",
             &timeout.to_string(),
             "--object-request-timeout-ms",
             &object_timeout.to_string(),
@@ -127,7 +132,7 @@ impl Server {
 
     /// Repeats `send` while it answers the retryable deadline 503 (`backendError`)
     /// and returns the first other reply. Right after cancelled uploads, their
-    /// cleanup can hold the catalog past a short connection deadline on a loaded
+    /// cleanup can hold the catalog past a short request deadline on a loaded
     /// runner. Any other status, including a 503 with another reason, returns at
     /// once so the caller's assertion still fails.
     fn once_settled(&self, send: impl Fn(&Self) -> Reply) -> Reply {
@@ -142,7 +147,7 @@ impl Server {
 }
 
 /// Creates the test bucket and runs `setup` on a server with the default deadlines,
-/// then stops it. A short connection deadline under test also bounds a whole bucket
+/// then stops it. A short request deadline under test also bounds a whole bucket
 /// insert, which loaded runs exceeded with 503 before the scenario even started.
 fn before_short_deadline<T>(dir: &TestDir, setup: impl FnOnce(&Server) -> T) -> T {
     let mut server = Server::start(dir, 1000, 5000);

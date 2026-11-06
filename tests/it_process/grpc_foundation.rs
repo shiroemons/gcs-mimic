@@ -21,7 +21,7 @@ impl Drop for Server {
 
 fn start_server(
     data_dir: &Path,
-    connection_timeout: Option<&str>,
+    idle_timeout: Option<&str>,
 ) -> (Server, BufReader<ChildStdout>, serde_json::Value) {
     let mut command = common::server_command();
     command
@@ -36,8 +36,14 @@ fn start_server(
             "--data-dir",
         ])
         .arg(data_dir);
-    if let Some(timeout) = connection_timeout {
-        command.args(["--connection-timeout-ms", timeout]);
+    // The idle close waits this long too for the silent peer to answer its GOAWAY.
+    if let Some(timeout) = idle_timeout {
+        command.args([
+            "--keep-alive-timeout-ms",
+            timeout,
+            "--header-read-timeout-ms",
+            timeout,
+        ]);
     }
     let mut server = Server(
         command
@@ -144,7 +150,7 @@ async fn grpc_idle_admission_and_sigterm_drain() {
 async fn grpc_sigterm_default_deadlines_close_incomplete_handshake() {
     let dir = TestDir::new();
     let (mut server, mut stdout, ready) = start_server(&dir.0, None);
-    assert_eq!(ready["connection_timeout_ms"], 5000);
+    assert_eq!(ready["header_read_timeout_ms"], 30_000);
     assert_eq!(ready["shutdown_timeout_ms"], 5000);
     let http_address = ready["listen"].as_str().unwrap();
     let grpc_address = ready["listeners"]

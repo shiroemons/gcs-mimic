@@ -19,10 +19,10 @@ use crate::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
         UploadChunk, custom_time_key,
     },
-    server::{ObjectCtx, RequestCtx, ResponseBody, State, anonymous_error, body_progress, boxed},
+    server::{ObjectCtx, RequestCtx, ResponseBody, State, anonymous_error, boxed},
     storage::ObjectUpload,
 };
-use http_body_util::{BodyExt, Full};
+use http_body_util::Full;
 use hyper::{
     HeaderMap, Request, Response, StatusCode, Uri,
     body::{Body, Bytes},
@@ -577,12 +577,7 @@ pub(crate) async fn respond(
     ctx: RequestCtx<'_>,
     deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, Error> {
-    let RequestCtx {
-        state,
-        config,
-        activity,
-        ..
-    } = ctx;
+    let RequestCtx { state, config, .. } = ctx;
     let bucket = object.bucket.clone();
     json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
     // POST Object takes every option from the form; query options belong to other operations.
@@ -599,11 +594,7 @@ pub(crate) async fn respond(
         )
     })?;
     let headers = request.headers().clone();
-    let body = request.into_body().map_frame(|frame| {
-        body_progress(activity);
-        frame
-    });
-    let mut parser = json::Multipart::new(body, &boundary);
+    let mut parser = json::Multipart::new(request.into_body(), &boundary);
     let form = read_form(&mut parser).await?;
     let Plan {
         name,

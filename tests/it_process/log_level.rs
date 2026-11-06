@@ -144,7 +144,7 @@ fn keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns() {
             "http",
             "--listen",
             "127.0.0.1:0",
-            "--connection-timeout-ms",
+            "--header-read-timeout-ms",
             "300",
             "--keep-alive-timeout-ms",
             "8000",

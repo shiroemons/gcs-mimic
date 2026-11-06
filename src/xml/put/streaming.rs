@@ -1,10 +1,7 @@
 //! Incremental signed-chunk decoding keeps unverified bytes in the existing staging upload.
 
 use super::*;
-use crate::{
-    auth::signature::Streaming,
-    server::{Streamed, body_progress},
-};
+use crate::{auth::signature::Streaming, server::Streamed};
 use crate::{object::UploadChunk, server::upload_drive::UploadSender};
 use http_body_util::BodyExt;
 use ring::digest;
@@ -97,7 +94,7 @@ async fn http_framed(
     let limit = ctx.config.max_object_bytes;
     // Stop at the first byte past the range instead of staging the rest of the body.
     let cap = length_range.map_or(limit, |range| range.cap(limit));
-    match stream_upload(body, sender, cap, ctx.activity, sha256).await {
+    match stream_upload(body, sender, cap, sha256).await {
         Ok(Streamed::Complete(size)) => length_range.map_or(Ok(()), |range| range.check(size)),
         Ok(Streamed::Stopped) => Ok(()),
         Err(ObjectError::TooLarge) if cap < limit => Err(LengthRange::exceeded()),
@@ -164,7 +161,6 @@ impl Reader<'_> {
                 .checked_add(bytes.len() as u64)
                 .filter(|size| *size <= self.limit)
                 .ok_or_else(malformed)?;
-            body_progress(self.ctx.activity);
             self.buffer = bytes;
         }
         Ok(true)

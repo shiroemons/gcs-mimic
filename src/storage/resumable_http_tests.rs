@@ -256,7 +256,9 @@ impl Harness {
             scheme: gcs_mimic::config::Scheme::Http,
             api_base_url: Some(state.api_base_url.clone()),
             max_object_bytes: max,
-            catalog_wait_timeout_ms,
+            catalog_wait_timeout: gcs_mimic::time_limit::TimeLimit::from_millis(
+                catalog_wait_timeout_ms,
+            ),
             ..Default::default()
         };
         let (stop, rx) = oneshot::channel();

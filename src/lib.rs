@@ -37,6 +37,7 @@ mod task;
     reason = "Unit tests use a subset of the fixtures shared with the integration tests"
 )]
 mod test_support;
+pub mod time_limit;
 pub mod tls;
 pub mod url;
 mod xml;

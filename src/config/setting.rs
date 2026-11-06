@@ -1,4 +1,5 @@
 use super::{SettingFix, bounded, unknown_setting};
+use crate::time_limit::TimeLimit;
 
 pub(super) const UNKNOWN_SETTING: &str = "Unknown setting; remove it and use --help.";
 
@@ -40,6 +41,9 @@ super::string_enum! {
         WorkerThreads => "worker_threads",
         MaxBlockingThreads => "max_blocking_threads",
         ConnectionTimeoutMs => "connection_timeout_ms",
+        HeaderReadTimeoutMs => "header_read_timeout_ms",
+        BodyInactivityTimeoutMs => "body_inactivity_timeout_ms",
+        RequestTimeoutMs => "request_timeout_ms",
         KeepAliveTimeoutMs => "keep_alive_timeout_ms",
         ObjectRequestTimeoutMs => "object_request_timeout_ms",
         CatalogWaitTimeoutMs => "catalog_wait_timeout_ms",
@@ -61,17 +65,21 @@ super::string_enum! {
 impl Setting {
     const fn bounds(self) -> Option<(u64, u64)> {
         match self {
+            // Zero disables a limit, and `TimeLimit` keeps every other value safe to use.
             Self::TlsHandshakeTimeoutMs
             | Self::ConnectionTimeoutMs
+            | Self::HeaderReadTimeoutMs
+            | Self::BodyInactivityTimeoutMs
+            | Self::RequestTimeoutMs
+            | Self::KeepAliveTimeoutMs
+            | Self::ObjectRequestTimeoutMs
             | Self::CatalogWaitTimeoutMs
-            | Self::ShutdownTimeoutMs => Some((1, 60_000)),
+            | Self::ShutdownTimeoutMs => Some((0, u64::MAX)),
             Self::MemoryMaxBytes => Some((1, 1024 * 1024 * 1024)),
             Self::MemoryCatalogMaxBytes => Some((1024 * 1024, 1024 * 1024 * 1024)),
             Self::MaxConnections => Some((1, 1024)),
             Self::MaxObjectBytes => Some((1, 5 * 1024_u64.pow(4))),
             Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 32)),
-            Self::KeepAliveTimeoutMs => Some((1, 600_000)),
-            Self::ObjectRequestTimeoutMs => Some((1, 86_400_000)),
             Self::Config
             | Self::LogLevel
             | Self::Listen
@@ -116,5 +124,9 @@ impl Setting {
     pub(super) fn integer(self, value: &str) -> Result<u64, SettingFix> {
         let (minimum, maximum) = self.bounds().ok_or_else(unknown_setting)?;
         bounded(self.as_str(), value, minimum, maximum)
+    }
+
+    pub(super) fn time_limit(self, value: &str) -> Result<TimeLimit, SettingFix> {
+        self.integer(value).map(TimeLimit::from_millis)
     }
 }

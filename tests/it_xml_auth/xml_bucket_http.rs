@@ -18,12 +18,7 @@ use common::http::{Client, TextReply as Reply};
 
 impl Server {
     fn start(data: &TestDir, options: &[&str]) -> Self {
-        Self::launch(
-            http_command(&data.0.join("data"))
-                .args(["--connection-timeout-ms", "20000"])
-                .args(options),
-        )
-        .graceful()
+        Self::launch(http_command(&data.0.join("data")).args(options)).graceful()
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &str) -> Reply {

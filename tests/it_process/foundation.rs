@@ -7,6 +7,7 @@ use gcs_mimic::{
     config::Config,
     server::{self, State},
     storage::Catalog,
+    time_limit::TimeLimit,
 };
 use std::{
     collections::BTreeMap,
@@ -252,7 +253,9 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 "memory_catalog_max_bytes",
                 "worker_threads",
                 "max_blocking_threads",
-                "connection_timeout_ms",
+                "header_read_timeout_ms",
+                "body_inactivity_timeout_ms",
+                "request_timeout_ms",
                 "keep_alive_timeout_ms",
                 "object_request_timeout_ms",
                 "catalog_wait_timeout_ms",
@@ -293,10 +296,12 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["max_object_bytes"], 1_073_741_824_u64);
         assert_eq!(ready["worker_threads"], 2);
         assert_eq!(ready["max_blocking_threads"], 8);
-        assert_eq!(ready["connection_timeout_ms"], 5000);
+        assert_eq!(ready["header_read_timeout_ms"], 30_000);
+        assert_eq!(ready["body_inactivity_timeout_ms"], 0);
+        assert_eq!(ready["request_timeout_ms"], 180_000);
         assert_eq!(ready["keep_alive_timeout_ms"], 120_000);
-        assert_eq!(ready["object_request_timeout_ms"], 900_000);
-        assert_eq!(ready["catalog_wait_timeout_ms"], 30_000);
+        assert_eq!(ready["object_request_timeout_ms"], 0);
+        assert_eq!(ready["catalog_wait_timeout_ms"], 120_000);
         assert_eq!(ready["shutdown_timeout_ms"], 5000);
         assert_eq!(ready["tls_handshake_timeout_ms"], 5000);
         // Without seed_dir every startup, including the restart, reports the same outcome.
@@ -966,8 +971,7 @@ fn exchange(connection: &mut BufReader<TcpStream>, request: &[u8]) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn keep_alive_serves_sequential_requests_until_idle_timeout() {
     let config = Config {
-        connection_timeout_ms: 500,
-        keep_alive_timeout_ms: 500,
+        keep_alive_timeout: TimeLimit::from_millis(500),
         max_object_bytes: 16,
         ..common::http_config()
     };
@@ -1025,7 +1029,7 @@ async fn keep_alive_serves_sequential_requests_until_idle_timeout() {
 async fn full_server_reclaims_idle_keep_alive_slots_for_waiting_clients() {
     let config = Config {
         max_connections: 1,
-        keep_alive_timeout_ms: 60_000,
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
         ..common::http_config()
     };
     let (address, _, stop, task, _dir) = start(config).await;
@@ -1046,11 +1050,51 @@ async fn full_server_reclaims_idle_keep_alive_slots_for_waiting_clients() {
     task.await.unwrap().unwrap();
 }
 
+const HEALTH: &[u8] = b"GET /_internal/health HTTP/1.1\r\nHost: localhost\r\n\r\n";
+
+/// Waits up to `wait` for the server to send or close, without consuming what it sent.
+fn peek_for(connection: &BufReader<TcpStream>, wait: Duration) -> std::io::Result<usize> {
+    let stream = connection.get_ref();
+    stream.set_read_timeout(Some(wait)).unwrap();
+    let peeked = stream.peek(&mut [0]);
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    peeked
+}
+
+/// Holds for `wait` and reports whether the server neither sent anything nor closed meanwhile.
+fn quiet(connection: &BufReader<TcpStream>, wait: Duration) -> bool {
+    peek_for(connection, wait).is_err_and(|error| {
+        matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        )
+    })
+}
+
+/// A request that finishes within one poll of the connection still starts a new idle period.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_request_renews_the_keep_alive_deadline() {
+    let config = Config {
+        keep_alive_timeout: TimeLimit::from_millis(2000),
+        ..common::http_config()
+    };
+    let (address, _, stop, task, _dir) = start(config).await;
+    let mut connection = BufReader::new(stream(address));
+    for _ in 0..5 {
+        assert!(exchange(&mut connection, HEALTH).starts_with("HTTP/1.1 200"));
+        assert!(quiet(&connection, Duration::from_millis(500)));
+    }
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
     let config = Config {
         max_connections: 1,
-        connection_timeout_ms: 300,
+        header_read_timeout: TimeLimit::from_millis(300),
         ..common::http_config()
     };
     let (address, _, stop, task, _dir) = start(config).await;
@@ -1133,7 +1177,7 @@ fn config_precedence_validation_and_size_limit() {
         ("max-connections", "1025"),
         ("worker-threads", "33"),
         ("max-blocking-threads", "0"),
-        ("connection-timeout-ms", "60001"),
+        ("connection-timeout-ms", "18446744073709551616"),
         ("shutdown-timeout-ms", "-1"),
         ("listen", "localhost:4443"),
         ("auth-mode", "strict"),
@@ -1255,7 +1299,7 @@ fn invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures() {
         .clean_env()
         .args(["serve", "--data-dir"])
         .arg(&data)
-        .args(["--tls-handshake-timeout-ms", "0", "--tls-cert"])
+        .args(["--tls-handshake-timeout-ms", "-1", "--tls-cert"])
         .arg(cert)
         .arg("--tls-key")
         .arg(key)

@@ -1,6 +1,6 @@
 //! Transport input normalization before API routing and operation authorization.
 
-use super::{BUCKET_BODY_LIMIT, RequestCtx};
+use super::{BUCKET_BODY_LIMIT, BodyPace, BodyRead, ObjectActivity, RequestCtx};
 use crate::json::JsonError;
 use flate2::read::MultiGzDecoder;
 use http_body_util::{BodyExt, Full};
@@ -14,14 +14,81 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use tokio::sync::watch;
 
 mod upload_gzip;
 
 /// Synthetic batch parts and decoded metadata use the same dispatch as network input.
 pub(crate) enum RequestBody {
-    Transport(Incoming),
+    Transport(TransportBody),
     Buffered(Full<Bytes>),
     Decoded(upload_gzip::DecodedBody),
+}
+
+/// A request body arriving from the client. Every adapter reads through here, so the
+/// connection's watchdog learns from one place when a request is waiting on the client:
+/// a stalled upload is then bounded by body inactivity, not by the request deadline.
+pub(crate) struct TransportBody {
+    body: Incoming,
+    activity: watch::Sender<ObjectActivity>,
+}
+
+impl TransportBody {
+    fn report(&self, read: BodyRead) {
+        self.activity.send_if_modified(|progress| {
+            let changed = progress.body_read != read;
+            progress.body_read = read;
+            changed
+        });
+    }
+}
+
+impl Drop for TransportBody {
+    fn drop(&mut self) {
+        self.report(BodyRead::NotPending);
+    }
+}
+
+impl Body for TransportBody {
+    type Data = Bytes;
+    type Error = io::Error;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
+        let this = self.get_mut();
+        let polled = Pin::new(&mut this.body).poll_frame(cx);
+        match &polled {
+            Poll::Pending => this.report(BodyRead::Pending),
+            Poll::Ready(Some(Ok(_))) => {
+                this.report(if this.body.is_end_stream() {
+                    BodyRead::NotPending
+                } else {
+                    BodyRead::Pending
+                });
+                // Frames of a small body do not renew its deadline, which bounds the whole read.
+                this.activity
+                    .send_if_modified(|progress| progress.body_pace == BodyPace::ClientPaced);
+            }
+            Poll::Ready(Some(Err(_)) | None) => this.report(BodyRead::NotPending),
+        }
+        polled.map(|frame| frame.map(|result| result.map_err(io::Error::other)))
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        self.body.size_hint()
+    }
+}
+
+impl RequestBody {
+    pub(super) fn transport(body: Incoming, activity: watch::Sender<ObjectActivity>) -> Self {
+        Self::Transport(TransportBody { body, activity })
+    }
 }
 
 impl Body for RequestBody {
@@ -33,9 +100,7 @@ impl Body for RequestBody {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
         match self.get_mut() {
-            Self::Transport(body) => Pin::new(body)
-                .poll_frame(cx)
-                .map(|frame| frame.map(|result| result.map_err(io::Error::other))),
+            Self::Transport(body) => Pin::new(body).poll_frame(cx),
             Self::Buffered(body) => Pin::new(body)
                 .poll_frame(cx)
                 .map(|frame| frame.map(|result| result.map_err(|never| match never {}))),
@@ -157,7 +222,6 @@ pub(super) async fn decode_metadata(
             return Err(too_large());
         }
         compressed.extend_from_slice(&data);
-        super::body_progress(ctx.activity);
     }
     let permit = ctx
         .state

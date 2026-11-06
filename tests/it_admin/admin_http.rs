@@ -586,7 +586,7 @@ fn direct_fixture_progress_renews_inactivity_without_disabling_the_deadline() {
         &[
             "--admin-enabled",
             "true",
-            "--connection-timeout-ms",
+            "--body-inactivity-timeout-ms",
             "200",
             "--object-request-timeout-ms",
             "5000",

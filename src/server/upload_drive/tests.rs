@@ -72,8 +72,7 @@ async fn terminal_chunk_reaches_a_consumer_started_by_the_first_poll() {
             let body = RequestBody::Buffered(http_body_util::Full::new(bytes::Bytes::from(
                 vec![0; 128 * 1024],
             )));
-            crate::server::stream_upload(body, &sender, 128 * 1024, &fixture.activity, None)
-                .await?;
+            crate::server::stream_upload(body, &sender, 128 * 1024, None).await?;
             Ok::<_, ObjectError>(UploadEnd::Eof)
         };
         let result = tokio::time::timeout(
@@ -170,7 +169,7 @@ async fn upload_failure_first_drops_the_producer() {
 #[tokio::test]
 async fn session_wait_uses_the_session_budget() {
     let mut fixture = Fixture::new().await;
-    fixture.config.catalog_wait_timeout_ms = 1;
+    fixture.config.catalog_wait_timeout = crate::time_limit::TimeLimit::from_millis(1);
     let (_progress, updates) = watch::channel(false);
     let result = CatalogWait::Session {
         ctx: fixture.ctx(),

@@ -325,7 +325,6 @@ async fn upload_part(
             request.into_body(),
             &sender,
             ctx.config.max_object_bytes.min(storage::MAX_PART_BYTES),
-            ctx.activity,
             headers.sha256,
         )
         .await
