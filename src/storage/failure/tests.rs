@@ -56,10 +56,6 @@ fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
             "Object storage is unavailable: rewrite session limit reached; raise max_rewrite_sessions (0 is unlimited) or wait for unfinished rewrites to expire",
         ),
         (
-            OutboxLimit,
-            "Object storage is unavailable: notification outbox limit reached; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery, then retry with generation preconditions",
-        ),
-        (
             FinalizationTimeout,
             "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)",
         ),

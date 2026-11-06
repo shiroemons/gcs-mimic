@@ -34,10 +34,6 @@ pub(in crate::storage) fn guidance_source_failures() -> Vec<(
             object_unavailable(ConnectionUnavailable::Closed),
             BackendFailure::CatalogClosed,
         ),
-        (
-            ObjectError::from(unavailable(BackendFailure::OutboxLimit)),
-            BackendFailure::OutboxLimit,
-        ),
     ]
 }
 

@@ -371,22 +371,92 @@ async fn finalize_archive_delete_snapshots_survive_restart_and_failed_mutations_
     catalog.close().await.unwrap();
 }
 
+const TOPIC: &str = "//pubsub.googleapis.com/projects/p/topics/topic";
+const MAX_MESSAGES: i64 = 4096;
+const MAX_BYTES: usize = 16_777_216;
+
+/// Fills the outbox with `count` messages named `old-1` onward, as if Pub/Sub had been down.
+async fn fill_outbox(catalog: &Catalog, count: i64) {
+    catalog
+        .run(move |connection| {
+            let transaction = connection.transaction()?;
+            sql::exec(
+                &transaction,
+                "WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM ids WHERE n < ?1) INSERT INTO notification_outbox SELECT n, ?2, json_object('messages', json_array(json_object('attributes', json_object('objectId', 'old-' || n)))), 0, 0 FROM ids",
+                params![count, TOPIC],
+            )?;
+            sql::exec(
+                &transaction,
+                "UPDATE notification_outbox_state SET last_id = ?1",
+                [count],
+            )?;
+            transaction.commit().map_err(unavailable)
+        })
+        .await
+        .unwrap();
+}
+
+/// How many messages are pending, and the oldest one's ID.
+async fn pending(catalog: &Catalog) -> (i64, Option<i64>) {
+    catalog
+        .run(|connection| {
+            sql::row(
+                connection,
+                "SELECT count(*), min(id) FROM notification_outbox",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(unavailable)
+        })
+        .await
+        .unwrap()
+}
+
+fn object_id(message: &Value) -> &str {
+    message["attributes"]["objectId"].as_str().unwrap()
+}
+
 #[tokio::test]
-async fn full_outbox_rolls_back_the_object_mutation() {
+async fn writes_past_the_limit_succeed_oldest_first_and_the_newest_are_delivered() {
     let dir = TestDir::new();
     let catalog = setup(&dir, VersionHistory::Discard).await;
-    catalog.run(|connection| {
-        let transaction = connection.transaction()?;
-        for id in 1..=4096 {
-            sql::exec(&transaction, "INSERT INTO notification_outbox VALUES (?1, '//pubsub.googleapis.com/projects/p/topics/topic', '{\"messages\":[]}', 0, 0)", [id])?;
-        }
-        sql::exec(&transaction, "UPDATE notification_outbox_state SET last_id = 4096", [])?;
-        transaction.commit().map_err(unavailable)
-    }).await.unwrap();
-    assert!(matches!(
-        put(&catalog, "prefix/item", Default::default()).await,
-        Err(ObjectError::Unavailable(_))
-    ));
+    fill_outbox(&catalog, MAX_MESSAGES).await;
+    for name in ["prefix/first", "prefix/second"] {
+        put(&catalog, name, Default::default()).await.unwrap();
+    }
+    assert_eq!(pending(&catalog).await, (MAX_MESSAGES, Some(3)));
+    // The accounting that a restart validates stays exact through evictions.
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let delivered = drain(&catalog).await;
+    assert_eq!(delivered.len(), usize::try_from(MAX_MESSAGES).unwrap());
+    assert_eq!(object_id(&delivered[0]), "old-3");
+    let newest: Vec<_> = delivered[delivered.len() - 2..]
+        .iter()
+        .map(object_id)
+        .collect();
+    assert_eq!(newest, ["prefix/first", "prefix/second"]);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_rejected_write_keeps_the_messages_it_would_have_evicted() {
+    let dir = TestDir::new();
+    let catalog = setup(&dir, VersionHistory::Discard).await;
+    fill_outbox(&catalog, MAX_MESSAGES).await;
+    catalog
+        .run::<_, CatalogError>(|connection| {
+            connection.execute_batch("CREATE TEMP TRIGGER reject_notification BEFORE INSERT ON notification_outbox BEGIN SELECT RAISE(ABORT, 'notification rejected'); END;")?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        put(&catalog, "prefix/item", Default::default())
+            .await
+            .is_err()
+    );
+    assert_eq!(pending(&catalog).await, (MAX_MESSAGES, Some(1)));
     assert_eq!(
         catalog
             .get_object(
@@ -402,11 +472,61 @@ async fn full_outbox_rolls_back_the_object_mutation() {
     }).await.unwrap();
     // Buckets use their own allocator, so the failed upload leaves the object allocator unused.
     assert_eq!((generation, acl_rows), (0, 0));
-    catalog.acknowledge_notification(1).await.unwrap();
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn evicting_the_message_in_flight_does_not_disturb_the_publisher() {
+    use tokio::io::AsyncWriteExt;
+    let dir = TestDir::new();
+    let catalog = setup(&dir, VersionHistory::Discard).await;
+    fill_outbox(&catalog, MAX_MESSAGES).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    catalog
+        .start_notification_publisher(
+            crate::notification::Endpoint::parse(&listener.local_addr().unwrap().to_string())
+                .unwrap(),
+        )
+        .unwrap();
+    let timeout = std::time::Duration::from_secs(3);
+    let (mut socket, message) = tokio::time::timeout(timeout, accept_publish(&listener))
+        .await
+        .unwrap();
+    let sent: Value = serde_json::from_str(&message).unwrap();
+    assert_eq!(object_id(&sent["messages"][0]), "old-1");
+    // The write evicts the very row the publisher holds an open attempt for.
     put(&catalog, "prefix/item", Default::default())
         .await
         .unwrap();
+    assert_eq!(pending(&catalog).await, (MAX_MESSAGES, Some(2)));
+    socket
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 23\r\n\r\n{\"messageIds\":[\"done\"]}")
+        .await
+        .unwrap();
+    drop(socket);
+    let (socket, message) = tokio::time::timeout(timeout, accept_publish(&listener))
+        .await
+        .unwrap();
+    let sent: Value = serde_json::from_str(&message).unwrap();
+    assert_eq!(object_id(&sent["messages"][0]), "old-2");
+    drop((socket, listener));
     catalog.close().await.unwrap();
+}
+
+#[test]
+fn eviction_warnings_are_spaced_out_and_report_everything_since_the_last() {
+    const INTERVAL: i64 = 60_000_000;
+    let mut log = EvictionLog {
+        warned_at: None,
+        unreported: 0,
+    };
+    assert_eq!(log.record(1, 0), Some(1));
+    assert_eq!(log.record(2, 1), None);
+    assert_eq!(log.record(3, INTERVAL - 1), None);
+    assert_eq!(log.record(4, INTERVAL), Some(9));
+    assert_eq!(log.record(1, INTERVAL + 1), None);
+    // A clock set back does not silence warnings until it catches up.
+    assert_eq!(log.record(1, 0), Some(2));
 }
 
 #[tokio::test]
@@ -752,62 +872,55 @@ async fn reset_is_busy_during_network_attempt_and_clears_retry_payloads_afterwar
 }
 
 #[tokio::test]
-async fn byte_budget_and_count_budget_both_rollback_the_mutation() {
+async fn the_byte_budget_evicts_as_many_messages_as_the_new_one_needs() {
     let dir = TestDir::new();
     let catalog = setup(&dir, VersionHistory::Discard).await;
     catalog
         .run(|connection| {
             let transaction = connection.transaction()?;
-            let message = json!({"padding": "x".repeat(130_000)}).to_string();
-            let topic = "//pubsub.googleapis.com/projects/p/topics/topic";
-            let size = message.len() + topic.len();
-            let count = 16_777_216 / size;
-            for id in 1..=count {
+            let insert = |id: i64, message: &str| {
                 sql::exec(
                     &transaction,
                     "INSERT INTO notification_outbox VALUES (?1, ?2, ?3, 0, 0)",
-                    params![id as i64, topic, message],
-                )?;
+                    params![id, TOPIC, message],
+                )
+            };
+            // The two oldest are too small to free enough room for a real notification.
+            insert(1, "{}")?;
+            insert(2, "{}")?;
+            let large = json!({"padding": "x".repeat(120_000)}).to_string();
+            let tiny = 2 * (TOPIC.len() + 2);
+            let count = (MAX_BYTES - tiny) / (large.len() + TOPIC.len());
+            let mut id = 2;
+            for _ in 0..count {
+                id += 1;
+                insert(id, &large)?;
             }
-            // Leave less capacity than even the smallest notification, without exceeding a row bound.
-            let remainder = 16_777_216 - count * size;
-            let last = json!({"padding": "x".repeat(remainder - topic.len() - 14)}).to_string();
-            sql::exec(
-                &transaction,
-                "INSERT INTO notification_outbox VALUES (?1, ?2, ?3, 0, 0)",
-                params![count as i64 + 1, topic, last],
+            // Exactly exhaust the budget, without exceeding a row bound.
+            let remainder = MAX_BYTES - tiny - count * (large.len() + TOPIC.len());
+            id += 1;
+            insert(
+                id,
+                &json!({"padding": "x".repeat(remainder - TOPIC.len() - 14)}).to_string(),
             )?;
             sql::exec(
                 &transaction,
                 "UPDATE notification_outbox_state SET last_id = ?1",
-                [count as i64 + 1],
+                [id],
             )?;
             transaction.commit().map_err(unavailable)
         })
         .await
         .unwrap();
-    let result = put(&catalog, "prefix/item", Default::default()).await;
-    let error = result.unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("notification outbox limit reached")
-    );
-    assert_eq!(
-        catalog
-            .get_object(
-                live("test-bucket", "prefix/item"),
-                Default::default(),
-                PERMISSIVE
-            )
-            .await,
-        Err(ObjectError::ObjectNotFound)
-    );
-    catalog.acknowledge_notification(1).await.unwrap();
+    let before = pending(&catalog).await.0;
     put(&catalog, "prefix/item", Default::default())
         .await
         .unwrap();
+    // Both small messages and one large one gave way, and the new message took one slot.
+    assert_eq!(pending(&catalog).await, (before - 3 + 1, Some(4)));
     catalog.close().await.unwrap();
+    // The byte accounting a restart validates stays exact through evictions.
+    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
 }
 
 #[tokio::test]
