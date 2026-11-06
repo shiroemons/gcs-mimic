@@ -44,8 +44,8 @@ fn metadata_budget(max_entries: usize) -> usize {
 
 /// A caller with its own budget (an HTTP request) supplies a limit so that waiting ends as a
 /// retryable no-changes `Busy` before the caller gives up; startup waits like other publication.
-fn wait_deadline(limit: Option<tokio::time::Instant>) -> tokio::time::Instant {
-    limit.unwrap_or_else(|| tokio::time::Instant::now() + WAIT_TIMEOUT)
+fn wait_deadline(catalog: &Catalog, limit: Option<tokio::time::Instant>) -> tokio::time::Instant {
+    limit.unwrap_or_else(|| catalog.admin_deadline())
 }
 
 impl Admin {
@@ -75,7 +75,7 @@ impl Admin {
             .catalog
             .wait_admin(
                 self.catalog.0.publication_batch.clone(),
-                wait_deadline(wait_limit),
+                wait_deadline(&self.catalog, wait_limit),
             )
             .await?;
         // Taken after the wait so that a waiting seed never holds back an exclusive reset.
@@ -236,7 +236,7 @@ impl SeedBatch {
         // The batch's own read lease would otherwise keep the exclusive gate from ever opening.
         self.activity.take();
         let (exclusive, execution) = catalog
-            .wait_exclusive(wait_deadline(self.wait_limit))
+            .wait_exclusive(wait_deadline(&catalog, self.wait_limit))
             .await?;
         let inner = catalog.0.clone();
         let (outcome, mut batch) = catalog

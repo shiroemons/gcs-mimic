@@ -534,7 +534,6 @@ fn admin_names_generations_and_permissions_are_validated() {
         crate::auth::Permission::ObjectsGet
     );
     assert!(crate::auth::Permission::parse_testable("storage.objects.typo").is_none());
-    assert_eq!(WAIT_TIMEOUT, Duration::from_secs(30));
 }
 
 #[tokio::test]
@@ -777,8 +776,13 @@ async fn admin_wait_deadlines_queue_limit_and_closed_state_are_typed() {
 }
 
 #[tokio::test]
-async fn admin_publication_times_out_at_the_public_admission_deadline() {
+async fn admin_publication_times_out_at_the_configured_catalog_wait() {
+    const WAIT: Duration = Duration::from_millis(50);
     let (_dir, catalog, admin, bucket, name) = setup().await;
+    catalog.apply_session_limits(&crate::config::Config {
+        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(50),
+        ..Default::default()
+    });
     let slots = catalog
         .0
         .admin_uploads
@@ -788,13 +792,13 @@ async fn admin_publication_times_out_at_the_public_admission_deadline() {
         .unwrap();
     let started = tokio::time::Instant::now();
     let result = tokio::time::timeout(
-        WAIT_TIMEOUT + Duration::from_secs(2),
+        WAIT + Duration::from_secs(10),
         admin.publish_object(&bucket, &name, request(None), body(b"timeout")),
     )
     .await
     .unwrap();
     assert!(matches!(result, Err(AdminError::Busy { .. })));
-    assert!(started.elapsed() >= WAIT_TIMEOUT);
+    assert!(started.elapsed() >= WAIT);
     drop(slots);
     assert_eq!(
         admin.get_object(&bucket, &name, None).await.unwrap_err(),

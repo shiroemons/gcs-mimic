@@ -30,7 +30,6 @@ use rusqlite::Connection;
 use std::{fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
-pub(crate) const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const MAX_BUCKETS: usize = 1000;
 pub(crate) const MAX_PAGE: usize = 256;
 
@@ -483,8 +482,7 @@ impl Catalog {
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
     ) -> Result<T, E> {
-        let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
-        self.run_admin_until(deadline, operation).await
+        self.run_admin_until(self.admin_deadline(), operation).await
     }
 
     async fn run_admin_until<T: Send + 'static, E: From<AdminError> + Send + 'static>(
@@ -744,7 +742,7 @@ impl Admin {
         let activity = self.catalog.activity()?;
         crate::object::validate_fixed_metadata("contentType", &request.content_type)?;
         request.metadata.validate()?;
-        let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
+        let deadline = self.catalog.admin_deadline();
         let permit = self
             .catalog
             .wait_admin(self.catalog.0.admin_uploads.clone(), deadline)

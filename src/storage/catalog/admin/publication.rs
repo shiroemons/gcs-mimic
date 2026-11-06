@@ -443,7 +443,7 @@ impl Admin {
         max_bytes: u64,
     ) -> Result<StagedObject, AdminError> {
         let activity = self.catalog.activity()?;
-        let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
+        let deadline = self.catalog.admin_deadline();
         let permit = self
             .catalog
             .wait_admin(self.catalog.0.staged_handles.clone(), deadline)
@@ -640,7 +640,7 @@ impl Admin {
                 ));
             }
         }
-        let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
+        let deadline = self.catalog.admin_deadline();
         let request = self
             .catalog
             .0
