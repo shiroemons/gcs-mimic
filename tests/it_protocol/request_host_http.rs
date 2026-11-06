@@ -463,12 +463,14 @@ fn forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link() {
     );
 }
 
+/// A peer container reaches the server through the virtual host's name, so a link built from the
+/// bound listener would point it at its own loopback. The bucket label stays out of the base:
+/// that host names one bucket, and the session path repeats the bucket name.
 #[test]
-fn an_xml_virtual_host_is_not_advertised_as_the_api_base() {
+fn an_xml_virtual_host_advertises_its_configured_domain_as_the_api_base() {
     let dir = TestDir::new();
     let server = Server::derived(&dir, &["--xml-virtual-host-domains", "storage.invalid"]);
     server.bucket("virtual");
-    let bind = server.bind_base();
     let reply = server.send(
         "POST",
         "/resumable",
@@ -477,11 +479,32 @@ fn an_xml_virtual_host_is_not_advertised_as_the_api_base() {
         b"",
     );
     reply.expect(201);
+    let location = &reply.headers["location"];
+    let domain_base = "http://storage.invalid:4443";
     assert!(
-        reply.headers["location"].starts_with(&format!("{bind}/virtual/resumable?upload_id=")),
+        location.starts_with(&format!("{domain_base}/virtual/resumable?upload_id=")),
         "{:?}",
         reply.headers
     );
+    // Following the link addresses the same session path-style.
+    server
+        .send(
+            "PUT",
+            path_of(location, domain_base),
+            "storage.invalid:4443",
+            "Content-Range: bytes 0-4/5\r\n",
+            b"bytes",
+        )
+        .expect(200);
+    server
+        .send(
+            "GET",
+            "/storage/v1/b/virtual/o/resumable",
+            CONTAINER,
+            "",
+            b"",
+        )
+        .expect(200);
     let base_domain = server.send(
         "POST",
         "/upload/storage/v1/b/virtual/o?uploadType=resumable&name=named",
@@ -494,6 +517,35 @@ fn an_xml_virtual_host_is_not_advertised_as_the_api_base() {
         base_domain.headers["location"].starts_with("http://storage.invalid:4443/"),
         "{:?}",
         base_domain.headers
+    );
+}
+
+#[test]
+fn an_explicit_base_stays_fixed_behind_an_xml_virtual_host() {
+    let dir = TestDir::new();
+    let explicit = "https://advertised.invalid/api";
+    let server = Server::derived(
+        &dir,
+        &[
+            "--api-base-url",
+            explicit,
+            "--xml-virtual-host-domains",
+            "storage.invalid",
+        ],
+    );
+    server.bucket("virtual");
+    let reply = server.send(
+        "POST",
+        "/resumable",
+        "virtual.storage.invalid:4443",
+        "x-goog-resumable: start\r\n",
+        b"",
+    );
+    reply.expect(201);
+    assert!(
+        reply.headers["location"].starts_with(&format!("{explicit}/virtual/resumable?upload_id=")),
+        "{:?}",
+        reply.headers
     );
 }
 

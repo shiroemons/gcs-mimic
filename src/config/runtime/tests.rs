@@ -211,6 +211,12 @@ fn request_host_sets_the_advertised_base_and_never_the_fixed_one() {
         ("[::1]", "http://[::1]"),
         // A configured base domain addresses the API; only its subdomains name buckets.
         ("explicit.invalid:4443", "http://explicit.invalid:4443"),
+        ("EXPLICIT.Invalid:4443", "http://EXPLICIT.Invalid:4443"),
+        // A trailing dot routes path-style, so this host selects no bucket.
+        (
+            "bucket.explicit.invalid.:4443",
+            "http://bucket.explicit.invalid.:4443",
+        ),
     ] {
         assert_eq!(
             advertised(
@@ -241,6 +247,100 @@ fn request_host_sets_the_advertised_base_and_never_the_fixed_one() {
 }
 
 #[test]
+fn a_virtual_host_advertises_its_configured_domain_and_never_the_bucket() {
+    let config = config();
+    for (host, expected) in [
+        (
+            "bucket.explicit.invalid:4443",
+            "http://explicit.invalid:4443",
+        ),
+        ("bucket.explicit.invalid", "http://explicit.invalid"),
+        (
+            "BUCKET.Explicit.Invalid:4443",
+            "http://explicit.invalid:4443",
+        ),
+        ("a.b.explicit.invalid:80", "http://explicit.invalid:80"),
+        // The public base URL's domain selects buckets too, on whatever port reached the server.
+        ("bucket.old.invalid:8080", "http://old.invalid:8080"),
+    ] {
+        assert_eq!(
+            advertised(&config, ConnectionScheme::Http, "/o", &[host.as_bytes()]),
+            expected,
+            "{host}"
+        );
+    }
+    assert_eq!(
+        advertised(
+            &config,
+            ConnectionScheme::Https,
+            "/o",
+            &[b"bucket.explicit.invalid:4443"]
+        ),
+        "https://explicit.invalid:4443",
+        "the scheme follows the connection"
+    );
+    // Only this request's view changes, so the management guard's fixed base stays out of reach.
+    let view = config
+        .runtime_endpoints
+        .snapshot(&config, FIXED)
+        .unwrap()
+        .for_request(
+            ConnectionScheme::Http,
+            &"/o".parse().unwrap(),
+            &host_headers(&[b"bucket.explicit.invalid:4443"]),
+        );
+    assert_eq!(view.api_authority().as_str(), "explicit.invalid:4443");
+    assert_eq!(
+        view.snapshot().fixed_api_authority().as_str(),
+        "initial.invalid"
+    );
+}
+
+#[test]
+fn the_most_specific_domain_names_the_api_behind_a_virtual_host() {
+    let config = Config::load(
+        &[
+            "--scheme".into(),
+            "http".into(),
+            "--xml-virtual-host-domains".into(),
+            "storage.invalid,eu.storage.invalid".into(),
+        ],
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    for (host, expected) in [
+        ("bucket.eu.storage.invalid:1", "http://eu.storage.invalid:1"),
+        ("bucket.storage.invalid:1", "http://storage.invalid:1"),
+        // The derived base selects no bucket itself, so a client can follow it.
+        ("eu.storage.invalid:1", "http://eu.storage.invalid:1"),
+    ] {
+        assert_eq!(
+            advertised(&config, ConnectionScheme::Http, "/o", &[host.as_bytes()]),
+            expected,
+            "{host}"
+        );
+    }
+}
+
+#[test]
+fn a_runtime_public_host_domain_names_the_api_behind_its_virtual_hosts() {
+    let config = config();
+    config
+        .runtime_endpoints
+        .update(&config, FIXED, None, Some("new.invalid:9876"))
+        .unwrap();
+    assert_eq!(
+        advertised(
+            &config,
+            ConnectionScheme::Http,
+            "/o",
+            &[b"bucket.new.invalid:4443"]
+        ),
+        "http://new.invalid:4443"
+    );
+}
+
+#[test]
 fn unusable_request_authorities_keep_the_fixed_base() {
     let config = config();
     for host in [
@@ -266,9 +366,12 @@ fn unusable_request_authorities_keep_the_fixed_base() {
         b"[::1",
         b"[zz]",
         b"[::1]extra:4443",
-        b"bucket.explicit.invalid",
-        b"bucket.explicit.invalid:4443",
-        b"BUCKET.Explicit.Invalid",
+        // A virtual host's port stays subject to the same checks as any other host's.
+        b"bucket.explicit.invalid:",
+        b"bucket.explicit.invalid:0",
+        b"bucket.explicit.invalid:04443",
+        b"bucket.explicit.invalid:99999",
+        b"user@bucket.explicit.invalid",
     ] {
         assert_eq!(
             advertised(&config, ConnectionScheme::Http, "/storage/v1/b", &[host]),
@@ -311,7 +414,11 @@ fn absolute_form_target_overrides_host_and_is_validated_the_same_way() {
         ),
         // The target decides, so a usable Host does not rescue an unusable target.
         ("http://user@gcs:4443/storage/v1/b", &[b"gcs"], FIXED),
-        ("http://bucket.explicit.invalid/o", &[b"gcs"], FIXED),
+        (
+            "http://bucket.explicit.invalid/o",
+            &[b"gcs"],
+            "http://explicit.invalid",
+        ),
         // The client's claim about the scheme does not describe this connection.
         (
             "https://gcs:4443/storage/v1/b",
@@ -393,7 +500,7 @@ fn only_an_external_url_update_fixes_a_derived_base() {
         .unwrap();
     assert_eq!(derived("gcs:4443"), "http://gcs:4443");
     // The update's new XML domain applies to the very next request.
-    assert_eq!(derived("bucket.public.invalid"), FIXED);
+    assert_eq!(derived("bucket.public.invalid"), "http://public.invalid");
     assert!(
         runtime
             .update(&config, FIXED, Some("https://user@api.invalid"), None)

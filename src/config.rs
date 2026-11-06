@@ -34,6 +34,10 @@ pub use storage::Backend;
 /// Reserved-domain (RFC 2606) address, so it can never name a real Google account.
 pub const DEFAULT_LOCAL_CREATOR_EMAIL: &str = "local-user@gcs-mimic.invalid";
 
+/// RFC 9113 section 6.5.2 recommends advertising no fewer than 100 concurrent streams, "so as to
+/// not unnecessarily limit parallelism". A client past the limit queues its calls on its side.
+const DEFAULT_MAX_GRPC_STREAMS: NonZeroU32 = NonZeroU32::new(100).unwrap();
+
 const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
@@ -192,6 +196,9 @@ pub struct Config {
     pub event_list: String,
     pub xml_virtual_host_domains: Vec<String>,
     pub max_connections: usize,
+    /// Streams each gRPC connection may run at once. Each can buffer a message of up to 4 MiB,
+    /// so lowering this limits a connection's memory.
+    pub max_grpc_streams: NonZeroU32,
     pub max_object_bytes: u64,
     /// Active resumable uploads a server keeps; `None` leaves them unlimited, since expiry
     /// reclaims the disk they use.
@@ -264,6 +271,7 @@ impl Default for Config {
             event_list: "finalize".into(),
             xml_virtual_host_domains: Vec::new(),
             max_connections: 1024,
+            max_grpc_streams: DEFAULT_MAX_GRPC_STREAMS,
             max_object_bytes: setting::MAX_OBJECT_BYTES,
             max_resumable_sessions: None,
             max_rewrite_sessions: None,
@@ -373,6 +381,7 @@ impl Config {
         report.check_backend(&settings);
         report.check_tls(&settings);
         report.check_listeners(&settings);
+        report.check_grpc_streams(&settings);
         report.check_public_base_url(&settings);
         report.check_api_base_url(&settings);
         report.check_auth(&settings);
@@ -574,6 +583,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::CorsFallback
         | Setting::IdentityFile => apply_access_setting(config, setting, &value),
         Setting::MaxConnections
+        | Setting::MaxGrpcStreams
         | Setting::MaxObjectBytes
         | Setting::MaxResumableSessions
         | Setting::MaxRewriteSessions
@@ -831,6 +841,13 @@ fn apply_limit_setting(
     };
     match setting {
         Setting::MaxConnections => config.max_connections = count()?,
+        // The setting's bounds keep this in range; the conversion records that in the type.
+        Setting::MaxGrpcStreams => {
+            config.max_grpc_streams = u32::try_from(value)
+                .ok()
+                .and_then(NonZeroU32::new)
+                .ok_or_else(unknown_setting)?;
+        }
         Setting::MaxObjectBytes => config.max_object_bytes = value,
         Setting::MaxResumableSessions => config.max_resumable_sessions = session_limit()?,
         Setting::MaxRewriteSessions => config.max_rewrite_sessions = session_limit()?,
@@ -1048,6 +1065,19 @@ impl ConfigurationReport {
                 self.invalid.insert(name.into());
             }
             _ => {}
+        }
+    }
+
+    /// Without a gRPC listener the limit would silently do nothing, and a typo in the listener's
+    /// setting would hide behind it.
+    fn check_grpc_streams(&mut self, settings: &Settings) {
+        if let Some(input) = settings.get("max_grpc_streams")
+            && !self.invalid.contains("max_grpc_streams")
+            && !settings.contains_key("grpc_listen")
+        {
+            self.invalid.insert("max_grpc_streams".into());
+            self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
+                "max_grpc_streams requires grpc_listen; remove it or set --grpc-listen, for example 127.0.0.1:4444."));
         }
     }
 
@@ -1492,6 +1522,63 @@ mod tests {
             ],
             "127.0.0.1:4444",
         );
+    }
+
+    #[test]
+    fn grpc_stream_limit_follows_precedence_within_its_bounds() {
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(
+            &file,
+            r#"{"max_grpc_streams":10,"grpc_listen":"127.0.0.1:4444"}"#,
+        )
+        .unwrap();
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_MAX_GRPC_STREAMS".into(), "20".into())]);
+        assert_precedence(
+            &args,
+            &env,
+            &["--max-grpc-streams", "30"],
+            [100, 10, 20, 30],
+            Config::load,
+            |config| config.max_grpc_streams.get(),
+        );
+        for value in [1, 65_536] {
+            let args = [
+                "--grpc-listen".to_owned(),
+                "127.0.0.1:0".to_owned(),
+                "--max-grpc-streams".to_owned(),
+                value.to_string(),
+            ];
+            assert_eq!(
+                Config::load(&args, &BTreeMap::new())
+                    .unwrap()
+                    .max_grpc_streams
+                    .get(),
+                value
+            );
+        }
+        assert_rejected(
+            "max_grpc_streams",
+            &["0", "65537", "-1", "many"],
+            "max_grpc_streams must be an integer in 1..=65536",
+        );
+    }
+
+    #[test]
+    fn grpc_stream_limit_without_a_grpc_listener_is_an_error() {
+        assert_rejected("max_grpc_streams", &["200"], "requires grpc_listen");
+        // A broken listener setting is the one fault to report, not a missing listener.
+        let args = [
+            "--grpc-listen",
+            "localhost:4444",
+            "--max-grpc-streams",
+            "200",
+        ]
+        .map(str::to_owned);
+        let errors = Config::load(&args, &BTreeMap::new()).unwrap_err().errors;
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].key, "--grpc-listen");
     }
 
     #[test]

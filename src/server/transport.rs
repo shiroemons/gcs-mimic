@@ -97,10 +97,15 @@ impl AcceptBackoff {
 #[cfg(test)]
 mod tests;
 
-/// Silence before the first probe, and between probes. The operating system's probe count then
-/// decides when the peer counts as dead, a few minutes at most.
+/// Silence before the first probe, the wait after each probe, and how many go unanswered before
+/// the peer counts as dead. An idle connection to a vanished peer so ends after
+/// 30 + 4 * 15 = 90 seconds on every platform, where the operating system defaults (Linux 9,
+/// macOS 8, Windows 10) would differ. Data still waiting for an acknowledgement falls under the
+/// kernel's retransmission limit instead. The kernel answers probes for a process that is merely
+/// paused or busy, so a false positive takes a real network loss of that length.
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(30);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
+const KEEPALIVE_PROBES: u32 = 4;
 
 /// Application timeouts can all be disabled, and a peer that sleeps or loses its network sends
 /// no FIN. Without probes such a connection would keep its slot and any session claim forever.
@@ -108,7 +113,8 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 fn enable_keepalive(stream: &TcpStream) {
     let probes = socket2::TcpKeepalive::new()
         .with_time(KEEPALIVE_IDLE)
-        .with_interval(KEEPALIVE_INTERVAL);
+        .with_interval(KEEPALIVE_INTERVAL)
+        .with_retries(KEEPALIVE_PROBES);
     if let Err(error) = socket2::SockRef::from(stream).set_tcp_keepalive(&probes) {
         // A peer that already reset fails here too. Any other connection only loses dead peer
         // detection, so it still serves.

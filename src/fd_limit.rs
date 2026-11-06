@@ -1,53 +1,97 @@
-//! Fits the process's open-file limit to the configured connection limit.
+//! Fits the process's open-file limit to the configured connection and gRPC stream limits.
 //!
 //! The soft limit starts at 256 on macOS and often 1024 on Linux, while accepted connections
 //! fail with EMFILE once it runs out. The hard limit usually allows far more, so the server
 //! raises the soft limit at startup, as the Go runtime does for its programs.
 
 use crate::diagnostics::Diagnostic;
+use std::num::NonZeroU32;
 
 /// Each connection holds its socket, and a transfer also holds a staged or source file and
 /// sometimes its sidecar, so a busy connection can use about this many descriptors.
 #[cfg(unix)]
 const DESCRIPTORS_PER_CONNECTION: u64 = 3;
+/// A gRPC connection runs many transfers at once, each with a source file and a staged file.
+#[cfg(unix)]
+const DESCRIPTORS_PER_GRPC_STREAM: u64 = 2;
 /// Catalog files, listeners, standard streams, watchers and other process-wide descriptors.
 #[cfg(unix)]
 const BASE_DESCRIPTORS: u64 = 64;
 
-/// Raises the soft limit toward what `max_connections` can use and returns a warning when the
-/// result falls short. The server still starts then: it only refuses connections past the limit.
+/// What the configured limits can use, split by how a shortfall is treated.
 #[cfg(unix)]
-pub fn raise_for_connections(max_connections: usize) -> Option<Diagnostic> {
+#[derive(Debug, PartialEq, Eq)]
+struct DescriptorBudget {
+    /// Below this, ordinary connections can fail, so falling short warns.
+    required: u64,
+    /// What to raise toward, also covering every stream of every gRPC connection at its limit.
+    /// Falling short stays silent: macOS refuses more than about 10240, and that worst case is
+    /// out of its reach at the default limits, so a warning would fire whenever gRPC is on.
+    target: u64,
+}
+
+#[cfg(unix)]
+impl DescriptorBudget {
+    fn new(max_connections: usize, grpc_streams: Option<NonZeroU32>) -> Self {
+        let connections = u64::try_from(max_connections).unwrap_or(u64::MAX);
+        let required = connections
+            .saturating_mul(DESCRIPTORS_PER_CONNECTION)
+            .saturating_add(BASE_DESCRIPTORS);
+        let target = grpc_streams.map_or(required, |streams| {
+            connections
+                .saturating_mul(u64::from(streams.get()))
+                .saturating_mul(DESCRIPTORS_PER_GRPC_STREAM)
+                .saturating_add(required)
+        });
+        Self { required, target }
+    }
+
+    /// How to fix the limit that `raised` reports, when it falls short of what is required.
+    fn shortfall_fix(
+        &self,
+        max_connections: usize,
+        raised: std::io::Result<u64>,
+    ) -> Option<String> {
+        let wanted = self.required;
+        match raised {
+            Ok(reached) if reached >= wanted => None,
+            Ok(reached) => Some(format!(
+                "max_connections={max_connections} can use about {wanted} file descriptors, but the open-file limit stays at {reached}; raise it (ulimit -n {wanted}, or ulimits in Compose) or lower max_connections, or connections fail under load."
+            )),
+            Err(error) => Some(format!(
+                "Cannot read the open-file limit ({}); make sure it allows about {wanted} descriptors, or lower max_connections.",
+                error.kind()
+            )),
+        }
+    }
+}
+
+/// Raises the soft limit toward what `max_connections` and, on a server with a gRPC listener,
+/// `grpc_streams` can use, and returns a warning when the result falls short of what ordinary
+/// connections need. The server still starts then: it only refuses connections past the limit.
+#[cfg(unix)]
+pub fn raise_for_connections(
+    max_connections: usize,
+    grpc_streams: Option<NonZeroU32>,
+) -> Option<Diagnostic> {
     use crate::diagnostics::DiagnosticSource;
-    let wanted = u64::try_from(max_connections)
-        .unwrap_or(u64::MAX)
-        .saturating_mul(DESCRIPTORS_PER_CONNECTION)
-        .saturating_add(BASE_DESCRIPTORS);
+    let budget = DescriptorBudget::new(max_connections, grpc_streams);
     let raised = open_file_limit().map(|limit| {
-        raise(wanted, limit.rlim_cur, limit.rlim_max, |soft| {
+        raise(budget.target, limit.rlim_cur, limit.rlim_max, |soft| {
             set_soft_limit(soft, limit.rlim_max)
         })
     });
-    let fix = match raised {
-        Ok(reached) if reached >= wanted => return None,
-        Ok(reached) => format!(
-            "max_connections={max_connections} can use about {wanted} file descriptors, but the open-file limit stays at {reached}; raise it (ulimit -n {wanted}, or ulimits in Compose) or lower max_connections, or connections fail under load."
-        ),
-        Err(error) => format!(
-            "Cannot read the open-file limit ({}); make sure it allows about {wanted} descriptors, or lower max_connections.",
-            error.kind()
-        ),
-    };
-    Some(Diagnostic::new(
-        DiagnosticSource::Runtime,
-        "max_connections",
-        fix,
-    ))
+    budget
+        .shortfall_fix(max_connections, raised)
+        .map(|fix| Diagnostic::new(DiagnosticSource::Runtime, "max_connections", fix))
 }
 
 /// Windows has no such limit on sockets, and object files stay well below its handle limits.
 #[cfg(not(unix))]
-pub fn raise_for_connections(_max_connections: usize) -> Option<Diagnostic> {
+pub fn raise_for_connections(
+    _max_connections: usize,
+    _grpc_streams: Option<NonZeroU32>,
+) -> Option<Diagnostic> {
     None
 }
 
@@ -168,8 +212,74 @@ mod tests {
 
     #[test]
     fn an_unreachable_target_warns_with_the_fix() {
-        let warning = raise_for_connections(usize::MAX).unwrap();
+        let warning = raise_for_connections(usize::MAX, None).unwrap();
         assert_eq!(warning.key, "max_connections");
         assert!(warning.fix.contains("ulimit -n"), "{}", warning.fix);
+    }
+
+    #[test]
+    fn a_grpc_listener_raises_the_target_and_keeps_the_required_budget() {
+        let without_grpc = DescriptorBudget::new(1024, None);
+        assert_eq!(
+            without_grpc,
+            DescriptorBudget {
+                required: 3136,
+                target: 3136,
+            }
+        );
+        let with_grpc = DescriptorBudget::new(1024, NonZeroU32::new(100));
+        assert_eq!(
+            with_grpc,
+            DescriptorBudget {
+                required: 3136,
+                // 1024 connections * 100 streams * 2 files, on top of the required budget.
+                target: 3136 + 204_800,
+            }
+        );
+    }
+
+    #[test]
+    fn the_largest_settings_saturate_instead_of_overflowing() {
+        let budget = DescriptorBudget::new(usize::MAX, NonZeroU32::new(u32::MAX));
+        assert_eq!(budget.required, u64::MAX);
+        assert_eq!(budget.target, u64::MAX);
+    }
+
+    /// macOS: the raise toward every stream of every connection stops at a platform ceiling, far
+    /// short of the target but well above what ordinary connections need.
+    #[test]
+    fn a_target_out_of_reach_stays_silent_when_the_required_budget_fits() {
+        let budget = DescriptorBudget::new(1024, NonZeroU32::new(100));
+        let ceiling = 10_240;
+        let reached = raise(budget.target, 256, u64::MAX, |soft| {
+            if soft <= ceiling {
+                Ok(())
+            } else {
+                Err(refused())
+            }
+        });
+        assert!(reached < budget.target, "{reached}");
+        assert!(reached >= budget.required, "{reached}");
+        assert_eq!(budget.shortfall_fix(1024, Ok(reached)), None);
+    }
+
+    #[test]
+    fn falling_short_of_the_required_budget_warns_with_or_without_grpc() {
+        for grpc_streams in [None, NonZeroU32::new(100)] {
+            let budget = DescriptorBudget::new(1024, grpc_streams);
+            let fix = budget.shortfall_fix(1024, Ok(3135)).unwrap();
+            assert!(fix.contains("about 3136 file descriptors"), "{fix}");
+            assert!(fix.contains("ulimit -n 3136"), "{fix}");
+            assert_eq!(budget.shortfall_fix(1024, Ok(3136)), None);
+            let fix = budget.shortfall_fix(1024, Err(refused())).unwrap();
+            assert!(fix.contains("about 3136 descriptors"), "{fix}");
+        }
+    }
+
+    #[test]
+    fn a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits() {
+        // The real limit cannot go below the 67 descriptors one connection requires in any
+        // environment that runs these tests, whatever it does with the far larger target.
+        assert!(raise_for_connections(1, NonZeroU32::new(65_536)).is_none());
     }
 }

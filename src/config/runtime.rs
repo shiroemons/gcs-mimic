@@ -141,22 +141,20 @@ impl EndpointSnapshot {
         headers: &hyper::HeaderMap,
     ) -> Option<ApiBase> {
         // RFC 9112 section 3.2.2: an authority in the request target overrides Host.
-        uri.authority()
+        let requested = uri
+            .authority()
             .cloned()
-            .or_else(|| crate::xml::request_authority(headers))
-            .filter(|authority| self.can_advertise(authority))
-            .map(|authority| ApiBase {
-                url: format!("{}://{authority}", scheme.as_str()),
-                authority,
-            })
-    }
-
-    /// A host that selects an XML virtual bucket names that bucket and not the API, for the same
-    /// reason a configured base may not select one.
-    fn can_advertise(&self, authority: &Authority) -> bool {
-        crate::url::is_advertisable_authority(authority)
-            && crate::xml::bucket_for_authority(authority.as_str(), &self.xml_virtual_host_domains)
-                .is_none()
+            .or_else(|| crate::xml::request_authority(headers))?;
+        // A host that selects an XML virtual bucket names that bucket and not the API, for the
+        // same reason a configured base may not select one. The domain under it is the name that
+        // reached this server, where the bound listener's address may not reach it from a peer.
+        let authority =
+            crate::xml::virtual_host_api_authority(&requested, &self.xml_virtual_host_domains)
+                .unwrap_or(requested);
+        crate::url::is_advertisable_authority(&authority).then(|| ApiBase {
+            url: format!("{}://{authority}", scheme.as_str()),
+            authority,
+        })
     }
 }
 
