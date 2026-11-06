@@ -31,7 +31,11 @@ mod tests;
 mod transfer;
 
 pub(in crate::storage) const SCHEMA: &str = include_str!("conflicts/schema.sql");
-pub(crate) const MAX_BYTES: u64 = 1 << 30;
+/// The largest budget `sync_writeback_roots` accepts. Exporting over a tracked file reserves its
+/// whole size, so a budget below `max_object_bytes` would pause the root with nothing to resolve.
+/// Past this budget the free disk is the real bound, and a full disk pauses the root as an I/O
+/// failure instead of evicting a retained copy.
+pub(crate) const MAX_BYTES: u64 = 1 << 40;
 pub(crate) const MAX_ENTRIES: u64 = 1000;
 #[cfg(all(test, unix))]
 use list::ConflictPage;

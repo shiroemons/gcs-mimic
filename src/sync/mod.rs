@@ -20,8 +20,8 @@ struct Hook {
 }
 
 pub(crate) const SETTLE_MS: u64 = 1000;
-pub(crate) const CONFLICT_MAX_BYTES: u64 = 1_073_741_824;
-pub(crate) const CONFLICT_MAX_ENTRIES: u64 = 1000;
+pub(crate) const CONFLICT_MAX_BYTES: u64 = crate::storage::sync_state::conflicts::MAX_BYTES;
+pub(crate) const CONFLICT_MAX_ENTRIES: u64 = crate::storage::sync_state::conflicts::MAX_ENTRIES;
 
 use crate::{
     config::Config,

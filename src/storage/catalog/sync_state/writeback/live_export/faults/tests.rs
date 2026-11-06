@@ -9,6 +9,33 @@ use std::{fs, io::Read, path::Path, time::SystemTime};
 
 const BODY: &[u8] = b"\0\xff immutable API bytes";
 
+/// Exporting over a tracked file reserves its whole size, so a budget below the object size limit
+/// would pause the root for good: no conflict exists to resolve and a rescan changes nothing.
+#[tokio::test]
+async fn a_tracked_body_past_one_gibibyte_reserves_without_pausing_the_root() {
+    const TRACKED_SIZE: u64 = (1 << 30) + 1;
+    let fixture = Fixture::new().await;
+    fixture
+        .writeback
+        .db(|connection| {
+            connection
+                .prepare_cached("UPDATE sync_objects SET size=?1 WHERE name='object'")?
+                .execute([TRACKED_SIZE])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let operation = fixture.begin().await;
+    let status = fixture.writeback.status().await.unwrap();
+    assert_ne!(status.stop, Stop::ConflictCapacity);
+    assert_eq!(status.reserved_bytes, u128::from(TRACKED_SIZE));
+    drain(&fixture.writeback, operation).await;
+    let status = fixture.writeback.status().await.unwrap();
+    assert_eq!(status.stop, Stop::Ready);
+    assert_eq!(status.reserved_bytes, 0);
+    fixture.shut_down().await;
+}
+
 #[tokio::test]
 async fn descriptor_exhaustion_does_not_persist_workspace_recovery() {
     let fixture = Fixture::new().await;
