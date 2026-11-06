@@ -476,13 +476,13 @@ fn the_snapshot_entry_limit_is_inclusive_and_its_failure_names_the_option() {
     let rows = import::inspect(options.clone(), Vec::new(), Vec::new())
         .unwrap()
         .entries as usize;
-    options.max_entries = rows;
+    options.max_entries = std::num::NonZeroUsize::new(rows);
     assert!(
         import::inspect(options.clone(), Vec::new(), Vec::new())
             .unwrap()
             .eligible
     );
-    options.max_entries = rows - 1;
+    options.max_entries = std::num::NonZeroUsize::new(rows - 1);
     let mut output = Vec::new();
     let summary = import::inspect(options, &mut output, Vec::new()).unwrap();
     assert!(!summary.eligible);
@@ -493,21 +493,21 @@ fn the_snapshot_entry_limit_is_inclusive_and_its_failure_names_the_option() {
 
 /// Blobs used to be listed under a fixed cap of 10,000 names, whatever `max_entries` allowed.
 #[test]
-fn a_raised_entry_limit_reaches_the_snapshot_body_listing() {
+fn a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it() {
     const OBJECTS: usize = 10_001;
     let objects = (0..OBJECTS)
         .map(|index| object(&format!("body-{index:05}"), 7, "live"))
         .collect();
     let (_dir, mut options) = fixture(objects);
+    let default = import::inspect(options.clone(), Vec::new(), Vec::new()).unwrap();
+    assert!(default.eligible, "{default:?}");
+    assert_eq!(default.objects, OBJECTS as u64);
+    options.max_entries = std::num::NonZeroUsize::new(10_000);
     let mut report = Vec::new();
-    let default = import::inspect(options.clone(), &mut report, Vec::new()).unwrap();
-    assert!(!default.eligible, "a default limit stops at 10,000 rows");
+    let limited = import::inspect(options, &mut report, Vec::new()).unwrap();
+    assert!(!limited.eligible, "a named limit stops at its rows");
     let report = String::from_utf8(report).unwrap();
     assert!(report.contains("snapshot entry limit exceeded"), "{report}");
-    options.max_entries = OBJECTS + 16;
-    let summary = import::inspect(options, Vec::new(), Vec::new()).unwrap();
-    assert!(summary.eligible, "{summary:?}");
-    assert_eq!(summary.objects, OBJECTS as u64);
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use super::*;
 use crate::{clock::SystemClock, test_support::TestDir};
+use std::num::NonZeroUsize;
 use std::sync::{Mutex, PoisonError};
 
 /// Walk entry index at which the seed walk of a root panics, keyed by the canonical root
@@ -66,7 +67,7 @@ async fn a_complete_walk_imports_every_fixture_and_marks_the_seed_complete() {
 
 /// Past both former fixed limits of one seed: 10,000 objects and 8 MiB of their metadata.
 #[tokio::test]
-async fn a_tree_past_the_default_limits_seeds_once_the_entry_limit_allows_it() {
+async fn a_tree_past_the_former_limits_seeds_and_a_named_limit_still_stops_it() {
     const OBJECTS: usize = 15_000;
     let (_dir, mut config) = fixture();
     let bucket = config.seed_dir.as_ref().unwrap().join("bucket");
@@ -83,10 +84,11 @@ async fn a_tree_past_the_default_limits_seeds_once_the_entry_limit_allows_it() {
     )
     .await
     .unwrap();
+    config.max_seed_entries = NonZeroUsize::new(10_000);
     let error = import(&catalog, &config, &SystemClock).await.unwrap_err();
     assert!(error.to_string().contains("10000 entries"), "{error}");
     assert!(error.to_string().contains("max_seed_entries"), "{error}");
-    config.max_seed_entries = OBJECTS + 16;
+    config.max_seed_entries = None;
     let outcome = import(&catalog, &config, &SystemClock).await.unwrap();
     let SeedOutcome::Imported { objects, .. } = outcome else {
         panic!("a configured seed directory imports");
@@ -107,11 +109,11 @@ async fn the_depth_limit_comes_from_the_configuration_and_its_failure_names_the_
     std::fs::create_dir_all(&nested).unwrap();
     std::fs::write(nested.join("deep"), b"deep").unwrap();
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    config.max_seed_depth = 2;
+    config.max_seed_depth = NonZeroUsize::new(2);
     let error = import(&catalog, &config, &SystemClock).await.unwrap_err();
     assert!(error.to_string().contains("2 directory levels"), "{error}");
     assert!(error.to_string().contains("max_seed_depth"), "{error}");
-    config.max_seed_depth = 3;
+    config.max_seed_depth = NonZeroUsize::new(3);
     import(&catalog, &config, &SystemClock).await.unwrap();
     catalog.close().await.unwrap();
 }
@@ -124,14 +126,14 @@ async fn the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the
         std::fs::create_dir(seed.join(name)).unwrap();
     }
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
-    config.max_buckets_per_batch = 2;
+    config.max_buckets_per_batch = NonZeroUsize::new(2);
     let error = import(&catalog, &config, &SystemClock).await.unwrap_err();
     assert!(error.to_string().contains("exceeds 2 buckets"), "{error}");
     assert!(
         error.to_string().contains("max_buckets_per_batch"),
         "{error}"
     );
-    config.max_buckets_per_batch = 3;
+    config.max_buckets_per_batch = NonZeroUsize::new(3);
     let outcome = import(&catalog, &config, &SystemClock).await.unwrap();
     let SeedOutcome::Imported { buckets, .. } = outcome else {
         panic!("a configured seed directory imports");
@@ -149,12 +151,13 @@ async fn a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_r
         std::fs::create_dir(seed.join(format!("bucket-{index:04}"))).unwrap();
     }
     let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    config.max_buckets_per_batch = NonZeroUsize::new(1000);
     let error = import(&catalog, &config, &SystemClock).await.unwrap_err();
     assert!(
         error.to_string().contains("exceeds 1000 buckets"),
         "{error}"
     );
-    config.max_buckets_per_batch = BUCKETS;
+    config.max_buckets_per_batch = None;
     let outcome = import(&catalog, &config, &SystemClock).await.unwrap();
     assert!(matches!(
         outcome,

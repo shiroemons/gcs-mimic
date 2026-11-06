@@ -1,7 +1,7 @@
 use super::*;
 use crate::fsutil;
 use crate::test_support::TestDir;
-use std::{fs, time::Duration};
+use std::{fs, num::NonZeroUsize, time::Duration};
 
 #[tokio::test]
 async fn native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors() {
@@ -120,7 +120,7 @@ async fn native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity()
     );
     #[cfg(target_os = "linux")]
     {
-        let mut full = inotify::Native::new(1).unwrap();
+        let mut full = inotify::Native::new(Some(1)).unwrap();
         full.register(&directory).unwrap();
         let failure = full.register(&directory).unwrap_err().to_string();
         assert!(failure.contains("1 directories"), "{failure}");
@@ -145,12 +145,12 @@ fn a_watch_follows_the_tree_limit_instead_of_a_fixed_directory_count() {
     }
     built(&root, TreeLimits::default()).unwrap();
     let exact = TreeLimits {
-        entries: DIRECTORIES,
+        entries: NonZeroUsize::new(DIRECTORIES),
         ..TreeLimits::default()
     };
     built(&root, exact).unwrap();
     let short = TreeLimits {
-        entries: DIRECTORIES - 1,
+        entries: NonZeroUsize::new(DIRECTORIES - 1),
         ..TreeLimits::default()
     };
     let failure = built(&root, short).err().unwrap().to_string();
@@ -162,7 +162,7 @@ fn a_watch_applies_the_depth_limit_inclusively_and_names_the_setting() {
     let root = TestDir::new();
     fs::create_dir_all(root.0.join("one/two/three")).unwrap();
     let limits = |depth| TreeLimits {
-        depth,
+        depth: NonZeroUsize::new(depth),
         ..TreeLimits::default()
     };
     built(&root, limits(3)).unwrap();
@@ -171,7 +171,8 @@ fn a_watch_applies_the_depth_limit_inclusively_and_names_the_setting() {
     assert!(failure.contains("max_sync_depth"), "{failure}");
 }
 
-/// One directory larger than the former 10,000-name inspection cap must work under a raised limit.
+/// One directory larger than the former 10,000-name inspection cap must work without a limit, and
+/// a named limit must still stop it.
 #[test]
 fn a_watch_inspects_a_directory_as_large_as_the_tree_limit() {
     const FILES: usize = 10_050;
@@ -180,14 +181,25 @@ fn a_watch_inspects_a_directory_as_large_as_the_tree_limit() {
     for index in 0..FILES {
         fs::write(root.0.join(format!("bucket/{index:05}")), b"").unwrap();
     }
-    let failure = built(&root, TreeLimits::default())
-        .err()
-        .unwrap()
-        .to_string();
+    built(&root, TreeLimits::default()).unwrap();
+    let short = TreeLimits {
+        entries: NonZeroUsize::new(10_000),
+        ..TreeLimits::default()
+    };
+    let failure = built(&root, short).err().unwrap().to_string();
     assert!(failure.contains("max_sync_entries"), "{failure}");
     let raised = TreeLimits {
-        entries: FILES + 1,
+        entries: NonZeroUsize::new(FILES + 1),
         ..TreeLimits::default()
     };
     built(&root, raised).unwrap();
+}
+
+/// A tree this deep passes no limit of its own, and each level holds a descriptor while it builds.
+#[test]
+fn a_watch_covers_a_tree_past_the_former_depth_without_a_limit() {
+    let root = TestDir::new();
+    let deep: std::path::PathBuf = std::iter::repeat_n("d", 129).collect();
+    fs::create_dir_all(root.0.join(deep)).unwrap();
+    built(&root, TreeLimits::default()).unwrap();
 }

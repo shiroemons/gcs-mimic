@@ -18,6 +18,7 @@ use gcs_mimic::{
 use std::{
     fs,
     io::{BufRead, BufReader},
+    num::NonZeroUsize,
     process::Stdio,
 };
 
@@ -185,7 +186,7 @@ async fn the_depth_limit_keeps_an_object_out_of_the_tree_until_it_is_raised() {
     let deep = tree.0.join("test-bucket/one/two/deep");
 
     let mut settings = config(&data, &tree);
-    settings.max_sync_depth = 2;
+    settings.max_sync_depth = NonZeroUsize::new(2);
     let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
     let summary = sync::reconcile(&catalog, &root).await.unwrap();
     assert_eq!((summary.exported, summary.unrepresentable), (1, 1));
@@ -194,14 +195,14 @@ async fn the_depth_limit_keeps_an_object_out_of_the_tree_until_it_is_raised() {
     assert_eq!(root.findings_page(0, 256).await.unwrap().len(), 1);
     drop(root);
 
-    settings.max_sync_depth = 3;
+    settings.max_sync_depth = NonZeroUsize::new(3);
     let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
     let summary = sync::reconcile(&catalog, &root).await.unwrap();
     assert_eq!(summary.exported, 1);
     assert_eq!(fs::read(&deep).unwrap(), b"deep");
     drop(root);
 
-    settings.max_sync_depth = 2;
+    settings.max_sync_depth = NonZeroUsize::new(2);
     let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
     let failure = sync::reconcile(&catalog, &root).await.unwrap_err();
     let failure = format!("{failure:?}");
@@ -220,7 +221,7 @@ async fn the_entry_limit_comes_from_the_configuration_and_survives_a_restart() {
         object(&catalog, &name, key, b"body").await;
     }
     let mut settings = config(&data, &tree);
-    settings.max_sync_entries = 4;
+    settings.max_sync_entries = NonZeroUsize::new(4);
     let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
     assert_eq!(sync::reconcile(&catalog, &root).await.unwrap().exported, 3);
     drop(root);
@@ -238,7 +239,7 @@ async fn the_entry_limit_comes_from_the_configuration_and_survives_a_restart() {
     assert!(failure.contains("max_sync_entries"), "{failure}");
     drop(root);
 
-    settings.max_sync_entries = 5;
+    settings.max_sync_entries = NonZeroUsize::new(5);
     let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
     assert_eq!(
         sync::reconcile(&catalog, &root)
@@ -396,6 +397,142 @@ fn sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready()
         b"seed"
     );
     common::stop_server(&mut child, &mut stdout);
+}
+
+/// Runs a server over `tree` until its startup pass ends, reads `object` of `test-bucket`, then
+/// stops the server and returns what it logged.
+fn startup_events(
+    data: &TestDir,
+    tree: &TestDir,
+    options: &[&str],
+    object: &str,
+) -> Vec<serde_json::Value> {
+    let mut child = common::server_command()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+        ])
+        .arg(&data.0)
+        .arg("--sync-dir")
+        .arg(&tree.0)
+        .args(options)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    let ready: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(ready["event"], "ready", "{line}");
+    let address = ready["listen"].as_str().unwrap().to_owned();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let mut events = Vec::new();
+    loop {
+        line.clear();
+        assert_ne!(stderr.read_line(&mut line).unwrap(), 0, "{events:?}");
+        let event: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_ne!(event["event"], "sync_stopped", "{line}");
+        let name = event["event"].clone();
+        events.push(event);
+        if name == "sync_reconciled" {
+            break;
+        }
+    }
+    let path = format!(
+        "/storage/v1/b/test-bucket/o/{}?alt=media",
+        object.replace('/', "%2F")
+    );
+    let read = common::effects::request(&address, "GET", &path, "", b"");
+    assert_eq!(read.status, 200, "{}", String::from_utf8_lossy(&read.body));
+    assert_eq!(read.body, b"deep");
+    common::stop_server(&mut child, &mut stdout);
+    for line in stderr.lines() {
+        events.push(serde_json::from_str(&line.unwrap()).unwrap());
+    }
+    events
+}
+
+fn large_tree_warnings(events: &[serde_json::Value]) -> usize {
+    events
+        .iter()
+        .filter(|event| event["event"] == "sync_tree_large")
+        .count()
+}
+
+fn startup_summary<'a>(events: &'a [serde_json::Value], name: &str) -> &'a serde_json::Value {
+    events
+        .iter()
+        .find(|event| event["event"] == name)
+        .unwrap_or_else(|| panic!("no {name}: {events:?}"))
+}
+
+/// Past every former sync default at once: 10,000 entries and 128 levels. Without a limit the tree
+/// has to synchronize, warn once however many scans it takes, and keep its state across a restart.
+/// Editor temporaries count as entries without being ingested, which saves a settle interval per
+/// page of them; the entries that do ingest show that the pass got to the end of the tree.
+#[test]
+fn a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart() {
+    const IGNORED: usize = 10_001;
+    // 129 levels below the root counting the bucket, one past the former default.
+    const DEEP_DIRECTORIES: usize = 128;
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let bucket = tree.0.join("test-bucket");
+    let deep =
+        bucket.join(std::iter::repeat_n("d", DEEP_DIRECTORIES).collect::<std::path::PathBuf>());
+    fs::create_dir_all(&deep).unwrap();
+    fs::write(deep.join("deep"), b"deep").unwrap();
+    for index in 0..IGNORED {
+        fs::write(bucket.join(format!("editor-{index:05}~")), b"").unwrap();
+    }
+    fs::write(bucket.join("zz-last"), b"deep").unwrap();
+    let object = format!("{}/deep", ["d"; DEEP_DIRECTORIES].join("/"));
+
+    let events = startup_events(&data, &tree, &[], &object);
+    assert_eq!(large_tree_warnings(&events), 1, "{events:?}");
+    let ingested = startup_summary(&events, "sync_ingested");
+    assert_eq!(ingested["ingested"], 2, "{ingested}");
+    assert_eq!(ingested["ignored"], IGNORED, "{ingested}");
+
+    let events = startup_events(&data, &tree, &[], "zz-last");
+    assert_eq!(large_tree_warnings(&events), 1, "{events:?}");
+    assert_eq!(startup_summary(&events, "sync_ingested")["ingested"], 0);
+
+    // A limit someone chose already says the size is deliberate.
+    let entries = (IGNORED + 2 + 1 + DEEP_DIRECTORIES).to_string();
+    let events = startup_events(&data, &tree, &["--max-sync-entries", &entries], &object);
+    assert_eq!(large_tree_warnings(&events), 0, "{events:?}");
+}
+
+/// One byte per level fills a 1024-byte object name 512 levels deep, deeper than `mkdir -p` can go
+/// from an absolute path on macOS. Every walk of a synchronized tree stays relative to a pinned
+/// directory, so `PATH_MAX` does not apply, and the descriptor it holds per level has to fit in
+/// what a server raises its limit to.
+#[tokio::test]
+async fn the_deepest_object_name_exports_and_is_found_again_after_a_restart() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let object_name = ["a"; 512].join("/");
+    assert_eq!(object_name.len(), 1023);
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let name = bucket(&catalog, "test-bucket", "local-project").await;
+    object(&catalog, &name, &object_name, b"deep").await;
+    catalog.close().await.unwrap();
+
+    let events = startup_events(&data, &tree, &[], &object_name);
+    assert_eq!(startup_summary(&events, "sync_reconciled")["exported"], 1);
+    assert_eq!(startup_summary(&events, "sync_ingested")["deferred"], 0);
+
+    let events = startup_events(&data, &tree, &[], &object_name);
+    assert_eq!(startup_summary(&events, "sync_reconciled")["identical"], 1);
+    assert_eq!(startup_summary(&events, "sync_ingested")["deferred"], 0);
+    // The test process keeps its own smaller descriptor limit, which removing the tree must fit.
+    gcs_mimic::fd_limit::raise_for_connections(1024, None);
 }
 
 #[test]

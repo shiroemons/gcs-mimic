@@ -31,10 +31,55 @@ fn invalid(message: impl Into<String>) -> io::Error {
 }
 
 /// A resume compares one digest of these inputs, so it cannot tell which of them differs.
+#[derive(Debug)]
+struct OtherImport;
+
+impl std::fmt::Display for OtherImport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "data-dir: destination is not the same unfinished import with matching options; repeat the --source, --source-format, --metadata-mode, --source-platform, --max-object-bytes, --max-entries and --max-depth of its first run, or choose a new empty destination",
+        )
+    }
+}
+
+impl std::error::Error for OtherImport {}
+
 fn other_import() -> io::Error {
-    invalid(
-        "data-dir: destination is not the same unfinished import with matching options; repeat the --source, --source-format, --metadata-mode, --source-platform, --max-object-bytes, --max-entries and --max-depth of its first run, or choose a new empty destination",
-    )
+    io::Error::new(io::ErrorKind::InvalidData, OtherImport)
+}
+
+fn is_other_import(error: &ImportError) -> bool {
+    matches!(error, ImportError::Io(error)
+        if error.get_ref().is_some_and(|inner| inner.is::<OtherImport>()))
+}
+
+/// The identity a destination's journal records: the source and every option that decides what
+/// a scan of it finds.
+fn source_identity(options: &Options, source: &str) -> [u8; 32] {
+    let mut context = Context::new(&SHA256);
+    context.update(b"gcs-mimic-import-binding\0\x01");
+    if options.source_format == super::SourceFormat::Snapshot {
+        context.update(b"memory-snapshot\0\x01");
+    }
+    let fields = super::option_fields(options);
+    let fields = fields.each_ref().map(Vec::as_slice);
+    super::digest_fields(
+        &mut context,
+        "source",
+        source,
+        &[
+            fields[0],
+            &[super::FINGERPRINT_FORMAT],
+            fields[1],
+            fields[2],
+            fields[3],
+            fields[4],
+            fields[5],
+        ],
+    );
+    let mut identity = [0; 32];
+    identity.copy_from_slice(context.finish().as_ref());
+    identity
 }
 
 pub(super) fn sha(bytes: &[u8]) -> [u8; 32] {
@@ -381,29 +426,6 @@ pub fn execute(
     let source = source
         .to_str()
         .ok_or_else(|| invalid("source root must be UTF-8"))?;
-    let mut source_context = Context::new(&SHA256);
-    source_context.update(b"gcs-mimic-import-binding\0\x01");
-    if options.source_format == super::SourceFormat::Snapshot {
-        source_context.update(b"memory-snapshot\0\x01");
-    }
-    let fields = super::option_fields(&options);
-    let fields = fields.each_ref().map(Vec::as_slice);
-    super::digest_fields(
-        &mut source_context,
-        "source",
-        source,
-        &[
-            fields[0],
-            &[super::FINGERPRINT_FORMAT],
-            fields[1],
-            fields[2],
-            fields[3],
-            fields[4],
-            fields[5],
-        ],
-    );
-    let mut source_id = [0; 32];
-    source_id.copy_from_slice(source_context.finish().as_ref());
     let start =
         if fs::read_dir(&options.destination).is_ok_and(|mut entries| entries.next().is_some()) {
             ImportStart::Resume
@@ -425,14 +447,30 @@ pub fn execute(
         .max_blocking_threads(2)
         .enable_all()
         .build()?;
-    runtime.block_on(run(
+    let imported = runtime.block_on(run(
         &options,
-        source_id,
+        source_identity(&options, source),
         start,
         &baseline,
         &mut output,
         &mut diagnostics,
-    ))
+    ));
+    // A refused resume changed nothing, so the destination can still be what an earlier release
+    // started when it had other defaults.
+    if start == ImportStart::Resume
+        && imported.as_ref().is_err_and(is_other_import)
+        && let Some(former) = options.with_former_defaults()
+    {
+        return runtime.block_on(run(
+            &former,
+            source_identity(&former, source),
+            start,
+            &baseline,
+            &mut output,
+            &mut diagnostics,
+        ));
+    }
+    imported
 }
 
 async fn run(

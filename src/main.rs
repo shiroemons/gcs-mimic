@@ -48,16 +48,16 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --seed-dir PATH              none (read-only fixtures; replayed on every startup)
   --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
-  --max-seed-entries N         10000 (1..100000000; files and directories in seed_dir; memory grows with them)
-  --max-seed-depth N           32 (1..1024; directory levels below a seed bucket)
+  --max-seed-entries N         0 (files and directories in seed_dir; memory grows with them; 0 is unlimited)
+  --max-seed-depth N           0 (0..1024; directory levels below a seed bucket; 0 is unlimited)
   --seed-content-type MODE     extension (extension|octet-stream; pinned MIME table)
   --sync-dir PATH              none (existing working tree; initial export after ready)
   --sync-delete-guard BOOL     true (deletion ingestion pending)
   --sync-reinitialize ID       startup only (exact catalog ID; missing marker only)
-  --max-sync-entries N         10000 (1..100000000; files and directories in sync_dir, also the watches Linux may use; scans take longer, not more memory)
-  --max-sync-depth N           128 (1..1024; directory levels below sync_dir, counting the bucket)
-  --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 KiB per allowed bucket and at least 1 MiB)
-  --max-buckets-per-batch N    1000 (1..1000000; buckets one --buckets-file or one seed may declare, not all buckets; memory grows with them)
+  --max-sync-entries N         0 (files and directories in sync_dir, also the watches Linux may use; scans take longer, not more memory; 0 is unlimited)
+  --max-sync-depth N           0 (0..1024; directory levels below sync_dir, counting the bucket; 0 is unlimited)
+  --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 GiB, or 1 KiB per allowed bucket and at least 1 MiB under a bucket limit)
+  --max-buckets-per-batch N    0 (buckets one --buckets-file or one seed may declare, not all buckets; memory grows with them; 0 is unlimited)
   --api-base-url URL           Each request's Host, else the bound listener (set to fix the advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --admin-enabled BOOL         false (local management API; isolate the listener when enabled)
@@ -900,7 +900,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "cd4dd2a3e46cf5524e15fac181d4c7cc059a803c122c3e8c5624d4141eeb92e8"
+            "6bd720cdce1950fe5f3b61d72ac882baa2ad79f75187c36ed727a91791461738"
         );
     }
 

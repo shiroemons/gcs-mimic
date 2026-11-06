@@ -14,12 +14,21 @@ use std::fs;
 #[tokio::test]
 async fn the_metadata_budget_grows_with_the_allowed_tree_and_refuses_past_it() {
     const MIB: usize = 1024 * 1024;
-    assert_eq!(metadata_budget(1), 8 * MIB);
-    assert_eq!(metadata_budget(10_000), 8 * MIB);
-    assert_eq!(metadata_budget(10_001), 16 * MIB);
-    assert_eq!(metadata_budget(usize::MAX), usize::MAX);
+    let budget = |entries| metadata_budget(NonZeroUsize::new(entries));
+    assert_eq!(budget(1), Some(8 * MIB));
+    assert_eq!(budget(10_000), Some(8 * MIB));
+    assert_eq!(budget(10_001), Some(16 * MIB));
+    assert_eq!(budget(usize::MAX), Some(usize::MAX));
+    assert_eq!(budget(0), None);
     let (_dir, catalog, admin, _, _) = setup().await;
-    let mut batch = admin.seed_batch_until(None, 10_001).await.unwrap();
+    let mut unlimited = admin.seed_batch_until(None, None).await.unwrap();
+    unlimited.charge_metadata(usize::MAX).unwrap();
+    unlimited.charge_metadata(usize::MAX).unwrap();
+    drop(unlimited);
+    let mut batch = admin
+        .seed_batch_until(None, NonZeroUsize::new(10_001))
+        .await
+        .unwrap();
     batch.charge_metadata(16 * MIB).unwrap();
     let AdminError::Invalid(message) = batch.charge_metadata(1).unwrap_err() else {
         panic!("a charge past the budget is invalid input");
@@ -195,7 +204,7 @@ async fn atomic_seed_cancellation_and_concurrent_admission_preserve_old_namespac
     }
     let limit = tokio::time::Instant::now() + Duration::from_millis(50);
     assert!(matches!(
-        admin.seed_batch_until(Some(limit), 10_000).await,
+        admin.seed_batch_until(Some(limit), None).await,
         Err(AdminError::Busy { .. })
     ));
     assert!(matches!(admin.reset().await, Err(AdminError::Busy { .. })));
@@ -453,7 +462,7 @@ async fn atomic_seed_cancelled_before_sql_and_active_upload_leave_no_new_namespa
     drop(drain);
     assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
     let limit = tokio::time::Instant::now() + Duration::from_millis(200);
-    let mut batch = admin.seed_batch_until(Some(limit), 10_000).await.unwrap();
+    let mut batch = admin.seed_batch_until(Some(limit), None).await.unwrap();
     add(&mut batch, &dir.0, "object", b"new").await;
     let upload = catalog.admit_object_upload().unwrap();
     assert!(matches!(

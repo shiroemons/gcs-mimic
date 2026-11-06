@@ -430,7 +430,10 @@ pub(super) fn scan(options: &Options, report: &mut Reporter) -> Result<(), Impor
             break;
         }
         capture.report.summary.entries += 1;
-        if capture.report.summary.entries > options.max_entries as u64 {
+        if options
+            .max_entries
+            .is_some_and(|limit| capture.report.summary.entries > limit.get() as u64)
+        {
             return Err(ImportFailure::corrupt(
                 "limits",
                 "snapshot entry limit exceeded",

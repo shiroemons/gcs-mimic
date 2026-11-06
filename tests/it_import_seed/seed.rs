@@ -937,12 +937,15 @@ fn top_level_files_are_skipped_with_a_warning() {
 }
 
 #[test]
-fn fixture_depth_and_entry_count_are_bounded() {
+fn named_fixture_limits_are_inclusive_and_name_their_settings() {
     let dir = TestDir::new();
     let seed = dir.0.join("fixtures");
     let deepest = format!("local-bucket/{}file", "d/".repeat(32));
     fixture(&seed, &deepest, b"boundary");
-    let server = Server::start(&mut command(&dir.0.join("allowed"), Some(&seed)), false);
+    let server = Server::start(
+        command(&dir.0.join("allowed"), Some(&seed)).args(["--max-seed-depth", "32"]),
+        false,
+    );
     assert_eq!(server.ready["seed"]["objects"], 1);
     server.stop();
     fixture(
@@ -951,7 +954,7 @@ fn fixture_depth_and_entry_count_are_bounded() {
         b"too deep",
     );
     fails(
-        &mut command(&dir.0.join("deep"), Some(&seed)),
+        command(&dir.0.join("deep"), Some(&seed)).args(["--max-seed-depth", "32"]),
         "32 directory levels",
     );
     let raised = Server::start(
@@ -964,14 +967,89 @@ fn fixture_depth_and_entry_count_are_bounded() {
         command(&dir.0.join("few"), Some(&seed)).args(["--max-seed-entries", "2"]),
         "max_seed_entries",
     );
-    let many = dir.0.join("many");
-    fs::create_dir(&many).unwrap();
-    for index in 0..10_001 {
-        fs::write(many.join(format!("entry-{index}")), b"").unwrap();
-    }
+    let buckets = dir.0.join("buckets");
+    fixture(&buckets, "bucket-one/file", b"one");
+    fixture(&buckets, "bucket-two/file", b"two");
     fails(
-        &mut command(&dir.0.join("many-data"), Some(&many)),
-        "10000 entries",
+        command(&dir.0.join("few-buckets"), Some(&buckets)).args(["--max-buckets-per-batch", "1"]),
+        "max_buckets_per_batch",
+    );
+}
+
+/// Seed events past the startup of `server`, which must have been started with a piped stderr.
+fn seed_tree_warnings(mut server: Server) -> usize {
+    let stderr = server.child.stderr.take().unwrap();
+    server.stop();
+    BufReader::new(stderr)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+        .filter(|event| event["event"] == "seed_tree_large")
+        .count()
+}
+
+/// Past every former default at once: 10,000 entries, 32 levels and 1,000 buckets. Without a limit
+/// the tree has to start, warn once that it is large, and replay after a restart; a limit someone
+/// chose says the size is deliberate, so it does not warn. Most entries are empty directories,
+/// which count like files without an fsync each; `seed::tests` seeds objects past 10,000.
+#[test]
+fn a_tree_past_the_former_defaults_starts_warns_once_and_replays_after_a_restart() {
+    const EMPTY_DIRECTORIES: usize = 9000;
+    const OBJECTS: usize = 64;
+    const BUCKETS: usize = 1001;
+    const LEVELS: usize = 33;
+    let dir = TestDir::new();
+    let seed = dir.0.join("fixtures");
+    for index in 0..BUCKETS {
+        fs::create_dir_all(seed.join(format!("bucket-{index:04}"))).unwrap();
+    }
+    for index in 0..EMPTY_DIRECTORIES {
+        fs::create_dir(seed.join(format!("bucket-0000/empty-{index:05}"))).unwrap();
+    }
+    for index in 0..OBJECTS {
+        fs::write(seed.join(format!("bucket-0000/{index:05}")), b"").unwrap();
+    }
+    let deepest = format!("bucket-0000/{}file", "d/".repeat(LEVELS));
+    fixture(&seed, &deepest, b"deep");
+    let objects = OBJECTS + 1;
+    // Buckets, objects, empty directories and the levels that lead to the deepest object.
+    let entries = BUCKETS + EMPTY_DIRECTORIES + objects + LEVELS;
+    assert!(entries > 10_000, "{entries}");
+
+    let data = dir.0.join("data");
+    let server = Server::start(command(&data, Some(&seed)).stderr(Stdio::piped()), false);
+    assert_eq!(server.ready["seed"]["buckets"], BUCKETS);
+    assert_eq!(server.ready["seed"]["objects"], objects);
+    assert_eq!(
+        server.request(
+            "GET",
+            &format!(
+                "/storage/v1/b/bucket-0000/o/{}?alt=media",
+                "d%2F".repeat(LEVELS) + "file"
+            ),
+            b""
+        ),
+        (200, b"deep".to_vec())
+    );
+    assert_eq!(seed_tree_warnings(server), 1);
+
+    let server = Server::start(command(&data, Some(&seed)).stderr(Stdio::piped()), false);
+    assert_eq!(server.ready["seed"]["buckets"], 0);
+    assert_eq!(server.ready["seed"]["unchanged"], objects);
+    assert_eq!(seed_tree_warnings(server), 1);
+
+    let exact = entries.to_string();
+    let server = Server::start(
+        command(&dir.0.join("named"), Some(&seed))
+            .args(["--max-seed-entries", &exact])
+            .stderr(Stdio::piped()),
+        false,
+    );
+    assert_eq!(server.ready["seed"]["objects"], objects);
+    assert_eq!(seed_tree_warnings(server), 0);
+    fails(
+        command(&dir.0.join("short"), Some(&seed))
+            .args(["--max-seed-entries", &(entries - 1).to_string()]),
+        "max_seed_entries",
     );
 }
 

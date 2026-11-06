@@ -8,7 +8,7 @@ use std::{
 pub(crate) struct Native {
     queue: OwnedFd,
     pub(super) count: usize,
-    max_watches: usize,
+    max_watches: Option<usize>,
 }
 impl AsRawFd for Native {
     fn as_raw_fd(&self) -> RawFd {
@@ -18,8 +18,13 @@ impl AsRawFd for Native {
 
 pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
     // A watch holds no descriptor, only kernel memory, so nothing but the tree itself bounds them:
-    // each watched directory below the root is an entry that the scan counts too.
-    let mut native = Native::new(limits.entries.saturating_add(1))?;
+    // each watched directory below the root is an entry that the scan counts too. Without an entry
+    // limit the kernel's own budget decides, and `register` explains how to raise it.
+    let mut native = Native::new(
+        limits
+            .entries
+            .map(|entries| entries.get().saturating_add(1)),
+    )?;
     native.register(root)?;
     let mut stack = vec![(
         root.try_clone()?,
@@ -60,7 +65,7 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
             .0;
         match fsutil::child_directory(directory, &name, fsutil::DirectoryOpen::Existing) {
             Ok(fsutil::Child::Directory { file, .. }) => {
-                if depth > limits.depth {
+                if depth > limits.deepest_directory() {
                     return Err(io::Error::other(limits.too_deep()));
                 }
                 native.register(&file)?;
@@ -84,7 +89,7 @@ impl Native {
         unsafe_code,
         reason = "inotify has no standard-library queue constructor"
     )]
-    pub(super) fn new(max_watches: usize) -> io::Result<Self> {
+    pub(super) fn new(max_watches: Option<usize>) -> io::Result<Self> {
         // SAFETY: the syscall returns a fresh owned descriptor and takes no pointers.
         let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
         if fd < 0 {
@@ -103,10 +108,11 @@ impl Native {
         reason = "inotify watches must be registered through libc"
     )]
     pub(super) fn register(&mut self, file: &File) -> io::Result<()> {
-        if self.count == self.max_watches {
+        if let Some(limit) = self.max_watches
+            && self.count == limit
+        {
             return Err(io::Error::other(format!(
-                "sync native watch limit ({} directories) exceeded; raise max_sync_entries or reduce the tree instead of leaving directories unobserved",
-                self.max_watches
+                "sync native watch limit ({limit} directories) exceeded; raise max_sync_entries or reduce the tree instead of leaving directories unobserved"
             )));
         }
         let path = std::ffi::CString::new(format!("/proc/self/fd/{}", file.as_raw_fd()))

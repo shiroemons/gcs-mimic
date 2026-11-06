@@ -456,7 +456,10 @@ async fn scan_entry_limit_fails_before_an_inventory_can_be_declared_complete() {
     fs::write(tree.0.join("b"), b"b").unwrap();
     let result = root
         .file_job(|root| {
-            let mut scan = Scan::new(Default::default());
+            let mut scan = Scan::new(super::super::tree::TreeLimits {
+                entries: std::num::NonZeroUsize::new(10_000),
+                ..Default::default()
+            });
             scan.visited = 9999;
             scan.page(root)
         })
