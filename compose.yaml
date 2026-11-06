@@ -8,16 +8,18 @@ services:
     volumes:
       - gcs-data:/var/lib/gcs-mimic
     environment:
-      GCS_MIMIC_API_BASE_URL: ${GCS_MIMIC_API_BASE_URL:-https://localhost:${GCS_MIMIC_PORT:-4443}}
+      # No value: passed through only when set. Unset, URLs follow each request's Host.
+      GCS_MIMIC_API_BASE_URL:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 128m
     cpus: 1.0
     pids_limit: 64
     ulimits:
+      # max_connections defaults to 1024, and a connection can hold a socket and two files.
       nofile:
-        soft: 1024
-        hard: 1024
+        soft: 4096
+        hard: 4096
     stop_grace_period: 15s
 volumes:
   gcs-data:
