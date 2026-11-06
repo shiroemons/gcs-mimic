@@ -8,8 +8,8 @@ pub enum SeedError {
     BucketName(AdminError),
     ObjectName(JsonError),
     RelativePath(StripPrefixError),
-    EntryLimit,
-    DepthLimit,
+    EntryLimit { limit: usize },
+    DepthLimit { limit: usize },
     NotDirectory,
     Overlap,
     WalkStopped,
@@ -28,8 +28,14 @@ impl fmt::Display for SeedError {
             Self::Admin(error) | Self::BucketName(error) => error.fmt(f),
             Self::ObjectName(error) => f.write_str(&error.message),
             Self::RelativePath(error) => error.fmt(f),
-            Self::EntryLimit => f.write_str("fixture exceeds 10000 entries"),
-            Self::DepthLimit => f.write_str("fixture exceeds 32 directory levels below a bucket"),
+            Self::EntryLimit { limit } => write!(
+                f,
+                "fixture exceeds {limit} entries; raise max_seed_entries or reduce the tree"
+            ),
+            Self::DepthLimit { limit } => write!(
+                f,
+                "fixture exceeds {limit} directory levels below a bucket; raise max_seed_depth or flatten the tree"
+            ),
             Self::NotDirectory => f.write_str("seed_dir must be a directory, not a symlink"),
             Self::Overlap => f.write_str("seed_dir and data_dir must not overlap"),
             Self::WalkStopped => f.write_str("seed directory walk stopped before it finished"),

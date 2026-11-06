@@ -22,6 +22,8 @@ super::string_enum! {
         DefaultSeedDir => "default_seed_dir",
         SeedProject => "seed_project",
         SeedContentType => "seed_content_type",
+        MaxSeedEntries => "max_seed_entries",
+        MaxSeedDepth => "max_seed_depth",
         SyncDir => "sync_dir",
         SyncDeleteGuard => "sync_delete_guard",
         SyncReinitialize => "sync_reinitialize",
@@ -73,6 +75,9 @@ impl Setting {
             Self::MaxObjectBytes => Some((1, 5 * 1024_u64.pow(4))),
             // 0 means unlimited here only; the config holds `Option<NonZeroU32>`.
             Self::MaxResumableSessions | Self::MaxRewriteSessions => Some((0, u32::MAX as u64)),
+            Self::MaxSeedEntries => Some((1, 100_000_000)),
+            // A 1024-byte object name cannot nest deeper than this.
+            Self::MaxSeedDepth => Some((1, 1024)),
             Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 32)),
             Self::KeepAliveTimeoutMs => Some((1, 600_000)),
             Self::ObjectRequestTimeoutMs => Some((1, 86_400_000)),

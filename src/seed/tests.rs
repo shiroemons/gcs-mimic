@@ -64,6 +64,58 @@ async fn a_complete_walk_imports_every_fixture_and_marks_the_seed_complete() {
     catalog.close().await.unwrap();
 }
 
+/// Past both former fixed limits of one seed: 10,000 objects and 8 MiB of their metadata.
+#[tokio::test]
+async fn a_tree_past_the_default_limits_seeds_once_the_entry_limit_allows_it() {
+    const OBJECTS: usize = 15_000;
+    let (_dir, mut config) = fixture();
+    let bucket = config.seed_dir.as_ref().unwrap().join("bucket");
+    let long_name = "n".repeat(240);
+    for index in 0..OBJECTS {
+        std::fs::write(bucket.join(format!("{long_name}-{index}")), b"").unwrap();
+    }
+    config.backend = crate::config::Backend::Memory;
+    let catalog = Catalog::open_memory_for_server(
+        256 * 1024 * 1024,
+        256 * 1024 * 1024,
+        std::sync::Arc::new(SystemClock),
+        crate::storage::admin::LocalAdmin::Disabled,
+    )
+    .await
+    .unwrap();
+    let error = import(&catalog, &config, &SystemClock).await.unwrap_err();
+    assert!(error.to_string().contains("10000 entries"), "{error}");
+    assert!(error.to_string().contains("max_seed_entries"), "{error}");
+    config.max_seed_entries = OBJECTS + 16;
+    let outcome = import(&catalog, &config, &SystemClock).await.unwrap();
+    let SeedOutcome::Imported { objects, .. } = outcome else {
+        panic!("a configured seed directory imports");
+    };
+    assert_eq!(objects, OBJECTS + 3);
+    assert!(seed_complete(&catalog).await);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn the_depth_limit_comes_from_the_configuration_and_its_failure_names_the_setting() {
+    let (_dir, mut config) = fixture();
+    let nested = config
+        .seed_dir
+        .as_ref()
+        .unwrap()
+        .join("bucket/one/two/three");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join("deep"), b"deep").unwrap();
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    config.max_seed_depth = 2;
+    let error = import(&catalog, &config, &SystemClock).await.unwrap_err();
+    assert!(error.to_string().contains("2 directory levels"), "{error}");
+    assert!(error.to_string().contains("max_seed_depth"), "{error}");
+    config.max_seed_depth = 3;
+    import(&catalog, &config, &SystemClock).await.unwrap();
+    catalog.close().await.unwrap();
+}
+
 /// A walk thread that dies drops its sender; the import must not read the closed channel as
 /// the end of the tree and mark a partial seed complete.
 #[tokio::test]

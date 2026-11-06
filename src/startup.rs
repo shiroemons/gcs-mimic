@@ -531,12 +531,14 @@ fn seed_failure(error: &SeedError) -> String {
         SeedError::Admin(AdminError::Hold) => {
             return "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry.".into();
         }
+        // These name the configured limit and the setting that changes it.
+        SeedError::DepthLimit { .. } | SeedError::EntryLimit { .. } => {
+            return format!("seed import: {error}.");
+        }
         SeedError::BucketName(_) => "Invalid bucket name",
         SeedError::ObjectName(_) => "Invalid object name",
         SeedError::FileLimit => "max_object_bytes",
         SeedError::Overlap => "must not overlap",
-        SeedError::DepthLimit => "32 directory levels",
-        SeedError::EntryLimit => "10000 entries",
         SeedError::UnsupportedFile => "only regular files",
         SeedError::NotDirectory => "not a symlink",
         SeedError::NonUtf8Name => "must be UTF-8",
@@ -648,9 +650,23 @@ mod tests {
     #[test]
     fn seed_diagnostics_follow_typed_causes_through_context() {
         use gcs_mimic::storage::admin::AdminError;
+        for (error, message) in [
+            (
+                SeedError::EntryLimit { limit: 10_000 },
+                "seed import: fixture exceeds 10000 entries; raise max_seed_entries or reduce the tree.",
+            ),
+            (
+                SeedError::DepthLimit { limit: 32 },
+                "seed import: fixture exceeds 32 directory levels below a bucket; raise max_seed_depth or flatten the tree.",
+            ),
+        ] {
+            let error = SeedError::Import(Box::new(SeedError::Entry {
+                label: "fixture".into(),
+                source: Box::new(error),
+            }));
+            assert_eq!(seed_failure(&error), message);
+        }
         for (error, reason) in [
-            (SeedError::EntryLimit, "10000 entries"),
-            (SeedError::DepthLimit, "32 directory levels"),
             (SeedError::NotDirectory, "not a symlink"),
             (SeedError::Overlap, "must not overlap"),
             (SeedError::NonUtf8Name, "must be UTF-8"),

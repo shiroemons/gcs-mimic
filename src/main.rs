@@ -48,6 +48,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --seed-dir PATH              none (read-only fixtures; replayed on every startup)
   --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
+  --max-seed-entries N         10000 (1..100000000; files and directories in seed_dir; memory grows with them)
+  --max-seed-depth N           32 (1..1024; directory levels below a seed bucket)
   --seed-content-type MODE     extension (extension|octet-stream; pinned MIME table)
   --sync-dir PATH              none (existing working tree; initial export after ready)
   --sync-delete-guard BOOL     true (deletion ingestion pending)

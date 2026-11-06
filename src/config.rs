@@ -162,6 +162,11 @@ pub struct Config {
     pub sync_reinitialize: Option<crate::storage::sync_state::CatalogId>,
     pub seed_project: String,
     pub seed_content_type: crate::mime::SeedContentType,
+    /// Files and directories a seed tree may hold. A seed is one atomic publication, so its
+    /// memory grows with the tree until it commits.
+    pub max_seed_entries: usize,
+    /// Directory levels a seed tree may nest below a bucket.
+    pub max_seed_depth: usize,
     pub default_location: String,
     /// Soft delete retention (seconds) given to a new bucket that names no policy; 0 disables it.
     pub default_soft_delete_retention_seconds: u64,
@@ -227,6 +232,8 @@ impl Default for Config {
             sync_reinitialize: None,
             seed_project: "local-project".into(),
             seed_content_type: crate::mime::SeedContentType::Extension,
+            max_seed_entries: 10_000,
+            max_seed_depth: 32,
             default_location: "US".into(),
             default_soft_delete_retention_seconds: 604_800,
             buckets_file: None,
@@ -554,6 +561,8 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::MaxObjectBytes
         | Setting::MaxResumableSessions
         | Setting::MaxRewriteSessions
+        | Setting::MaxSeedEntries
+        | Setting::MaxSeedDepth
         | Setting::WorkerThreads
         | Setting::MaxBlockingThreads
         | Setting::ConnectionTimeoutMs
@@ -806,6 +815,8 @@ fn apply_limit_setting(
         Setting::MaxObjectBytes => config.max_object_bytes = value,
         Setting::MaxResumableSessions => config.max_resumable_sessions = session_limit()?,
         Setting::MaxRewriteSessions => config.max_rewrite_sessions = session_limit()?,
+        Setting::MaxSeedEntries => config.max_seed_entries = count()?,
+        Setting::MaxSeedDepth => config.max_seed_depth = count()?,
         Setting::WorkerThreads => config.worker_threads = count()?,
         Setting::MaxBlockingThreads => config.max_blocking_threads = count()?,
         Setting::ConnectionTimeoutMs => config.connection_timeout_ms = value,
@@ -2338,6 +2349,33 @@ mod tests {
             assert!(load_http(&args[..2], &BTreeMap::new()).is_err());
         }
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn seed_limits_keep_their_defaults_and_reject_values_out_of_range() {
+        let default = Config::default();
+        assert_eq!(
+            (default.max_seed_entries, default.max_seed_depth),
+            (10_000, 32)
+        );
+        let args = ["--max-seed-entries", "20000", "--max-seed-depth", "40"].map(str::to_owned);
+        let config = Config::load(&args, &BTreeMap::new()).unwrap();
+        assert_eq!(
+            (config.max_seed_entries, config.max_seed_depth),
+            (20_000, 40)
+        );
+        let env = BTreeMap::from([("GCS_MIMIC_MAX_SEED_DEPTH".to_owned(), "50".to_owned())]);
+        assert_eq!(Config::load(&[], &env).unwrap().max_seed_depth, 50);
+        assert_rejected(
+            "max_seed_entries",
+            &["0", "100000001"],
+            "max_seed_entries must be an integer in 1..=100000000",
+        );
+        assert_rejected(
+            "max_seed_depth",
+            &["0", "1025"],
+            "max_seed_depth must be an integer in 1..=1024",
+        );
     }
 
     #[test]
