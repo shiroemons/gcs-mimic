@@ -246,8 +246,8 @@ impl Default for Config {
             event_object_prefix: String::new(),
             event_list: "finalize".into(),
             xml_virtual_host_domains: Vec::new(),
-            max_connections: 32,
-            max_object_bytes: 1024 * 1024 * 1024,
+            max_connections: 1024,
+            max_object_bytes: setting::MAX_OBJECT_BYTES,
             worker_threads: 2,
             // The catalog keeps one blocking thread busy (including its commit fsync);
             // the rest serve tokio::fs reads, writes and syncs for every connection, so
@@ -2506,6 +2506,41 @@ mod tests {
     }
 
     #[test]
+    fn capacity_settings_accept_their_raised_bounds_only() {
+        for (setting, maximum, value) in [
+            (
+                "max_connections",
+                1_048_576,
+                (|config| config.max_connections as u64) as fn(Config) -> u64,
+            ),
+            ("worker_threads", 1024, |config| {
+                config.worker_threads as u64
+            }),
+            ("max_blocking_threads", 1024, |config| {
+                config.max_blocking_threads as u64
+            }),
+            ("memory_max_bytes", 1024_u64.pow(4), |config| {
+                config.memory_max_bytes
+            }),
+            ("memory_catalog_max_bytes", 1024_u64.pow(4), |config| {
+                config.memory_catalog_max_bytes
+            }),
+        ] {
+            let flag = format!("--{}", setting.replace('_', "-"));
+            let mut args = vec![flag, maximum.to_string()];
+            if setting.starts_with("memory") {
+                args.extend(["--backend".into(), "memory".into()]);
+            }
+            assert_eq!(
+                value(load_http(&args, &BTreeMap::new()).unwrap()),
+                maximum,
+                "{setting}"
+            );
+            assert_rejected(setting, &[(maximum + 1).to_string()], "must be an integer");
+        }
+    }
+
+    #[test]
     fn object_limit_precedence_and_bounds() {
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
@@ -2516,7 +2551,7 @@ mod tests {
             &args,
             &env,
             &["--max-object-bytes", "256"],
-            [1_073_741_824, 64, 128, 256],
+            [5 * 1024_u64.pow(4), 64, 128, 256],
             load_http,
             |config| config.max_object_bytes,
         );

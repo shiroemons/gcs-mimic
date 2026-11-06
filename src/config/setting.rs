@@ -2,6 +2,7 @@ use super::{SettingFix, bounded, unknown_setting};
 use crate::time_limit::TimeLimit;
 
 pub(super) const UNKNOWN_SETTING: &str = "Unknown setting; remove it and use --help.";
+pub(super) const MAX_OBJECT_BYTES: u64 = 5 * 1024_u64.pow(4);
 
 super::string_enum! {
     no_default pub(crate) enum Setting {
@@ -75,11 +76,12 @@ impl Setting {
             | Self::ObjectRequestTimeoutMs
             | Self::CatalogWaitTimeoutMs
             | Self::ShutdownTimeoutMs => Some((0, u64::MAX)),
-            Self::MemoryMaxBytes => Some((1, 1024 * 1024 * 1024)),
-            Self::MemoryCatalogMaxBytes => Some((1024 * 1024, 1024 * 1024 * 1024)),
-            Self::MaxConnections => Some((1, 1024)),
-            Self::MaxObjectBytes => Some((1, 5 * 1024_u64.pow(4))),
-            Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 32)),
+            Self::MemoryMaxBytes => Some((1, 1024_u64.pow(4))),
+            Self::MemoryCatalogMaxBytes => Some((1024 * 1024, 1024_u64.pow(4))),
+            Self::MaxConnections => Some((1, 1_048_576)),
+            // Cloud Storage's documented object size limit, whatever the write method.
+            Self::MaxObjectBytes => Some((1, MAX_OBJECT_BYTES)),
+            Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 1024)),
             Self::Config
             | Self::LogLevel
             | Self::Listen

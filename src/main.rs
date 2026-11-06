@@ -43,8 +43,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --tls-handshake-timeout-ms N  5000 (0 disables; HTTPS listener)
   --data-dir PATH              data (exclusive persistent catalog)
   --backend MODE               disk (disk|memory; memory never opens data-dir, loses data at exit)
-  --memory-max-bytes N          67108864 (RAM blob bytes plus chunk overhead; 1..1073741824)
-  --memory-catalog-max-bytes N  16777216 (RAM SQLite pages; 1048576..1073741824; separate from RSS)
+  --memory-max-bytes N          67108864 (RAM blob bytes plus chunk overhead; 1..1099511627776)
+  --memory-catalog-max-bytes N  16777216 (RAM SQLite pages; 1048576..1099511627776; separate from RSS)
   --seed-dir PATH              none (read-only fixtures; replayed on every startup)
   --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
@@ -60,10 +60,10 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --admin-allowed-hosts LIST   none (comma-separated DNS names allowed to reach /_internal management; at most 32)
   --local-creator-email EMAIL local-user@gcs-mimic.invalid (permissive native: creator recorded as owner and ACL OWNER of new objects; empty disables; grants nothing)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
-  --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
-  --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
-  --worker-threads N           2 (1..32)
-  --max-blocking-threads N     8 (1..32)
+  --max-connections N          1024 (1..1048576; shared across listeners and TLS handshakes; raises the soft open-file limit to match)
+  --max-object-bytes N         5497558138880 (1..5497558138880; streamed upload cap)
+  --worker-threads N           2 (1..1024)
+  --max-blocking-threads N     8 (1..1024)
   --header-read-timeout-ms N   30000 (0 disables; request head arrival, gRPC handshake and HTTP/2 ping acknowledgement)
   --body-inactivity-timeout-ms N 0 (0 disables; silence while an object body or gRPC stream is in flight)
   --request-timeout-ms N       180000 (0 disables; handler time before a response starts, including small request bodies)
@@ -359,6 +359,12 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         return Err(report.diagnostics.into());
     }
     auth = auth.with_verifier_budget(report.config.max_blocking_threads);
+    report
+        .diagnostics
+        .warnings
+        .extend(gcs_mimic::fd_limit::raise_for_connections(
+            report.config.max_connections,
+        ));
     report.diagnostics.write(io::stderr().lock())?;
     let config = report.config;
     gcs_mimic::diagnostics::set_log_level(config.log_level);
@@ -882,7 +888,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "82c11c178786d5bd70b2073a93c54247c8ab37a6e4f0ba805b3ea0b3320a38f0"
+            "b08d173d697b1ef0e8027a3b71e526d10b79d3ab088b0d31f0bf8a98cf0eeb47"
         );
     }
 

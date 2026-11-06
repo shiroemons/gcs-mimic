@@ -569,6 +569,10 @@ async fn bind_configured_listener(
     })
 }
 
+/// Matches the default `max_connections`, so a burst of new clients at a full or starting server
+/// waits instead of being refused. The kernel can still lower it to its own limit.
+const LISTEN_BACKLOG: u32 = 1024;
+
 async fn bind_listener(address: SocketAddr) -> io::Result<tokio::net::TcpListener> {
     let socket = if address.is_ipv4() {
         tokio::net::TcpSocket::new_v4()?
@@ -584,7 +588,7 @@ async fn bind_listener(address: SocketAddr) -> io::Result<tokio::net::TcpListene
     }
     #[cfg(not(all(unix, not(any(target_os = "linux", target_os = "android")))))]
     socket.bind(address)?;
-    socket.listen(128)
+    socket.listen(LISTEN_BACKLOG)
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]

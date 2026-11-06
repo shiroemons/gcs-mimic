@@ -292,8 +292,8 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["memory_catalog_max_bytes"], 16 * 1024 * 1024);
         assert_eq!(ready["auth_mode"], "permissive");
         assert!(ready.get("identities").is_none());
-        assert_eq!(ready["max_connections"], 32);
-        assert_eq!(ready["max_object_bytes"], 1_073_741_824_u64);
+        assert_eq!(ready["max_connections"], 1024);
+        assert_eq!(ready["max_object_bytes"], 5 * 1024_u64.pow(4));
         assert_eq!(ready["worker_threads"], 2);
         assert_eq!(ready["max_blocking_threads"], 8);
         assert_eq!(ready["header_read_timeout_ms"], 30_000);
@@ -1217,6 +1217,56 @@ async fn a_stale_wake_does_not_close_the_next_idle_connection() {
     task.await.unwrap().unwrap();
 }
 
+/// Starts the server under a shell that first sets `limit_command`, a `ulimit` invocation.
+#[cfg(unix)]
+fn serve_under_ulimit(limit_command: &str, data: &TestDir) -> Child {
+    Command::new("/bin/sh")
+        .clean_env()
+        .arg("-c")
+        .arg(format!("{limit_command} && exec \"$0\" \"$@\""))
+        .arg(env!("CARGO_BIN_EXE_gcs-mimic"))
+        .args(["serve", "--scheme", "http", "--listen", "127.0.0.1:0"])
+        .arg("--data-dir")
+        .arg(&data.0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+/// 64 descriptors cannot hold these connections, so serving them proves the raise. Only the soft
+/// limit is low here, as it is by default on macOS and on many Linux systems.
+#[cfg(unix)]
+#[test]
+fn startup_raises_a_low_soft_open_file_limit_for_its_connections() {
+    let dir = TestDir::new();
+    let mut child = serve_under_ulimit("ulimit -Sn 64", &dir);
+    let (mut stdout, ready) = process_ready(&mut child);
+    let address: SocketAddr = ready["listen"].as_str().unwrap().parse().unwrap();
+    let connections = idle_connections(address, 80);
+    common::stop_server(&mut child, &mut stdout);
+    drop(connections);
+}
+
+#[cfg(unix)]
+#[test]
+fn startup_warns_when_the_hard_limit_keeps_connections_short_of_descriptors() {
+    let dir = TestDir::new();
+    let mut child = serve_under_ulimit("ulimit -n 64", &dir);
+    let (mut stdout, ready) = process_ready(&mut child);
+    assert_eq!(ready["max_connections"], 1024);
+    common::stop_server(&mut child, &mut stdout);
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    assert!(stderr.contains("\"key\":\"max_connections\""), "{stderr}");
+    assert!(stderr.contains("ulimit -n 3136"), "{stderr}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
     let config = Config {
@@ -1297,12 +1347,12 @@ fn config_precedence_validation_and_size_limit() {
         common::load_http_config(&[], &BTreeMap::new())
             .unwrap()
             .max_connections,
-        32
+        1024
     );
     for (key, value) in [
         ("max-connections", "0"),
-        ("max-connections", "1025"),
-        ("worker-threads", "33"),
+        ("max-connections", "1048577"),
+        ("worker-threads", "1025"),
         ("max-blocking-threads", "0"),
         ("connection-timeout-ms", "18446744073709551616"),
         ("shutdown-timeout-ms", "-1"),
