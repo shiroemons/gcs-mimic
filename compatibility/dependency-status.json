@@ -132,7 +132,7 @@
     {
       "name": "http-body-util", "current": "0.1.5", "latest_non_yanked_stable": "0.1.5",
       "license": "MIT", "compressed_crate_bytes": 18574, "minimum_rust": "1.61",
-      "purpose": "JSON/probe bodies, capped 64 KiB bucket metadata collection and bounded streaming media response channels.",
+      "purpose": "JSON/probe bodies, JSON document collection capped at 16 MiB and bounded streaming media response channels.",
       "features": ["channel"],
       "maintenance": "Official publisher release 2026-08-12; actively maintained.",
       "source_urls": ["https://crates.io/api/v1/crates/http-body-util", "https://index.crates.io/ht/tp/http-body-util", "https://github.com/hyperium/http-body"],

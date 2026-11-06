@@ -951,7 +951,7 @@
         "depends_on": ["onboarding-state-contract", "bucket-xml-cors"],
         "feature_ids": ["JSON-BUCKETS-002", "JSON-BUCKETS-008", "BEHAVIOR-BUCKET-009", "DESIGN-062"],
         "completion_conditions": [
-          "Use the version-1 JSON schema, --buckets-file / GCS_MIMIC_BUCKETS_FILE / buckets_file, CLI-over-env-over-config precedence and the file, max_buckets_per_batch and 64 KiB entry limits in docs/en/slices/bucket-initialization.md. Resolve entry project over file project over seed_project, collect complete native validation diagnostics, reject unknown/IAM/lifecycle settings and authorize initialization as local administration in both auth modes before mutation.",
+          "Use the version-1 JSON schema, --buckets-file / GCS_MIMIC_BUCKETS_FILE / buckets_file, CLI-over-env-over-config precedence and the file, max_buckets_per_batch and 16 MiB entry limits in docs/en/slices/bucket-initialization.md. Resolve entry project over file project over seed_project, collect complete native validation diagnostics, reject unknown/IAM/lifecycle settings and authorize initialization as local administration in both auth modes before mutation.",
           "Create missing buckets only; verify independent CORS/versioning effects for two buckets and preserve API changes, existing objects and settings across restarts.",
           "Removing an entry does not delete a bucket; one batched ensure_buckets lookup and one transaction atomically create the missing set. Precommit failure rolls back the set, postcommit failure preserves it, and retry converges. Existing project mismatches warn without mutation, and ready reports disabled or applied with created/existing/project_mismatches counts. Runtime cases map to BUCKET-INIT-INPUT, BUCKET-INIT-STARTUP, BUCKET-INIT-INDEPENDENT-SETTINGS, BUCKET-INIT-PRESERVE-API-CHANGES and BUCKET-INIT-ONBOARDING; broader instruction-level crash injection remains explicit under BUCKET-INIT-ATOMICITY."
         ],
@@ -4548,7 +4548,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -5520,7 +5520,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -6000,7 +6000,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. iamConfiguration accepts uniformBucketLevelAccess/bucketPolicyOnly enabled booleans, null/empty child defaults and combined enforced PAP; persisted aliases/deadline, 400 predefined ACL rejection and remaining ACL/default-grant/initializer limits are described in docs/en/slices/sdk-ubla-predefined-acl.md (SPEC-UBLA-EDGES). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile accepts undeclared query parameters (SPEC-JSON-UNKNOWN-QUERY, resolved) and a lifecycle given as an array (SPEC-LIFECYCLE-ARRAY, resolved), uses reason invalid with Cloud Storage's wording, omits retentionPolicy.isLocked while unlocked, gives an inactive softDeletePolicy no effectiveTime and hides the owner under uniform bucket-level access. The legacy-emulator profile keeps the 400 for an undeclared query parameter and for an array lifecycle.",
+      "notes": "Bounded 16 MiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. iamConfiguration accepts uniformBucketLevelAccess/bucketPolicyOnly enabled booleans, null/empty child defaults and combined enforced PAP; persisted aliases/deadline, 400 predefined ACL rejection and remaining ACL/default-grant/initializer limits are described in docs/en/slices/sdk-ubla-predefined-acl.md (SPEC-UBLA-EDGES). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile accepts undeclared query parameters (SPEC-JSON-UNKNOWN-QUERY, resolved) and a lifecycle given as an array (SPEC-LIFECYCLE-ARRAY, resolved), uses reason invalid with Cloud Storage's wording, omits retentionPolicy.isLocked while unlocked, gives an inactive softDeletePolicy no effectiveTime and hides the owner under uniform bucket-level access. The legacy-emulator profile keeps the 400 for an undeclared query parameter and for an array lifecycle.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -6176,7 +6176,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -6805,7 +6805,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -7465,7 +7465,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -8256,7 +8256,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. If-Match is compared with the current policy etag inside the write transaction, alongside the body etag, as observed on Cloud Storage (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): setIamPolicy advances the bucket metageneration and drops a binding whose members are empty; the IAM ETag header is unquoted and If-Match accepts the bare value.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 16 MiB body and decoded-byte etag CAS are verified. Whichever API writes a policy, the catalog stores at most 1,600 occurrences, the 1,500 plus one full ACL of 100, and 1 MiB once encoded, as client errors; an ACL entity stops at 272 bytes, and schema 51 keeps a column check at 1 MiB. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. If-Match is compared with the current policy etag inside the write transaction, alongside the body etag, as observed on Cloud Storage (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): setIamPolicy advances the bucket metageneration and drops a binding whose members are empty; the IAM ETag header is unquoted and If-Match accepts the bare value.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008",
@@ -8291,9 +8291,12 @@
         },
         {
           "id": "BOUNDS-AND-QUERY",
-          "description": "Enforce 1500 occurrences including duplicates and 64 KiB body limits; validate methods/paths/query and reject userProject explicitly.",
+          "description": "Enforce 1500 occurrences including duplicates and the 16 MiB body limit, keep stored policies within 1,600 occurrences and 1 MiB whichever API writes them, without growth from repeated ACL edits; validate methods/paths/query and reject userProject explicitly.",
           "result": "PASS",
           "test_ids": [
+            "stored_policies_are_refused_as_client_errors_past_their_bounds",
+            "repeated_acl_edits_do_not_grow_the_policy",
+            "policy_bindings_migration_keeps_policies_and_lifts_the_size_check",
             "iam::iam_principal_and_body_limits",
             "iam::iam_rejects_queries_paths_and_bodies"
           ]
@@ -8390,7 +8393,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -8457,6 +8460,9 @@
         }
       ],
       "test_ids": [
+        "stored_policies_are_refused_as_client_errors_past_their_bounds",
+        "repeated_acl_edits_do_not_grow_the_policy",
+        "policy_bindings_migration_keeps_policies_and_lifts_the_size_check",
         "iam::iam_policy_round_trip_and_unconditional_versions",
         "iam::iam_rejects_invalid_policy_shapes",
         "iam::iam_rejects_unsupported_policy_semantics",
@@ -8493,6 +8499,7 @@
         "json::iam::tests::etag_accepts_one_pair_of_http_quotes_as_the_same_tag"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["stored_policies_are_refused_as_client_errors_past_their_bounds","repeated_acl_edits_do_not_grow_the_policy","policy_bindings_migration_keeps_policies_and_lifts_the_size_check"]},
         {"command":"cargo test --locked --test bucket_if_match_http --test auth_http && cargo test --locked --lib json::iam","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["iam_policy_writes_compare_if_match_with_the_policy_etag","concurrent_policy_writes_with_one_if_match_etag_have_exactly_one_winner","json::iam::tests::etag_accepts_one_pair_of_http_quotes_as_the_same_tag"]},
         {
           "command": "just check",
@@ -9045,7 +9052,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -13979,7 +13986,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -14951,7 +14958,7 @@
         },
         {
           "id": "resumable-init-transport-gzip",
-          "description": "Decode only POST JSON resumable initiation without upload_id through the existing single-permit 64 KiB compressed/expanded decoder. Verify successful chunk completion and malformed/member/CRC/ISIZE/trailer/boundary/strict-denial/no-session-on-failure cases, then the official .NET SDK with compression unchanged. Media/chunks/XML retain their contract; SPEC-RESUMABLE-INIT-GZIP.",
+          "description": "Decode only POST JSON resumable initiation without upload_id through the existing single-permit decoder, whose compressed and expanded input share the 16 MiB JSON limit. Verify successful chunk completion and malformed/member/CRC/ISIZE/trailer/boundary/strict-denial/no-session-on-failure cases, then the official .NET SDK with compression unchanged. Media/chunks/XML retain their contract; SPEC-RESUMABLE-INIT-GZIP.",
           "result": "PASS",
           "test_ids": ["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate", "invalid_gzip_initiations_never_create_sessions", "gzip_initiation_bounds_compressed_and_expanded_metadata", "gzip_initiation_retains_strict_authentication_and_upload_permissions"]
         },
@@ -15241,7 +15248,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -16405,7 +16412,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -17021,7 +17028,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -18218,7 +18225,7 @@
         },
         {
           "id": "FIELDS-004",
-          "description": "Exact/over-limit length, nesting and segment counts are bounded",
+          "description": "Exact/over-limit length and nesting are bounded, at the 16 KiB query limit and 32 levels; the number of selections has no limit of its own",
           "test_ids": [
             "json::fields::tests::fields_bound_length_depth_and_selection_count"
           ],
@@ -23615,15 +23622,16 @@
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
-        {"id":"batch-wire","description":"Validate malformed later parts before any mutation; verify mixed per-part statuses, IDs, encoded names, credential/query overrides, connection-slot independence and request/response bounds.","result":"PASS","test_ids":["batch-wire"]},
+        {"id":"batch-streamed-response","description":"Each part leaves as its own chunk with no total response limit, full object lists pass the former limits, a stalled reader holds back later parts, a departed reader cancels them, and a part past its limit answers alone while later parts still run.","result":"PASS","test_ids":["each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts","a_departed_reader_cancels_the_remaining_parts","a_part_past_the_request_limit_answers_alone_and_later_parts_still_run","batch_answers_full_object_lists_past_the_former_response_limits"]},
+        {"id":"batch-wire","description":"Validate malformed later parts before any mutation; verify mixed per-part statuses, IDs, encoded names, credential/query overrides, connection-slot independence and the request bounds of 100 calls and 10,000,000 bytes.","result":"PASS","test_ids":["batch-wire"]},
         {"id":"batch-absolute-origin","description":"Accept absolute part request lines whose normalized scheme and authority equal the advertised API endpoint and whose path continues below its prefix with /storage/v1/; reject other hosts, schemes, ports, userinfo and prefixes for the whole envelope before any part runs.","result":"PASS","test_ids":["batch-absolute-origin"]},
         {"id":"batch-admission","description":"Bound active request/response envelopes to two per server; queue excess envelopes without reading their bodies, resume on permit release, return local 503 when the request or batch admission deadline expires (whichever comes first), close the connection for a request timeout and release admission when the response is consumed or dropped.","result":"PASS","test_ids":["server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body","server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"]},
         {"id":"batch-final-profiles","description":"Execute final combined SDK workflows and reconcile remaining provider/profile field and malformed-input edges.","result":"PENDING","test_ids":["batch-final-profiles"]}
       ],
-      "test_ids": ["batch-wire", "batch-absolute-origin", "batch-final-profiles", "server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body", "server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"],
-      "verification": [{"command":"cargo check --tests; cargo test --test http_batch","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/http-batch.md","test_ids":["batch-wire"]},{"command":"cargo test --test http_batch","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/http-batch-absolute-targets.md","test_ids":["batch-absolute-origin"]},{"command":"CARGO_BUILD_JOBS=4 cargo test --lib server::batch::tests -- --test-threads=4","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/http-batch.md","test_ids":["server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body","server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"]}],
+      "test_ids": ["each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts", "a_departed_reader_cancels_the_remaining_parts", "a_part_past_the_request_limit_answers_alone_and_later_parts_still_run", "batch_answers_full_object_lists_past_the_former_response_limits", "batch-wire", "batch-absolute-origin", "batch-final-profiles", "server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body", "server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"],
+      "verification": [{"command":"cargo test --locked --lib -- server::batch; cargo test --locked --test it_protocol -- http_batch","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts","a_departed_reader_cancels_the_remaining_parts","a_part_past_the_request_limit_answers_alone_and_later_parts_still_run","batch_answers_full_object_lists_past_the_former_response_limits"]},{"command":"cargo check --tests; cargo test --test http_batch","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/http-batch.md","test_ids":["batch-wire"]},{"command":"cargo test --test http_batch","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/http-batch-absolute-targets.md","test_ids":["batch-absolute-origin"]},{"command":"CARGO_BUILD_JOBS=4 cargo test --lib server::batch::tests -- --test-threads=4","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/http-batch.md","test_ids":["server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body","server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"]}],
       "sdk_evidence": [],
-      "known_deviations": ["Local execution is sequential but clients must not rely on order; a valid batch is not atomic. Two active envelopes per server is a local resource bound; excess envelopes wait without reading their bodies until the earlier of the request_timeout_ms deadline and object_request_timeout_ms admission deadline. Both return 503 backendError; the request deadline also closes the connection. Per-part 512 KiB and whole-response 10,000,000-byte budgets may return responseTooLarge after an operation completed. Full provider/profile edges and final SDK integration remain pending.", "Absolute part URLs on a foreign origin fail the whole envelope with a local 400; Cloud Storage behavior for foreign origins is unobserved. An advertised host that the public-origin rules reject, such as a name with an underscore, accepts only relative parts."],
+      "known_deviations": ["Local execution is sequential but clients must not rely on order; a valid batch is not atomic. Two active envelopes per server is a local resource bound; excess envelopes wait without reading their bodies until the earlier of the request_timeout_ms deadline and object_request_timeout_ms admission deadline. Both return 503 backendError; the request deadline also closes the connection. A response leaves chunked, one part at a time, with no total limit; a part's 1 GiB limit sits above what documented limits allow and may return responseTooLarge after an operation completed. A client that stops reading holds back later parts, and a part's own timeout answers 503 in place while later parts run. Full provider/profile edges and final SDK integration remain pending.", "Absolute part URLs on a foreign origin fail the whole envelope with a local 400; Cloud Storage behavior for foreign origins is unobserved. An advertised host that the public-origin rules reject, such as a name with an underscore, accepts only relative parts."],
       "implemented_in": null,
       "last_verified": "2026-11-04"
     },
@@ -24964,9 +24972,9 @@
         },
         {
           "id": "CORS-SERIALIZED-SIZE-BOUNDARY",
-          "description": "Validate JSON size with one bounded serialization: exactly 64 KiB is accepted and one byte more is rejected.",
+          "description": "CORS has no size check of its own: rule counts and sizes above the former 64 KiB limit are accepted, and only the 16 MiB JSON body limit bounds one request.",
           "result": "PASS",
-          "test_ids": ["bucket::tests::cors_serialized_size_limit_is_inclusive"]
+          "test_ids": ["bucket::tests::cors_accepts_rule_counts_and_sizes_above_the_former_64_kib_limit"]
         },
         {
           "id": "BUCKET-CORS-EFFECT",
@@ -25027,10 +25035,10 @@
         "signed_rules_change_between_preflight_and_actual_and_survive_restart",
         "signed-browser-strict-initial",
         "signed-browser-strict-restart",
-        "bucket::tests::cors_serialized_size_limit_is_inclusive"
+        "bucket::tests::cors_accepts_rule_counts_and_sizes_above_the_former_64_kib_limit"
       ],
       "verification": [
-        {"command":"CARGO_BUILD_JOBS=4 cargo test --lib bucket::tests","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["bucket::tests::cors_serialized_size_limit_is_inclusive"]},
+        {"command":"cargo test --locked --lib -- bucket::tests","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["bucket::tests::cors_accepts_rule_counts_and_sizes_above_the_former_64_kib_limit"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -33211,7 +33219,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Opt-in h2c Storage v2 foundation: unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive keep_alive_timeout_ms idle expiry, and body_inactivity_timeout_ms, disabled by default, bounds silence without request/response frames with a GOAWAY and bounded grace. header_read_timeout_ms bounds a missing HTTP/2 preface (logged as grpc_handshake_timeout). PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive at header_read_timeout_ms detects dead peers, and TCP keep-alive covers them when that is disabled; SIGTERM grace retains its existing cap. An idle gRPC connection joins the line of idle connections at a full server, and when its turn comes for a waiting client it logs grpc_idle_reclaimed at debug and sends GOAWAY. A new connection joins after its first stream ends or a grace of up to five seconds, a stream that races the GOAWAY keeps running, and a silent peer holds the slot for at most the lesser of header_read_timeout_ms and five seconds. When a stream raced the GOAWAY, the waiting client waits for another connection to end, bounded by that connection's keep-alive, and does not fail. max_grpc_streams (default 100, 1..65536, requires grpc_listen) sets the concurrent streams per connection; RFC 9113 section 6.5.2 recommends no fewer than 100, and each stream can buffer a message of up to 4 MiB, so one connection can reach 400 MiB. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*); explicit deadline and client-cancellation cases remain pending. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): gRPC errors carry the recorded messages and details (ErrorInfo for malformed resource names, BadRequest for an empty object name); the JSON-to-gRPC 412 rewrite applies to failed preconditions only, and a not-modified read carries the recorded message. The cases beyond the two status unit tests are covered by the differential replay (grpc-errors matches), not by dedicated Rust tests.",
+      "notes": "Opt-in h2c Storage v2 foundation: unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive keep_alive_timeout_ms idle expiry, and body_inactivity_timeout_ms, disabled by default, bounds silence without request/response frames with a GOAWAY and bounded grace. header_read_timeout_ms bounds a missing HTTP/2 preface (logged as grpc_handshake_timeout). PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive at header_read_timeout_ms detects dead peers, and TCP keep-alive covers them when that is disabled; SIGTERM grace retains its existing cap. An idle gRPC connection joins the line of idle connections at a full server, and when its turn comes for a waiting client it logs grpc_idle_reclaimed at debug and sends GOAWAY. A new connection joins after its first stream ends or a grace of up to five seconds, a stream that races the GOAWAY keeps running, and a silent peer holds the slot for at most the lesser of header_read_timeout_ms and five seconds. When a stream raced the GOAWAY, the waiting client waits for another connection to end, bounded by that connection's keep-alive, and does not fail. max_grpc_streams (default 100, 1..65536, requires grpc_listen) sets the concurrent streams per connection; RFC 9113 section 6.5.2 recommends no fewer than 100, and each stream can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests. Messages are received up to 4 MiB and sent up to 33 MiB on Storage v2 and 4 MiB on Storage v1. Object list pages end near 2 MiB with a next page token and always hold one entry. A client left at a receive limit of 4 MiB should fail a larger bucket read on its side and can exclude those fields with read_mask; this has not been checked with a real SDK. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*); explicit deadline and client-cancellation cases remain pending. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): gRPC errors carry the recorded messages and details (ErrorInfo for malformed resource names, BadRequest for an empty object name); the JSON-to-gRPC 412 rewrite applies to failed preconditions only, and a not-modified read carries the recorded message. The cases beyond the two status unit tests are covered by the differential replay (grpc-errors matches), not by dedicated Rust tests.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -33233,11 +33241,13 @@
         {"id":"grpc_silent_open_stream_is_bounded","description":"With body_inactivity_timeout_ms set, no request/response HEADERS, DATA or trailers for that long with open streams triggers GOAWAY and bounded grace, releasing shared admission; PING/PONG does not renew activity. It is disabled by default, replacing a fixed 60 seconds.","result":"PASS","test_ids":["grpc_silent_open_stream_is_bounded"]},
         {"id":"grpc_active_stream_survives_past_bound","description":"Request or response frames at intervals shorter than the silence bound keep streams alive beyond that bound in total elapsed time.","result":"PASS","test_ids":["grpc_active_stream_survives_past_bound"]},
         {"id":"grpc_idle_reclaim_at_a_full_server","description":"At a full server an idle gRPC connection gives its slot to a waiting client through GOAWAY, oldest first and one per client, in the same line as HTTP/1 connections. An open stream is not reclaimed, a stream that races the GOAWAY is served, and a silent peer holds the slot for a short grace only.","result":"PASS","test_ids":["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client"]},
+        {"id":"grpc_message_limits_and_list_pages","description":"The largest bucket resource fits one Storage v2 response, bucket lists keep it on its own page, and object list pages end on their size and reach every object, always advancing one entry.","result":"PASS","test_ids":["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time"]},
         {"id":"grpc_stream_limit_setting","description":"max_grpc_streams defaults to 100 streams per connection, follows the setting and requires grpc_listen, and with a gRPC listener startup raises the open-file target for its streams without adding a warning.","result":"PASS","test_ids":["grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits"]},
         {"id":"grpc_success_status_deadlines_cancellation","description":"Operation-specific success statuses and streaming are verified by the per-operation rows; explicit deadline-expiry and client-cancellation behavior across operations remains unverified.","result":"PENDING","test_ids":[]}
       ],
-      "test_ids": ["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits","grpc::v2::status::tests::resource_name_errors_carry_their_details","grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","grpc_idle_connection_outlives_the_handshake_deadline","grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"],
+      "test_ids": ["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time","grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits","grpc::v2::status::tests::resource_name_errors_carry_their_details","grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","grpc_idle_connection_outlives_the_handshake_deadline","grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"],
       "verification": [
+        {"command":"cargo test --locked --lib; cargo test --locked --test it_json -- large_resources_http","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time"]},
         {"command":"cargo test --locked --lib -- grpc::tests reclaim_tests fd_limit config::","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits"]},
         {"command":"cargo test --locked --lib -- grpc::tests","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_idle_connection_outlives_the_handshake_deadline","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc::v2::status::tests::resource_name_errors_carry_their_details"]},
@@ -33507,7 +33517,7 @@
       "acceptance_cases": [
         {"id":"CREATE-BUCKET-FIELDS-AND-AUTH","description":"Explicit project/create permission, path/virtual host, once-decoded valid names, configured default location (US by default) and STANDARD class, explicit location/class, duplicate rejection and restart; retention enablement requires its additional permission and the bucket retention policy prevents premature object deletion. Signed SHA256 and MD5 mismatch or malformed declarations cannot publish.","result":"PASS","test_ids":["xml_bucket_create_delete_defaults_fields_conflicts_nonempty_and_restart","xml_bucket_strict_creation_retention_signed_body_and_deletion_permissions","xml_bucket_create_verifies_md5_and_separates_retention_enable_permission"]},
         {"id":"CREATE-BUCKET-CONFIGURED-LOCATION","description":"Omitted locations use the same configured default_location as JSON creation, including empty bodies and XML with only a storage class; explicit valid locations override the default and invalid locations cannot publish a bucket.","result":"PASS","test_ids":["xml_bucket_creation_uses_configured_default_and_preserves_explicit_location"]},
-        {"id":"CREATE-BUCKET-BOUNDED-XML","description":"64 KiB body, depth eight, 256 elements, 16 attributes and 128 in-scope namespace bindings; XML 1.0 declaration whitespace/quotes, UTF-8/standalone, recognized prefixed/default namespaces, comments, CDATA and standard/numeric references work. Malformed roots/declarations, duplicate attributes/fields, unknown namespaces, DTD/custom entities, illegal XML characters, oversized bodies and unsupported settings do not create a bucket.","result":"PASS","test_ids":["xml_bucket_create_rejects_invalid_bounded_metadata_without_creating","xml_bucket_create_accepts_standard_xml_declarations_namespaces_entities_and_cdata","xml::document::tests::document_expands_only_standard_entities_once","xml::document::tests::document_bounds_depth_elements_and_namespace_attributes"]},
+        {"id":"CREATE-BUCKET-BOUNDED-XML","description":"16 MiB body, depth eight, 256 elements, 16 attributes and 128 in-scope namespace bindings; XML 1.0 declaration whitespace/quotes, UTF-8/standalone, recognized prefixed/default namespaces, comments, CDATA and standard/numeric references work. Malformed roots/declarations, duplicate attributes/fields, unknown namespaces, DTD/custom entities, illegal XML characters, oversized bodies and unsupported settings do not create a bucket.","result":"PASS","test_ids":["xml_bucket_create_rejects_invalid_bounded_metadata_without_creating","xml_bucket_create_accepts_standard_xml_declarations_namespaces_entities_and_cdata","xml::document::tests::document_expands_only_standard_entities_once","xml::document::tests::document_bounds_depth_elements_and_namespace_attributes"]},
         {"id":"CREATE-BUCKET-REMAINING-CONTRACT","description":"Implement custom placement and encryption effects, predefined ACLs and owner semantics, interoperable-account default project, requester billing, remaining V2/HMAC/header authentication and provider/SDK/platform parity; keep legacy-profile differences explicit.","result":"PENDING","test_ids":[]}
       ],
       "test_ids": ["xml_bucket_create_delete_defaults_fields_conflicts_nonempty_and_restart","xml_bucket_creation_uses_configured_default_and_preserves_explicit_location","xml_bucket_strict_creation_retention_signed_body_and_deletion_permissions","xml_bucket_create_verifies_md5_and_separates_retention_enable_permission","xml_bucket_create_rejects_invalid_bounded_metadata_without_creating","xml_bucket_create_accepts_standard_xml_declarations_namespaces_entities_and_cdata","xml::document::tests::document_expands_only_standard_entities_once","xml::document::tests::document_bounds_depth_elements_and_namespace_attributes"],
@@ -38646,9 +38656,11 @@
       "acceptance_cases": [
         {
           "id": "POST-FORM-FRAMING",
-          "description": "Bounded multipart/form-data parsing: Content-Disposition names and quoted filenames, duplicate fields, 64 KiB per field and 256 KiB before the file, a required file part that must be last; query options and non-form content types are 400 and write nothing.",
+          "description": "Bounded multipart/form-data parsing: Content-Disposition names and quoted filenames, duplicate fields, no limit on the number of fields or one field, 16 MiB of fields in total, which charges each field's name and map entry, custom metadata at its documented 8 KiB however many fields carry it, a required file part that must be last; query options and non-form content types are 400 and write nothing.",
           "result": "PASS",
           "test_ids": [
+            "a_policy_form_may_split_its_custom_metadata_over_many_small_fields",
+            "empty_fields_cannot_grow_the_form_past_its_memory_budget",
             "xml::post::tests::form_reader_stops_at_the_file_part_and_bounds_fields",
             "xml::post::tests::disposition_reads_quoted_names_and_filenames_case_insensitively",
             "json::multipart::tests::form_data_boundary_accepts_utf8_forms_and_rejects_other_types_and_parameters",
@@ -38701,6 +38713,8 @@
         {"id":"POST-FORM-PROVIDER-ERRORS","description":"Establish provider error codes, wording and precedence for remaining form fields, MIME/framing/resource limits and transport failures, retaining the existing bounded parser and negative tests.","result":"PENDING","test_ids":[]}
       ],
       "test_ids": [
+        "a_policy_form_may_split_its_custom_metadata_over_many_small_fields",
+        "empty_fields_cannot_grow_the_form_past_its_memory_budget",
         "xml::post::tests::form_reader_stops_at_the_file_part_and_bounds_fields",
         "xml::post::tests::disposition_reads_quoted_names_and_filenames_case_insensitively",
         "xml::post::tests::plan_maps_documented_fields_and_rejects_unsupported_ones",
@@ -38713,6 +38727,7 @@
         "sdk-scorecard signed.post_policy_v4 (Ruby)"
       ],
       "verification": [
+        {"command": "cargo test --locked --lib -- xml::post; cargo test --locked --test it_xml_auth -- xml_post_policy_http", "result": "PASS", "verified_at": "2026-11-07", "artifact": "docs/en/evidence/zero-config-defaults.md", "test_ids": ["a_policy_form_may_split_its_custom_metadata_over_many_small_fields", "empty_fields_cannot_grow_the_form_past_its_memory_budget"]},
         {"command": "cargo test --lib --locked xml::post json::multipart", "result": "PASS", "verified_at": "2026-10-29", "artifact": "docs/en/signed-urls.md", "test_ids": ["xml::post::tests::form_reader_stops_at_the_file_part_and_bounds_fields", "xml::post::tests::disposition_reads_quoted_names_and_filenames_case_insensitively", "xml::post::tests::plan_maps_documented_fields_and_rejects_unsupported_ones", "json::multipart::tests::form_data_boundary_accepts_utf8_forms_and_rejects_other_types_and_parameters"]},
         {"command": "cargo test --locked --test auth_http signing::post", "result": "PASS", "verified_at": "2026-10-29", "artifact": "docs/en/signed-urls.md", "test_ids": ["signing::post::post_object_framing_errors_and_other_routes_stay_rejected", "signing::post::v4_policy_success_status_201_xml_200_and_redirect", "signing::post::v4_policy_upload_targets_a_virtual_host_bucket_root", "signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions"]},
         {"command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Go)", "sdk-scorecard signed.post_policy_v4 (Ruby)"]}
@@ -49456,9 +49471,11 @@
         },
         {
           "id": "BUCKET-INIT-BOUNDS",
-          "description": "A file limit of 1 KiB per allowed bucket and at least 1,048,576 bytes, max_buckets_per_batch entries (1..1000000) and 65,536-byte raw-entry/encoded-resource limits and each one-over case, whitespace/escape/project accounting pass. At most max_buckets_per_batch entries are inspected and over-count explicitly reports the uninspected remainder and names the setting; errors never return partial records. Diagnostics retain at most 256 records/64 KiB with an exact omitted-error summary at any limit. Owner init-parser.",
+          "description": "A file limit of 1 KiB per allowed bucket and at least 33,554,432 bytes, max_buckets_per_batch entries (1..1000000) and 16,777,216-byte raw-entry/encoded-resource limits and each one-over case, whitespace/escape/project accounting pass. At most max_buckets_per_batch entries are inspected and over-count explicitly reports the uninspected remainder and names the setting; errors never return partial records. Diagnostics retain at most 256 records/64 KiB with an exact omitted-error summary at any limit. Owner init-parser.",
           "result": "PASS",
           "test_ids": [
+            "the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor",
+            "a_large_bucket_entry_starts_and_survives_a_restart",
             "inclusive_limit_reads_only_one_extra_byte",
             "inclusive_file_entry_and_count_limits_include_original_bytes",
             "encoded_resource_cannot_expand_past_the_native_body_limit",
@@ -49632,6 +49649,8 @@
         }
       ],
       "test_ids": [
+        "the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor",
+        "a_large_bucket_entry_starts_and_survives_a_restart",
         "sync_tree_limits_keep_their_defaults_and_mean_nothing_without_a_sync_dir",
         "one_directory_may_hold_as_many_entries_as_the_tree_limit_allows",
         "every_walker_applies_the_same_depth_limit",
@@ -49711,6 +49730,7 @@
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib; cargo test --locked --test it_import_seed","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor","a_large_bucket_entry_starts_and_survives_a_restart"]},
         {"command":"cargo test --locked --lib -- config:: sync::tree","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["sync_tree_limits_keep_their_defaults_and_mean_nothing_without_a_sync_dir","one_directory_may_hold_as_many_entries_as_the_tree_limit_allows","every_walker_applies_the_same_depth_limit","the_default_depth_accepts_exactly_what_export_can_create"]},
         {
           "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed --test import_filesystem; cargo test --locked --offline --lib -- mime::tests",
