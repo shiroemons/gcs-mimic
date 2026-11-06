@@ -308,7 +308,7 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
             .request(
                 method,
                 "/storage/v1/b/test-bucket/o/dir%2Ffile",
-                &vec![b' '; 65537],
+                &vec![b' '; 16 * 1024 * 1024 + 1],
             )
             .metadata_error(413, "uploadTooLarge");
         for (key, equal_succeeds) in [

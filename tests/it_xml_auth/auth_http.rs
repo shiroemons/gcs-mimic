@@ -947,7 +947,7 @@ fn auth_http_startup_rejects_invalid_profiles_and_registries() {
     let valid = identity_file(&config);
     let oversize = config.0.join("oversize.json");
     let mut document = registry().to_string();
-    document.push_str(&" ".repeat(64 * 1024 + 1 - document.len()));
+    document.push_str(&" ".repeat(16 * 1024 * 1024 + 1 - document.len()));
     std::fs::write(&oversize, document).unwrap();
     let mut cases: Vec<(&str, Vec<String>, &str)> = vec![
         (
@@ -973,7 +973,7 @@ fn auth_http_startup_rejects_invalid_profiles_and_registries() {
                 "--identity-file".into(),
                 oversize.to_str().unwrap().into(),
             ],
-            "identity_file exceeds 64 KiB",
+            "identity_file exceeds 16 MiB",
         ),
         (
             "missing file",

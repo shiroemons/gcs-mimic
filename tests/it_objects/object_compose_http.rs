@@ -512,7 +512,7 @@ fn compose_method_body_and_selector_boundaries() {
             b"{",
         )
         .json_reason(400, "invalid");
-    let oversized = vec![b' '; 65537];
+    let oversized = vec![b' '; 16 * 1024 * 1024 + 1];
     server
         .request(
             "POST",
