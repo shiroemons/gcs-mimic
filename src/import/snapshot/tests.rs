@@ -460,10 +460,54 @@ fn snapshot_source_attribute_cap_is_separate_from_wrapper_and_cli_selects_format
                 "--dry-run".into(),
             ];
             assert!(import::cli(&args).is_ok());
+            let mut with_depth = args.clone();
+            with_depth.extend(["--max-depth".into(), "33".into()]);
+            let failure = import::cli(&with_depth).unwrap_err().to_string();
+            assert!(failure.contains("--max-depth"), "{failure}");
             args.extend(["--metadata-mode".into(), "sidecar".into()]);
             assert!(import::cli(&args).is_err());
         }
     }
+}
+
+#[test]
+fn the_snapshot_entry_limit_is_inclusive_and_its_failure_names_the_option() {
+    let (_dir, mut options) = fixture(vec![object("body", 7, "live")]);
+    let rows = import::inspect(options.clone(), Vec::new(), Vec::new())
+        .unwrap()
+        .entries as usize;
+    options.max_entries = rows;
+    assert!(
+        import::inspect(options.clone(), Vec::new(), Vec::new())
+            .unwrap()
+            .eligible
+    );
+    options.max_entries = rows - 1;
+    let mut output = Vec::new();
+    let summary = import::inspect(options, &mut output, Vec::new()).unwrap();
+    assert!(!summary.eligible);
+    let report = String::from_utf8(output).unwrap();
+    assert!(report.contains("snapshot entry limit exceeded"), "{report}");
+    assert!(report.contains("--max-entries"), "{report}");
+}
+
+/// Blobs used to be listed under a fixed cap of 10,000 names, whatever `max_entries` allowed.
+#[test]
+fn a_raised_entry_limit_reaches_the_snapshot_body_listing() {
+    const OBJECTS: usize = 10_001;
+    let objects = (0..OBJECTS)
+        .map(|index| object(&format!("body-{index:05}"), 7, "live"))
+        .collect();
+    let (_dir, mut options) = fixture(objects);
+    let mut report = Vec::new();
+    let default = import::inspect(options.clone(), &mut report, Vec::new()).unwrap();
+    assert!(!default.eligible, "a default limit stops at 10,000 rows");
+    let report = String::from_utf8(report).unwrap();
+    assert!(report.contains("snapshot entry limit exceeded"), "{report}");
+    options.max_entries = OBJECTS + 16;
+    let summary = import::inspect(options, Vec::new(), Vec::new()).unwrap();
+    assert!(summary.eligible, "{summary:?}");
+    assert_eq!(summary.objects, OBJECTS as u64);
 }
 
 #[test]

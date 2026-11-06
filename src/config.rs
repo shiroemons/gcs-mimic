@@ -28,7 +28,7 @@ pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
     ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,
 };
-pub(crate) use setting::{MAX_TREE_DEPTH, Setting};
+pub(crate) use setting::{MAX_OBJECT_BYTES, MAX_TREE_DEPTH, MAX_TREE_ENTRIES, Setting};
 pub use storage::Backend;
 
 /// Reserved-domain (RFC 2606) address, so it can never name a real Google account.

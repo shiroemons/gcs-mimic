@@ -2,10 +2,10 @@ use super::{SettingFix, bounded, unknown_setting};
 use crate::time_limit::TimeLimit;
 
 pub(super) const UNKNOWN_SETTING: &str = "Unknown setting; remove it and use --help.";
-pub(super) const MAX_OBJECT_BYTES: u64 = 5 * 1024_u64.pow(4);
+pub(crate) const MAX_OBJECT_BYTES: u64 = 5 * 1024_u64.pow(4);
 /// A 1024-byte object name cannot nest deeper than this, so a larger limit could admit nothing.
 pub(crate) const MAX_TREE_DEPTH: usize = 1024;
-const MAX_TREE_ENTRIES: u64 = 100_000_000;
+pub(crate) const MAX_TREE_ENTRIES: u64 = 100_000_000;
 
 super::string_enum! {
     no_default pub(crate) enum Setting {

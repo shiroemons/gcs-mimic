@@ -12,6 +12,7 @@ mod test_support;
 mod tests;
 
 use crate::{
+    config::{MAX_OBJECT_BYTES, MAX_TREE_DEPTH, MAX_TREE_ENTRIES},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     hashing::Hashes,
     source_tree,
@@ -34,7 +35,9 @@ const PUBLICATION_PAGE_SIZE: usize = 8;
 pub(crate) const FINGERPRINT_FORMAT: u8 = 1;
 pub(crate) const HELP: &str = "Usage: gcs-mimic import fake-gcs-server --source DIR --data-dir NEW
        --metadata-mode xattr|sidecar --source-platform unix|windows [--dry-run [--verify-bodies]]
+       [--max-object-bytes N] [--max-entries N] [--max-depth N]
        gcs-mimic import fake-gcs-server --source DIR --data-dir NEW --source-format snapshot
+       [--max-object-bytes N] [--max-entries N]
 
 Import a stopped writer's durable filesystem snapshot without changing the source.
 NEW must be absent or empty, or contain the same unfinished import for automatic resume.
@@ -43,7 +46,12 @@ Actual import always verifies body checksums and keeps unfinished destinations u
 Output is JSON Lines; diagnostics use stderr. Source and destination must be separate.
 Filesystem snapshots recover normalized disk names only; original names/history cannot be verified.
 Native project/default placement and ETags are generated. Snapshot format preserves declared memory history.
-No server configuration is read.";
+No server configuration is read.
+
+  --max-object-bytes N  1073741824 (1..5497558138880; largest source body)
+  --max-entries N       10000 (1..100000000; source files and directories, or snapshot rows)
+  --max-depth N         32 (1..1024; directory levels below a bucket; filesystem format only)
+These limits identify an import: a resume must repeat the values of its first run.";
 
 crate::config::string_enum! {
     no_default
@@ -127,6 +135,8 @@ impl Options {
             source_platform,
             source_format: SourceFormat::Filesystem,
             verify_bodies: false,
+            // These values are part of an import's identity, so changing a default would stop
+            // an unfinished import from resuming after an upgrade.
             max_object_bytes: 1_073_741_824,
             max_entries: 10_000,
             max_depth: 32,
@@ -196,10 +206,10 @@ impl Options {
                 "Memory snapshot import is supported on Linux and macOS only; import the capture on one of those hosts.",
             );
         }
-        if self.max_entries == 0 || self.max_depth > 32 {
+        if self.max_entries == 0 || self.max_depth > MAX_TREE_DEPTH {
             issue(
                 "limits",
-                "Use a positive entry limit and at most 32 directory levels.",
+                "Use a positive entry limit and at most 1024 directory levels.",
             );
         }
         if diagnostics.is_err() {
@@ -657,6 +667,43 @@ fn option_fields(options: &Options) -> [Vec<u8>; 6] {
     ]
 }
 
+/// Applies the limit options, leaving the identity of an import that names none untouched.
+fn apply_limits(
+    options: &mut Options,
+    values: &std::collections::BTreeMap<&str, &str>,
+) -> Result<(), ImportError> {
+    let limit = |key: &str, maximum: u64| {
+        values
+            .get(key)
+            .map(|value| {
+                value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|limit| (1..=maximum).contains(limit))
+                    .ok_or_else(|| {
+                        Diagnostics::error(
+                            DiagnosticSource::Cli,
+                            key,
+                            format!(
+                                "Use an integer in 1..={maximum}; see import fake-gcs-server --help."
+                            ),
+                        )
+                    })
+            })
+            .transpose()
+    };
+    if let Some(bytes) = limit("--max-object-bytes", MAX_OBJECT_BYTES)? {
+        options.max_object_bytes = bytes;
+    }
+    if let Some(entries) = limit("--max-entries", MAX_TREE_ENTRIES)? {
+        options.max_entries = usize::try_from(entries)?;
+    }
+    if let Some(depth) = limit("--max-depth", MAX_TREE_DEPTH as u64)? {
+        options.max_depth = usize::try_from(depth)?;
+    }
+    Ok(())
+}
+
 pub fn cli(args: &[String]) -> Result<(), ImportError> {
     if args == ["--help"] {
         println!("{HELP}");
@@ -671,7 +718,7 @@ pub fn cli(args: &[String]) -> Result<(), ImportError> {
             "--dry-run" if !dry_run => dry_run = true,
             "--verify-bodies" if !verify => verify = true,
             "--source" | "--data-dir" | "--metadata-mode" | "--source-platform"
-            | "--source-format" => {
+            | "--source-format" | "--max-object-bytes" | "--max-entries" | "--max-depth" => {
                 let value = args
                     .get(index + 1)
                     .map(String::as_str)
@@ -723,6 +770,13 @@ pub fn cli(args: &[String]) -> Result<(), ImportError> {
     {
         return Err(invalid("--source-format", "Snapshot names and attributes are explicit; remove --metadata-mode and --source-platform.").into());
     }
+    if source_format == SourceFormat::Snapshot && values.contains_key("--max-depth") {
+        return Err(invalid(
+            "--max-depth",
+            "A snapshot holds rows, not directories; remove --max-depth.",
+        )
+        .into());
+    }
     let mode = if source_format == SourceFormat::Snapshot {
         "sidecar"
     } else {
@@ -745,6 +799,7 @@ pub fn cli(args: &[String]) -> Result<(), ImportError> {
     );
     options.source_format = source_format;
     options.verify_bodies = verify;
+    apply_limits(&mut options, &values)?;
     let summary = if dry_run {
         inspect(options, io::stdout().lock(), io::stderr().lock())?
     } else {
