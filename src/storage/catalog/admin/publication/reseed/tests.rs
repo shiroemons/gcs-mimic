@@ -7,7 +7,7 @@ use crate::{
         admin::tests::{body, request, setup},
         fault::{Fault, Step},
     },
-    test_support::TestDir,
+    test_support::{TestDir, joined},
 };
 use std::fs;
 
@@ -498,6 +498,104 @@ async fn atomic_seed_commit_waits_for_an_active_upload_and_allows_reads_meanwhil
         .unwrap();
     assert_eq!((counts.objects, counts.replaced), (0, 1));
     assert_eq!(bytes(&admin, "object").await, b"new");
+    catalog.close().await.unwrap();
+}
+
+/// Holds the commit open at its durable boundary, so requests arrive while the batch owns the
+/// catalog. They must wait for it rather than fail, and then find what it published.
+#[tokio::test]
+async fn requests_during_a_seed_commit_wait_and_then_see_what_it_published() {
+    for mode in [SeedMode::Merge, SeedMode::Replace] {
+        let (dir, catalog, admin, bucket, name) = setup().await;
+        admin
+            .publish_object(&bucket, &name, request(None), body(b"old"))
+            .await
+            .unwrap();
+        let mut batch = admin.seed_batch().await.unwrap();
+        batch.bucket(self::bucket()).unwrap();
+        add(&mut batch, &dir.0, "object", b"new").await;
+        let (entered, reached) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        catalog.inject(
+            Step::BeforeCommit,
+            0,
+            Fault::Block {
+                entered: Arc::new(std::sync::Mutex::new(Some(entered))),
+                release: Arc::new(std::sync::Mutex::new(released)),
+            },
+        );
+        let commit = tokio::spawn(batch.commit(mode));
+        reached.await.unwrap();
+
+        let reader = admin.clone();
+        let (read_bucket, read_name) = (bucket.clone(), name.clone());
+        let read =
+            tokio::spawn(async move { reader.get_object(&read_bucket, &read_name, None).await });
+        let uploader = catalog.clone();
+        let upload = tokio::spawn(async move {
+            let permit = uploader.wait_object_upload().await?;
+            uploader
+                .put_object_prechecked(
+                    crate::storage::test_fixtures::permissive_upload(
+                        "test-bucket",
+                        "uploaded",
+                        1024,
+                    ),
+                    body(b"fresh"),
+                    permit,
+                )
+                .await
+        });
+        let starter = catalog.clone();
+        let session = tokio::spawn(async move {
+            starter
+                .create_resumable_session(
+                    "test-bucket",
+                    "session",
+                    crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
+                    None,
+                )
+                .await
+                .map(drop)
+        });
+        for _ in 0..64 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!read.is_finished());
+        assert!(!upload.is_finished());
+        assert!(!session.is_finished());
+
+        release.send(()).unwrap();
+        joined(commit).await.unwrap();
+        assert_eq!(joined(read).await.unwrap().size, 3);
+        assert_eq!(joined(upload).await.unwrap().size, 5);
+        joined(session).await.unwrap();
+        assert_eq!(bytes(&admin, "object").await, b"new");
+        assert_eq!(bytes(&admin, "uploaded").await, b"fresh");
+        catalog.close().await.unwrap();
+    }
+}
+
+/// A batch keeps its own lease while it stages, so the job it may be holding back must not hold
+/// the next file back in turn.
+#[tokio::test]
+async fn a_batch_keeps_staging_while_a_reset_waits_for_it() {
+    let (dir, catalog, admin, _bucket, _name) = setup().await;
+    let mut batch = admin.seed_batch().await.unwrap();
+    let resetting = admin.clone();
+    let reset = tokio::spawn(async move {
+        resetting
+            .reset_until(crate::time_limit::TimeLimit::from_millis(60_000).deadline())
+            .await
+            .map(drop)
+    });
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!reset.is_finished());
+    add(&mut batch, &dir.0, "object", b"new").await;
+    drop(batch);
+    joined(reset).await.unwrap();
     catalog.close().await.unwrap();
 }
 

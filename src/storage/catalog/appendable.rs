@@ -833,7 +833,11 @@ impl Catalog {
         name: &str,
         options: ResumableOptions,
     ) -> Result<AppendWriter, AppendError> {
-        let activity = Arc::new(self.activity().map_err(object_unavailable)?);
+        let activity = Arc::new(
+            self.await_activity(super::Work::New)
+                .await
+                .map_err(ObjectError::from)?,
+        );
         // Rapid buckets support neither; finalization would otherwise publish them silently.
         if options.metadata.retention.is_some() || options.metadata.customer_key_sha256.is_some() {
             return Err(ObjectError::UnsupportedMetadata(
@@ -972,7 +976,11 @@ impl Catalog {
         conditions: ObjectConditions,
         access: BucketAccess,
     ) -> Result<AppendWriter, AppendError> {
-        let activity = Arc::new(self.activity().map_err(object_unavailable)?);
+        let activity = Arc::new(
+            self.await_activity(super::Work::New)
+                .await
+                .map_err(ObjectError::from)?,
+        );
         let new_handle = BlobId::generate().map_err(object_unavailable)?.to_hex();
         let slot = SlotHandle::new(self, &target.bucket, &target.name);
         let guard = slot.slot.clone().lock_owned().await;

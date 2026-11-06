@@ -442,8 +442,13 @@ impl Admin {
         expected: ExpectedHashes,
         max_bytes: u64,
     ) -> Result<StagedObject, AdminError> {
-        let activity = self.catalog.activity()?;
         let deadline = self.catalog.admin_deadline();
+        // A seed batch or an import stages each file under the leases of the files before it, so
+        // lining up behind a reservation here could wait for itself.
+        let activity = self
+            .catalog
+            .admin_activity(Work::UnderWay, deadline)
+            .await?;
         let permit = self
             .catalog
             .wait_admin(self.catalog.0.staged_handles.clone(), deadline)

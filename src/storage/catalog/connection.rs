@@ -135,14 +135,6 @@ impl Inner {
 }
 
 impl Catalog {
-    pub(super) fn activity(&self) -> Result<Activity, CatalogError> {
-        self.0
-            .activity
-            .clone()
-            .try_read_owned()
-            .map_err(unavailable)
-    }
-
     /// Queues one operation on the shared connection. A caller past the queue waits its turn
     /// instead of failing: jobs run one at a time, so the wait changes latency, not the load on
     /// SQLite, and a local client cannot act on a rejection except by retrying.
@@ -150,6 +142,10 @@ impl Catalog {
     /// Nothing here times out. Request handlers bound the wait with their own deadlines, and
     /// dropping this future while it waits gives up the place in line without consuming a slot,
     /// so a disconnected client costs nothing. Close wakes every waiter with `CatalogClosed`.
+    ///
+    /// The execution permit alone keeps this job apart from an exclusive job, which waits in the
+    /// same line and owns the permit for as long as it runs. A lease held while queueing here
+    /// would let a steady stream of callers keep that job out.
     pub(super) async fn run<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
@@ -160,7 +156,6 @@ impl Catalog {
             self.0.admission.clone().acquire_owned().await
         }
         .map_err(|_| unavailable(BackendFailure::CatalogClosed))?;
-        let activity = self.activity()?;
         let execution = self
             .0
             .execution
@@ -172,7 +167,7 @@ impl Catalog {
         self.0
             .executor
             .run(move || {
-                let (_admission, _execution, _activity) = (admission, execution, activity);
+                let (_admission, _execution) = (admission, execution);
                 let result = match inner.with_connection(operation) {
                     Ok(result) => result,
                     Err(ConnectionUnavailable::Closed) => {

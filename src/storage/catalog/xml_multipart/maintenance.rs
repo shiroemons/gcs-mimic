@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{Work, sql};
 
 pub(super) fn retire(connection: &Connection, id: &str) -> Result<(), ObjectError> {
     sql::exec(
@@ -146,7 +146,8 @@ pub(super) fn recover(
 impl Catalog {
     /// Journal rows survive failed file work; owned cleanup settles before releasing its slot.
     pub(super) async fn drain_xml_multipart(&self) -> Result<bool, ObjectError> {
-        let activity = self.activity()?;
+        // A part or a completion drains under its own lease; the sweep has none to wait for.
+        let activity = self.await_activity(Work::UnderWay).await?;
         let permit = self
             .0
             .reclamation

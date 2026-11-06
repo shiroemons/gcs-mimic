@@ -843,13 +843,12 @@ async fn reset_is_busy_during_network_attempt_and_clears_retry_payloads_afterwar
     .await
     .unwrap()
     .unwrap();
-    let completed = tokio::time::timeout(
+    tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        catalog.0.activity.clone().write_owned(),
+        catalog.0.activity.drained(),
     )
     .await
     .unwrap();
-    drop(completed);
     tokio::time::timeout(std::time::Duration::from_secs(3), admin.reset())
         .await
         .unwrap()

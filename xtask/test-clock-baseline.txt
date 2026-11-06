@@ -18,7 +18,6 @@ src/sync/mirror/observation/tests/history.rs	1
 src/sync/mirror/tests.rs	7
 tests/common/mod.rs	3
 tests/it_admin/admin_http.rs	1
-tests/it_admin/admin_http/admin_reseed/mod.rs	1
 tests/it_import_seed/seed.rs	2
 tests/it_json/bucket_http.rs	1
 tests/it_objects/rewrite_http.rs	4

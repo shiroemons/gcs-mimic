@@ -1,4 +1,4 @@
-use super::{Catalog, CatalogError, system_time_millis, unavailable, unix_millis};
+use super::{Catalog, CatalogError, Work, system_time_millis, unavailable, unix_millis};
 use crate::storage::{
     blob_id::BlobId,
     catalog::{bucket_incarnation, sql},
@@ -340,7 +340,10 @@ impl Catalog {
             &options.access,
         )
         .await?;
-        let activity = self.activity()?;
+        let activity = self
+            .await_activity(Work::New)
+            .await
+            .map_err(ObjectError::from)?;
         let request = CreateSession {
             id: random_id::<32>()?,
             blob_id: BlobId::generate().map_err(unavailable)?,

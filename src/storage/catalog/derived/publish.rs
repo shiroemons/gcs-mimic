@@ -295,18 +295,26 @@ impl Catalog {
         admission_deadline: Option<tokio::time::Instant>,
         replay: Option<super::super::upload_replay::CopyReplay>,
     ) -> Result<ObjectRecord, ObjectError> {
-        let permit = self.admit_object_upload()?;
-        let guard = self.derived_guard(id)?;
-        let execution = self.0.execution.clone().acquire_owned();
-        let execution = match admission_deadline {
-            Some(deadline) => tokio::time::timeout_at(deadline, execution)
+        let admission = async {
+            let permit = self.continue_object_upload().await?;
+            let guard = self.derived_guard(id)?;
+            let execution = self
+                .0
+                .execution
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(object_unavailable)?;
+            Ok::<_, ObjectError>((permit, guard, execution))
+        };
+        let (permit, guard, execution) = match admission_deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, admission)
                 .await
                 .map_err(|_| {
                     object_unavailable("derived publication catalog admission timed out")
-                })?,
-            None => execution.await,
-        }
-        .map_err(object_unavailable)?;
+                })??,
+            None => admission.await?,
+        };
         let catalog = self.clone();
         let id = *id;
         crate::task::spawn_supervised("derived-publication", async move {

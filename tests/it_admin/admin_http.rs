@@ -20,6 +20,9 @@ use std::{
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 const OBJECT: &str = "/storage/v1/b/test-bucket/o/value";
+/// Past the second that used to end a reset's wait, so a test that holds an upload back this long
+/// also shows the reset did not give up.
+const HELD_BACK_AFTER: Duration = Duration::from_millis(1_200);
 
 #[test]
 fn management_routes_refuse_page_initiated_requests_without_mutation() {
@@ -1101,18 +1104,63 @@ declare_server!(graceful);
 
 /// Opens a media upload to `test-bucket` and stops after `100 Continue`, so the server holds
 /// an admitted upload lease until the caller writes `length` body bytes.
-fn pending_media_upload(server: &Server, name: &str, length: usize) -> BufReader<TcpStream> {
+fn start_media_upload(server: &Server, name: &str, length: usize) -> BufReader<TcpStream> {
     let mut upload = TcpStream::connect(&server.address).unwrap();
     upload
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
     write!(upload, "POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name={name} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {length}\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n").unwrap();
-    let mut upload = BufReader::new(upload);
+    BufReader::new(upload)
+}
+
+fn pending_media_upload(server: &Server, name: &str, length: usize) -> BufReader<TcpStream> {
+    let mut upload = start_media_upload(server, name, length);
+    read_upload_go_ahead(&mut upload);
+    upload
+}
+
+fn read_upload_go_ahead(upload: &mut BufReader<TcpStream>) {
     let mut interim = String::new();
     upload.read_line(&mut interim).unwrap();
     assert!(interim.starts_with("HTTP/1.1 100"), "{interim}");
     interim.clear();
     upload.read_line(&mut interim).unwrap();
     assert_eq!(interim, "\r\n");
+}
+
+/// Starts an upload and tells whether the server is holding it back, which shows that an exclusive
+/// job has reserved the catalog: the server asks for the body only after admitting the upload.
+fn upload_is_held_back(mut upload: BufReader<TcpStream>) -> Option<BufReader<TcpStream>> {
     upload
+        .get_ref()
+        .set_read_timeout(Some(HELD_BACK_AFTER))
+        .unwrap();
+    let mut interim = String::new();
+    match upload.read_line(&mut interim) {
+        Ok(_) => {
+            assert!(interim.starts_with("HTTP/1.1 100"), "{interim}");
+            None
+        }
+        Err(error) => {
+            assert!(
+                matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ),
+                "{error}"
+            );
+            upload
+                .get_ref()
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            Some(upload)
+        }
+    }
+}
+
+/// An upload that was let through is abandoned, and the next attempt tries again.
+fn held_back_media_upload(server: &Server, name: &str, length: usize) -> BufReader<TcpStream> {
+    common::input_fixtures::eventually_some("an exclusive job to hold back uploads", || {
+        upload_is_held_back(start_media_upload(server, name, length))
+    })
 }

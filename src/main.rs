@@ -74,7 +74,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --connection-timeout-ms N    none (alias; sets the three settings above, and each of them named explicitly wins)
   --keep-alive-timeout-ms N    120000 (0 disables; idle time between HTTP/1.1 requests and on gRPC connections)
   --object-request-timeout-ms N 0 (0 disables; absolute upload/media deadline)
-  --catalog-wait-timeout-ms N  120000 (0 disables; upload advisory/commit wait and wait for a busy upload session)
+  --catalog-wait-timeout-ms N  120000 (0 disables; upload admission, advisory and commit waits, a busy upload session, and reset, reseed and seed waits)
   --shutdown-timeout-ms N      5000 (0 disables; waits for unfinished requests without a limit)
   --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
@@ -892,7 +892,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "07d04e4a9bfb17e47f03721a04829b4359b36b6071287dddf71528dff5ce8249"
+            "c10d6a0f5ee9db3621fc604345c4793cb2c8d3d25358404c7e9af0a6358ad1f5"
         );
     }
 

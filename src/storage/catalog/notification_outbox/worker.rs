@@ -110,7 +110,8 @@ async fn attempt(
         return Ok(None);
     }
     // A reset cannot succeed between selecting a queued snapshot and finishing its network attempt.
-    let _activity = catalog.activity()?;
+    // Waiting out an exclusive job is not a failed pass, and close wakes this wait.
+    let _activity = catalog.await_activity(super::super::Work::New).await?;
     let Some(pending) = catalog.next_notification().await? else {
         health.pass_succeeded();
         return Ok(None);
@@ -140,4 +141,41 @@ async fn attempt(
         }
     }
     Ok(Some(Duration::ZERO))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        clock::SystemClock,
+        storage::admin::LocalAdmin,
+        test_support::{TestDir, joined},
+        time_limit::TimeLimit,
+    };
+
+    /// Enough failed passes turn readiness off, so a reset must not count as one.
+    #[tokio::test]
+    async fn an_attempt_waits_out_an_exclusive_job_instead_of_failing_its_pass() {
+        let dir = TestDir::new();
+        let catalog = Catalog::open_for_server(&dir.0, Arc::new(SystemClock), LocalAdmin::Enabled)
+            .await
+            .unwrap();
+        let exclusive = catalog
+            .wait_exclusive(TimeLimit::from_millis(60_000).deadline())
+            .await
+            .unwrap();
+        let worker = catalog.clone();
+        let health = TaskHealth::default();
+        let attempted = tokio::spawn(async move {
+            let endpoint = Endpoint::parse("127.0.0.1:1").unwrap();
+            attempt(&worker, &endpoint, &health).await.map(drop)
+        });
+        for _ in 0..64 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!attempted.is_finished());
+        drop(exclusive);
+        joined(attempted).await.unwrap();
+        catalog.close().await.unwrap();
+    }
 }

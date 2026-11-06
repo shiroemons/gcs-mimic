@@ -154,6 +154,7 @@ impl Catalog {
             ));
         }
         let total = derived_total(&segments, max_bytes)?;
+        // Every segment holds its source's lease, and at least one segment exists.
         let permit = self.admit_object_upload()?;
         let backend = self.0.backend.clone();
         let created = unix_millis(self.0.clock.now())?;

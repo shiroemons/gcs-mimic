@@ -261,12 +261,11 @@ impl Catalog {
         execution: OwnedSemaphorePermit,
         operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
     ) -> Result<T, ObjectError> {
-        let activity = self.activity()?;
         let inner = self.0.clone();
         self.0
             .executor
             .run(move || {
-                let (_execution, _activity) = (execution, activity);
+                let _execution = execution;
                 match inner.with_connection(operation) {
                     Ok(result) => result,
                     Err(super::super::ConnectionUnavailable::Closed) => Err(object_unavailable(
@@ -332,13 +331,34 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<UploadGuard, ObjectError> {
-        let permit = self.admit_object_upload()?;
+        let permit = self.wait_object_upload().await?;
         self.check_upload(bucket, name, conditions, access).await?;
         Ok(permit)
     }
 
+    /// Admits an upload a client just started, once any exclusive job waiting or running is done.
+    pub(crate) async fn wait_object_upload(&self) -> Result<UploadGuard, ObjectError> {
+        let activity = self.await_activity(Work::New).await?;
+        self.counted_upload(activity)
+    }
+
+    /// Admits the next step of work already under way, once any exclusive job running is done.
+    /// It need not hold a lease: a copy holds none between its steps, while a rewrite does.
+    pub(in crate::storage::catalog) async fn continue_object_upload(
+        &self,
+    ) -> Result<UploadGuard, ObjectError> {
+        let activity = self.await_activity(Work::UnderWay).await?;
+        self.counted_upload(activity)
+    }
+
+    /// Admits work whose caller already holds a lease, such as a session writer or a derived
+    /// source. No exclusive job can run under that lease, so this never fails on one and needs no
+    /// wait, which lets synchronous paths use it.
     pub(crate) fn admit_object_upload(&self) -> Result<UploadGuard, ObjectError> {
-        let activity = self.activity()?;
+        self.counted_upload(self.activity()?)
+    }
+
+    fn counted_upload(&self, activity: Activity) -> Result<UploadGuard, ObjectError> {
         let mut uploads = self
             .0
             .uploads

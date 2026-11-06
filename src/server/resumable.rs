@@ -515,6 +515,7 @@ pub(crate) async fn transfer(
         }
         return incomplete(offset, &headers).map(Transfer::Incomplete);
     }
+    // The session lease holds an activity lease, so no exclusive job can run here.
     let permit = state.catalog.admit_object_upload()?;
     let offset = session.offset.max(plan.end);
     let render = completion_renderer(&session.options, ctx.endpoints.api_base_url().to_owned())?;

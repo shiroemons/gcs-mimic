@@ -310,7 +310,7 @@ impl Catalog {
             }
             Ok(Self(Arc::new(Inner {
                 principals: OnceLock::new(),
-                activity: Arc::new(RwLock::new(())),
+                activity: ActivityGate::default(),
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),

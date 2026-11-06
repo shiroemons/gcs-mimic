@@ -32,8 +32,12 @@ fn seeded_server(data: &TestDir, source: &TestDir, catalog_wait_ms: &str) -> Ser
 }
 
 fn finish_upload(mut upload: BufReader<TcpStream>) {
-    upload.get_mut().write_all(b"hello").unwrap();
-    let reply = common::read_http_response(&mut upload, Body::Expected).unwrap();
+    finish_upload_with(&mut upload, b"hello");
+}
+
+fn finish_upload_with(upload: &mut BufReader<TcpStream>, body: &[u8]) {
+    upload.get_mut().write_all(body).unwrap();
+    let reply = common::read_http_response(upload, Body::Expected).unwrap();
     assert!(reply.starts_with(b"HTTP/1.1 200"));
 }
 
@@ -42,20 +46,40 @@ fn reseed_waits_for_an_active_upload_and_then_replays_fixtures() {
     let (data, source) = (TestDir::new(), TestDir::new());
     let server = seeded_server(&data, &source, "30000");
     let upload = pending_media_upload(&server, "pending", b"hello".len());
-    let replay = std::thread::scope(|scope| {
+    let (replay, mut held_back) = std::thread::scope(|scope| {
         let reseed = scope.spawn(|| server.request("POST", "/_internal/reseed", "", b""));
+        let held_back = held_back_media_upload(&server, "held-back", b"fresh".len());
         // Reseed must still be waiting when the upload completes; an immediate refusal fails here.
-        std::thread::sleep(Duration::from_millis(200));
         assert!(!reseed.is_finished());
+        // Only new uploads line up behind it; reads are not stopped by a stalled upload.
+        assert_eq!(
+            server
+                .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
+                .body,
+            b"API edit"
+        );
         finish_upload(upload);
-        reseed.join().unwrap()
+        (reseed.join().unwrap(), held_back)
     });
     assert_eq!(replay.json_ok()["outcome"], "imported");
+    read_upload_go_ahead(&mut held_back);
+    finish_upload_with(&mut held_back, b"fresh");
     assert_eq!(
         server
             .request("GET", &format!("{OBJECT}?alt=media"), "", b"")
             .body,
         b"seed"
+    );
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/held-back?alt=media",
+                "",
+                b""
+            )
+            .body,
+        b"fresh"
     );
 }
 
