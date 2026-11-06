@@ -40,8 +40,9 @@ pub(crate) fn service(
         max_object_bytes,
         compat_profile,
     })
+    // Responses keep the unlimited default: the JSON API can store a bucket resource larger than
+    // 4 MiB, and what a client agrees to receive is its own setting.
     .max_decoding_message_size(4 * 1024 * 1024)
-    .max_encoding_message_size(4 * 1024 * 1024)
 }
 
 /// The Storage v2 method that serves a Storage Control bucket IAM call.
