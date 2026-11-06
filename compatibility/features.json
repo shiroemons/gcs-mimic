@@ -25439,7 +25439,7 @@
           "result": "PASS",
           "test_ids": [
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
-            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects"
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_repeated_projects"
           ]
         },
         {
@@ -25498,7 +25498,7 @@
       "test_ids": [
         "TestPublicAccessPrevention",
         "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
-        "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+        "auth::tests::pap_parent_fixture_rejects_malformed_and_repeated_projects",
         "pap_migrates_version_twelve_and_persists_configured_state",
         "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
         "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
@@ -25524,7 +25524,7 @@
             "pap_migrates_version_twelve_and_persists_configured_state",
             "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
-            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_repeated_projects",
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
             "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
             "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
@@ -25568,7 +25568,7 @@
           "artifact": "docs/en/evidence/signed-urls-checks.txt",
           "test_ids": [
             "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
-            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_repeated_projects",
             "pap_migrates_version_twelve_and_persists_configured_state",
             "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
             "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
@@ -41958,7 +41958,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict mode loads a bounded (64 KiB) JSON identity registry once at startup: 1..=256 identities with a unique visible-ASCII id, 0..=16 registry-unique bearer tokens and optional project_roles (0..=64 validated project IDs, 1..=32 snapshot roles each). Unknown keys, unknown/basic roles, JWT-shaped tokens with three dot-separated segments and invalid limits fail startup without a partial load and without echoing tokens. The JSON format replaces the TOML proposal (gaps.json resolved item). The ready event reports the identity count. config/identities.json is a public local fixture mounted by compose.strict.yaml. Nothing contacts Google or the metadata server. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
+      "notes": "Strict mode loads a JSON identity registry of at most 16 MiB once at startup, with no limit on the number of entries in any list: at least one identity with a unique visible-ASCII id of up to 254 bytes, registry-unique bearer tokens of up to 8 KiB and optional project_roles (validated project IDs, each with a nonempty list of snapshot roles). Unknown keys, unknown/basic roles, JWT-shaped tokens with three dot-separated segments and invalid values fail startup without a partial load and without echoing tokens. The JSON format replaces the TOML proposal (gaps.json resolved item). The ready event reports the identity count. config/identities.json is a public local fixture mounted by compose.strict.yaml. Nothing contacts Google or the metadata server. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [
         "DESIGN-001"
       ],
@@ -41967,7 +41967,7 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-003-VALIDATION",
-          "description": "Malformed, non-object, oversized, empty or over-limit registries, unknown top-level/identity keys, invalid/duplicate ids, invalid/duplicate or JWT-shaped tokens, invalid projects, empty/duplicate/over-limit role lists and unknown or basic roles fail startup with a specific identity_file reason, no readiness output and no catalog files; token values are never echoed; a file at exactly 64 KiB loads.",
+          "description": "Malformed, non-object, oversized or empty registries, unknown top-level/identity keys, invalid/duplicate ids, invalid/duplicate or JWT-shaped tokens, invalid projects, empty/duplicate role lists and unknown or basic roles fail startup with a specific identity_file reason, no readiness output and no catalog files; token values are never echoed; a file at exactly 16 MiB loads.",
           "result": "PASS",
           "test_ids": [
             "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
@@ -43853,7 +43853,7 @@
           "result": "PASS",
           "test_ids": [
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
-            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects"
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_repeated_projects"
           ]
         },
         {
@@ -43875,7 +43875,7 @@
       ],
       "test_ids": [
         "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
-        "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+        "auth::tests::pap_parent_fixture_rejects_malformed_and_repeated_projects",
         "pap_migrates_version_twelve_and_persists_configured_state",
         "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
@@ -43895,7 +43895,7 @@
             "pap_migrates_version_twelve_and_persists_configured_state",
             "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
-            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_repeated_projects",
             "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
           ]
         },
@@ -43915,7 +43915,7 @@
           "artifact": "docs/en/evidence/signed-urls-checks.txt",
           "test_ids": [
             "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
-            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_repeated_projects",
             "pap_migrates_version_twelve_and_persists_configured_state",
             "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
@@ -49441,11 +49441,12 @@
           "result": "PENDING",
           "test_ids": []
         },
+        {"id":"local-trees-without-limits","description":"A seed, a synchronized tree and a bucket file past the former defaults work with no limit named, warn once where they warn, and survive a restart, while a named limit still stops them. The tests exist; the final run has not been recorded here yet.","result":"PENDING","test_ids":["a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart","a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it"]},
         {
           "id": "sync-configuration-inputs",
-          "description": "Verify CLI > environment > file > default for sync_dir, sync_delete_guard, max_sync_entries and max_sync_depth, which also require sync_dir, strict boolean parsing, guard without root, removed tuning-key rejection through CLI/environment/JSON, overlap/alias/symlink rejection and CLI-only exact catalog-ID reinitialization. Internal policy is fixed at 1000 ms, at least 100 deletions and more than 50%, a 1 TiB conflict budget and a conflict entry limit; fewer settings suit local development. A scan, a watch and export accept exactly max_sync_depth levels, and one directory may hold as many names as the tree limit allows. Settle/delete effects remain PENDING. Scope and verification: docs/en/slices/directory-synchronization.md.",
+          "description": "Verify CLI > environment > file > default for sync_dir, sync_delete_guard, max_sync_entries and max_sync_depth, which default to 0, unlimited, and also require sync_dir, strict boolean parsing, guard without root, removed tuning-key rejection through CLI/environment/JSON, overlap/alias/symlink rejection and CLI-only exact catalog-ID reinitialization. Internal policy is fixed at 1000 ms, at least 100 deletions and more than 50%, and a conflict budget of 1 TiB and 1,000,000 entries; fewer settings suit local development. A scan, a watch and export accept exactly a named max_sync_depth, and one directory may hold as many names as a named max_sync_entries allows. Without a limit a walk stops at 1024 levels and a tree past 10,000 entries logs sync_tree_large once per process. Settle/delete effects remain PENDING. Scope and verification: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization", "sync_removed_settings_and_guard_without_root_fail_with_diagnostics", "sync_overlaps_aliases_empty_and_symlink_roots_are_rejected", "sync_tree_limits_keep_their_defaults_and_mean_nothing_without_a_sync_dir", "one_directory_may_hold_as_many_entries_as_the_tree_limit_allows", "every_walker_applies_the_same_depth_limit", "the_default_depth_accepts_exactly_what_export_can_create"]
+          "test_ids": ["sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization", "sync_removed_settings_and_guard_without_root_fail_with_diagnostics", "sync_overlaps_aliases_empty_and_symlink_roots_are_rejected", "sync_tree_limits_default_to_unlimited_and_mean_nothing_without_a_sync_dir", "one_directory_may_hold_as_many_entries_as_the_tree_limit_allows", "every_walker_applies_the_same_depth_limit", "no_depth_limit_accepts_what_export_can_create_past_the_former_default"]
         },
         {
           "id": "sync-configuration",
@@ -49471,7 +49472,7 @@
         },
         {
           "id": "BUCKET-INIT-BOUNDS",
-          "description": "A file limit of 1 KiB per allowed bucket and at least 33,554,432 bytes, max_buckets_per_batch entries (1..1000000) and 16,777,216-byte raw-entry/encoded-resource limits and each one-over case, whitespace/escape/project accounting pass. At most max_buckets_per_batch entries are inspected and over-count explicitly reports the uninspected remainder and names the setting; errors never return partial records. Diagnostics retain at most 256 records/64 KiB with an exact omitted-error summary at any limit. Owner init-parser.",
+          "description": "A file limit of 1 GiB, or under a named max_buckets_per_batch (0 to 2^64-1, default 0, unlimited) 1 KiB per allowed bucket and at least 33,554,432 bytes, and 16,777,216-byte raw-entry/encoded-resource limits, with each one-over case and whitespace/escape/project accounting, pass. At most a named max_buckets_per_batch of entries are inspected and over-count explicitly reports the uninspected remainder and names the setting; errors never return partial records. Diagnostics retain at most 256 records/64 KiB with an exact omitted-error summary at any limit. Owner init-parser.",
           "result": "PASS",
           "test_ids": [
             "the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor",
@@ -49516,7 +49517,7 @@
         },
         {
           "id": "BUCKET-INIT-DIAGNOSTICS",
-          "description": "Side-effect-free parser detects independent structural/semantic errors in up to max_buckets_per_batch entries without existence lookup, including structural/name diagnostics for oversized entries while skipping their native value parsing. Shared initializer JSON sorting/escaping/redaction and suggestions/ties pass. Retention is capped at 256 records/64 KiB with exact omitted counts, always an error without records. Process-level startup suppression passes under BUCKET-INIT-STARTUP.",
+          "description": "Side-effect-free parser detects independent structural/semantic errors in every entry, up to a named max_buckets_per_batch, without existence lookup, including structural/name diagnostics for oversized entries while skipping their native value parsing. Shared initializer JSON sorting/escaping/redaction and suggestions/ties pass. Retention is capped at 256 records/64 KiB with exact omitted counts, always an error without records. Process-level startup suppression passes under BUCKET-INIT-STARTUP.",
           "result": "PASS",
           "test_ids": [
             "invalid_projects_do_not_hide_independent_native_errors",
@@ -49649,12 +49650,14 @@
         }
       ],
       "test_ids": [
+        "a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart",
+        "a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it",
         "the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor",
         "a_large_bucket_entry_starts_and_survives_a_restart",
-        "sync_tree_limits_keep_their_defaults_and_mean_nothing_without_a_sync_dir",
+        "sync_tree_limits_default_to_unlimited_and_mean_nothing_without_a_sync_dir",
         "one_directory_may_hold_as_many_entries_as_the_tree_limit_allows",
         "every_walker_applies_the_same_depth_limit",
-        "the_default_depth_accepts_exactly_what_export_can_create",
+        "no_depth_limit_accepts_what_export_can_create_past_the_former_default",
         "live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes",
         "ingest_strict_configuration_has_actionable_remedy",
         "ingest_defers_partial_and_replacement_saves_then_resumes_activation",
@@ -49731,7 +49734,7 @@
       ],
       "verification": [
         {"command":"cargo test --locked --lib; cargo test --locked --test it_import_seed","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor","a_large_bucket_entry_starts_and_survives_a_restart"]},
-        {"command":"cargo test --locked --lib -- config:: sync::tree","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["sync_tree_limits_keep_their_defaults_and_mean_nothing_without_a_sync_dir","one_directory_may_hold_as_many_entries_as_the_tree_limit_allows","every_walker_applies_the_same_depth_limit","the_default_depth_accepts_exactly_what_export_can_create"]},
+        {"command":"cargo test --locked --lib -- config:: sync::tree","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["sync_tree_limits_default_to_unlimited_and_mean_nothing_without_a_sync_dir","one_directory_may_hold_as_many_entries_as_the_tree_limit_allows","every_walker_applies_the_same_depth_limit","no_depth_limit_accepts_what_export_can_create_past_the_former_default"]},
         {
           "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed --test import_filesystem; cargo test --locked --offline --lib -- mime::tests",
           "result": "PASS",
@@ -50138,7 +50141,7 @@
           "test_ids": [
             "config::tests::capacity_settings_accept_their_raised_bounds_only",
             "config::tests::session_limits_default_to_unlimited_and_zero_stays_outside_the_config",
-            "config::tests::seed_limits_keep_their_defaults_and_reject_values_out_of_range"
+            "config::tests::seed_limits_default_to_unlimited_and_reject_values_out_of_range"
           ]
         },
         {
@@ -50167,13 +50170,13 @@
         "config::tests::transfer_timeout_precedence_and_bounds",
         "config::tests::capacity_settings_accept_their_raised_bounds_only",
         "config::tests::session_limits_default_to_unlimited_and_zero_stays_outside_the_config",
-        "config::tests::seed_limits_keep_their_defaults_and_reject_values_out_of_range",
+        "config::tests::seed_limits_default_to_unlimited_and_reject_values_out_of_range",
         "config::tests::connection_timeout_alias_fills_every_setting_it_replaces",
         "config::tests::an_explicit_timeout_beats_the_alias_from_any_source",
         "obj_http_ready_event_reports_the_alias_and_explicit_overrides"
       ],
       "verification": [
-        {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- phase_deadlines","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["config::tests::capacity_settings_accept_their_raised_bounds_only","config::tests::session_limits_default_to_unlimited_and_zero_stays_outside_the_config","config::tests::seed_limits_keep_their_defaults_and_reject_values_out_of_range","config::tests::connection_timeout_alias_fills_every_setting_it_replaces","config::tests::an_explicit_timeout_beats_the_alias_from_any_source","obj_http_ready_event_reports_the_alias_and_explicit_overrides"]},
+        {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- phase_deadlines","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["config::tests::capacity_settings_accept_their_raised_bounds_only","config::tests::session_limits_default_to_unlimited_and_zero_stays_outside_the_config","config::tests::seed_limits_default_to_unlimited_and_reject_values_out_of_range","config::tests::connection_timeout_alias_fills_every_setting_it_replaces","config::tests::an_explicit_timeout_beats_the_alias_from_any_source","obj_http_ready_event_reports_the_alias_and_explicit_overrides"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -51765,6 +51768,7 @@
             "escaped_bucket_aliases_invalid_escapes_suffix_collisions_and_platform_rules_block"
           ]
         },
+        {"id":"filesystem-import-limit-defaults","description":"An import defaults to 5 TiB bodies and no entry or depth limit, with 0 meaning the same, and null in its JSON report. A resume that names no limit and is refused retries once with the former defaults of 1 GiB, 10000 entries and 32 levels. The tests exist; the final run has not been recorded here yet.","result":"PENDING","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},
         {
           "id": "filesystem-import-bounded-resume",
           "description": "Reuse the bounded reader, dedicated workers, fixed-size execution baseline and shared file publication; resume only the same canonical source/options/export, validate committed destination identities and revalidate committed inode/ctime drift before new publication. Scope: docs/en/slices/import-filesystem.md.",
@@ -51893,6 +51897,9 @@
         }
       ],
       "test_ids": [
+        "an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both",
+        "the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it",
+        "a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it",
         "live_cli_observes_rescans_waits_and_rejects_stale_revisions",
         "live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart",
         "live_cli_restores_and_discards_retained_conflicts_once_across_restart",
@@ -55708,11 +55715,12 @@
       "source_urls": [],
       "source_checked_at": "2026-10-30",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Current source stages the complete bounded read-only fixture tree and atomically publishes it before readiness. Identical fixtures retain generations, differing fixtures replace with seed-default metadata, non-fixture objects stay untouched and versioning retains prior generations. A differing held/retained fixture now fails the entire replay with no readiness or partial publication; successful blocked count is zero. Extension MIME is default, octet-stream is opt-in, and metadata-suffix files remain literal bodies. max_seed_entries, max_seed_depth and max_buckets_per_batch size one seed, and a failure names the setting to raise; other buckets of the server do not count. Source builds also add opt-in disk-merge and RAM-replacement reseed through separate management authority. Native whole-tree publication, cancellation, failed write/flush/sync and selected process-abort/PowerLoss snapshots pass in docs/en/slices/atomic-seed-reseed.md. Historical happy-path platform/container evidence remains below; final combined image/SDK/platform reruns for the changed contract remain pending, so this row is temporarily PARTIAL. See docs/en/slices/seed.md for configuration and bounds.",
+      "notes": "Current source stages the complete bounded read-only fixture tree and atomically publishes it before readiness. Identical fixtures retain generations, differing fixtures replace with seed-default metadata, non-fixture objects stay untouched and versioning retains prior generations. A differing held/retained fixture now fails the entire replay with no readiness or partial publication; successful blocked count is zero. Extension MIME is default, octet-stream is opt-in, and metadata-suffix files remain literal bodies. max_seed_entries, max_seed_depth and max_buckets_per_batch default to 0, unlimited, so memory and time grow with the tree; a named value sizes one seed and its failure names the setting, and other buckets of the server do not count. Past 10,000 entries without a limit, seed_tree_large warns once per start. Source builds also add opt-in disk-merge and RAM-replacement reseed through separate management authority. Native whole-tree publication, cancellation, failed write/flush/sync and selected process-abort/PowerLoss snapshots pass in docs/en/slices/atomic-seed-reseed.md. Historical happy-path platform/container evidence remains below; final combined image/SDK/platform reruns for the changed contract remain pending, so this row is temporarily PARTIAL. See docs/en/slices/seed.md for configuration and bounds.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"seed-without-limits","description":"A tree past the former defaults seeds with no limit named, warns once with seed_tree_large and replays after a restart, while a named limit still stops it. The tests exist; the final run has not been recorded here yet.","result":"PENDING","test_ids":["a_tree_past_the_former_defaults_starts_warns_once_and_replays_after_a_restart","a_tree_past_the_former_limits_seeds_and_a_named_limit_still_stops_it"]},
         {
           "id": "seed-config",
           "description": "CLI/environment/JSON/default precedence for seed_dir, default_seed_dir, seed_project and seed_content_type (default extension) and invalid configuration rejection.",
@@ -55825,10 +55833,10 @@
         },
         {
           "id": "seed-walk",
-          "description": "Bound traversal at max_seed_depth directory levels and max_seed_entries total entries, and buckets at max_buckets_per_batch; a tree past a limit fails with a diagnostic that names its setting.",
+          "description": "Traversal and buckets have no limit by default. A named max_seed_depth, max_seed_entries or max_buckets_per_batch stops at its value with a diagnostic that names its setting.",
           "result": "PASS",
           "test_ids": [
-            "fixture_depth_and_entry_count_are_bounded",
+            "named_fixture_limits_are_inclusive_and_name_their_settings",
             "the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the_setting",
             "a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_restart"
           ]
@@ -55883,6 +55891,8 @@
         }
       ],
       "test_ids": [
+        "a_tree_past_the_former_defaults_starts_warns_once_and_replays_after_a_restart",
+        "a_tree_past_the_former_limits_seeds_and_a_named_limit_still_stops_it",
         "the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the_setting",
         "a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_restart",
         "seed_configuration_precedence_and_validation",
@@ -55903,7 +55913,7 @@
         "top_level_files_are_skipped_with_a_warning",
         "interrupted_import_retries_without_overwrite_and_releases_lock",
         "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
-        "fixture_depth_and_entry_count_are_bounded",
+        "named_fixture_limits_are_inclusive_and_name_their_settings",
         "symlinks_and_special_files_fail_closed",
         "populated_v4_catalog_migrates_and_replays_seed",
         "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
@@ -55966,7 +55976,7 @@
             "top_level_files_are_skipped_with_a_warning",
             "interrupted_import_retries_without_overwrite_and_releases_lock",
             "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
-            "fixture_depth_and_entry_count_are_bounded",
+            "named_fixture_limits_are_inclusive_and_name_their_settings",
             "symlinks_and_special_files_fail_closed",
             "populated_v4_catalog_migrates_and_replays_seed",
             "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
