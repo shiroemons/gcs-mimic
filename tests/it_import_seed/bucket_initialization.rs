@@ -392,6 +392,116 @@ fn initialized_settings_are_independent_and_api_changes_survive_restart() {
     server.stop();
 }
 
+/// A file that needs both the raised bucket limit and the file size that follows from it.
+fn large_file(root: &Path, count: usize) {
+    let filler = "x".repeat(63);
+    let entries = (0..count)
+        .map(|index| {
+            let labels = (0..12)
+                .map(|label| (format!("label-{label:02}"), filler.clone()))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            json!({"name":format!("bucket-{index:05}"),"labels":labels})
+        })
+        .collect::<Vec<_>>();
+    input(root, Value::Array(entries));
+    let size = fs::metadata(root.join("buckets.json")).unwrap().len();
+    assert!(
+        size > 1024 * 1024,
+        "{size} bytes need the raised file limit"
+    );
+    assert!(
+        size <= 1024 * count as u64,
+        "{size} bytes for {count} buckets"
+    );
+}
+
+fn diagnostic(output: &std::process::Output) -> Value {
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    serde_json::from_slice(&output.stderr).unwrap()
+}
+
+#[test]
+fn a_raised_bucket_limit_starts_again_after_a_restart_and_the_default_names_the_setting() {
+    const BUCKETS: usize = 1200;
+    let dir = TestDir::new();
+    large_file(&dir.0, BUCKETS);
+    let default = diagnostic(&selected(&dir.0).output().unwrap());
+    assert!(
+        default.to_string().contains("max_buckets_per_batch"),
+        "{default}"
+    );
+    let raised = || {
+        let mut command = selected(&dir.0);
+        command.args(["--max-buckets-per-batch", &BUCKETS.to_string()]);
+        command
+    };
+    let server = Server::start(&mut raised());
+    counts(&server, BUCKETS, 0, 0);
+    assert_eq!(
+        server.json("GET", "/storage/v1/b/bucket-01199", Value::Null)["name"],
+        "bucket-01199"
+    );
+    server.stop();
+    let server = Server::start(&mut raised());
+    counts(&server, 0, BUCKETS, 0);
+    let (mut listed, mut token) = (0, String::new());
+    loop {
+        let page = server.json(
+            "GET",
+            &format!("/storage/v1/b?project=project-a&pageToken={token}"),
+            Value::Null,
+        );
+        listed += page["items"].as_array().unwrap().len();
+        let Some(next) = page["nextPageToken"].as_str() else {
+            break;
+        };
+        token = next.to_owned();
+    }
+    assert_eq!(listed, BUCKETS);
+    server.stop();
+}
+
+#[test]
+fn a_huge_failing_file_keeps_its_report_within_the_diagnostic_budget() {
+    const BUCKETS: usize = 30_000;
+    let dir = TestDir::new();
+    let entries = (0..BUCKETS)
+        .map(|index| {
+            if index % 2 == 0 {
+                json!({"name":format!("bad name {index}")})
+            } else {
+                json!({"name":format!("bucket-{index:05}")})
+            }
+        })
+        .collect::<Vec<_>>();
+    input(&dir.0, Value::Array(entries));
+    let output = selected(&dir.0)
+        .args(["--max-buckets-per-batch", &BUCKETS.to_string()])
+        .output()
+        .unwrap();
+    let event = diagnostic(&output);
+    assert!(output.stderr.len() <= 64 * 1024, "{}", output.stderr.len());
+    let summary = event["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["key"] == "$")
+        .unwrap();
+    assert!(
+        summary["fix"].as_str().unwrap().contains("more ranges"),
+        "{summary}"
+    );
+    let server = Server::start(&mut command(&dir.0));
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/bucket-00001", "", "")
+            .0,
+        404
+    );
+    server.stop();
+}
+
 #[test]
 fn project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated() {
     let dir = TestDir::new();

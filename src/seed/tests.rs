@@ -116,6 +116,60 @@ async fn the_depth_limit_comes_from_the_configuration_and_its_failure_names_the_
     catalog.close().await.unwrap();
 }
 
+#[tokio::test]
+async fn the_bucket_limit_comes_from_the_configuration_and_its_failure_names_the_setting() {
+    let (_dir, mut config) = fixture();
+    let seed = config.seed_dir.as_ref().unwrap();
+    for name in ["bucket-two", "bucket-three"] {
+        std::fs::create_dir(seed.join(name)).unwrap();
+    }
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    config.max_buckets_per_batch = 2;
+    let error = import(&catalog, &config, &SystemClock).await.unwrap_err();
+    assert!(error.to_string().contains("exceeds 2 buckets"), "{error}");
+    assert!(
+        error.to_string().contains("max_buckets_per_batch"),
+        "{error}"
+    );
+    config.max_buckets_per_batch = 3;
+    let outcome = import(&catalog, &config, &SystemClock).await.unwrap();
+    let SeedOutcome::Imported { buckets, .. } = outcome else {
+        panic!("a configured seed directory imports");
+    };
+    assert_eq!(buckets, 3);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_restart() {
+    const BUCKETS: usize = 1001;
+    let (_dir, mut config) = fixture();
+    let seed = config.seed_dir.as_ref().unwrap();
+    for index in 1..BUCKETS {
+        std::fs::create_dir(seed.join(format!("bucket-{index:04}"))).unwrap();
+    }
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    let error = import(&catalog, &config, &SystemClock).await.unwrap_err();
+    assert!(
+        error.to_string().contains("exceeds 1000 buckets"),
+        "{error}"
+    );
+    config.max_buckets_per_batch = BUCKETS;
+    let outcome = import(&catalog, &config, &SystemClock).await.unwrap();
+    assert!(matches!(
+        outcome,
+        SeedOutcome::Imported {
+            buckets: BUCKETS,
+            ..
+        }
+    ));
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    let outcome = import(&catalog, &config, &SystemClock).await.unwrap();
+    assert!(matches!(outcome, SeedOutcome::Imported { buckets: 0, .. }));
+    catalog.close().await.unwrap();
+}
+
 /// A walk thread that dies drops its sender; the import must not read the closed channel as
 /// the end of the tree and mark a partial seed complete.
 #[tokio::test]

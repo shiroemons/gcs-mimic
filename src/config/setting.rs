@@ -26,6 +26,7 @@ super::string_enum! {
         SeedContentType => "seed_content_type",
         MaxSeedEntries => "max_seed_entries",
         MaxSeedDepth => "max_seed_depth",
+        MaxBucketsPerBatch => "max_buckets_per_batch",
         SyncDir => "sync_dir",
         SyncDeleteGuard => "sync_delete_guard",
         SyncReinitialize => "sync_reinitialize",
@@ -90,6 +91,8 @@ impl Setting {
             Self::MaxSeedEntries => Some((1, 100_000_000)),
             // A 1024-byte object name cannot nest deeper than this.
             Self::MaxSeedDepth => Some((1, 1024)),
+            // Each bucket of a batch costs memory until the batch commits as one transaction.
+            Self::MaxBucketsPerBatch => Some((1, 1_000_000)),
             Self::WorkerThreads | Self::MaxBlockingThreads => Some((1, 1024)),
             Self::Config
             | Self::LogLevel

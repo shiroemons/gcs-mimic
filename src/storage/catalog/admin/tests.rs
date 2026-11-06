@@ -9,6 +9,8 @@ use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::{fs, time::Duration};
 
+const BATCH: usize = crate::config::DEFAULT_MAX_BUCKETS_PER_BATCH;
+
 #[test]
 fn administrative_diagnostics_keep_their_existing_messages() {
     for (error, expected) in [
@@ -577,12 +579,6 @@ async fn admin_ensure_batches_preserve_identity_order_and_rollback() {
             .await
             .is_err()
     );
-    assert!(
-        admin
-            .ensure_buckets(vec![bucket("overflow", "project"); MAX_BUCKETS + 1])
-            .await
-            .is_err()
-    );
     assert!(admin.ensure_buckets(vec![]).await.unwrap().is_empty());
     let first = admin.list_buckets("project", None, 1).await.unwrap();
     assert!(first.has_more);
@@ -621,7 +617,7 @@ async fn admin_ensure_full_batch_and_concurrent_creates_are_atomic() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let admin = catalog.admin(Origin::BucketInit);
-    let records = (0..MAX_BUCKETS)
+    let records = (0..BATCH)
         .map(|index| bucket(&format!("batch-{index:04}"), "project"))
         .collect::<Vec<_>>();
     let (a, b) = tokio::join!(
@@ -629,14 +625,14 @@ async fn admin_ensure_full_batch_and_concurrent_creates_are_atomic() {
         admin.ensure_buckets(records)
     );
     let (a, b) = (a.unwrap(), b.unwrap());
-    assert_eq!(a.len(), MAX_BUCKETS);
-    assert_eq!(b.len(), MAX_BUCKETS);
+    assert_eq!(a.len(), BATCH);
+    assert_eq!(b.len(), BATCH);
     assert_eq!(
         a.iter()
             .chain(&b)
             .filter(|record| matches!(record, EnsureBucket::Created(_)))
             .count(),
-        MAX_BUCKETS
+        BATCH
     );
     assert_eq!(
         a.iter()
@@ -647,6 +643,42 @@ async fn admin_ensure_full_batch_and_concurrent_creates_are_atomic() {
             .collect::<Vec<_>>()
     );
     catalog.close().await.unwrap();
+}
+
+/// The initialization file enforces `max_buckets_per_batch`, so the catalog must not cut in with
+/// a count of its own: a raised limit would otherwise still stop here, at startup.
+#[tokio::test]
+async fn admin_ensure_accepts_a_batch_past_the_default_limit_and_finds_it_after_reopening() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let records = (0..=BATCH)
+        .map(|index| bucket(&format!("batch-{index:04}"), "project"))
+        .collect::<Vec<_>>();
+    let created = catalog
+        .admin(Origin::BucketInit)
+        .ensure_buckets(records.clone())
+        .await
+        .unwrap();
+    assert_eq!(created.len(), BATCH + 1);
+    assert!(
+        created
+            .iter()
+            .all(|record| matches!(record, EnsureBucket::Created(_)))
+    );
+    catalog.close().await.unwrap();
+    let reopened = Catalog::open(&dir.0).await.unwrap();
+    let existing = reopened
+        .admin(Origin::BucketInit)
+        .ensure_buckets(records)
+        .await
+        .unwrap();
+    assert_eq!(existing.len(), BATCH + 1);
+    assert!(
+        existing
+            .iter()
+            .all(|record| matches!(record, EnsureBucket::Existing(_)))
+    );
+    reopened.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -1025,7 +1057,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
         })
         .await
         .unwrap();
-    let records = (0..MAX_BUCKETS)
+    let records = (0..BATCH)
         .map(|index| {
             let mut input = bucket_definition(index);
             input.0.labels = (0..64)

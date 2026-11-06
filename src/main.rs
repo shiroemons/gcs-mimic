@@ -54,7 +54,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --sync-dir PATH              none (existing working tree; initial export after ready)
   --sync-delete-guard BOOL     true (deletion ingestion pending)
   --sync-reinitialize ID       startup only (exact catalog ID; missing marker only)
-  --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 MiB)
+  --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 KiB per allowed bucket and at least 1 MiB)
+  --max-buckets-per-batch N    1000 (1..1000000; buckets one --buckets-file or one seed may declare, not all buckets; memory grows with them)
   --api-base-url URL           Each request's Host, else the bound listener (set to fix the advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --admin-enabled BOOL         false (local management API; isolate the listener when enabled)
@@ -892,7 +893,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "07d04e4a9bfb17e47f03721a04829b4359b36b6071287dddf71528dff5ce8249"
+            "304d149bd1748e99fbb0d6c92e40110e7f500763c8414bd184aa469abfdb194b"
         );
     }
 
