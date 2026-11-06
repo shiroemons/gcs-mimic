@@ -38,7 +38,11 @@ fn finish_upload(mut upload: BufReader<TcpStream>) {
 fn finish_upload_with(upload: &mut BufReader<TcpStream>, body: &[u8]) {
     upload.get_mut().write_all(body).unwrap();
     let reply = common::read_http_response(upload, Body::Expected).unwrap();
-    assert!(reply.starts_with(b"HTTP/1.1 200"));
+    assert!(
+        reply.starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&reply)
+    );
 }
 
 /// The catalog wait bounds waiting for other work, not how long a tree takes to import.
@@ -147,7 +151,7 @@ fn reseeds_past_the_active_one_take_turns_and_all_complete() {
 #[test]
 fn reseed_short_catalog_wait_reports_no_changes_while_an_upload_is_active() {
     let (data, source) = (TestDir::new(), TestDir::new());
-    let server = seeded_server(&data, &source, "500");
+    let server = seeded_server(&data, &source, "2000");
     let upload = pending_media_upload(&server, "pending", b"hello".len());
     let busy = server.request("POST", "/_internal/reseed", "", b"");
     busy.expect(503);

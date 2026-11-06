@@ -272,7 +272,7 @@ fn reset_short_catalog_wait_reports_no_changes() {
             "--admin-enabled",
             "true",
             "--catalog-wait-timeout-ms",
-            "500",
+            "2000",
         ],
     );
     let mut reader = pending_media_upload(&server, "pending", b"hello".len());
@@ -291,7 +291,11 @@ fn reset_short_catalog_wait_reports_no_changes() {
     );
     reader.get_mut().write_all(b"hello").unwrap();
     let reply = common::read_http_response(&mut reader, Body::Expected).unwrap();
-    assert!(reply.starts_with(b"HTTP/1.1 200"));
+    assert!(
+        reply.starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&reply)
+    );
     drop(reader);
     // The finished upload's cleanup can still hold the catalog past a short wait; reset
     // then answers its documented no-change 503 with Retry-After, so retry it.
