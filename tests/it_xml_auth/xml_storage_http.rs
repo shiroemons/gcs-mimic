@@ -11,12 +11,7 @@ impl Server {
     fn start(data: &TestDir, options: &[&str]) -> Self {
         Self::launch(
             http_command(&data.0)
-                .args([
-                    "--connection-timeout-ms",
-                    "20000",
-                    "--api-base-url",
-                    "http://localhost:4443",
-                ])
+                .args(["--api-base-url", "http://localhost:4443"])
                 .args(options),
         )
         .graceful()

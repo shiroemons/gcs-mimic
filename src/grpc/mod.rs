@@ -24,7 +24,11 @@ pub mod generated {
     include!("generated/mod.rs");
 }
 
-use crate::{config::Config, server::State};
+use crate::{
+    config::Config,
+    server::{CountingIo, ReadActivity, State},
+    time_limit::TimeLimit,
+};
 use http_body_util::BodyExt;
 use hyper::{body::Incoming, server::conn::http2, service::service_fn};
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
@@ -39,7 +43,11 @@ use std::{
 use tokio::{net::TcpStream, sync::watch};
 use tonic::codegen::Service;
 
-const STREAM_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(60);
+/// The length of the fixed client preface that opens every HTTP/2 connection (RFC 9113 3.4).
+const HTTP2_PREFACE_BYTES: u64 = 24;
+/// How long a peer gets to answer GOAWAY when `header_read_timeout_ms` is disabled. A drain has
+/// to end even then, because a dead peer never answers and may hold an open stream.
+const DRAIN_GRACE: Duration = Duration::from_secs(5);
 
 pub(crate) async fn serve_connection(
     stream: TcpStream,
@@ -53,32 +61,26 @@ pub(crate) async fn serve_connection(
         config.compat_profile,
     );
     let service = v2::service(state, config.max_object_bytes, config.compat_profile);
-    serve_with_service(
-        stream,
-        config,
-        stopping,
-        STREAM_INACTIVITY_TIMEOUT,
-        move |request| {
-            let service = service.clone();
-            let mut legacy = legacy.clone();
-            async move {
-                if request
-                    .uri()
-                    .path()
-                    .starts_with("/google.storage.v1.Storage/")
-                {
-                    if !v1::known_method(request.uri().path()) {
-                        return Ok(v2::status::unsupported(
-                            "legacy v1 method outside the reference inventory",
-                        )
-                        .into_http());
-                    }
-                    return legacy.call(request).await;
+    serve_with_service(stream, config, stopping, move |request| {
+        let service = service.clone();
+        let mut legacy = legacy.clone();
+        async move {
+            if request
+                .uri()
+                .path()
+                .starts_with("/google.storage.v1.Storage/")
+            {
+                if !v1::known_method(request.uri().path()) {
+                    return Ok(v2::status::unsupported(
+                        "legacy v1 method outside the reference inventory",
+                    )
+                    .into_http());
                 }
-                v2::dispatch(service, request).await
+                return legacy.call(request).await;
             }
-        },
-    )
+            v2::dispatch(service, request).await
+        }
+    })
     .await;
 }
 
@@ -125,11 +127,48 @@ impl hyper::body::Body for ResponseBody {
     }
 }
 
+/// How far a connection has come, which selects the limit on its silence.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConnectionPhase {
+    /// Waiting for the client preface.
+    Handshake,
+    /// Serving streams, or idle between them.
+    Open,
+    /// GOAWAY went out after a deadline, and the peer gets a bounded time to finish.
+    Draining,
+    /// GOAWAY went out because the server is stopping.
+    Stopping,
+}
+
+/// How long a stopping server lets open streams finish after GOAWAY. Half the outer drain budget
+/// stays reserved for connection cleanup and joining. Neither part can be zero, because zero
+/// disables a setting, so a connection always gets to see its GOAWAY before closing.
+fn shutdown_grace(peer_wait: Duration, shutdown: TimeLimit) -> Duration {
+    shutdown
+        .duration()
+        .map_or(peer_wait, |budget| peer_wait.min(budget / 2))
+}
+
+fn http2_builder(ping_wait: TimeLimit) -> http2::Builder<TokioExecutor> {
+    let mut builder = http2::Builder::new(TokioExecutor::new());
+    builder
+        .max_concurrent_streams(8)
+        .max_header_list_size(16 * 1024)
+        .max_send_buf_size(64 * 1024)
+        .timer(TokioTimer::new());
+    // A zero interval would ping in a loop and a zero timeout would fail the first ping, so a
+    // disabled wait turns pings off and leaves dead peers to TCP keep-alive.
+    match ping_wait.duration() {
+        Some(wait) => builder.keep_alive_interval(wait).keep_alive_timeout(wait),
+        None => builder.keep_alive_interval(None::<Duration>),
+    };
+    builder
+}
+
 async fn serve_with_service<S, F>(
     stream: TcpStream,
     config: &Config,
     mut stopping: watch::Receiver<bool>,
-    stream_timeout: Duration,
     service: S,
 ) where
     S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
@@ -139,17 +178,14 @@ async fn serve_with_service<S, F>(
         streams: 0,
         last_frame: tokio::time::Instant::now(),
     });
-    let timeout = Duration::from_millis(config.connection_timeout_ms);
-    let mut builder = http2::Builder::new(TokioExecutor::new());
-    builder
-        .max_concurrent_streams(8)
-        .max_header_list_size(16 * 1024)
-        .max_send_buf_size(64 * 1024)
-        .timer(TokioTimer::new())
-        .keep_alive_interval(timeout)
-        .keep_alive_timeout(timeout);
-    let connection = builder.serve_connection(
-        TokioIo::new(stream),
+    let header_read = config.header_read_timeout;
+    let reads = Arc::new(ReadActivity::default());
+    let peer_wait = header_read.duration().unwrap_or(DRAIN_GRACE);
+    let connection = http2_builder(header_read).serve_connection(
+        TokioIo::new(CountingIo {
+            inner: stream,
+            reads: reads.clone(),
+        }),
         service_fn(move |request: hyper::Request<Incoming>| {
             active.send_modify(|activity| {
                 activity.streams += 1;
@@ -182,17 +218,18 @@ async fn serve_with_service<S, F>(
         }),
     );
     tokio::pin!(connection);
-    let idle = tokio::time::sleep(timeout);
+    // The handshake gets the header deadline. Once the client preface has arrived, a connection
+    // without streams is idle and gets the keep-alive deadline.
+    let idle = tokio::time::sleep_until(header_read.deadline());
     tokio::pin!(idle);
-    let mut draining = false;
-    let mut shutting_down = false;
+    let mut phase = ConnectionPhase::Handshake;
     loop {
         tokio::select! {
             biased;
             result = &mut connection => {
                 if let Err(error) = result {
                     let (event, message) = if error.is_timeout() {
-                        ("grpc_keepalive_timeout", "gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise connection_timeout_ms, for example 10000")
+                        ("grpc_keepalive_timeout", "gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise header_read_timeout_ms, for example 60000")
                     } else {
                         ("grpc_connection_failed", "gRPC connection failed; use a plaintext h2c client and grpc_listen, for example 127.0.0.1:4444")
                     };
@@ -200,38 +237,53 @@ async fn serve_with_service<S, F>(
                 }
                 break;
             }
-            _ = stopping.changed(), if !shutting_down => {
-                // Reserve half the outer drain budget for connection cleanup and joining.
-                let grace = timeout.min(Duration::from_millis(config.shutdown_timeout_ms) / 2);
-                let deadline = tokio::time::Instant::now() + grace;
-                let deadline = if draining {
-                    idle.deadline().min(deadline)
-                } else {
-                    connection.as_mut().graceful_shutdown();
-                    deadline
+            Ok(()) = stopping.changed() => {
+                let deadline = tokio::time::Instant::now() + shutdown_grace(peer_wait, config.shutdown_timeout);
+                let deadline = match phase {
+                    ConnectionPhase::Draining => idle.deadline().min(deadline),
+                    ConnectionPhase::Handshake | ConnectionPhase::Open | ConnectionPhase::Stopping => {
+                        connection.as_mut().graceful_shutdown();
+                        deadline
+                    }
                 };
-                draining = true;
-                shutting_down = true;
+                phase = ConnectionPhase::Stopping;
                 idle.as_mut().reset(deadline);
             }
-            Ok(()) = progress.changed(), if !draining => {
+            Ok(()) = progress.changed(), if matches!(phase, ConnectionPhase::Handshake | ConnectionPhase::Open) => {
+                phase = ConnectionPhase::Open;
                 let activity = *progress.borrow_and_update();
-                let bound = if activity.streams == 0 { timeout } else { stream_timeout };
-                idle.as_mut().reset(activity.last_frame + bound);
+                let limit = match activity.streams {
+                    0 => config.keep_alive_timeout,
+                    _ => config.body_inactivity_timeout,
+                };
+                idle.as_mut().reset(limit.deadline_from(activity.last_frame));
+            }
+            _ = reads.arrived.notified(), if phase == ConnectionPhase::Handshake => {
+                if reads.total() >= HTTP2_PREFACE_BYTES {
+                    phase = ConnectionPhase::Open;
+                    idle.as_mut().reset(config.keep_alive_timeout.deadline());
+                }
             }
             _ = &mut idle => {
-                if draining {
-                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "grpc_drain_timeout", serde_json::json!({"message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise connection_timeout_ms, for example 10000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":shutting_down}));
-                    break;
-                }
-                if progress.borrow().streams == 0 {
-                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Debug, "grpc_idle_timeout", serde_json::json!({"message":"gRPC connection idle deadline exceeded; sending GOAWAY; reconnect or raise connection_timeout_ms, for example 10000"}));
-                } else {
-                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_stream_inactivity_timeout", serde_json::json!({"message":"gRPC stream remained open without request or response frames for 60 seconds; sending GOAWAY; send periodically or close and reopen the stream"}));
+                match phase {
+                    ConnectionPhase::Draining | ConnectionPhase::Stopping => {
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "grpc_drain_timeout", serde_json::json!({"message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise header_read_timeout_ms, for example 60000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":phase == ConnectionPhase::Stopping}));
+                        break;
+                    }
+                    ConnectionPhase::Handshake => {
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_handshake_timeout", serde_json::json!({"message":"gRPC client sent no HTTP/2 preface before header_read_timeout_ms; sending GOAWAY; use a plaintext h2c client or raise header_read_timeout_ms, for example 60000"}));
+                    }
+                    ConnectionPhase::Open => {
+                        let streams = progress.borrow().streams;
+                        match streams {
+                            0 => crate::diagnostics::emit(crate::diagnostics::LogLevel::Debug, "grpc_idle_timeout", serde_json::json!({"message":"gRPC connection idle deadline exceeded; sending GOAWAY; reconnect or raise keep_alive_timeout_ms, for example 300000"})),
+                            _ => crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_stream_inactivity_timeout", serde_json::json!({"message":"gRPC stream remained open without request or response frames for body_inactivity_timeout_ms; sending GOAWAY; send periodically, close and reopen the stream, or raise the setting (0 disables it)"})),
+                        }
+                    }
                 }
                 connection.as_mut().graceful_shutdown();
-                draining = true;
-                idle.as_mut().reset(tokio::time::Instant::now() + timeout);
+                phase = ConnectionPhase::Draining;
+                idle.as_mut().reset(tokio::time::Instant::now() + peer_wait);
             }
         }
     }

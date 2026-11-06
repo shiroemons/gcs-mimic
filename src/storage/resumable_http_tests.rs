@@ -239,7 +239,9 @@ impl Harness {
             base,
             Config {
                 max_object_bytes: max,
-                catalog_wait_timeout_ms,
+                catalog_wait_timeout: gcs_mimic::time_limit::TimeLimit::from_millis(
+                    catalog_wait_timeout_ms,
+                ),
                 ..Default::default()
             },
         )

@@ -43,8 +43,7 @@ async fn authorize_controls(
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
 ) -> Result<tokio::time::Instant, JsonError> {
-    let deadline = tokio::time::Instant::now()
-        + std::time::Duration::from_millis(ctx.config.catalog_wait_timeout_ms);
+    let deadline = ctx.config.catalog_wait_timeout.deadline();
     let authorize = async {
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         tests::authorization_wait_checkpoint(ctx.activity).await;
@@ -212,7 +211,7 @@ async fn wait(
         ));
     }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout);
-    // The bounded handler deadline replaces connection inactivity while the server observes work.
+    // The bounded handler deadline replaces the request deadline while the server observes work.
     crate::server::begin_catalog_wait_until(ctx.activity, Some(deadline)).await;
     let (reply, receive) = tokio::sync::oneshot::channel();
     let settling = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -309,11 +308,8 @@ async fn observe<T>(
     receive: tokio::sync::oneshot::Receiver<T>,
 ) -> Result<T, JsonError> {
     crate::server::begin_catalog_wait_until(ctx.activity, None).await;
-    let result = tokio::time::timeout(
-        std::time::Duration::from_millis(ctx.config.object_request_timeout_ms),
-        receive,
-    )
-    .await;
+    let result =
+        tokio::time::timeout_at(ctx.config.object_request_timeout.deadline(), receive).await;
     result.map_err(|_| busy())?.map_err(|_| busy())
 }
 

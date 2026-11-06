@@ -9,7 +9,6 @@ use crate::{
         failure::{BackendFailure, object_unavailable},
     },
 };
-use std::time::Duration;
 use tokio::{sync::watch, time::Instant};
 
 const BYTE_BUDGET: u64 = 16 * 1024 * 1024;
@@ -99,7 +98,7 @@ pub(crate) async fn execute(
         deadline,
         activity,
     } = budget;
-    let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
+    let catalog_timeout = config.catalog_wait_timeout;
     if replay.is_none() {
         await_upload_catalog(
             catalog.check_upload(
@@ -118,14 +117,14 @@ pub(crate) async fn execute(
     if let Some(replay) = &mut replay {
         replay.bind_source(&source_record);
     }
-    begin_catalog_wait(activity).await;
+    let wait = begin_catalog_wait(activity).await;
     let transfer = tokio::time::timeout_at(
         deadline,
         catalog.begin_derived_ephemeral(vec![source.whole()], config.max_object_bytes),
     )
     .await
     .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;
-    activity.send_modify(|activity| activity.awaiting_catalog = false);
+    drop(wait);
     let mut owner = catalog.guard_derived_request(&transfer.id);
     // The request owns this future: cancellation can finish an in-flight bounded advance,
     // but cannot start publication after its handler and cleanup guard have been dropped.
@@ -134,9 +133,9 @@ pub(crate) async fn execute(
         #[cfg(test)]
         checkpoint_at(&progress, &mut checkpoint).await?;
         while progress.offset < progress.total {
-            begin_catalog_wait(activity).await;
+            let wait = begin_catalog_wait(activity).await;
             progress = catalog.advance_derived(&transfer.id, BYTE_BUDGET).await?;
-            activity.send_modify(|activity| activity.awaiting_catalog = false);
+            drop(wait);
             #[cfg(test)]
             checkpoint_at(&progress, &mut checkpoint).await?;
         }
@@ -144,7 +143,7 @@ pub(crate) async fn execute(
     })
     .await
     .map_err(|_| object_unavailable(BackendFailure::CopyDeadline))??;
-    begin_catalog_wait(activity).await;
+    let wait = begin_catalog_wait(activity).await;
     // Only catalog admission can time out. Once publication starts, return its durable outcome
     // rather than reporting a timeout while a detached mutation can still commit.
     let result = catalog
@@ -173,11 +172,11 @@ pub(crate) async fn execute(
                 Ok(())
             },
             |_, _| Ok(()),
-            Some(deadline.min(Instant::now() + catalog_timeout)),
+            Some(deadline.min(catalog_timeout.deadline())),
             replay,
         )
         .await;
-    activity.send_modify(|activity| activity.awaiting_catalog = false);
+    drop(wait);
     if result.is_ok() {
         owner.disarm();
     }
@@ -195,7 +194,7 @@ mod tests {
         test_support::TestDir,
     };
     use bytes::Bytes;
-    use std::fs;
+    use std::{fs, time::Duration};
     use tokio::sync::{mpsc, oneshot};
 
     async fn fixture() -> (Catalog, TestDir) {
@@ -270,7 +269,7 @@ mod tests {
         let (resume, paused) = oneshot::channel();
         let request = tokio::spawn(async move {
             let config = Config {
-                catalog_wait_timeout_ms: wait_ms,
+                catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_ms),
                 ..Default::default()
             };
             let (activity, _updates) = watch::channel(ObjectActivity::default());

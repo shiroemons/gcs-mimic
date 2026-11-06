@@ -125,7 +125,7 @@ pub(super) async fn respond(
         )
     };
     let body = body.filter(|value| !value.is_null());
-    begin_catalog_wait(activity).await;
+    let wait = begin_catalog_wait(activity).await;
     // Once mutation starts, await its durable result instead of timing out a detached commit.
     let job = RewriteJob {
         operation,
@@ -144,7 +144,7 @@ pub(super) async fn respond(
         ),
     )
     .await;
-    activity.send_modify(|progress| progress.awaiting_catalog = false);
+    drop(wait);
     let (value, mut owner) =
         result.map_err(|failure| JsonError::from(ObjectError::backend(failure)))??;
     let mut response = Response::new(Full::new(Bytes::from(json::render_body(&value))));

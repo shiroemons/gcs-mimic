@@ -187,7 +187,7 @@ fn body(
                 if sender.send(Ok(bytes)).await.is_err() {
                     return Ok(());
                 }
-                activity.send_modify(|progress| progress.awaiting_catalog = false);
+                super::record_progress(&activity);
             }
         };
         // RequestFinished clears the deadline on response cancellation or completion.

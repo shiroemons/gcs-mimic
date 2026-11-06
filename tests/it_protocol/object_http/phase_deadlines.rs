@@ -1,0 +1,322 @@
+//! Each connection phase has its own deadline: a slow client mid-transfer is not a stuck request.
+//! Short explicit limits keep real time low; no test waits for a default.
+use super::*;
+
+/// Longer than `LIMIT` by enough to survive scheduler stalls on loaded runners.
+const STALL: Duration = Duration::from_millis(1500);
+const LIMIT: &str = "500";
+
+/// Holds for `wait` and proves that the server neither answered nor closed meanwhile.
+fn assert_silent(stream: &TcpStream, wait: Duration) {
+    stream.set_read_timeout(Some(wait)).unwrap();
+    let error = stream
+        .peek(&mut [0])
+        .expect_err("the server answered or closed during the stall");
+    assert!(
+        matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ),
+        "{error}"
+    );
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
+}
+
+fn start_with(dir: &TestDir, args: &[&str]) -> Server {
+    Server::launch(http_command(&dir.0).args(args))
+}
+
+/// A server whose header and request deadlines are far shorter than the client's stall, with
+/// body inactivity left at its default (disabled).
+fn impatient(dir: &TestDir) -> Server {
+    before_short_deadline(dir, |_| ());
+    start_with(
+        dir,
+        &[
+            "--header-read-timeout-ms",
+            LIMIT,
+            "--request-timeout-ms",
+            LIMIT,
+        ],
+    )
+}
+
+/// Sends `head`, then each part after a stall.
+fn stalled(server: &Server, head: &str, parts: &[&[u8]]) -> Reply {
+    let mut stream = server.stream();
+    stream.set_nodelay(true).unwrap();
+    stream.write_all(head.as_bytes()).unwrap();
+    for part in parts {
+        assert_silent(&stream, STALL);
+        stream.write_all(part).unwrap();
+    }
+    Reply::framed(stream)
+}
+
+#[test]
+fn obj_http_stalled_upload_body_outlives_header_and_request_deadlines() {
+    let dir = TestDir::new();
+    let server = impatient(&dir);
+
+    // Before the first body byte as well as between later ones.
+    stalled(
+        &server,
+        "POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=media HTTP/1.1\r\nHost: local\r\nConnection: close\r\nContent-Length: 10\r\n\r\n",
+        &[b"01234", b"56789"],
+    )
+    .expect(200);
+    assert_eq!(server.get("media?alt=media").body, b"0123456789");
+
+    stalled(
+        &server,
+        "POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=chunked HTTP/1.1\r\nHost: local\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n",
+        &[b"5\r\n01234\r\n", b"5\r\n56789\r\n0\r\n\r\n"],
+    )
+    .expect(200);
+    assert_eq!(server.get("chunked?alt=media").body, b"0123456789");
+
+    let multipart = b"--b\r\nContent-Type: application/json\r\n\r\n{\"name\":\"multipart\"}\r\n--b\r\nContent-Type: text/plain\r\n\r\nhello\r\n--b--\r\n";
+    let (first, second) = multipart.split_at(50);
+    stalled(
+        &server,
+        &format!(
+            "POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: local\r\nConnection: close\r\nContent-Type: multipart/related; boundary=b\r\nContent-Length: {}\r\n\r\n",
+            multipart.len()
+        ),
+        &[first, second],
+    )
+    .expect(200);
+    assert_eq!(server.get("multipart?alt=media").body, b"hello");
+
+    stalled(
+        &server,
+        "PUT /test-bucket/xml HTTP/1.1\r\nHost: local\r\nConnection: close\r\nContent-Length: 10\r\n\r\n",
+        &[b"01234", b"56789"],
+    )
+    .expect(200);
+    assert_eq!(server.get("xml?alt=media").body, b"0123456789");
+}
+
+#[test]
+fn obj_http_stalled_resumable_chunk_outlives_header_and_request_deadlines() {
+    let dir = TestDir::new();
+    let server = impatient(&dir);
+    let started = server.request(
+        "POST",
+        "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=session",
+        "Content-Type: application/json\r\n",
+        b"{}",
+    );
+    started.expect(200);
+    let location = started.headers["location"].clone();
+    let path = location
+        .find("/upload/storage/")
+        .map(|start| &location[start..])
+        .unwrap();
+    stalled(
+        &server,
+        &format!(
+            "PUT {path} HTTP/1.1\r\nHost: local\r\nConnection: close\r\nContent-Length: 10\r\nContent-Range: bytes 0-9/10\r\n\r\n"
+        ),
+        &[b"01234", b"56789"],
+    )
+    .expect(200);
+    assert_eq!(server.get("session?alt=media").body, b"0123456789");
+}
+
+/// More than the kernel socket buffers hold, so a client that stops reading stalls the response.
+const LARGE: usize = 64 * 1024 * 1024;
+
+fn large_object(dir: &TestDir) {
+    let server = start_with(dir, &[]);
+    server.bucket();
+    let reply = server.upload("name=large", "", &vec![b'x'; LARGE]);
+    reply.expect(200);
+    drop(server);
+}
+
+fn stalled_download(server: &Server) -> TcpStream {
+    let mut stream = server.stream();
+    stream
+        .write_all(b"GET /storage/v1/b/test-bucket/o/large?alt=media HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    stream
+}
+
+fn read_all(stream: &mut TcpStream) -> usize {
+    let mut received = 0;
+    let mut buffer = vec![0; 1024 * 1024];
+    while let Ok(1..) = stream.read(&mut buffer).inspect(|count| received += *count) {}
+    received
+}
+
+/// Holds for a stall while a download's client reads nothing. Its own socket has data to read by
+/// then, so a connection idle between requests, which these limits do not cover, keeps the time.
+fn hold_during_download(server: &Server) {
+    let mut idle = server.stream();
+    idle.write_all(b"GET /_internal/health HTTP/1.1\r\nHost: local\r\n\r\n")
+        .unwrap();
+    let mut idle = BufReader::new(idle);
+    common::read_http_response(&mut idle, common::http::Body::Expected).unwrap();
+    assert_silent(idle.get_ref(), STALL);
+}
+
+#[test]
+fn obj_http_stalled_download_outlives_header_and_request_deadlines() {
+    let dir = TestDir::new();
+    large_object(&dir);
+    let server = start_with(
+        &dir,
+        &[
+            "--header-read-timeout-ms",
+            LIMIT,
+            "--request-timeout-ms",
+            LIMIT,
+        ],
+    );
+    let mut stream = stalled_download(&server);
+    hold_during_download(&server);
+    assert!(read_all(&mut stream) > LARGE, "the response was cut short");
+}
+
+#[test]
+fn obj_http_explicit_body_inactivity_cuts_a_stalled_download() {
+    let dir = TestDir::new();
+    large_object(&dir);
+    let server = start_with(&dir, &["--body-inactivity-timeout-ms", LIMIT]);
+    let mut stream = stalled_download(&server);
+    hold_during_download(&server);
+    assert!(read_all(&mut stream) < LARGE, "the stall went unnoticed");
+}
+
+#[test]
+fn obj_http_explicit_body_inactivity_answers_a_stalled_upload_with_408() {
+    let dir = TestDir::new();
+    before_short_deadline(&dir, |_| ());
+    let server = start_with(&dir, &["--body-inactivity-timeout-ms", LIMIT]);
+    let mut stream = server.stream();
+    stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=idle HTTP/1.1\r\nHost: local\r\nContent-Length: 100\r\n\r\nx").unwrap();
+    let reply = Reply::framed(stream);
+    reply.json_error(408, "uploadBrokenConnection");
+    assert!(
+        reply.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("body_inactivity_timeout_ms"),
+        "{}",
+        reply.json()
+    );
+    server.get("idle").json_error(404, "notFound");
+}
+
+/// Zero disables, rather than expires at once, and the largest value must not overflow time
+/// arithmetic, on every path that turns a setting into a deadline.
+#[test]
+fn obj_http_disabled_and_largest_timeouts_never_cut_any_phase() {
+    for value in ["0", "18446744073709551615"] {
+        let dir = TestDir::new();
+        let mut server = start_with(
+            &dir,
+            &[
+                "--header-read-timeout-ms",
+                value,
+                "--body-inactivity-timeout-ms",
+                value,
+                "--request-timeout-ms",
+                value,
+                "--keep-alive-timeout-ms",
+                value,
+                "--object-request-timeout-ms",
+                value,
+                "--catalog-wait-timeout-ms",
+                value,
+                "--shutdown-timeout-ms",
+                value,
+            ],
+        );
+        server.bucket();
+        server.upload("name=source", "", b"hello").expect(200);
+        assert_eq!(server.get("source?alt=media").body, b"hello");
+        server
+            .request(
+                "POST",
+                "/storage/v1/b/test-bucket/o/source/copyTo/b/test-bucket/o/copied",
+                "",
+                b"",
+            )
+            .expect(200);
+        server
+            .request(
+                "POST",
+                "/storage/v1/b/test-bucket/o/source/rewriteTo/b/test-bucket/o/rewritten",
+                "",
+                b"",
+            )
+            .expect(200);
+        server
+            .request(
+                "POST",
+                "/storage/v1/b/test-bucket/o/composed/compose",
+                "Content-Type: application/json\r\n",
+                br#"{"sourceObjects":[{"name":"source"}]}"#,
+            )
+            .expect(200);
+        let started = server.request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=session",
+            "Content-Type: application/json\r\n",
+            b"{}",
+        );
+        started.expect(200);
+        let location = started.headers["location"].clone();
+        let path = location
+            .find("/upload/storage/")
+            .map(|start| &location[start..])
+            .unwrap();
+        server
+            .request("PUT", path, "Content-Range: bytes 0-4/5\r\n", b"hello")
+            .expect(200);
+        server
+            .request("PUT", "/test-bucket/xml", "", b"hello")
+            .expect(200);
+        server
+            .request("DELETE", "/storage/v1/b/test-bucket/o/copied", "", b"")
+            .expect(204);
+
+        // A connection that has not sent anything yet, and one idle between requests.
+        let mut silent = BufReader::new(server.stream());
+        let mut persistent = BufReader::new(server.stream());
+        let health = b"GET /_internal/health HTTP/1.1\r\nHost: local\r\n\r\n";
+        persistent.get_mut().write_all(health).unwrap();
+        common::read_http_response(&mut persistent, common::http::Body::Expected).unwrap();
+        for connection in [&mut silent, &mut persistent] {
+            assert_silent(connection.get_ref(), Duration::from_millis(200));
+            connection.get_mut().write_all(health).unwrap();
+            let response =
+                common::read_http_response(connection, common::http::Body::Expected).unwrap();
+            assert!(response.starts_with(b"HTTP/1.1 200"), "with {value}");
+        }
+        // Stopping still ends idle connections, even without a drain limit.
+        server.stop();
+    }
+}
+
+#[test]
+fn obj_http_ready_event_reports_the_alias_and_explicit_overrides() {
+    let dir = TestDir::new();
+    let server = start_with(
+        &dir,
+        &[
+            "--connection-timeout-ms",
+            "7000",
+            "--request-timeout-ms",
+            "9000",
+        ],
+    );
+    assert_eq!(server.ready["header_read_timeout_ms"], 7000);
+    assert_eq!(server.ready["body_inactivity_timeout_ms"], 7000);
+    assert_eq!(server.ready["request_timeout_ms"], 9000);
+    assert!(server.ready.get("connection_timeout_ms").is_none());
+}

@@ -83,7 +83,7 @@ impl CatalogWait<'_> {
                 super::resumable::await_session_upload(
                     operation,
                     progress,
-                    ctx.catalog_timeout(),
+                    ctx.config.catalog_wait_timeout,
                     ctx.deadline,
                     ctx.activity,
                 )

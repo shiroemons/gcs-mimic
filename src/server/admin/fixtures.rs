@@ -13,7 +13,7 @@ use crate::{
         AdminError, BucketName, Generation, ImportedIdentity, ObjectName, Publication, PublishMode,
     },
 };
-use http_body_util::{BodyExt, Full};
+use http_body_util::Full;
 use hyper::{
     Method, Request, Response, StatusCode,
     body::{Body, Bytes},
@@ -50,12 +50,7 @@ pub(super) async fn insert(
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let object = ctx.object(None, deadline);
     let boundary = json::multipart_boundary(request.headers())?;
-    let activity = ctx.activity;
-    let body = request.into_body().map_frame(|frame| {
-        activity.send_modify(|progress| progress.awaiting_catalog = false);
-        frame
-    });
-    let mut multipart = json::Multipart::related(body, &boundary);
+    let mut multipart = json::Multipart::related(request.into_body(), &boundary);
     let metadata = multipart.metadata().await?;
     let mut fixture = parse(
         &metadata,

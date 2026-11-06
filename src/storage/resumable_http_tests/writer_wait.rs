@@ -25,7 +25,9 @@ async fn stalled_chunk(h: &Harness, path: &str) -> TcpStream {
 async fn with_writer_wait(catalog_wait_timeout_ms: u64) -> Arc<Harness> {
     let config = Config {
         max_object_bytes: 1024 * 1024,
-        catalog_wait_timeout_ms,
+        catalog_wait_timeout: gcs_mimic::time_limit::TimeLimit::from_millis(
+            catalog_wait_timeout_ms,
+        ),
         ..Default::default()
     };
     let h = Harness::start_with_config(Permissive, None, config.clone()).await;
@@ -35,7 +37,17 @@ async fn with_writer_wait(catalog_wait_timeout_ms: u64) -> Arc<Harness> {
 
 #[tokio::test]
 async fn a_retry_waits_for_the_abandoned_chunk_and_then_resumes_the_session() {
-    let h = with_writer_wait(60_000).await;
+    retry_waits_for_the_abandoned_chunk(60_000).await;
+}
+
+/// Zero disables the budget, so the retry keeps waiting rather than failing at once.
+#[tokio::test]
+async fn a_disabled_budget_waits_for_the_abandoned_chunk_without_a_limit() {
+    retry_waits_for_the_abandoned_chunk(0).await;
+}
+
+async fn retry_waits_for_the_abandoned_chunk(catalog_wait_timeout_ms: u64) {
+    let h = with_writer_wait(catalog_wait_timeout_ms).await;
     let init = h.initiate("name=retried", "", b"").await;
     let path = h.path(&init);
     let stalled = stalled_chunk(&h, &path).await;

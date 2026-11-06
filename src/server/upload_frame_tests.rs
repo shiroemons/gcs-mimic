@@ -31,10 +31,9 @@ async fn largest_forwarded_chunk(head: &str, body: &[u8]) -> (usize, usize) {
             });
             let (activity, _progress) = watch::channel(ObjectActivity::default());
             stream_upload(
-                RequestBody::Transport(request.into_body()),
+                RequestBody::transport(request.into_body(), activity),
                 &sender,
                 u64::MAX,
-                &activity,
                 None,
             )
             .await

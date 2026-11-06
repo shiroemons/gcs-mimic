@@ -40,11 +40,11 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --unix-socket PATH           none (Unix HTTP socket; private 0700 parent, scheme=http, no TCP/gRPC)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
-  --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS listener)
+  --tls-handshake-timeout-ms N  5000 (0 disables; HTTPS listener)
   --data-dir PATH              data (exclusive persistent catalog)
   --backend MODE               disk (disk|memory; memory never opens data-dir, loses data at exit)
-  --memory-max-bytes N          67108864 (RAM blob bytes plus chunk overhead; 1..1073741824)
-  --memory-catalog-max-bytes N  16777216 (RAM SQLite pages; 1048576..1073741824; separate from RSS)
+  --memory-max-bytes N          67108864 (RAM blob bytes plus chunk overhead; 1..1099511627776)
+  --memory-catalog-max-bytes N  16777216 (RAM SQLite pages; 1048576..1099511627776; separate from RSS)
   --seed-dir PATH              none (read-only fixtures; replayed on every startup)
   --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
@@ -62,17 +62,20 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --admin-allowed-hosts LIST   none (comma-separated DNS names allowed to reach /_internal management; at most 32)
   --local-creator-email EMAIL local-user@gcs-mimic.invalid (permissive native: creator recorded as owner and ACL OWNER of new objects; empty disables; grants nothing)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
-  --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
-  --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
+  --max-connections N          1024 (1..1048576; shared across listeners and TLS handshakes; raises the soft open-file limit to match)
+  --max-object-bytes N         5497558138880 (1..5497558138880; streamed upload cap)
   --max-resumable-sessions N   0 (0..4294967295; active resumable uploads; 0 is unlimited)
   --max-rewrite-sessions N     0 (0..4294967295; unfinished rewrites; 0 is unlimited)
-  --worker-threads N           2 (1..32)
-  --max-blocking-threads N     8 (1..32)
-  --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)
-  --keep-alive-timeout-ms N    120000 (1..600000; idle time between HTTP/1.1 requests)
-  --object-request-timeout-ms N 900000 (1..86400000; absolute upload/media deadline)
-  --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait and wait for a busy upload session)
-  --shutdown-timeout-ms N      5000 (1..60000)
+  --worker-threads N           2 (1..1024)
+  --max-blocking-threads N     8 (1..1024)
+  --header-read-timeout-ms N   30000 (0 disables; request head arrival, gRPC handshake and HTTP/2 ping acknowledgement)
+  --body-inactivity-timeout-ms N 0 (0 disables; silence while an object body or gRPC stream is in flight)
+  --request-timeout-ms N       180000 (0 disables; handler time before a response starts, including small request bodies)
+  --connection-timeout-ms N    none (alias; sets the three settings above, and each of them named explicitly wins)
+  --keep-alive-timeout-ms N    120000 (0 disables; idle time between HTTP/1.1 requests and on gRPC connections)
+  --object-request-timeout-ms N 0 (0 disables; absolute upload/media deadline)
+  --catalog-wait-timeout-ms N  120000 (0 disables; upload advisory/commit wait and wait for a busy upload session)
+  --shutdown-timeout-ms N      5000 (0 disables; waits for unfinished requests without a limit)
   --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
@@ -360,6 +363,12 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         return Err(report.diagnostics.into());
     }
     auth = auth.with_verifier_budget(report.config.max_blocking_threads);
+    report
+        .diagnostics
+        .warnings
+        .extend(gcs_mimic::fd_limit::raise_for_connections(
+            report.config.max_connections,
+        ));
     report.diagnostics.write(io::stderr().lock())?;
     let config = report.config;
     gcs_mimic::diagnostics::set_log_level(config.log_level);
@@ -883,7 +892,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "7267d9b102ee9b31f04e74775635e5e3f7d5fd0231d5bf2e669a4ae60bc35c42"
+            "07d04e4a9bfb17e47f03721a04829b4359b36b6071287dddf71528dff5ce8249"
         );
     }
 

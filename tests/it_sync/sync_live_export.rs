@@ -88,7 +88,7 @@ fn live_wait_observes_source_work_beyond_the_connection_inactivity_budget() {
     let data = TestDir::new();
     let tree = TestDir::new();
     let mut server =
-        SyncServer::start_with_args(&data.0, &tree.0, &["--connection-timeout-ms", "100"]);
+        SyncServer::start_with_args(&data.0, &tree.0, &["--request-timeout-ms", "100"]);
     server.wait(b"{}").0.expect(200);
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     fs::write(tree.0.join("test-bucket/body"), b"waited body").unwrap();

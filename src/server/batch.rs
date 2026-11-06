@@ -80,6 +80,7 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
         return Err(invalid("Compressed batch envelopes are unsupported"));
     }
     let deadline = ctx.start_object_deadline(super::DeadlineWatch::CatalogOnly);
+    ctx.stream_request_body();
     let admission =
         tokio::time::timeout_at(deadline, ctx.state.pools.batches.clone().acquire_owned())
             .await
@@ -103,7 +104,6 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
             return Err(too_large());
         }
         bytes.extend_from_slice(&data);
-        super::body_progress(ctx.activity);
     }
     let permit = PARSERS.acquire().await.map_err(|_| parser_unavailable())?;
     let api_base_url = ctx.endpoints.api_base_url().to_owned();
@@ -327,7 +327,7 @@ mod tests {
         drop(response);
 
         let short = Config {
-            object_request_timeout_ms: 1,
+            object_request_timeout: crate::time_limit::TimeLimit::from_millis(1),
             ..config.clone()
         };
         let permits = state

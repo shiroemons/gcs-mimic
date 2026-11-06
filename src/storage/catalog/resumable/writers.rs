@@ -1,5 +1,7 @@
 use super::{Catalog, CatalogError, unavailable};
-use crate::storage::{blob_id::BlobId, failure::BackendFailure};
+use crate::storage::{
+    blob_id::BlobId, catalog::session_limits::WriterWait, failure::BackendFailure,
+};
 use std::{collections::HashSet, fmt};
 
 /// Typed namespaces keep unrelated transfer and upload IDs independent.
@@ -142,10 +144,12 @@ impl Catalog {
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
         match self.session_limits().writer_wait {
-            None => self.claim_writer(key, origin),
-            Some(budget) => tokio::time::timeout(budget, self.claim_released(key, origin))
-                .await
-                .unwrap_or(Err(ClaimError::Busy)),
+            WriterWait::Fail => self.claim_writer(key, origin),
+            WriterWait::Within(limit) => {
+                tokio::time::timeout_at(limit.deadline(), self.claim_released(key, origin))
+                    .await
+                    .unwrap_or(Err(ClaimError::Busy))
+            }
         }
     }
 
@@ -215,7 +219,7 @@ mod tests {
         .await
         .unwrap();
         catalog.apply_session_limits(&Config {
-            catalog_wait_timeout_ms: wait_ms,
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_ms),
             ..Default::default()
         });
         catalog

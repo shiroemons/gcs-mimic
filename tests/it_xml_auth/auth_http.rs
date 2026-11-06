@@ -60,17 +60,8 @@ impl Server {
         } else {
             &["--api-base-url", "http://127.0.0.1:4443"]
         };
-        // The connection deadline also bounds a whole non-object request and the gaps
-        // between response chunks. A short one answered ordinary requests with 503 or
-        // cut a download short under loaded runs, so only deadline tests set their own.
-        let timeout_options: &[&str] = if auth.contains(&"--connection-timeout-ms") {
-            &[]
-        } else {
-            &["--connection-timeout-ms", "20000"]
-        };
         let server = Self::launch(
             http_command(&dir.0)
-                .args(timeout_options)
                 .args(api_options)
                 .args(auth)
                 .stderr(stderr),
@@ -99,7 +90,7 @@ impl Server {
 
     fn stream(&self) -> TcpStream {
         let stream = TcpStream::connect(&self.address).unwrap();
-        // A hang guard, not a latency bound; it outlasts the server's connection deadline
+        // A hang guard, not a latency bound; it outlasts the deadlines these tests set
         // so a stalled request reports the server's answer rather than a client timeout.
         stream
             .set_read_timeout(Some(Duration::from_secs(30)))
@@ -793,7 +784,7 @@ fn auth_http_rejected_uploads_do_not_read_or_stage_the_body() {
     let server = Server::strict_with(
         &dir,
         &identity_file(&config),
-        &["--connection-timeout-ms", "30000"],
+        &["--body-inactivity-timeout-ms", "30000"],
     );
     server
         .create_bucket(ADMIN, "project-a", "bucket-a")

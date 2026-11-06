@@ -220,7 +220,7 @@ fn multipart_manifest_rejects_malformed_xml_without_publication_and_accepts_chun
 #[test]
 fn multipart_wire_round_trip_sparse_parts_paging_restart_and_checksum_metadata() {
     let dir = TestDir::new();
-    let server = Server::start(&dir, &["--connection-timeout-ms", "30000"]);
+    let server = Server::start(&dir, &[]);
     bucket(&server, "");
     let id = begin(&server, "dir%2Fvalue", "");
     let first = vec![b'a'; 5 * 1024 * 1024];
@@ -258,7 +258,7 @@ fn multipart_wire_round_trip_sparse_parts_paging_restart_and_checksum_metadata()
             .contains("<CommonPrefixes><Prefix>dir/</Prefix>")
     );
     drop(server);
-    let server = Server::start(&dir, &["--connection-timeout-ms", "30000"]);
+    let server = Server::start(&dir, &[]);
     let reply = complete(&server, "dir%2Fvalue", &id, "", &[(2, &etag), (9, &last)]);
     reply.status(200);
     assert!(reply.headers.contains("x-goog-hash: crc32c="));

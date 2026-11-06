@@ -10,6 +10,7 @@ pub mod config_input;
 mod csek;
 pub mod diagnostics;
 mod error;
+pub mod fd_limit;
 // The descriptor and xattr FFI calls carry their `unsafe_code` expectations on the individual
 // wrapper functions in this module, so new unsafe code elsewhere in it still fails the lint.
 pub mod fsutil;
@@ -37,6 +38,7 @@ mod task;
     reason = "Unit tests use a subset of the fixtures shared with the integration tests"
 )]
 mod test_support;
+pub mod time_limit;
 pub mod tls;
 pub mod url;
 mod xml;

@@ -991,6 +991,28 @@ fn assert_upload_timed_out(response: &[u8]) {
     );
 }
 
+/// Zero disables the handshake deadline instead of expiring it at once, and the largest value
+/// must not overflow it.
+#[test]
+fn tls_disabled_and_largest_handshake_limits_still_serve() {
+    for value in ["0", "18446744073709551615"] {
+        let dir = TestDir::new();
+        let certs = dir.0.join("tls");
+        fixtures(&certs);
+        let server = Server::start(
+            &dir.0.join("data"),
+            &certs,
+            &["--tls-handshake-timeout-ms", value],
+        );
+        success(curl(
+            &server,
+            &certs.join("ca.pem"),
+            &[],
+            "/_internal/ready",
+        ));
+    }
+}
+
 #[test]
 fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
     let dir = TestDir::new();
@@ -1003,7 +1025,7 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
         // The active upload needs a TLS handshake plus 480 ms of chunks inside the
         // absolute deadline even on slow CI runners; the trickle below outlasts it.
         &[
-            "--connection-timeout-ms",
+            "--body-inactivity-timeout-ms",
             "600",
             "--object-request-timeout-ms",
             "1500",

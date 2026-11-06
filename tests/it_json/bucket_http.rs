@@ -3969,8 +3969,8 @@ fn bkt_http_failed_recovery_never_reports_ready() {
 #[test]
 fn bkt_http_deadline_before_response_returns_backend_error() {
     let dir = TestDir::new();
-    let server = Server::start_options(&dir, &["--connection-timeout-ms", "500"]);
-    // An external reserved lock keeps the catalog write waiting past the connection deadline.
+    let server = Server::start_options(&dir, &["--request-timeout-ms", "500"]);
+    // An external reserved lock keeps the catalog write waiting past the request deadline.
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     // A persistent request, so the closing announcement below comes from the deadline.
@@ -3997,6 +3997,40 @@ fn bkt_http_deadline_before_response_returns_backend_error() {
         200 | 409
     ));
     server.insert("after-deadline", "deadline").expect(200);
+}
+
+/// A bucket body is small enough to arrive at once, so stalling it stays a request-deadline
+/// failure, even though object transfers wait for such a client indefinitely by default.
+#[test]
+fn bkt_http_stalled_small_body_is_bounded_by_the_request_deadline() {
+    use std::{
+        io::{Read, Write},
+        net::TcpStream,
+    };
+    let dir = TestDir::new();
+    let server = Server::start_options(&dir, &["--request-timeout-ms", "500"]);
+    let reply = server.raw("POST /storage/v1/b?project=deadline HTTP/1.1\r\nHost: local.invalid\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"name\":");
+    reply.json_envelope(503, "backendError");
+    assert!(reply.body.contains("request_timeout_ms"), "{}", reply.body);
+    // Bytes that keep arriving do not renew the deadline for the whole of a small body. Were they
+    // to renew it, these gaps would finish the body first and the reply would be a 400.
+    let mut stream = TcpStream::connect(&server.address).unwrap();
+    stream.write_all(b"POST /storage/v1/b?project=deadline HTTP/1.1\r\nHost: local.invalid\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n").unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .unwrap();
+    while stream.peek(&mut [0]).is_err() {
+        if stream.write_all(b" ").is_err() {
+            break;
+        }
+    }
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut response = Vec::new();
+    let _ = stream.read_to_end(&mut response);
+    let text = String::from_utf8_lossy(&response);
+    assert!(text.starts_with("HTTP/1.1 503"), "{text}");
 }
 
 #[test]

@@ -6,6 +6,7 @@ use crate::{
     bucket::bucket_location,
     config_input::{CliCommand, Input, InputError, InputKind, Inputs, LEGACY_PREFIX},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
+    time_limit::TimeLimit,
     url::PublicOrigin,
 };
 use std::{
@@ -151,7 +152,7 @@ pub struct Config {
     pub scheme: Scheme,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
-    pub tls_handshake_timeout_ms: u64,
+    pub tls_handshake_timeout: TimeLimit,
     pub data_dir: PathBuf,
     pub backend: Backend,
     pub memory_max_bytes: u64,
@@ -199,11 +200,18 @@ pub struct Config {
     pub max_rewrite_sessions: Option<NonZeroU32>,
     pub worker_threads: usize,
     pub max_blocking_threads: usize,
-    pub connection_timeout_ms: u64,
-    pub keep_alive_timeout_ms: u64,
-    pub object_request_timeout_ms: u64,
-    pub catalog_wait_timeout_ms: u64,
-    pub shutdown_timeout_ms: u64,
+    // Cloud Storage documents no seconds for these and asks for "reasonably long" upload
+    // timeouts, so the defaults are local choices that a slow client should not reach.
+    /// Waiting for a request head: on a new connection, and once a next request has started.
+    pub header_read_timeout: TimeLimit,
+    /// Silence while a streamed request body or a response body is in flight.
+    pub body_inactivity_timeout: TimeLimit,
+    /// A handler's time before its response starts, and so all of a small-bodied request.
+    pub request_timeout: TimeLimit,
+    pub keep_alive_timeout: TimeLimit,
+    pub object_request_timeout: TimeLimit,
+    pub catalog_wait_timeout: TimeLimit,
+    pub shutdown_timeout: TimeLimit,
     pub auth_mode: AuthMode,
     pub compat_profile: CompatProfile,
     pub cors_fallback: CorsFallback,
@@ -222,7 +230,7 @@ impl Default for Config {
             scheme: Scheme::Https,
             tls_cert: None,
             tls_key: None,
-            tls_handshake_timeout_ms: 5_000,
+            tls_handshake_timeout: TimeLimit::from_millis(5_000),
             data_dir: PathBuf::from("data"),
             backend: Backend::Disk,
             memory_max_bytes: 64 * 1024 * 1024,
@@ -255,8 +263,8 @@ impl Default for Config {
             event_object_prefix: String::new(),
             event_list: "finalize".into(),
             xml_virtual_host_domains: Vec::new(),
-            max_connections: 32,
-            max_object_bytes: 1024 * 1024 * 1024,
+            max_connections: 1024,
+            max_object_bytes: setting::MAX_OBJECT_BYTES,
             max_resumable_sessions: None,
             max_rewrite_sessions: None,
             worker_threads: 2,
@@ -264,11 +272,15 @@ impl Default for Config {
             // the rest serve tokio::fs reads, writes and syncs for every connection, so
             // one slow fsync must not stall all other transfers. Still bounded.
             max_blocking_threads: 8,
-            connection_timeout_ms: 5_000,
-            keep_alive_timeout_ms: 120_000,
-            object_request_timeout_ms: 900_000,
-            catalog_wait_timeout_ms: 30_000,
-            shutdown_timeout_ms: 5_000,
+            header_read_timeout: TimeLimit::from_millis(30_000),
+            body_inactivity_timeout: TimeLimit::DISABLED,
+            // Longer than the catalog wait, so a waiting request reports that wait's own failure.
+            request_timeout: TimeLimit::from_millis(180_000),
+            keep_alive_timeout: TimeLimit::from_millis(120_000),
+            // Accepting 5 TiB objects rules out a fixed bound on a whole transfer.
+            object_request_timeout: TimeLimit::DISABLED,
+            catalog_wait_timeout: TimeLimit::from_millis(120_000),
+            shutdown_timeout: TimeLimit::from_millis(5_000),
             auth_mode: AuthMode::Permissive,
             compat_profile: CompatProfile::Native,
             cors_fallback: CorsFallback::None,
@@ -568,12 +580,15 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::MaxSeedEntries
         | Setting::MaxSeedDepth
         | Setting::WorkerThreads
-        | Setting::MaxBlockingThreads
-        | Setting::ConnectionTimeoutMs
+        | Setting::MaxBlockingThreads => apply_limit_setting(config, setting, &value),
+        Setting::ConnectionTimeoutMs
+        | Setting::HeaderReadTimeoutMs
+        | Setting::BodyInactivityTimeoutMs
+        | Setting::RequestTimeoutMs
         | Setting::KeepAliveTimeoutMs
         | Setting::ObjectRequestTimeoutMs
         | Setting::CatalogWaitTimeoutMs
-        | Setting::ShutdownTimeoutMs => apply_limit_setting(config, setting, &value),
+        | Setting::ShutdownTimeoutMs => apply_timeout_setting(config, setting, &value),
         Setting::Config => Err(unknown_setting()),
     }
 }
@@ -618,7 +633,7 @@ fn apply_network_setting(
             }
         }
         Setting::TlsHandshakeTimeoutMs => {
-            config.tls_handshake_timeout_ms = setting.integer(value)?
+            config.tls_handshake_timeout = setting.time_limit(value)?
         }
         _ => return Err(unknown_setting()),
     }
@@ -823,11 +838,30 @@ fn apply_limit_setting(
         Setting::MaxSeedDepth => config.max_seed_depth = count()?,
         Setting::WorkerThreads => config.worker_threads = count()?,
         Setting::MaxBlockingThreads => config.max_blocking_threads = count()?,
-        Setting::ConnectionTimeoutMs => config.connection_timeout_ms = value,
-        Setting::KeepAliveTimeoutMs => config.keep_alive_timeout_ms = value,
-        Setting::ObjectRequestTimeoutMs => config.object_request_timeout_ms = value,
-        Setting::CatalogWaitTimeoutMs => config.catalog_wait_timeout_ms = value,
-        Setting::ShutdownTimeoutMs => config.shutdown_timeout_ms = value,
+        _ => return Err(unknown_setting()),
+    }
+    Ok(())
+}
+
+fn apply_timeout_setting(
+    config: &mut Config,
+    setting: Setting,
+    value: &str,
+) -> Result<(), SettingFix> {
+    let limit = setting.time_limit(value)?;
+    match setting {
+        Setting::ConnectionTimeoutMs => {
+            config.header_read_timeout = limit;
+            config.body_inactivity_timeout = limit;
+            config.request_timeout = limit;
+        }
+        Setting::HeaderReadTimeoutMs => config.header_read_timeout = limit,
+        Setting::BodyInactivityTimeoutMs => config.body_inactivity_timeout = limit,
+        Setting::RequestTimeoutMs => config.request_timeout = limit,
+        Setting::KeepAliveTimeoutMs => config.keep_alive_timeout = limit,
+        Setting::ObjectRequestTimeoutMs => config.object_request_timeout = limit,
+        Setting::CatalogWaitTimeoutMs => config.catalog_wait_timeout = limit,
+        Setting::ShutdownTimeoutMs => config.shutdown_timeout = limit,
         _ => return Err(unknown_setting()),
     }
     Ok(())
@@ -856,7 +890,12 @@ impl ConfigurationReport {
     }
 
     fn apply_settings(&mut self, settings: &Settings) {
-        for (key, input) in settings {
+        // `connection_timeout_ms` is a coarse alias for three finer settings, so it goes first:
+        // any of those named explicitly overrides it, whichever source named either one.
+        let alias_key = Setting::ConnectionTimeoutMs.as_str();
+        let alias = settings.get_key_value(alias_key);
+        let rest = settings.iter().filter(|(key, _)| key.as_str() != alias_key);
+        for (key, input) in alias.into_iter().chain(rest) {
             if let Some(invalid) = input.invalid {
                 self.invalid.insert(key.clone());
                 if invalid == InputError::Encoding {
@@ -2129,7 +2168,7 @@ mod tests {
             Scheme::Https
         );
         assert_eq!(load_http(&[], &BTreeMap::new()).unwrap().api_base_url, None);
-        assert_eq!(defaults.tls_handshake_timeout_ms, 5_000);
+        assert_eq!(defaults.tls_handshake_timeout.as_millis(), 5_000);
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"scheme":"https","tls_cert":"file-cert.pem","tls_key":"file-key.pem","tls_handshake_timeout_ms":100}"#).unwrap();
@@ -2177,7 +2216,7 @@ mod tests {
                 (
                     config.tls_cert,
                     config.tls_key,
-                    config.tls_handshake_timeout_ms,
+                    config.tls_handshake_timeout.as_millis(),
                 )
             },
         );
@@ -2213,16 +2252,19 @@ mod tests {
                 .is_err()
             );
         }
-        for invalid in ["0", "60001", "-1", "unlimited"] {
+        for invalid in ["18446744073709551616", "-1", "unlimited"] {
             let mut args = cli.clone();
             *args.last_mut().unwrap() = invalid.into();
             assert!(Config::load(&args, &env).is_err());
         }
-        for bound in [1, 60_000] {
+        for bound in [0, 1, u64::MAX] {
             let mut args = cli.clone();
             *args.last_mut().unwrap() = bound.to_string();
             assert_eq!(
-                Config::load(&args, &env).unwrap().tls_handshake_timeout_ms,
+                Config::load(&args, &env)
+                    .unwrap()
+                    .tls_handshake_timeout
+                    .as_millis(),
                 bound
             );
         }
@@ -2420,18 +2462,34 @@ mod tests {
 
     #[test]
     fn transfer_timeout_precedence_and_bounds() {
-        for (setting, default, maximum) in [
-            ("object_request_timeout_ms", 900_000, 86_400_000),
-            ("catalog_wait_timeout_ms", 30_000, 60_000),
-            ("keep_alive_timeout_ms", 120_000, 600_000),
-        ] {
+        type Field = fn(Config) -> TimeLimit;
+        let settings: [(&str, u64, Field); 7] = [
+            ("header_read_timeout_ms", 30_000, |config| {
+                config.header_read_timeout
+            }),
+            ("body_inactivity_timeout_ms", 0, |config| {
+                config.body_inactivity_timeout
+            }),
+            ("request_timeout_ms", 180_000, |config| {
+                config.request_timeout
+            }),
+            ("object_request_timeout_ms", 0, |config| {
+                config.object_request_timeout
+            }),
+            ("catalog_wait_timeout_ms", 120_000, |config| {
+                config.catalog_wait_timeout
+            }),
+            ("keep_alive_timeout_ms", 120_000, |config| {
+                config.keep_alive_timeout
+            }),
+            ("shutdown_timeout_ms", 5_000, |config| {
+                config.shutdown_timeout
+            }),
+        ];
+        for (setting, default, limit) in settings {
             let dir = TestDir::new();
             let file = dir.0.join("config.json");
-            let value = |config: Config| match setting {
-                "object_request_timeout_ms" => config.object_request_timeout_ms,
-                "catalog_wait_timeout_ms" => config.catalog_wait_timeout_ms,
-                _ => config.keep_alive_timeout_ms,
-            };
+            let value = |config: Config| limit(config).as_millis();
             let flag = format!("--{}", setting.replace('_', "-"));
             let key = format!("GCS_MIMIC_{}", setting.to_ascii_uppercase());
             let args = vec!["--config".into(), file.to_str().unwrap().into()];
@@ -2447,21 +2505,134 @@ mod tests {
             );
             assert_rejected(
                 setting,
-                &[
-                    "0".into(),
-                    "-1".into(),
-                    (maximum + 1).to_string(),
-                    "unlimited".into(),
-                ],
+                &["-1", "18446744073709551616", "unlimited"],
                 "must be an integer",
             );
-            for bound in [1, maximum] {
+            for bound in [0, 1, u64::MAX] {
                 assert_eq!(
                     value(load_http(&[flag.clone(), bound.to_string()], &BTreeMap::new()).unwrap()),
                     bound
                 );
             }
             std::fs::remove_file(file).unwrap();
+        }
+    }
+
+    /// The three settings `connection_timeout_ms` stands for, in that order.
+    fn split_timeouts(config: &Config) -> [u64; 3] {
+        [
+            config.header_read_timeout,
+            config.body_inactivity_timeout,
+            config.request_timeout,
+        ]
+        .map(TimeLimit::as_millis)
+    }
+
+    #[test]
+    fn connection_timeout_alias_fills_every_setting_it_replaces() {
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(&file, r#"{"connection_timeout_ms":100}"#).unwrap();
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_CONNECTION_TIMEOUT_MS".into(), "200".into())]);
+        assert_precedence(
+            &args,
+            &env,
+            &["--connection-timeout-ms", "300"],
+            [[30_000, 0, 180_000], [100; 3], [200; 3], [300; 3]],
+            load_http,
+            |config| split_timeouts(&config),
+        );
+        assert_rejected(
+            "connection_timeout_ms",
+            &["-1", "18446744073709551616", "unlimited"],
+            "must be an integer",
+        );
+        for bound in [0, u64::MAX] {
+            let flag = ["--connection-timeout-ms".to_owned(), bound.to_string()];
+            let config = load_http(&flag, &BTreeMap::new()).unwrap();
+            assert_eq!(split_timeouts(&config), [bound; 3]);
+        }
+    }
+
+    /// `body_inactivity_timeout_ms` sorts before the alias and the others after it, so each one
+    /// is checked: no name order may let the alias overwrite an explicit value.
+    #[test]
+    fn an_explicit_timeout_beats_the_alias_from_any_source() {
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
+        for (index, setting) in [
+            "body_inactivity_timeout_ms",
+            "header_read_timeout_ms",
+            "request_timeout_ms",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut expected = [7; 3];
+            let order = [1, 0, 2][index];
+            expected[order] = 9;
+            let flag = format!("--{}", setting.replace('_', "-"));
+            let env_key = format!("GCS_MIMIC_{}", setting.to_ascii_uppercase());
+            let alias_cli = ["--connection-timeout-ms".to_owned(), "7".to_owned()];
+            let alias_env =
+                BTreeMap::from([("GCS_MIMIC_CONNECTION_TIMEOUT_MS".into(), "7".to_owned())]);
+
+            // Same source.
+            let args = [alias_cli[0].clone(), "7".into(), flag.clone(), "9".into()];
+            let loaded = load_http(&args, &BTreeMap::new()).unwrap();
+            assert_eq!(split_timeouts(&loaded), expected, "{setting} on the CLI");
+            std::fs::write(
+                &file,
+                format!(r#"{{"connection_timeout_ms":7,"{setting}":9}}"#),
+            )
+            .unwrap();
+            let config_args = ["--config".to_owned(), file.to_str().unwrap().into()];
+            let loaded = load_http(&config_args, &BTreeMap::new()).unwrap();
+            assert_eq!(split_timeouts(&loaded), expected, "{setting} in the file");
+
+            // The alias from a source that otherwise takes precedence.
+            let env = BTreeMap::from([(env_key, "9".to_owned())]);
+            let loaded = load_http(&alias_cli, &env).unwrap();
+            assert_eq!(split_timeouts(&loaded), expected, "{setting} over the CLI");
+            std::fs::write(&file, format!(r#"{{"{setting}":9}}"#)).unwrap();
+            let loaded = load_http(&config_args, &alias_env).unwrap();
+            assert_eq!(split_timeouts(&loaded), expected, "{setting} over the env");
+        }
+    }
+
+    #[test]
+    fn capacity_settings_accept_their_raised_bounds_only() {
+        for (setting, maximum, value) in [
+            (
+                "max_connections",
+                1_048_576,
+                (|config| config.max_connections as u64) as fn(Config) -> u64,
+            ),
+            ("worker_threads", 1024, |config| {
+                config.worker_threads as u64
+            }),
+            ("max_blocking_threads", 1024, |config| {
+                config.max_blocking_threads as u64
+            }),
+            ("memory_max_bytes", 1024_u64.pow(4), |config| {
+                config.memory_max_bytes
+            }),
+            ("memory_catalog_max_bytes", 1024_u64.pow(4), |config| {
+                config.memory_catalog_max_bytes
+            }),
+        ] {
+            let flag = format!("--{}", setting.replace('_', "-"));
+            let mut args = vec![flag, maximum.to_string()];
+            if setting.starts_with("memory") {
+                args.extend(["--backend".into(), "memory".into()]);
+            }
+            assert_eq!(
+                value(load_http(&args, &BTreeMap::new()).unwrap()),
+                maximum,
+                "{setting}"
+            );
+            assert_rejected(setting, &[(maximum + 1).to_string()], "must be an integer");
         }
     }
 
@@ -2476,7 +2647,7 @@ mod tests {
             &args,
             &env,
             &["--max-object-bytes", "256"],
-            [1_073_741_824, 64, 128, 256],
+            [5 * 1024_u64.pow(4), 64, 128, 256],
             load_http,
             |config| config.max_object_bytes,
         );

@@ -700,7 +700,7 @@ async fn a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget() {
     for (budget, expected_busy) in [(60_000, false), (20, true)] {
         let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
         catalog.apply_session_limits(&crate::config::Config {
-            catalog_wait_timeout_ms: budget,
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(budget),
             ..Default::default()
         });
         let target = begin(&catalog).await;

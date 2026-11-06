@@ -1087,7 +1087,7 @@ mod tests {
     async fn a_retried_continuation_waits_for_the_request_still_running() {
         let (catalog, directory, _clock) = fixture().await;
         catalog.apply_session_limits(&crate::config::Config {
-            catalog_wait_timeout_ms: 60_000,
+            catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(60_000),
             ..Default::default()
         });
         let (token, mut owner) = new_session(&catalog).await.unwrap();

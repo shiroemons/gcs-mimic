@@ -1186,7 +1186,7 @@ fn token_server(dir: &TestDir, upload: &str) -> Server {
         "https://advertised.invalid/api",
         "--max-object-bytes",
         "1000",
-        "--connection-timeout-ms",
+        "--body-inactivity-timeout-ms",
         "5000",
         "--object-request-timeout-ms",
         "900000",

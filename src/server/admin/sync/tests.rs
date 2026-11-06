@@ -105,6 +105,10 @@ struct AuthorizationWaitHook {
     observer: std::sync::Mutex<Option<tokio::sync::watch::Receiver<ObjectActivity>>>,
 }
 tokio::task_local! {static AUTHORIZATION_WAIT_HOOK:Arc<AuthorizationWaitHook>;}
+fn awaiting_catalog(observer: &tokio::sync::watch::Receiver<ObjectActivity>) -> bool {
+    observer.borrow().stage == crate::server::RequestStage::AwaitingCatalog
+}
+
 pub(super) async fn authorization_wait_checkpoint(
     activity: &tokio::sync::watch::Sender<ObjectActivity>,
 ) {
@@ -123,10 +127,11 @@ async fn wait_authorization_deadline_and_cancellation_release_activity() {
     }
     for end in [End::Deadline, End::Cancel] {
         let mut fixture = Fixture::new(Tree::Empty).await;
-        fixture.config.catalog_wait_timeout_ms = match end {
-            End::Deadline => 20,
-            End::Cancel => 30_000,
-        };
+        fixture.config.catalog_wait_timeout =
+            crate::time_limit::TimeLimit::from_millis(match end {
+                End::Deadline => 20,
+                End::Cancel => 30_000,
+            });
         let hook = Arc::new(AuthorizationWaitHook::default());
         let timeout = match end {
             End::Deadline => Duration::from_millis(500),
@@ -148,7 +153,7 @@ async fn wait_authorization_deadline_and_cancellation_release_activity() {
             End::Cancel => assert!(result.is_err()),
         }
         let observer = hook.observer.lock().unwrap().take().unwrap();
-        assert!(!observer.borrow().awaiting_catalog);
+        assert!(!awaiting_catalog(&observer));
         assert!(observer.borrow().deadline.is_none());
         fixture.finish().await;
     }
@@ -167,10 +172,8 @@ async fn wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_err
                     async {
                         hook.entered.notified().await;
                         let observer = hook.observer.lock().unwrap().take().unwrap();
-                        let (claimed, bounded) = {
-                            let progress = observer.borrow();
-                            (progress.awaiting_catalog, progress.deadline.is_some())
-                        };
+                        let claimed = awaiting_catalog(&observer);
+                        let bounded = observer.borrow().deadline.is_some();
                         hook.release.notify_one();
                         (claimed, bounded, observer)
                     }
@@ -182,7 +185,7 @@ async fn wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_err
         } else {
             assert_eq!(result.unwrap_err().status, StatusCode::BAD_REQUEST)
         }
-        observations.push((claimed, bounded, observer.borrow().awaiting_catalog));
+        observations.push((claimed, bounded, awaiting_catalog(&observer)));
     }
     fixture.finish().await;
     for (claimed, bounded, active) in observations {

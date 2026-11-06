@@ -13,6 +13,7 @@ use crate::{
         ResumableChunk, ResumableOptions, SessionState,
         failure::{BackendFailure, object_unavailable},
     },
+    time_limit::TimeLimit,
 };
 use bytes::Bytes;
 use http_body_util::Full;
@@ -591,15 +592,9 @@ async fn stream_chunk(
     progress: watch::Receiver<bool>,
 ) -> Result<Option<serde_json::Value>, JsonError> {
     let producer = async {
-        stream_upload(
-            body,
-            &sender,
-            ctx.config.max_object_bytes,
-            ctx.activity,
-            None,
-        )
-        .await
-        .map(|_| UploadEnd::Eof)
+        stream_upload(body, &sender, ctx.config.max_object_bytes, None)
+            .await
+            .map(|_| UploadEnd::Eof)
     };
     drive_upload(
         CatalogWait::Session { ctx, progress },
@@ -614,16 +609,16 @@ async fn stream_chunk(
 pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
     operation: impl std::future::Future<Output = Result<T, E>>,
     mut progress: watch::Receiver<bool>,
-    timeout: std::time::Duration,
+    timeout: TimeLimit,
     deadline: tokio::time::Instant,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Result<T, E> {
-    super::begin_catalog_wait(activity).await;
+    let _wait = super::begin_catalog_wait(activity).await;
     tokio::pin!(operation);
-    let result = loop {
+    loop {
         let waiting = *progress.borrow_and_update();
         let wait_deadline = if waiting {
-            deadline.min(tokio::time::Instant::now() + timeout)
+            deadline.min(timeout.deadline())
         } else {
             deadline
         };
@@ -636,9 +631,7 @@ pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
                 break Err(object_unavailable(failure).into());
             }
         }
-    };
-    activity.send_modify(|progress| progress.awaiting_catalog = false);
-    result
+    }
 }
 
 #[cfg(test)]
@@ -668,7 +661,8 @@ mod tests {
                     .await
                     .map_err(|_| JsonError::from(ObjectError::Unavailable("dropped".into())))
             };
-            await_session_upload(operation, updates, BUDGET, deadline, &activity).await
+            let budget = TimeLimit::from_millis(BUDGET.as_millis() as u64);
+            await_session_upload(operation, updates, budget, deadline, &activity).await
         });
         settle().await;
         (task, progress, finish)

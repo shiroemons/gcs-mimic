@@ -654,7 +654,7 @@ fn xml_put_rechecks_create_delete_and_bucket_grants_at_publication() {
 fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
     // A graceful stop below waits for a stalled upload, which only the connection
     // deadline ends before the 5 s shutdown timeout.
-    let (_config, data, mut server) = fixture_with(&["--connection-timeout-ms", "2000"]);
+    let (_config, data, mut server) = fixture_with(&["--body-inactivity-timeout-ms", "2000"]);
     let before = snapshot(&server, &data);
     let mut stream = expect_continue(&server, OBJECT, ADMIN, 99999);
     stream.write_all(b"partial").unwrap();
@@ -676,7 +676,11 @@ fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
     }
     clean(&data, &mut server);
     let identities = identity_file(&_config);
-    let mut server = Server::strict_with(&data, &identities, &["--connection-timeout-ms", "2000"]);
+    let mut server = Server::strict_with(
+        &data,
+        &identities,
+        &["--body-inactivity-timeout-ms", "2000"],
+    );
     assert_eq!(snapshot(&server, &data), before);
     let mut stream = expect_continue(&server, OBJECT, ADMIN, 99999);
     stream.write_all(b"partial").unwrap();
@@ -702,8 +706,8 @@ fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
 #[test]
 fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     let data = TestDir::new();
-    // The stalled body below must meet the connection deadline before the client's hang guard.
-    let (mut server, _) = Server::start(&data, &["--connection-timeout-ms", "2000"]);
+    // The stalled body below must meet the inactivity deadline before the client's hang guard.
+    let (mut server, _) = Server::start(&data, &["--body-inactivity-timeout-ms", "2000"]);
     server
         .create_bucket("", "project-a", "iam-bucket")
         .success();
@@ -711,7 +715,7 @@ fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     let before = snapshot(&server, &data);
     xml_error(&server.raw(b"PUT /iam-bucket/object HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nnew\r\n0\r\nx-goog-hash: crc32c=AAAAAA==\r\n\r\n"), 400, "IncompleteBody");
     clean(&data, &mut server);
-    let (mut server, _) = Server::start(&data, &["--connection-timeout-ms", "2000"]);
+    let (mut server, _) = Server::start(&data, &["--body-inactivity-timeout-ms", "2000"]);
     assert_eq!(snapshot(&server, &data), before);
     let mut stream = expect_continue(&server, OBJECT, "", 99999);
     stream.write_all(b"partial").unwrap();
