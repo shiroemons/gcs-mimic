@@ -55,6 +55,18 @@ where
     S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
     F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
 {
+    start_sharing(config, Arc::default(), service).await
+}
+
+async fn start_sharing<S, F>(
+    config: Config,
+    slots: Arc<SlotReclaim>,
+    service: S,
+) -> (TcpStream, watch::Sender<bool>, JoinHandle<()>)
+where
+    S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
+    F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
+{
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let client = TcpStream::connect(listener.local_addr().unwrap())
         .await
@@ -62,7 +74,7 @@ where
     let (server, _) = listener.accept().await.unwrap();
     let (stop, stopping) = watch::channel(false);
     let task = tokio::spawn(async move {
-        serve_with_service(server, &config, stopping, service).await;
+        serve_with_service(server, &config, stopping, &slots, service).await;
     });
     (client, stop, task)
 }
@@ -517,6 +529,335 @@ async fn grpc_stream_limit_follows_the_setting() {
         ..Config::default()
     };
     assert_stream_limit(config, 2).await;
+}
+
+type Reply =
+    Pin<Box<dyn Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send>>;
+
+/// A service that answers at once, except that `/hold` stays open until `release` fires.
+#[derive(Clone, Default)]
+struct HoldGate {
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+impl HoldGate {
+    fn service(
+        &self,
+    ) -> impl Fn(hyper::Request<tonic::body::Body>) -> Reply + Send + Sync + 'static {
+        let gate = self.clone();
+        move |request| {
+            let gate = gate.clone();
+            Box::pin(async move {
+                if request.uri().path() == "/hold" {
+                    gate.entered.notify_one();
+                    gate.release.notified().await;
+                }
+                Ok(hyper::Response::new(tonic::body::Body::empty()))
+            })
+        }
+    }
+}
+
+/// A connection whose only closing reason in these tests is a client waiting for its slot.
+fn reclaim_config() -> Config {
+    Config {
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..config()
+    }
+}
+
+async fn hold(client: &mut TcpStream, gate: &HoldGate, stream: u32) {
+    // Static HPACK indexes encode POST and http, followed by a literal path of /hold.
+    let headers = [0x83, 0x86, 0x04, 5, b'/', b'h', b'o', b'l', b'd'];
+    send_frame(client, 1, 5, stream, &headers).await;
+    timeout(DEADLINE * 20, gate.entered.notified())
+        .await
+        .unwrap();
+}
+
+/// Reads frames, acknowledging what asks for it, until the first of `kind` and returns it.
+async fn frame_of_kind(client: &mut TcpStream, wanted: u8) -> Vec<u8> {
+    timeout(DEADLINE * 20, async {
+        loop {
+            let (kind, flags, data) = frame(client).await.expect("the connection stays open");
+            if kind == wanted {
+                return data;
+            }
+            acknowledge(client, kind, flags, &data).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+
+/// Completes one stream on a new connection, and leaves it idle in the line behind any other
+/// connection that a test made idle before it.
+async fn idle_after_one_stream(client: &mut TcpStream) {
+    handshake(client).await;
+    request(client, 1).await;
+    frame_of_kind(client, 1).await;
+    let kinds = frames_for(client, DEADLINE / 2).await;
+    assert!(!kinds.contains(&7), "GOAWAY in {kinds:?}");
+}
+
+#[tokio::test]
+async fn grpc_idle_connection_gives_its_slot_to_a_waiting_client() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let (mut client, _stop, task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut client).await;
+    let _waiting = slots.request();
+    closed_with_goaway(&mut client).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+    assert!(!slots.is_wanted(), "the connection took the request");
+}
+
+#[tokio::test]
+async fn grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let (mut oldest, _stop, oldest_task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut oldest).await;
+    let (mut younger, _stop, younger_task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut younger).await;
+    let waiting = slots.request();
+    closed_with_goaway(&mut oldest).await;
+    timeout(DEADLINE * 5, oldest_task).await.unwrap().unwrap();
+    drop(waiting);
+    let kinds = frames_for(&mut younger, DEADLINE * 2).await;
+    assert!(
+        !kinds.contains(&7),
+        "younger connection got GOAWAY: {kinds:?}"
+    );
+    assert!(!younger_task.is_finished());
+    let _next = slots.request();
+    closed_with_goaway(&mut younger).await;
+    timeout(DEADLINE * 5, younger_task).await.unwrap().unwrap();
+}
+
+/// The wake also outlives a client that got its slot another way, and must not close anything.
+#[tokio::test]
+async fn grpc_wake_that_outlives_its_request_closes_nothing() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let (mut client, _stop, task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut client).await;
+    drop(slots.request());
+    let kinds = frames_for(&mut client, DEADLINE * 2).await;
+    assert!(!kinds.contains(&7), "GOAWAY in {kinds:?}");
+    assert!(!task.is_finished());
+    // It went back in line, so a real request still reaches it.
+    let _waiting = slots.request();
+    closed_with_goaway(&mut client).await;
+}
+
+#[tokio::test]
+async fn grpc_open_stream_is_not_reclaimed_until_it_ends() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let (mut client, _stop, task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut client).await;
+    hold(&mut client, &gate, 3).await;
+    let _waiting = slots.request();
+    let kinds = frames_for(&mut client, DEADLINE * 3).await;
+    assert!(!kinds.contains(&7), "open stream got GOAWAY: {kinds:?}");
+    assert!(!task.is_finished());
+    assert!(
+        slots.is_wanted(),
+        "the request stays for another connection"
+    );
+    // Ending the stream makes the connection idle, and the stored wake reaches it there.
+    gate.release.notify_one();
+    frame_of_kind(&mut client, 1).await;
+    closed_with_goaway(&mut client).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+    assert!(!slots.is_wanted());
+}
+
+#[tokio::test]
+async fn grpc_stream_start_leaves_the_idle_line_for_the_next_connection() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let (mut oldest, _stop, oldest_task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut oldest).await;
+    let (mut younger, _stop, younger_task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut younger).await;
+    hold(&mut oldest, &gate, 3).await;
+    let kinds = frames_for(&mut oldest, DEADLINE / 2).await;
+    assert!(!kinds.contains(&7), "GOAWAY in {kinds:?}");
+    let _waiting = slots.request();
+    closed_with_goaway(&mut younger).await;
+    timeout(DEADLINE * 5, younger_task).await.unwrap().unwrap();
+    let kinds = frames_for(&mut oldest, DEADLINE * 2).await;
+    assert!(!kinds.contains(&7), "busy connection got GOAWAY: {kinds:?}");
+    assert!(!oldest_task.is_finished());
+}
+
+#[tokio::test]
+async fn grpc_stream_start_passes_a_received_wake_to_the_next_in_line() {
+    let slots = SlotReclaim::default();
+    let mut oldest = ConnectionPhase::Idle {
+        turn: slots.join_line(),
+    };
+    let mut younger = slots.join_line();
+    let _waiting = slots.request();
+    oldest.after_stream_activity(1, &slots);
+    assert!(matches!(oldest, ConnectionPhase::Streaming));
+    timeout(DEADLINE * 20, younger.reached()).await.unwrap();
+    assert!(slots.take_request());
+}
+
+/// A stream the peer opens before reading GOAWAY was accepted. Cutting it at the idle grace would
+/// fail a call the protocol promised to serve, just because a client waited for a slot.
+#[tokio::test]
+async fn grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let (mut client, _stop, task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut client).await;
+    let _waiting = slots.request();
+    // The PING behind this GOAWAY stays unanswered, so the server still accepts the next stream,
+    // as it does from a peer that has not read the GOAWAY yet.
+    frame_of_kind(&mut client, 7).await;
+    hold(&mut client, &gate, 3).await;
+    frames_for(&mut client, DEADLINE * 3).await;
+    assert!(!task.is_finished(), "the raced stream was cut");
+    gate.release.notify_one();
+    frame_of_kind(&mut client, 1).await;
+    read_to_close(&mut client).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn grpc_silent_stream_that_raced_the_reclaim_goaway_stays_bounded() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let config = Config {
+        body_inactivity_timeout: limit(DEADLINE * 2),
+        ..reclaim_config()
+    };
+    let (mut client, _stop, task) = start_sharing(config, slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut client).await;
+    let _waiting = slots.request();
+    frame_of_kind(&mut client, 7).await;
+    hold(&mut client, &gate, 3).await;
+    read_to_close(&mut client).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+}
+
+/// Reads to the end of a connection whose GOAWAY the test already consumed.
+async fn read_to_close(client: &mut TcpStream) {
+    timeout(DEADLINE * 20, async {
+        loop {
+            match read_frame(client).await {
+                Ok(Some((kind, flags, data))) => {
+                    if let Some(frame) = acknowledgement(kind, flags, &data)
+                        && let Err(error) = client.write_all(&frame).await
+                    {
+                        assert!(peer_closed(&error), "HTTP/2 write failed: {error}");
+                    }
+                }
+                Ok(None) => break,
+                Err(error) if peer_closed(&error) => break,
+                Err(error) => panic!("HTTP/2 read failed: {error}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn grpc_stopping_bounds_a_stream_that_raced_the_reclaim_goaway() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let (mut client, stop, task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut client).await;
+    let _waiting = slots.request();
+    frame_of_kind(&mut client, 7).await;
+    hold(&mut client, &gate, 3).await;
+    stop.send_replace(true);
+    read_to_close(&mut client).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+}
+
+/// A silent peer cannot hold the slot for the longer `header_read_timeout_ms`, which would also
+/// hold every client queued behind the waiting one.
+#[tokio::test]
+async fn grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let config = Config {
+        header_read_timeout: TimeLimit::from_millis(60_000),
+        ..reclaim_config()
+    };
+    let (mut client, _stop, task) = start_sharing(config, slots.clone(), gate.service()).await;
+    idle_after_one_stream(&mut client).await;
+    let _waiting = slots.request();
+    frame_of_kind(&mut client, 7).await;
+    // The client acknowledges nothing from here on, and pings stay far away on the long limit.
+    timeout(DRAIN_GRACE * 3, task).await.unwrap().unwrap();
+}
+
+/// With more clients than slots, reclaiming each new connection at its preface would hand the
+/// slot back and forth without any client ever finishing a call.
+#[tokio::test]
+async fn grpc_new_connection_keeps_its_slot_while_it_opens_its_first_stream() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let config = Config {
+        header_read_timeout: TimeLimit::from_millis(60_000),
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..Config::default()
+    };
+    let _waiting = slots.request();
+    let (mut client, _stop, task) = start_sharing(config, slots.clone(), gate.service()).await;
+    handshake(&mut client).await;
+    let kinds = frames_for(&mut client, DEADLINE * 2).await;
+    assert!(!kinds.contains(&7), "new connection got GOAWAY: {kinds:?}");
+    assert!(slots.is_wanted());
+    // Having served a call, it can give way like any other idle connection.
+    request(&mut client, 1).await;
+    frame_of_kind(&mut client, 1).await;
+    closed_with_goaway(&mut client).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+}
+
+/// Pools connect ahead of their calls, so an unused connection still gives way after its grace.
+#[tokio::test]
+async fn grpc_connection_that_never_opens_a_stream_joins_the_idle_line() {
+    let slots = Arc::<SlotReclaim>::default();
+    let gate = HoldGate::default();
+    let (mut client, _stop, task) =
+        start_sharing(reclaim_config(), slots.clone(), gate.service()).await;
+    handshake(&mut client).await;
+    let _waiting = slots.request();
+    closed_with_goaway(&mut client).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+}
+
+/// The grace before joining the line must not stretch a shorter keep-alive limit.
+#[tokio::test]
+async fn grpc_keep_alive_shorter_than_the_first_stream_grace_still_closes_on_time() {
+    let config = Config {
+        header_read_timeout: TimeLimit::from_millis(60_000),
+        keep_alive_timeout: limit(DEADLINE),
+        ..Config::default()
+    };
+    let (mut client, _stop, task) = start_with(config, pending_stream).await;
+    handshake(&mut client).await;
+    closed_with_goaway(&mut client).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
 }
 
 #[test]

@@ -787,7 +787,7 @@ impl ConnectionStarter<'_> {
         let connection = async move {
             match stream {
                 transport::Stream::Tcp(stream) if grpc_index == Some(index) => {
-                    crate::grpc::serve_connection(stream, &config, state, stopping).await;
+                    crate::grpc::serve_connection(stream, &config, state, stopping, &slots).await;
                 }
                 transport::Stream::Tcp(stream) => {
                     serve_http(stream, acceptor, state, config, stopping, slots).await;
@@ -803,12 +803,13 @@ impl ConnectionStarter<'_> {
     }
 }
 
-/// Hands a connection slot from the longest-idle keep-alive connection to a client waiting at a
-/// full server, as nginx reuses idle connections. Closing an idle connection races with a
-/// pooled client reusing it, and a POST that loses that race fails, so only as many close as
-/// clients need a slot.
+/// Hands a connection slot from the longest-idle connection of any protocol to a client waiting
+/// at a full server, as nginx reuses idle connections. Closing an idle HTTP/1 connection races
+/// with a pooled client reusing it, and a POST that loses that race fails, so only as many close
+/// as clients need a slot. An idle gRPC connection answers with GOAWAY, which spares a racing
+/// call but still costs its client a new connection.
 #[derive(Default)]
-struct SlotReclaim {
+pub(crate) struct SlotReclaim {
     /// True while a `SlotRequest` lives and no connection has taken it.
     wanted: AtomicBool,
     /// Idle connections wait here in the order they became idle; `notify_one` wakes the oldest.
@@ -824,7 +825,7 @@ struct HeldClient<'a> {
 }
 
 /// Asks idle connections for a slot until it drops, when the client got one by any route.
-struct SlotRequest<'a>(&'a SlotReclaim);
+pub(crate) struct SlotRequest<'a>(&'a SlotReclaim);
 
 impl Drop for SlotRequest<'_> {
     fn drop(&mut self) {
@@ -833,13 +834,13 @@ impl Drop for SlotRequest<'_> {
 }
 
 impl SlotReclaim {
-    fn request(&self) -> SlotRequest<'_> {
+    pub(crate) fn request(&self) -> SlotRequest<'_> {
         self.wanted.store(true, Ordering::Release);
         self.idle_line.notify_one();
         SlotRequest(self)
     }
 
-    fn join_line(&self) -> IdleTurn<'_> {
+    pub(crate) fn join_line(&self) -> IdleTurn<'_> {
         let mut turn = Box::pin(self.idle_line.notified());
         // An unpolled `Notified` is not in line yet, and the line's order is the point.
         turn.as_mut().enable();
@@ -848,19 +849,27 @@ impl SlotReclaim {
 
     /// A wake can outlive the request that sent it, when another connection ended first and
     /// gave the client a slot. Only the connection that takes the request closes.
-    fn take_request(&self) -> bool {
+    pub(crate) fn take_request(&self) -> bool {
         self.wanted.swap(false, Ordering::AcqRel)
     }
 
-    fn is_wanted(&self) -> bool {
+    pub(crate) fn is_wanted(&self) -> bool {
         self.wanted.load(Ordering::Acquire)
     }
 }
 
 /// A place in the idle line, which a connection holds for as long as it stays idle.
-struct IdleTurn<'a> {
+pub(crate) struct IdleTurn<'a> {
     slots: &'a SlotReclaim,
     turn: std::pin::Pin<Box<Notified<'a>>>,
+}
+
+impl IdleTurn<'_> {
+    /// Resolves at the front of the idle line. The place in line outlives this future, so
+    /// `select!` can drop it at any time.
+    pub(crate) async fn reached(&mut self) {
+        self.turn.as_mut().await;
+    }
 }
 
 impl Drop for IdleTurn<'_> {
@@ -1204,10 +1213,10 @@ enum ConnectionPhase<'a> {
 
 impl ConnectionPhase<'_> {
     /// Resolves when an idle connection reaches the front of the idle line, and never in other
-    /// phases. The place in line outlives this future, so `select!` can drop it at any time.
+    /// phases.
     async fn idle_turn(&mut self) {
         match self {
-            Self::Idle { turn } => turn.turn.as_mut().await,
+            Self::Idle { turn } => turn.reached().await,
             Self::FirstHead | Self::NextHead | Self::Request | Self::TimeoutReply => {
                 std::future::pending().await
             }
