@@ -38,6 +38,27 @@ fn fields_read_etag_validators_use_the_complete_resource() {
     server.stop();
 }
 
+/// A selection may use the whole query, which holds far more than the former 4,096 bytes and
+/// 256 selections.
+#[test]
+fn fields_may_take_as_much_of_the_query_as_it_holds() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    server.bucket();
+    server.put("file", b"data").json_ok();
+    let path = "/storage/v1/b/test-bucket/o/file?fields=";
+    let selection = "name,".repeat(15 * 1024 / 5) + "name";
+    assert!(selection.len() > 8 * 1024);
+    assert!(selection.matches("name").count() > 256);
+    assert_eq!(
+        server
+            .request("GET", &format!("{path}{selection}"), "", b"")
+            .json_ok(),
+        json!({"name":"file"})
+    );
+    server.stop();
+}
+
 #[test]
 fn fields_invalid_selection_precedes_read_etag_evaluation() {
     let dir = TestDir::new();
