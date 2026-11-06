@@ -258,7 +258,7 @@ pub(crate) async fn respond(
         id,
     };
     let lease = ctx
-        .await_catalog(ctx.state.catalog.lease_xml_multipart(target, access))
+        .await_session_writer(ctx.state.catalog.lease_xml_multipart(target, access))
         .await
         .map_err(|error| storage_error(error, ctx))?;
     if matches!(operation, Operation::Put(_) | Operation::Complete) {

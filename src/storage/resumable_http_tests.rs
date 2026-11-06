@@ -7,6 +7,7 @@ mod retention;
 mod soft_delete;
 mod terminal_retention;
 mod upload_replay;
+mod writer_wait;
 use crate as gcs_mimic;
 use crate::storage::test_fixtures::seed_bucket;
 use crate::test_support::{TestDir, eventually_async, eventually_some_async};

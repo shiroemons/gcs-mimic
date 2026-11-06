@@ -96,6 +96,56 @@ fn simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission
 }
 
 #[test]
+fn a_retry_takes_over_the_session_when_the_abandoned_chunk_ends() {
+    let dir = TestDir::new();
+    let server = Server::with_connections(&dir, 1_000_000, 10_000, 30_000, 60_000, 8);
+    server.bucket();
+    let init = server.request(
+        "POST",
+        "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=retried",
+        "",
+        b"",
+    );
+    init.expect(200);
+    let path = init.headers["location"]
+        .strip_prefix("https://advertised.invalid/api")
+        .unwrap();
+    let mut abandoned = server.stream();
+    abandoned
+        .write_all(
+            format!(
+                "PUT {path} HTTP/1.1\r\nHost: local\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\na"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    common::eventually("the abandoned chunk to reach the session", || {
+        std::fs::read_dir(dir.0.join("staging"))
+            .unwrap()
+            .any(|entry| entry.unwrap().metadata().unwrap().len() > 0)
+    });
+    let mut retry = server.stream();
+    retry
+        .write_all(
+            format!(
+                "PUT {path} HTTP/1.1\r\nHost: local\r\nContent-Length: 0\r\nContent-Range: bytes */*\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    // A round trip through the catalog lets the server reach the retry before the old chunk
+    // ends. Without a writer wait the retry would already have its 503 by now.
+    server
+        .request("GET", "/storage/v1/b/test-bucket", "", b"")
+        .expect(200);
+    drop(abandoned);
+    Reply::framed(retry).expect(308);
+    server
+        .request("PUT", path, "Content-Range: bytes 0-4/5\r\n", b"bytes")
+        .expect(200);
+}
+
+#[test]
 fn disconnect_cleans_staging_and_shutdown_waits_for_upload_completion() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, 1000, 5000);

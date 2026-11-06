@@ -45,6 +45,7 @@ pub(crate) use upload_replay::UploadAclSnapshot;
 pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation};
 
 mod resumable_maintenance;
+mod session_limits;
 pub(crate) mod xml_multipart;
 
 mod executor;
@@ -195,6 +196,10 @@ struct Inner {
     backend: BlobBackend,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<resumable::writers::SessionWriters>,
+    /// Wakes requests waiting for a writer. One waker serves every session: a release with no
+    /// waiter costs an atomic check, and waiters on a busy session are few and short-lived.
+    writer_released: Notify,
+    session_limits: OnceLock<session_limits::SessionLimits>,
     derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
     maintenance_error: Mutex<Option<BackendCause>>,

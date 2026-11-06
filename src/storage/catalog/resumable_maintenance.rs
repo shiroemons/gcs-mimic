@@ -1,5 +1,7 @@
 use super::{
-    BlobBackend, Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis,
+    BlobBackend, Catalog, CatalogError, ResumableError, SessionState,
+    resumable::writers::{ClaimError, KeyOrigin, WriterKey},
+    unavailable, unix_millis,
 };
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
@@ -312,26 +314,16 @@ impl Catalog {
             };
             after = last.0.clone();
             for (id, blob_id, deadline) in rows {
-                let catalog = self;
-                let writer = match catalog
-                    .claim_writer(
-                        super::resumable::writers::WriterKey::Resumable(id.clone()),
-                        super::resumable::writers::KeyOrigin::Catalog,
-                    )
-                    .map_err(CatalogError::from)
-                {
-                    Ok(writer) => Arc::new(writer),
-                    Err(CatalogError::Unavailable(cause))
-                        if cause.failure()
-                            == Some(crate::storage::failure::BackendFailure::SessionBusy) =>
-                    {
-                        continue;
-                    }
-                    Err(error) => {
-                        sweep.fail("resumable session", error);
-                        continue;
-                    }
-                };
+                // A held session is swept once its request releases it, so this never waits.
+                let writer =
+                    match self.claim_writer(WriterKey::Resumable(id.clone()), KeyOrigin::Catalog) {
+                        Ok(writer) => Arc::new(writer),
+                        Err(ClaimError::Busy) => continue,
+                        Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => {
+                            sweep.fail("resumable session", error.into());
+                            continue;
+                        }
+                    };
                 let result = async {
                     self.clean_session_storage(&writer, blob_id).await?;
                     if deadline <= now {

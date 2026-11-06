@@ -212,7 +212,7 @@ async fn cancel(
     if target.name.is_some_and(|name| name != session.name) {
         return Err(ResumableError::NotFound.into());
     }
-    ctx.await_catalog(catalog.cancel_resumable_session(target.id, target.bucket))
+    ctx.await_session_writer(catalog.cancel_resumable_session(target.id, target.bucket))
         .await?;
     Ok(())
 }

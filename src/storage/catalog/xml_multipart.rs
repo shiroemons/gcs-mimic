@@ -280,11 +280,15 @@ impl Catalog {
         target: Target,
         access: BucketAccess,
     ) -> Result<Lease, Error> {
+        // Clients commonly upload parts in parallel; each part takes its turn on the upload.
         let guard = self
-            .claim_writer(WriterKey::Multipart(target.id.clone()), KeyOrigin::Client)
+            .wait_for_writer(WriterKey::Multipart(target.id.clone()), KeyOrigin::Client)
+            .await
             .map_err(|error| match error {
                 ClaimError::Busy => Error::Busy,
-                error => CatalogError::from(error).into(),
+                error @ (ClaimError::Poisoned | ClaimError::Catalog(_)) => {
+                    CatalogError::from(error).into()
+                }
             })?;
         let checked = access.clone();
         let now = unix_millis(self.0.clock.now())?;

@@ -623,6 +623,40 @@ async fn injected_clock_expiration_and_session_admission_are_bounded() {
     catalog.close().await.unwrap();
 }
 
+#[tokio::test]
+async fn a_parallel_part_waits_for_the_lease_and_fails_only_past_its_budget() {
+    for (budget, expected_busy) in [(60_000, false), (20, true)] {
+        let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
+        catalog.apply_session_limits(&crate::config::Config {
+            catalog_wait_timeout_ms: budget,
+            ..Default::default()
+        });
+        let target = begin(&catalog).await;
+        let first = catalog
+            .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
+            .await
+            .unwrap();
+        let worker = catalog.clone();
+        let second = tokio::spawn(async move {
+            worker
+                .lease_xml_multipart(target, BucketAccess::Permissive)
+                .await
+        });
+        if expected_busy {
+            assert!(matches!(second.await.unwrap(), Err(Error::Busy)));
+            drop(first);
+        } else {
+            for _ in 0..32 {
+                tokio::task::yield_now().await;
+            }
+            assert!(!second.is_finished());
+            drop(first);
+            second.await.unwrap().unwrap();
+        }
+        catalog.close().await.unwrap();
+    }
+}
+
 #[test]
 fn multipart_errors_preserve_storage_causes() {
     let error = Error::from(ObjectError::Io(

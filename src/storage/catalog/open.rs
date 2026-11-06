@@ -337,6 +337,8 @@ impl Catalog {
                 data_dir,
                 clock,
                 session_writers: Mutex::new(Default::default()),
+                writer_released: Notify::new(),
+                session_limits: OnceLock::new(),
                 derived_wake: Notify::new(),
                 maintenance_wake: Arc::new(Notify::new()),
                 maintenance_error: Mutex::new(None),

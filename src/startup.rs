@@ -237,6 +237,7 @@ async fn open_catalog(
                     config.default_soft_delete_retention_seconds
                 },
             );
+            catalog.apply_session_limits(config);
         }
         opened.map_err(|error| match error {
             CatalogError::NewerSchema { version, supported } => phase(DiagnosticSource::Catalog, "data_dir", &format!("catalog schema version {version} was written by a newer gcs-mimic release; this release reads schema {supported} and older. Start a release that supports schema {version}, restore a backup taken before the upgrade, or choose a different data directory; migrated catalogs cannot be downgraded.")),

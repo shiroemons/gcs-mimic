@@ -10,6 +10,7 @@ impl Catalog {
             .unwrap_or_else(|error| error.into_inner())
             .closed = true;
         self.0.admission.close();
+        self.0.writer_released.notify_waiters();
         self.0.admin_shutdown.notify_waiters();
         self.0.notification_wake.notify_one();
         self.0.maintenance_wake.notify_one();

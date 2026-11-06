@@ -362,7 +362,13 @@ pub(super) async fn session_response(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, JsonError> {
     if request.method() == hyper::Method::DELETE {
-        return json::resumable_cancel::cancel_response(request, bucket, id, &ctx.state.catalog)
+        return ctx
+            .await_session_writer(json::resumable_cancel::cancel_response(
+                request,
+                bucket,
+                id,
+                &ctx.state.catalog,
+            ))
             .await
             .map(boxed);
     }
@@ -407,7 +413,7 @@ async fn session_framing(
     // The recording proves a terminal JSON session failure only for malformed syntax.
     if target.name.is_none() && framing.is_err() && resumable::range_has_syntax_error(headers) {
         let lease = ctx
-            .await_catalog(
+            .await_session_writer(
                 ctx.state
                     .catalog
                     .lock_resumable_session(target.id, target.bucket),
@@ -432,7 +438,7 @@ pub(crate) async fn transfer(
     let headers = request.headers().clone();
     let (range, length) = session_framing(&headers, &target, ctx).await?;
     let mut lease = ctx
-        .await_catalog(state.catalog.lock_resumable_session(id, bucket))
+        .await_session_writer(state.catalog.lock_resumable_session(id, bucket))
         .await?;
     if name.is_some_and(|name| name != lease.session.name) {
         return Err(crate::storage::ResumableError::NotFound.into());

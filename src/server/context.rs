@@ -96,6 +96,22 @@ impl ObjectCtx<'_> {
         .await
     }
 
+    /// Awaits an operation that first waits for a session's writer. That wait has its own budget
+    /// and reports a busy session, so this outer limit leaves a full budget for the catalog work
+    /// after it instead of expiring first and reporting a catalog timeout.
+    pub(crate) async fn await_session_writer<T, E: From<ObjectError>>(
+        &self,
+        operation: impl Future<Output = Result<T, E>>,
+    ) -> Result<T, E> {
+        await_upload_catalog(
+            operation,
+            self.catalog_timeout().saturating_mul(2),
+            self.deadline,
+            self.activity,
+        )
+        .await
+    }
+
     /// Authorizes `permission` on `bucket` for this request's caller.
     pub(crate) async fn authorize(
         &self,

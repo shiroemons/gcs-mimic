@@ -537,7 +537,8 @@ impl Catalog {
     ) -> Result<RewriteProgress, RewriteError> {
         let session = self.rewrite_session(token).await?;
         let _guard = self
-            .claim_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
+            .wait_for_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
+            .await
             .map_err(CatalogError::from)?;
         let selected_token = token.to_owned();
         let now = unix_millis(self.0.clock.now())?;
@@ -1046,6 +1047,40 @@ mod tests {
                 .size,
             0
         );
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_retried_continuation_waits_for_the_request_still_running() {
+        let (catalog, directory, _clock) = fixture().await;
+        catalog.apply_session_limits(&crate::config::Config {
+            catalog_wait_timeout_ms: 60_000,
+            ..Default::default()
+        });
+        let (token, mut owner) = new_session(&catalog).await.unwrap();
+        owner.disarm();
+        let session = catalog.rewrite_session(&token).await.unwrap();
+        let running = catalog
+            .claim_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
+            .unwrap();
+        let worker = catalog.clone();
+        let retry = tokio::spawn(async move {
+            worker
+                .continue_rewrite(
+                    &token,
+                    BucketAccess::Permissive,
+                    BucketAccess::Permissive,
+                    |_| Ok(json!({})),
+                )
+                .await
+        });
+        for _ in 0..64 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!retry.is_finished());
+        drop(running);
+        retry.await.unwrap().unwrap();
         catalog.close().await.unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }
