@@ -1270,9 +1270,11 @@ async fn probes_cannot_succeed_while_seed_publication_is_blocked() {
     catalog.close().await.unwrap();
     let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
     connection.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    // The port stays bound here while publication waits. No other test can take it, and a server
+    // that bound its listener before seeding finished would fail to and exit, which the loop below
+    // catches. A connection attempt could not tell this server from another one on the port.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
-    drop(listener);
     let mut child = command(&data, Some(&seed))
         .args(["--listen", &address.to_string()])
         .stdout(Stdio::piped())
@@ -1297,10 +1299,13 @@ async fn probes_cannot_succeed_while_seed_publication_is_blocked() {
         "child must own the catalog while waiting for seed publication"
     );
     for _ in 0..10 {
-        assert!(server.child.try_wait().unwrap().is_none());
-        assert!(TcpStream::connect_timeout(&address, Duration::from_millis(50)).is_err());
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(
+            server.child.try_wait().unwrap().is_none(),
+            "the server must not bind its listener while seed publication waits"
+        );
+        tokio::time::sleep(Duration::from_millis(60)).await;
     }
+    drop(listener);
     connection.execute_batch("COMMIT;").unwrap();
     let mut line = String::new();
     server.stdout.read_line(&mut line).unwrap();
