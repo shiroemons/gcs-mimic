@@ -13,12 +13,18 @@ runs:
         mkdir -p "$tools/java"
         java_pin=$(tr -d '\r\n' < sdk-tests/java/.java-version)
         maven_pin=$(tr -d '\r\n' < sdk-tests/java/.maven-version)
-        curl --disable --fail --location --proto '=https' --max-time 300 \
-          "https://github.com/adoptium/temurin${java_pin%%.*}-binaries/releases/download/jdk-${java_pin/+/%2B}/OpenJDK${java_pin%%.*}U-jdk_x64_linux_hotspot_${java_pin/+/_}.tar.gz" -o "$tools/java.tar.gz"
+        # A blip at a download host must not fail the release gate, and the digests below decide
+        # what is accepted however many attempts it took.
+        fetch() {
+          curl --disable --fail --location --proto '=https' --connect-timeout 20 --max-time 300 \
+            --retry 5 --retry-all-errors "$1" -o "$2"
+        }
+        fetch "https://github.com/adoptium/temurin${java_pin%%.*}-binaries/releases/download/jdk-${java_pin/+/%2B}/OpenJDK${java_pin%%.*}U-jdk_x64_linux_hotspot_${java_pin/+/_}.tar.gz" "$tools/java.tar.gz"
         echo "30cb129f6cf299c852cec0feca9ea2a596d2ee9f26d8605d3a253951f6c8b20f  $tools/java.tar.gz" | sha256sum -c -
         tar -xzf "$tools/java.tar.gz" -C "$tools/java" --strip-components=1
-        curl --disable --fail --location --proto '=https' --max-time 300 \
-          "https://archive.apache.org/dist/maven/maven-3/$maven_pin/binaries/apache-maven-$maven_pin-bin.tar.gz" -o "$tools/maven.tar.gz"
+        # Maven Central rather than the Apache archive: the Java clients need Central for every
+        # dependency anyway, so the Maven download adds no host that can fail on its own.
+        fetch "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$maven_pin/apache-maven-$maven_pin-bin.tar.gz" "$tools/maven.tar.gz"
         echo "908b1501bfb420bf7c8affb855534a9c407fd6099367bfb9f2f2dcb8e9799102bffb84518cde74c679bd76870247c6528683abdd620581bffa90f95d92d175aa  $tools/maven.tar.gz" | sha512sum -c -
         tar -xzf "$tools/maven.tar.gz" -C "$tools"
         echo "JAVA_HOME=$tools/java" >> "$GITHUB_ENV"
