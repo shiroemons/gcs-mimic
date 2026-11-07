@@ -1,7 +1,7 @@
 //! Difference computation between two normalized responses.
 
 use super::case::CompareOpts;
-use super::normalize::{NormResponse, body_value};
+use super::normalize::{NormResponse, body_value, time_placeholder_digits};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +20,16 @@ pub(crate) enum Difference {
         reference: Option<Value>,
         mimic: Option<Value>,
     },
+}
+
+/// How a body writes the fractional seconds of a timestamp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Fractions {
+    /// The server chose the digits, so their count is part of the contract.
+    Exact,
+    /// Protobuf JSON, as `grpcurl` prints it, drops trailing groups of three zero digits:
+    /// a value stored to the microsecond shows six digits, or three in one case in a thousand.
+    TrimmedGroups,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,11 +111,29 @@ fn same_after_host_alias(a: Option<&Value>, b: Option<&Value>) -> bool {
     }
 }
 
+/// Whether the emulator's timestamp is the reference's precision with trailing zero groups
+/// dropped. A value with more digits than the reference is still a difference; the digits the
+/// emulator keeps are pinned by its own unit tests, which a single sampled value cannot do.
+fn same_after_zero_trimming(
+    reference: Option<&Value>,
+    mimic: Option<&Value>,
+    fractions: Fractions,
+) -> bool {
+    let digits = |value: Option<&Value>| value?.as_str().and_then(time_placeholder_digits);
+    match (fractions, digits(reference), digits(mimic)) {
+        (Fractions::TrimmedGroups, Some(reference), Some(mimic)) => {
+            mimic < reference && reference % 3 == 0 && mimic % 3 == 0
+        }
+        _ => false,
+    }
+}
+
 fn walk(
     reference: Option<&Value>,
     mimic: Option<&Value>,
     path: &mut Vec<Seg>,
     patterns: &[Vec<Seg>],
+    fractions: Fractions,
     out: &mut Vec<Difference>,
 ) {
     if ignored(path, patterns) {
@@ -119,18 +147,21 @@ fn walk(
             keys.dedup();
             for key in keys {
                 path.push(Seg::Key(key.clone()));
-                walk(a.get(key), b.get(key), path, patterns, out);
+                walk(a.get(key), b.get(key), path, patterns, fractions, out);
                 path.pop();
             }
         }
         (Some(Value::Array(a)), Some(Value::Array(b))) => {
             for index in 0..a.len().max(b.len()) {
                 path.push(Seg::Index(index));
-                walk(a.get(index), b.get(index), path, patterns, out);
+                walk(a.get(index), b.get(index), path, patterns, fractions, out);
                 path.pop();
             }
         }
-        (a, b) if a == b || same_after_host_alias(a, b) => {}
+        (a, b)
+            if a == b
+                || same_after_host_alias(a, b)
+                || same_after_zero_trimming(a, b, fractions) => {}
         (a, b) => out.push(Difference::Body {
             path: render(path),
             reference: a.cloned(),
@@ -143,10 +174,18 @@ pub(crate) fn diff_json(
     reference: Option<&Value>,
     mimic: Option<&Value>,
     ignore: &[String],
+    fractions: Fractions,
 ) -> Vec<Difference> {
     let patterns: Vec<_> = ignore.iter().map(|p| parse_pattern(p)).collect();
     let mut out = Vec::new();
-    walk(reference, mimic, &mut Vec::new(), &patterns, &mut out);
+    walk(
+        reference,
+        mimic,
+        &mut Vec::new(),
+        &patterns,
+        fractions,
+        &mut out,
+    );
     out
 }
 
@@ -154,6 +193,7 @@ pub(crate) fn compare(
     reference: &NormResponse,
     mimic: &NormResponse,
     opts: &CompareOpts,
+    fractions: Fractions,
 ) -> Vec<Difference> {
     let mut out = Vec::new();
     if reference.status != mimic.status {
@@ -192,7 +232,12 @@ pub(crate) fn compare(
     }
     let a = body_value(&reference.body, opts.body);
     let b = body_value(&mimic.body, opts.body);
-    out.extend(diff_json(a.as_ref(), b.as_ref(), &opts.ignore_body_paths));
+    out.extend(diff_json(
+        a.as_ref(),
+        b.as_ref(),
+        &opts.ignore_body_paths,
+        fractions,
+    ));
     out
 }
 
@@ -218,7 +263,7 @@ mod tests {
     fn reports_paths_for_missing_extra_and_changed_fields() {
         let a = json!({"a": 1, "b": {"c": [1, 2]}, "only_ref": true});
         let b = json!({"a": 2, "b": {"c": [1]}, "only_mimic": "x"});
-        let diffs = diff_json(Some(&a), Some(&b), &[]);
+        let diffs = diff_json(Some(&a), Some(&b), &[], Fractions::Exact);
         let paths: Vec<_> = diffs
             .iter()
             .map(|d| match d {
@@ -234,8 +279,11 @@ mod tests {
         let a = json!({"items": [{"id": 1, "n": "a"}, {"id": 2, "n": "b"}], "x": {"y": 1}});
         let b = json!({"items": [{"id": 9, "n": "a"}, {"id": 8, "n": "b"}], "x": {"y": 2}});
         let ignore = vec!["$.items[*].id".to_owned(), "$.x".to_owned()];
-        assert!(diff_json(Some(&a), Some(&b), &ignore).is_empty());
-        assert_eq!(diff_json(Some(&a), Some(&b), &["$.x".to_owned()]).len(), 2);
+        assert!(diff_json(Some(&a), Some(&b), &ignore, Fractions::Exact).is_empty());
+        assert_eq!(
+            diff_json(Some(&a), Some(&b), &["$.x".to_owned()], Fractions::Exact).len(),
+            2
+        );
     }
 
     #[test]
@@ -250,14 +298,14 @@ mod tests {
             &[("vary", "Origin"), ("pragma", "no-cache")],
             NormBody::Json(json!({"e": 1})),
         );
-        let diffs = compare(&r, &m, &CompareOpts::default());
+        let diffs = compare(&r, &m, &CompareOpts::default(), Fractions::Exact);
         assert_eq!(diffs.len(), 3);
         let opts = CompareOpts {
             only_headers: Some(vec!["vary".into()]),
             ..CompareOpts::default()
         };
         assert_eq!(
-            compare(&r, &m, &opts),
+            compare(&r, &m, &opts, Fractions::Exact),
             [Difference::Status {
                 reference: 404,
                 mimic: 400
@@ -267,7 +315,7 @@ mod tests {
             ignore_headers: vec!["Cache-Control".into(), "pragma".into()],
             ..CompareOpts::default()
         };
-        assert_eq!(compare(&r, &m, &opts).len(), 1);
+        assert_eq!(compare(&r, &m, &opts, Fractions::Exact).len(), 1);
     }
 
     #[test]
@@ -282,24 +330,73 @@ mod tests {
             &[],
             NormBody::Json(json!({"selfLink": "<host>/storage/v1/b/x"})),
         );
-        assert!(compare(&r, &m, &CompareOpts::default()).is_empty());
+        assert!(compare(&r, &m, &CompareOpts::default(), Fractions::Exact).is_empty());
         let other = response(
             200,
             &[],
             NormBody::Json(json!({"selfLink": "<host>/storage/v1/b/y"})),
         );
-        assert_eq!(compare(&r, &other, &CompareOpts::default()).len(), 1);
+        assert_eq!(
+            compare(&r, &other, &CompareOpts::default(), Fractions::Exact).len(),
+            1
+        );
         let acl = |host: &str, email: &str| json!({"acl": [{"selfLink": format!("{host}/storage/v1/b/x/o/y/acl/user-{email}")}]});
         let reference = acl("<www-host>", "<email>");
-        assert!(diff_json(Some(&reference), Some(&acl("<host>", "<email>")), &[]).is_empty());
+        assert!(
+            diff_json(
+                Some(&reference),
+                Some(&acl("<host>", "<email>")),
+                &[],
+                Fractions::Exact
+            )
+            .is_empty()
+        );
         assert_eq!(
             diff_json(
                 Some(&reference),
                 Some(&acl("<host>", "<email:percent-encoded>")),
-                &[]
+                &[],
+                Fractions::Exact
             )
             .len(),
             1
+        );
+    }
+
+    /// One microsecond value in a thousand ends in three zeros, which protobuf JSON drops. Only
+    /// gRPC bodies get that allowance, and never for more digits than the reference shows.
+    #[test]
+    fn grpc_timestamps_may_drop_trailing_zero_groups() {
+        let body = |time: &str| json!({"finalizeTime": time, "createTime": "<time:f3>"});
+        let reference = body("<time:f6>");
+        for (mimic, fractions, differences) in [
+            (body("<time:f3>"), Fractions::TrimmedGroups, 0),
+            (body("<time:f0>"), Fractions::TrimmedGroups, 0),
+            (body("<time:f6>"), Fractions::TrimmedGroups, 0),
+            (body("<time:f3>"), Fractions::Exact, 1),
+            (body("<time:f9>"), Fractions::TrimmedGroups, 1),
+            (body("<time:f5>"), Fractions::TrimmedGroups, 1),
+            (body("<time:str>"), Fractions::TrimmedGroups, 1),
+        ] {
+            assert_eq!(
+                diff_json(Some(&reference), Some(&mimic), &[], fractions).len(),
+                differences,
+                "{mimic} under {fractions:?}"
+            );
+        }
+        let more_digits = json!({"finalizeTime": "<time:f6>", "createTime": "<time:f6>"});
+        assert_eq!(
+            diff_json(
+                Some(&reference),
+                Some(&more_digits),
+                &[],
+                Fractions::TrimmedGroups
+            ),
+            [Difference::Body {
+                path: "$.createTime".into(),
+                reference: Some(json!("<time:f3>")),
+                mimic: Some(json!("<time:f6>")),
+            }]
         );
     }
 
@@ -307,11 +404,14 @@ mod tests {
     fn empty_versus_present_body_is_a_difference() {
         let r = response(200, &[], NormBody::Empty);
         let m = response(200, &[], NormBody::Text("x".into()));
-        assert_eq!(compare(&r, &m, &CompareOpts::default()).len(), 1);
+        assert_eq!(
+            compare(&r, &m, &CompareOpts::default(), Fractions::Exact).len(),
+            1
+        );
         let opts = CompareOpts {
             body: super::super::case::BodyMode::Ignore,
             ..CompareOpts::default()
         };
-        assert!(compare(&r, &m, &opts).is_empty());
+        assert!(compare(&r, &m, &opts, Fractions::Exact).is_empty());
     }
 }

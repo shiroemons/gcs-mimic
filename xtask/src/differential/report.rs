@@ -1,7 +1,7 @@
 //! Comparison results, Markdown and JSON rendering, and the redaction guard.
 
-use super::case::{Case, LocalChoice, Step, fingerprint};
-use super::diff::{Difference, compare};
+use super::case::{Case, LocalChoice, Protocol, Step, fingerprint};
+use super::diff::{Difference, Fractions, compare};
 use super::runner::{CaseOutcome, StepOutcome};
 use serde_json::{Value, json};
 
@@ -146,7 +146,12 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
             mimic_step.map(|s| &s.result),
             reference_step.map(|s| &s.result),
         ) {
-            report.differences = compare(r, m, opts);
+            // gRPC answers reach the harness as grpcurl's protobuf JSON.
+            let fractions = match spec.protocol {
+                Protocol::Grpc => Fractions::TrimmedGroups,
+                Protocol::Http | Protocol::Xml => Fractions::Exact,
+            };
+            report.differences = compare(r, m, opts, fractions);
         }
         if mimic_step.is_some() || reference_step.is_some() {
             steps.push(report);

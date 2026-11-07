@@ -90,6 +90,15 @@ fn time_placeholder(item: &Value) -> String {
     }
 }
 
+/// The digit count a [`time_placeholder`] names, such as 3 for `<time:f3>`.
+pub(crate) fn time_placeholder_digits(placeholder: &str) -> Option<usize> {
+    placeholder
+        .strip_prefix("<time:f")?
+        .strip_suffix('>')?
+        .parse()
+        .ok()
+}
+
 /// `<name:str:16>` / `<name:num:16>`: the digit count of a numeric value is
 /// kept, because GCS and a local emulator may differ in width.
 fn shaped_placeholder(name: &str, item: &Value) -> String {
@@ -577,6 +586,23 @@ mod tests {
         );
         assert_eq!(out["acl"][0]["entity"], "project-owners-<project-number>");
         assert_eq!(out["message"], "project <project> missing");
+    }
+
+    /// The comparison reads back the digits this module writes, so the two must agree.
+    #[test]
+    fn a_time_placeholder_reads_back_its_digit_count() {
+        for (time, digits) in [
+            ("2026-11-01T00:00:00Z", 0),
+            ("2026-11-01T00:00:00.123Z", 3),
+            ("2026-11-01T00:00:00.123456Z", 6),
+        ] {
+            assert_eq!(
+                time_placeholder_digits(&time_placeholder(&json!(time))),
+                Some(digits)
+            );
+        }
+        assert_eq!(time_placeholder_digits(&time_placeholder(&json!(1))), None);
+        assert_eq!(time_placeholder_digits("<time:str>"), None);
     }
 
     #[test]

@@ -797,8 +797,12 @@ XML and header entity tags), `<time:f3>` (fractional-second digits; `f0`, `f6`),
 `<project-number:num>`, `<page-token>`, `<entity-id>`, `<email>`,
 `<upload-id>`, `<owner>` (XML `Owner/ID`), `<secret>` (HMAC secret) and
 `<bucket>`, `<project>`, `<host>` (`<www-host>` for `www.googleapis.com`) and
-captured variables. The infrastructure headers `date`, `server`, `alt-svc`,
-`x-guploader-uploadid` and similar are dropped. `content-length` and
+captured variables. A gRPC answer arrives as protobuf JSON, which drops trailing
+groups of three zero digits from a timestamp, so in a gRPC step a timestamp with
+fewer digits than the reference, in steps of three, compares equal; more digits
+are still a difference, and unit tests pin the digits gcs-mimic keeps. The
+infrastructure headers `date`, `server`, `alt-svc`, `x-guploader-uploadid` and
+similar are dropped. `content-length` and
 `transfer-encoding` are compared as one synthetic header,
 `x-harness-body-framing`: `content-length:<ok>` when the declared length equals
 the bytes received (`<mismatch N vs M>` otherwise), or `chunked`. A response
