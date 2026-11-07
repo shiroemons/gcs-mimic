@@ -552,6 +552,32 @@ A `cargo xtask dependencies check` run reported `socket2: CURRENT`. That run did
 finish: `proxy.golang.org` timed out with `CHECK_FAILED`, and it reported
 `UPDATE_AVAILABLE` for flate2 1.1.11, adopted in the later refresh below.
 
+### musl allocator
+
+`mimalloc` 0.1.52 and `libmimalloc-sys` 0.1.49 are new packages, resolved only for musl targets
+through a `cfg(target_env = "musl")` dependency. The
+[registry index](https://index.crates.io/mi/ma/mimalloc) identifies `mimalloc` 0.1.52 and the
+[registry index](https://index.crates.io/li/bm/libmimalloc-sys) `libmimalloc-sys` 0.1.49 as the
+latest non-yanked stable releases on 2026-11-07. Both declare MIT, and the
+[repository](https://github.com/purpleprotocol/mimalloc_rust) is not archived; its last push was
+2026-06-30.
+
+| Package | Compressed archive bytes | SHA-256 |
+| --- | --- | --- |
+| `mimalloc` 0.1.52 | 5,382 | `2d4139bb28d14ad1facf21d5eb8825051b326e172d216b39f6d31df53cc97862` |
+| `libmimalloc-sys` 0.1.49 | 500,217 | `6a45a52f43e1c16f667ccfe4dd8c85b7f7c204fd5e3bf46c5b0db9a5c3c0b8e9` |
+
+The vendored allocator is Microsoft's, under its own MIT copyright, so `xtask release notices` also
+copies `c_src/mimalloc/v3/LICENSE` and fails if a later version moves it. The default features
+select allocator v3. Version 2 was tried and held about twice the idle memory at the same speed.
+
+[Scratch runtime evidence](scratch-runtime.md#throughput) rejected an allocator dependency because
+a trial build doubled resident memory. Two findings reverse that. The memory came mostly from
+transparent huge pages, not the allocator: with them disabled for the process through
+`prctl(PR_SET_THP_DISABLE)`, idle resident memory is about 8 MiB. And the catalog thread then capped
+all reads, which hid most of what musl's allocator cost; see the
+[read path measurement](read-path-performance.md).
+
 ### Later refresh on 2026-11-06
 
 | Input | Before | After |

@@ -86,6 +86,10 @@ dependency is added. In an earlier run of the same workload, `opt-level = "s"`
 with thin LTO was 5-10% slower than the default musl profile, which is why the
 container build uses fat LTO.
 
+Later measurement reversed the allocator decision: see
+[the musl allocator evidence](dependency-refresh.md#musl-allocator). The figures above describe the
+0.10.0 source and stay as recorded.
+
 ## Checks
 
 - `just check-containers` built both architectures from this source. linux/arm64

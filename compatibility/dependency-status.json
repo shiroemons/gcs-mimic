@@ -33,7 +33,7 @@
       "maintenance": "Official rust-lang repository is not archived; last push 2026-10-24T07:26:51Z. Latest non-yanked stable independently checked in the official Cargo index on 2026-10-24; published 2026-10-16T22:56:46Z.",
       "source_urls": ["https://index.crates.io/li/bc/libc", "https://static.crates.io/crates/libc/libc-0.2.191.crate", "https://api.github.com/repos/rust-lang/libc"],
       "source_sha256": "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a",
-      "resolution_constraints": "Promoted unchanged from the existing production dependency graph. Cargo.lock adds only the application's direct libc edge; no new package or resolved version. Unsafe remains limited to fsutil's documented Linux/macOS ABI calls."
+      "resolution_constraints": "Promoted unchanged from the existing production dependency graph. Cargo.lock adds only the application's direct libc edge; no new package or resolved version. Unsafe calls stay documented and few: fsutil's Linux/macOS ABI calls including preadv2, fd_limit's rlimit calls and the musl binary's prctl."
     },
     {
       "name": "socket2", "current": "0.6.5", "latest_non_yanked_stable": "0.6.5",
@@ -44,6 +44,16 @@
       "source_urls": ["https://index.crates.io/so/ck/socket2", "https://static.crates.io/crates/socket2/socket2-0.6.5.crate", "https://api.github.com/repos/rust-lang/socket2"],
       "source_sha256": "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4",
       "resolution_constraints": "Promoted unchanged from the existing production dependency graph, where tokio already resolves it. Cargo.lock adds only the application's direct socket2 edge; no new package or resolved version."
+    },
+    {
+      "name": "mimalloc", "current": "0.1.52", "latest_non_yanked_stable": "0.1.52",
+      "license": "MIT", "compressed_crate_bytes": 5382,
+      "purpose": "Global allocator on musl targets only, whose own allocator takes one global lock and made the container slower as threads were added.",
+      "features": [],
+      "maintenance": "Repository is not archived; last push 2026-06-30T21:55:04Z. Latest non-yanked stable independently checked in the official Cargo index on 2026-11-07.",
+      "source_urls": ["https://index.crates.io/mi/ma/mimalloc", "https://static.crates.io/crates/mimalloc/mimalloc-0.1.52.crate", "https://api.github.com/repos/purpleprotocol/mimalloc_rust"],
+      "source_sha256": "2d4139bb28d14ad1facf21d5eb8825051b326e172d216b39f6d31df53cc97862",
+      "resolution_constraints": "Adds mimalloc and libmimalloc-sys 0.1.49 (SHA-256 6a45a52f43e1c16f667ccfe4dd8c85b7f7c204fd5e3bf46c5b0db9a5c3c0b8e9, 500217 compressed bytes, MIT, vendoring Microsoft's MIT allocator) to Cargo.lock for musl targets only. Other targets do not build them."
     },
     {
       "name": "proptest", "current": "1.12.0", "latest_non_yanked_stable": "1.12.0",

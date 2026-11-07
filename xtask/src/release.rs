@@ -150,6 +150,11 @@ fn package_notices(package: &Value) -> Result<(PathBuf, BTreeSet<PathBuf>)> {
         // zlib attribution for the adapted CRC combine code, which no license file repeats.
         notice_files(&base, Path::new("src/combine.rs"), &mut files)?;
     }
+    if package["name"] == "libmimalloc-sys" {
+        // The crate's own license text covers its bindings. The allocator compiled into a musl
+        // binary is Microsoft's, whose copyright only this file states.
+        notice_files(&base, Path::new("c_src/mimalloc/v3/LICENSE"), &mut files)?;
+    }
     if files.is_empty() && !grpc_rust_supplied(package)? {
         return Err(format!("no license notices for {}", text(package, "name")?));
     }

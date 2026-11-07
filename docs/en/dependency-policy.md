@@ -71,6 +71,13 @@ resolved package or version. The
 [dependency evidence](evidence/dependency-refresh.md#tcp-keep-alive-direct-edge)
 records the license, package digest and size.
 
+Builds for musl link `mimalloc` 0.1.52 and `libmimalloc-sys` 0.1.49 as the global allocator, because
+musl's own allocator takes one global lock and made the container slower as threads were added.
+Other targets keep their C library's allocator and do not resolve these packages. This replaces an
+[earlier decision](evidence/scratch-runtime.md#throughput) against an allocator dependency; the
+[dependency evidence](evidence/dependency-refresh.md#musl-allocator) records the license, package
+digests, sizes and why that decision no longer holds.
+
 Sources:
 
 - <https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html>
