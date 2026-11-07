@@ -120,9 +120,11 @@ fn a_retry_takes_over_the_session_when_the_abandoned_chunk_ends() {
         )
         .unwrap();
     common::eventually("the abandoned chunk to reach the session", || {
+        // Not `DirEntry::metadata`: on Windows that is the size the directory listing recorded,
+        // which does not follow a file the server still holds open.
         std::fs::read_dir(dir.0.join("staging"))
             .unwrap()
-            .any(|entry| entry.unwrap().metadata().unwrap().len() > 0)
+            .any(|entry| std::fs::metadata(entry.unwrap().path()).unwrap().len() > 0)
     });
     let mut retry = server.stream();
     retry
