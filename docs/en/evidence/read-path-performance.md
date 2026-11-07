@@ -5,6 +5,11 @@
 Measured on 2026-11-07. This change targets object reads, whose rate was far below
 fake-gcs-server's at local scale. These are observations from one host, not a gate.
 
+Later frame-size experiments, CPU profiling, copy-avoidance research and their
+decisions are indexed in [read optimization investigations](read-optimization-summary.md).
+Use [finding performance bottlenecks](../performance-investigation.md) for the
+measurement and diagnosis procedure.
+
 ## Scope
 
 Three GET requests, each over HTTP/1.1 with keep-alive, without TLS and with permissive
@@ -247,7 +252,9 @@ Container memory after each matrix above, in MiB:
   little from the cache.
 - Downloads on macOS and other systems without `RWF_NOWAIT` read on the blocking pool, as before.
   The pooled reader still reads the body's start there.
-- The load generator and the scripts that ran it are not part of the repository.
+- At measurement time, the load generator and its orchestration were external.
+  The [original client source](read-load-client.go.txt) is now archived as a
+  measurement input; the original orchestration scripts are not included.
 
 ## Checks
 

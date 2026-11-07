@@ -256,6 +256,7 @@ n/aはSDKに公開APIがないケースで、そのSDKの分母から除きま�
 - [機能比較](feature-comparison.md)と[詳細な機能表](feature-matrix.md)
 - [ファイル保存の仕組み](storage-backends.md)、[設計（英語）](../en/design.md)、[ロードマップ](roadmap.md)
 - [開発とpush前の確認](development.md)と[バージョンと公開の方針](release-policy.md)
+- [ボトルネックの探し方](performance-investigation.md)と[性能調査の結果・採否（英語）](../en/evidence/read-optimization-summary.md)
 - [0.13.0のリリースノート（英語）](../en/releases/0.13.0.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
 - 英語ガイド: [ソースからのビルドとAPIの手順](../en/getting-started.md)、[ローカルHTTPS](../en/local-https.md)、
   [署名付きURL](../en/signed-urls.md)、[ネイティブバイナリ](../en/native-binary.md)

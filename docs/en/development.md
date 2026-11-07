@@ -4,6 +4,11 @@
 
 [日本語](../ja/development.md)
 
+For performance work, start with [finding bottlenecks](performance-investigation.md)
+and the [recorded investigations and decisions](evidence/read-optimization-summary.md).
+They cover workload preparation, CPU profiles, syscall tracing, waiting and
+measurement limits; they are not a routine feature benchmark gate.
+
 Requires rustup and curl for the explicit online freshness check. A host Python is not required: the Python SDK suite runs on the pinned Python that uv provides. Rust 1.99.1 is the verified latest stable compiler; edition 2024 is explicit. No Google credentials or project are needed.
 
 ## Development commands and push checks

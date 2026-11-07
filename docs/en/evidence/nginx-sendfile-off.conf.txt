@@ -1,0 +1,38 @@
+user nginx;
+worker_processes 8;
+error_log stderr warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    access_log off;
+    default_type application/octet-stream;
+
+    sendfile off;
+    sendfile_max_chunk 1m;
+    output_buffers 1 1m;
+    aio off;
+    directio off;
+    read_ahead 0;
+    tcp_nopush off;
+    tcp_nodelay on;
+    gzip off;
+
+    keepalive_timeout 120s;
+    keepalive_time 1h;
+    keepalive_requests 1000000;
+
+    open_file_cache max=1024 inactive=1h;
+    open_file_cache_valid 1h;
+    open_file_cache_min_uses 1;
+    open_file_cache_errors off;
+
+    server {
+        listen 4443;
+        server_name _;
+        root /data;
+    }
+}

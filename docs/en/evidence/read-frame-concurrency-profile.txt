@@ -1,0 +1,98 @@
+# CPU profile evidence, 2026-11-07, commit 9a823d3028b65e0212e0799b6335be3b765ab062.
+# Selected counters are transcribed below; local artifact paths are omitted.
+# Context and interpretation: read-frame-concurrency.md, CPU profile follow-up.
+# All workload/profiler processes exited 0; all six measured runs and four warmups had errs=0.
+
+[client output: current release, warmup then perf stat]
+media   c=128 rps=    2540 MiB/s=25402.7 p50= 42.18ms p95=106.56ms p99=204.68ms max=438.02ms n=7730 errs=0
+media   c=128 rps=    2339 MiB/s=23391.0 p50= 46.45ms p95=120.36ms p99=180.49ms max=429.74ms n=23494 errs=0
+
+[client output: symbol-enabled current, warmup then perf record]
+media   c=128 rps=    2085 MiB/s=20848.5 p50= 50.75ms p95=142.93ms p99= 229.9ms max=358.87ms n=6336 errs=0
+media   c=128 rps=    1872 MiB/s=18719.7 p50= 53.57ms p95=152.98ms p99=482.77ms max=648.99ms n=18846 errs=0
+
+[client output: fake, warmup then perf stat then perf record]
+media   c=128 rps=    2148 MiB/s=21484.0 p50= 44.61ms p95=156.63ms p99=250.71ms max=486.58ms n=6796 errs=0
+media   c=128 rps=    1503 MiB/s=15035.0 p50= 47.62ms p95= 268.2ms p99=800.87ms max=1.24976s n=16123 errs=0
+media   c=128 rps=    2414 MiB/s=24139.6 p50= 37.97ms p95=162.39ms p99=265.35ms max=472.73ms n=24202 errs=0
+
+[client output: fixed 256 KiB, warmup then perf stat then perf record]
+media   c=128 rps=    1899 MiB/s=18985.5 p50=  53.4ms p95=162.25ms p99=331.26ms max=654.18ms n=5774 errs=0
+media   c=128 rps=    2543 MiB/s=25433.4 p50=  45.4ms p95=102.89ms p99=144.42ms max=264.96ms n=25530 errs=0
+media   c=128 rps=    1863 MiB/s=18630.8 p50= 59.94ms p95=146.84ms p99=210.71ms max=519.99ms n=18666 errs=0
+
+[perf stat: original units]
+variant task-clock-ms context-switches cpu-migrations page-faults elapsed-seconds
+current 77497.41 14677 286 95444 10.052446712
+fake 74508.80 123016 4102 9558 10.738880296
+small 72880.64 30599 190 4534 10.050953421
+
+[server cgroup cpu.stat: original cumulative microseconds]
+run boundary usage_usec user_usec system_usec nr_throttled throttled_usec
+current-stat before 30226539 3932104 26294434 0 0
+current-stat after 107805192 5874964 101930227 0 0
+symbols-sample before 23382764 788606 22594158 0 0
+symbols-sample after 97356060 2610075 94745984 0 0
+fake-stat before 25480395 4151387 21329007 0 0
+fake-stat after 100048078 11098713 88949364 0 0
+fake-sample before 100049838 11100154 88949684 0 0
+fake-sample after 172756954 17830761 154926193 0 0
+small-stat before 20678075 837198 19840877 0 0
+small-stat after 93645454 3288866 90356587 0 0
+small-sample before 93828267 3380895 90447372 0 0
+small-sample after 146773200 5332276 141440923 0 0
+
+[server cgroup cpu.pressure: original cumulative total microseconds]
+run boundary some_total full_total
+current-stat before 144574 82748
+current-stat after 360329 296559
+symbols-sample before 91702 79692
+symbols-sample after 619091 600848
+fake-stat before 1462766 560464
+fake-stat after 6863512 2986344
+fake-sample before 6863512 2986344
+fake-sample after 11832702 4964427
+small-stat before 319347 287745
+small-stat after 935456 890719
+small-sample before 961611 911337
+small-sample after 3243466 3093512
+
+[per-thread schedstat: computed deltas with matching TIDs]
+# Values include new threads from zero. Missing exited threads are not estimated.
+run run_ns wait_ns timeslices initial_threads final_threads new_threads exited_threads
+symbols-sample 73884890621 6596980397 26162 20 20 0 0
+fake-stat 74567683007 154784577299 123014 45 48 3 0
+fake-sample 72707116503 135667331036 189197 48 49 1 0
+small-stat 72876435379 7366702365 30598 28 20 0 8
+small-sample 52841305196 26852720752 134826 20 20 0 0
+# Current release stat used aggregate snapshots, 24 -> 20 threads; its wait delta is excluded.
+
+[perf record metadata]
+run samples lost_samples recorded_MB out_of_order_events
+symbols-sample 13408 0 111.165 1
+fake-sample 13494 0 112.011 0
+small-sample 10302 0 85.423 0
+# All three recordings emitted: Failed to open /proc/schedstat
+# symbols-sample also emitted: Warning: 1 out of order events recorded.
+# Hardware cycles/instructions were unavailable; the events above were software cpu-clock.
+
+[selected perf report self percentages; denominator = all server samples]
+symbol symbols-sample small-sample fake-sample
+__arch_copy_to_user 39.55 39.24 16.26
+__arch_copy_from_user 19.74 18.86 18.19
+filemap_get_read_batch 7.33 6.05 0.15
+all-kernel 97.78 96.83 90.46
+server-userspace 2.20 3.11 9.38
+vdso 0.02 0.07 0.16
+# Rounding can make column sums differ from 100.00.
+# Symbol-enabled mimic: Notify::notify_waiters self 0.06%; ReadBuffer::take self 0.01%.
+
+[artifact SHA-256]
+4288b95d957d12eaa9d31d62464fee8e77b5cca34b4c6227b3c6bd3485e681f6 gcs-mimic-release
+7c65b15a42351de586e5688f1f2730da746c6b1b5c6d03866b45325baee66fef gcs-mimic-symbols
+87eca7097fa2465d179c8d081bc0024edb22be4e87bc04cfd48b49fe4c521e89 release.text
+7d22b2f6d4976b2b82027d2d1444778b3918605e085ab1de0b53ca9ca4d1d8f8 symbols.text
+338c07f4378ec20d23aca61ff5abccddeda66e38e2320ef666b95eebfce65ac3 symbols.perf.data
+7717c03ece930be9101b406d5525d7d9d4d7eb6586aee9d6cdbed62ab59e5b57 fake.perf.data
+99a2c9967ca15537702ced8870df0ea4e7f2103bdd2dded2e573a6970c77e421 small.perf.data
+319c4f0040676a200a9c0b04a4b563e45aa605a90710f1561f58a3ad5e6884ac profiling-tools-image

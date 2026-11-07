@@ -2,6 +2,9 @@
 
 [English](../en/development.md)
 
+性能調査は[ボトルネックの探し方](performance-investigation.md)と
+[調査結果・採否の一覧（英語）](../en/evidence/read-optimization-summary.md)を確認してから始めます。
+
 開発中は`just check`、push前の最終ソースでは`just pre-push`を実行します。
 コンテナのビルドと動作確認は、AMD64とARM64を並列に進めます。
 
