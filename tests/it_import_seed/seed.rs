@@ -8,7 +8,7 @@ use std::{
     collections::BTreeMap,
     fs,
     io::{BufRead, BufReader},
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     path::Path,
     process::{Command, Stdio},
     time::Duration,
@@ -16,6 +16,7 @@ use std::{
 #[cfg(unix)]
 use std::{
     io::{Read, Write},
+    net::TcpStream,
     process::Child,
 };
 
