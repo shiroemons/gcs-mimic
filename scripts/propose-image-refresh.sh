@@ -23,12 +23,7 @@ if [[ ! -s $record ]]; then
   exit 0
 fi
 
-# Rewriting this script would change what runs next, and the workflow token cannot push workflows.
-if git apply --numstat "$patch" | cut -f3 | grep -E '^(\.github/|scripts/propose-image-refresh\.sh$)'; then
-  echo 'The patch touches files a pin refresh must not change.' >&2
-  exit 1
-fi
-git apply --index "$patch"
+bash scripts/apply-pin-patch.sh "$patch"
 
 gh auth setup-git
 

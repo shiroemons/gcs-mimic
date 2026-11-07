@@ -16,6 +16,7 @@ bash scripts/test-rust.sh
 bash scripts/check-docs.sh
 bash scripts/test-container-release.sh
 bash scripts/test-container-mirror.sh
+bash scripts/test-apply-pin-patch.sh
 for script in scripts/*.sh; do bash -n "$script"; done
 bash scripts/smoke-containers.sh --help
 if bash scripts/smoke-containers.sh linux/unknown; then
