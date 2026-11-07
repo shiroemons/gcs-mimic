@@ -90,7 +90,33 @@ One run of each scenario on the integrated release build, native on macOS arm64,
 | `kill -9` twice | No loss among 946 acknowledged writes | Not recorded |
 | 1000 transfers in flight, half uploads and half downloads | About 230 MiB RSS while held, peaks of 277 to 313 MiB, in the five runs with no failure | Not recorded |
 
-Three of nine runs of the last scenario on this build had 124 to 671 of the thousand clients see `connection reset by peer` right after connecting, at a load average near 5. The build of the first set of these changes did the same in one of five runs, so this is not new. In the run with 671 failures the server logged 104, so most of those clients never reached `accept`. macOS caps the listen backlog at `kern.ipc.somaxconn`, 128 here, which is the likely cause, though this check does not prove it. The same scenario from a Docker network, on Linux, had no failures.
+Three of nine runs of the last scenario on this build had 124 to 671 of the thousand clients see `connection reset by peer` right after connecting, at a load average near 5. The build of the first set of these changes did the same in one of five runs, so this is not new. In the run with 671 failures the server logged 104, so most of those clients never reached `accept`. The same scenario from a Docker network, on Linux, had no failures. The next section shows the cause.
+
+### Simultaneous connections on macOS
+
+These resets come from the operating system's listen queue, which macOS caps at `kern.ipc.somaxconn`, 128 here, and no server setting changes that. Measured on 2026-11-07 on macOS arm64: one client opened the given number of connections at the same instant and sent one GET on each, against a new process on a new port every round, so no connection could meet a `TIME_WAIT` left by an earlier one. The tables count rounds with any reset, and leave out the few rounds whose server failed to start because another process held the port.
+
+| Server, 30 rounds | 150 connections | 400 connections | 1000 connections |
+| --- | --- | --- | --- |
+| gcs-mimic, 2 worker threads | 0 | 1 | 15 |
+| gcs-mimic, 8 worker threads | Not run | Not run | 17 |
+| Go `net/http` | 0 | 1 | 13 |
+| Rust, with one thread that only accepts | 0 | 2 | 12 |
+
+A plain Go server fails as often as gcs-mimic, so neither its accept loop nor its worker threads cause this. A thread that only accepts lost fewer clients at 1000 connections, 739 in all against 2323, but failed in nearly as many rounds, so gcs-mimic did not take on a separate accept thread.
+
+The same Go server with a chosen listen backlog ties the failures to the queue length. macOS lowers the last backlog to 128.
+
+| Backlog, 30 rounds | 150 connections | 400 connections |
+| --- | --- | --- |
+| 8 | 19 | Not run |
+| 16 | 10 | 14 |
+| 32 | 3 | Not run |
+| 64 | 0 | 5 |
+| 128 | 0 | 1 |
+| 1024 | Not run | 3 |
+
+Through a port Docker Desktop publishes, whose listener on the host is not gcs-mimic, the 0.12.0 image had resets in 20 of 20 rounds at 1000 connections and 5 of 20 at 400. Raising `kern.ipc.somaxconn` needs root and was not measured.
 
 ### In the container
 

@@ -1592,7 +1592,15 @@ workflow runs it on native amd64 and arm64 runners; real-cloud conformance and
 performance measurements remain unverified.
 
 For connection errors, inspect `docker compose ps`, `docker compose logs gcs`,
-port mapping and the caller's network. For startup errors, check catalog path
+port mapping and the caller's network. On macOS, `connection reset by peer` right
+after connecting, when several hundred connections open in the same instant, comes
+from the kernel's listen queue, capped at `kern.ipc.somaxconn` (128 by default). It
+affects any server and a port Docker Desktop publishes alike, so no gcs-mimic setting
+changes it. Reuse connections, open them in smaller batches or retry the reset. A
+client in the server's Docker network had no resets in the same check, and
+`sudo sysctl -w kern.ipc.somaxconn=1024` raises the cap until the next restart. See
+the [measurements](evidence/zero-config-defaults.md#simultaneous-connections-on-macos).
+For startup errors, check catalog path
 ownership, disk space, another owner process and config overrides. Unknown routes return
 404; recognized unsupported object/bucket semantics return an explicit 400 or 501
 error rather than false success.

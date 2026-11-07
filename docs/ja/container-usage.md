@@ -78,6 +78,12 @@ DNSにバケット名だけを登録していてドメイン自体を解決で�
 イメージでは`http://127.0.0.1:4443`（HTTPSなら`https://`）で、ready通知の`api_base_url`で確認できます。
 リポジトリのComposeファイルは、`GCS_MIMIC_API_BASE_URL`が環境にあるときだけ渡します。
 
+macOSで数百の接続を同時に開くと、接続直後に`connection reset by peer`になることがあります。
+macOSがlistenキューを`kern.ipc.somaxconn`（既定は128）で打ち切るためで、どのサーバーでも、Docker Desktopが公開したポートでも起き、gcs-mimicの設定では変えられません。
+接続を再利用する、小分けに開く、リセットを再試行する、のいずれかで避けてください。
+同じDockerネットワークのクライアントでは、確認した範囲で起きていません。
+[測定結果](../en/evidence/zero-config-defaults.md#simultaneous-connections-on-macos)があります。
+
 ## 初期ファイルを読み込む
 
 fake-gcs-serverの`/data`と同じバケット・オブジェクト配置を使えます。

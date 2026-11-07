@@ -195,8 +195,10 @@ so re-read state or retry with generation/metageneration preconditions. Complete
 may also commit after disconnect or shutdown. SQLite lock waiting retains five seconds;
 background filesystem work and shutdown catalog close have no separate execution bound.
 Uploads share the `max_connections` limit (default 1024), with excess connections
-waiting for capacity in the listen backlog (requested at 1024). There is no separate upload
-admission cap. Each upload uses
+waiting for capacity in the listen backlog (requested at 1024; macOS lowers it to
+`kern.ipc.somaxconn`, 128 by default, so several hundred connections opened in the same instant
+can be [reset by the kernel](evidence/zero-config-defaults.md#simultaneous-connections-on-macos)).
+There is no separate upload admission cap. Each upload uses
 a two-slot channel with at most 64 KiB
 per chunk, and independent size checks before publication. Downloads use one channel
 slot and a 64 KiB reader. No transaction or blocking worker waits for incoming body data.

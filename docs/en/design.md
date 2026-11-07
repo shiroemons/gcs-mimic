@@ -82,7 +82,8 @@ whenever gRPC is on.
 Each server limits signature verification to half its blocking pool (at least
 one slot); bounded streaming chunk signatures are checked inline.
 Once every connection slot is taken, the accept loop holds one client until a slot frees and
-leaves later clients in the kernel backlog, requested at 1024. Accepted TCP sockets enable
+leaves later clients in the kernel backlog, requested at 1024 and lowered by macOS to
+`kern.ipc.somaxconn`, 128 by default. Accepted TCP sockets enable
 TCP keep-alive (30 seconds idle, then four probes 15 seconds apart), so an idle connection to a
 peer that vanishes without a FIN releases its slot after 90 seconds on every platform, even with
 every timeout disabled. A socket with unacknowledged data falls under the kernel's retransmission
