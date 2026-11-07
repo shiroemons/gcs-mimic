@@ -155,6 +155,11 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    download checksums. Never replace an existing version's tag or assets; fixes
    need a new version. A failed or interrupted publication needs inspection before
    retrying, especially if GitHub has already created the release.
+7. Once its image is published, pin its index digest in
+   `scripts/released-data-fixtures.sh`, generate its data directory fixture with
+   that script, and add the version to `SUPPORTED_RELEASES` in
+   `tests/it_import_seed/released_data_upgrade.rs`. A later version bump fails its
+   tests while a published release lacks a fixture.
 
 Packaging is also available as `cargo xtask release prepare TARGET BINARY OUTPUT_DIR`
 or `just prepare-binary TARGET BINARY OUTPUT_DIR`. Build first with the pinned

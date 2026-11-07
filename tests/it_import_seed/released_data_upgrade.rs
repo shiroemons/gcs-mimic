@@ -19,7 +19,10 @@ use std::{
 };
 
 /// Every release whose data directory the stable contract promises to upgrade.
-const SUPPORTED_RELEASES: &[&str] = &["0.8.0", "0.9.0", "0.10.0"];
+const SUPPORTED_RELEASES: &[&str] = &["0.8.0", "0.9.0", "0.10.0", "0.11.0", "0.12.0"];
+
+/// Releases before this one were withdrawn; see `docs/en/release-policy.md`.
+const FIRST_SUPPORTED_RELEASE: (u32, u32, u32) = (0, 8, 0);
 
 /// Link fields embed the advertised base URL of whichever server answered.
 const ADDRESS_FIELDS: &[&str] = &["selfLink", "mediaLink"];
@@ -197,6 +200,37 @@ fn every_supported_release_has_a_fixture() {
     let mut supported = SUPPORTED_RELEASES.to_vec();
     supported.sort_unstable();
     assert_eq!(present, supported);
+}
+
+fn release_version(text: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = text.split('.').map(|part| part.parse().ok());
+    let version = (parts.next()??, parts.next()??, parts.next()??);
+    parts.next().is_none().then_some(version)
+}
+
+/// A release can only get its fixture once its image is published, so the version bump that
+/// follows it is the first commit able to require one. Without this the list only ever grows by
+/// someone remembering to extend it.
+#[test]
+fn every_published_release_is_supported_before_the_next_version() {
+    let current = release_version(env!("CARGO_PKG_VERSION")).unwrap();
+    let notes = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/en/releases");
+    let mut missing: Vec<String> = fs::read_dir(notes)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
+        .map(|path| path.file_stem().unwrap().to_str().unwrap().to_owned())
+        .filter(|name| {
+            release_version(name)
+                .is_some_and(|version| FIRST_SUPPORTED_RELEASE <= version && version < current)
+                && !SUPPORTED_RELEASES.contains(&name.as_str())
+        })
+        .collect();
+    missing.sort();
+    assert!(
+        missing.is_empty(),
+        "add these to SUPPORTED_RELEASES through scripts/released-data-fixtures.sh: {missing:?}"
+    );
 }
 
 declare_server!();
