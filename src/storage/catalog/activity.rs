@@ -91,7 +91,8 @@ impl ActivityGate {
         Reservation(self.reservations.clone())
     }
 
-    fn is_reserved(&self) -> bool {
+    /// True from when an exclusive job starts waiting until it finishes.
+    pub(super) fn is_reserved(&self) -> bool {
         self.reservations.count.load(Ordering::SeqCst) > 0
     }
 
@@ -140,6 +141,16 @@ impl Catalog {
     /// maintenance, and work that already holds a lease, where it cannot fail on an exclusive job.
     pub(super) fn activity(&self) -> Result<Activity, CatalogError> {
         self.0.activity.try_read().map_err(unavailable)
+    }
+
+    /// A lease for a read about to run, or `None` if an exclusive job runs or waits to run. The
+    /// read then takes the serialized path, which lines up behind the job.
+    pub(super) fn read_lease(&self) -> Option<Activity> {
+        let gate = &self.0.activity;
+        if gate.is_reserved() {
+            return None;
+        }
+        gate.try_read().ok()
     }
 
     /// Waits for a lease. Only a closed catalog fails this, at once for new work; work under way

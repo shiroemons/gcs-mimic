@@ -1,4 +1,9 @@
-use super::{Activity, Catalog, UploadGuard, Work, system_time_micros, unavailable, unix_micros};
+use super::{
+    Activity, Catalog, UploadGuard, Work,
+    read_cache::{self, CachedDownload, CachedObject},
+    read_pool::ReadPath,
+    system_time_micros, unavailable, unix_micros,
+};
 use crate::storage::{BlobId, catalog::sql};
 use crate::{
     bucket::{BucketAccess, CatalogError, StorageClass},
@@ -10,16 +15,16 @@ use crate::{
         ObjectMetadataUpdate, ObjectRecord, ObjectTarget, UploadChunk,
     },
 };
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, types::Type};
 use std::{
     fs::{self, File},
     io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    io::AsyncWriteExt,
     sync::{OwnedSemaphorePermit, mpsc, oneshot},
 };
 
@@ -128,24 +133,40 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
+        let shareable = read_cache::is_shareable(&target, access);
+        if shareable && let Some(hit) = self.cached_object(&target).await {
+            check_conditions(Some(&hit.record), conditions, RequestKind::Read)?;
+            return Ok(hit.record.clone());
+        }
+        let revision = self.0.read_cache.revision();
+        let inner = self.0.clone();
         let ObjectTarget {
             bucket,
             name,
             generation,
         } = target;
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            selected(
-                &transaction,
+        self.run_read_on(move |connection, path| {
+            let snapshot = sql::read_snapshot(connection)?;
+            let StoredObject { record, .. } = selected(
+                &snapshot,
                 &bucket,
                 &name,
                 generation,
                 conditions,
                 RequestKind::Read,
                 &access,
-            )
-            .map(|stored| stored.record)
+            )?;
+            if shareable && path == ReadPath::Pooled {
+                inner.read_cache.store_object(
+                    revision,
+                    CachedObject {
+                        record: record.clone(),
+                        download: None,
+                    },
+                );
+            }
+            Ok(record)
         })
         .await
     }
@@ -160,8 +181,14 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-        self.open_object_keyed(target, conditions, access, None)
-            .await
+        self.open_object_keyed(
+            target,
+            conditions,
+            access,
+            None,
+            crate::object::ReadAhead::None,
+        )
+        .await
     }
 
     /// Applies the public update contract after rechecking the caller's authorization.
@@ -303,18 +330,18 @@ impl Catalog {
 
 /// Shared selection preserves protocol conditions and access.
 pub(super) fn open_selected(
-    connection: &mut Connection,
+    connection: &Connection,
     catalog: &Catalog,
     target: &ObjectTarget,
     conditions: ObjectConditions,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-    let transaction = connection.transaction()?;
-    open_selected_in(&transaction, catalog, target, conditions, access)
+    let snapshot = sql::read_snapshot(connection)?;
+    open_selected_in(&snapshot, catalog, target, conditions, access)
 }
 
 pub(super) fn open_selected_in(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     catalog: &Catalog,
     target: &ObjectTarget,
     conditions: ObjectConditions,
@@ -326,7 +353,7 @@ pub(super) fn open_selected_in(
         generation,
     } = target;
     let StoredObject { record, blob: id } = selected(
-        transaction,
+        connection,
         bucket,
         name,
         *generation,
@@ -334,33 +361,47 @@ pub(super) fn open_selected_in(
         RequestKind::Read,
         access,
     )?;
-    // Open under the same execution permit that serializes deletes and overwrites.
+    // On the serialized path this cannot race a delete or overwrite. On a pooled reader the blob
+    // may already be gone, and the failed open sends the read to the serialized path.
     let file = catalog.0.backend.open(&id)?;
     let remaining = record.size;
-    let publicly_readable = super::policies::read_policy(transaction, bucket)?.allows(
-        None,
-        crate::auth::OBJECTS_GET,
-        super::policies::policy_public_access(transaction, bucket)?,
-    ) || super::acl::object_granted(
-        transaction,
-        bucket,
-        name,
-        record.generation,
-        &BucketAccess::Policy {
-            identity: None,
-            permission: crate::auth::Permission::ObjectsGet,
-            project: None,
-        },
-    )?;
+    let publicly_readable = publicly_readable(connection, bucket, name, record.generation)?;
     Ok((
         record,
         ObjectReader {
             file,
             remaining,
             position: 0,
+            head: None,
             publicly_readable,
         },
     ))
+}
+
+/// Whether an anonymous caller could read this generation, which decides the response's caching
+/// headers. The read cache keeps the answer, so a repeated download does not decode the policy
+/// and the ACL again.
+fn publicly_readable(
+    connection: &Connection,
+    bucket: &str,
+    name: &str,
+    generation: i64,
+) -> Result<bool, ObjectError> {
+    Ok(super::policies::read_policy(connection, bucket)?.allows(
+        None,
+        crate::auth::OBJECTS_GET,
+        super::policies::policy_public_access(connection, bucket)?,
+    ) || super::acl::object_granted(
+        connection,
+        bucket,
+        name,
+        generation,
+        &BucketAccess::Policy {
+            identity: None,
+            permission: crate::auth::Permission::ObjectsGet,
+            project: None,
+        },
+    )?)
 }
 
 /// Shared selection preserves protocol conditions and access.

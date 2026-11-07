@@ -100,6 +100,31 @@ pub(super) fn immediate(connection: &mut Connection) -> rusqlite::Result<Transac
     connection.transaction_with_behavior(TransactionBehavior::Immediate)
 }
 
+/// One consistent view across a read's statements. `Connection::transaction` parses `BEGIN` and
+/// `ROLLBACK` again on every call, which is a real share of a point read; these stay prepared.
+pub(super) struct ReadSnapshot<'a>(&'a Connection);
+
+pub(super) fn read_snapshot(connection: &Connection) -> rusqlite::Result<ReadSnapshot<'_>> {
+    exec(connection, "BEGIN DEFERRED", [])?;
+    Ok(ReadSnapshot(connection))
+}
+
+impl std::ops::Deref for ReadSnapshot<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        self.0
+    }
+}
+
+impl Drop for ReadSnapshot<'_> {
+    fn drop(&mut self) {
+        // A failure leaves the transaction open: the read pool retires such a connection, and the
+        // writer's panic recovery and `BEGIN` errors surface it on the serialized path.
+        let _ = exec(self.0, "ROLLBACK", []);
+    }
+}
+
 pub(super) fn validate(
     connection: &Connection,
     sql: &'static str,

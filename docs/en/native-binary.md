@@ -206,7 +206,12 @@ Unknown routes return 404 without body reads; probes retain
 GET/HEAD support and body rejection. Catalog work has 32 admission slots that later calls
 wait for, one
 executing job on a dedicated catalog thread, a 2 MiB SQLite cache, at most 64 cached
-prepared statements and no memory map. The runtime bounds the blocking threads used
+prepared statements and no memory map. With the disk backend, object and bucket reads also run
+on up to eight read-only connections with their own threads, started only as reads overlap, each
+with a 1 MiB SQLite cache. Repeated reads of live objects with permissive access answer from
+memory until the next catalog write: at most 4096 records and 16 MiB of them, and at most 1024
+files kept open or a quarter of the open-file limit, whichever is lower. Object bytes stay in the
+operating system's page cache. The runtime bounds the blocking threads used
 for file I/O; catalog jobs do not wait for them. Queued/cancelled operations retain
 directory ownership until execution finishes. Before confirmed EOF, a timeout/disconnect aborts the upload without
 publishing partial bytes. Early rejections send a response and half-close the socket, then

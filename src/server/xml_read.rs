@@ -2,8 +2,8 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, gzip, insert_content_range,
-    object_body,
+    ObjectCtx, ResponseBody, anonymous_error, body_read_ahead, boxed, empty_response, gzip,
+    insert_content_range, object_body,
 };
 use crate::{
     auth,
@@ -111,7 +111,7 @@ async fn read(
             .await
     } else {
         catalog
-            .open_object_keyed(target, conditions, access, key)
+            .open_object_keyed(target, conditions, access, key, body_read_ahead(request))
             .await
             .map(|(record, reader)| (record, reader, true))
     }

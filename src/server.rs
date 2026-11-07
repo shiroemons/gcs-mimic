@@ -152,6 +152,7 @@ pub(crate) mod chunk_body;
 pub(crate) mod copy;
 mod gzip;
 mod notifications;
+mod object_body;
 mod project_resources;
 pub(crate) mod resumable;
 mod retention_access;
@@ -1506,39 +1507,33 @@ fn authorize_project(
     }
 }
 
+/// What a download should fetch while it opens the object.
+fn body_read_ahead(request: &Request<RequestBody>) -> crate::object::ReadAhead {
+    use crate::object::ReadAhead;
+    const WITHOUT_FULL_BODY: [&str; 5] = [
+        "range",
+        "if-match",
+        "if-none-match",
+        "if-modified-since",
+        "if-unmodified-since",
+    ];
+    let headers = request.headers();
+    if request.method() == Method::GET
+        && !WITHOUT_FULL_BODY
+            .iter()
+            .any(|name| headers.contains_key(*name))
+    {
+        ReadAhead::Body
+    } else {
+        ReadAhead::None
+    }
+}
+
 fn object_body(
-    mut reader: crate::storage::ObjectReader,
+    reader: crate::storage::ObjectReader,
     activity: &watch::Sender<ObjectActivity>,
 ) -> ResponseBody {
-    let (sender, body) = chunk_body::channel();
-    let activity = activity.clone();
-    crate::task::spawn_supervised("object-body", async move {
-        loop {
-            match reader.next_chunk().await {
-                Ok(Some(bytes)) => {
-                    if sender.send(Ok(bytes)).await.is_err() {
-                        break;
-                    }
-                    record_progress(&activity);
-                }
-                Ok(None) => break,
-                Err(error) => {
-                    // hyper reports only that the body was aborted; name the read failure.
-                    crate::diagnostics::emit(
-                        crate::diagnostics::LogLevel::Warn,
-                        "object_body_read_failed",
-                        serde_json::json!({
-                            "message": "object data read failed after the response started; the client receives a truncated body",
-                            "cause": error.kind().to_string(),
-                        }),
-                    );
-                    let _ = sender.send(Err(error)).await;
-                    break;
-                }
-            }
-        }
-    });
-    body.boxed_unsync()
+    object_body::ObjectBody::new(reader, activity.clone()).boxed_unsync()
 }
 
 async fn validate_bodyless_post(

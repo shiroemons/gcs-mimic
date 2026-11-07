@@ -263,6 +263,29 @@ and needs no lease. Work that spans several jobs, such as an upload body or a se
 a read lease that the exclusive job drains. While it drains, new work of that kind lines up behind
 its reservation, so a stream of uploads cannot keep it out, while reads and work already under way
 continue. Everything queued then runs against the state the job left instead of answering 503.
+
+Reads that change nothing need not line up there. With the disk backend, object and bucket reads
+run on up to eight read-only WAL connections, each on its own thread, which take the same admission
+slots and hold an activity lease while they run. A snapshot is at least as new as every commit
+that finished before the read began, so clients still read their own writes. Once an exclusive job
+has reserved the gate, reads take the serialized path behind it. A reader's snapshot can select a
+blob that reclamation unlinks before the open, and any failure on a reader, including an attempted
+write, retries on the serialized path, whose answer stands. A RAM catalog exists only inside the
+writer's connection and always reads there.
+
+Repeated reads of live objects with permissive access answer from memory on the async worker,
+without a thread hop or SQL. Every write runs through one function, which clears this cache after
+a job changed any row and before its caller can learn the outcome, so a read that starts after a
+write finished always misses and sees it. A pooled read notes the cache's revision before its
+snapshot and its answer is dropped if a write finished since. Strict-mode authorization runs on
+every request, and objects under a customer-supplied key never enter. The cache holds no object
+bytes: an entry keeps its immutable generation open, and `preadv2` with `RWF_NOWAIT` reads what the
+page cache holds, which the kernel guarantees cannot wait for storage. Anything else falls back to
+a blocking read. A full cache admits nothing further until the next write instead of evicting,
+because a sweep over more objects than fit defeats a recency policy entirely.
+
+A response body is pulled by the connection instead of pushed by a task, so a slow client holds at
+most one frame of 256 KiB, or 1 MiB while more than that remains. gRPC keeps its 64 KiB chunks.
 File content I/O, publication/removal, directory sync and gzip decoding stay on the
 runtime's bounded blocking pool, so a saturated pool cannot hold the execution permit
 while catalog work waits for a pool thread. A serialized metadata job may pin an

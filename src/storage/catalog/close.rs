@@ -73,6 +73,11 @@ impl Catalog {
             .acquire_owned()
             .await
             .map_err(unavailable)?;
+        if let Some(pool) = &self.0.read_pool {
+            pool.close().await;
+        }
+        // Remaining handles must not keep the blobs open: ownership of the directory ends here.
+        self.0.read_cache.invalidate();
         let execution = self
             .0
             .execution

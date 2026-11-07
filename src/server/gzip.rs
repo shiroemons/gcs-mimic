@@ -219,7 +219,7 @@ mod tests {
         let directory = crate::test_support::TestDir::new();
         let path = directory.0.join("object");
         std::fs::write(&path, b"").unwrap();
-        let file = tokio::fs::File::open(&path).await.unwrap();
+        let file = std::fs::File::open(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         // The object claims 5 bytes but the file is empty, so the probe hits end of file.
         let mut reader = ObjectReader::bounded_for_test(file, 5);

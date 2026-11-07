@@ -130,6 +130,20 @@ fn open_file_limit() -> std::io::Result<libc::rlimit> {
     }
 }
 
+/// How many files a cache may keep open: a quarter of what the process may hold, which leaves the
+/// rest to connections and transfers, however low the limit stayed after startup raised it.
+#[cfg(unix)]
+pub(crate) fn cacheable_files() -> usize {
+    open_file_limit().map_or(0, |limit| {
+        usize::try_from(limit.rlim_cur / 4).unwrap_or(usize::MAX)
+    })
+}
+
+#[cfg(not(unix))]
+pub(crate) fn cacheable_files() -> usize {
+    usize::MAX
+}
+
 #[cfg(unix)]
 #[expect(
     unsafe_code,

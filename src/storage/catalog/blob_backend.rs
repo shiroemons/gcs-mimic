@@ -249,7 +249,7 @@ impl BlobBackend {
     pub(super) fn open_appendable(&self, id: &BlobId) -> io::Result<ReaderData> {
         match self {
             Self::Disk(root) => fs::File::open(root.join("appendable").join(id.to_hex()))
-                .map(tokio::fs::File::from_std)
+                .map(Arc::new)
                 .map(ReaderData::Disk),
             Self::Memory(_) => self.open(id),
         }
@@ -258,7 +258,7 @@ impl BlobBackend {
     pub(super) fn open(&self, id: &BlobId) -> io::Result<ReaderData> {
         match self {
             Self::Disk(root) => fs::File::open(id.blob_path(root))
-                .map(tokio::fs::File::from_std)
+                .map(Arc::new)
                 .map(ReaderData::Disk),
             Self::Memory(store) => store.open(&id.to_hex()).map(ReaderData::Memory),
         }

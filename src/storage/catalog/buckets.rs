@@ -62,11 +62,11 @@ impl Catalog {
     ) -> Result<Option<BucketRecord>, CatalogError> {
         let name = name.to_owned();
         let access = access.clone();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
-            let record = select_bucket(&transaction, &name)?;
+        self.run_read(move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
+            let record = select_bucket(&snapshot, &name)?;
             if let Some(record) = &record {
-                check_access(&transaction, &name, &record.project, &access)?;
+                check_access(&snapshot, &name, &record.project, &access)?;
             }
             Ok(record)
         })
@@ -76,16 +76,27 @@ impl Catalog {
     /// Whether the bucket stores any CORS rule, without decoding the bucket row. A missing bucket
     /// has none. Every XML object request asks this to decide `Vary`, so it must stay cheap.
     pub(crate) async fn bucket_has_cors(&self, name: &str) -> Result<bool, CatalogError> {
+        if let Some(has_cors) = self.cached_bucket_cors(name).await {
+            return Ok(has_cors);
+        }
+        let revision = self.0.read_cache.revision();
+        let inner = self.0.clone();
         let name = name.to_owned();
-        self.run(move |connection| {
+        self.run_read_on(move |connection, path| {
             let stored = sql::row(
                 connection,
                 "SELECT cors FROM buckets WHERE name = ?1",
-                [name],
+                [&name],
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
-            Ok(stored.is_some_and(|cors| cors != "[]"))
+            let has_cors = stored.is_some_and(|cors| cors != "[]");
+            if path == super::read_pool::ReadPath::Pooled {
+                inner
+                    .read_cache
+                    .store_bucket_cors(revision, &name, has_cors);
+            }
+            Ok(has_cors)
         })
         .await
     }

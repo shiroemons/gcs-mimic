@@ -589,6 +589,45 @@ pub(crate) fn read_at(file: &File, bytes: &mut [u8], offset: u64) -> io::Result<
     }
 }
 
+/// Whether [`read_cached_at`] can ever return bytes on this platform.
+pub(crate) const READS_CACHED_PAGES: bool = cfg!(all(
+    target_os = "linux",
+    any(target_env = "gnu", target_env = "musl")
+));
+
+/// Reads what the page cache already holds at `offset`, and never waits for storage: the kernel
+/// fails `RWF_NOWAIT` rather than block, which makes this safe to call on an async worker. `None`
+/// covers every other outcome, including a file system without support and the end of the file,
+/// and sends the caller to [`read_at`], which also reports any real failure.
+#[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "musl")))]
+#[expect(unsafe_code, reason = "std has no wrapper for preadv2")]
+pub(crate) fn read_cached_at(file: &File, bytes: &mut [u8], offset: u64) -> Option<usize> {
+    use std::os::fd::AsRawFd;
+
+    let vector = libc::iovec {
+        iov_base: bytes.as_mut_ptr().cast(),
+        iov_len: bytes.len(),
+    };
+    let offset = libc::off_t::try_from(offset).ok()?;
+    // SAFETY: the one vector describes `bytes`, which stays exclusively borrowed for the call and
+    // receives at most its length, and `file` keeps the descriptor open.
+    let read = unsafe {
+        libc::preadv2(
+            file.as_raw_fd(),
+            &raw const vector,
+            1,
+            offset,
+            libc::RWF_NOWAIT,
+        )
+    };
+    usize::try_from(read).ok().filter(|read| *read > 0)
+}
+
+#[cfg(not(all(target_os = "linux", any(target_env = "gnu", target_env = "musl"))))]
+pub(crate) fn read_cached_at(_file: &File, _bytes: &mut [u8], _offset: u64) -> Option<usize> {
+    None
+}
+
 fn copy_read_write(src: &File, dst: &File) -> io::Result<()> {
     #[cfg(unix)]
     use std::os::unix::fs::FileExt;

@@ -1,10 +1,11 @@
-//! The dedicated OS thread that runs every job on the catalog connection.
+//! A dedicated OS thread that runs jobs on one catalog connection.
 //!
 //! Catalog jobs used to run on Tokio's shared blocking pool after taking the one execution
 //! permit. When file I/O or gzip work filled that pool (8 threads by default, 1 at minimum), the
 //! job waited in the pool queue while holding the permit and stalled every other catalog call.
 //! A thread owned by the catalog keeps metadata work independent of the pool's load. The
-//! execution permit still serializes jobs, so the queue holds at most one job in practice.
+//! execution permit, or a read slot on a pooled reader, gives each thread one job at a time, so
+//! the queue holds at most one job in practice.
 
 use tokio::sync::{mpsc, oneshot};
 
@@ -55,9 +56,9 @@ pub(super) struct Executor {
 
 impl Executor {
     /// Starts the thread. It exits after a [`Self::run_last`] job or once the catalog is dropped.
-    pub(super) fn start() -> std::io::Result<Self> {
+    pub(super) fn start(name: &'static str) -> std::io::Result<Self> {
         let (jobs, mut queue) = mpsc::channel::<Job>(1);
-        crate::task::spawn_thread("gcs-mimic-catalog", move || {
+        crate::task::spawn_thread(name, move || {
             #[cfg(test)]
             super::fault::enter_catalog_thread();
             while let Some(job) = queue.blocking_recv() {
@@ -120,7 +121,7 @@ mod tests {
 
     #[tokio::test]
     async fn jobs_run_in_order_and_a_panic_does_not_stop_the_thread() {
-        let executor = Executor::start().unwrap();
+        let executor = Executor::start("test-executor").unwrap();
         let first = executor.run(|| std::thread::current().id()).await.unwrap();
         assert_ne!(first, std::thread::current().id());
         assert!(matches!(
@@ -138,7 +139,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_dropped_caller_does_not_cancel_a_queued_job() {
-        let executor = Executor::start().unwrap();
+        let executor = Executor::start("test-executor").unwrap();
         let (release, held) = std::sync::mpsc::channel::<()>();
         let (done, finished) = std::sync::mpsc::channel();
         let (started, running) = oneshot::channel();
@@ -167,7 +168,7 @@ mod tests {
             .build()
             .unwrap();
         runtime.block_on(async {
-            let executor = Executor::start().unwrap();
+            let executor = Executor::start("test-executor").unwrap();
             let (release, held) = std::sync::mpsc::channel::<()>();
             let blocker = tokio::task::spawn_blocking(move || held.recv());
             let result =

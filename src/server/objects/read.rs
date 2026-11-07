@@ -8,7 +8,7 @@ use crate::{
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     server::{
         ALLOWED_RESOURCES_VARY, JSON_RESOURCE_CACHE_CONTROL, ObjectCtx, QueryPrecondition,
-        ResponseBody, acl, boxed, empty_response, gzip, insert_content_range,
+        ResponseBody, acl, body_read_ahead, boxed, empty_response, gzip, insert_content_range,
         insert_unsatisfied_content_range, not_modified_response, object_body,
         read_metadata_response,
     },
@@ -75,7 +75,7 @@ async fn media(
     let (record, mut reader) = ctx
         .state
         .catalog
-        .open_object_keyed(object, conditions, access, key)
+        .open_object_keyed(object, conditions, access, key, body_read_ahead(request))
         .await?;
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::MediaRead)?;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;

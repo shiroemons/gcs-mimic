@@ -92,6 +92,7 @@ impl Inner {
             return Err(ConnectionUnavailable::Closed);
         };
         let connection = &mut resources.connection;
+        let changes_before = connection.total_changes();
         // The connection is checked after an unwind before anyone reuses it, so
         // observing it mid-operation is harmless.
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -99,6 +100,11 @@ impl Inner {
                 change_journal::notify_on_write(connection, &self.notification_wake, operation)
             })
         }));
+        // Before the caller can learn the outcome, so a read after this write misses the cache. A
+        // rollback also counts as a change, which only costs some cached answers.
+        if connection.total_changes() != changes_before {
+            self.read_cache.invalidate();
+        }
         match outcome {
             Ok(result) => Ok(result),
             Err(payload) => {
@@ -150,12 +156,10 @@ impl Catalog {
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
     ) -> Result<T, E> {
-        let admission = {
-            #[cfg(test)]
-            let _waiting = WaitingForAdmission::enter(&self.0.admission_waiters);
-            self.0.admission.clone().acquire_owned().await
-        }
-        .map_err(|_| unavailable(BackendFailure::CatalogClosed))?;
+        let admission = self
+            .admit()
+            .await
+            .map_err(|_| unavailable(BackendFailure::CatalogClosed))?;
         let execution = self
             .0
             .execution
@@ -181,6 +185,15 @@ impl Catalog {
             })
             .await
             .map_err(unavailable)?
+    }
+
+    /// Waits for one of the slots that bound all catalog work. Close fails the wait at once.
+    pub(super) async fn admit(
+        &self,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError> {
+        #[cfg(test)]
+        let _waiting = WaitingForAdmission::enter(&self.0.admission_waiters);
+        self.0.admission.clone().acquire_owned().await
     }
 
     /// Takes every admission slot, so later `run` calls wait until the returned permit drops.

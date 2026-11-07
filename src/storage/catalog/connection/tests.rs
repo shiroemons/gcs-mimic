@@ -44,8 +44,9 @@ async fn callers_past_the_queue_wait_and_every_read_and_write_completes() {
     for index in 0..CALLERS {
         let catalog = catalog.clone();
         calls.spawn(async move {
+            // A read that stays on the serialized connection, which is what the thread blocks.
             if index % 2 == 0 {
-                catalog.get_bucket("bucket", PERMISSIVE).await.map(|_| ())
+                catalog.get_policy("bucket", PERMISSIVE).await.map(|_| ())
             } else {
                 catalog
                     .insert_bucket(bucket(&format!("bucket-{index}"), "project"))
@@ -106,7 +107,8 @@ async fn closing_fails_waiters_at_once_and_runs_the_calls_already_admitted() {
     let mut calls = JoinSet::new();
     for _ in 0..CALLERS {
         let catalog = catalog.clone();
-        calls.spawn(async move { catalog.get_bucket("bucket", PERMISSIVE).await });
+        // A read that stays on the serialized connection, which is what the thread blocks.
+        calls.spawn(async move { catalog.get_policy("bucket", PERMISSIVE).await });
     }
     let waiting = CALLERS - (MAX_IN_FLIGHT - 1);
     eventually_async("the callers past the slots to wait", || async {

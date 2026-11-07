@@ -8,14 +8,26 @@ use super::sql;
 use super::{
     Catalog, CatalogError,
     derived::{DerivedSource, DerivedSourceSpec},
-    objects::{self, ObjectReader},
+    objects::{self, ObjectReader, RequestKind},
+    read_cache::{self, CachedObject},
+    read_pool::ReadPath,
 };
 use crate::{
     bucket::BucketAccess,
     csek::{CustomerKey, check_data},
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, ReadAhead},
 };
 use rusqlite::Connection;
+
+/// Whether to fetch the body's start while opening the object. A stored-gzip response depends on
+/// the bytes and may be chunked or transcoded, which the streaming path decides.
+fn wants_read_ahead(record: &ObjectRecord, read_ahead: ReadAhead) -> bool {
+    read_ahead == ReadAhead::Body
+        && !record
+            .content_encoding
+            .as_deref()
+            .is_some_and(|encoding| encoding.eq_ignore_ascii_case("gzip"))
+}
 
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN customer_key_sha256 BLOB CHECK(customer_key_sha256 IS NULL OR length(customer_key_sha256) = 32); PRAGMA user_version = 30;";
 
@@ -57,13 +69,44 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
         key: Option<CustomerKey>,
+        read_ahead: ReadAhead,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
+        let shareable = key.is_none() && read_cache::is_shareable(&target, access);
+        let hit = if shareable {
+            self.cached_object(&target).await
+        } else {
+            None
+        };
+        if let Some(hit) = &hit {
+            objects::check_conditions(Some(&hit.record), conditions, RequestKind::Read)?;
+            if let Some(mut reader) = ObjectReader::from_cached(hit) {
+                if wants_read_ahead(&hit.record, read_ahead) {
+                    reader.read_ahead_cached();
+                }
+                return Ok((hit.record.clone(), reader));
+            }
+        }
+        let revision = self.0.read_cache.revision();
         let catalog = self.clone();
         let access = access.clone();
-        self.run(move |connection| {
-            let (record, reader) =
+        self.run_read_on(move |connection, path| {
+            let (record, mut reader) =
                 objects::open_selected(connection, &catalog, &target, conditions, &access)?;
             check(&record, key)?;
+            if path == ReadPath::Pooled {
+                if wants_read_ahead(&record, read_ahead) {
+                    reader.read_ahead_on_pool();
+                }
+                if shareable {
+                    catalog.0.read_cache.store_object(
+                        revision,
+                        CachedObject {
+                            record: record.clone(),
+                            download: reader.cached_download(),
+                        },
+                    );
+                }
+            }
             Ok((record, reader))
         })
         .await
@@ -80,7 +123,7 @@ impl Catalog {
     ) -> Result<(ObjectRecord, ObjectReader, bool), ObjectError> {
         let catalog = self.clone();
         let access = access.clone();
-        self.run(move |connection| {
+        self.run_read(move |connection| {
             let (record, reader) =
                 objects::open_selected(connection, &catalog, &target, conditions, &access)?;
             let reveal = crate::csek::check_metadata(record.customer_key_sha256, key)
@@ -174,6 +217,7 @@ mod tests {
                 Default::default(),
                 PERMISSIVE,
                 Some(CustomerKey::from_sha256(sha256)),
+                crate::object::ReadAhead::None,
             )
             .await
             .unwrap();

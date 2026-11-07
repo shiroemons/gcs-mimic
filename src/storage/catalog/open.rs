@@ -308,13 +308,21 @@ impl Catalog {
             } else {
                 recover_on_open(&mut connection, &backend, &*clock)?;
             }
+            let parent_policy = Arc::<read_pool::ParentPolicy>::default();
+            // An in-memory database exists only inside the writer's connection.
+            let read_pool = memory_limits.is_none().then(|| {
+                read_pool::ReadPool::new(data_dir.join("catalog.sqlite3"), parent_policy.clone())
+            });
             Ok(Self(Arc::new(Inner {
                 principals: OnceLock::new(),
                 activity: ActivityGate::default(),
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
-                executor: executor::Executor::start()?,
+                executor: executor::Executor::start("gcs-mimic-catalog")?,
+                read_pool,
+                parent_policy,
+                read_cache: read_cache::ReadCache::new(crate::fd_limit::cacheable_files()),
                 reclamation: Arc::new(Semaphore::new(1)),
                 uploads: Mutex::new(UploadState::default()),
                 uploads_idle: Notify::new(),

@@ -691,6 +691,153 @@ fn versioning_migration_copies_named_columns_from_permuted_legacy_table() {
     );
 }
 
+/// A file holding `size` distinct bytes, and the reader over it with a read-ahead done.
+fn read_ahead_fixture(size: usize) -> (crate::test_support::TestDir, Vec<u8>, ObjectReader) {
+    let dir = crate::test_support::TestDir::new();
+    let path = dir.0.join("blob");
+    let contents: Vec<u8> = (0..size).map(|index| (index % 251) as u8).collect();
+    fs::write(&path, &contents).unwrap();
+    let mut reader = ObjectReader::bounded_for_test(File::open(&path).unwrap(), size as u64);
+    reader.read_ahead();
+    (dir, contents, reader)
+}
+
+async fn drain(reader: &mut ObjectReader) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = reader.next_chunk().await.unwrap() {
+        bytes.extend_from_slice(&chunk);
+    }
+    bytes
+}
+
+#[test]
+fn a_read_ahead_holds_a_small_object_whole() {
+    let (_dir, contents, mut reader) = read_ahead_fixture(100 * 1024);
+    assert_eq!(reader.next_frame_at_hand().unwrap(), contents);
+    assert!(reader.is_finished());
+    assert!(reader.next_frame_at_hand().is_none());
+}
+
+#[test]
+fn an_empty_object_is_finished_without_reading() {
+    let (_dir, _contents, reader) = read_ahead_fixture(0);
+    assert!(reader.head.is_none());
+    assert!(reader.is_finished());
+}
+
+#[tokio::test]
+async fn a_read_ahead_starts_a_large_object_and_streaming_continues_it() {
+    let (_dir, contents, mut reader) = read_ahead_fixture(3 * 1024 * 1024);
+    assert_eq!(reader.read_ahead_len(), Some(1024 * 1024));
+    assert_eq!(drain(&mut reader).await, contents);
+}
+
+/// A read-ahead is sized for a frame, which must not turn into a chunk over the chunk limit.
+#[tokio::test]
+async fn a_chunk_splits_a_larger_read_ahead_and_keeps_the_rest() {
+    let (_dir, contents, mut reader) = read_ahead_fixture(100 * 1024);
+    let first = reader.next_chunk().await.unwrap().unwrap();
+    assert_eq!(first, contents[..CHUNK_SIZE]);
+    assert_eq!(drain(&mut reader).await, contents[CHUNK_SIZE..]);
+}
+
+/// gRPC sizes its messages by this limit, unlike an HTTP frame.
+#[tokio::test]
+async fn a_chunk_stays_small_and_a_frame_may_be_larger() {
+    let dir = crate::test_support::TestDir::new();
+    let path = dir.0.join("blob");
+    let size = 3 * 1024 * 1024;
+    fs::write(&path, vec![7; size]).unwrap();
+    let open = || ObjectReader::bounded_for_test(File::open(&path).unwrap(), size as u64);
+    let mut reader = open();
+    assert_eq!(
+        reader.next_chunk().await.unwrap().unwrap().len(),
+        CHUNK_SIZE
+    );
+    let mut reader = open();
+    assert_eq!(
+        reader.next_frame().await.unwrap().unwrap().len(),
+        1024 * 1024
+    );
+}
+
+/// Large frames only pay off while more than one of them remains.
+#[tokio::test]
+async fn the_last_megabyte_goes_out_in_small_frames() {
+    let (_dir, contents, mut reader) = read_ahead_fixture(1024 * 1024 + 7);
+    let mut sizes = Vec::new();
+    let mut bytes = Vec::new();
+    while let Some(frame) = reader.next_frame().await.unwrap() {
+        sizes.push(frame.len());
+        bytes.extend_from_slice(&frame);
+    }
+    assert_eq!(bytes, contents);
+    assert_eq!(sizes[0], 1024 * 1024);
+    assert_eq!(sizes[1..], [7]);
+    let (_dir, _contents, mut reader) = read_ahead_fixture(1024 * 1024);
+    assert_eq!(
+        reader.next_frame().await.unwrap().unwrap().len(),
+        256 * 1024
+    );
+}
+
+#[tokio::test]
+async fn a_frame_not_at_hand_leaves_the_reader_where_it_was() {
+    let (_dir, contents, mut reader) = read_ahead_fixture(1024);
+    reader.set_range(10, 20).await.unwrap();
+    // Whether the page cache answered depends on the platform; the bytes must not.
+    let at_hand = reader.next_frame_at_hand().unwrap_or_default();
+    assert_eq!(at_hand, contents[10..10 + at_hand.len()]);
+    assert_eq!(drain(&mut reader).await, contents[10 + at_hand.len()..30]);
+}
+
+#[tokio::test]
+async fn peeking_keeps_a_read_ahead_and_a_range_discards_it() {
+    let (_dir, contents, mut reader) = read_ahead_fixture(1024);
+    assert_eq!(reader.peek_prefix(2).await.unwrap(), contents[..2]);
+    assert!(reader.head.is_some());
+    reader.set_range(10, 20).await.unwrap();
+    assert!(reader.head.is_none());
+    assert_eq!(drain(&mut reader).await, contents[10..30]);
+}
+
+#[tokio::test]
+async fn a_read_ahead_is_not_lost_when_the_file_is_handed_over() {
+    use std::io::Read;
+
+    let (_dir, contents, reader) = read_ahead_fixture(1024);
+    let mut bytes = Vec::new();
+    reader.into_reader().await.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, contents);
+    let (_dir, contents, reader) = read_ahead_fixture(1024);
+    let mut bytes = Vec::new();
+    reader
+        .into_file()
+        .await
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .unwrap();
+    assert_eq!(bytes, contents);
+}
+
+/// A short file must not pass for a whole object: the missing end surfaces as a read failure
+/// on the streaming path, after the headers that promised it.
+#[tokio::test]
+async fn a_truncated_blob_is_not_reported_as_whole() {
+    let dir = crate::test_support::TestDir::new();
+    let path = dir.0.join("blob");
+    fs::write(&path, b"short").unwrap();
+    let mut reader = ObjectReader::bounded_for_test(File::open(&path).unwrap(), 10);
+    reader.read_ahead();
+    assert_eq!(reader.read_ahead_len(), Some(5));
+    assert!(!reader.is_finished());
+    assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"short"[..]);
+    assert_eq!(
+        reader.next_chunk().await.unwrap_err().kind(),
+        io::ErrorKind::UnexpectedEof
+    );
+}
+
 #[tokio::test]
 async fn object_range_reader_seeks_sparse_blob_and_bounds_every_chunk() {
     use std::io::{Seek, Write};
@@ -714,9 +861,10 @@ async fn object_range_reader_seeks_sparse_blob_and_bounds_every_chunk() {
     file.seek(io::SeekFrom::Start(size - 3)).unwrap();
     file.write_all(b"end").unwrap();
     let mut reader = ObjectReader {
-        file: ReaderData::Disk(tokio::fs::File::from_std(file)),
+        file: ReaderData::Disk(Arc::new(file)),
         remaining: size,
         position: size - 3,
+        head: None,
         publicly_readable: false,
     };
     let offset = size - CHUNK_SIZE as u64 - 3;
@@ -724,21 +872,16 @@ async fn object_range_reader_seeks_sparse_blob_and_bounds_every_chunk() {
         .set_range(offset, CHUNK_SIZE as u64 + 3)
         .await
         .unwrap();
-    assert_eq!(reader.file.stream_position().await.unwrap(), offset);
     let chunk = reader.next_chunk().await.unwrap().unwrap();
     assert_eq!(chunk.len(), CHUNK_SIZE);
     assert!(chunk.iter().all(|byte| *byte == 0));
     assert_eq!(reader.peek_prefix(2).await.unwrap(), b"en"[..]);
-    assert_eq!(reader.file.stream_position().await.unwrap(), size - 3);
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"end"[..]);
     assert!(reader.next_chunk().await.unwrap().is_none());
-    assert_eq!(reader.file.stream_position().await.unwrap(), size);
     reader.set_range(size - 3, 2).await.unwrap();
     assert_eq!(reader.peek_prefix(1).await.unwrap(), b"e"[..]);
-    assert_eq!(reader.file.stream_position().await.unwrap(), size - 3);
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"en"[..]);
     assert!(reader.next_chunk().await.unwrap().is_none());
-    assert_eq!(reader.file.stream_position().await.unwrap(), size - 1);
     reader.set_range(size, 1).await.unwrap();
     assert_eq!(
         reader.next_chunk().await.unwrap_err().kind(),

@@ -228,6 +228,7 @@ impl Catalog {
         projects: &[String],
     ) -> Result<(), CatalogError> {
         let projects = projects.to_vec();
+        let parent_policy = self.0.parent_policy.clone();
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             transaction.execute("DELETE FROM parent_public_access_prevention", [])?;
@@ -241,7 +242,9 @@ impl Catalog {
                 )?;
             }
             super::change_journal::parent_pap(&transaction, &projects)?;
-            transaction.commit().map_err(unavailable)
+            transaction.commit().map_err(unavailable)?;
+            parent_policy.publish(&projects);
+            Ok(())
         })
         .await
     }
@@ -254,10 +257,10 @@ impl Catalog {
     ) -> Result<BucketAccess, CatalogError> {
         let bucket = bucket.to_owned();
         let identity = identity.into().cloned();
-        self.run(move |connection| {
-            let transaction = connection.transaction()?;
+        self.run_read(move |connection| {
+            let snapshot = sql::read_snapshot(connection)?;
             let project: Option<String> =
-                sql::optional_scalar(&transaction, SELECT_BUCKET_PROJECT, [&bucket])?;
+                sql::optional_scalar(&snapshot, SELECT_BUCKET_PROJECT, [&bucket])?;
             if project.is_none()
                 && !identity
                     .as_ref()
@@ -266,7 +269,7 @@ impl Catalog {
                 return Err(CatalogError::Forbidden);
             }
             let access = BucketAccess::Policy {
-                identity,
+                identity: identity.clone(),
                 permission,
                 project: project.clone(),
             };
@@ -274,7 +277,7 @@ impl Catalog {
             if let Some(project) = project
                 && !crate::acl::object_permission(permission)
             {
-                check_access(&transaction, &bucket, &project, &access)?;
+                check_access(&snapshot, &bucket, &project, &access)?;
             }
             Ok(access)
         })

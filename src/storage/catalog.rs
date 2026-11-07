@@ -51,6 +51,8 @@ pub(crate) mod xml_multipart;
 
 mod executor;
 mod principals;
+mod read_cache;
+mod read_pool;
 mod sql;
 
 mod resumable_recovery;
@@ -171,6 +173,10 @@ struct Inner {
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,
     executor: executor::Executor,
+    /// Absent for a RAM catalog, whose database exists only inside the writer's connection.
+    read_pool: Option<read_pool::ReadPool>,
+    parent_policy: Arc<read_pool::ParentPolicy>,
+    read_cache: read_cache::ReadCache,
     reclamation: Arc<Semaphore>,
     uploads: Mutex<UploadState>,
     uploads_idle: Notify,

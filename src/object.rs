@@ -567,6 +567,14 @@ impl<G> ObjectTarget<G> {
     }
 }
 
+/// Whether opening an object should also fetch the start of its body. A plain download sends
+/// those bytes anyway; a ranged, conditional or HEAD request often does not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReadAhead {
+    None,
+    Body,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ObjectConditions {
     pub if_generation_match: Option<i64>,
