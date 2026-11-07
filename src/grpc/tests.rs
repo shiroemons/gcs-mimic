@@ -732,7 +732,7 @@ async fn grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace() {
     frames_for(&mut client, DEADLINE * 3).await;
     assert!(!task.is_finished(), "the raced stream was cut");
     gate.release.notify_one();
-    frame_of_kind(&mut client, 1).await;
+    frame_of_kind_before_close(&mut client, 1).await;
     read_to_close(&mut client).await;
     timeout(DEADLINE * 5, task).await.unwrap().unwrap();
 }
@@ -752,6 +752,17 @@ async fn grpc_silent_stream_that_raced_the_reclaim_goaway_stays_bounded() {
     hold(&mut client, &gate, 3).await;
     read_to_close(&mut client).await;
     timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+}
+
+/// Reads to the first frame of `wanted` and writes nothing, for a server that closes right after
+/// sending it. An acknowledgement reaching the closed socket resets the connection, and Windows
+/// then discards the frames not read yet.
+async fn frame_of_kind_before_close(client: &mut TcpStream, wanted: u8) {
+    timeout(DEADLINE * 20, async {
+        while frame(client).await.expect("the connection stays open").0 != wanted {}
+    })
+    .await
+    .unwrap();
 }
 
 /// Reads to the end of a connection whose GOAWAY the test already consumed.
