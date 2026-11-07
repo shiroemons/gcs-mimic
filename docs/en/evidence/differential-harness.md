@@ -9,7 +9,7 @@ it does not establish unrestricted Cloud Storage API parity. The committed
 58 cases from **2026-11-01** with `obj-resumable` re-recorded on **2026-11-02**.
 The [comparison report](differential-comparison.md) retains all 59 descriptions.
 
-## Self-check: differential_self_check
+## Self-check: differential-self-check
 
 ```sh
 cargo xtask differential validate
@@ -21,7 +21,7 @@ Validation: `59 differential cases are valid`. The final self-check returned
 or contacted the reference service. Cleanup ended with
 `sweep: 0 leftover bucket(s) found`.
 
-## Live recording: differential_live_record
+## Live recording: differential-live-record
 
 After successful validation, a local `obj-resumable` self-check and an
 authentication check, exactly one authorized live refresh ran with the project
@@ -47,7 +47,7 @@ already covered all 59 cases; the refresh changed only one case. Combined
 request metadata is **811**, including the earlier superseded observations
 and cleanup, rather than the number of retained request steps.
 
-## Partial merge: differential_partial_merge
+## Partial merge: differential-partial-merge
 
 ```sh
 cargo xtask differential merge compatibility/differential/reference/gcs.json \
@@ -68,7 +68,7 @@ incompatible inputs, and preserve unselected cases and metadata. The local
 Pub/Sub stub also survives an injected accept failure before serving the next
 lookup.
 
-## Offline replay: differential_offline_replay
+## Offline replay: differential-offline-replay
 
 ```sh
 cargo xtask differential run \

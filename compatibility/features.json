@@ -4052,9 +4052,7 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "bucket_patch_conditions_and_query_contract",
@@ -4072,10 +4070,7 @@
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "bkt_http_malformed_conditions_preserve_all_bucket_methods",
-        "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
+        "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner"
       ],
       "verification": [
         {"command":"cargo test --locked --offline --test bucket_soft_delete_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["bucket_soft_delete_get_list_and_restore_round_trip","bucket_without_soft_delete_policy_is_deleted_permanently"]},
@@ -4206,10 +4201,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
@@ -4257,7 +4249,6 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -4286,7 +4277,6 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
             "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay"
           ]
         },
@@ -4447,9 +4437,9 @@
         {"id":"BUCKET-PROVIDER-WIRE","description":"Recorded provider wire (docs/en/evidence/response-wire-provider-observations.md): bucket get and list bodies are 2-space pretty JSON in the recorded order kind, selfLink, id, name, projectNumber, generation (native profile only), metageneration, location, storageClass, etag, timeCreated, updated, softDeletePolicy (when stored; omitted by default, unlike the recorded bucket's 604800), iamConfiguration (bucketPolicyOnly, uniformBucketLevelAccess, publicAccessPrevention), locationType, satisfiesPZI (native profile only; true); generation is the catalog's stored 19-digit nanosecond-scale bucket version. Fields absent from the recording follow locationType in an unverified order, and the bucket list layout was not recorded.","result":"PASS","test_ids":["wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies"]},
         {"id":"BUCKET-GENERATION-NANOSECOND","description":"Native bucket generations are 19-digit nanosecond-scale values drawn from a bucket-only allocator, max(current nanoseconds, previous + 1), unique and increasing under a frozen clock; object generations keep their microsecond allocator. Schema 46 multiplies stored live and soft-deleted bucket generations by 1000, re-keys the retained objects of soft-deleted versions to match and seeds the allocator, so restore by generation and listing keep working. The creation-time seed is capped at 9e18 nanoseconds (2255-03-14T16:00:00Z): a bucket created with a clock past that no longer gets a generation tracking its creation time, and allocation continues as previous + 1 (unique and increasing for about 2e17 buckets, then \"generation exhausted\"), where an uncapped time past 2262 would saturate at i64::MAX and fail every later bucket (docs/en/slices/bucket-soft-delete-restore.md, BUCKET-GENERATION). Known limitation, not fixed: the clock supplies microseconds, so the last three digits of every bucket generation are 000 (Cloud Storage's are not); this follows the clock precision. The legacy profile still omits generation.","result":"PASS","test_ids":["storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range","storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic","storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds","storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order"]},
         {"id":"BUCKET-SOFT-DELETE-DEFAULT","description":"A native bucket created without softDeletePolicy stores none and omits the field, so an overwrite or delete frees the old body at once. This deliberately differs from Cloud Storage, whose recorded bucket carried retentionDurationSeconds 604800 (SPEC-SOFT-DELETE). The server setting default_soft_delete_retention_seconds (CLI, GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS, JSON config; 0 or 1..3155760000; default 0) gives new buckets a policy with effectiveTime equal to timeCreated, and deleting then is soft; an explicit policy (zero included) wins; existing buckets keep their stored policy, including one from a higher earlier default; invalid values and a positive value under the legacy profile fail startup. The buckets file accepts softDeletePolicy.retentionDurationSeconds (validated like the JSON API) so an entry can set its own; seed and buckets-file buckets receive the default. Contract: docs/en/slices/sdk-soft-delete-restore.md.","result":"PASS","test_ids":["bucket_soft_delete_http::unconfigured_native_server_frees_overwritten_and_deleted_bodies_at_once","bucket_soft_delete_http::lowering_the_default_keeps_the_stored_policy_of_existing_buckets","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::configured_default_gives_a_new_bucket_that_policy_and_soft_deletes_it","bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently","bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged","bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup"]},
-        {"id":"BUCKET-SATISFIES-PZI","description":"Native bucket resources carry satisfiesPZI true after locationType, as the recorded asia-northeast1 and us-central1 buckets did. The legacy profile omits it. Observed on Cloud Storage (2026-10-31, asia-northeast1): insert, PATCH and PUT bodies carrying satisfiesPZI or satisfiesPZS, true or false, return 200, ignore the member, keep reporting satisfiesPZI true and never emit satisfiesPZS; gcs-mimic does the same in both profiles. The v2 proto has no satisfies_pzi and its satisfies_pzs is never read. A PATCH with no writable setting (including autoclass:{}) left the metageneration and updated time unchanged and a PUT advanced them; autoclass enabled:false advanced it. Preconditions of such a PATCH are evaluated first: ifMetagenerationMatch mismatch is 412 conditionNotMet (location If-Match), ifMetagenerationNotMatch naming the current value is an empty 304. gcs-mimic matches. Observed 2026-10-31 (us-central1): a PATCH with a writable setting also answers an empty 304 for ifMetagenerationNotMatch naming the current value, and a PUT or a labels PATCH with a failed ifMetagenerationMatch is 412 conditionNotMet (location If-Match); gcs-mimic matches. Evidence: docs/en/evidence/response-wire-provider-observations.md, sections satisfiesPZI and satisfiesPZS in write bodies and Bucket retention policy, bucket preconditions and gRPC retention.","result":"PASS","test_ids":["json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value","bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value","bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others","bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies"]},
+        {"id":"BUCKET-SATISFIES-PZI","description":"Native regional bucket resources carry satisfiesPZI true after locationType, as the recorded asia-northeast1 and us-central1 buckets did, and multi-region buckets carry rpo DEFAULT instead. The legacy profile omits it. Observed on Cloud Storage (2026-10-31, asia-northeast1): insert, PATCH and PUT bodies carrying satisfiesPZI or satisfiesPZS, true or false, return 200, ignore the member, keep reporting satisfiesPZI true and never emit satisfiesPZS; gcs-mimic does the same in both profiles. The v2 proto has no satisfies_pzi and its satisfies_pzs is never read. A PATCH with no writable setting (including autoclass:{}) left the metageneration and updated time unchanged and a PUT advanced them; autoclass enabled:false advanced it. Preconditions of such a PATCH are evaluated first: ifMetagenerationMatch mismatch is 412 conditionNotMet (location If-Match), ifMetagenerationNotMatch naming the current value is an empty 304. gcs-mimic matches. Observed 2026-10-31 (us-central1): a PATCH with a writable setting also answers an empty 304 for ifMetagenerationNotMatch naming the current value, and a PUT or a labels PATCH with a failed ifMetagenerationMatch is 412 conditionNotMet (location If-Match); gcs-mimic matches. Evidence: docs/en/evidence/response-wire-provider-observations.md, sections satisfiesPZI and satisfiesPZS in write bodies and Bucket retention policy, bucket preconditions and gRPC retention.","result":"PASS","test_ids":["json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value","bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value","bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others","bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies"]},
         {"id":"BUCKET-SOFT-DELETE-MEMORY-DEFAULT","description":"--backend memory has the same default as every other backend, retention 0 unless default_soft_delete_retention_seconds is given, so deleted data does not fill the fixed RAM budget; an explicit value, 604800 included, applies. A capacity 503 names soft delete retention and how to lower it.","result":"PASS","test_ids":["config::storage::tests::every_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause"]},
-        {"id":"OBJECT-TIME-READ-BACK","description":"retention.retainUntilTime is kept to the nanosecond and displayed truncated to the millisecond, as Cloud Storage did for Unlocked retention (observed 2026-10-31 in us-central1: .123456789 and .123999999 both read back as .123; a time one nanosecond earlier, or the displayed .123, was refused with 403 forbidden as a shortening; the same or a later time was accepted). gcs-mimic compares at the same precision, also after a restart; the catalog stores a sub-microsecond remainder as negated nanoseconds in the existing column, so 0.7.0 microsecond rows read unchanged. Observed second session: Unlocked shortening, removal and locking without the override answer 403 forbidden with the Unlocked wording (gRPC PERMISSION_DENIED); a Locked retention refuses shortening, removal, a mode change and the displayed millisecond value with 403 forbidden and its own wording whatever the override; the same time again is 200 and a time one nanosecond later is 200. A retained delete is 403 retentionPolicyNotMet naming the object and the retain-until time in US Pacific time to the nanosecond, and objects.delete ignores overrideUnlockedRetention. gRPC keeps nanoseconds in retention.retain_until_time and returns retention_expire_time at millisecond precision; JSON fields=retentionExpireTime is 400 invalidParameter. Observed 2026-10-31 (us-central1): the denial time uses the winter offset -08:00, keeps the nanosecond fraction with trailing zeros trimmed and omits a zero fraction; a bucket retention policy denies delete and overwrite with the same 403 retentionPolicyNotMet and message, naming the creation time plus the period to the microsecond, and retentionPolicy null lifts it; Unlocked removal and shortening without the override share one 403 forbidden text; gRPC UpdateObject and DeleteObject answer PERMISSION_DENIED with the JSON text, and retention_expire_time under a bucket policy is cut to milliseconds. gcs-mimic matches. The catalog keeps the remainder in the schema 47 column retain_until_sub_micro_nanos (0 for rows written earlier), so 0.7.0 data reads unchanged. Windows: retention times are held as seconds and nanoseconds instead of a SystemTime (which Windows floors to 100 ns); confirmation by the Windows CI job is pending (gap LOCAL-RETENTION-WINDOWS-TICK). Evidence: docs/en/evidence/response-wire-provider-observations.md, section Object retention time precision. customTime is stored as sent and its read-back is accepted. Bucket policy effectiveTime, soft delete effectiveTime and lockedTime are server-set and not accepted from clients.","result":"PASS","test_ids":["retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond","retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording","retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override","grpc::v2::update_copy::tests::grpc_update_object_retention","grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds","storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range"]},
+        {"id":"OBJECT-TIME-READ-BACK","description":"retention.retainUntilTime is kept to the nanosecond and displayed truncated to the millisecond, as Cloud Storage did for Unlocked retention (observed 2026-10-31 in us-central1: .123456789 and .123999999 both read back as .123; a time one nanosecond earlier, or the displayed .123, was refused with 403 forbidden as a shortening; the same or a later time was accepted). gcs-mimic compares at the same precision, also after a restart; the catalog keeps a sub-microsecond remainder in its own column, so 0.7.0 microsecond rows read unchanged. Observed second session: Unlocked shortening, removal and locking without the override answer 403 forbidden with the Unlocked wording (gRPC PERMISSION_DENIED); a Locked retention refuses shortening, removal, a mode change and the displayed millisecond value with 403 forbidden and its own wording whatever the override; the same time again is 200 and a time one nanosecond later is 200. A retained delete is 403 retentionPolicyNotMet naming the object and the retain-until time in US Pacific time to the nanosecond, and objects.delete ignores overrideUnlockedRetention. gRPC keeps nanoseconds in retention.retain_until_time and returns retention_expire_time at millisecond precision; JSON fields=retentionExpireTime is 400 invalidParameter. Observed 2026-10-31 (us-central1): the denial time uses the winter offset -08:00, keeps the nanosecond fraction with trailing zeros trimmed and omits a zero fraction; a bucket retention policy denies delete and overwrite with the same 403 retentionPolicyNotMet and message, naming the creation time plus the period to the microsecond, and retentionPolicy null lifts it; Unlocked removal and shortening without the override share one 403 forbidden text; gRPC UpdateObject and DeleteObject answer PERMISSION_DENIED with the JSON text, and retention_expire_time under a bucket policy is cut to milliseconds. gcs-mimic matches. The catalog keeps the remainder in the schema 47 column retain_until_sub_micro_nanos (0 for rows written earlier), so 0.7.0 data reads unchanged. Windows: retention times are held as seconds and nanoseconds instead of a SystemTime (which Windows floors to 100 ns); confirmation by the Windows CI job is pending (gap LOCAL-RETENTION-WINDOWS-TICK). Evidence: docs/en/evidence/response-wire-provider-observations.md, section Object retention time precision. customTime is stored as sent and its read-back is accepted. Bucket policy effectiveTime, soft delete effectiveTime and lockedTime are server-set and not accepted from clients.","result":"PASS","test_ids":["retention_roundtrip_http::locked_retention_refuses_every_reduction_with_403_and_accepts_equal_or_later","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond","retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording","retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override","grpc::v2::update_copy::tests::grpc_update_object_retention","grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range"]},
         {"id":"BUCKET-PROVIDER-WIRE-DEVIATIONS","description":"SPEC-RESPONSE-WIRE-REMAINING: the positions of bucket fields absent from the recording stay unverified and satisfiesPZI was observed for one location only. Bucket generation, millisecond timestamps, the default softDeletePolicy and satisfiesPZI now match the recording.","result":"PENDING","test_ids":[]},
         {"id":"BUCKET-SOFT-DELETED-GET","description":"Native resources include generation; softDeleted=true&generation=G returns the version with softDeleteTime/hardDeleteTime, each parameter requires the other (400 required, 'Bucket generation is required.'), unknown or expired versions return 404 and strict mode checks storage.buckets.get on the version's project. Contract: docs/en/slices/bucket-soft-delete-restore.md.","result":"PASS","test_ids":["bucket_soft_delete_get_list_and_restore_round_trip","strict_soft_deleted_bucket_access_uses_project_permissions","bucket_query_booleans_keep_supported_and_unsupported_semantics"]},
         {"id":"RETENTION-METADATA-CONTRIBUTION","description":"Get returns persisted retention period, effectiveTime and isLocked; scope and pending interactions: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart"]},
@@ -4780,7 +4770,7 @@
           ]
         }
       ],
-      "test_ids": [ "bucket_soft_delete_http::lowering_the_default_keeps_the_stored_policy_of_existing_buckets", "bucket_http::satisfies_pzi_is_true_in_every_location", "wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order", "wire_parity_http::legacy_profile_keeps_compact_bodies", "json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value", "bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value", "bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others", "bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions", "bucket_soft_delete_http::configured_default_gives_a_new_bucket_that_policy_and_soft_deletes_it", "bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently", "bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged", "bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup", "storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic", "storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds", "storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond", "retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording", "retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override", "grpc::v2::update_copy::tests::grpc_update_object_retention", "grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds", "storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::every_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_frees_overwritten_and_deleted_bodies_at_once","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range",
+      "test_ids": [ "bucket_soft_delete_http::lowering_the_default_keeps_the_stored_policy_of_existing_buckets", "wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order", "wire_parity_http::legacy_profile_keeps_compact_bodies", "json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value", "bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value", "bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others", "bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions", "bucket_soft_delete_http::configured_default_gives_a_new_bucket_that_policy_and_soft_deletes_it", "bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently", "bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged", "bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup", "storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic", "storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds", "storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::locked_retention_refuses_every_reduction_with_403_and_accepts_equal_or_later","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond", "retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording", "retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override", "grpc::v2::update_copy::tests::grpc_update_object_retention", "grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds", "storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::every_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_frees_overwritten_and_deleted_bodies_at_once","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range",
         "bucket_soft_delete_get_list_and_restore_round_trip",
         "strict_soft_deleted_bucket_access_uses_project_permissions",
         "bucket_query_booleans_keep_supported_and_unsupported_semantics",
@@ -4864,9 +4854,7 @@
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
@@ -4875,14 +4863,11 @@
         "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
-        "pap_migrates_version_twelve_and_persists_configured_state",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+        "pap_migrates_version_twelve_and_persists_configured_state"
       ],
-      "verification": [ {"command":"cargo test --locked --test it_json -- bucket_soft_delete_http","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["bucket_soft_delete_http::lowering_the_default_keeps_the_stored_policy_of_existing_buckets"]}, {"command":"cargo test --locked --test bucket_http --test retention_roundtrip_http --test basic_contract_http --test acl_http; cargo test --locked --lib grpc::v2::update_copy","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["bucket_http::satisfies_pzi_is_true_in_every_location","bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording","retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override","grpc::v2::update_copy::tests::grpc_update_object_retention","grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds"]},
+      "verification": [ {"command":"cargo test --locked --test it_json -- bucket_soft_delete_http","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["bucket_soft_delete_http::lowering_the_default_keeps_the_stored_policy_of_existing_buckets"]}, {"command":"cargo test --locked --test bucket_http --test retention_roundtrip_http --test basic_contract_http --test acl_http; cargo test --locked --lib grpc::v2::update_copy","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording","retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override","grpc::v2::update_copy::tests::grpc_update_object_retention","grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others"]},
-        {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies","json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value","bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value","bucket_soft_delete_http::configured_default_gives_a_new_bucket_that_policy_and_soft_deletes_it","bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently","bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged","bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup","storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic","storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds","storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond","storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::every_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_frees_overwritten_and_deleted_bodies_at_once","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range"]},
+        {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies","json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value","bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value","bucket_soft_delete_http::configured_default_gives_a_new_bucket_that_policy_and_soft_deletes_it","bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently","bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged","bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup","storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic","storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds","storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::every_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_frees_overwritten_and_deleted_bodies_at_once","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range"]},
         {"command":"cargo test --locked --lib -- object::retention object::unix_nanos storage::catalog::objects::retention import::codec","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform"]},
         {"command":"cargo test --locked --offline --test bucket_soft_delete_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["bucket_soft_delete_get_list_and_restore_round_trip","strict_soft_deleted_bucket_access_uses_project_permissions"]},
         {"command":"cargo test --locked --offline --lib json::tests","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["bucket_query_booleans_keep_supported_and_unsupported_semantics"]},
@@ -5073,10 +5058,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
@@ -5124,7 +5106,6 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -5220,8 +5201,7 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay"
           ]
         },
         {
@@ -5233,6 +5213,13 @@
             "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["retention_roundtrip_http::locked_retention_refuses_every_reduction_with_403_and_accepts_equal_or_later"]
         }
       ],
       "sdk_evidence": [
@@ -6339,8 +6326,7 @@
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
-        "pap_migrates_version_twelve_and_persists_configured_state",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
+        "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_http::sdk_append_query_and_array_lifecycle_follow_the_profile","bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others"]},
@@ -6496,7 +6482,6 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -6955,8 +6940,7 @@
         "json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping",
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
-        "pap_migrates_version_twelve_and_persists_configured_state",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
+        "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
         {"command":"cargo test --locked --offline --test bucket_soft_delete_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["soft_deleted_bucket_listing_pages_by_name_and_generation","strict_soft_deleted_bucket_access_uses_project_permissions"]},
@@ -7048,7 +7032,6 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -7374,18 +7357,18 @@
         },
         {
           "id": "PATCH-INPUT-ERRORS",
-          "description": "Reject invalid JSON/types/body limits and recognized unsupported fields without mutation; ignore unknown/output-only values only under the explicit local boundary; exact empty lifecycle exception.",
+          "description": "Reject invalid JSON/types/body limits and recognized unsupported fields without mutation; ignore unknown/output-only values only under the explicit local boundary; invalid lifecycle input leaves state unchanged.",
           "result": "PASS",
           "test_ids": [
             "bucket_patch_empty_null_and_invalid_inputs",
             "bucket_patch_unsupported_and_output_inputs_preserve_state",
-            "bucket_patch_accepts_only_empty_lifecycle_rules",
+            "bucket_patch_lifecycle_invalid_input_preserves_state",
             "bucket_patch_missing_bucket_validates_body_before_lookup"
           ]
         },
         {
           "id": "PATCH-QUERIES",
-          "description": "full/noAcl expose the same modeled subset, invalid projection is 400, predefinedAcl/predefinedDefaultObjectAcl/userProject are 501; GET/PATCH-only queries stay separate.",
+          "description": "full/noAcl expose the same modeled subset, invalid projection is 400 and userProject is 400 badRequest. The native profile applies predefinedAcl and predefinedDefaultObjectAcl on PATCH, ignores them on GET and ignores the GET-only generation on PATCH, as recorded; the legacy profile keeps these queries separate with 400 badRequest for PATCH-only ACL queries on PATCH and 400 invalidParameter otherwise.",
           "result": "PASS",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract",
@@ -7588,9 +7571,7 @@
         "bucket_cors_malformed_input_preserves_entire_resource",
         "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
         "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
-        "bucket_get_rejects_patch_only_acl_query_parameters",
         "bucket_get_ignores_or_rejects_patch_only_acl_query_parameters",
-        "bucket_patch_accepts_only_empty_lifecycle_rules",
         "bucket_patch_conditioned_race_has_one_winner",
         "bucket_patch_conditions_and_query_contract",
         "bucket_patch_empty_null_and_invalid_inputs",
@@ -7601,7 +7582,6 @@
         "bucket_patch_merges_labels_class_and_preserves_resources",
         "bucket_patch_missing_bucket_validates_body_before_lookup",
         "bucket_patch_null_settings_follow_profile_defaults",
-        "bucket_patch_rejects_get_only_generation_query_parameter",
         "bucket_patch_get_only_generation_query_parameter_follows_profile",
         "bucket_patch_settings_control_future_object_effects",
         "bucket_patch_strict_permissions_and_policy_preservation",
@@ -7635,9 +7615,7 @@
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
@@ -7647,9 +7625,7 @@
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
         "pap_migrates_version_twelve_and_persists_configured_state",
-        "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+        "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
       ],
       "verification": [
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_http::sdk_append_query_and_array_lifecycle_follow_the_profile","bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others","bucket_get_ignores_or_rejects_patch_only_acl_query_parameters","bucket_patch_get_only_generation_query_parameter_follows_profile"]},
@@ -7681,10 +7657,7 @@
             "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
             "bucket_patch_legacy_rendering_and_restart",
             "bucket_patch_unsupported_and_output_inputs_preserve_state",
-            "bucket_patch_accepts_only_empty_lifecycle_rules",
             "bucket_patch_missing_bucket_validates_body_before_lookup",
-            "bucket_get_rejects_patch_only_acl_query_parameters",
-            "bucket_patch_rejects_get_only_generation_query_parameter",
             "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_patch_location_comparison_is_case_insensitive"
           ]
@@ -7792,10 +7765,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
@@ -7880,8 +7850,6 @@
             "bucket_cors_malformed_input_preserves_entire_resource",
             "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
             "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
-            "bucket_get_rejects_patch_only_acl_query_parameters",
-            "bucket_patch_accepts_only_empty_lifecycle_rules",
             "bucket_patch_conditioned_race_has_one_winner",
             "bucket_patch_conditions_and_query_contract",
             "bucket_patch_empty_null_and_invalid_inputs",
@@ -7892,7 +7860,6 @@
             "bucket_patch_merges_labels_class_and_preserves_resources",
             "bucket_patch_missing_bucket_validates_body_before_lookup",
             "bucket_patch_null_settings_follow_profile_defaults",
-            "bucket_patch_rejects_get_only_generation_query_parameter",
             "bucket_patch_settings_control_future_object_effects",
             "bucket_patch_strict_permissions_and_policy_preservation",
             "bucket_patch_unsupported_and_output_inputs_preserve_state",
@@ -7924,8 +7891,7 @@
           "verified_at": "2026-10-29",
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions"
           ]
         },
         {
@@ -8005,7 +7971,7 @@
         }
       ],
       "known_deviations": [
-        "Recognized unsupported writable fields and predefined ACL/billing query semantics return 501; full projection omits ACL/owner. Bucket PUT is a separate replacement subset; see JSON-BUCKETS-013.",
+        "Recognized unsupported writable fields and the userProject billing query return 400 badRequest, and the legacy profile also rejects predefined ACL queries. Bucket PUT is a separate replacement subset; see JSON-BUCKETS-013.",
         "SPEC-BUCKET-PATCH: whole-map null follows general deletion guidance; native null settings, storageClass null/empty rejection, unknown/output-only handling, empty-update revision increment and missing-bucket error order are local choices, not service-observed parity.",
         "Legacy PATCH preserves omitted settings and exposes actual mutable metadata/revisions after mutation, unlike reference omission resets and fixed resources; supports durable versioning beyond reference filesystem capabilities. Same-profile GET round trips pass; native-to-legacy metageneration-1 carry-over can hide class/labels.",
         "Class is default metadata only; no object rewrite/placement/transition, billing, full Google identity, power-loss or new resource/performance guarantee.",
@@ -8966,7 +8932,7 @@
         },
         {
           "id": "PUT-QUERIES",
-          "description": "full/noAcl expose the same subset; invalid projection and GET-only generation return 400 invalidParameter, unsupported predefined ACL/billing queries return 400 badRequest.",
+          "description": "full/noAcl expose the same subset; invalid projection returns 400 invalidParameter and userProject 400 badRequest. The native profile ignores the GET-only generation and softDeleted on PUT and applies predefined ACL queries, as recorded; the legacy profile returns 400 invalidParameter for the GET-only queries and 400 badRequest for predefined ACL queries.",
           "test_ids": [
             "bucket_put_conditions_and_query_contract",
             "bucket_put_get_only_generation_query_parameter_follows_profile"
@@ -9181,11 +9147,8 @@
         "bucket_put_location_comparison_is_case_insensitive",
         "bucket_put_missing_bucket_validates_body_before_lookup",
         "bucket_put_null_settings_follow_profile_defaults",
-        "bucket_put_omitted_settings_survive_partial_iam_updates",
         "bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits",
         "bucket_put_ruby_update_block_replaces_and_setters_patch",
-        "bucket_put_ruby_update_block_preserves_unrelated_settings",
-        "bucket_put_rejects_get_only_generation_query_parameter",
         "bucket_put_get_only_generation_query_parameter_follows_profile",
         "bucket_put_replaces_omitted_fields_and_preserves_resources",
         "bucket_put_settings_control_future_object_effects",
@@ -9218,9 +9181,7 @@
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
@@ -9230,17 +9191,15 @@
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
         "pap_migrates_version_twelve_and_persists_configured_state",
-        "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+        "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
       ],
       "verification": [
         {"command":"GCSM_TEST_RAMDISK=0 bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["TestBucketMetadataReplace","TestStrictAuthBucketMetadataReplace","bucket_put_ruby_update_block_replaces_and_setters_patch"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","bucket_put_get_only_generation_query_parameter_follows_profile"]},
         {"command":"cargo test --locked --test bucket_if_match_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
-        {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["bucket_put_omitted_settings_survive_partial_iam_updates","bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_empty_null_and_invalid_inputs","bucket_put_full_resource_round_trip_preserves_unchanged_fields","bucket_put_settings_control_future_object_effects","bucket_put_null_settings_follow_profile_defaults","bucket_put_uses_clock_and_rolls_back_invalid_replacement","retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","auth::tests::pap_mutations_require_update_and_set_iam_permissions"]},
+        {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_empty_null_and_invalid_inputs","bucket_put_full_resource_round_trip_preserves_unchanged_fields","bucket_put_settings_control_future_object_effects","bucket_put_null_settings_follow_profile_defaults","bucket_put_uses_clock_and_rolls_back_invalid_replacement","retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","auth::tests::pap_mutations_require_update_and_set_iam_permissions"]},
         {"command":"Getting-started native PUT block extracted with awk and executed once with bash -eu against an isolated HTTP/permissive debug binary","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["guide-bucket-put-native"]},
-        {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["TestBucketMetadataReplace","TestStrictAuthBucketMetadataReplace","bucket_put_ruby_update_block_preserves_unrelated_settings"]},
+        {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["TestBucketMetadataReplace","TestStrictAuthBucketMetadataReplace"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"command":"cargo test --test bucket_http --locked --offline lifecycle","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {
@@ -9262,7 +9221,6 @@
             "bucket_put_legacy_rendering_and_restart",
             "bucket_put_unsupported_and_output_inputs_preserve_state",
             "bucket_put_missing_bucket_validates_body_before_lookup",
-            "bucket_put_rejects_get_only_generation_query_parameter",
             "bucket_put_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_put_location_comparison_is_case_insensitive"
           ]
@@ -9370,10 +9328,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
@@ -9469,7 +9424,6 @@
             "bucket_put_location_comparison_is_case_insensitive",
             "bucket_put_missing_bucket_validates_body_before_lookup",
             "bucket_put_null_settings_follow_profile_defaults",
-            "bucket_put_rejects_get_only_generation_query_parameter",
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_settings_control_future_object_effects",
             "bucket_put_strict_permissions_and_policy_preservation",
@@ -9500,8 +9454,7 @@
           "verified_at": "2026-10-29",
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions"
           ]
         },
         {
@@ -9581,8 +9534,8 @@
         }
       ],
       "known_deviations": [
-        "Recognized unsupported fields and predefined ACL/billing queries return the shared non-retryable 400 badRequest; full projection omits ACL/owner.",
-        "SPEC-BUCKET-PUT: omitted labels/class/settings preserve current values as a local SDK compatibility choice; null labels clear, per-key null/class null fail, native null booleans fail and legacy nulls reset. Omission preservation, explicit null/empty rules, acl omission/empty wording, revisions, errors and propagation are not provider-observed parity.",
+        "Recognized unsupported fields and the userProject billing query return the shared non-retryable 400 badRequest, and the legacy profile also rejects predefined ACL queries.",
+        "SPEC-BUCKET-PUT: the legacy profile preserves omitted labels/class/settings as a local SDK compatibility choice, and a native PUT replaces the resource, keeping only the class, soft delete policy and access settings it omits, as recorded; null labels clear, per-key null/class null fail, native null booleans fail and legacy nulls reset. Omission preservation, explicit null/empty rules, acl omission/empty wording, revisions, errors and propagation are not provider-observed parity.",
         "Native-to-legacy metageneration-1 resources can hide labels/class; same-profile full-resource round trips preserve modeled fields. Actual mutable metadata/revisions are exposed after PUT.",
         "Class is default metadata only; no existing object rewrite, placement, billing, full Google identity, power-loss or new performance/resource claim.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
@@ -9658,7 +9611,7 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
+            "metadata_updates_replace_and_clear_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas"
@@ -9689,7 +9642,7 @@
       "test_ids": [
         "default_object_acl_applies_only_to_objects_created_afterwards",
         "acl_requests_reject_invalid_inputs_without_mutation",
-        "metadata_updates_accept_only_echoed_acls",
+        "metadata_updates_replace_and_clear_acls",
         "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
         "json::acl::tests::bodies_require_entity_and_role_per_operation",
         "json::acl::tests::resources_follow_the_discovery_schemas",
@@ -9705,13 +9658,19 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas",
             "uniform_access_and_public_access_prevention_restrict_acls",
             "strict_profile_requires_iam_policy_permissions"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["metadata_updates_replace_and_clear_acls"]
         }
       ],
       "sdk_evidence": [],
@@ -9770,7 +9729,7 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
+            "metadata_updates_replace_and_clear_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas"
@@ -9801,7 +9760,7 @@
       "test_ids": [
         "default_object_acl_applies_only_to_objects_created_afterwards",
         "acl_requests_reject_invalid_inputs_without_mutation",
-        "metadata_updates_accept_only_echoed_acls",
+        "metadata_updates_replace_and_clear_acls",
         "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
         "json::acl::tests::bodies_require_entity_and_role_per_operation",
         "json::acl::tests::resources_follow_the_discovery_schemas",
@@ -9817,13 +9776,19 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas",
             "uniform_access_and_public_access_prevention_restrict_acls",
             "strict_profile_requires_iam_policy_permissions"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["metadata_updates_replace_and_clear_acls"]
         }
       ],
       "sdk_evidence": [],
@@ -9882,7 +9847,7 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
+            "metadata_updates_replace_and_clear_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas"
@@ -9913,7 +9878,7 @@
       "test_ids": [
         "default_object_acl_applies_only_to_objects_created_afterwards",
         "acl_requests_reject_invalid_inputs_without_mutation",
-        "metadata_updates_accept_only_echoed_acls",
+        "metadata_updates_replace_and_clear_acls",
         "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
         "json::acl::tests::bodies_require_entity_and_role_per_operation",
         "json::acl::tests::resources_follow_the_discovery_schemas",
@@ -9929,13 +9894,19 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas",
             "uniform_access_and_public_access_prevention_restrict_acls",
             "strict_profile_requires_iam_policy_permissions"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["metadata_updates_replace_and_clear_acls"]
         }
       ],
       "sdk_evidence": [],
@@ -9990,7 +9961,7 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
+            "metadata_updates_replace_and_clear_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::route_errors_follow_query_and_name_validation",
             "json::acl::tests::resources_follow_the_discovery_schemas"
@@ -10021,7 +9992,7 @@
       "test_ids": [
         "default_object_acl_applies_only_to_objects_created_afterwards",
         "acl_requests_reject_invalid_inputs_without_mutation",
-        "metadata_updates_accept_only_echoed_acls",
+        "metadata_updates_replace_and_clear_acls",
         "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
         "json::acl::tests::route_errors_follow_query_and_name_validation",
         "json::acl::tests::resources_follow_the_discovery_schemas",
@@ -10037,13 +10008,19 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::route_errors_follow_query_and_name_validation",
             "json::acl::tests::resources_follow_the_discovery_schemas",
             "uniform_access_and_public_access_prevention_restrict_acls",
             "strict_profile_requires_iam_policy_permissions"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["metadata_updates_replace_and_clear_acls"]
         }
       ],
       "sdk_evidence": [],
@@ -10106,7 +10083,7 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
+            "metadata_updates_replace_and_clear_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas"
@@ -10137,7 +10114,7 @@
       "test_ids": [
         "default_object_acl_applies_only_to_objects_created_afterwards",
         "acl_requests_reject_invalid_inputs_without_mutation",
-        "metadata_updates_accept_only_echoed_acls",
+        "metadata_updates_replace_and_clear_acls",
         "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
         "json::acl::tests::bodies_require_entity_and_role_per_operation",
         "json::acl::tests::resources_follow_the_discovery_schemas",
@@ -10153,13 +10130,19 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas",
             "uniform_access_and_public_access_prevention_restrict_acls",
             "strict_profile_requires_iam_policy_permissions"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["metadata_updates_replace_and_clear_acls"]
         }
       ],
       "sdk_evidence": [],
@@ -10218,7 +10201,7 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
+            "metadata_updates_replace_and_clear_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas"
@@ -10249,7 +10232,7 @@
       "test_ids": [
         "default_object_acl_applies_only_to_objects_created_afterwards",
         "acl_requests_reject_invalid_inputs_without_mutation",
-        "metadata_updates_accept_only_echoed_acls",
+        "metadata_updates_replace_and_clear_acls",
         "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
         "json::acl::tests::bodies_require_entity_and_role_per_operation",
         "json::acl::tests::resources_follow_the_discovery_schemas",
@@ -10265,13 +10248,19 @@
           "test_ids": [
             "default_object_acl_applies_only_to_objects_created_afterwards",
             "acl_requests_reject_invalid_inputs_without_mutation",
-            "metadata_updates_accept_only_echoed_acls",
             "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
             "json::acl::tests::bodies_require_entity_and_role_per_operation",
             "json::acl::tests::resources_follow_the_discovery_schemas",
             "uniform_access_and_public_access_prevention_restrict_acls",
             "strict_profile_requires_iam_policy_permissions"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["metadata_updates_replace_and_clear_acls"]
         }
       ],
       "sdk_evidence": [],
@@ -13467,9 +13456,7 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "bucket_patch_conditions_and_query_contract",
@@ -13484,10 +13471,7 @@
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
-        "conditional_delete_and_metadata_patch_have_one_winner",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+        "conditional_delete_and_metadata_patch_have_one_winner"
       ],
       "verification": [
         {
@@ -13498,7 +13482,6 @@
           "test_ids": [
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
             "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
             "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
@@ -13625,10 +13608,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
@@ -13676,7 +13656,6 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -13705,8 +13684,7 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
-            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions"
           ]
         },
         {
@@ -14351,9 +14329,7 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "bucket_patch_conditions_and_query_contract",
@@ -14373,10 +14349,7 @@
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
-        "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+        "obj_http_queued_precheck_waits_past_body_inactivity_deadline"
       ],
       "verification": [
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["obj_range_http_single_ranges_and_representation_headers","obj_range_http_unsatisfiable_empty_and_ignored_ranges","json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior","json_etag_read_if_match_overrides_if_unmodified_since","storage::resumable_http_tests::cloud_storage_parity::media_conditionals_keep_the_representation_headers","storage::resumable_http_tests::cloud_storage_parity::failed_conditional_media_read_of_a_public_object_is_never_cacheable"]},
@@ -14403,7 +14376,6 @@
           "test_ids": [
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
             "obj_http_encoded_names_and_invalid_names",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
@@ -14588,10 +14560,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
@@ -14668,7 +14637,6 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -14687,8 +14655,7 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
-            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions"
           ]
         },
         {
@@ -15011,14 +14978,14 @@
         },
         {
           "id": "JSON-OBJECTS-007-PUBLICATION",
-          "description": "Both completed-body commit waits and queued advisory checks outlive body inactivity and receive 200; Closure without an explicit EOF marker aborts and preserves the previous object; Unreleased v2 is rejected read-only; v1 migrates atomically to v3 without an intermediate version; Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Four-worker EOF-barrier races cover both mutation outcomes without staging/blob leaks; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; lingering close behavior is verified under AUDIT-010. Advisory checks reject before body consumption/staging; publication rechecks atomically.",
+          "description": "Both completed-body commit waits and queued advisory checks outlive body inactivity and receive 200; Closure without an explicit EOF marker aborts and preserves the previous object; Unreleased v2 is rejected read-only; v1 migrates atomically to the current schema without an intermediate version; Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Four-worker EOF-barrier races cover both mutation outcomes without staging/blob leaks; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; lingering close behavior is verified under AUDIT-010. Advisory checks reject before body consumption/staging; publication rechecks atomically.",
           "result": "PASS",
           "test_ids": [
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
             "producer_closure_without_eof_never_publishes_partial_bytes",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "unreleased_v2_catalog_is_rejected_without_changing_data",
-            "v1_migration_is_transactional_and_v3_reopens_idempotently",
+            "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
             "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
             "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
@@ -15064,7 +15031,7 @@
         },
         {
           "id": "JSON-OBJECTS-007-PENDING",
-          "description": "Implement broader bucket policies, object IAM/ACLs, encryption and encoding/transcoding effects, full field/common parameter semantics, the unresolved Discovery upload alias and bounded upload-token response replay; the scoped JSON resumable subset and unconditional bucket grants now pass. SPEC-008 mutation NotMatch status and header/size/admission/advisory/body/hash/publication/permission precedence; SPEC-RSM-AUTH-CONDITIONS / SPEC-RSM-EDGES finalization recheck timing and extra session-query 400 (wire-tested for PUT ifGenerationMatch) versus ambiguous subsequent-PUT query/header wording; SPEC-016 multipart X-Goog-Hash; SPEC-RSM-EDGES multi-data-request resumable MD5; SPEC-010/012/016/017 checksum/error/header parity. Preserve local EOF/atomicity and timeout/reclaim safety evidence.",
+          "description": "Implement broader bucket policies, object IAM/ACLs, encryption and encoding/transcoding effects, full field/common parameter semantics, and the unresolved Discovery upload alias; bounded upload-token response replay, the scoped JSON resumable subset and unconditional bucket grants now pass. SPEC-008 mutation NotMatch status and header/size/admission/advisory/body/hash/publication/permission precedence; SPEC-RSM-AUTH-CONDITIONS / SPEC-RSM-EDGES finalization recheck timing and extra session-query 400 (wire-tested for PUT ifGenerationMatch) versus ambiguous subsequent-PUT query/header wording; SPEC-016 multipart X-Goog-Hash; SPEC-RSM-EDGES multi-data-request resumable MD5; SPEC-010/012/016/017 checksum/error/header parity. Preserve local EOF/atomicity and timeout/reclaim safety evidence.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -15575,7 +15542,7 @@
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
         "producer_closure_without_eof_never_publishes_partial_bytes",
         "unreleased_v2_catalog_is_rejected_without_changing_data",
-        "v1_migration_is_transactional_and_v3_reopens_idempotently",
+        "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
         "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
@@ -15605,9 +15572,7 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
         "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
         "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
@@ -15675,9 +15640,6 @@
         "iam::auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects",
         "all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed",
         "two_create_if_absent_sessions_have_one_finalization_winner",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
         "gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate",
         "invalid_gzip_initiations_never_create_sessions",
         "gzip_initiation_bounds_compressed_and_expanded_metadata",
@@ -15756,7 +15718,6 @@
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
             "producer_closure_without_eof_never_publishes_partial_bytes",
             "unreleased_v2_catalog_is_rejected_without_changing_data",
-            "v1_migration_is_transactional_and_v3_reopens_idempotently",
             "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
             "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
@@ -15809,10 +15770,7 @@
             "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
             "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
             "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
             "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
             "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
@@ -15956,10 +15914,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
@@ -16026,7 +15981,6 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -16063,7 +16017,6 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
             "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay"
           ]
         },
@@ -16076,6 +16029,13 @@
             "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["v1_migration_is_transactional_and_current_schema_reopens_idempotently"]
         }
       ],
       "sdk_evidence": [
@@ -17167,9 +17127,7 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "TestObjectMediaLifecycle",
@@ -17179,8 +17137,6 @@
         "bucket_put_conditioned_race_has_one_winner",
         "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
         "conditional_delete_and_metadata_patch_have_one_winner",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
         "metadata_if_match_checks_returned_etag_and_query_conditions_atomically",
         "metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation",
         "metadata_if_match_preserves_missing_resource_and_strict_permission_errors",
@@ -17317,10 +17273,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
@@ -17373,8 +17326,7 @@
           "verified_at": "2026-10-29",
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions"
           ]
         },
         {
@@ -18366,9 +18318,7 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "TestObjectMediaLifecycle",
@@ -18377,8 +18327,6 @@
         "bucket_put_conditions_and_query_contract",
         "bucket_put_conditioned_race_has_one_winner",
         "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
         "metadata_if_match_checks_returned_etag_and_query_conditions_atomically",
         "metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation",
         "metadata_if_match_preserves_missing_resource_and_strict_permission_errors",
@@ -18506,10 +18454,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
@@ -18561,8 +18506,7 @@
           "verified_at": "2026-10-29",
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions"
           ]
         },
         {
@@ -23233,7 +23177,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Bucket and object noAcl/full return modeled metadata. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. ACL extension (docs/en/slices/json-acl.md, docs/en/evidence/json-acl.md): projection=full, including the PUT default, adds bucket acl/defaultObjectAcl/owner and object acl on get/list/insert/patch/update/copy/compose/move/restore; strict callers without getIamPolicy and uniform-access buckets receive the resource without ACL fields; echoed ACLs are accepted in metadata PATCH/PUT. Object owner, resumable-completion and rewrite ACL fields remain pending.",
+      "notes": "Bucket and object noAcl/full return modeled metadata. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. ACL extension (docs/en/slices/json-acl.md, docs/en/evidence/json-acl.md): projection=full, including the PUT default, adds bucket acl/defaultObjectAcl/owner and object acl on get/list/insert/patch/update/copy/compose/move/restore; strict callers without getIamPolicy and uniform-access buckets receive the resource without ACL fields; metadata PATCH/PUT replace or clear ACLs. Object owner, resumable-completion and rewrite ACL fields remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -23258,13 +23202,13 @@
         },
         {
           "id": "BEHAVIOR-COMMON-005-ACL",
-          "description": "Full projection renders permission-aware bucket acl/defaultObjectAcl/owner and object acl, hides them under uniform access, and metadata PATCH/PUT accept only echoed ACLs.",
+          "description": "Full projection renders permission-aware bucket acl/defaultObjectAcl/owner and object acl, hides them under uniform access, and metadata PATCH/PUT replace or clear ACLs.",
           "result": "PASS",
           "test_ids": [
             "object_acl_targets_a_generation_and_renders_with_full_projection",
             "strict_profile_requires_iam_policy_permissions",
             "uniform_access_and_public_access_prevention_restrict_acls",
-            "metadata_updates_accept_only_echoed_acls"
+            "metadata_updates_replace_and_clear_acls"
           ]
         },
         {
@@ -23282,7 +23226,7 @@
         "object_acl_targets_a_generation_and_renders_with_full_projection",
         "strict_profile_requires_iam_policy_permissions",
         "uniform_access_and_public_access_prevention_restrict_acls",
-        "metadata_updates_accept_only_echoed_acls"
+        "metadata_updates_replace_and_clear_acls"
       ],
       "verification": [
         {
@@ -23313,9 +23257,15 @@
           "test_ids": [
             "object_acl_targets_a_generation_and_renders_with_full_projection",
             "strict_profile_requires_iam_policy_permissions",
-            "uniform_access_and_public_access_prevention_restrict_acls",
-            "metadata_updates_accept_only_echoed_acls"
+            "uniform_access_and_public_access_prevention_restrict_acls"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["metadata_updates_replace_and_clear_acls"]
         }
       ],
       "sdk_evidence": [],
@@ -24452,11 +24402,11 @@
         },
         {
           "id": "BKT-ID-002",
-          "description": "Local ETag stability, metageneration/incarnation changes and labels omission.",
+          "description": "Local ETag stability, ETags that encode only the metageneration and labels omission.",
           "result": "PASS",
           "test_ids": [
             "bkt_http_crud_metadata_conditions_and_errors",
-            "bkt_id_002_etag_changes_with_revision_and_incarnation"
+            "bkt_id_002_etag_encodes_only_the_metageneration"
           ]
         },
         {
@@ -24470,7 +24420,7 @@
         "bkt_http_crud_metadata_conditions_and_errors",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
         "bkt_id_001_utc_milliseconds_leap_century_and_range",
-        "bkt_id_002_etag_changes_with_revision_and_incarnation"
+        "bkt_id_002_etag_encodes_only_the_metageneration"
       ],
       "verification": [
         {
@@ -24481,16 +24431,22 @@
           "test_ids": [
             "bkt_http_crud_metadata_conditions_and_errors",
             "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
-            "bkt_id_001_utc_milliseconds_leap_century_and_range",
-            "bkt_id_002_etag_changes_with_revision_and_incarnation"
+            "bkt_id_001_utc_milliseconds_leap_century_and_range"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["bkt_id_002_etag_encodes_only_the_metageneration"]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
-        "ETags are deterministic local identifiers; same-name recreation within one millisecond is indistinguishable."
+        "ETags encode only the metageneration, so a recreated bucket repeats its ETag; that is inferred from the recorded encoding, not observed on a recreation."
       ],
       "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
@@ -26453,11 +26409,11 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-002-PUBLICATION",
-          "description": "Unreleased v2 remains rejected read-only; existing v1 migration reaches v4 through the generation schema, and v3 metadata migration is transactional.",
+          "description": "Unreleased v2 remains rejected read-only; existing v1 migration reaches the current schema transactionally.",
           "result": "PASS",
           "test_ids": [
             "unreleased_v2_catalog_is_rejected_without_changing_data",
-            "v1_migration_is_transactional_and_v3_reopens_idempotently"
+            "v1_migration_is_transactional_and_current_schema_reopens_idempotently"
           ]
         },
         {
@@ -26522,7 +26478,7 @@
         "all_four_preconditions_apply_to_reads_uploads_and_deletes",
         "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
-        "v1_migration_is_transactional_and_v3_reopens_idempotently",
+        "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
         "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
         "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
         "rejects_future_schema_unversioned_data_and_corruption",
@@ -26551,7 +26507,6 @@
             "all_four_preconditions_apply_to_reads_uploads_and_deletes",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
-            "v1_migration_is_transactional_and_v3_reopens_idempotently",
             "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption"
@@ -26592,6 +26547,13 @@
             "TestObjectVersioning",
             "TestObjectEventBasedHold"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["v1_migration_is_transactional_and_current_schema_reopens_idempotently"]
         }
       ],
       "sdk_evidence": [
@@ -26781,11 +26743,10 @@
         },
         {
           "id": "BASIC-HASH-MEDIA",
-          "description": "A JSON media upload does not verify a declared hash, so whatever MD5-only, CRC32C-only or both X-Goog-Hash values it declares, correct or wrong, are ignored and the computed MD5 and CRC32C of the stored bytes are stored (recorded on Cloud Storage 2026-10-31). Count only that ignore-and-store behavior with an explicit Content-Type, not hash validation; a success status alone proves nothing here because any value succeeds. Count checksum/status only; parser/reason/conflict/precedence choices remain on JSON-OBJECTS-007. The 2026-10-23 verification ran an earlier version of this test (basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites) that asserted validation; it is kept only so that entry stays unchanged, and only the current test is counted here.",
+          "description": "A JSON media upload does not verify a declared hash, so whatever MD5-only, CRC32C-only or both X-Goog-Hash values it declares, correct or wrong, are ignored and the computed MD5 and CRC32C of the stored bytes are stored (recorded on Cloud Storage 2026-10-31). Count only that ignore-and-store behavior with an explicit Content-Type, not hash validation; a success status alone proves nothing here because any value succeeds. Count checksum/status only; parser/reason/conflict/precedence choices remain on JSON-OBJECTS-007.",
           "result": "PASS",
           "test_ids": [
-            "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones",
-            "basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites"
+            "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones"
           ]
         },
         {
@@ -26832,7 +26793,6 @@
       "test_ids": [
         "empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes",
         "obj_http_media_and_multipart_independent_checksum_vectors_across_chunks",
-        "basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites",
         "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones",
         "basic_contract_multipart_metadata_only_checksums_validate_stored_bytes",
         "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
@@ -26857,7 +26817,6 @@
           "test_ids": [
             "empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes",
             "obj_http_media_and_multipart_independent_checksum_vectors_across_chunks",
-            "basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites",
             "basic_contract_multipart_metadata_only_checksums_validate_stored_bytes",
             "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
             "basic_contract_single_request_resumable_checksums_validate_stored_bytes",
@@ -27470,9 +27429,7 @@
         "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+        "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
       ],
       "verification": [
         {"command":"cargo test --locked --lib -- upload_replay resumable_http_tests","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_retry_past_the_full_window_publishes_again_and_recent_retries_still_replay","storage::catalog::upload_replay::tests::making_room_drops_only_what_the_window_needs_oldest_first"]},
@@ -27519,9 +27476,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/multipart-checks.txt",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite"
           ]
         },
         {
@@ -27722,9 +27677,7 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
-        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
         "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
         "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
@@ -27732,9 +27685,7 @@
         "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
-        "TestObjectMediaLifecycle",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+        "TestObjectMediaLifecycle"
       ],
       "verification": [
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib storage::catalog::upload_replay -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/releases/upload-replay-encoding.md", "test_ids": ["fingerprint_encoding_has_a_stable_golden_digest", "every_metadata_field_contributes_to_request_identity", "metadata_map_modes_have_distinct_request_identities"]},
@@ -27757,10 +27708,7 @@
             "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
             "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
             "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
             "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
             "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
@@ -27787,8 +27735,7 @@
           "verified_at": "2026-10-29",
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions"
           ]
         },
         {
@@ -29154,7 +29101,6 @@
         "gunzipping_a_plain_body_fails_400_before_the_headers_are_sent",
         "head_with_range_answers_206_and_content_range_on_json_and_xml",
         "media_responses_carry_the_provider_object_headers",
-        "media_upload_hash_is_checked_against_the_stored_bytes",
         "media_upload_stores_computed_hashes_whatever_the_declared_md5",
         "anonymous_json_media_read_of_a_public_object_carries_the_public_header_set",
         "xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range"
@@ -29176,8 +29122,7 @@
           "verified_at": "2026-10-31",
           "artifact": "docs/en/evidence/media-read-provider-observations.md",
           "test_ids": [
-            "media_transport_gzip_stores_the_decoded_body",
-            "media_upload_hash_is_checked_against_the_stored_bytes"
+            "media_transport_gzip_stores_the_decoded_body"
           ]
         },
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["media_upload_stores_computed_hashes_whatever_the_declared_md5"]},
@@ -29226,8 +29171,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Expansion is limited by max_object_bytes and can abort after 200 headers; stored hashes do not describe expanded bytes, as on Cloud Storage. Double-compression detection remains unsupported; provider exactness beyond the observed headers is unverified.",
-        "A transport-gzip media upload whose X-Goog-Hash MD5 describes the gzip bytes fails 400, while Cloud Storage accepted either digest; validation is kept until the provider rule is understood."
+        "Expansion is limited by max_object_bytes and can abort after 200 headers; stored hashes do not describe expanded bytes, as on Cloud Storage. Double-compression detection remains unsupported; provider exactness beyond the observed headers is unverified."
       ],
       "implemented_in": "b894ed0",
       "last_verified": "2026-10-31"
@@ -48550,7 +48494,7 @@
           "result": "PASS",
           "test_ids": [
             "tls_trust_versions_streaming_urls_and_restart",
-            "tls_native_container_journeys",
+            "tls-native-container-journeys",
             "advertised_scheme_follows_the_connection_and_forwarded_headers_do_not_apply"
           ]
         },
@@ -48637,7 +48581,7 @@
         "signed_journey (Docker/Compose)",
         "signed_journey (native)",
         "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
-        "tls_native_container_journeys",
+        "tls-native-container-journeys",
         "tls_trust_versions_streaming_urls_and_restart",
         "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
         "config::tests::public_origin_merges_bounded_domains_and_preserves_input_precedence",
@@ -48749,7 +48693,7 @@
           "artifact": "docs/en/evidence/local-tls.md",
           "test_ids": [
             "tls_trust_versions_streaming_urls_and_restart",
-            "tls_native_container_journeys"
+            "tls-native-container-journeys"
           ]
         },
         {
@@ -49467,9 +49411,9 @@
         },
         {
           "id": "sync-configuration",
-          "description": "External create/edit acceptance: keep only sync_dir/sync_delete_guard, fixed 1000 ms settling and deletion policy; reject strict sync until sync-conflicts with permissive/removal examples. External deletion effects remain PENDING. Contract: docs/en/slices/directory-synchronization.md#external-createedit-delivery-scope.",
+          "description": "External create/edit acceptance: sync_dir, sync_delete_guard, max_sync_entries and max_sync_depth, fixed 1000 ms settling and deletion policy; strict sync needs an identity registry like any strict server. External deletion effects are delivered separately in docs/en/slices/external-deletion-controls.md. Contract: docs/en/slices/directory-synchronization.md#external-createedit-delivery-scope.",
           "result": "PASS",
-          "test_ids": ["ingest_strict_configuration_has_actionable_remedy", "ingest_defers_partial_and_replacement_saves_then_resumes_activation"]
+          "test_ids": ["ingest_strict_configuration_requires_an_identity_registry", "ingest_defers_partial_and_replacement_saves_then_resumes_activation"]
         },
         {
           "id": "BUCKET-INIT-INPUT",
@@ -49676,7 +49620,7 @@
         "every_walker_applies_the_same_depth_limit",
         "no_depth_limit_accepts_what_export_can_create_past_the_former_default",
         "live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes",
-        "ingest_strict_configuration_has_actionable_remedy",
+        "ingest_strict_configuration_requires_an_identity_registry",
         "ingest_defers_partial_and_replacement_saves_then_resumes_activation",
         "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations",
         "ingest_external_only_conflicts_equal_hash_and_unsafe_entries",
@@ -49778,7 +49722,7 @@
           "result": "PASS",
           "verified_at": "2026-10-27",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["ingest_strict_configuration_has_actionable_remedy", "ingest_defers_partial_and_replacement_saves_then_resumes_activation", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_shutdown_finishes_the_active_publication_before_restart"]
+          "test_ids": ["ingest_defers_partial_and_replacement_saves_then_resumes_activation", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_shutdown_finishes_the_active_publication_before_restart"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib sync -- --test-threads=4",
@@ -49970,6 +49914,13 @@
           "test_ids": [
             "container-seed-lifecycle"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["ingest_strict_configuration_requires_an_identity_registry"]
         }
       ],
       "sdk_evidence": [],
@@ -50298,10 +50249,10 @@
           "description": "Exercise native/container HTTPS bucket/object/resumable and host/peer SANs, both container architectures, official Go/Ruby clients and actual browser trust without certificate/hostname bypass. Verify explicit HTTP still works.",
           "result": "PASS",
           "test_ids": [
-            "tls_native_container_journeys",
-            "tls_browser_trust",
-            "go_https_sdk_suite",
-            "ruby_https_sdk_journey"
+            "tls-native-container-journeys",
+            "tls-browser-trust",
+            "go-https-sdk-suite",
+            "ruby-https-sdk-journey"
           ]
         }
       ],
@@ -50318,10 +50269,10 @@
         "tls_handshake_admission_timeout_shutdown_and_strict_permissions",
         "tls_streaming_progress_and_upload_deadlines_preserve_existing_object",
         "tls_healthcheck_deadline_includes_stalled_handshake",
-        "tls_native_container_journeys",
-        "tls_browser_trust",
-        "go_https_sdk_suite",
-        "ruby_https_sdk_journey"
+        "tls-native-container-journeys",
+        "tls-browser-trust",
+        "go-https-sdk-suite",
+        "ruby-https-sdk-journey"
       ],
       "verification": [
         {"command":"CARGO_BUILD_JOBS=4 cargo test --test it_process startup_","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["startup_tls_file_failures_identify_the_setting_and_repair","startup_preserves_safe_identity_and_tls_error_details"]},
@@ -50357,8 +50308,8 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls.md",
           "test_ids": [
-            "tls_native_container_journeys",
-            "tls_browser_trust"
+            "tls-native-container-journeys",
+            "tls-browser-trust"
           ]
         },
         {
@@ -50367,7 +50318,7 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls-go-https.txt",
           "test_ids": [
-            "go_https_sdk_suite"
+            "go-https-sdk-suite"
           ]
         },
         {
@@ -50376,7 +50327,7 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls-ruby.txt",
           "test_ids": [
-            "ruby_https_sdk_journey"
+            "ruby-https-sdk-journey"
           ]
         }
       ],
@@ -50392,7 +50343,7 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls-go-https.txt",
           "test_ids": [
-            "go_https_sdk_suite"
+            "go-https-sdk-suite"
           ]
         },
         {
@@ -50405,7 +50356,7 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls-ruby.txt",
           "test_ids": [
-            "ruby_https_sdk_journey"
+            "ruby-https-sdk-journey"
           ]
         }
       ],
@@ -50583,10 +50534,10 @@
         },
         {
           "id": "DESIGN-067-POISON",
-          "description": "A poisoned catalog permanently revokes readiness and returns unavailable.",
+          "description": "A panicked catalog operation rolls back and keeps readiness. When the rollback cannot be confirmed the catalog fails closed and returns unavailable and readiness stays revoked until a restart, even after later catalog calls recover.",
           "result": "PASS",
           "test_ids": [
-            "poisoned_catalog_permanently_revokes_readiness"
+            "storage::catalog::tests::panicked_operation_rolls_back_and_keeps_the_catalog_ready"
           ]
         },
         {
@@ -50670,7 +50621,7 @@
         "bkt_http_failed_recovery_never_reports_ready",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
         "rejects_future_schema_unversioned_data_and_corruption",
-        "poisoned_catalog_permanently_revokes_readiness",
+        "storage::catalog::tests::panicked_operation_rolls_back_and_keeps_the_catalog_ready",
         "shutdown_stops_accepting_on_original_listener",
         "missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock",
         "incompatible_schema_constraints_indexes_and_v1_conflicts_are_read_only",
@@ -50711,7 +50662,6 @@
             "bkt_http_failed_recovery_never_reports_ready",
             "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
             "rejects_future_schema_unversioned_data_and_corruption",
-            "poisoned_catalog_permanently_revokes_readiness",
             "shutdown_stops_accepting_on_original_listener",
             "missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock",
             "incompatible_schema_constraints_indexes_and_v1_conflicts_are_read_only",
@@ -50755,6 +50705,13 @@
             "process_restarts_on_same_port_without_allowing_a_second_live_listener",
             "live_wildcard_and_specific_listeners_are_exclusive"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["storage::catalog::tests::panicked_operation_rolls_back_and_keeps_the_catalog_ready"]
         }
       ],
       "sdk_evidence": [],
@@ -50876,11 +50833,11 @@
         },
         {
           "id": "DESIGN-069-PUBLICATION",
-          "description": "Unreleased v2 is rejected read-only; v1 migrates atomically to v3 without an intermediate version.",
+          "description": "Unreleased v2 is rejected read-only; v1 migrates atomically to the current schema without an intermediate version.",
           "result": "PASS",
           "test_ids": [
             "unreleased_v2_catalog_is_rejected_without_changing_data",
-            "v1_migration_is_transactional_and_v3_reopens_idempotently"
+            "v1_migration_is_transactional_and_current_schema_reopens_idempotently"
           ]
         },
         {
@@ -50912,7 +50869,7 @@
         "wire_probes_clock_and_unimplemented_routes",
         "deleted_generations_are_never_reused_after_restart_or_backward_clock",
         "unreleased_v2_catalog_is_rejected_without_changing_data",
-        "v1_migration_is_transactional_and_v3_reopens_idempotently",
+        "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
         "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
         "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
         "rejects_future_schema_unversioned_data_and_corruption"
@@ -50927,11 +50884,17 @@
             "wire_probes_clock_and_unimplemented_routes",
             "deleted_generations_are_never_reused_after_restart_or_backward_clock",
             "unreleased_v2_catalog_is_rejected_without_changing_data",
-            "v1_migration_is_transactional_and_v3_reopens_idempotently",
             "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["v1_migration_is_transactional_and_current_schema_reopens_idempotently"]
         }
       ],
       "sdk_evidence": [],
@@ -51712,7 +51675,7 @@
           "result": "PASS",
           "test_ids": [
             "incompatible_schema_constraints_indexes_and_v1_conflicts_are_read_only",
-            "v1_migration_is_transactional_and_v3_reopens_idempotently",
+            "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
             "unreleased_v2_catalog_is_rejected_without_changing_data",
             "recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry",
             "missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock"
@@ -51720,11 +51683,11 @@
         },
         {
           "id": "DESIGN-072-PUBLICATION",
-          "description": "Unreleased v2 is rejected read-only; v1 migrates atomically to v3 without an intermediate version; Recovery ignores OS metadata and identifies other invalid entries in startup diagnostics.",
+          "description": "Unreleased v2 is rejected read-only; v1 migrates atomically to the current schema without an intermediate version; Recovery ignores OS metadata and identifies other invalid entries in startup diagnostics.",
           "result": "PASS",
           "test_ids": [
             "unreleased_v2_catalog_is_rejected_without_changing_data",
-            "v1_migration_is_transactional_and_v3_reopens_idempotently",
+            "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
             "recovery_ignores_os_metadata_and_names_other_stray_entries"
           ]
         },
@@ -52026,7 +51989,7 @@
         "create_get_delete_and_restart_preserve_every_field",
         "recovers_committed_wal_after_process_exit_without_drop",
         "incompatible_schema_constraints_indexes_and_v1_conflicts_are_read_only",
-        "v1_migration_is_transactional_and_v3_reopens_idempotently",
+        "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
         "unreleased_v2_catalog_is_rejected_without_changing_data",
         "recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry",
         "missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock",
@@ -52463,7 +52426,6 @@
             "create_get_delete_and_restart_preserve_every_field",
             "recovers_committed_wal_after_process_exit_without_drop",
             "incompatible_schema_constraints_indexes_and_v1_conflicts_are_read_only",
-            "v1_migration_is_transactional_and_v3_reopens_idempotently",
             "unreleased_v2_catalog_is_rejected_without_changing_data",
             "recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry",
             "missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock",
@@ -52587,6 +52549,13 @@
             "imported_identity_collision_is_atomic_and_exhaustion_is_safe",
             "imported_identity_rejects_modes_that_could_discard_source_identity"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["v1_migration_is_transactional_and_current_schema_reopens_idempotently"]
         }
       ],
       "sdk_evidence": [],
@@ -53002,9 +52971,9 @@
         },
         {
           "id": "sync-graceful-initial-export-stop",
-          "description": "Ordinary SIGTERM during initial export stops before the next prepare, finishes the active operation and drains sync before catalog close; restart continues without a recovery stop. Listener errors also drain background work while the catalog is still usable. Existing serve_with_tls callers retain a no-op default drain. Exhaustive cancellation/kill boundaries remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "description": "Ordinary SIGTERM during initial export stops before the next prepare, finishes the active operation and drains sync before catalog close; restart continues without a recovery stop. Fatal listener errors also drain background work while the catalog is still usable; temporary accept failures keep accepting. Existing serve_with_tls callers retain a no-op default drain. Exhaustive cancellation/kill boundaries remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["sigterm_during_initial_export_restarts_without_recovery_stop", "listener_failure_drains_background_work_before_catalog_close"]
+          "test_ids": ["sigterm_during_initial_export_restarts_without_recovery_stop", "fatal_listener_failure_drains_background_work_before_catalog_close"]
         },
         {
           "id": "sync-shutdown-lock",
@@ -53180,7 +53149,7 @@
         "live_export_identical_parent_disappearance_cancels_and_keeps_other_buckets_progressing",
         "live_export_sigterm_during_api_writes_restarts_to_the_committed_live_body",
         "sigterm_during_initial_export_restarts_without_recovery_stop",
-        "listener_failure_drains_background_work_before_catalog_close",
+        "fatal_listener_failure_drains_background_work_before_catalog_close",
         "marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_reinitialize",
         "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready",
         "sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback",
@@ -53339,7 +53308,7 @@
           "result": "PASS",
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["sigterm_during_initial_export_restarts_without_recovery_stop", "listener_failure_drains_background_work_before_catalog_close"]
+          "test_ids": ["sigterm_during_initial_export_restarts_without_recovery_stop"]
         },
         {
           "command": "cargo test --locked --offline --test sync_mirror --test sync_configuration",
@@ -53557,6 +53526,13 @@
             "disk_full_during_resumable_retirement_preserves_the_same_session_and_bytes",
             "disk_full_during_derived_retirement_preserves_the_same_transfer_and_bytes"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["fatal_listener_failure_drains_background_work_before_catalog_close"]
         }
       ],
       "sdk_evidence": [],
@@ -54880,32 +54856,32 @@
           "id": "DIFF-SELF-CHECK",
           "description": "Run all 59 declarative cases locally without Google credentials; every request expectation passes, no cases are skipped and cleanup leaves zero buckets.",
           "result": "PASS",
-          "test_ids": ["differential_self_check"]
+          "test_ids": ["differential-self-check"]
         },
         {
           "id": "DIFF-LIVE-RECORD",
           "description": "Explicitly authorized live recording with cleanup and a redaction guard: 59-case reference from 2026-11-01, with one isolated-session obj-resumable refresh on 2026-11-02 using 30 reference requests, zero 429 retries and zero leftover labelled buckets.",
           "result": "PASS",
-          "test_ids": ["differential_live_record"]
+          "test_ids": ["differential-live-record"]
         },
         {
           "id": "DIFF-OFFLINE-REPLAY",
           "description": "Replay the committed mixed-date live reference without Google access; all 59 cases match with zero differing fields, notes, errors or skips, and the report preserves every case description.",
           "result": "PASS",
-          "test_ids": ["differential_offline_replay"]
+          "test_ids": ["differential-offline-replay"]
         },
         {
           "id": "DIFF-PARTIAL-MERGE",
           "description": "Merge a live nonzero-request partial offline: replace only obj-resumable, preserve all other 58 cases as JSON values and retain recording dates/tool metadata; refuse self-check, zero-request, failed, stale and incompatible inputs and run the output leak guard.",
           "result": "PASS",
-          "test_ids": ["differential_partial_merge"]
+          "test_ids": ["differential-partial-merge"]
         }
       ],
       "test_ids": [
-        "differential_self_check",
-        "differential_live_record",
-        "differential_offline_replay",
-        "differential_partial_merge"
+        "differential-self-check",
+        "differential-live-record",
+        "differential-offline-replay",
+        "differential-partial-merge"
       ],
       "verification": [
         {
@@ -54913,28 +54889,28 @@
           "result": "PASS",
           "verified_at": "2026-11-02",
           "artifact": "docs/en/evidence/differential-harness.md",
-          "test_ids": ["differential_self_check"]
+          "test_ids": ["differential-self-check"]
         },
         {
           "command": "cargo xtask differential run --filter obj-resumable --record \"$TMPDIR/resumable-live.json\" --out \"$TMPDIR/resumable-live\"",
           "result": "PASS",
           "verified_at": "2026-11-02",
           "artifact": "docs/en/evidence/differential-harness.md",
-          "test_ids": ["differential_live_record"]
+          "test_ids": ["differential-live-record"]
         },
         {
           "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --evidence docs/en/evidence/differential-comparison.md --fail-on-diff --fail-on-note",
           "result": "PASS",
           "verified_at": "2026-11-02",
           "artifact": "docs/en/evidence/differential-comparison.md",
-          "test_ids": ["differential_offline_replay"]
+          "test_ids": ["differential-offline-replay"]
         },
         {
           "command": "cargo xtask differential merge compatibility/differential/reference/gcs.json \"$TMPDIR/resumable-live.json\" --out compatibility/differential/reference/gcs.json",
           "result": "PASS",
           "verified_at": "2026-11-02",
           "artifact": "docs/en/evidence/differential-harness.md",
-          "test_ids": ["differential_partial_merge"]
+          "test_ids": ["differential-partial-merge"]
         }
       ],
       "sdk_evidence": [],
@@ -55922,7 +55898,6 @@
         "explicit_project_and_empty_seed_directory_are_supported",
         "restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects",
         "edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent",
-        "held_object_is_blocked_while_identical_held_object_is_unchanged",
         "held_seed_changes_roll_back_the_entire_tree_while_identical_held_objects_are_unchanged",
         "default_content_type_is_extension_and_octet_stream_is_opt_in",
         "default_seed_dir_imports_only_an_existing_disjoint_directory",
@@ -55956,7 +55931,6 @@
           "test_ids": [
             "non_utf8_fixture_names_fail_closed",
             "restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects",
-            "held_object_is_blocked_while_identical_held_object_is_unchanged",
             "default_seed_dir_imports_only_an_existing_disjoint_directory",
             "top_level_files_are_skipped_with_a_warning"
           ]
@@ -55986,7 +55960,6 @@
             "explicit_project_and_empty_seed_directory_are_supported",
             "restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects",
             "edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent",
-            "held_object_is_blocked_while_identical_held_object_is_unchanged",
             "default_content_type_is_extension_and_octet_stream_is_opt_in",
             "default_seed_dir_imports_only_an_existing_disjoint_directory",
             "seed_dir_added_after_disabled_startup_imports_and_removal_disables_again",
@@ -56081,14 +56054,14 @@
         },
         {
           "id": "UX-003-LEGACY-DIAGNOSTICS",
-          "description": "config-legacy-input-diagnostics: cover all 19 env/CLI names including empty input, one/two hyphens times separate/equals values, mixed tokens and no-subcommand argv; inspect option-name positions only, preserving native values --object -data/-port/-x in public/sign helpers and indistinguishable valid native --scheme/--log-level pairs. Derive safe host/port/scheme/URL/location/log fixes from supplied values/defaults; redact URL userinfo/queries and TLS/identity secrets. Explain JSON CORS removal versus XML/public bucket responseHeader configuration and unsupported global replacement; PUBLIC_HOST advice must cover SDK XML reads when API/public authorities differ. Diagnose all Compose-only PORT/IMAGE/TLS_DIR names and replaced CMD listen/data choices. Warn on unknown FAKE_GCS_* and disjoint nonempty /data; suppress harmful seed advice for native overlap/ancestry/symlinks/missing-path uncertainty and test inspection errors. Test 1024/1025 occurrences, 256/257-byte keys, fixed source/key/repeated-key ordering, warnings before errors, control-character JSON escaping, independent malformed config/TLS/identity errors, page batches and operational-source JSON; prevent panic and require nonzero/no ready/no data creation on preflight failure.",
+          "description": "config-legacy-input-diagnostics: cover all 19 env/CLI names including empty input, one/two hyphens times separate/equals values, mixed tokens and no-subcommand argv; inspect option-name positions only, preserving native values --object -data/-port/-x in public/sign helpers and indistinguishable valid native --scheme/--log-level pairs. Derive safe host/port/scheme/URL/location/log fixes from supplied values/defaults; redact URL userinfo/queries and TLS/identity secrets. Explain JSON CORS removal versus XML/public bucket responseHeader configuration and unsupported global replacement; PUBLIC_HOST advice must cover SDK XML reads when API/public authorities differ. Diagnose all Compose-only PORT/IMAGE/TLS_DIR names and replaced CMD listen/data choices. Warn on unknown FAKE_GCS_*; adopt an existing /data disjoint from the native directories as default_seed_dir, never adopt it on overlap, ancestry, symlinks or a missing path, and warn when it cannot be inspected. Test 1024/1025 occurrences, 256/257-byte keys, fixed source/key/repeated-key ordering, warnings before errors, control-character JSON escaping, independent malformed config/TLS/identity errors, page batches and operational-source JSON; prevent panic and require nonzero/no ready/no data creation on preflight failure.",
           "result": "PASS",
           "test_ids": [
             "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
             "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
             "config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded",
-            "config_input::tests::data_inspection_is_bounded_conservative_and_resolves_missing_ancestors",
+            "config_input::tests::default_seed_is_adopted_only_when_present_and_disjoint",
             "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
             "config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources",
             "config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence",
@@ -56182,12 +56155,12 @@
         },
         {
           "id": "UX-003-REMAINING-SETTINGS",
-          "description": "config-remaining-settings: native US default and exact US/EU/ASIA default_location via CLI > environment > JSON file > default; reject empty/invalid values. Apply only to omitted locations on new API/initializer buckets; explicit fields and create authorization remain authoritative, invalid explicit fields keep existing errors, and restart/default changes preserve existing buckets. Reject explicit defaults in legacy before catalog access; accept case-insensitive US-CENTRAL1 create locations without storing them and reject other explicit locations. FAKE_GCS_LOCATION fails with actionable native-only guidance without regional translation. Add no global CORS setting. Contract: docs/en/slices/configuration-workflows.md.",
+          "description": "config-remaining-settings: native US default and multi-region, regional or dual-region default_location via CLI > environment > JSON file > default; an empty value means the default and invalid values are rejected. Apply only to omitted locations on new API/initializer buckets; explicit fields and create authorization remain authoritative, invalid explicit fields keep existing errors, and restart/default changes preserve existing buckets. Reject explicit defaults in legacy before catalog access; accept case-insensitive US-CENTRAL1 create locations without storing them and reject other explicit locations. FAKE_GCS_LOCATION becomes the native setting, and an unsupported value fails with actionable native-only guidance. Add no global CORS setting. Contract: docs/en/slices/configuration-workflows.md.",
           "result": "PASS",
           "test_ids": [
             "config::tests::default_location_validates_precedence_and_native_profile",
             "config_input::tests::legacy_location_advice_uses_effective_native_setting",
-            "bucket_init::tests::initializer_location_uses_default_only_when_omitted",
+            "bucket_init::tests::initializer_location_normalizes_names_and_defaults",
             "default_location_applies_to_new_api_and_initializer_buckets_only",
             "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
             "default_location_preserves_strict_create_authorization",
@@ -56221,7 +56194,7 @@
         "invalid_log_levels_and_legacy_diagnostics_fail_before_catalog",
         "config::tests::default_location_validates_precedence_and_native_profile",
         "config_input::tests::legacy_location_advice_uses_effective_native_setting",
-        "bucket_init::tests::initializer_location_uses_default_only_when_omitted",
+        "bucket_init::tests::initializer_location_normalizes_names_and_defaults",
         "default_location_applies_to_new_api_and_initializer_buckets_only",
         "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
         "default_location_preserves_strict_create_authorization",
@@ -56243,7 +56216,7 @@
         "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
         "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
         "config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded",
-        "config_input::tests::data_inspection_is_bounded_conservative_and_resolves_missing_ancestors",
+        "config_input::tests::default_seed_is_adopted_only_when_present_and_disjoint",
         "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
         "config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources",
         "config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence",
@@ -56314,7 +56287,6 @@
           "test_ids": [
             "config::tests::default_location_validates_precedence_and_native_profile",
             "config_input::tests::legacy_location_advice_uses_effective_native_setting",
-            "bucket_init::tests::initializer_location_uses_default_only_when_omitted",
             "default_location_applies_to_new_api_and_initializer_buckets_only",
             "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
             "default_location_preserves_strict_create_authorization",
@@ -56401,7 +56373,6 @@
             "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
             "config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded",
-            "config_input::tests::data_inspection_is_bounded_conservative_and_resolves_missing_ancestors",
             "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
             "config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources",
             "config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence",
@@ -56475,6 +56446,13 @@
             "config_input::tests::legacy_aliases_follow_source_precedence_and_keep_rejecting_events",
             "fake_gcs_server_command_without_serve_starts_with_translated_settings"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["config_input::tests::default_seed_is_adopted_only_when_present_and_disjoint", "bucket_init::tests::initializer_location_normalizes_names_and_defaults"]
         }
       ],
       "sdk_evidence": [
@@ -57578,7 +57556,7 @@
           "test_ids": [
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
-            "stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded",
+            "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "guide-host-peer-object-media"
           ]
         },
@@ -57630,7 +57608,7 @@
       "test_ids": [
         "obj_http_zero_multichunk_binary_and_size_limits",
         "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
-        "stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded",
+        "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
         "guide-host-peer-object-media",
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
         "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
@@ -57651,7 +57629,6 @@
           "test_ids": [
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
-            "stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
@@ -57671,6 +57648,13 @@
           "test_ids": [
             "guide-host-peer-object-media"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit"]
         }
       ],
       "sdk_evidence": [],
@@ -58264,7 +58248,7 @@
           "description": "Discover actual Go scope, compare stable non-retracted releases and reject malformed declarations.",
           "result": "PASS",
           "test_ids": [
-            "go_sdk_scope_and_lockfile_are_declared",
+            "sdk_scopes_and_lockfiles_are_declared",
             "go_versions_exclude_prereleases_and_retractions",
             "go_manifest_direct_requirements_and_exact_toolchain"
           ]
@@ -58283,7 +58267,7 @@
         "fetch_failure_is_never_reported_as_current",
         "dependencies::tests::stable_major_selection_and_registry_paths",
         "dependencies::tests::metadata_and_proxy_headers_fail_closed",
-        "go_sdk_scope_and_lockfile_are_declared",
+        "sdk_scopes_and_lockfiles_are_declared",
         "go_versions_exclude_prereleases_and_retractions",
         "go_manifest_direct_requirements_and_exact_toolchain",
         "scheduled-weekday-freshness"
@@ -58315,7 +58299,6 @@
           "verified_at": "2026-10-21",
           "artifact": "docs/en/evidence/bucket-tests.txt",
           "test_ids": [
-            "go_sdk_scope_and_lockfile_are_declared",
             "go_versions_exclude_prereleases_and_retractions",
             "go_manifest_direct_requirements_and_exact_toolchain"
           ]
@@ -58346,6 +58329,13 @@
           "test_ids": [
             "freshness-live-check"
           ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/ledger-test-ids.md",
+          "test_ids": ["sdk_scopes_and_lockfiles_are_declared"]
         }
       ],
       "sdk_evidence": [],

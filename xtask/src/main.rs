@@ -113,7 +113,7 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     }
-    match xtask::run(root, &args[1]) {
+    match xtask::run(root, &args[1]).and_then(|()| xtask::check_test_ids(root)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error}");

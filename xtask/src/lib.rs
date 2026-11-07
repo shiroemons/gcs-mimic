@@ -4,6 +4,7 @@ pub mod dependencies;
 pub mod differential;
 pub mod lint;
 pub mod release;
+mod test_ids;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
@@ -542,6 +543,12 @@ pub fn run(root: &Path, command: &str) -> Result<()> {
         rows.len()
     );
     Ok(())
+}
+
+/// Separate from `run` because it reads the repository's code, and `run` also serves fixture roots
+/// that hold only the ledger and its views.
+pub fn check_test_ids(root: &Path) -> Result<()> {
+    test_ids::check(root, &read_json(&root.join("compatibility/features.json"))?)
 }
 
 #[cfg(test)]

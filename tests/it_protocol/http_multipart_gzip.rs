@@ -379,10 +379,9 @@ fn multipart_gzip_disconnect_and_absolute_deadline_cancel_unvalidated_streams() 
     }
 }
 
-/// Cloud Storage accepted a transport-gzip media upload whose `X-Goog-Hash` MD5 described
-/// either the plain text or the gzip bytes (observed 2026-10-31); why is unexplained, so
-/// this pins what gcs-mimic does without weakening validation: a plain upload is checked
-/// against its bytes, a transport-gzip upload against the decoded bytes it stores.
+/// Cloud Storage does not verify a JSON media upload's declared `X-Goog-Hash`: it stored the upload
+/// and its computed hashes whatever the declared MD5 was (observed 2026-10-31), so gcs-mimic does
+/// too, for plain and transport-gzip uploads alike.
 #[test]
 fn media_upload_stores_computed_hashes_whatever_the_declared_md5() {
     let dir = TestDir::new();

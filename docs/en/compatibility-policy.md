@@ -117,6 +117,8 @@ CI should fail when generated tables differ from the JSON. Report totals by surf
 
 Each acceptance case has a row-local unique `id`, `description`, `result` (`PENDING`, `PASS`, `FAIL`) and `test_ids`. Each verification has a nonempty `command`, `result` (`PASS`, `FAIL`), `verified_at` date, repository-relative `artifact` and `test_ids`. The row declares the complete test-ID set. A passing case must link to passing verification for all its tests.
 
+A test ID made of identifier characters names a test function, optionally qualified as `module::path::name` or as a Go `TestName/Subtest`, and `cargo xtask compatibility` fails when the code holds no such name. Any other ID, such as `guide-native-object-media`, labels a script or manual lane that its verification's `command` describes. Renaming or merging a test therefore updates the ledger in the same change, and a replacement gets a new verification record rather than a rewritten past one.
+
 `IMPLEMENTED` requires nonempty cases/tests/verification, every case and check passing, `acceptance_status: COMPLETE`, achieved fidelity equal to target, all tests linked, implemented dependencies, no deviations, and a valid `last_verified`. Artifacts must be nonempty files inside the repository, including after symlink resolution. `PARTIAL` requires explicit missing cases. Simulations cannot claim `EXACT`.
 
 This repository-specific validator is not a general JSON Schema engine or proof that submitted logs are truthful. Reviewers verify outputs, coverage and SDK scope. It never runs commands from evidence records. Each JSON input is capped at 8 MiB. Validate/check are read-only and offline; render writes only the two tables. Edit the ledger explicitly. `implemented_in` may stay null until a real commit exists.
