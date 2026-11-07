@@ -4587,38 +4587,6 @@
           }
         },
         {
-          "fingerprint": "dd88255836058305",
-          "name": "patch-soft-delete-below-minimum",
-          "request": "PATCH /storage/v1/b/<bucket>",
-          "response": {
-            "body": {
-              "kind": "json",
-              "value": {
-                "error": {
-                  "code": 400,
-                  "errors": [
-                    {
-                      "domain": "global",
-                      "message": "Soft delete policy must have a retention duration between 3 days and 90 days.",
-                      "reason": "invalid"
-                    }
-                  ],
-                  "message": "Soft delete policy must have a retention duration between 3 days and 90 days."
-                }
-              }
-            },
-            "headers": {
-              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
-              "content-type": "application/json; charset=UTF-8",
-              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
-              "pragma": "no-cache",
-              "vary": "Origin, X-Origin",
-              "x-harness-body-framing": "content-length:<ok>"
-            },
-            "status": 400
-          }
-        },
-        {
           "fingerprint": "67972874668ed84e",
           "name": "patch-invalid-pap",
           "request": "PATCH /storage/v1/b/<bucket>",
@@ -5254,6 +5222,44 @@
               "x-harness-body-framing": "content-length:<ok>"
             },
             "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "bkt-soft-delete-any-retention",
+      "steps": [
+        {
+          "fingerprint": "dd88255836058305",
+          "name": "patch-soft-delete-below-minimum",
+          "request": "PATCH /storage/v1/b/<bucket>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Soft delete policy must have a retention duration between 3 days and 90 days.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Soft delete policy must have a retention duration between 3 days and 90 days."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
           }
         }
       ]

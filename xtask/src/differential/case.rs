@@ -73,9 +73,20 @@ pub(crate) struct Step {
     /// bucket PUT without `iamConfiguration`, a PATCH nulling it). The reason
     /// is required so such a step is a deliberate, reviewed exception.
     pub(crate) pap_reset: Option<String>,
+    /// gcs-mimic answers this step differently from the reference on purpose. `expect_status`
+    /// then speaks only for the reference.
+    pub(crate) local_choice: Option<LocalChoice>,
     pub(crate) capture: Vec<(String, String)>,
     /// `None` runs the step without comparing it (setup or probe steps).
     pub(crate) compare: Option<CompareOpts>,
+}
+
+/// A deliberate difference. It states what gcs-mimic answers, so a run reports it once that stops
+/// being true, as a Rust `#[expect]` fails once its lint stops firing.
+#[derive(Debug, Clone)]
+pub(crate) struct LocalChoice {
+    pub(crate) reason: String,
+    pub(crate) mimic_status: u16,
 }
 
 /// Which bucket `{bucket}` names. `Shared` is the one bucket every such case
@@ -324,6 +335,26 @@ fn check_grpc_step(body: &Body, context: &str) -> Result<()> {
     }
 }
 
+fn parse_local_choice(value: &Value, context: &str) -> Result<LocalChoice> {
+    let map = value
+        .as_object()
+        .ok_or_else(|| format!("{context}: expected an object"))?;
+    reject_unknown(map, &["reason", "mimic_status"], context)?;
+    Ok(LocalChoice {
+        reason: map
+            .get("reason")
+            .and_then(Value::as_str)
+            .filter(|reason| !reason.is_empty())
+            .ok_or_else(|| format!("{context}.reason: expected a nonempty string"))?
+            .to_owned(),
+        mimic_status: map
+            .get("mimic_status")
+            .and_then(Value::as_u64)
+            .and_then(|status| u16::try_from(status).ok())
+            .ok_or_else(|| format!("{context}.mimic_status: expected an HTTP status"))?,
+    })
+}
+
 fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<Step> {
     let map = value
         .as_object()
@@ -343,6 +374,7 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
             "body_base64",
             "always",
             "pap_reset",
+            "local_choice",
             "expect_status",
             "capture",
             "compare",
@@ -427,6 +459,10 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
         pap_reset: map
             .get("pap_reset")
             .map(|_| text("pap_reset"))
+            .transpose()?,
+        local_choice: map
+            .get("local_choice")
+            .map(|value| parse_local_choice(value, &format!("{context}.local_choice")))
             .transpose()?,
         always: match map.get("always") {
             None => false,
@@ -624,6 +660,38 @@ mod tests {
 
     fn get(path: &str) -> Value {
         json!({"name": "s", "method": "GET", "path": path})
+    }
+
+    #[test]
+    fn a_local_choice_needs_a_reason_and_the_status_gcs_mimic_answers() {
+        let with = |choice: Value| {
+            parse_case(
+                &case_with(
+                    json!({"name": "s", "method": "GET", "path": "/x", "local_choice": choice}),
+                ),
+                "x",
+            )
+        };
+        let parsed = with(json!({"reason": "why", "mimic_status": 200})).unwrap();
+        let choice = parsed.steps[0].local_choice.as_ref().unwrap();
+        assert_eq!((choice.reason.as_str(), choice.mimic_status), ("why", 200));
+        for (invalid, expected) in [
+            (json!("why"), "expected an object"),
+            (json!({"mimic_status": 200}), "reason"),
+            (json!({"reason": "", "mimic_status": 200}), "reason"),
+            (json!({"reason": "why"}), "mimic_status"),
+            (
+                json!({"reason": "why", "mimic_status": 70000}),
+                "mimic_status",
+            ),
+            (
+                json!({"reason": "why", "mimic_status": 200, "extra": 1}),
+                "extra",
+            ),
+        ] {
+            let error = with(invalid).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        }
     }
 
     #[test]

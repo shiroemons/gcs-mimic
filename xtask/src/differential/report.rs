@@ -1,6 +1,6 @@
 //! Comparison results, Markdown and JSON rendering, and the redaction guard.
 
-use super::case::{Case, Step, fingerprint};
+use super::case::{Case, LocalChoice, Step, fingerprint};
 use super::diff::{Difference, compare};
 use super::runner::{CaseOutcome, StepOutcome};
 use serde_json::{Value, json};
@@ -33,6 +33,8 @@ pub(crate) struct StepReport {
     pub(crate) request: String,
     pub(crate) differences: Vec<Difference>,
     pub(crate) notes: Vec<String>,
+    /// Why this step differs from the reference on purpose, when it does.
+    pub(crate) local_choice: Option<String>,
 }
 
 pub(crate) struct CaseReport {
@@ -62,6 +64,22 @@ fn note_reference_expectation(spec: &Step, step: &StepOutcome, notes: &mut Vec<S
         (Ok(_), Some(_)) => {}
         // Without an `expect_status` there is nothing to judge again; keep what was recorded.
         (Ok(_), None) | (Err(_), _) => note_expectation("reference", step, notes),
+    }
+}
+
+/// A local choice answers for itself: its status replaces the case's `expect_status`, which speaks
+/// for the reference, and a different answer means the choice no longer holds.
+fn note_local_choice(choice: &LocalChoice, step: &StepOutcome, notes: &mut Vec<String>) {
+    let expected = choice.mimic_status;
+    match &step.result {
+        Ok(response) if response.status == expected => {}
+        Ok(response) => notes.push(format!(
+            "mimic: local choice expected status {expected}, got {}",
+            response.status
+        )),
+        Err(error) => notes.push(format!(
+            "mimic: local choice expected status {expected}, got {error}"
+        )),
     }
 }
 
@@ -111,14 +129,19 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
             request: mimic_step.map_or_else(String::new, |s| s.request.clone()),
             differences: Vec::new(),
             notes: Vec::new(),
+            local_choice: spec.local_choice.as_ref().map(|c| c.reason.clone()),
         };
         if let Some(step) = mimic_step {
-            note_expectation("mimic", step, &mut report.notes);
+            match &spec.local_choice {
+                Some(choice) => note_local_choice(choice, step, &mut report.notes),
+                None => note_expectation("mimic", step, &mut report.notes),
+            }
         }
         if let Some(step) = reference_step {
             note_reference_expectation(spec, step, &mut report.notes);
         }
-        if let (Some(opts), Some(Ok(m)), Some(Ok(r))) = (
+        if let (None, Some(opts), Some(Ok(m)), Some(Ok(r))) = (
+            &spec.local_choice,
             spec.compare.as_ref(),
             mimic_step.map(|s| &s.result),
             reference_step.map(|s| &s.result),
@@ -267,23 +290,21 @@ pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
         .iter()
         .all(|r| r.outcome == Outcome::Match && r.errors.is_empty())
     {
-        out.push_str("\nNo differences or errors.\n");
+        out.push_str("\nNo differences or errors apart from any local choices listed below.\n");
     }
+    let reported = |step: &StepReport| {
+        !step.differences.is_empty() || !step.notes.is_empty() || step.local_choice.is_some()
+    };
     for report in reports {
         out.push_str(&format!("\n### {}\n\n{}\n", report.id, report.description));
-        if !report.errors.is_empty()
-            || report
-                .steps
-                .iter()
-                .any(|step| !step.differences.is_empty() || !step.notes.is_empty())
-        {
+        if !report.errors.is_empty() || report.steps.iter().any(reported) {
             out.push('\n');
         }
         for error in &report.errors {
             out.push_str(&format!("- error: {}\n", error.replace('`', "'")));
         }
         for step in &report.steps {
-            if step.differences.is_empty() && step.notes.is_empty() {
+            if !reported(step) {
                 continue;
             }
             out.push_str(&format!(
@@ -291,6 +312,9 @@ pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
                 step.name,
                 step.request.replace('`', "'")
             ));
+            if let Some(reason) = &step.local_choice {
+                out.push_str(&format!("  - local choice: {}\n", reason.replace('`', "'")));
+            }
             for note in &step.notes {
                 out.push_str(&format!("  - {note}\n"));
             }
@@ -361,6 +385,7 @@ pub(crate) fn json_report(header: &Header<'_>, reports: &[CaseReport]) -> Value 
                 "name": s.name,
                 "request": s.request,
                 "notes": s.notes,
+                "local_choice": s.local_choice,
                 "differences": s.differences.iter().map(difference_json).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
@@ -773,6 +798,7 @@ mod tests {
                     },
                 ],
                 notes: vec![],
+                local_choice: None,
             }],
         };
         let header = Header {
@@ -798,9 +824,79 @@ mod tests {
         report.steps.clear();
         let matched = markdown(&header, &[report]);
         assert!(matched.contains("| c | match | 0 |"));
-        assert!(matched.contains("No differences or errors."));
+        assert!(matched.contains("No differences or errors apart from"));
         assert!(matched.contains("### c\n\nd\n"));
         assert!(!matched.contains("\n\n\n"));
+    }
+
+    #[test]
+    fn a_local_choice_differs_on_purpose_until_it_no_longer_holds() {
+        use super::super::case::{fingerprint, parse_case};
+        use super::super::normalize::{NormBody, NormResponse};
+        use std::collections::BTreeMap;
+        let case = parse_case(
+            &json!({"id": "c", "description": "d", "bucket": false,
+                    "steps": [{"name": "s", "method": "GET", "path": "/x", "expect_status": 400,
+                               "local_choice": {"reason": "any value", "mimic_status": 200}}]}),
+            "c",
+        )
+        .unwrap();
+        let answer = |status: u16| CaseOutcome {
+            id: "c".into(),
+            bucket: Some("none".into()),
+            error: None,
+            steps: vec![StepOutcome {
+                name: "s".into(),
+                request: "GET /x".into(),
+                result: Ok(NormResponse {
+                    status,
+                    headers: BTreeMap::new(),
+                    body: NormBody::Empty,
+                }),
+                // The runner compares every side with `expect_status`.
+                expectation: (status != 400).then(|| format!("expected status 400, got {status}")),
+                retries: 0,
+                fingerprint: fingerprint(&case.steps[0]),
+            }],
+        };
+        let strict = FailOn {
+            diff: true,
+            note: true,
+        };
+
+        // Against the reference and alone, the chosen answer is neither a difference nor a note.
+        for reference in [Some(answer(400)), None] {
+            let report = compare_case(&case, &answer(200), reference.as_ref());
+            assert_eq!(report.outcome, Outcome::Match);
+            assert!(report.steps[0].differences.is_empty());
+            assert!(report.steps[0].notes.is_empty());
+            let header = Header {
+                mode: "replay",
+                generated: "2026-11-07",
+                reference_requests: None,
+                reference_retries: 0,
+                cleanup: &[],
+                reference_cleanup: &[],
+                skipped: &[],
+            };
+            let reports = [report];
+            let text = markdown(&header, &reports);
+            assert!(text.contains("- step `s` (`GET /x`)\n  - local choice: any value\n"));
+            assert!(!has_failures(&reports, strict));
+        }
+
+        // Once gcs-mimic answers like the reference, the choice is stale and a strict run fails.
+        let stale = compare_case(&case, &answer(400), Some(&answer(400)));
+        assert_eq!(stale.outcome, Outcome::Noted);
+        assert_eq!(
+            stale.steps[0].notes,
+            ["mimic: local choice expected status 200, got 400"]
+        );
+        assert!(has_failures(&[stale], strict));
+
+        // The reference is still held to `expect_status`.
+        let wrong_case = compare_case(&case, &answer(200), Some(&answer(200)));
+        assert_eq!(wrong_case.outcome, Outcome::Error);
     }
 
     #[test]

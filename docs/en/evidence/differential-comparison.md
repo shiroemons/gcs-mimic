@@ -3,8 +3,8 @@
 # Differential comparison report
 
 - Mode: replay of a recorded reference
-- Generated: 2026-11-02 (recordings of 2026-11-01 and 2026-11-02)
-- Requests sent to the live reference service (when recorded): 811
+- Generated: 2026-11-07 (recordings of 2026-11-01 and 2026-11-02 and 2026-11-04)
+- Requests sent to the live reference service (when recorded): 855
 - HTTP 429 responses retried by the live run: 0
 
 ## Summary
@@ -23,6 +23,7 @@
 | bkt-patch-errors | match | 0 |
 | bkt-patch-put-edges | match | 0 |
 | bkt-project-resources | match | 0 |
+| bkt-soft-delete-any-retention | match | 0 |
 | bucket-create-invalid | match | 0 |
 | bucket-get-missing | match | 0 |
 | bucket-get | match | 0 |
@@ -62,6 +63,7 @@
 | object-missing | match | 0 |
 | object-patch | match | 0 |
 | object-preconditions | match | 0 |
+| xml-content-length-range | match | 0 |
 | xml-copy | match | 0 |
 | xml-errors | match | 0 |
 | xml-list-bucket | match | 0 |
@@ -73,7 +75,7 @@
 
 ## Details
 
-No differences or errors.
+No differences or errors apart from any local choices listed below.
 
 ### bkt-acl-crud
 
@@ -82,6 +84,9 @@ Bucket, default object and object access control lists on a fresh bucket with un
 ### bkt-create-errors
 
 Bucket creation inputs that must be rejected: unknown location, storage class, retention and soft delete values, short name, missing project and malformed JSON. Probes that may succeed on one side are separate cases (bkt-create-*) so no later step meets a bucket an earlier one created.
+
+- step `soft-delete-below-minimum` (`POST /storage/v1/b?project=<project>`)
+  - local choice: gcs-mimic accepts any retention from 1 second, which Cloud Storage refuses; see docs/en/releases/0.12.0.md.
 
 ### bkt-create-full
 
@@ -122,6 +127,13 @@ PATCH and PUT edge inputs on a fresh multi-region bucket created with a lowercas
 ### bkt-project-resources
 
 Project-level resources that need no setup: the project service account, and HMAC key lookups for keys that do not exist. No HMAC key is created, so nothing needs cleaning up. The service account email carries the project number and is not compared.
+
+### bkt-soft-delete-any-retention
+
+A bucket PATCH with a soft delete retention below the Cloud Storage minimum, on a bucket of its own because gcs-mimic applies it: the deliberate difference must not reach other steps. bkt-create-errors holds the same value on bucket creation.
+
+- step `patch-soft-delete-below-minimum` (`PATCH /storage/v1/b/<bucket>`)
+  - local choice: gcs-mimic accepts any retention from 1 second, which Cloud Storage refuses; see docs/en/releases/0.12.0.md.
 
 ### bucket-create-invalid
 
@@ -279,6 +291,10 @@ Patch content type and custom metadata, then read the object back.
 
 Generation preconditions on upload, get and delete.
 
+### xml-content-length-range
+
+XML PUT x-goog-content-length-range: inclusive bounds, the exact-size pair Rails Active Storage signs, bodies outside the range leaving no object, malformed values and the header on a copy.
+
 ### xml-copy
 
 XML object copy through x-goog-copy-source: metadata kept and replaced, CopyObjectResult body, and the missing-source and failed-precondition errors.
@@ -315,7 +331,7 @@ XML GET and HEAD with satisfiable, suffix, open-ended, multiple and unsatisfiabl
 
 ```text
 - mimic new bucket of bkt-acl-crud: already absent (404)
-- mimic new bucket of bkt-create-errors: already absent (404)
+- mimic new bucket of bkt-create-errors: emptied (0 object versions), deleted, GET confirmed 404
 - mimic new bucket of bkt-create-full: already absent (404)
 - mimic new bucket of bkt-create-lifecycle-array: already absent (404)
 - mimic new bucket of bkt-create-predefined-acl-ubla: already absent (404)
@@ -325,11 +341,12 @@ XML GET and HEAD with satisfiable, suffix, open-ended, multiple and unsatisfiabl
 - mimic bucket of bkt-notifications: emptied (0 object versions), deleted, GET confirmed 404
 - mimic bucket of bkt-patch-errors: emptied (0 object versions), deleted, GET confirmed 404
 - mimic new bucket of bkt-patch-put-edges: already absent (404)
+- mimic bucket of bkt-soft-delete-any-retention: emptied (0 object versions), deleted, GET confirmed 404
 - mimic new bucket of bucket-lifecycle: already absent (404)
 - mimic bucket of bucket-patch-labels: emptied (0 object versions), deleted, GET confirmed 404
 - mimic bucket of bucket-preconditions: emptied (0 object versions), deleted, GET confirmed 404
 - mimic new bucket of obj-retention-unlocked: already absent (404)
 - mimic bucket of obj-versioning: emptied (1 object versions), deleted, GET confirmed 404
-- mimic shared bucket: emptied (29 object versions), deleted, GET confirmed 404
+- mimic shared bucket: emptied (38 object versions), deleted, GET confirmed 404
 - mimic sweep: 0 leftover bucket(s) found
 ```

@@ -1,0 +1,8 @@
+{
+  "id": "bkt-soft-delete-any-retention",
+  "description": "A bucket PATCH with a soft delete retention below the Cloud Storage minimum, on a bucket of its own because gcs-mimic applies it: the deliberate difference must not reach other steps. bkt-create-errors holds the same value on bucket creation.",
+  "bucket": "own",
+  "steps": [
+    {"name": "patch-soft-delete-below-minimum", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "body": {"softDeletePolicy": {"retentionDurationSeconds": "100"}}, "expect_status": 400, "local_choice": {"reason": "gcs-mimic accepts any retention from 1 second, which Cloud Storage refuses; see docs/en/releases/0.12.0.md.", "mimic_status": 200}}
+  ]
+}
