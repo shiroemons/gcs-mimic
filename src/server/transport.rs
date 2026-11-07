@@ -126,6 +126,20 @@ fn enable_keepalive(stream: &TcpStream) {
     }
 }
 
+/// A response ends in a short segment, and Nagle's algorithm holds that segment until the client
+/// acknowledges the earlier ones, which a delayed acknowledgement can put off by 40 ms. Go's
+/// `net/http` listener turns it off the same way.
+fn disable_nagle(stream: &TcpStream) {
+    if let Err(error) = stream.set_nodelay(true) {
+        // A peer that already reset fails here too. Any other connection only risks that delay.
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Debug,
+            "tcp_nodelay_failed",
+            serde_json::json!({"message":"could not disable Nagle's algorithm on an accepted connection; the end of a response can be delayed","cause":error.kind().to_string()}),
+        );
+    }
+}
+
 pub(super) enum Listener {
     Tcp(TcpListener),
     #[cfg(unix)]
@@ -151,6 +165,7 @@ impl Listener {
         match self {
             Self::Tcp(listener) => listener.poll_accept(cx).map_ok(|(stream, _)| {
                 enable_keepalive(&stream);
+                disable_nagle(&stream);
                 Stream::Tcp(stream)
             }),
             #[cfg(unix)]
