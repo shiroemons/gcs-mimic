@@ -215,6 +215,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" grpcurl
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - run: grpcurl --version
+      - run: cargo fetch --locked
       - run: cargo xtask differential validate
       - run: cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note
   # The release image build takes about 6 minutes, so the Testcontainers
