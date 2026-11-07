@@ -123,7 +123,9 @@ jobs:
         if: runner.os == 'Windows'
         run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
       - run: cargo fetch --locked
-      - run: cargo test --workspace --target "$TARGET" --locked --offline
+      # Without --no-fail-fast the first failing test target hides every later one, and each
+      # platform-only failure costs a full run of its own.
+      - run: cargo test --workspace --target "$TARGET" --locked --offline --no-fail-fast
         # Deadline tests still use wall-clock budgets; fewer concurrent tests keep
         # slower macOS, Windows and ARM runners from starving them.
         env:

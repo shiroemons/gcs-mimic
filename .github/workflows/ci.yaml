@@ -139,7 +139,9 @@ jobs:
           key: ${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fetch --locked
-      - run: cargo test --workspace --target "$TARGET" --locked --offline
+      # Without --no-fail-fast the first failing test target hides every later one, and each
+      # platform-only failure costs a full run of its own.
+      - run: cargo test --workspace --target "$TARGET" --locked --offline --no-fail-fast
         # Deadline tests still use wall-clock budgets; fewer concurrent tests keep
         # slower macOS and Windows runners from starving them.
         env:
