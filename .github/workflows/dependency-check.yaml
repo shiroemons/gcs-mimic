@@ -50,3 +50,33 @@ jobs:
         run: cargo xtask dependencies check
         env:
           GITHUB_TOKEN: ${{ github.token }}
+  # Separate from `freshness`, which keeps failing until a proposal merges: a pending update stays
+  # visible, and a failed proposal never hides what the check found.
+  propose-image-refresh:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned tooling
+        run: |
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          rustup toolchain install "$pin" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
+      # Compiling and running the repository's code happens before the token enters the job's
+      # environment; only the publishing step below can write.
+      - name: Rewrite the pins of rebuilt images
+        run: |
+          cargo xtask dependencies update-images --checked-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            > "$RUNNER_TEMP/image-refresh.md"
+      - name: Propose the rewritten pins
+        run: bash scripts/propose-image-refresh.sh "$RUNNER_TEMP/image-refresh.md"
+        env:
+          GH_TOKEN: ${{ github.token }}

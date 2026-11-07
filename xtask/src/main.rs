@@ -1,6 +1,6 @@
 use std::{env, path::Path, process::ExitCode};
 
-const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check [--scope all|release] | differential validate|run|merge|sweep [options] | lint [--target TRIPLE|--baseline [--target TRIPLE]|--test-clock-baseline] | release prepare TARGET BINARY OUTPUT_DIR | release notices TARGET OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
+const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check [--scope all|release] | dependencies update-images --checked-at UTC_TIMESTAMP | differential validate|run|merge|sweep [options] | lint [--target TRIPLE|--baseline [--target TRIPLE]|--test-clock-baseline] | release prepare TARGET BINARY OUTPUT_DIR | release notices TARGET OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
 
 fn main() -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
@@ -94,6 +94,17 @@ fn main() -> ExitCode {
             Ok(true) => ExitCode::FAILURE,
             Err(error) => {
                 eprintln!("CHECK_FAILED: {error}");
+                ExitCode::from(2)
+            }
+        };
+    }
+    if let ["dependencies", "update-images", "--checked-at", checked_at] =
+        args.iter().map(String::as_str).collect::<Vec<_>>()[..]
+    {
+        return match xtask::dependencies::update_images(root, checked_at) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("UPDATE_FAILED: {error}");
                 ExitCode::from(2)
             }
         };

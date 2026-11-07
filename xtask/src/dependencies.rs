@@ -6,7 +6,10 @@ use std::{
     process::{Command, Stdio},
 };
 mod clients;
+mod images;
 mod platforms;
+
+pub use images::update_images;
 
 type Result<T> = std::result::Result<T, String>;
 const MAX_RESPONSE: u64 = 8 * 1024 * 1024;
