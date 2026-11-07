@@ -17,7 +17,7 @@ trap 'rm -rf "$source_check"' EXIT
   printf 'fn main() {}\n' >src/main.rs
   git add src/main.rs
   git commit --quiet -m 'test: create source fixture'
-  [[ $(verify_source HEAD) == $(git rev-parse HEAD) ]]
+  [[ $(verify_source HEAD) == $(git rev-parse HEAD) ]] || exit 1
   if verify_source missing-revision 2>/dev/null; then exit 1; fi
   printf 'changed\n' >>src/main.rs
   if verify_source HEAD; then exit 1; fi
@@ -73,10 +73,10 @@ measure_driver download >"$work/download.json"
 jq -e '.workload=="upload-1gib" and .server_cpu_seconds==1' "$work/upload.json" >/dev/null
 jq -e '.workload=="download-1gib" and .server_cpu_seconds==2' "$work/download.json" >/dev/null
 filesystem=$(filesystem_type "$work")
-[[ -n $filesystem && $filesystem != Directory ]]
+[[ -n $filesystem && $filesystem != Directory ]] || exit 1
 df() { printf 'Filesystem blocks used available capacity mounted\n/dev/example 1 1 1 1%% /\n'; }
 mount() { printf '/dev/example on / (apfs, local)\n'; }
-[[ $(filesystem_type "$work") == apfs ]]
+[[ $(filesystem_type "$work") == apfs ]] || exit 1
 mount() { printf '/dev/example on / (Directory, local)\n'; }
 if filesystem_type "$work"; then echo 'invalid filesystem type was accepted' >&2; exit 1; fi
 jq -cn 'range(1;6) as $round | ["download-1gib","small-overwrite","small-publish","startup-10000","startup-100000","upload-1gib"][] as $workload | {round:$round,workload:$workload,wall_seconds:$round,errors:0,requests:(if $workload|startswith("small") then 10000 else 1 end),bytes:(if $workload|startswith("small") then 10240000 else 1073741824 end)}' |

@@ -5,15 +5,15 @@ set -euo pipefail
 # The pinned builder has awk but not jq; probe output uses only validated numbers.
 probe() {
   local group stat ticks rss current peak cache usage oom killed maximum swap quota hz stamp value
-  [[ $(< /proc/1/comm) == gcs-mimic ]]
+  [[ $(< /proc/1/comm) == gcs-mimic ]] || return 1
   group=$(awk -F: '$1==0 {print $3}' /proc/1/cgroup)
-  [[ $group == /* && $group != / && $group != *..* ]]
+  [[ $group == /* && $group != / && $group != *..* ]] || return 1
   group="/sys/fs/cgroup$group"
   read -r maximum <"$group/memory.max"
   read -r swap <"$group/memory.swap.max"
   read -r quota <"$group/cpu.max"
-  [[ $maximum == 134217728 && $swap == 0 && $quota == '100000 100000' ]]
-  [[ $(<"$group/pids.max") == 64 ]]
+  [[ $maximum == 134217728 && $swap == 0 && $quota == '100000 100000' ]] || return 1
+  [[ $(<"$group/pids.max") == 64 ]] || return 1
   stat=$(< /proc/1/stat)
   ticks=$(awk '{print $12+$13}' <<<"${stat##*) }")
   rss=$(awk '$1=="VmRSS:" {print $2*1024}' /proc/1/status)
@@ -28,7 +28,7 @@ probe() {
   for value in "$ticks" "$rss" "$current" "$peak" "$cache" "$usage" "$oom" "$killed" "$hz"; do
     [[ $value =~ ^[0-9]+$ ]] || return 1
   done
-  [[ $stamp =~ ^[0-9]+\.[0-9]+$ ]]
+  [[ $stamp =~ ^[0-9]+\.[0-9]+$ ]] || return 1
   printf '{"time":%s,"rss_bytes":%s,"cgroup_bytes":%s,"cgroup_peak_bytes":%s,"file_cache_bytes":%s,"cgroup_cpu_usec":%s,"process_cpu_ticks":%s,"hz":%s,"oom":%s,"oom_kill":%s}\n' \
     "$stamp" "$rss" "$current" "$peak" "$cache" "$usage" "$ticks" "$hz" "$oom" "$killed"
 }
@@ -68,7 +68,7 @@ start_container() {
     --no-healthcheck -p "$address:4443" --mount "type=volume,src=$volume,dst=/var/lib/gcs-mimic" \
     "$image" serve --scheme http --listen 0.0.0.0:4443 --api-base-url "$origin" \
     --data-dir /var/lib/gcs-mimic --max-object-bytes 2147483648)
-  [[ $(docker port "$container" 4443/tcp) == "$address" ]]
+  [[ $(docker port "$container" 4443/tcp) == "$address" ]] || return 1
 }
 
 cleanup_all() {
@@ -117,7 +117,7 @@ self_check() {
   # Concurrent samples have no CPU read ordering; cache/current are separate reads.
   result=$(printf '%s\n' "$(jq -c '.cgroup_cpu_usec=9000000 | .process_cpu_ticks=900 | .file_cache_bytes=20000' <<<"$middle")" | summarize "$first" "$last")
   jq -e '.process_cpu_seconds==2 and .cgroup_cpu_seconds==2.5 and .sampled_peak_file_cache_bytes==20000' <<<"$result" >/dev/null
-  [[ $(quantiles <(printf '9\n1\n5\n2\n3\n')) == 'requests=5 p50_seconds=3 p95_seconds=5 p99_seconds=5 max_seconds=9' ]]
+  [[ $(quantiles <(printf '9\n1\n5\n2\n3\n')) == 'requests=5 p50_seconds=3 p95_seconds=5 p99_seconds=5 max_seconds=9' ]] || return 1
   (
     image=self-check-image volume=self-check-volume
     docker() {
@@ -136,7 +136,7 @@ self_check() {
       esac
     }
     start_container 127.0.0.1:43123
-    [[ $origin == http://127.0.0.1:43123 ]]
+    [[ $origin == http://127.0.0.1:43123 ]] || return 1
   )
   (
     observer=observer container=target volume=volume work=self-check-work
@@ -144,12 +144,12 @@ self_check() {
     docker() { calls+=" $*"; [[ $* != 'rm -f observer' ]] || return 7; }
     rm() { calls+=" rm $*"; return 0; }
     if cleanup_all 1 >/dev/null 2>&1; then return 1; else [[ $? == 1 ]]; fi
-    [[ $calls == ' rm -f observer rm -f target volume rm volume rm -rf self-check-work' ]]
+    [[ $calls == ' rm -f observer rm -f target volume rm volume rm -rf self-check-work' ]] || return 1
     calls=''
     if cleanup_all 0 >/dev/null 2>&1; then return 1; else [[ $? == 1 ]]; fi
-    [[ $calls == ' rm -f observer rm -f target volume rm volume rm -rf self-check-work' ]]
+    [[ $calls == ' rm -f observer rm -f target volume rm volume rm -rf self-check-work' ]] || return 1
   )
-  [[ $(download_diagnostics <(printf 'curl: (22) secret-capability-url\nhttp_status=404 request_seconds=0.123\n')) == $'download_curl_error_code=22\nhttp_status=404 request_seconds=0.123' ]]
+  [[ $(download_diagnostics <(printf 'curl: (22) secret-capability-url\nhttp_status=404 request_seconds=0.123\n')) == $'download_curl_error_code=22\nhttp_status=404 request_seconds=0.123' ]] || return 1
   echo 'PASS: resource arithmetic, non-atomic samples, malformed time, OOM, boundary CPU regression, quantiles, advertised origin and cleanup self-checks'
 }
 
@@ -163,7 +163,7 @@ esac
 cd "$(dirname "$0")/.."
 image=$(docker image inspect "$1" --format '{{.Id}}')
 source_sha=$2
-[[ $(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}') == "$source_sha" ]]
+[[ $(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}') == "$source_sha" ]] || exit 1
 git diff --quiet "$source_sha" -- src Cargo.toml Cargo.lock rust-toolchain.toml Dockerfile distribution xtask .dockerignore compatibility/upstream/json-schemas.json
 observer_image=$(awk '$1=="FROM" {print $2; exit}' Dockerfile)
 docker image inspect "$observer_image" >/dev/null
@@ -206,7 +206,7 @@ shasum -a 256 Dockerfile Cargo.lock rust-toolchain.toml scripts/measure-resumabl
 dd if=/dev/urandom of="$work/chunk" bs=1048576 count=8 2>/dev/null
 for ((part=0; part<128; part++)); do dd if="$work/chunk" bs=1048576 2>/dev/null; done >"$work/object"
 expected=$(shasum -a 256 "$work/object" | awk '{print $1}')
-[[ $(wc -c <"$work/object" | tr -d ' ') == 1073741824 ]]
+[[ $(wc -c <"$work/object" | tr -d ' ') == 1073741824 ]] || exit 1
 for round in 1 2 3 4 5; do
   phase=setup
   rm -f "$work/download-time"
@@ -216,10 +216,10 @@ for round in 1 2 3 4 5; do
   ready=false
   for ((attempt=0; attempt<300; attempt++)); do
     if curl "${curl_args[@]}" --fail "$origin/_internal/ready" >/dev/null 2>&1; then ready=true; break; fi
-    [[ $(docker inspect "$container" --format '{{.State.Running}}') == true ]]
+    [[ $(docker inspect "$container" --format '{{.State.Running}}') == true ]] || exit 1
     sleep 0.1
   done
-  [[ $ready == true ]]
+  [[ $ready == true ]] || exit 1
   docker inspect "$container" --format '{{json .HostConfig}}' | jq -ce '{Memory,MemorySwap,NanoCpus,PidsLimit,ReadonlyRootfs,Ulimits} | select(.Memory==134217728 and .MemorySwap==134217728 and .NanoCpus==1000000000 and .PidsLimit==64 and .ReadonlyRootfs==true)'
   observer=$(docker run -d --read-only --network none --pid "container:$container" --cgroupns host \
     --mount type=bind,src=/sys/fs/cgroup,dst=/sys/fs/cgroup,readonly \
@@ -239,9 +239,9 @@ for round in 1 2 3 4 5; do
     if [[ $mode == resumable ]]; then
       status=$(curl "${curl_args[@]}" -X POST -H 'X-Upload-Content-Length: 1073741824' -H 'Content-Length: 0' \
         -D "$work/init" -o /dev/null -w '%{http_code}' "$origin/upload/storage/v1/b/resource-bucket/o?uploadType=resumable&name=object")
-      [[ $status == 200 ]]
+      [[ $status == 200 ]] || exit 1
       location=$(awk 'tolower($1)=="location:" {gsub("\r", "", $2); print $2}' "$work/init")
-      [[ $location == "$origin"/upload/storage/v1/* ]]
+      [[ $location == "$origin"/upload/storage/v1/* ]] || exit 1
     fi
     phase="$mode-upload"
     phase_start
@@ -249,7 +249,7 @@ for round in 1 2 3 4 5; do
       metrics=$(curl "${curl_args[@]}" -X POST -T "$work/object" -H 'Expect:' -H 'Content-Type: application/octet-stream' \
         -o "$work/body" -w '%{http_code} %{time_total}' "$origin/upload/storage/v1/b/resource-bucket/o?uploadType=media&name=object")
       read -r status latency <<<"$metrics"
-      [[ $status == 200 || $status == 201 ]]
+      [[ $status == 200 || $status == 201 ]] || exit 1
       printf '%s\n' "$latency" >>"$work/latencies"
     else
       for ((offset=0; offset<1073741824; offset+=8388608)); do
@@ -258,7 +258,7 @@ for round in 1 2 3 4 5; do
           -H "Content-Range: bytes $offset-$end/1073741824" -D "$work/headers" -o "$work/body" -w '%{http_code} %{time_total}' "$location")
         read -r status latency <<<"$metrics"
         if ((end+1 == 1073741824)); then [[ $status == 200 || $status == 201 ]]; else
-          [[ $status == 308 ]]
+          [[ $status == 308 ]] || exit 1
           tr -d '\r' <"$work/headers" | grep -iq "^range: bytes=0-$end$"
         fi
         printf '%s\n' "$latency" >>"$work/latencies"
@@ -272,7 +272,7 @@ for round in 1 2 3 4 5; do
     actual=$(curl "${curl_args[@]}" --fail -w '%{stderr}http_status=%{http_code} request_seconds=%{time_total}\n' "$origin/storage/v1/b/resource-bucket/o/object?alt=media" \
       2>"$work/download-time" | shasum -a 256 | awk '{print $1}')
     phase_end "$mode-download" | jq -c '. + {bytes:1073741824,process_cpu_seconds_per_gib:.process_cpu_seconds,cgroup_cpu_seconds_per_gib:.cgroup_cpu_seconds,throughput_mib_s:(1024/.wall_seconds),errors:0}'
-    [[ $actual == "$expected" ]]
+    [[ $actual == "$expected" ]] || exit 1
     awk '/^http_status=200 request_seconds=[0-9.]+$/ {sub(/.*=/,""); print}' "$work/download-time" >"$work/download-latency"
     printf 'sha256 mode=%s expected=%s MATCH\n' "$mode" "$expected"
     quantiles "$work/download-latency"

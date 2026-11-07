@@ -18,6 +18,12 @@ bash scripts/test-container-release.sh
 bash scripts/test-container-mirror.sh
 bash scripts/test-apply-pin-patch.sh
 for script in scripts/*.sh; do bash -n "$script"; done
+# macOS ships bash 3.2, whose `set -e` ignores a failed `[[ ]]` statement, so such a check stops
+# only on CI. Spell out the failure instead: `[[ ... ]] || exit 1`, or `|| return 1` in a function.
+if grep -nE '^[[:space:]]*\[\[ .* \]\][[:space:]]*(#.*)?$' scripts/*.sh; then
+  echo 'A bare [[ ]] check does nothing under bash 3.2' >&2
+  exit 1
+fi
 bash scripts/smoke-containers.sh --help
 if bash scripts/smoke-containers.sh linux/unknown; then
   echo 'Container smoke accepted an unsupported platform' >&2

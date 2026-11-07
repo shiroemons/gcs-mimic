@@ -12,7 +12,7 @@ if [[ ${1:-} == --container ]]; then
 fi
 [[ $(uname -s) == Darwin ]] || { echo 'macOS is required' >&2; exit 1; }
 server="$PWD/target/release/gcs-mimic"
-[[ -x $server ]]
+[[ -x $server ]] || exit 1
 work=$(mktemp -d "${TMPDIR:?}/gcs-mimic-resources.XXXXXX")
 pid='' timer='' sampler=''
 cleanup() {
@@ -47,11 +47,11 @@ upload() {
       -w '%{http_code} %{time_total}' "$location")
     read -r status latency <<<"$metrics"
     if ((end+1 == total)); then
-      [[ $status == 200 || $status == 201 ]]
+      [[ $status == 200 || $status == 201 ]] || return 1
       jq -e --arg size "$total" '.size == $size' "$work/body-$id" >/dev/null
       printf 'final id=%s status=%s latency_seconds=%s\n' "$id" "$status" "$latency" >"$work/final-$id"
     else
-      [[ $status == 308 ]]
+      [[ $status == 308 ]] || return 1
       tr -d '\r' <"$work/headers-$id" | grep -iq "^range: bytes=0-$end$"
     fi
     printf '%s\n' "$latency" >>"$work/latencies-$id"
@@ -75,7 +75,7 @@ for specification in 'small 16 1 none' 'medium 256 1 none' 'large 1024 1 none' '
     [[ -z $pid || $ready != "$address" ]] || break
     sleep 0.05
   done
-  [[ -n $pid && $ready == "$address" ]]
+  [[ -n $pid && $ready == "$address" ]] || exit 1
   "$server" healthcheck --url "$origin/_internal/ready" >/dev/null
   curl "${curl_args[@]}" --fail -H 'Content-Type: application/json' \
     --data '{"name":"resource-bucket"}' "$origin/storage/v1/b?project=local-project" >/dev/null
@@ -83,9 +83,9 @@ for specification in 'small 16 1 none' 'medium 256 1 none' 'large 1024 1 none' '
     status=$(curl "${curl_args[@]}" -X POST -H "X-Upload-Content-Length: $total" \
       -H 'Content-Length: 0' -D "$work/init" -o /dev/null -w '%{http_code}' \
       "$origin/upload/storage/v1/b/resource-bucket/o?uploadType=resumable&name=object-$id")
-    [[ $status == 200 ]]
+    [[ $status == 200 ]] || exit 1
     location=$(awk 'tolower($1)=="location:" {gsub("\r", "", $2); print $2}' "$work/init")
-    [[ $location == "$origin"/upload/storage/v1/* ]]
+    [[ $location == "$origin"/upload/storage/v1/* ]] || exit 1
     printf '%s\n' "$location" >"$work/location-$id"
     : >"$work/latencies-$id"
   done
@@ -113,7 +113,7 @@ for specification in 'small 16 1 none' 'medium 256 1 none' 'large 1024 1 none' '
   expected=$({ for ((part=0; part<total/chunk; part++)); do dd if="$work/chunk" bs=1048576 2>/dev/null; done; } | shasum -a 256 | awk '{print $1}')
   for ((id=1; id<=sessions; id++)); do
     actual=$(curl "${curl_args[@]}" --fail "$origin/storage/v1/b/resource-bucket/o/object-$id?alt=media" | shasum -a 256 | awk '{print $1}')
-    [[ $actual == "$expected" ]]
+    [[ $actual == "$expected" ]] || exit 1
     printf 'sha256 id=%s expected=%s actual=%s MATCH\n' "$id" "$expected" "$actual"
   done
   kill -TERM "$pid"

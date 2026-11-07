@@ -32,7 +32,7 @@ ready() {
   for ((attempt = 0; attempt < 40; attempt++)); do
     if docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready >/dev/null 2>&1; then
       address=$(docker port "$container" 4443)
-      [[ $address == 127.0.0.1:* ]]
+      [[ $address == 127.0.0.1:* ]] || return 1
       return
     fi
     sleep 1
@@ -43,7 +43,7 @@ ready() {
 memory_state() {
   local name
   docker inspect --format 'running={{.State.Running}} OOMKilled={{.State.OOMKilled}} exit={{.State.ExitCode}} memory={{.HostConfig.Memory}} memorySwap={{.HostConfig.MemorySwap}} readonly={{.HostConfig.ReadonlyRootfs}} user={{.Config.User}}' "$container"
-  [[ $(docker inspect --format '{{.State.Running}} {{.State.OOMKilled}} {{.HostConfig.Memory}} {{.HostConfig.MemorySwap}} {{.HostConfig.ReadonlyRootfs}} {{.Config.User}}' "$container") == 'true false 134217728 134217728 true 10001:10001' ]]
+  [[ $(docker inspect --format '{{.State.Running}} {{.State.OOMKilled}} {{.HostConfig.Memory}} {{.HostConfig.MemorySwap}} {{.HostConfig.ReadonlyRootfs}} {{.Config.User}}' "$container") == 'true false 134217728 134217728 true 10001:10001' ]] || return 1
   for name in memory.current memory.peak; do
     if docker cp "$container:/sys/fs/cgroup/$name" "$work/$name" 2>"$work/cgroup-error" && [[ $(<"$work/$name") =~ ^[0-9]+$ ]]; then
       printf '%s=%s bytes (Linux cgroup)\n' "$name" "$(<"$work/$name")"
@@ -69,7 +69,7 @@ traverse() {
     fi
     jq -r '.items[].name' "$work/page.json" >>"$work/actual-names"
     pages=$((pages + 1))
-    [[ $pages -le 60 ]]
+    [[ $pages -le 60 ]] || return 1
     token=$(jq -er '.nextPageToken // "" | strings' "$work/page.json")
     if [[ -z $token ]]; then break; fi
     if grep -Fxq "$token" "$work/tokens"; then echo 'Repeated page token' >&2; return 1; fi
@@ -93,7 +93,7 @@ basic_reads() {
 }
 
 docker image inspect --format 'image={{.Id}} platform={{.Os}}/{{.Architecture}} user={{.Config.User}}' "$image"
-[[ $(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image") == linux/arm64 ]]
+[[ $(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image") == linux/arm64 ]] || exit 1
 docker volume create "$volume" >/dev/null
 container=$(docker run --pull never --detach --read-only --no-healthcheck --cap-drop ALL \
   --security-opt no-new-privileges --memory 128m --memory-swap 128m --cpus 1 --pids-limit 64 \
@@ -107,7 +107,7 @@ for ((i = 1; i <= 60; i++)); do
   printf -v name 'memory-cors-%03d' "$i"
   printf '%s\n' "$name" >>"$work/expected-names"
   jq -cn --arg name "$name" '{name:$name,cors:[range(0;20000)|{}]}' >"$work/input.json"
-  [[ $(wc -c <"$work/input.json") -lt 65536 ]]
+  [[ $(wc -c <"$work/input.json") -lt 65536 ]] || exit 1
   request -H 'Content-Type: application/json' --data-binary @"$work/input.json" \
     'http://'"$address"'/storage/v1/b?project=cors-memory' \
     | jq -e --arg name "$name" '.name == $name and (.cors | length == 20000) and all(.cors[]; . == {})' >/dev/null
@@ -118,13 +118,13 @@ request -H 'Content-Type: text/plain' --data-binary @"$work/expected-bytes" \
 for phase in initial restart; do
   if [[ $phase == restart ]]; then
     docker stop --timeout 15 "$container" >/dev/null
-    [[ $(docker inspect --format '{{.State.ExitCode}} {{.State.OOMKilled}}' "$container") == '0 false' ]]
+    [[ $(docker inspect --format '{{.State.ExitCode}} {{.State.OOMKilled}}' "$container") == '0 false' ]] || exit 1
     docker start "$container" >/dev/null
     ready
   fi
   status=$(request --get --data-urlencode project=cors-memory --data-urlencode 'fields=items(name)' \
     -o "$work/prior-fields.json" -w '%{http_code}' "http://$address/storage/v1/b")
-  [[ $status == 200 ]]
+  [[ $status == 200 ]] || exit 1
   jq -e '.items | type == "array" and length > 0' "$work/prior-fields.json" >/dev/null
   echo "PASS: $phase exact former OOM selector fields=items(name) HTTP $status"
   traverse names 1000 memory-cors-

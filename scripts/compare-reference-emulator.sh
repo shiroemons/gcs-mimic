@@ -7,11 +7,11 @@ revision=896ece51e49eed0946089f3089f6343855c0d106
 archive_sha256=13fa1ed9cff0216baedaedb162b3cf37575bba955fb55fd4b76acb9b818494dc
 go_toolchain=$(awk '$1 == "toolchain" {print $2}' sdk-tests/go/go.mod)
 reference_only=${GCS_MIMIC_REFERENCE_ONLY:-0}
-[[ $reference_only == 0 || $reference_only == 1 ]]
+[[ $reference_only == 0 || $reference_only == 1 ]] || exit 1
 for command in curl jq go cargo tar shasum git nc; do
   if ! command -v "$command" >/dev/null; then echo "Missing command: $command" >&2; exit 1; fi
 done
-[[ $go_toolchain =~ ^go[0-9]+\.[0-9]+\.[0-9]+$ ]]
+[[ $go_toolchain =~ ^go[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
 work=$(mktemp -d -t gcs-mimic-compare.XXXXXX)
 pids=()
 targets=()
@@ -45,7 +45,7 @@ echo 'Building selected comparison targets in a temporary directory' >&2
 curl --fail --location --silent --show-error --connect-timeout 20 --max-time 180 \
   "${repository%.git}/archive/$revision.tar.gz" -o "$work/source.tar.gz"
 actual_sha256=$(shasum -a 256 "$work/source.tar.gz")
-[[ ${actual_sha256%% *} == "$archive_sha256" ]]
+[[ ${actual_sha256%% *} == "$archive_sha256" ]] || exit 1
 mkdir "$work/reference-source"
 tar -xzf "$work/source.tar.gz" --strip-components=1 -C "$work/reference-source"
 export GOTOOLCHAIN="$go_toolchain"
@@ -68,7 +68,7 @@ start_target() {
   local target=$1 address origin pid ready=false
   shift
   address=$("$work/free-port")
-  [[ $address =~ ^127\.0\.0\.1:[0-9]+$ ]]
+  [[ $address =~ ^127\.0\.0\.1:[0-9]+$ ]] || return 1
   origin="http://$address"
   if [[ $target == reference-* ]]; then
     # Empty environment prevents inherited event hooks or seeding from contacting other services.
@@ -145,7 +145,7 @@ request() {
     status=$(curl --noproxy '*' --proxy '' --globoff --path-as-is --silent --show-error \
       --connect-timeout 2 --max-time 15 --request "$method" ${args[@]+"${args[@]}"} \
       --dump-header "$work/headers" --output "$work/body" --write-out '%{http_code}' "$origin$path")
-    [[ $status =~ ^[1-5][0-9][0-9]$ ]]
+    [[ $status =~ ^[1-5][0-9][0-9]$ ]] || return 1
     result=$(jq -nSc --arg target "$target" --arg label "$label" --arg method "$method" \
       --arg path "$path" --arg request_body "$body" --arg condition "$condition" --arg origin "$origin" --argjson status "$status" \
       --rawfile headers "$work/headers" --rawfile body "$work/body" '

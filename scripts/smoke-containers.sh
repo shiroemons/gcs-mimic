@@ -84,8 +84,8 @@ for platform in "$@"; do
   if [[ -z "$prebuilt_image" ]]; then
     docker buildx build --platform "$platform" --load --tag "$GCS_MIMIC_IMAGE" .
   fi
-  [[ $(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$GCS_MIMIC_IMAGE") == "$platform" ]]
-  [[ $(docker image inspect --format '{{.Config.User}}' "$GCS_MIMIC_IMAGE") == 10001:10001 ]]
+  [[ $(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$GCS_MIMIC_IMAGE") == "$platform" ]] || exit 1
+  [[ $(docker image inspect --format '{{.Config.User}}' "$GCS_MIMIC_IMAGE") == 10001:10001 ]] || exit 1
   docker run --rm --network none --read-only "$GCS_MIMIC_IMAGE" --help
   docker run --rm --network none --read-only "$GCS_MIMIC_IMAGE" --version
 
@@ -103,7 +103,7 @@ for platform in "$@"; do
   if [[ $ready != true ]]; then docker logs "$container"; exit 1; fi
   docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/health
   docker stop --signal SIGINT --timeout 15 "$container" >/dev/null
-  [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]]
+  [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]] || exit 1
   docker rm "$container" >/dev/null
   container=
   docker volume rm "$volume" >/dev/null
@@ -113,14 +113,14 @@ for platform in "$@"; do
   docker compose -p "$project" up --detach --no-build --wait --wait-timeout 40
   service=$(docker compose -p "$project" ps --quiet gcs)
   address=$(docker compose -p "$project" port gcs 4443)
-  [[ $address == 127.0.0.1:* ]]
+  [[ $address == 127.0.0.1:* ]] || exit 1
   # Reuse the allocated port as an explicit host mapping to exercise Compose's API default.
   export GCS_MIMIC_PORT=${address##*:}
-  [[ $GCS_MIMIC_PORT != 4443 ]]
+  [[ $GCS_MIMIC_PORT != 4443 ]] || exit 1
   docker compose -p "$project" up --detach --no-build --force-recreate --wait --wait-timeout 40
   service=$(docker compose -p "$project" ps --quiet gcs)
-  [[ $(docker compose -p "$project" port gcs 4443) == "$address" ]]
-  [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' "$service") == 'true 536870912 1000000000 64' ]]
+  [[ $(docker compose -p "$project" port gcs 4443) == "$address" ]] || exit 1
+  [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' "$service") == 'true 536870912 1000000000 64' ]] || exit 1
   expect_status GET /_internal/health 200
   expect_status GET /_internal/ready 200
   expect_status GET '/storage/v1/b?project=local-project' 200
@@ -137,7 +137,7 @@ for platform in "$@"; do
     -D "$work/resumable-headers" -o /dev/null -X POST \
     "http://$address/upload/storage/v1/b/smoke-bucket/o?uploadType=resumable&name=dir%2Ffile.bin"
   location=$(awk 'tolower($1) == "location:" { sub(/\r$/, ""); print $2 }' "$work/resumable-headers")
-  [[ $location == "http://$address/"* ]]
+  [[ $location == "http://$address/"* ]] || exit 1
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     -X PUT -H 'Content-Range: bytes 0-11/12' --data-binary @"$work/expected" "$location" \
     | jq -e '.name == "dir/file.bin" and .size == "12"' >/dev/null
@@ -172,11 +172,11 @@ for platform in "$@"; do
   docker run --rm --read-only --network "${project}_default" "$peer_image" \
     --disable --noproxy '*' --fail --silent --show-error -X DELETE http://gcs:4443/storage/v1/b/peer-bucket
   docker compose -p "$project" stop --timeout 15
-  [[ $(docker inspect --format '{{.State.ExitCode}}' "$service") == 0 ]]
+  [[ $(docker inspect --format '{{.State.ExitCode}}' "$service") == 0 ]] || exit 1
   # `start --wait` needs a newer Compose than the hosted runners ship; `up --no-recreate`
   # restarts the same stopped container and waits for health on every supported version.
   docker compose -p "$project" up --detach --no-build --no-recreate --wait --wait-timeout 40
-  [[ $(docker compose -p "$project" ps --quiet gcs) == "$service" ]]
+  [[ $(docker compose -p "$project" ps --quiet gcs) == "$service" ]] || exit 1
   address=$(docker compose -p "$project" port gcs 4443)
   expect_status GET /storage/v1/b/smoke-bucket 200
   expect_object
@@ -243,7 +243,7 @@ for platform in "$@"; do
   done
   "${seed_compose[@]}" stop --timeout 15
   "${seed_compose[@]}" up --detach --no-build --no-recreate --wait --wait-timeout 40
-  [[ $("${seed_compose[@]}" ps --quiet gcs) == "$service" ]]
+  [[ $("${seed_compose[@]}" ps --quiet gcs) == "$service" ]] || exit 1
   "${seed_compose[@]}" logs --no-color gcs | grep '"event":"ready"' | tail -n 1 | sed 's/^[^{]*//' |
     jq -e '.seed.outcome == "imported" and .seed.replaced == 1' >/dev/null
   address=$("${seed_compose[@]}" port gcs 4443)
@@ -367,14 +367,14 @@ for platform in "$@"; do
     --mount "type=volume,src=$volume,dst=/state" "$peer_image" \
     -c 'printf external > /state/sync/sync-bucket/external.txt && printf colon > /state/sync/sync-bucket/a:b.txt'
   docker stop --timeout 15 "$container" >/dev/null
-  [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]]
+  [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]] || exit 1
   docker start "$container" >/dev/null
   wait_sync_ready
   printf external >"$work/sync-external"
   expect_ingested_object external.txt "$work/sync-external"
   expect_sync_file sync-bucket/dir/file.bin "$work/sync-replaced"
   docker stop --timeout 15 "$container" >/dev/null
-  [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]]
+  [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]] || exit 1
   docker rm "$container" >/dev/null
   container=
   docker volume rm "$volume" >/dev/null

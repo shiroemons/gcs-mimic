@@ -114,18 +114,18 @@ main() {
     exit 2
   }
   work=$2
-  [[ -x $driver && -x $server && -d $work ]]
+  [[ -x $driver && -x $server && -d $work ]] || return 1
   local source_digest
   source_digest=$(verify_source "$3")
   if [[ $1 == prepare ]]; then
-    [[ ! -e $work/prepared ]]
+    [[ ! -e $work/prepared ]] || return 1
     "$driver" prepare "$work/startup-10000" 10000
     "$driver" prepare "$work/startup-100000" 100000
     for round in 1 2 3 4 5; do "$driver" prepare "$work/small-$round" 0; done
     printf '%s\n' "$source_digest" >"$work/prepared"
     return
   fi
-  [[ $(<"$work/prepared") == "$source_digest" && ! -e $work/measured ]]
+  [[ $(<"$work/prepared") == "$source_digest" && ! -e $work/measured ]] || return 1
   touch "$work/measured"
   trap cleanup EXIT
   trap 'exit 130' INT

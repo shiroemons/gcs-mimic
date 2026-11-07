@@ -36,7 +36,7 @@ cmp "$work/input" "$work/output"
 request -D "$work/headers" -H 'Content-Type: application/json' --data '{"name":"resumable"}' \
   "$endpoint/upload/storage/v1/b/$bucket/o?uploadType=resumable" >/dev/null
 location=$(sed -n 's/^[Ll]ocation: //p' "$work/headers" | tr -d '\r')
-[[ "$location" == "$endpoint/upload/"* ]]
+[[ "$location" == "$endpoint/upload/"* ]] || exit 1
 request -X PUT -H 'Content-Range: bytes 0-2/3' --data-binary abc "$location" > "$work/resumable.json"
 test "$(request "$endpoint/storage/v1/b/$bucket/o/resumable?alt=media")" = abc
 public_url=$("$server" url public --base-url "$endpoint" --bucket "$bucket" --object media)
