@@ -1,6 +1,11 @@
 name: Release binaries
 on:
   workflow_dispatch:
+    inputs:
+      reuse-dry-run:
+        description: Rehearse a tag's path, reusing this commit's last dry run without publishing
+        type: boolean
+        default: false
   push:
     tags: ['v*']
 permissions:
@@ -12,8 +17,13 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      reuse: ${{ steps.binaries.outputs.reuse }}
+      binaries-run: ${{ steps.binaries.outputs.run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,8 +57,22 @@ jobs:
       - run: cargo xtask dependencies check --scope release
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      # Testing the same commit again adds waiting, not assurance, so a tag publishes what its dry
+      # run tested and built.
+      - name: Choose the binaries to publish
+        id: binaries
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE: ${{ github.event_name == 'push' || inputs.reuse-dry-run }}
+        run: |
+          run=$GITHUB_RUN_ID
+          if [[ "$REUSE" == true ]]; then run=$(bash scripts/find-release-dry-run.sh "$GITHUB_SHA"); fi
+          echo "reuse=$REUSE" >> "$GITHUB_OUTPUT"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
   foundation:
     needs: validate
+    if: needs.validate.outputs.reuse != 'true'
     uses: ./.github/workflows/ci.yaml
     with:
       skip-portability: true
@@ -56,6 +80,7 @@ jobs:
   # Keep the test and build matrices in sync; publish requires both to pass.
   test:
     needs: validate
+    if: needs.validate.outputs.reuse != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -124,6 +149,12 @@ jobs:
       - name: Use the static CRT for Windows tests
         if: runner.os == 'Windows'
         run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
+      # Restored after the compiler environment is final because CC, RUSTFLAGS and CARGO variables
+      # contribute to the cache key. The build job takes no cache: it makes what is published.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fetch --locked
       # Without --no-fail-fast the first failing test target hides every later one, and each
       # platform-only failure costs a full run of its own.
@@ -134,6 +165,7 @@ jobs:
           RUST_TEST_THREADS: '2'
   build:
     needs: validate
+    if: needs.validate.outputs.reuse != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -275,11 +307,16 @@ jobs:
   # Manual dispatch runs this job as a dry run up to the asset list, so publication
   # mistakes surface before an immutable tag; only tag pushes create the Release.
   publish:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    # The gates are skipped only when their dry run on this commit already passed them. A skipped
+    # job skips what needs it unless the condition names results, so the jobs below do too.
+    if: >-
+      !cancelled() && needs.validate.result == 'success' && (needs.validate.outputs.reuse == 'true'
+      || (needs.foundation.result == 'success' && needs.test.result == 'success' && needs.build.result == 'success'))
     needs: [validate, foundation, test, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
+      actions: read
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -294,6 +331,9 @@ jobs:
           pattern: binary-*
           path: dist
           merge-multiple: true
+          # Set on every run, so each dry run also exercises the download a tag depends on.
+          run-id: ${{ needs.validate.outputs.binaries-run }}
+          github-token: ${{ github.token }}
       - name: Verify complete release assets
         shell: bash
         run: |
@@ -347,7 +387,9 @@ jobs:
           gh release create "$RELEASE_TAG" "${assets[@]}" \
             --verify-tag --title "$RELEASE_TAG" --notes-file release-notes.md
   publish-container:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      !cancelled() && needs.publish.result == 'success'
+      && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [validate, publish]
     permissions:
       contents: write
@@ -356,7 +398,9 @@ jobs:
     with:
       version: ${{ needs.validate.outputs.version }}
   publish-dockerhub:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      !cancelled() && needs.publish-container.result == 'success'
+      && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [validate, publish-container]
     permissions:
       contents: read

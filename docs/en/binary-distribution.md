@@ -144,12 +144,18 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    archives. Do not tag
    until this dry run passes on the exact commit to tag, including its publish
    job; any change to the release matrix, workflows or release scripts after it
-   needs a new dry run.
+   needs a new dry run. A second manual dispatch with `reuse-dry-run` rehearses
+   the tag's path: it skips the gates and runs the publish job from the dry run's
+   archives, without publishing.
 5. When publication is authorized, create and push a new `vX.Y.Z` tag on the
-   tested commit. The tag must match Cargo's stable `X.Y.Z` exactly. Tag builds
-   repeat all gates and require the committed release notes before creating a
-   normal GitHub Release. Build jobs have read permissions; only the final
-   publish job can write release contents.
+   tested commit. The tag must match Cargo's stable `X.Y.Z` exactly. A tag run
+   checks the version, the committed release notes and release input freshness
+   again, then publishes the archives of the newest dry run on its commit as a
+   normal GitHub Release, without testing or building them again. It fails
+   before publishing when no such run holds all eight archives, for example
+   after they expire; then run the dry run and re-run the tag's failed job. Build
+   jobs have read permissions; only the final publish job can write release
+   contents.
 6. The publish job verifies archive count, checksums, unchanged remote tag SHA and
    absence of an existing release for the tag. Inspect the published assets and
    download checksums. Never replace an existing version's tag or assets; fixes

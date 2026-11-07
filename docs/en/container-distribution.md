@@ -37,10 +37,11 @@ write access and never change an already published exact version manually.
 2. Manual **Release binaries** execution verifies the existing Foundation checks
    and eight native binary targets without writing to GHCR. The GHCR publication
    workflow runs only for a `vX.Y.Z` tag push.
-3. A matching version tag repeats those gates and creates the binary GitHub
-   Release. That successful job directly calls the reusable GHCR workflow. It
-   does not rely on a `release: published` event: a Release created with
-   `GITHUB_TOKEN` does not trigger a second workflow through that event.
+3. A matching version tag publishes the binaries of that manual run as the
+   GitHub Release. That successful job directly calls the reusable GHCR
+   workflow. It does not rely on a `release: published` event: a Release
+   created with `GITHUB_TOKEN` does not trigger a second workflow through that
+   event.
 4. Each Linux CPU builds on its native runner, checks `--version`, then runs the
    complete container smoke suite on the built image: networking, media CRUD,
    persistence, non-root/read-only limits and shutdown. Credentials are exposed
