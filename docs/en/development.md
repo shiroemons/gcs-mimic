@@ -775,6 +775,11 @@ redaction leaks and an unmet `expect_status` on the real service always fail.
 A case whose only finding is an unmet `expect_status` on gcs-mimic is reported
 as `note`, so the self-check can gate CI without hiding those gaps.
 
+The `differential` job of the Foundation checks replays the committed reference
+with both flags and without Google credentials, so a change that drifts from the
+recording fails CI. It installs the grpcurl version the reference names, which
+moves with a new recording rather than through the dependency refresh.
+
 Every file the harness writes is checked first: it must not contain the
 project, the project number, the token, a bucket name of the run, the local
 endpoint, an email address or a local path. If it does, the requested file is
@@ -851,6 +856,12 @@ independently.
   case (a failed capture, a transport error). Use it for steps that undo state
   that blocks cleanup: switching versioning off, releasing a hold or an
   unlocked retention. Steps that did not run are recorded as skipped.
+- `"local_choice": {"reason": "<reason>", "mimic_status": 200}` marks a step
+  gcs-mimic answers differently from the real service on purpose. The report
+  lists the reason instead of differences, `expect_status` then speaks only for
+  the real service, and an answer other than `mimic_status` is a `note`, so the
+  marker cannot outlive the choice. If gcs-mimic's answer changes state a later
+  step reads, give the step a case of its own.
 - `"pap_reset": "<reason>"` marks a bucket `PUT`, or a `PATCH` that nulls
   `iamConfiguration`, which may reset public access prevention to its default
   (a `PUT` replaces the resource, so omitting the setting can reset it). Without

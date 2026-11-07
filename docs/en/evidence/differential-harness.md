@@ -2,12 +2,15 @@
 
 <!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
 
-Verified on **2026-11-02** for DESIGN-089. This evidence covers the optional
-harness workflows and the normalized fields of its 59 declarative cases;
-it does not establish unrestricted Cloud Storage API parity. The committed
+Verified on **2026-11-02** for DESIGN-089, when the harness had 59 declarative
+cases, with the self-check and offline replay repeated on **2026-11-07** over
+its 61 cases. This evidence covers the optional harness workflows and the
+normalized fields of those cases; it does not establish unrestricted Cloud
+Storage API parity. The committed
 [reference](../../../compatibility/differential/reference/gcs.json) combines
-58 cases from **2026-11-01** with `obj-resumable` re-recorded on **2026-11-02**.
-The [comparison report](differential-comparison.md) retains all 59 descriptions.
+cases from **2026-11-01** with `obj-resumable` re-recorded on **2026-11-02** and
+`xml-content-length-range` added on **2026-11-04**.
+The [comparison report](differential-comparison.md) retains every description.
 
 ## Self-check: differential-self-check
 
@@ -77,8 +80,18 @@ cargo xtask differential run \
   --fail-on-diff --fail-on-note
 ```
 
-Final result: **59 match, 0 differing fields, 0 notes, 0 errors, 0 skipped**.
-No Google request was sent. Before the refresh, 58 cases matched and the
+Latest result, on **2026-11-07**: **61 match, 0 differing fields, 0 notes, 0
+errors, 0 skipped**, with the self-check at **61 ok**. No Google request was sent,
+and the Foundation checks now repeat this replay on every push. No CI job ran it
+before, so this run first found three differing cases: two
+for the soft delete retention that 0.12.0 opened on purpose, now declared as
+`local_choice` steps, and one for an object page token error that had stopped
+naming the token, now fixed. `bkt-soft-delete-any-retention` holds the PATCH
+step, moved with its recording from `bkt-patch-errors` because gcs-mimic applies
+it and later steps there read the bucket.
+
+The 2026-11-02 result was **59 match, 0 differing fields, 0 notes, 0 errors, 0
+skipped**. Before the refresh, 58 cases matched and the
 changed resumable case was the only stale-reference error. Immediately after
 refresh, resumable had **16 differing fields**; the terminal-state and response
 fixes reduced those to **0**. The new error state and cleanup journal survive

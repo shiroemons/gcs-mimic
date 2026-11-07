@@ -285,6 +285,7 @@ Source: <https://docs.docker.com/build/building/best-practices/>
 | Native portability | Pinned stable on macOS, Windows and Linux musl runners | Run the workspace tests natively on one target per OS family on every push. |
 | Official SDK clients | Go toolchain from go.mod, pinned Java/.NET/Rust, committed graphs, pinned Rust server | Build an isolated emulator and run the Go suite plus the Java, .NET and Rust clients via `scripts/sdk-go.sh --with-clients`. |
 | Testcontainers | Image built once from the Dockerfile with `CARGO_BUILD_JOBS=4` | Run the Java, .NET and Node.js Testcontainers adapters against that image. |
+| Differential replay | Pinned stable, the grpcurl version the committed recording names | Replay the recorded Cloud Storage answers offline, failing on any difference that is not a declared local choice. |
 | Latest-dependency candidate | Verified current stable, proposed manifests/lockfiles | Exercise dependency upgrades, including deliberate major migrations. |
 | Optional experimental | Explicit beta/nightly | Early warning only; never substitutes for passing stable checks. |
 

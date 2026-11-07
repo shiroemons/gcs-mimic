@@ -54847,14 +54847,14 @@
       ],
       "source_checked_at": "2026-11-02",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Optional differential harness with explicit live opt-in, bounded request pacing, isolated labelled buckets, cleanup/sweep and recording redaction. The committed live reference covers 59 JSON/XML/gRPC cases recorded on 2026-11-01; only obj-resumable was re-recorded on 2026-11-02. All 59 cases match the normalized offline replay in docs/en/evidence/differential-comparison.md. This completes the declared harness workflows, not unrestricted Cloud Storage conformance; per-case comparison rules, normalization and the remaining feature-specific gaps define the tested scope. Real calls require separately authorized credentials/project; irreversible retention locking is refused.",
+      "notes": "Optional differential harness with explicit live opt-in, bounded request pacing, isolated labelled buckets, cleanup/sweep and recording redaction. The committed live reference covers 61 JSON/XML/gRPC cases recorded on 2026-11-01, with obj-resumable re-recorded on 2026-11-02 and xml-content-length-range added on 2026-11-04. All 61 cases match the normalized offline replay in docs/en/evidence/differential-comparison.md, where two soft delete steps are declared local choices, and the Foundation checks repeat that replay on every push. This completes the declared harness workflows, not unrestricted Cloud Storage conformance; per-case comparison rules, normalization and the remaining feature-specific gaps define the tested scope. Real calls require separately authorized credentials/project; irreversible retention locking is refused.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DIFF-SELF-CHECK",
-          "description": "Run all 59 declarative cases locally without Google credentials; every request expectation passes, no cases are skipped and cleanup leaves zero buckets.",
+          "description": "Run all 61 declarative cases locally without Google credentials; every request expectation passes, no cases are skipped and cleanup leaves zero buckets.",
           "result": "PASS",
           "test_ids": ["differential-self-check"]
         },
@@ -54866,7 +54866,7 @@
         },
         {
           "id": "DIFF-OFFLINE-REPLAY",
-          "description": "Replay the committed mixed-date live reference without Google access; all 59 cases match with zero differing fields, notes, errors or skips, and the report preserves every case description.",
+          "description": "Replay the committed mixed-date live reference without Google access; all 61 cases match with zero differing fields, notes, errors or skips apart from steps declared local choices, which the report lists with their reasons, and the report preserves every case description.",
           "result": "PASS",
           "test_ids": ["differential-offline-replay"]
         },
@@ -54911,12 +54911,26 @@
           "verified_at": "2026-11-02",
           "artifact": "docs/en/evidence/differential-harness.md",
           "test_ids": ["differential-partial-merge"]
+        },
+        {
+          "command": "cargo xtask differential run --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/differential-harness.md",
+          "test_ids": ["differential-self-check"]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --evidence docs/en/evidence/differential-comparison.md --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-07",
+          "artifact": "docs/en/evidence/differential-comparison.md",
+          "test_ids": ["differential-offline-replay"]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": "d080b189c3354d03032f336f22c206bc166384e6",
-      "last_verified": "2026-11-02"
+      "last_verified": "2026-11-07"
     },
     {
       "id": "DESIGN-090",

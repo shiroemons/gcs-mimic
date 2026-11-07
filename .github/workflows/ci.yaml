@@ -184,6 +184,39 @@ jobs:
       - uses: ./.github/actions/client-tools
       - run: bash -n scripts/sdk-go.sh
       - run: bash scripts/sdk-go.sh --with-clients
+  # Replays what Cloud Storage answered, recorded in the repository, against this source. It needs
+  # no Google credentials, and without this job a change could drift from the recording unnoticed.
+  differential:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          rustup toolchain install "$pin" --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Without grpcurl the harness skips every gRPC case and still passes. A recording names the
+      # grpcurl it was taken with, so this version moves with a new recording.
+      - name: Install the grpcurl the reference was recorded with
+        run: |
+          version=1.9.4
+          archive="grpcurl_${version}_linux_x86_64.tar.gz"
+          curl --disable --fail --location --proto '=https' --connect-timeout 20 --max-time 300 \
+            --retry 5 --retry-all-errors \
+            "https://github.com/fullstorydev/grpcurl/releases/download/v$version/$archive" \
+            -o "$RUNNER_TEMP/$archive"
+          echo "97e13d58d2733a0e62cd2571d1d5f0c02823f0d25282f08bddedf1ad9c5d1736  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" grpcurl
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - run: grpcurl --version
+      - run: cargo xtask differential validate
+      - run: cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note
   # The release image build takes about 6 minutes, so the Testcontainers
   # clients run beside the SDK suites instead of after them.
   testcontainers:
