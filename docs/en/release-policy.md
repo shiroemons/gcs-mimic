@@ -4,7 +4,7 @@
 
 ## Product version and compatibility
 
-gcs-mimic follows [Semantic Versioning 2.0.0](https://semver.org/), with the additional compatibility rules below during initial development. The root `Cargo.toml` package version is the product version and supplies `--version`. The latest release is `0.12.0`; a manifest version alone does not establish that a release exists. The internal xtask package is not a separately released product.
+gcs-mimic follows [Semantic Versioning 2.0.0](https://semver.org/), with the additional compatibility rules below during initial development. The root `Cargo.toml` package version is the product version and supplies `--version`. The latest release is `0.13.0`; a manifest version alone does not establish that a release exists. The internal xtask package is not a separately released product.
 
 The product version is independent of Google API versions, SDK versions and the
 catalog schema version. The [feature ledger](../../compatibility/features.json)
