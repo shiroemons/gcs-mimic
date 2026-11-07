@@ -180,12 +180,23 @@ pub(crate) fn encode_object_page_token(
     format!("{encoded}.{:016x}", checksum(payload.as_bytes()))
 }
 
+/// The longest refused object page token an error repeats.
+const NAMED_TOKEN_BYTES: usize = 256;
+
 pub(crate) fn decode_object_page_token(
     token: &str,
     query: &ObjectListQuery,
     projection: super::Projection,
 ) -> Result<ObjectListCursor, JsonError> {
-    let invalid = || JsonError::invalid("Next page token not valid");
+    // Cloud Storage names the token it refuses. Only a short one is named here, so the size of an
+    // error stays independent of what the client sent.
+    let invalid = || {
+        if token.len() > NAMED_TOKEN_BYTES {
+            JsonError::invalid("Next page token not valid")
+        } else {
+            JsonError::invalid(format!("Next page token not valid: {token}"))
+        }
+    };
     if token.len() > 16 * 1024 {
         return Err(invalid());
     }
@@ -251,16 +262,36 @@ fn checksum(bytes: &[u8]) -> u64 {
 mod tests {
     use super::*;
 
-    #[test]
-    fn invalid_object_tokens_do_not_echo_untrusted_input() {
-        let token = "sensitive-token".repeat(1200);
-        let error = decode_object_page_token(
-            &token,
+    fn refusal(token: &str) -> String {
+        decode_object_page_token(
+            token,
             &ObjectListQuery::default(),
             super::super::Projection::NoAcl,
         )
-        .unwrap_err();
-        assert_eq!(error.message, "Next page token not valid");
+        .unwrap_err()
+        .message
+    }
+
+    #[test]
+    fn invalid_object_tokens_do_not_echo_untrusted_input() {
+        assert_eq!(
+            refusal(&"sensitive-token".repeat(1200)),
+            "Next page token not valid"
+        );
+    }
+
+    #[test]
+    fn a_refused_object_token_is_named_up_to_the_bound() {
+        assert_eq!(refusal("bogus"), "Next page token not valid: bogus");
+        let longest = "x".repeat(NAMED_TOKEN_BYTES);
+        assert_eq!(
+            refusal(&longest),
+            format!("Next page token not valid: {longest}")
+        );
+        assert_eq!(
+            refusal(&"x".repeat(NAMED_TOKEN_BYTES + 1)),
+            "Next page token not valid"
+        );
     }
 
     fn forged_token(payload: &str) -> String {
