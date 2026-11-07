@@ -1225,13 +1225,16 @@ fn registry_response(response: &str) -> Result<(String, Value)> {
                 .then(|| value.trim().to_owned())
         })
         .ok_or("registry did not return a content digest")?;
-    if digest.len() != 71
-        || !digest.starts_with("sha256:")
-        || !digest[7..].bytes().all(|b| b.is_ascii_hexdigit())
-    {
+    if !is_digest(&digest) {
         return Err("invalid Docker digest".into());
     }
     Ok((digest, json(response)?))
+}
+
+fn is_digest(digest: &str) -> bool {
+    digest
+        .strip_prefix("sha256:")
+        .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 fn direct_crate_resolutions(metadata: &Value) -> Result<BTreeMap<String, BTreeSet<String>>> {

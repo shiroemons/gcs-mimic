@@ -52,14 +52,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
   # Separate from `freshness`, which keeps failing until a proposal merges: a pending update stays
   # visible, and a failed proposal never hides what the check found.
-  propose-image-refresh:
+  rewrite-images:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      actions: write
-      contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -70,13 +66,42 @@ jobs:
           test -n "$pin"
           rustup toolchain install "$pin" --profile minimal
           echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
-      # Compiling and running the repository's code happens before the token enters the job's
-      # environment; only the publishing step below can write.
+      - run: cargo fetch --locked
       - name: Rewrite the pins of rebuilt images
         run: |
+          output="$RUNNER_TEMP/image-refresh"
+          mkdir -p "$output"
           cargo xtask dependencies update-images --checked-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            > "$RUNNER_TEMP/image-refresh.md"
+            > "$output/record.md"
+          git diff --no-ext-diff --binary > "$output/pins.patch"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-refresh
+          path: ${{ runner.temp }}/image-refresh
+          if-no-files-found: error
+          retention-days: 1
+  # Compiling runs dependency build scripts, which could alter later steps of the same job through
+  # .git/hooks or GITHUB_ENV. So the job that holds write access starts from a clean checkout and
+  # compiles nothing; a person reviews what the patch changes before it merges.
+  propose-image-refresh:
+    needs: rewrite-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image-refresh
+          path: ${{ runner.temp }}/image-refresh
       - name: Propose the rewritten pins
-        run: bash scripts/propose-image-refresh.sh "$RUNNER_TEMP/image-refresh.md"
+        run: |
+          bash scripts/propose-image-refresh.sh \
+            "$RUNNER_TEMP/image-refresh/record.md" "$RUNNER_TEMP/image-refresh/pins.patch"
         env:
           GH_TOKEN: ${{ github.token }}

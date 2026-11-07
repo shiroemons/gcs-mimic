@@ -3,7 +3,7 @@
 //! one update that needs no migration decision; the proposal's checks decide whether it is safe.
 //! A newer version behind a moving tag stays a deliberate manual adoption, so `check` keeps
 //! reporting it.
-use super::{Result, fetch, json, registry_manifest_source, registry_response, text};
+use super::{Result, fetch, is_digest, json, registry_manifest_source, registry_response, text};
 use serde_json::Value;
 use std::{path::Path, process::Command};
 
@@ -81,6 +81,9 @@ fn plan_image(image: &Value, proposed: &str, index: &Value) -> Result<Option<Ima
             .find(|m| m["platform"]["os"] == os && m["platform"]["architecture"] == arch)
             .ok_or_else(|| format!("{reference}: the new index lacks {platform}"))?;
         let digest = text(found, "digest")?;
+        if !is_digest(digest) {
+            return Err(format!("{reference}: invalid {platform} digest: {digest}"));
+        }
         if digest != pinned {
             update.changed_platforms.push(platform.clone());
             update
@@ -255,7 +258,17 @@ pub fn update_images(root: &Path, checked_at: &str) -> Result<()> {
         let tag = text(image, "tag")?;
         let (proposed, index) =
             registry_response(&fetch(&format!("{source}{tag}"), &headers, true)?)?;
-        images.extend(plan_image(image, &proposed, &index)?);
+        let Some(update) = plan_image(image, &proposed, &index)? else {
+            continue;
+        };
+        // The workflow token cannot push workflow files, so one of these pins would fail the whole
+        // proposal on every run. They stay manual, and `check` keeps reporting them.
+        let pinned_in = tracked_files_containing(root, &update.previous)?;
+        if pinned_in.iter().any(|path| path.starts_with(".github/")) {
+            eprintln!("{}: MANUAL pinned in a workflow", update.reference);
+            continue;
+        }
+        images.push(update);
     }
     let mut snapshots = Vec::new();
     if let Some(image) = images.iter().find(|i| i.repository == SNAPSHOT_IMAGE) {
@@ -291,8 +304,8 @@ mod tests {
     }
     fn index() -> Value {
         value!({"manifests": [
-            {"digest": "sha256:aaaa", "platform": {"os": "linux", "architecture": "amd64"}},
-            {"digest": "sha256:bbbb", "platform": {"os": "linux", "architecture": "arm64", "variant": "v8"}},
+            {"digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "platform": {"os": "linux", "architecture": "amd64"}},
+            {"digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "platform": {"os": "linux", "architecture": "arm64", "variant": "v8"}},
         ]})
     }
 
@@ -304,7 +317,9 @@ mod tests {
 
     #[test]
     fn a_rebuilt_index_replaces_only_the_platforms_that_changed() {
-        let image = image(value!({"linux/amd64": "sha256:aaaa", "linux/arm64": "sha256:old"}));
+        let image = image(
+            value!({"linux/amd64": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "linux/arm64": "sha256:old"}),
+        );
         let update = plan_image(&image, PROPOSED_INDEX, &index())
             .unwrap()
             .unwrap();
@@ -313,14 +328,30 @@ mod tests {
             update.replacements,
             [
                 (PREVIOUS_INDEX.to_owned(), PROPOSED_INDEX.to_owned()),
-                ("sha256:old".to_owned(), "sha256:bbbb".to_owned()),
+                (
+                    "sha256:old".to_owned(),
+                    "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                        .to_owned()
+                ),
             ]
         );
     }
 
     #[test]
+    fn a_malformed_platform_digest_from_the_registry_fails() {
+        let image = image(value!({"linux/amd64": "sha256:old"}));
+        let index = value!({"manifests": [
+            {"digest": "sha256:aaaa\nrm -rf /", "platform": {"os": "linux", "architecture": "amd64"}},
+        ]});
+        let error = plan_image(&image, PROPOSED_INDEX, &index).unwrap_err();
+        assert!(error.contains("linux/amd64"), "{error}");
+    }
+
+    #[test]
     fn a_rebuilt_index_without_a_declared_platform_fails() {
-        let image = image(value!({"linux/riscv64": "sha256:aaaa"}));
+        let image = image(
+            value!({"linux/riscv64": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+        );
         let error = plan_image(&image, PROPOSED_INDEX, &index()).unwrap_err();
         assert!(error.contains("linux/riscv64"), "{error}");
     }
