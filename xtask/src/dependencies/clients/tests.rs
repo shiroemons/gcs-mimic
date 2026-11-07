@@ -47,12 +47,12 @@ fn maven_reads_actual_dependency_and_plugin_pins_and_rejects_properties() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let source = read(root, "sdk-tests/java/pom.xml").unwrap();
     let (packages, plugins) = maven_pins(&source).unwrap();
-    assert_eq!(packages["com.google.cloud:google-cloud-storage"], "2.77.0");
+    assert_eq!(packages["com.google.cloud:google-cloud-storage"], "2.78.0");
     assert_eq!(packages.len(), 2);
     assert_eq!(plugins.len(), 3);
     for changed in [
-        source.replace("2.77.0", "${storage.version}"),
-        source.replace("2.77.0", "2.77.0-rc1"),
+        source.replace("2.78.0", "${storage.version}"),
+        source.replace("2.78.0", "2.78.0-rc1"),
         source.replace("</dependency>", ""),
         source.replace(
             "<groupId>com.google.cloud</groupId>",

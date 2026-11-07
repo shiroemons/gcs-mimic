@@ -605,3 +605,37 @@ inputs; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`. The gzip tests passed 
 This scorecard probe is a development-only input and ships in no release artifact. Its lockfile changes only that version.
 
 `GITHUB_TOKEN=... cargo xtask dependencies check` at 2026-11-06T17:28:50Z exited 0 with 119 `CURRENT` inputs; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`. The Java suites run in the `just pre-push` recorded for the 0.12.0 release.
+
+## Refresh: 2026-11-07
+
+`cargo xtask dependencies check` reported `UPDATE_AVAILABLE` for the Java SDK in both Java manifests.
+
+| Input | Previous | Adopted | Change |
+| --- | --- | --- | --- |
+| com.google.cloud:google-cloud-storage | 2.77.0 | 2.78.0, jar of **1,549,685 bytes** | `sdk-tests/java`, `sdk-scorecard/java` |
+
+The [Maven Central metadata](https://repo1.maven.org/maven2/com/google/cloud/google-cloud-storage/maven-metadata.xml) names 2.78.0 as both the latest and the release version; its jar was published on 2026-11-06 and its POM declares Apache-2.0. Development continues in the [Google Cloud Java monorepo](https://github.com/googleapis/google-cloud-java/tree/main/java-storage), which is not archived; its last push was 2026-11-07.
+
+Both lockfiles change only the Google libraries the SDK brings:
+
+| Package | Previous | Adopted |
+| --- | --- | --- |
+| google-cloud-core, google-cloud-core-http, google-cloud-core-grpc | 2.79.0 | 2.80.0 |
+| gax, gax-grpc, gax-httpjson | 2.89.0 | 2.90.0 |
+| api-common | 2.72.0 | 2.73.0 |
+| proto-google-iam-v1 | 1.75.0 | 1.76.0 |
+| proto-google-common-protos | 2.80.0 | 2.81.0 |
+| proto-, grpc- and gapic-google-cloud-storage-v2 | 2.77.0 | 2.78.0 |
+| google-auth-library-credentials | 1.56.0 | 1.57.0 |
+| google-auth-library-oauth2-http, `sdk-tests/java` only | 1.56.0 | 1.57.0 |
+
+In `sdk-scorecard/java` the SDK now resolves google-auth-library-oauth2-http 1.57.0, the version the probe already pins for offline signing, so that pin stays. gRPC and protobuf are unchanged. `examples/java` is not tracked by the freshness check and stays on 2.76.0.
+
+### Validation performed on 2026-11-07
+
+- `cargo xtask dependencies check` at `2026-11-07T11:32:18Z` exited 0 with 119 `CURRENT` inputs; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+- `bash sdk-tests/java/run.sh --self-check` matched the lockfile, compiled and passed `java-origin-guard`. `bash sdk-scorecard/java/run.sh build` matched its lockfile and compiled.
+- `scripts/sdk-go.sh --with-java`, run through `scripts/with-test-tmpdir.sh`, exited 0: 88 Go tests passed, the V2 signing test that needs the HTTPS profile was skipped, and the Java HTTP scenario passed.
+- The Java Testcontainers scenario passed against an image built from this source.
+- The Java scorecard probe, run alone against this source's gcs-mimic with the scorecard's TLS front, gRPC listener and test CA, passed all 70 cases, the same cases as the recorded `2026-10-31-2` run. The full scorecard was not run, so no results directory is added.
+- `cargo test -p xtask --locked` passed 222 tests, including the check of the actual Maven pins.
