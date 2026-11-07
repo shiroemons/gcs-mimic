@@ -20,10 +20,11 @@ image_for() {
     0.10.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:8da0792404585bb8cf2971a225588a635c86f633948025ff9db06a2357a03e2a ;;
     0.11.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:431a91841b1640042963b2de61f6e17b6e78e321157524e7b50576e8d728a6cc ;;
     0.12.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:82ab6b8eb8d08d5ae04f3306ebc95c014f55ed19a31bb0dc172ebbb3a17b73c5 ;;
+    0.13.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:14d0a1eb9d2b2cb08a6f371c3ec379c25e6ddedfc80e2f13c15ead463b1a8892 ;;
     *) return 1 ;;
   esac
 }
-if [[ $# == 0 ]]; then set -- 0.8.0 0.9.0 0.10.0 0.11.0 0.12.0; fi
+if [[ $# == 0 ]]; then set -- 0.8.0 0.9.0 0.10.0 0.11.0 0.12.0 0.13.0; fi
 for version in "$@"; do
   if ! image_for "$version" >/dev/null; then echo "No pinned image for $version" >&2; exit 2; fi
 done
