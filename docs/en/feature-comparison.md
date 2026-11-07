@@ -272,8 +272,9 @@ The follow-up ran the container smoke's sync stage on `linux/arm64` and
 `linux/amd64`; see [sync directory evidence](evidence/sync-dir-containers.txt)
 and [Docker usage](container-usage.md#mirror-objects-to-a-host-directory).
 Disk persistence does not imply equivalent crash or power-loss guarantees.
-CPU, memory, throughput and image size are not ranked: no equivalent cross-product
-benchmark was run.
+CPU, memory, throughput and image size are not ranked across products in general. One equivalent
+comparison with fake-gcs-server, limited to object reads at local scale, is recorded in the
+[read path measurement](evidence/read-path-performance.md).
 
 gcs-mimic stores metadata in SQLite and object bytes in opaque immutable files.
 The storage investigation in `storage-backends.md` compares filesystem,
