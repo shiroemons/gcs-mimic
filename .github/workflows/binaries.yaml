@@ -85,7 +85,9 @@ jobs:
             host: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    # Intel macOS and Windows ARM need over 30 minutes for the whole suite, and their compile time
+    # alone varies by several minutes between runs.
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
