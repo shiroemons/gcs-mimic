@@ -121,7 +121,7 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--max-grpc-streams` | `GCS_MIMIC_MAX_GRPC_STREAMS` | 100 | 1–65536; requires `grpc_listen`. Concurrent streams per gRPC connection. Each can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests; lower it to limit that memory. With a gRPC listener, startup also raises the open-file limit toward connections times streams times two, without a warning when that falls short |
 | `--max-resumable-sessions` | `GCS_MIMIC_MAX_RESUMABLE_SESSIONS` | 0 (unlimited) | 0–4294967295; active resumable uploads |
 | `--max-rewrite-sessions` | `GCS_MIMIC_MAX_REWRITE_SESSIONS` | 0 (unlimited) | 0–4294967295; unfinished rewrites |
-| `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–1024 |
+| `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | Available CPUs from 2 to 8 | 1–1024; on Linux the available CPUs honor a container's quota and affinity |
 | `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 8 | 1–1024 |
 | `--header-read-timeout-ms` | `GCS_MIMIC_HEADER_READ_TIMEOUT_MS` | 30000 (30 seconds) | 0 disables, no upper limit; request head arrival, gRPC handshake and HTTP/2 ping acknowledgement |
 | `--body-inactivity-timeout-ms` | `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS` | 0 (disabled) | 0 disables, no upper limit; silence while an object body or gRPC stream is in flight |

@@ -70,7 +70,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --max-object-bytes N         5497558138880 (1..5497558138880; streamed upload cap)
   --max-resumable-sessions N   0 (0..4294967295; active resumable uploads; 0 is unlimited)
   --max-rewrite-sessions N     0 (0..4294967295; unfinished rewrites; 0 is unlimited)
-  --worker-threads N           2 (1..1024)
+  --worker-threads N           available CPUs from 2 to 8 (1..1024)
   --max-blocking-threads N     8 (1..1024)
   --header-read-timeout-ms N   30000 (0 disables; request head arrival, gRPC handshake and HTTP/2 ping acknowledgement)
   --body-inactivity-timeout-ms N 0 (0 disables; silence while an object body or gRPC stream is in flight)
@@ -900,7 +900,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "e65d7b50ea81415b3f5419e9483ea03fec260dd7e8abb7cd75d0401cd74ae538"
+            "981d04936164aca6eb9e2aa83ee6e64252191bb7c10ba12d493cf0e75f2d20a3"
         );
     }
 

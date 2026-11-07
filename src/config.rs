@@ -38,6 +38,16 @@ pub const DEFAULT_LOCAL_CREATOR_EMAIL: &str = "local-user@gcs-mimic.invalid";
 /// not unnecessarily limit parallelism". A client past the limit queues its calls on its side.
 const DEFAULT_MAX_GRPC_STREAMS: NonZeroU32 = NonZeroU32::new(100).unwrap();
 
+/// One worker per CPU this process may use, which on Linux honors a container's quota. The former
+/// two workers served eight concurrent 10 MiB downloads at about a third of the rate eight workers
+/// did. Past eight, workers would mostly compete with the application under test, which usually
+/// runs on the same CPUs.
+fn default_worker_threads() -> usize {
+    std::thread::available_parallelism()
+        .map_or(2, usize::from)
+        .clamp(2, 8)
+}
+
 const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
@@ -289,7 +299,7 @@ impl Default for Config {
             max_object_bytes: setting::MAX_OBJECT_BYTES,
             max_resumable_sessions: None,
             max_rewrite_sessions: None,
-            worker_threads: 2,
+            worker_threads: default_worker_threads(),
             // The catalog keeps one blocking thread busy (including its commit fsync);
             // the rest serve tokio::fs reads, writes and syncs for every connection, so
             // one slow fsync must not stall all other transfers. Still bounded.

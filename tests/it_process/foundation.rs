@@ -294,7 +294,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert!(ready.get("identities").is_none());
         assert_eq!(ready["max_connections"], 1024);
         assert_eq!(ready["max_object_bytes"], 5 * 1024_u64.pow(4));
-        assert_eq!(ready["worker_threads"], 2);
+        assert!((2..=8).contains(&ready["worker_threads"].as_u64().unwrap()));
         assert_eq!(ready["max_blocking_threads"], 8);
         assert_eq!(ready["header_read_timeout_ms"], 30_000);
         assert_eq!(ready["body_inactivity_timeout_ms"], 0);
