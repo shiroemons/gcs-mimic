@@ -257,6 +257,8 @@ fake-gcs-serverは権限を確認しないため、strictモードに移ると�
 たとえば`GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444`と、登録済みのIDを指す`GCS_MIMIC_TRUSTED_PRINCIPAL`を設定し、アプリのサービスは`STORAGE_EMULATOR_HOST=gcs:4444`で接続します。
 このリスナーでは、認証情報のないリクエストがそのIDとして同じ認可を受けます。
 認証情報付きのリクエストはメインのリスナーと同じく認証し、ブラウザーからのリクエストは403になります。
+DNSリバインディングのページを防ぐため、HostはIPリテラル、`localhost`の名前、`gcs`のようなドットのない名前のいずれかである必要があります。
+ドットを含むサービスのエイリアスは`GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`に書き、それ以外のHostは421になります。
 このポートは公開しないでください。
 [Composeの例](container-usage.md#信頼済みリスナーで非公開バケットを守る)を参照してください。
 

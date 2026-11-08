@@ -19,6 +19,8 @@ const JSON: &str = "Content-Type: application/json\r\n";
 const VIEWER: &str = "Authorization: Bearer viewer-token\r\n";
 const OUTSIDER: &str = "Authorization: Bearer outsider-token\r\n";
 const PRIVATE: &str = "/storage/v1/b/private-bucket/o/object.txt";
+/// A dotted service alias the fixture lists in `trusted_allowed_hosts`.
+const ALIAS: &str = "storage.compose.example";
 
 fn identities() -> Value {
     json!({"identities": [
@@ -60,6 +62,8 @@ impl Fixture {
                     "127.0.0.1:0",
                     "--trusted-principal",
                     APP,
+                    "--trusted-allowed-hosts",
+                    ALIAS,
                 ])
                 .args(["--admin-enabled", "true", "--admin-principal", APP]),
         );
@@ -80,10 +84,6 @@ impl Fixture {
         headers: &str,
         body: &[u8],
     ) -> Reply {
-        let mut stream = TcpStream::connect(address).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(30)))
-            .unwrap();
         let head = request_head(
             method,
             path,
@@ -91,9 +91,21 @@ impl Fixture {
             &format!("{headers}Connection: close\r\n"),
             body.len(),
         );
-        stream.write_all(head.as_bytes()).unwrap();
-        stream.write_all(body).unwrap();
+        Self::raw(address, &[head.as_bytes(), body].concat())
+    }
+
+    fn raw(address: &str, request: &[u8]) -> Reply {
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .unwrap();
+        stream.write_all(request).unwrap();
         Reply::framed(stream)
+    }
+
+    /// A request to the trusted listener's socket that names `host`.
+    fn trusted_as(&self, host: &str, method: &str, path: &str, headers: &str) -> Reply {
+        Self::send(&self.trusted, host, method, path, headers, b"")
     }
 
     /// A request to the browser-facing listener.
@@ -360,6 +372,115 @@ fn browser_initiated_requests_are_refused_on_the_trusted_listener_only() {
     fixture
         .trusted("GET", object, "Sec-Fetch-Site: none\r\n", b"")
         .expect(200);
+}
+
+#[test]
+fn foreign_host_names_are_misdirected_on_the_trusted_listener_even_with_credentials() {
+    let fixture = Fixture::start();
+    fixture.bucket_with_object("private-bucket", b"private bytes");
+    let port = fixture.trusted.parse::<SocketAddr>().unwrap().port();
+    let read = format!("{PRIVATE}?alt=media");
+    for host in [
+        format!("127.0.0.1:{port}"),
+        format!("[::1]:{port}"),
+        format!("localhost:{port}"),
+        format!("app.localhost:{port}"),
+        "gcs".to_owned(),
+        format!("{ALIAS}:{port}"),
+    ] {
+        let reply = fixture.trusted_as(&host, "GET", &read, "");
+        reply.expect_with(200, &host);
+        assert_eq!(reply.body, b"private bytes");
+    }
+    // A DNS rebinding page sends its own dotted name, whatever else the request carries.
+    let rebound = format!("evil.example:{port}");
+    for headers in ["", "Authorization: Bearer app-token\r\n", VIEWER] {
+        let refused = fixture.trusted_as(&rebound, "GET", &read, headers);
+        let error = refused.json_reason_value(421, "misdirected");
+        assert!(
+            error["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("trusted_allowed_hosts"),
+            "{error}"
+        );
+    }
+    let missing = Fixture::raw(
+        &fixture.trusted,
+        format!("GET {read} HTTP/1.1\r\nConnection: close\r\n\r\n").as_bytes(),
+    );
+    missing.json_reason(421, "misdirected");
+    // The browser-facing listener keeps accepting any Host name.
+    Fixture::send(
+        &fixture.server.address,
+        &rebound,
+        "GET",
+        "/_internal/healthcheck",
+        "",
+        b"",
+    )
+    .expect(200);
+}
+
+#[test]
+fn trusted_responses_refuse_cross_origin_embedding_and_public_ones_are_unchanged() {
+    let fixture = Fixture::start();
+    fixture.bucket_with_object("private-bucket", b"private bytes");
+    let header = |reply: &Reply, name: &str| reply.headers.get(name).cloned();
+    let read = format!("{PRIVATE}?alt=media");
+    for (reply, status) in [
+        (fixture.trusted("GET", &read, "", b""), 200),
+        (
+            fixture.trusted("GET", "/_internal/healthcheck", "", b""),
+            200,
+        ),
+        (
+            fixture.trusted("GET", "/storage/v1/b/private-bucket/o/missing.txt", "", b""),
+            404,
+        ),
+        (
+            fixture.trusted(
+                "GET",
+                PRIVATE,
+                "Authorization: Bearer unknown-token\r\n",
+                b"",
+            ),
+            401,
+        ),
+        (fixture.trusted("GET", PRIVATE, OUTSIDER, b""), 403),
+        (
+            fixture.trusted("GET", PRIVATE, "Origin: http://localhost:3000\r\n", b""),
+            403,
+        ),
+        (fixture.trusted_as("evil.example", "GET", PRIVATE, ""), 421),
+    ] {
+        reply.expect(status);
+        assert_eq!(
+            header(&reply, "cross-origin-resource-policy").as_deref(),
+            Some("same-origin"),
+            "{status}: {:?}",
+            reply.headers
+        );
+        assert_eq!(
+            header(&reply, "x-content-type-options").as_deref(),
+            Some("nosniff"),
+            "{status}: {:?}",
+            reply.headers
+        );
+    }
+    for (reply, status) in [
+        (fixture.main("GET", &read, "", b""), 401),
+        (fixture.main("GET", "/_internal/healthcheck", "", b""), 200),
+        (
+            fixture.main("GET", &read, "Authorization: Bearer app-token\r\n", b""),
+            200,
+        ),
+    ] {
+        reply.expect(status);
+        for name in ["cross-origin-resource-policy", "x-content-type-options"] {
+            assert_eq!(header(&reply, name), None, "{status} {name}");
+        }
+    }
 }
 
 #[test]

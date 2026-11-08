@@ -46,6 +46,7 @@ super::string_enum! {
         AdminPrincipal => "admin_principal",
         AdminAllowedHosts => "admin_allowed_hosts",
         TrustedPrincipal => "trusted_principal",
+        TrustedAllowedHosts => "trusted_allowed_hosts",
         LocalCreatorEmail => "local_creator_email",
         XmlVirtualHostDomains => "xml_virtual_host_domains",
         MaxConnections => "max_connections",
@@ -137,6 +138,7 @@ impl Setting {
             | Self::AdminPrincipal
             | Self::AdminAllowedHosts
             | Self::TrustedPrincipal
+            | Self::TrustedAllowedHosts
             | Self::LocalCreatorEmail
             | Self::XmlVirtualHostDomains
             | Self::AuthMode

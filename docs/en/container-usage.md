@@ -405,6 +405,22 @@ their own, and their code stays unchanged:
   token, so it still needs that token's signer registered.
 - A request with any `Origin` header, or a `Sec-Fetch-Site` other than `none`,
   gets 403 before routing. Server-side clients send neither header.
+- The request's Host must be an IP literal (`127.0.0.1:4444`, `[::1]:4444`),
+  `localhost` or a name ending in `.localhost`, a single-label name such as the
+  Compose service name `gcs`, or a name listed in `trusted_allowed_hosts`. Any
+  other Host, and a request without one, gets 421 `misdirected`, whether or not
+  it carries credentials. This stops DNS rebinding: a page on
+  `http://evil.example` can point its own name at this listener, and its
+  same-origin GETs then carry neither `Origin` nor, over plain HTTP to an address
+  other than loopback, `Sec-Fetch-Site`, but its Host still says `evil.example`.
+  Rebinding needs a name that the attacker's DNS answers, which is a public name
+  with a dot; a page cannot make a browser send an IP literal, a `localhost` name
+  (browsers resolve those themselves) or a single-label name for an origin its
+  attacker controls.
+- Every response of the trusted listener carries
+  `Cross-Origin-Resource-Policy: same-origin` and
+  `X-Content-Type-Options: nosniff`, so a page on another origin cannot use it
+  even as an image or script embed. Clients that are not browsers ignore both.
 - It serves every route of the main listener: JSON, XML, uploads, batch requests
   and `/_internal`. Management still requires `admin_principal`, so it works there
   without a token only when `trusted_principal` names that identity. gRPC has no
@@ -423,12 +439,19 @@ equals another listener's, and when the principal is neither an identity of the
 identity file nor the built-in test signer with `test_signer=enabled`. The ready
 event reports the bound `trusted_listen` and the `trusted_principal`.
 
+When the application reaches the emulator through a dotted name, such as a
+Compose network alias `storage.compose.internal` or a Kubernetes service name,
+list it in `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` (`--trusted-allowed-hosts`, JSON
+`trusted_allowed_hosts`): up to 32 comma-separated DNS names without ports or
+schemes, compared case-insensitively and without a trailing dot. It requires
+`trusted_listen`. List only names that public DNS cannot answer for someone
+else, because a listed name is admitted as any other accepted Host.
+
 > [!WARNING]
 > Never publish the trusted port or bind it on a network that other people or
-> machines share. Anything that reaches it acts as `trusted_principal` without
-> credentials. The browser check refuses pages, not other programs, and browsers
-> send `Sec-Fetch-Site` only to loopback and HTTPS addresses and no `Origin` for
-> a plain link or image, so it does not catch every browser request either.
+> machines share. Anything that reaches it with an accepted Host, such as its IP
+> address, acts as `trusted_principal` without credentials. The browser and Host
+> checks keep web pages out; they do not stop other programs.
 
 The server does not warn about a wildcard trusted address: inside a container
 the listener must bind `0.0.0.0` for other containers to reach it, so a warning
@@ -472,6 +495,23 @@ configs:
       ]}
 volumes:
   gcs-data:
+```
+
+`gcs` is a single-label name, so this example needs no `trusted_allowed_hosts`.
+To use a dotted alias instead, give the service a network alias and list it:
+
+```yaml
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_TRUSTED_ALLOWED_HOSTS: storage.compose.internal
+    networks:
+      default:
+        aliases:
+          - storage.compose.internal
+  app:
+    environment:
+      STORAGE_EMULATOR_HOST: storage.compose.internal:4444
 ```
 
 The identity needs no token, because the application never presents one; give

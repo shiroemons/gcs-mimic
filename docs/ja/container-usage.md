@@ -355,6 +355,12 @@ strictモードでは、認証情報のないリクエストは匿名になり�
   [Rails Active Storageのレシピ](rails-active-storage.md)は常に自分のトークンを送るので、そのトークンの署名者の登録が引き続き必要です。
 - `Origin`ヘッダーがある、または`Sec-Fetch-Site`が`none`以外のリクエストは、ルーティングの前に403になります。
   サーバー側のクライアントはどちらのヘッダーも送りません。
+- リクエストのHostは、IPリテラル（`127.0.0.1:4444`、`[::1]:4444`）、`localhost`または`.localhost`で終わる名前、Composeのサービス名`gcs`のようなドットのない名前、`trusted_allowed_hosts`に書いた名前のいずれかでなければなりません。
+  それ以外のHostやHostのないリクエストは、認証情報の有無にかかわらず421 `misdirected`になります。
+  これはDNSリバインディングを防ぐためです。`http://evil.example`のページは自分の名前をこのリスナーに向けられ、そのときの同一オリジンのGETには`Origin`が付かず、ループバック以外への平文HTTPなら`Sec-Fetch-Site`も付きません。それでもHostは`evil.example`のままです。
+  リバインディングには攻撃者のDNSが答える名前、つまりドットを含む公開の名前が必要です。攻撃者が持つオリジンについて、ページがブラウザーにIPリテラル、`localhost`の名前（ブラウザーが自分で解決します）、ドットのない名前を送らせることはできません。
+- 信頼済みリスナーのすべての応答に`Cross-Origin-Resource-Policy: same-origin`と`X-Content-Type-Options: nosniff`を付けるため、別オリジンのページは画像やスクリプトとして埋め込むこともできません。
+  ブラウザー以外のクライアントはどちらも無視します。
 - メインのリスナーのすべてのルート（JSON、XML、アップロード、batch、`/_internal`）に応答します。
   管理ルートには引き続き`admin_principal`が必要なので、トークンなしで使えるのは`trusted_principal`がそのIDを指すときだけです。
   gRPCには信頼済みリスナーはありません。
@@ -366,11 +372,14 @@ strictモードでは、認証情報のないリクエストは匿名になり�
 片方だけの指定、permissiveモード（すべてのリクエストがすでに許可されるため）、`unix_socket`との併用、ほかのリスナーと同じアドレス、IDファイルにも`test_signer=enabled`の組み込みテスト署名者にも当たらないIDのいずれかでは、起動が止まります。
 ready通知は、bindした`trusted_listen`と`trusted_principal`を返します。
 
+Composeのネットワークエイリアス`storage.compose.internal`やKubernetesのサービス名など、ドットを含む名前でアプリが接続する場合は、その名前を`GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`（`--trusted-allowed-hosts`、JSONの`trusted_allowed_hosts`）に書きます。
+ポートやスキームを含まないDNS名をカンマで区切って最大32件指定でき、大文字小文字と末尾のドットは区別しません。`trusted_listen`が必要です。
+書いた名前はほかの受け付けるHostと同じく通るので、公開DNSで他人が答えられない名前だけを書いてください。
+
 > [!WARNING]
 > 信頼済みリスナーのポートは公開せず、ほかの人やマシンと共有するネットワークでbindしないでください。
-> 届いたリクエストはすべて、認証情報なしで`trusted_principal`として扱われます。
-> ブラウザーの確認が拒否するのはページからのリクエストで、ほかのプログラムは防げません。
-> また、ブラウザーは`Sec-Fetch-Site`をループバックとHTTPSのアドレスにだけ送り、通常のリンクや画像には`Origin`を付けないため、ブラウザーからのリクエストもすべては防げません。
+> 受け付けるHost（IPアドレスなど）で届いたリクエストは、認証情報なしで`trusted_principal`として扱われます。
+> ブラウザーとHostの確認はWebページを防ぐためのもので、ほかのプログラムは防げません。
 
 ワイルドカードのアドレスでも警告は出しません。
 コンテナ内では、ほかのコンテナから届くように`0.0.0.0`でbindする必要があり、警告は起動のたびに出てしまうからです。
@@ -412,6 +421,23 @@ configs:
       ]}
 volumes:
   gcs-data:
+```
+
+`gcs`はドットのない名前なので、この例では`trusted_allowed_hosts`は不要です。
+ドットを含むエイリアスを使う場合は、サービスにネットワークエイリアスを付けて、その名前を書きます。
+
+```yaml
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_TRUSTED_ALLOWED_HOSTS: storage.compose.internal
+    networks:
+      default:
+        aliases:
+          - storage.compose.internal
+  app:
+    environment:
+      STORAGE_EMULATOR_HOST: storage.compose.internal:4444
 ```
 
 アプリはトークンを送らないので、このIDにトークンは不要です。ロールはアプリに必要なものだけを与えます。
