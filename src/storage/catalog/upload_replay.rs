@@ -258,7 +258,7 @@ impl UploadReplay {
             &acl_access,
         ) {
             Ok(_) => true,
-            Err(ObjectError::Denied(_) | ObjectError::Forbidden) => false,
+            Err(error) if error.is_refusal() => false,
             Err(error) => return Err(error),
         };
         let (uniform, project): (bool, String) = sql::row(
