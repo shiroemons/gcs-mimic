@@ -250,7 +250,7 @@ The JSON is part of the service's environment, so a changed value makes Compose 
 | The browser reports a CORS error | The page's origin is not `http://localhost:${FRONTEND_PORT:-3000}`, or the request sets a header the bucket's `responseHeader` does not list | Set `FRONTEND_PORT` or list the header, then run `docker compose up -d`. |
 | Rails in a container: images do not load and direct uploads fail with `Error storing ... Status: 0` | Rails handed the browser URLs on a name only containers resolve, such as `gcs` | Use the [container variant](#rails-in-a-container). |
 | Compose reports `invalid interpolation format` for `GCS_MIMIC_BUCKETS` | The JSON holds a literal `$` | Write it as `$$`. |
-| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS` and `auth_mode=strict requires identity_file`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use a newer release. |
+| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS` and `auth_mode=strict requires identity_file`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use a newer release. Until one is out, build an image from a checkout with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`. |
 
 ## What is verified
 
