@@ -67,10 +67,11 @@ Public and signed URLs must still use the address reachable by their recipient.
 Go storage drops a non-default port when it signs a URL. The default permissive
 server does not check signatures, so such URLs for `localhost:4443` work there.
 A server that verifies signatures (strict mode, or `GCS_MIMIC_SIGNED_URLS=verify`)
-rejects them with 403 `SignatureDoesNotMatch` unless it sets
-`GCS_MIMIC_SIGNED_HOST_PORT=lenient`, for example because each worktree
-publishes its own port and a default port is not an option; see
-[signed URLs](signed-urls.md).
+accepts them while the built-in test signer is enabled, because
+`GCS_MIMIC_SIGNED_HOST_PORT` then defaults to `lenient`. Otherwise it defaults to
+`exact` and rejects them with 403 `SignatureDoesNotMatch`; set `lenient` when
+another key signs such URLs, for example because each worktree publishes its own
+port and a default port is not an option; see [signed URLs](signed-urls.md).
 
 Set `GCS_MIMIC_API_BASE_URL` to fix one address for every caller. A reverse proxy
 that rewrites Host needs it, because `Forwarded` and `X-Forwarded-*` are ignored.
@@ -88,17 +89,47 @@ the ready event reports it as `api_base_url`. The checked-in Compose files pass
 
 | Goal | Setup | Settings |
 | --- | --- | --- |
-| Behave like fake-gcs-server: every request is allowed and no signature is checked | The default permissive profile | `GCS_MIMIC_SCHEME=http` |
-| Check signed URLs as Cloud Storage does while everything else stays open | Permissive with signature verification | `GCS_MIMIC_SCHEME=http` and `GCS_MIMIC_SIGNED_URLS=verify`, plus `GCS_MIMIC_SIGNED_HOST_PORT=lenient` for URLs that Go storage signs |
-| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their code | Strict mode with a trusted listener | Copy the [strict local recipe](../../examples/strict-local/README.md) as it is |
+| Behave like fake-gcs-server: every request is allowed, no signature is checked and browsers read every bucket | The default permissive profile | `GCS_MIMIC_SCHEME=http` |
+| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their code | Strict mode with a trusted listener: the [strict local recipe](../../examples/strict-local/README.md) | `GCS_MIMIC_SCHEME=http`, `GCS_MIMIC_AUTH_MODE=strict`, `GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444` (never published) and `GCS_MIMIC_BUCKETS` with each bucket's policy and CORS rules, plus `GCS_MIMIC_TEST_SIGNER=enabled` when the application signs URLs |
+| Only while strict mode is not possible yet: check signed URLs, allow everything else | Permissive with signature verification | `GCS_MIMIC_SCHEME=http` and `GCS_MIMIC_SIGNED_URLS=verify` |
 
-Start with the default. When signed URLs or private buckets need production-like
-checks, paste the strict local recipe as it is: the container smoke test runs that
-exact block with the image, and its README explains each part. Use permissive
-`verify` only as a step on the way, when strict mode is not an option yet: it
-rejects a bad signature, but it grants every verified and every unsigned request,
-so it cannot show that a private bucket stays private. The last two rows need a
-release newer than 0.13.0.
+Start with the default. For production-like checks, use strict mode with the
+trusted listener, as the strict local recipe sets it up: the container smoke test
+runs that exact block with the image, and its README explains each line and the
+defaults it relies on. The [full application example](../../examples/full-stack/README.md)
+shows how a Go API, a Rails app and a frontend connect to it. Permissive `verify`
+is only a step for setups that cannot use strict mode yet: it rejects a bad
+signature, but it grants every verified and every unsigned request, so it cannot
+show that a private bucket stays private. The last two rows need a release newer
+than 0.13.0.
+
+### How the setups differ from fake-gcs-server
+
+This table compares behavior with fake-gcs-server 1.56.1, using the
+[migration guide](fake-gcs-server-migration.md), the
+[detailed comparison](feature-comparison.md), the
+[configuration reference](fake-gcs-server-configuration.md) and the release
+notes. "Same as strict" marks behavior that the profile does not change.
+
+| Behavior | fake-gcs-server 1.56.1 | gcs-mimic permissive (default) | gcs-mimic strict |
+| --- | --- | --- | --- |
+| Authentication | None; every request is allowed | None; credentials are ignored and every request is allowed | Local identities: bearer tokens, self-signed JWTs, signed URLs and HMAC signatures. A request without credentials is anonymous |
+| IAM and ACLs | ACL metadata operations without enforcement; no bucket IAM routes | Stored and returned, never enforced | Predefined roles in project roles and bucket IAM policies are enforced; object ACL `READER` and `OWNER` grants authorize reads |
+| Public and private buckets | No split: every object is served to anyone | No split: every object is served to anyone | Requests without credentials get only `allUsers` grants and otherwise 401; `allAuthenticatedUsers` needs a registered identity |
+| Signed URL verification | Signatures and expiry are not checked | Not checked by default; `GCS_MIMIC_SIGNED_URLS=verify` checks them and still allows every request | Always checked: host, path, query, method, signed headers and expiry. A host without its port, as Go storage signs, passes when the test signer is enabled (`signed_host_port` `lenient`) |
+| CORS defaults | One wildcard policy on every route; `-cors-headers` adds allowed request headers | JSON API: fixed defaults. XML and public routes: every origin for buckets without rules (`cors_fallback` `allow-all`); bucket rules apply exactly | JSON API: fixed defaults. XML and public routes: only bucket `cors` rules (`cors_fallback` `none`) |
+| Bucket setup | A seed directory, `-data`, whose top-level directories become buckets | Same as strict | A seed directory at `/data`, as in fake-gcs-server, and a bucket document with CORS, versioning, IAM policy and soft delete per bucket: `GCS_MIMIC_BUCKETS` inline, whose edits reach existing buckets, or `GCS_MIMIC_BUCKETS_FILE` |
+| Soft delete | None: a delete or overwrite frees the bytes | Same as strict | Off by default, as in fake-gcs-server; a bucket policy or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` keeps the bytes for restore |
+| Timeouts | No setting among its 19 variables | Same as strict | 30 s to send a request head and 180 s for a request; no limit on a silent body or on object transfers; idle connections close after 120 s. Each is a setting |
+| Connection limit | No setting among its 19 variables | Same as strict | 1024 connections across listeners; further clients wait for a slot |
+| Object size and memory | `CreateObject` buffers the whole object; the memory backend keeps every byte in the process | Same as strict | Bodies stream in 64 KiB chunks, so memory does not grow with object size; objects up to 5 TiB (`max_object_bytes`) |
+| Resumable sessions across restarts | Not compared in this repository | Same as strict | Sessions and their acknowledged bytes persist in the data volume, resume after a restart and expire after seven days; the memory backend loses them |
+| Returned URLs | `-external-url` fixes one address for every client | Same as strict | Links follow each request's Host and connection scheme, so containers and the host each get their own address; `GCS_MIMIC_API_BASE_URL` fixes one |
+| Conditional requests | Generation conditions on uploads only; `If-Match` and `If-None-Match` are ignored on reads | Same as strict | Generation and metageneration conditions on object and bucket mutations, enforced with the write; ETag validators on reads |
+| Bucket list without `project` | Allowed | Same as strict | 400 `required`; `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator` uses `seed_project` |
+| Trusted listener | None | Not available: startup fails, since every request is already allowed | `GCS_MIMIC_TRUSTED_LISTEN`: requests without credentials act as `trusted-app@gcs-mimic.invalid` or `GCS_MIMIC_TRUSTED_PRINCIPAL`; see [below](#keep-private-buckets-private-with-a-trusted-listener) |
+
+No row compares speed or measured memory use.
 
 ## Load local files
 
@@ -319,8 +350,11 @@ curl --fail -H 'Content-Type: application/json' \
 Create another bucket with different rules, or change existing rules with
 `PATCH /storage/v1/b/BUCKET`. Bucket CORS governs XML object endpoints;
 JSON endpoints use fixed CORS defaults. CORS does not grant object permissions.
-To let any origin read XML/public URLs of buckets without rules, as
-fake-gcs-server did, add `GCS_MIMIC_CORS_FALLBACK=allow-all`; see
+For buckets without rules, `GCS_MIMIC_CORS_FALLBACK` defaults to `allow-all` in
+permissive mode, so any origin reads their XML and public URLs, as with
+fake-gcs-server; the server logs the first such request for each bucket at info
+level. In strict mode it defaults to `none`, so a browser needs the bucket's
+`cors` rules, as with Cloud Storage. Buckets with rules always follow them; see
 [CORS fallback](slices/cors-fallback.md).
 
 By default the server accepts signed URLs without checking their signatures.
@@ -351,9 +385,12 @@ docker compose -f compose.yaml -f compose.http.yaml -f compose.buckets.yaml \
 curl --fail http://localhost:4443/storage/v1/b/initialized-assets
 ```
 
-For another Compose file, add `GCS_MIMIC_BUCKETS_FILE: /buckets.json` to its
-environment and `./buckets.json:/buckets.json:ro` to its volumes. The file must
-exist before startup. Its JSON shape is:
+For another Compose file, write the document into the service's environment as
+`GCS_MIMIC_BUCKETS`, as the [strict local recipe](../../examples/strict-local/README.md)
+does, or add `GCS_MIMIC_BUCKETS_FILE: /buckets.json` to its environment and
+`./buckets.json:/buckets.json:ro` to its volumes; the two settings cannot be
+combined. Compose expands `${VAR}` in the inline value, so write a literal `$` as
+`$$`. A mounted file must exist before startup. The JSON shape is:
 
 ```json
 {"version":1,"project":"local-project","buckets":[
@@ -362,10 +399,11 @@ exist before startup. Its JSON shape is:
 ]}
 ```
 
-Each startup validates the entire file, then creates only missing buckets before
-seed. Existing settings, IAM policies, timestamps and objects remain unchanged;
-edit them through the API. Removing an entry never deletes a bucket. A deleted
-bucket can be recreated at the next startup. A different existing project emits
+Each startup validates the entire document, then creates only missing buckets
+before seed. With a bucket file, existing settings, IAM policies, timestamps and
+objects remain unchanged; edit them through the API. Removing an entry never
+deletes a bucket. A deleted bucket can be recreated at the next startup. A
+different existing project emits
 a warning and increments ready's `project_mismatches`, preserving its owner.
 
 An entry can give a new bucket its IAM policy with
@@ -374,15 +412,18 @@ The policy replaces the default one, as `setIamPolicy` does, so write the legacy
 bindings too if you need them. Startup fails before any change when public access
 prevention refuses a public member.
 
-When you edit an entry after its bucket exists, the next startup keeps the
-bucket, warns on stderr which fields still differ and increments ready's
+When you edit an entry of a bucket file after its bucket exists, the next startup
+keeps the bucket, warns on stderr which fields still differ and increments ready's
 `unapplied`. To apply the written fields to existing buckets, for example on a
 volume that outlives Compose restarts, set `GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`.
 Each startup then writes only the fields an entry sets whose value differs and
 counts the changed buckets in ready's `reconciled`; fields an entry omits keep
 their API changes, and a bucket's location never changes. The mode also reads
-`--buckets-file-mode` or server JSON `buckets_file_mode`, defaults to `create`,
-and fails startup when no buckets file is selected.
+`--buckets-file-mode` or server JSON `buckets_file_mode`. It defaults to
+`reconcile` for the inline `GCS_MIMIC_BUCKETS`, whose edits Compose delivers by
+recreating the container on a plain `docker compose up -d`, and to `create` for a
+bucket file; it fails startup when neither is selected. The ready event reports
+both forms under `buckets_file`.
 
 Removing a field from an entry never resets the bucket, in either mode: after you
 drop an `allUsers` `iamPolicy`, the bucket stays public, and the next startup
@@ -409,16 +450,18 @@ own servers usually send no credentials to an emulator either (Go storage with
 they would be anonymous too. A trusted listener gives those servers a port of
 their own, and their code stays unchanged:
 
-- A request without credentials on the trusted listener acts as
-  `trusted_principal`, a registered identity. It then passes the same IAM, ACL
-  and public access prevention checks as a request presenting that identity's
-  token, and the objects it writes record that identity as owner.
+- A request without credentials on the trusted listener acts as one identity,
+  the trusted principal: the built-in `trusted-app@gcs-mimic.invalid` unless
+  `trusted_principal` names another. It then passes the same IAM, ACL and public
+  access prevention checks as a request presenting that identity's credentials,
+  and the objects it writes record that identity as owner.
 - A request that carries credentials (a bearer token, a self-signed JWT, signed
   URL parameters, a signature `Authorization` header or a POST policy)
   authenticates exactly as on the main listener. Invalid credentials fail and
   never fall back to the principal. The
   [Rails Active Storage recipe](rails-active-storage.md) always sends its own
-  token, so it still needs that token's signer registered.
+  token, so the server must still know its signer: the built-in test signer
+  with `GCS_MIMIC_TEST_SIGNER=enabled`, or a key the identity document registers.
 - A request with any `Origin` header, or a `Sec-Fetch-Site` other than `none`,
   gets 403 before routing. Server-side clients send neither header.
 - The request's Host must be an IP literal (`127.0.0.1:4444`, `[::1]:4444`),
@@ -447,13 +490,22 @@ their own, and their code stays unchanged:
   links that the API returns follow the Host of each request, so a resumable
   session started through `gcs:4444` continues there.
 
-Set `GCS_MIMIC_TRUSTED_LISTEN` (`--trusted-listen`, JSON `trusted_listen`) and
-`GCS_MIMIC_TRUSTED_PRINCIPAL` (`--trusted-principal`, JSON `trusted_principal`)
-together. Startup fails when one appears without the other, in permissive mode
-(where every request is already allowed), with `unix_socket`, when the address
-equals another listener's, and when the principal is neither an identity of the
-identity file nor the built-in test signer with `test_signer=enabled`. The ready
-event reports the bound `trusted_listen` and the `trusted_principal`.
+Set `GCS_MIMIC_TRUSTED_LISTEN` (`--trusted-listen`, JSON `trusted_listen`) to
+open it. Without `GCS_MIMIC_TRUSTED_PRINCIPAL` (`--trusted-principal`, JSON
+`trusted_principal`), the principal is the built-in `trusted-app@gcs-mimic.invalid`.
+It holds `roles/storage.admin` on every project the bucket document
+(`GCS_MIMIC_BUCKETS` or `GCS_MIMIC_BUCKETS_FILE`) names and on the effective
+`seed_project`, so the application's servers can do what a project owner's
+service account does, and strict mode then starts without an identity document.
+An entry for `trusted-app@gcs-mimic.invalid` in the identity document
+(`GCS_MIMIC_IDENTITIES` or `GCS_MIMIC_IDENTITY_FILE`) replaces those roles. Set
+`GCS_MIMIC_TRUSTED_PRINCIPAL` to act as another identity of the identity document,
+or as the built-in test signer when it is enabled. Startup fails when the
+principal appears without the listener, in permissive mode (where every request
+is already allowed), with `unix_socket`, when the address equals another
+listener's, and when a named principal is neither an identity of the identity
+document nor the enabled built-in test signer. The ready event reports the bound
+`trusted_listen` and the effective `trusted_principal`.
 
 When the application reaches the emulator through a dotted name, such as a
 Compose network alias `storage.compose.internal` or a Kubernetes service name,
@@ -475,13 +527,17 @@ would fire on every start. Keeping the port off `ports:` is the protection.
 
 The [strict local recipe](../../examples/strict-local/README.md) is the complete
 example: a `gcs` service to paste into your compose.yaml, with the trusted listener
-for the application containers, the published main listener for the browser, the
-identity and bucket files written inline, and the built-in test signer for signed
-URLs. The container smoke test runs it with the image, so use it as it is rather
-than assembling these settings yourself.
+and its built-in identity for the application containers, the published main
+listener for the browser, the buckets written inline in its environment, and the
+built-in test signer for signed URLs. The
+[full application example](../../examples/full-stack/README.md) connects a Go
+API, a Rails app and a frontend to it. The container smoke test runs both with
+the image, so start from them rather than assembling these settings yourself.
 
-`gcs` is a single-label name, so the recipe needs no `trusted_allowed_hosts`.
-To use a dotted alias instead, give the service a network alias and list it:
+`gcs` is a single-label name, so the recipe needs no `trusted_allowed_hosts`, and
+neither does `gcs.localhost`, the alias its Rails variant adds, because it is a
+`.localhost` name. To use a dotted alias instead, give the service a network
+alias and list it:
 
 ```yaml
 services:
@@ -497,13 +553,15 @@ services:
       STORAGE_EMULATOR_HOST: storage.compose.internal:4444
 ```
 
-The identity needs no token, because the application never presents one; give
-it only the roles the application needs. Pages then use
+The built-in identity has no token, because the application never presents one.
+To give it only the roles the application needs, declare
+`trusted-app@gcs-mimic.invalid` in the identity document with those roles, as the
+recipe's README shows. Pages then use
 `http://localhost:${GCS_MIMIC_PORT:-4443}`: a bucket whose policy grants `allUsers`
 `roles/storage.objectViewer` is readable there anonymously, and a private object
 answers 401 unless the page has a signed URL. The application signs such URLs
 for that browser-facing address, never for `gcs:4444`, with a key the identity
-file registers or with the built-in test signer; see [signed URLs](signed-urls.md).
+document registers or with the built-in test signer; see [signed URLs](signed-urls.md).
 The image healthcheck probes the main listener and needs no change. DESIGN-101
 records this local extension and stays PARTIAL; see the
 [evidence](evidence/trusted-listener.md).
