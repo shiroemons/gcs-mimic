@@ -92,6 +92,14 @@ local-project admin role, starts an isolated strict server and cleans up its own
 data. `strict.rb` verifies stock Rails V2 and the explicit `EmulatorGcs` V4
 service, private access, PAP and browser-equivalent CORS with signatures kept
 intact. It does not remove OAuth authorization or rewrite signed URLs.
+The runner then repeats the same scenario against a second strict server started
+with `--test-signer enabled`, whose identity file declares only
+`test-signer@gcs-mimic.invalid` with the local-project admin role and no keys.
+`strict.rb gcs_emulator_test_signer` selects the documented
+[built-in test signer recipe](../../../docs/en/signed-urls.md#built-in-test-signer):
+`client_email: test-signer@gcs-mimic.invalid` and the private key that
+`gcs-mimic test-signer credentials` prints, so the JWT bearer and both signed URL
+versions come from the published key that the server registers itself.
 The [strict JWT contract](../../../docs/en/slices/strict-service-account-jwt.md)
 lists accepted claims, scope restrictions, key rotation and split API/browser
 origins. Actual browser and container execution remains a separate integration

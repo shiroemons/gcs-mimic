@@ -9,11 +9,13 @@ require_relative "local_http"
 
 LocalHTTP.install!
 $LOAD_PATH.unshift(File.expand_path("lib", __dir__))
+# The storage.yml service under test; its "_browser" sibling is the explicit V4 adapter.
+service_name = ARGV.fetch(0, "gcs_emulator_strict")
 ENV["RAILS_ENV"] = "test"
 ENV["DATABASE_URL"] = "sqlite3::memory:"
 ENV["GCS_EMULATOR_BUCKET"] = "active-storage-strict-#{SecureRandom.hex(8)}"
 ENV["GCS_MIMIC_BUCKET"] = ENV.fetch("GCS_EMULATOR_BUCKET")
-ENV["ACTIVE_STORAGE_SERVICE"] = "gcs_emulator_strict"
+ENV["ACTIVE_STORAGE_SERVICE"] = service_name
 require_relative "config/application"
 Rails.application.initialize!
 ActiveRecord::Migration.verbose = false
@@ -23,7 +25,7 @@ CreateActiveStorageTables.new.change
 
 # Rails loads the service configurations with Blob's lazy initialization.
 ActiveStorage::Blob.service
-configuration = Rails.application.config.active_storage.service_configurations.fetch("gcs_emulator_strict")
+configuration = Rails.application.config.active_storage.service_configurations.fetch(service_name)
 storage = Google::Cloud::Storage.new(project: "local-project", credentials: configuration.fetch("credentials"),
   endpoint: configuration.fetch("endpoint"), universe_domain: "gcs-emulator.invalid")
 browser_origin = "http://localhost:3000"
@@ -52,7 +54,8 @@ rescue StandardError => e
 end
 
 begin
-  puts "Rails #{Rails.version}; googleauth #{Gem.loaded_specs.fetch('googleauth').version}; strict local JWT"
+  puts "Rails #{Rails.version}; googleauth #{Gem.loaded_specs.fetch('googleauth').version}; strict local JWT; " \
+       "#{service_name} as #{configuration.fetch('credentials').fetch('client_email')}"
   run_case.call("AS-STRICT-JWT-UPLOAD-DOWNLOAD") do
     blob = ActiveStorage::Blob.create_and_upload!(io: StringIO.new("strict attachment bytes"), filename: "strict.txt")
     assert(blob.download == "strict attachment bytes", "strict download bytes differ")
@@ -71,12 +74,12 @@ begin
     blob.purge
     assert(!ActiveStorage::Blob.service.exist?(blob.key), "purge left strict object")
   end
-  ["gcs_emulator_strict", "gcs_emulator_strict_browser"].each do |service_name|
-    version = service_name.end_with?("browser") ? "V4" : "V2"
+  [service_name, "#{service_name}_browser"].each do |direct_service|
+    version = direct_service.end_with?("browser") ? "V4" : "V2"
     run_case.call("AS-STRICT-#{version}-DIRECT-UPLOAD-CORS") do
       bytes = "strict #{version} direct bytes"
       blob = ActiveStorage::Blob.create_before_direct_upload!(filename: "direct.txt", byte_size: bytes.bytesize,
-        checksum: Base64.strict_encode64(Digest::MD5.digest(bytes)), content_type: "text/plain", service_name: service_name)
+        checksum: Base64.strict_encode64(Digest::MD5.digest(bytes)), content_type: "text/plain", service_name: direct_service)
       uri = URI(blob.service_url_for_direct_upload)
       headers = blob.service_headers_for_direct_upload.compact
       query = URI.decode_www_form(uri.query).to_h
