@@ -331,6 +331,25 @@ for `-public-host`, `-external-url`, `-data` and related settings.
 The [environment reference](fake-gcs-server-configuration.md) covers all 19
 source variables, including Docker entrypoint precedence and missing equivalents.
 
+An empty `GCS_MIMIC_*` value is a value, not an unset variable, and most settings
+refuse it at startup, so a missing substitution cannot quietly select a default
+such as permissive authentication. Compose's `${VAR:-}` passes an empty string.
+To pass an optional setting only when it is set in your shell or `.env`, write its
+name with no value, as this repository's `compose.yaml` does:
+
+```yaml
+    environment:
+      GCS_MIMIC_API_BASE_URL:
+```
+
+A few settings define an empty value: `GCS_MIMIC_LOCAL_CREATOR_EMAIL` disables the
+local creator, `GCS_MIMIC_DEFAULT_LOCATION` uses `US`,
+`GCS_MIMIC_ADMIN_ALLOWED_HOSTS` and `GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS` list
+nothing, and `GCS_MIMIC_PUBSUB_EMULATOR_HOST`,
+`GCS_MIMIC_EVENT_PUBSUB_PROJECT_ID`, `GCS_MIMIC_EVENT_PUBSUB_TOPIC`,
+`GCS_MIMIC_EVENT_BUCKET` and `GCS_MIMIC_EVENT_OBJECT_PREFIX` configure nothing.
+`FAKE_GCS_*` variables keep fake-gcs-server's rule, where an empty value is unset.
+
 A client that announces a request body and stops sending it holds its connection
 silently: the default `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS` of 0 sets no limit, so
 nothing expires and nothing is logged. To find such a client, set it, for example

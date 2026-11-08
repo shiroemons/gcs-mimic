@@ -523,6 +523,7 @@ impl Config {
         report.check_auth(&settings);
         report.check_trusted_listener(&settings);
         report.check_notifications(&settings);
+        report.explain_empty_environment_values(&settings);
         report.settings = settings;
         report
     }
@@ -1100,6 +1101,33 @@ impl ConfigurationReport {
                         .errors
                         .push(Diagnostic::new(input.source, &input.key, fix));
                 }
+            }
+        }
+    }
+
+    /// An empty value stays an error so that a missing substitution cannot quietly select a
+    /// default such as the permissive auth mode. Compose's `${VAR:-}` looks like leaving a setting
+    /// out but passes an empty string, so the refusal names the form that does leave it out.
+    fn explain_empty_environment_values(&mut self, settings: &Settings) {
+        let empty_variables: BTreeSet<&str> = settings
+            .values()
+            .filter(|input| {
+                input.source == DiagnosticSource::Environment
+                    && input.value.is_empty()
+                    && input.invalid.is_none()
+            })
+            .map(|input| input.key.as_str())
+            .collect();
+        for error in &mut self.diagnostics.errors {
+            if error.source == DiagnosticSource::Environment
+                && empty_variables.contains(error.key.as_str())
+            {
+                error.fix = format!(
+                    "{}. An empty value does not mean unset: remove {key}, or in Compose write \
+                     `{key}:` with no value to pass it only when it is set.",
+                    error.fix.trim_end_matches('.'),
+                    key = error.key
+                );
             }
         }
     }
@@ -3989,5 +4017,76 @@ mod tests {
         );
         assert_rejected("data_dir", &[""], "must not be empty");
         std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn an_empty_environment_value_is_refused_and_the_refusal_names_how_to_leave_it_out() {
+        for key in [
+            "GCS_MIMIC_AUTH_MODE",
+            "GCS_MIMIC_BUCKETS",
+            "GCS_MIMIC_CONFIG",
+            "GCS_MIMIC_CORS_FALLBACK",
+            "GCS_MIMIC_LOG_LEVEL",
+            "GCS_MIMIC_MAX_CONNECTIONS",
+            "GCS_MIMIC_SIGNED_HOST_PORT",
+            "GCS_MIMIC_SIGNED_URLS",
+            "GCS_MIMIC_TEST_SIGNER",
+            "GCS_MIMIC_TRUSTED_LISTEN",
+        ] {
+            let env = BTreeMap::from([(key.to_owned(), String::new())]);
+            let errors = Config::load(&[], &env).unwrap_err();
+            assert!(
+                errors.errors.iter().any(|error| {
+                    error.source == DiagnosticSource::Environment
+                        && error.key == key
+                        && error.fix.contains(&format!("`{key}:` with no value"))
+                }),
+                "{key}: {errors}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_an_empty_environment_value_gets_the_advice_about_leaving_it_out() {
+        let advice = "does not mean unset";
+        let invalid = BTreeMap::from([("GCS_MIMIC_SIGNED_URLS".to_owned(), "maybe".to_owned())]);
+        let unknown = BTreeMap::from([("GCS_MIMIC_NO_SUCH_SETTING".to_owned(), String::new())]);
+        let compose_only = BTreeMap::from([("GCS_MIMIC_PORT".to_owned(), String::new())]);
+        let flag = ["--signed-urls", ""].map(str::to_owned);
+        let none = BTreeMap::new();
+        for (args, env) in [
+            (&[][..], &invalid),
+            (&[][..], &unknown),
+            (&[][..], &compose_only),
+            (&flag[..], &none),
+        ] {
+            let errors = Config::load(args, env).unwrap_err().to_string();
+            assert!(!errors.contains(advice), "{args:?} {env:?}: {errors}");
+        }
+    }
+
+    #[test]
+    fn settings_that_define_an_empty_environment_value_start_with_it() {
+        for key in [
+            "GCS_MIMIC_ADMIN_ALLOWED_HOSTS",
+            "GCS_MIMIC_DEFAULT_LOCATION",
+            "GCS_MIMIC_EVENT_BUCKET",
+            "GCS_MIMIC_EVENT_OBJECT_PREFIX",
+            "GCS_MIMIC_EVENT_PUBSUB_PROJECT_ID",
+            "GCS_MIMIC_EVENT_PUBSUB_TOPIC",
+            "GCS_MIMIC_LOCAL_CREATOR_EMAIL",
+            "GCS_MIMIC_PUBSUB_EMULATOR_HOST",
+            "GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS",
+        ] {
+            let env = BTreeMap::from([(key.to_owned(), String::new())]);
+            let report = Config::preflight(&[], &env);
+            assert!(
+                !report.diagnostics.is_err(),
+                "{key}: {}",
+                report.diagnostics
+            );
+        }
+        let env = BTreeMap::from([("GCS_MIMIC_LOCAL_CREATOR_EMAIL".to_owned(), String::new())]);
+        assert_eq!(Config::load(&[], &env).unwrap().local_creator_email, "");
     }
 }

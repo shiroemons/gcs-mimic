@@ -61,8 +61,11 @@ CLI options are `--kebab-case VALUE` pairs, file keys are `snake_case` and
 environment names are `GCS_MIMIC_UPPER_SNAKE_CASE`. `--config` overrides
 `GCS_MIMIC_CONFIG`. Files remain flat JSON objects capped at 64 KiB, with string
 or unsigned-integer values. Unknown native keys, repeated CLI options, malformed
-values and out-of-range values fail; empty strings do not mean unset except for
-the existing empty virtual-domain list. Validate effective values after merging;
+values and out-of-range values fail; empty strings do not mean unset. A setting
+may define its own empty value, as the virtual-domain list, the default location,
+the local creator and the event settings do; the
+[container guide](../container-usage.md#configure-the-server-and-buckets) lists
+them. Validate effective values after merging;
 unknown keys and legacy-input diagnostics cannot be hidden by a native override.
 Malformed/unreadable files are reported even when a CLI override exists.
 

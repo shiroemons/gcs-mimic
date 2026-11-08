@@ -292,6 +292,21 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
 Composeの環境変数かCLIで指定します。設定名の対応は
 [設定・環境変数](fake-gcs-server-configuration.md)を参照してください。
 
+`GCS_MIMIC_*`の空の値は未設定とは扱わず、ほとんどの設定は起動時にエラーになります。
+変数の展開に失敗したときに、permissive認証のような既定値へ黙って戻らないようにするためです。
+Composeの`${VAR:-}`は空文字を渡します。
+シェルや`.env`で指定したときだけ渡すには、このリポジトリの`compose.yaml`のように、値を書かずに名前だけを書きます。
+
+```yaml
+    environment:
+      GCS_MIMIC_API_BASE_URL:
+```
+
+空の値に意味がある設定もあります。
+`GCS_MIMIC_LOCAL_CREATOR_EMAIL`はローカルの作成者の記録を無効にし、`GCS_MIMIC_DEFAULT_LOCATION`は`US`を使います。
+`GCS_MIMIC_ADMIN_ALLOWED_HOSTS`と`GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS`は一覧が空になり、`GCS_MIMIC_PUBSUB_EMULATOR_HOST`、`GCS_MIMIC_EVENT_PUBSUB_PROJECT_ID`、`GCS_MIMIC_EVENT_PUBSUB_TOPIC`、`GCS_MIMIC_EVENT_BUCKET`、`GCS_MIMIC_EVENT_OBJECT_PREFIX`は何も設定しません。
+`FAKE_GCS_*`はfake-gcs-serverと同じく、空の値を未設定として扱います。
+
 リクエスト本文を宣言したまま送信を止めたクライアントは、何も記録されないまま接続を使い続けます。
 `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`の既定値0では上限がなく、期限切れもログも起きないためです。
 該当するクライアントを見つけるには、例えば`30000`を設定します。その時間本文が届かないリクエストは
