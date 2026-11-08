@@ -47,7 +47,7 @@ For an absolute-form request target, its authority must exactly match the actual
 
 HEAD keeps the normal XML status and headers with no body. The documented status catalog supports these names/statuses, but precise messages, precedence and query-specific early/expiry mappings remain local choices in SPEC-SIGNING-EDGES; this is not a claim of complete provider wire parity.
 
-An out-of-range expiry answers, for example, `X-Goog-Expires must be a whole number of seconds from 1 to 604800.` Go storage signs a duration under one second as `X-Goog-Expires=0`, which a generic signing-parameter message would not explain. An empty or missing expiry keeps the generic message. Cloud Storage's answer to an out-of-range expiry is not recorded, so only the message differs from other malformed fields.
+An out-of-range expiry answers, for example, `X-Goog-Expires must be a whole number of seconds from 1 to 604800.` Go storage signs a duration under one second as `X-Goog-Expires=0`, which a generic signing-parameter message would not explain, so a zero value instead answers `X-Goog-Expires must be a whole number of seconds from 1 to 604800; 0 usually means the signer's expiry was less than one second away.` An empty or missing expiry keeps the generic message. Cloud Storage's answer to an out-of-range expiry is not recorded, so only the message differs from other malformed fields.
 
 ## Local helper
 

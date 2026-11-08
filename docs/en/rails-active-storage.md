@@ -202,8 +202,9 @@ docker run --rm ghcr.io/shiroemons/gcs-mimic:IMAGE_TAG test-signer credentials \
 ```
 
 Use a tag newer than 0.13.0, which lacks the command, and read the file as in
-the [signer's `storage.yml` example](signed-urls.md#built-in-test-signer). Its private key is public,
-so anyone can authenticate as it; use it only for local tests. The same
+the [signer's `storage.yml` example](signed-urls.md#built-in-test-signer). Its
+private key is public, so anyone can authenticate as it; use it only for local
+tests. The same
 credentials let permissive mode check Rails' signed URLs with
 `GCS_MIMIC_SIGNED_URLS=verify`; a key generated at boot is unknown to the
 emulator there, so its URLs fail with `InvalidAccessKeyId`.

@@ -68,8 +68,8 @@ JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書�
 呼び出し元は自分が接続したアドレスを受け取るので、ホスト側のポートが何番でも、ホストと別のコンテナが1台のサーバーを共有できます。
 そのために`GCS_MIMIC_API_BASE_URL`を指定する必要はありません。
 公開URLや署名URLは、引き続き受け取るクライアントから到達できるアドレスで作ります。
-Go storageは署名するときに既定以外のポートを落とすため、`localhost:4443`向けの署名URLは403 `SignatureDoesNotMatch`になります。
-ワークツリーごとに別のポートを公開するなど既定のポートを使えない場合は、署名を検証する構成（strictモード、または`GCS_MIMIC_SIGNED_URLS=verify`）で`GCS_MIMIC_SIGNED_HOST_PORT=lenient`を設定します。署名を検証しない構成で指定すると、効果がないため起動時にエラーになります（[署名URL](../en/signed-urls.md)、英語）。
+Go storageは署名するときに既定以外のポートを落とします。既定のpermissiveのサーバーは署名を検証しないため、`localhost:4443`向けのこうした署名URLもそのまま使えます。
+署名を検証するサーバー（strictモード、または`GCS_MIMIC_SIGNED_URLS=verify`）では403 `SignatureDoesNotMatch`になるため、ワークツリーごとに別のポートを公開するなど既定のポートを使えない場合は`GCS_MIMIC_SIGNED_HOST_PORT=lenient`を設定します。署名を検証しない構成で指定すると、効果がないため起動時にエラーになります（[署名URL](../en/signed-urls.md)、英語）。
 
 すべての呼び出し元に同じアドレスを返したいときは、`GCS_MIMIC_API_BASE_URL`で固定します。
 `Forwarded`と`X-Forwarded-*`は無視するので、Hostを書き換えるリバースプロキシでは指定が必要です。
@@ -269,6 +269,7 @@ fake-gcs-serverのように、ルールのないバケットのXML・公開URL�
 
 既定では、署名を検証せずに署名付きURLを受け付けます。permissiveのまま、変更・期限切れ・未知の鍵の署名付きリクエストを拒否するには、
 `GCS_MIMIC_SIGNED_URLS=verify`を追加します（[permissiveでの署名検証](../en/signed-urls.md#verifying-signed-requests-in-permissive-mode)、英語）。
+この設定は`Authorization`ヘッダーの署名とPOSTポリシーも対象にするため、適当なHMACキーで署名するS3互換クライアントは拒否されます。
 この構成では組み込みのテスト署名者を受け付けます。イメージにはリポジトリが含まれないため、公開済みの鍵はイメージ自身がサービスアカウントの鍵ファイルとして出力します。
 
 ```sh

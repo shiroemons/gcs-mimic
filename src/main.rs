@@ -112,7 +112,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
   --signed-host-port MODE      exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
   --identity-file PATH         none (JSON identity registry, at most 16 MiB; strict mode, or only id and public_keys with --signed-urls verify)
-  --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; permissive verify checks signed XML requests, then grants permissive access)
+  --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; covers signed URLs, V2/V4/AWS4 Authorization headers and POST policies; permissive verify rejects bad or unknown-key signatures, such as S3 clients' made-up HMAC keys, then grants permissive access)
   --test-signer MODE           enabled with permissive --signed-urls verify, else disabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; enabled needs signatures to verify; local tests only)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
@@ -1027,7 +1027,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "4977353babb530d1555d37a3f3d906512bbdd0f58231971d2c5241d108ca098f"
+            "d42160f0594eadd389ac4210e867b78b05e368f09ee96acd81fa4f9f24273429"
         );
     }
 

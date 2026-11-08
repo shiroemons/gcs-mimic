@@ -262,10 +262,12 @@ the canonical URL payload remains UNSIGNED-PAYLOAD. CORS grants no permission.
 The [trusted HTTPS Chromium journey](evidence/signed-browser.md) verifies actual
 signed PUT/GET/HEAD, exposed headers, CORS denials, strict errors and restart.
 
-Go storage v1.70.0 omits non-default ports from canonical Host, so its URLs for
-a host:port endpoint fail with 403 `SignatureDoesNotMatch`; when a signature
+Go storage v1.70.0 omits non-default ports from canonical Host. A server that
+verifies signatures, like the strict journey above, therefore rejects its URLs
+for a host:port endpoint with 403 `SignatureDoesNotMatch`; when a signature
 matches the request only without its port, the message says so and suggests
-`signed_host_port=lenient`. Prefer the helper
+`signed_host_port=lenient`. The default permissive server does not check
+signatures, so those URLs work there. Prefer the helper
 for local ports or expose a default-port endpoint. Where that is impractical,
 for example when every worktree publishes a different port, start a server that
 verifies signatures (strict mode, or permissive mode with `signed_urls=verify`;
@@ -354,7 +356,10 @@ verification that never happens.
 - **Strict mode by default or with `test_signer=disabled`**: there is no
   built-in signer. An identity file entry with its ID is an ordinary identity
   with only the file's own keys. Signatures made with the published key fail
-  with 403 `InvalidAccessKeyId` and its JWTs with 401.
+  with 403 `InvalidAccessKeyId`, whose message says that the built-in test
+  signer is disabled and names `test_signer=enabled` (or with 403
+  `SignatureDoesNotMatch` when that entry declares other `public_keys`), and its
+  JWTs with 401.
 - **Permissive mode** ignores signatures by default, so the signer is disabled.
   With `signed_urls=verify` the built-in key verifies them unless
   `test_signer=disabled`; see
@@ -411,10 +416,11 @@ url, err := storage.SignedURL("my-bucket", "my-object", &storage.SignedURLOption
 ```
 
 Go storage drops a non-default port from the Host it signs, so a URL for
-`localhost:4443` does not match the request's `Host: localhost:4443` and fails
-with 403 `SignatureDoesNotMatch`. Use a default-port endpoint, sign with
-`gcs-mimic url sign`, or set the separate setting `signed_host_port=lenient`,
-which tolerates the missing port.
+`localhost:4443` does not match the request's `Host: localhost:4443`. A server
+that verifies signatures, as one using the built-in signer does, rejects it with
+403 `SignatureDoesNotMatch`. Use a default-port endpoint, sign with
+`gcs-mimic url sign`, or set `signed_host_port=lenient`, which tolerates the
+missing port.
 
 Rails Active Storage takes the same credentials in `config/storage.yml`. Save
 the key in the app, for example with
@@ -541,6 +547,15 @@ enforces the policy conditions and expiration. With `signed_urls=verify` it
 verifies policy signatures and applies the `x-goog-date` window as strict mode
 does, without checking the signer's permissions.
 
+Uploads use the same streaming write path as XML PUT. Success returns 204 by
+default, an empty 200, a 201 `PostResponse` XML document with `Location`,
+`Bucket`, `Key` and `ETag`, or 303 to `success_action_redirect` (the redirect URL
+is used unchanged). Fields before the file have no limit on their number or
+individual size and share a total of 16 MiB, and custom metadata keeps its
+documented 8 KiB. Exact provider error wording, redirect query parameters and
+browser CORS for `POST /BUCKET` are not verified; see
+`compatibility/features.json` and [the policy variant evidence](slices/xml-post-policy-variants.md).
+
 ## Verifying signed requests in permissive mode
 
 By default, permissive mode accepts signed requests without checking their
@@ -553,7 +568,16 @@ query and header signatures, V4 query and header RSA and HMAC signatures,
 their `x-goog-date` window. Failures get the strict XML errors, such as 403
 `SignatureDoesNotMatch` for a changed request or header, 403
 `InvalidAccessKeyId` for an unknown key and 400 `ExpiredToken` after expiry;
-V2 expiry is checked too. The ready event reports `"signed_urls"`.
+V2 expiry is checked too. An `InvalidAccessKeyId` message names where this
+mode looks for keys, or says that the built-in test signer is disabled. The
+ready event reports `"signed_urls"`.
+
+Despite its name, the setting is not limited to signed URLs. It covers every
+signature the XML API accepts, including `Authorization` header signatures
+(`GOOG1`, `AWS`, `GOOG4-*` and `AWS4-HMAC-SHA256`) and POST policies. S3-style
+clients that sign with made-up HMAC keys, which the default accepts, are
+rejected with 403 `InvalidAccessKeyId` once `verify` is on; create HMAC keys
+through the JSON API for them, or keep the default.
 
 A verified signature then gets permissive access: no IAM or ACL check runs,
 because permissive mode does not authorize unsigned requests either, and a
@@ -582,12 +606,3 @@ gcs-mimic url sign --base-url http://localhost:4443 --bucket my-bucket \
 
 Strict mode always verifies: `signed_urls=verify` is accepted there, and
 `signed_urls=ignore` with `auth_mode=strict` fails startup.
-
-Uploads use the same streaming write path as XML PUT. Success returns 204 by
-default, an empty 200, a 201 `PostResponse` XML document with `Location`,
-`Bucket`, `Key` and `ETag`, or 303 to `success_action_redirect` (the redirect URL
-is used unchanged). Fields before the file have no limit on their number or
-individual size and share a total of 16 MiB, and custom metadata keeps its
-documented 8 KiB. Exact provider error wording, redirect query parameters and
-browser CORS for `POST /BUCKET` are not verified; see
-`compatibility/features.json` and [the policy variant evidence](slices/xml-post-policy-variants.md).

@@ -41577,7 +41577,7 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-001-VERIFY",
-          "description": "With signed_urls=verify, permissive mode verifies V2 query RSA/HMAC, V4 query and header RSA/HMAC, AWS4-HMAC-SHA256, signed aws-chunked uploads and V2/V4 POST policies with their x-goog-date window, using the built-in test signer, ACTIVE HMAC keys without identity entries and identity-file public keys. Changed, expired, header-changed and unknown-key requests get the strict XML errors (403 SignatureDoesNotMatch, 400 ExpiredToken, 403 InvalidAccessKeyId), including V2 expiry, and create nothing; verified requests succeed without any grant and return no caller; test_signer=disabled makes the built-in key unknown; unsigned and JSON requests are unchanged, and the default ignore keeps accepting unverifiable signatures.",
+          "description": "With signed_urls=verify, permissive mode verifies V2 query RSA/HMAC, V4 query and header RSA/HMAC, AWS4-HMAC-SHA256, signed aws-chunked uploads and V2/V4 POST policies with their x-goog-date window, using the built-in test signer, ACTIVE HMAC keys without identity entries and identity-file public keys. Changed, expired, header-changed and unknown-key requests get the strict XML errors (403 SignatureDoesNotMatch, 400 ExpiredToken, 403 InvalidAccessKeyId), including V2 expiry, and create nothing; an unknown key's message names identity file public_keys, HMAC keys created through the JSON API and the built-in test signer instead of a registered identity, and a disabled built-in signer's names test_signer=enabled; verified requests succeed without any grant and return no caller; test_signer=disabled makes the built-in key unknown; unsigned and JSON requests are unchanged, and the default ignore keeps accepting unverifiable signatures.",
           "result": "PASS",
           "test_ids": [
             "verified_signatures_get_permissive_access_without_any_grant",
@@ -41601,14 +41601,15 @@
         },
         {
           "id": "DESIGN-001-SELECTION",
-          "description": "auth_mode and signed_urls follow CLI > environment > JSON file > default precedence; unknown or miscased values, an empty identity_file, strict without identity_file, strict with an explicit signed_urls=ignore and identity_file with permissive unless signed_urls=verify fail before readiness, catalog creation or listener binding. A permissive identity file declaring project_roles, acl_entity, non-empty tokens or public_access_prevention_projects, or an identity without public_keys, fails with a diagnostic naming auth_mode=strict or public_keys; local_creator_email stays valid with it.",
+          "description": "auth_mode and signed_urls follow CLI > environment > JSON file > default precedence; unknown or miscased values, an empty identity_file, strict without identity_file, strict with an explicit signed_urls=ignore and identity_file with permissive unless signed_urls=verify fail before readiness, catalog creation or listener binding. A permissive identity file declaring project_roles, acl_entity, non-empty tokens or public_access_prevention_projects, or an identity without public_keys, fails with a diagnostic naming auth_mode=strict or public_keys; local_creator_email stays valid with it. Validation alone selects the profile that startup loads: settings that disagree, including signed_host_port=lenient or an explicit test_signer=enabled while signatures are ignored, leave no profile, and loading reports only identity file contents.",
           "result": "PASS",
           "test_ids": [
             "config::tests::authentication_profile_precedence_and_validation",
             "auth_http_startup_rejects_invalid_profiles_and_registries",
             "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
             "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
-            "startup_pairs_identity_files_and_signed_urls_with_the_profile"
+            "startup_pairs_identity_files_and_signed_urls_with_the_profile",
+            "config::tests::validation_selects_the_profile_only_for_agreeing_authentication_settings"
           ]
         }
       ],
@@ -41627,7 +41628,8 @@
         "auth::signing_keys::tests::load_selects_the_profile_and_its_signers",
         "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
         "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
-        "startup_pairs_identity_files_and_signed_urls_with_the_profile"
+        "startup_pairs_identity_files_and_signed_urls_with_the_profile",
+        "config::tests::validation_selects_the_profile_only_for_agreeing_authentication_settings"
       ],
       "verification": [
         {
@@ -41655,7 +41657,8 @@
             "auth::signing_keys::tests::load_selects_the_profile_and_its_signers",
             "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
             "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
-            "config::tests::authentication_profile_precedence_and_validation"
+            "config::tests::authentication_profile_precedence_and_validation",
+            "config::tests::validation_selects_the_profile_only_for_agreeing_authentication_settings"
           ]
         },
         {"command":"CARGO_BUILD_JOBS=4 cargo test --lib permissive_v4_ignores_shape","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::signature::tests::permissive_v4_ignores_shape_while_v2_retains_its_historical_validation"]},
@@ -45224,12 +45227,13 @@
         },
         {
           "id": "DESIGN-032-EXPIRES-MESSAGE",
-          "description": "A present, nonempty X-Goog-Expires or X-Amz-Expires that is not an ASCII-decimal integer from 1 to 604800 (0, 604801, -1, +60, 2^64, 1.5, 60s, abc) keeps 400 InvalidAuthentication, and its Message names the parameter of the request's algorithm and the range, as for the X-Goog-Expires=0 that Go storage signs for a duration under one second. A missing or empty expiry keeps the generic signing-parameter message. Cloud Storage's answer is not recorded, so status and code stay local; see docs/en/slices/signed-download.md.",
+          "description": "A present, nonempty X-Goog-Expires or X-Amz-Expires that is not an ASCII-decimal integer from 1 to 604800 (0, 604801, -1, +60, 2^64, 1.5, 60s, abc) keeps 400 InvalidAuthentication, and its Message names the parameter of the request's algorithm and the range, as for the X-Goog-Expires=0 that Go storage signs for a duration under one second. Only a zero value (0 or 00) adds that likely cause: the signer's expiry was less than one second away. A missing or empty expiry keeps the generic signing-parameter message. Cloud Storage's answer is not recorded, so status and code stay local; see docs/en/slices/signed-download.md.",
           "result": "PASS",
           "test_ids": [
             "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
             "auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm",
-            "signing::an_out_of_range_expiry_names_the_parameter_and_its_range"
+            "signing::an_out_of_range_expiry_names_the_parameter_and_its_range",
+            "xml::error_tests::signature_errors_explain_unknown_signers_and_a_zero_expiry"
           ]
         }
       ],
@@ -45238,9 +45242,21 @@
         "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm",
-        "signing::an_out_of_range_expiry_names_the_parameter_and_its_range"
+        "signing::an_out_of_range_expiry_names_the_parameter_and_its_range",
+        "xml::error_tests::signature_errors_explain_unknown_signers_and_a_zero_expiry"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib -- auth:: xml:: config::",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-request-verification.md",
+          "test_ids": [
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm",
+            "xml::error_tests::signature_errors_explain_unknown_signers_and_a_zero_expiry"
+          ]
+        },
         {"command":"cargo test --locked --lib auth::signature && cargo test --locked --test it_xml_auth signing::","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/slices/signed-download.md","test_ids":["auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected","auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm","signing::an_out_of_range_expiry_names_the_parameter_and_its_range"]},
         {
           "command": "cargo test --workspace --locked --offline",
