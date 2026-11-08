@@ -31,9 +31,10 @@ pub(crate) enum Resource {
 
 impl Resource {
     /// The resource a permission evaluated in `bucket` applies to: the object for object
-    /// operations, the bucket for listing and bucket operations.
+    /// operations, the bucket for listing and bucket operations, and a project for HMAC key
+    /// operations. An HMAC key belongs to a project, never to a bucket, and the bucket does not
+    /// tell which project, so that project stays unnamed.
     pub(crate) fn in_bucket(permission: Permission, bucket: &str) -> Self {
-        let bucket = bucket.into();
         match permission {
             Permission::ObjectsCreate
             | Permission::ObjectsDelete
@@ -46,7 +47,9 @@ impl Resource {
             | Permission::ObjectsSetIam
             | Permission::MultipartCreate
             | Permission::MultipartAbort
-            | Permission::MultipartListParts => Self::Object { bucket },
+            | Permission::MultipartListParts => Self::Object {
+                bucket: bucket.into(),
+            },
             Permission::BucketsCreate
             | Permission::BucketsDelete
             | Permission::BucketsGet
@@ -57,12 +60,12 @@ impl Resource {
             | Permission::BucketsSetIam
             | Permission::BucketsEnableObjectRetention
             | Permission::ObjectsList
-            | Permission::MultipartList
-            | Permission::HmacKeysCreate
+            | Permission::MultipartList => Self::Bucket(bucket.into()),
+            Permission::HmacKeysCreate
             | Permission::HmacKeysDelete
             | Permission::HmacKeysGet
             | Permission::HmacKeysList
-            | Permission::HmacKeysUpdate => Self::Bucket(bucket),
+            | Permission::HmacKeysUpdate => Self::Project(None),
         }
     }
 
@@ -255,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn every_permission_applies_to_a_bucket_or_an_object_in_a_bucket() {
+    fn every_permission_applies_to_a_bucket_an_object_in_it_or_a_project() {
         for permission in Permission::ALL {
             let resource = Resource::in_bucket(*permission, "b");
             let object = permission.as_str().starts_with("storage.objects.")
@@ -266,14 +269,48 @@ mod tests {
                         | Permission::MultipartAbort
                         | Permission::MultipartListParts
                 );
+            let expected = if permission.as_str().starts_with("storage.hmacKeys.") {
+                Resource::Project(None)
+            } else if object {
+                Resource::Object { bucket: "b".into() }
+            } else {
+                Resource::Bucket("b".into())
+            };
+            assert_eq!(resource, expected, "{permission}");
+        }
+    }
+
+    /// An HMAC key belongs to a project, so its refusal names the project in the message and
+    /// in the event, never the bucket the check happened to run in.
+    #[test]
+    fn hmac_key_refusals_name_the_project() {
+        let viewer = identity("viewer@example.invalid");
+        for permission in [
+            Permission::HmacKeysCreate,
+            Permission::HmacKeysDelete,
+            Permission::HmacKeysGet,
+            Permission::HmacKeysList,
+            Permission::HmacKeysUpdate,
+        ] {
+            let denied = Denied::new(
+                Some(&viewer),
+                permission,
+                Resource::in_bucket(permission, "bucket-a"),
+            );
             assert_eq!(
-                resource,
-                if object {
-                    Resource::Object { bucket: "b".into() }
-                } else {
-                    Resource::Bucket("b".into())
-                },
-                "{permission}"
+                denied.to_string(),
+                format!(
+                    "viewer@example.invalid does not have {permission} access to the Google Cloud project. Permission '{permission}' denied on resource (or it may not exist)."
+                )
+            );
+            assert_eq!(
+                serde_json::to_value(denied.event()).unwrap(),
+                serde_json::json!({
+                    "principal": "viewer@example.invalid",
+                    "anonymous": false,
+                    "permission": permission.as_str(),
+                    "resource": "project",
+                })
             );
         }
     }
