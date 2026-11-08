@@ -108,12 +108,31 @@ func TestEmulatorEndpoint(t *testing.T) {
 	}
 }
 
+// emulatorHTTPClient returns a client confined to one emulator origin that follows no redirects.
+func emulatorHTTPClient(t *testing.T, u *url.URL) *http.Client {
+	t.Helper()
+	transport := &http.Transport{TLSClientConfig: trustedEmulatorTLS(t), Proxy: nil, MaxConnsPerHost: 2, IdleConnTimeout: 5 * time.Second, ResponseHeaderTimeout: 5 * time.Second}
+	t.Cleanup(transport.CloseIdleConnections)
+	return &http.Client{
+		Transport:     emulatorTransport{endpoint: u, base: transport},
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
 func newEmulatorClient(t *testing.T) (context.Context, *storage.Client, *http.Client, *url.URL) {
 	t.Helper()
 	raw := os.Getenv("GCS_MIMIC_ENDPOINT")
 	if raw == "" {
 		t.Skip("GCS_MIMIC_ENDPOINT is unset; integration requires an explicit local emulator")
 	}
+	return newEmulatorHostClient(t, raw, storage.WithJSONReads())
+}
+
+// newEmulatorHostClient returns a client that reaches raw through STORAGE_EMULATOR_HOST and sends no
+// credentials, as the SDK's emulator path does.
+func newEmulatorHostClient(t *testing.T, raw string, opts ...option.ClientOption) (context.Context, *storage.Client, *http.Client, *url.URL) {
+	t.Helper()
 	u, err := emulatorEndpoint(raw, os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
 	if err != nil {
 		t.Fatal(err)
@@ -155,8 +174,9 @@ func newEmulatorClient(t *testing.T) (context.Context, *storage.Client, *http.Cl
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
-	client, err := storage.NewClient(ctx, storage.WithJSONReads(), storage.WithDisabledClientMetrics(),
-		option.WithoutAuthentication(), option.WithHTTPClient(httpClient))
+	opts = append([]option.ClientOption{storage.WithDisabledClientMetrics(), option.WithoutAuthentication(),
+		option.WithHTTPClient(httpClient)}, opts...)
+	client, err := storage.NewClient(ctx, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}

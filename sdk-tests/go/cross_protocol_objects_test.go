@@ -823,13 +823,7 @@ func strictCrossHTTP(t *testing.T) (*http.Client, *url.URL) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := &http.Transport{TLSClientConfig: trustedEmulatorTLS(t), Proxy: nil, MaxConnsPerHost: 2, IdleConnTimeout: 5 * time.Second, ResponseHeaderTimeout: 5 * time.Second}
-	t.Cleanup(transport.CloseIdleConnections)
-	return &http.Client{
-		Transport:     emulatorTransport{endpoint: u, base: transport},
-		Timeout:       10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}, u
+	return emulatorHTTPClient(t, u), u
 }
 
 func TestCrossProtocolObjectsStrict(t *testing.T) {

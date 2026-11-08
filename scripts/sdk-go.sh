@@ -42,6 +42,7 @@ export GCS_MIMIC_BINARY="$server"
 work=$(mktemp -d "${TMPDIR:-/tmp}/gcs-mimic-sdk-go.XXXXXX")
 pid=
 strict_pid=
+local_strict_pid=
 grpc_endpoint=
 strict_grpc_endpoint=
 tls_args=()
@@ -55,7 +56,7 @@ stop_server() {
 cleanup() {
   status=$?
   trap - EXIT
-  for server_pid in "$pid" "$strict_pid"; do
+  for server_pid in "$pid" "$strict_pid" "$local_strict_pid"; do
     if [[ -n $server_pid ]]; then
       if stop_server "$server_pid"; then :; else
         server_status=$?
@@ -64,7 +65,7 @@ cleanup() {
     fi
   done
   if [[ $status -ne 0 ]]; then
-    for log in "$work/server.log" "$work/strict-server.log"; do
+    for log in "$work/server.log" "$work/strict-server.log" "$work/local-strict-server.log"; do
       if [[ -f $log ]]; then
         echo "--- ${log##*/} ---" >&2
         sed -n '1,120p' "$log" >&2
@@ -96,32 +97,19 @@ case "$scheme" in
   *) echo 'GCS_MIMIC_SDK_SCHEME must be http or https' >&2; exit 1 ;;
 esac
 
-# Starts one isolated server, storing its PID and origin in the named variables. The PID is stored
-# before the readiness wait so the cleanup trap always stops a server that fails to become ready.
-# A port is selected only after the previous server listens, so both cannot receive the same port.
-# Arguments: PID variable, endpoint variable, log name, required ready-event auth_mode (empty for
-# any), extra serve arguments.
-start_server() {
-  # Local names must differ from the caller's variable names, or printf -v assigns the local.
-  local pid_var=$1 endpoint_var=$2 name=$3 auth_mode=$4 address grpc_address origin actual server_pid ready=false
-  shift 4
-  # Select the advertised origin before startup; bind failure remains fatal if the port is reused.
-  address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
-  if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
-  origin="$scheme://$address"
-  grpc_address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
-  if [[ ! $grpc_address =~ ^127\.0\.0\.1:[0-9]+$ || $grpc_address == "$address" ]]; then echo 'Invalid or duplicate gRPC loopback address; rerun to select distinct free ports' >&2; exit 1; fi
-  env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_STRICT_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS \
-    -u GCS_MIMIC_GO_TEST_RUN -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE \
-    -u GCS_MIMIC_GRPC_LISTEN -u GCS_MIMIC_GRPC_ENDPOINT -u GCS_MIMIC_STRICT_GRPC_ENDPOINT \
-    -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS \
-    -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY -u GCS_MIMIC_CA_CERT -u GCS_MIMIC_SDK_SCHEME \
-    -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT -u GCS_MIMIC_BINARY \
-    "$server" serve --scheme "$scheme" --listen "$address" --grpc-listen "$grpc_address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
-  server_pid=$!
-  printf -v "$pid_var" '%s' "$server_pid"
-  printf -v "$endpoint_var" '%s' "$origin"
-  if [[ $auth_mode == strict ]]; then strict_grpc_endpoint=$grpc_address; else grpc_endpoint=$grpc_address; fi
+# Each server starts without the harness's own GCS_MIMIC_ variables, which it would read as settings.
+server_env=(env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_STRICT_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS
+  -u GCS_MIMIC_GO_TEST_RUN -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE
+  -u GCS_MIMIC_GRPC_LISTEN -u GCS_MIMIC_GRPC_ENDPOINT -u GCS_MIMIC_STRICT_GRPC_ENDPOINT
+  -u GCS_MIMIC_LOCAL_STRICT_ENDPOINT -u GCS_MIMIC_TRUSTED_ENDPOINT
+  -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS
+  -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY -u GCS_MIMIC_CA_CERT -u GCS_MIMIC_SDK_SCHEME
+  -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT -u GCS_MIMIC_BINARY)
+
+# Waits until the server's ready event names its listen address and its readiness probe answers.
+# Arguments: PID, log name, listen address, origin, required ready-event auth_mode (empty for any).
+wait_for_ready() {
+  local server_pid=$1 name=$2 address=$3 origin=$4 auth_mode=$5 actual attempt
   for ((attempt = 0; attempt < 100; attempt++)); do
     if ! kill -0 "$server_pid" 2>/dev/null; then echo "Server exited before readiness: $name" >&2; exit 1; fi
     # A server whose ready event lacks the requested auth_mode must not pass as a strict server.
@@ -129,11 +117,70 @@ start_server() {
       'fromjson? | select(.event == "ready" and ($mode == "" or .auth_mode == $mode)) | .listen // empty' \
       "$work/$name")
     if [[ $actual == "$address" ]]; then
-      if "$server" healthcheck --url "$origin/_internal/ready" ${health_args[@]+"${health_args[@]}"} >/dev/null 2>&1; then ready=true; break; fi
+      if "$server" healthcheck --url "$origin/_internal/ready" ${health_args[@]+"${health_args[@]}"} >/dev/null 2>&1; then return 0; fi
     fi
     sleep 0.1
   done
-  if [[ $ready != true ]]; then echo "Server readiness timed out: $name" >&2; exit 1; fi
+  echo "Server readiness timed out: $name" >&2
+  exit 1
+}
+
+# Starts one isolated server, storing its PID and origin in the named variables. The PID is stored
+# before the readiness wait so the cleanup trap always stops a server that fails to become ready.
+# A port is selected only after the previous server listens, so both cannot receive the same port.
+# Arguments: PID variable, endpoint variable, log name, required ready-event auth_mode (empty for
+# any), extra serve arguments.
+start_server() {
+  # Local names must differ from the caller's variable names, or printf -v assigns the local.
+  local pid_var=$1 endpoint_var=$2 name=$3 auth_mode=$4 address grpc_address origin server_pid
+  shift 4
+  # Select the advertised origin before startup; bind failure remains fatal if the port is reused.
+  address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
+  if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
+  origin="$scheme://$address"
+  grpc_address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
+  if [[ ! $grpc_address =~ ^127\.0\.0\.1:[0-9]+$ || $grpc_address == "$address" ]]; then echo 'Invalid or duplicate gRPC loopback address; rerun to select distinct free ports' >&2; exit 1; fi
+  "${server_env[@]}" \
+    "$server" serve --scheme "$scheme" --listen "$address" --grpc-listen "$grpc_address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
+  server_pid=$!
+  printf -v "$pid_var" '%s' "$server_pid"
+  printf -v "$endpoint_var" '%s' "$origin"
+  if [[ $auth_mode == strict ]]; then strict_grpc_endpoint=$grpc_address; else grpc_endpoint=$grpc_address; fi
+  wait_for_ready "$server_pid" "$name" "$address" "$origin" "$auth_mode"
+}
+
+local_app=local-app@example.invalid
+local_strict_endpoint=
+trusted_endpoint=
+# Starts the Go suite's local-development server: strict mode with the built-in test signer,
+# signed_host_port=lenient and a trusted listener whose requests without credentials act as
+# local_app. Unlike start_server it fixes no API base URL, because links must follow each request's
+# Host for a resumable session started on the trusted listener to continue there, and it opens no
+# gRPC listener. The trusted listener binds port 0, so only its ready event reports the address.
+# Arguments: extra serve arguments.
+start_local_strict_server() {
+  local address origin trusted
+  address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
+  if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
+  origin="$scheme://$address"
+  "${server_env[@]}" \
+    "$server" serve --scheme "$scheme" --listen "$address" ${tls_args[@]+"${tls_args[@]}"} \
+    --auth-mode strict --test-signer enabled --signed-host-port lenient \
+    --trusted-listen 127.0.0.1:0 --trusted-principal "$local_app" "$@" >"$work/local-strict-server.log" 2>&1 &
+  local_strict_pid=$!
+  local_strict_endpoint=$origin
+  wait_for_ready "$local_strict_pid" local-strict-server.log "$address" "$origin" strict
+  # A server that ignored one of the settings must not pass as the local-development server.
+  trusted=$(jq -Rr --arg principal "$local_app" \
+    'fromjson? | select(.event == "ready" and .trusted_principal == $principal and .test_signer == "enabled" and .signed_host_port == "lenient") | .trusted_listen // empty' \
+    "$work/local-strict-server.log")
+  if [[ ! $trusted =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Ready event lacks the trusted listener, test signer or lenient host port' >&2; exit 1; fi
+  # The trusted listener speaks plain HTTP whatever the scheme.
+  trusted_endpoint="http://$trusted"
+  if ! "$server" healthcheck --url "$trusted_endpoint/_internal/ready" >/dev/null 2>&1; then
+    echo 'Trusted listener readiness probe failed' >&2
+    exit 1
+  fi
 }
 
 endpoint=
@@ -147,12 +194,22 @@ jq --rawfile key fixtures/signing/test-only-public.pem \
 start_server strict_pid strict_endpoint strict-server.log strict --data-dir "$work/strict-data" \
   --auth-mode strict --identity-file "$work/identities.json" \
   --xml-virtual-host-domains storage.example.invalid
+# The application identity has no token, so only the trusted listener acts as it. With the test
+# signer enabled, strict mode adds the published key to the signer's entry, whose role grants what
+# its signed GET and PUT URLs need.
+jq -n --arg app "$local_app" '{identities: [
+  {id: $app, tokens: [], project_roles: {"local-project": ["roles/storage.admin"]}},
+  {id: "test-signer@gcs-mimic.invalid", tokens: [], project_roles: {"local-project": ["roles/storage.objectUser"]}}]}' \
+  > "$work/local-identities.json"
+start_local_strict_server --data-dir "$work/local-strict-data" --identity-file "$work/local-identities.json"
 
 cd sdk-tests/go
 export GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint"
 export STORAGE_EMULATOR_HOST_GRPC="$grpc_endpoint" GCS_MIMIC_STRICT_GRPC_ENDPOINT="$strict_grpc_endpoint"
 GOTOOLCHAIN=auto go vet ./...
-GOTOOLCHAIN=auto go test -count=1 -v -run "${GCS_MIMIC_GO_TEST_RUN:-.}" ./...
+# Only the Go suite uses the local-development server, so the other suites keep their environment.
+GCS_MIMIC_LOCAL_STRICT_ENDPOINT="$local_strict_endpoint" GCS_MIMIC_TRUSTED_ENDPOINT="$trusted_endpoint" \
+  GOTOOLCHAIN=auto go test -count=1 -v -run "${GCS_MIMIC_GO_TEST_RUN:-.}" ./...
 
 if [[ $with_clients == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
   (cd "$root/go" && GOTOOLCHAIN=auto go test -race -tags integration ./...)

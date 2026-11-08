@@ -168,19 +168,10 @@ func listObjectNames(ctx context.Context, bucket *storage.BucketHandle) ([]strin
 	return nil, errors.New("object listing did not terminate")
 }
 
-// strictFixture creates an admin-owned bucket in the fixture project holding one object, and
-// removes both with the admin client after the test.
-func strictFixture(t *testing.T, label string) (context.Context, *storage.BucketHandle, *storage.ObjectAttrs, []byte) {
+// removeBucketAfterTest deletes the bucket and its live objects through its own client after the
+// test, so the client that created the bucket also cleans it up.
+func removeBucketAfterTest(t *testing.T, bucket *storage.BucketHandle) {
 	t.Helper()
-	ctx, admin := newStrictClient(t, strictAdminToken)
-	var nonce [8]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		t.Fatal(err)
-	}
-	bucket := admin.Bucket(fmt.Sprintf("sdk-go-strict-%s-%x", label, nonce))
-	if err := bucket.Create(ctx, strictProject, nil); err != nil {
-		t.Fatalf("admin create bucket: %v", err)
-	}
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -197,6 +188,22 @@ func strictFixture(t *testing.T, label string) (context.Context, *storage.Bucket
 			t.Errorf("cleanup bucket: %v", err)
 		}
 	})
+}
+
+// strictFixture creates an admin-owned bucket in the fixture project holding one object, and
+// removes both with the admin client after the test.
+func strictFixture(t *testing.T, label string) (context.Context, *storage.BucketHandle, *storage.ObjectAttrs, []byte) {
+	t.Helper()
+	ctx, admin := newStrictClient(t, strictAdminToken)
+	var nonce [8]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		t.Fatal(err)
+	}
+	bucket := admin.Bucket(fmt.Sprintf("sdk-go-strict-%s-%x", label, nonce))
+	if err := bucket.Create(ctx, strictProject, nil); err != nil {
+		t.Fatalf("admin create bucket: %v", err)
+	}
+	removeBucketAfterTest(t, bucket)
 	payload := []byte("strict fixture\x00\xff")
 	attrs, err := strictUpload(ctx, bucket.Object("dir/fixture.bin"), payload)
 	if err != nil {
