@@ -130,9 +130,10 @@ URL, so links follow each request's Host. The built-in
 `trusted-app@gcs-mimic.invalid` then acts for requests without credentials on the
 trusted listener with `roles/storage.admin`, and `test-signer@gcs-mimic.invalid`
 holds `roles/storage.objectUser`, both on the default seed project
-`local-project`; `signed_host_port` defaults to `lenient`. The runner reads the
-trusted address from the ready event, which must also report no identities, the
-built-in principal, the enabled signer and the lenient setting, and passes
+`local-project`; `signed_host_port` defaults to `lenient` for the test signer's
+own signatures. The runner reads the trusted address from the ready event, which
+must also report no identities, the built-in principal, the enabled signer and
+`signed_host_port` `lenient` with `signed_host_port_signers` `test-signer`, and passes
 `GCS_MIMIC_LOCAL_STRICT_ENDPOINT` and `GCS_MIMIC_TRUSTED_ENDPOINT` to `go test`
 only; the tests skip without them:
 

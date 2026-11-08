@@ -147,7 +147,7 @@ strict server for the Go suite the way the strict local recipe does, with
 `--test-signer enabled` and a trusted listener but no identity document and no
 `--signed-host-port`. Undeclared, the enabled `test-signer@gcs-mimic.invalid`
 holds `roles/storage.objectUser` on the default seed project `local-project`, and
-`signed_host_port` defaults to `lenient`.
+`signed_host_port` defaults to `lenient` for that signer's own signatures.
 The test runs `gcs-mimic test-signer credentials` and passes its `client_email`
 and `private_key` to an unmodified `storage.SignedURL` with
 `SigningSchemeV4`, `Hostname` set to the server's `127.0.0.1:PORT` and

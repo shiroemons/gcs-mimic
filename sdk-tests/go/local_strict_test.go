@@ -23,7 +23,7 @@ import (
 // trusted principal or host port setting. Requests without credentials on the trusted listener act
 // as the built-in trustedAppPrincipal, which holds roles/storage.admin on the default seed project,
 // strictProject, where the test signer holds roles/storage.objectUser. With the test signer enabled,
-// signed_host_port defaults to lenient.
+// signed_host_port defaults to lenient for that signer's own signatures.
 const (
 	trustedAppPrincipal = "trusted-app@gcs-mimic.invalid"
 	testSignerID        = "test-signer@gcs-mimic.invalid"
@@ -106,8 +106,8 @@ func requestStatus(t *testing.T, ctx context.Context, client *http.Client, metho
 }
 
 // SPEC-GO-SIGNER-PORT: the pinned SDK drops the explicit port from the Host it signs. Under the
-// signed_host_port=lenient default that the enabled test signer brings, its unmodified URLs for
-// host:port pass; every other signed part stays bound.
+// signed_host_port=lenient default that the enabled test signer brings for its own signatures, its
+// unmodified URLs for host:port pass; every other signed part stays bound.
 func TestBuiltInSignerURLsPassUnderLenientHostPort(t *testing.T) {
 	setup := newTrustedSetup(t, "signed")
 	signer, key := testSignerKey(t)
