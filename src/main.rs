@@ -368,15 +368,15 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     }
     // Load the registry before binding so a bad identity file never reaches readiness.
     let mut auth = Auth::permissive();
-    if report.valid(&["auth_mode", "identity_file", "test_signer", "signed_urls"]) {
-        match Auth::load(&report.config) {
-            Ok(loaded) => auth = loaded,
-            Err(error) => report.diagnostics.errors.push(Diagnostic::new(
-                DiagnosticSource::Identity,
-                "identity_file",
-                error.to_string(),
-            )),
-        }
+    match report.auth_profile().map(Auth::load) {
+        Some(Ok(loaded)) => auth = loaded,
+        Some(Err(error)) => report.diagnostics.errors.push(Diagnostic::new(
+            DiagnosticSource::Identity,
+            "identity_file",
+            error.to_string(),
+        )),
+        // Validation already reported why no profile was selected.
+        None => {}
     }
     if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
@@ -397,9 +397,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     if report.diagnostics.is_err() {
         return Err(report.diagnostics.into());
     }
-    auth = auth
-        .with_verifier_budget(report.config.max_blocking_threads)
-        .with_signed_host_port(report.config.signed_host_port);
+    auth = auth.with_verifier_budget(report.config.max_blocking_threads);
     report
         .diagnostics
         .warnings

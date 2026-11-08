@@ -43,8 +43,10 @@ impl SigningKeys {
 #[cfg(test)]
 mod tests {
     use crate::auth::{
-        Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner, test_signer,
+        Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner,
+        signature::SignedHostPort, test_signer,
     };
+    use crate::config::{AuthProfile, Verification};
     use serde_json::json;
 
     const PUBLIC: &str = include_str!("../../fixtures/signing/test-only-public.pem");
@@ -106,34 +108,45 @@ mod tests {
                 .to_string(),
         )
         .unwrap();
-        let load = |signed_urls, test_signer, identity_file: bool| {
-            Auth::load(&crate::config::Config {
-                signed_urls,
-                test_signer,
-                identity_file: identity_file.then(|| path.clone()),
-                ..Default::default()
-            })
-        };
-        let auth = load(None, None, false).unwrap();
+        let auth = Auth::load(&AuthProfile::Permissive).unwrap();
         assert!(matches!(auth.profile, Profile::Permissive));
         assert_eq!(auth.signed_urls(), SignedUrls::Ignore);
-        for (test_signer, identity_file, file_key, built_in) in [
-            (None, false, false, true),
-            (Some(TestSigner::Disabled), false, false, false),
-            (None, true, true, true),
-            (Some(TestSigner::Disabled), true, true, false),
+        for (test_signer, identity_file, signed_host_port) in [
+            (TestSigner::Enabled, false, SignedHostPort::Exact),
+            (TestSigner::Disabled, false, SignedHostPort::Lenient),
+            (TestSigner::Enabled, true, SignedHostPort::Lenient),
+            (TestSigner::Disabled, true, SignedHostPort::Exact),
         ] {
-            let auth = load(Some(SignedUrls::Verify), test_signer, identity_file).unwrap();
+            let auth = Auth::load(&AuthProfile::VerifyingPermissive {
+                identity_file: identity_file.then(|| path.clone()),
+                verification: Verification {
+                    test_signer,
+                    signed_host_port,
+                },
+            })
+            .unwrap();
             assert_eq!(auth.mode(), AuthMode::Permissive);
             assert_eq!(auth.signed_urls(), SignedUrls::Verify);
+            assert_eq!(auth.signed_host_port, signed_host_port);
             assert!(auth.principals().is_none() && auth.identity_count().is_none());
             let Profile::VerifyingPermissive(keys) = &auth.profile else {
                 panic!("permissive verification expected");
             };
-            assert_eq!(keys.contains("file@example.invalid"), file_key);
-            assert_eq!(keys.contains(test_signer::ID), built_in);
+            assert_eq!(keys.contains("file@example.invalid"), identity_file);
+            assert_eq!(
+                keys.contains(test_signer::ID),
+                test_signer == TestSigner::Enabled
+            );
         }
-        let ignored = load(Some(SignedUrls::Ignore), None, true).unwrap_err();
-        assert!(ignored.to_string().contains("signed_urls=verify"));
+        // Loading reports only identity file contents; the pairing rules belong to validation.
+        let error = Auth::load(&AuthProfile::Strict {
+            identity_file: path,
+            verification: Verification {
+                test_signer: TestSigner::Disabled,
+                signed_host_port: SignedHostPort::Lenient,
+            },
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("missing required field: tokens"));
     }
 }
