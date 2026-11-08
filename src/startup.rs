@@ -533,7 +533,7 @@ fn ready_event(
             }
             if let Some(listener) = &listeners.trusted {
                 event.trusted_listen = Some(listener.local_addr().map_err(|_| phase(DiagnosticSource::Listener, "trusted_listen", "Cannot inspect trusted listener address; check the local network environment."))?);
-                event.trusted_principal.clone_from(&config.trusted_principal);
+                event.trusted_principal = auth.trusted_principal().map(str::to_owned);
             }
             serde_json::to_string(&event)
             .map(|ready| (ready, api_base_url))

@@ -27,7 +27,7 @@ mod storage;
 mod test_support;
 #[cfg(test)]
 mod unix_tests;
-pub use auth::{AuthProfile, Verification};
+pub use auth::{AuthProfile, TrustedCaller, Verification};
 pub use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
 pub use runtime::RuntimeEndpoints;
@@ -1356,8 +1356,9 @@ impl ConfigurationReport {
     }
 
     /// The trusted listener only changes who a request without credentials acts as, which
-    /// matters only where strict mode judges anonymous requests, and either half of the pair
-    /// alone would claim an effect it does not have.
+    /// matters only where strict mode judges anonymous requests. Without `trusted_principal` it
+    /// acts as the built-in application identity, but a principal without the listener would
+    /// claim an effect it does not have.
     fn check_trusted_listener(&mut self, settings: &Settings) {
         self.check_trusted_allowed_hosts(settings);
         let listen = Setting::TrustedListen.as_str();
@@ -1373,10 +1374,9 @@ impl ConfigurationReport {
                     (name, format!("{name} requires auth_mode=strict; in permissive mode every request is already allowed, so a trusted listener changes nothing. Remove it or select strict mode."))
                 })
                 .to_vec(),
-            (AuthMode::Strict, (true, false)) => vec![(listen, "trusted_listen requires trusted_principal; set --trusted-principal to the registered identity that requests without credentials act as.".to_owned())],
             (AuthMode::Strict, (false, true)) => vec![(principal, "trusted_principal requires trusted_listen; set --trusted-listen IP:PORT for the application's servers or remove the setting.".to_owned())],
-            (AuthMode::Strict, (true, true)) if self.trusted_listen_collides() => vec![(listen, "trusted_listen must differ from listen, listen_http and grpc_listen; choose another port, for example 0.0.0.0:4444.".to_owned())],
-            // An invalid auth_mode was already reported, and a valid strict pair stays.
+            (AuthMode::Strict, (true, _)) if self.trusted_listen_collides() => vec![(listen, "trusted_listen must differ from listen, listen_http and grpc_listen; choose another port, for example 0.0.0.0:4444.".to_owned())],
+            // An invalid auth_mode was already reported, and a valid strict listener stays.
             (AuthMode::Permissive | AuthMode::Strict, _) => return,
         };
         for (name, fix) in rejected {
@@ -1689,7 +1689,7 @@ mod tests {
     }
 
     #[test]
-    fn a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address() {
+    fn a_trusted_listener_needs_strict_mode_and_its_own_address() {
         let strict = [
             "--auth-mode",
             "strict",
@@ -1747,12 +1747,17 @@ mod tests {
                 "--trusted-principal",
                 "requires auth_mode=strict",
             ),
-            (
-                with(&["--trusted-listen", "0.0.0.0:4444"]),
-                "--trusted-listen",
-                "requires trusted_principal",
-            ),
             (with(&app), "--trusted-principal", "requires trusted_listen"),
+            (
+                with(&[
+                    "--listen",
+                    "0.0.0.0:4443",
+                    "--trusted-listen",
+                    "0.0.0.0:4443",
+                ]),
+                "--trusted-listen",
+                "must differ from listen",
+            ),
             (
                 with(&["--trusted-listen", "gcs:4444", app[0], app[1]]),
                 "--trusted-listen",
@@ -1832,6 +1837,32 @@ mod tests {
             "unknown@example.invalid",
         ]))
         .unwrap();
+        // Without a principal the listener acts as the built-in application identity.
+        let alone = with(&["--trusted-listen", "0.0.0.0:4444"]);
+        let args: Vec<String> = alone.iter().map(|option| (*option).to_owned()).collect();
+        let report = Config::preflight(&args, &BTreeMap::new());
+        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        assert!(matches!(
+            report.auth_profile(),
+            Some(AuthProfile::Strict {
+                trusted: TrustedCaller::BuiltIn,
+                ..
+            })
+        ));
+        let report = Config::preflight(
+            &paired
+                .iter()
+                .map(|option| (*option).to_owned())
+                .collect::<Vec<_>>(),
+            &BTreeMap::new(),
+        );
+        assert!(matches!(
+            report.auth_profile(),
+            Some(AuthProfile::Strict {
+                trusted: TrustedCaller::Named(principal),
+                ..
+            }) if principal == "app@example.invalid"
+        ));
     }
 
     #[test]
@@ -2272,6 +2303,7 @@ mod tests {
             Some(AuthProfile::Strict {
                 identities: DocumentSource::File("ids.json".into()),
                 verification: verification(TestSigner::Enabled, None),
+                trusted: TrustedCaller::Anonymous,
             })
         );
         for args in [

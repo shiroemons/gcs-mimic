@@ -139,6 +139,73 @@ impl Fixture {
     }
 }
 
+/// Without `trusted_principal` the trusted listener acts as the built-in application identity,
+/// which manages the projects that the setup names and nothing else; no other listener reaches
+/// it, because it holds no token and no key.
+#[test]
+fn the_built_in_app_manages_the_setups_projects_only_on_the_trusted_listener() {
+    let config = TestDir::new();
+    let data = TestDir::new();
+    let identities = write_identities(&config.0, &identities());
+    let buckets = json!({"version":1,"project":"project-a","buckets":[{"name":"private-bucket"}]});
+    let server = common::process::Server::launch(
+        http_command(&data.0)
+            .args(strict_args(&identities))
+            .args(["--trusted-listen", "127.0.0.1:0"])
+            .env("GCS_MIMIC_BUCKETS", buckets.to_string()),
+    );
+    assert_eq!(
+        server.ready["trusted_principal"],
+        "trusted-app@gcs-mimic.invalid"
+    );
+    let fixture = Fixture {
+        trusted: server.ready["trusted_listen"].as_str().unwrap().to_owned(),
+        server,
+        _config: config,
+        _data: data,
+    };
+    let media =
+        "/upload/storage/v1/b/private-bucket/o?uploadType=media&projection=full&name=object.txt";
+    fixture.main("POST", media, "", b"from the app").expect(401);
+    let written = fixture
+        .trusted("POST", media, "", b"from the app")
+        .json_ok();
+    // It records itself as owner, as any identity does.
+    let owner = json!({"entity": "user-trusted-app@gcs-mimic.invalid", "role": "OWNER"});
+    assert!(
+        written["acl"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["entity"] == owner["entity"] && entry["role"] == owner["role"] }),
+        "{written}"
+    );
+    let read = format!("{PRIVATE}?alt=media");
+    fixture.main("GET", &read, "", b"").expect(401);
+    let reply = fixture.trusted("GET", &read, "", b"");
+    reply.expect(200);
+    assert_eq!(reply.body, b"from the app");
+    // Buckets in the document's project and the seed project only.
+    for (project, status) in [
+        ("project-a", 200),
+        ("local-project", 200),
+        ("unlisted-project", 403),
+    ] {
+        let resource = json!({"name": format!("app-{project}")}).to_string();
+        let path = format!("/storage/v1/b?project={project}");
+        fixture
+            .main("POST", &path, JSON, resource.as_bytes())
+            .expect(401);
+        fixture
+            .trusted("POST", &path, JSON, resource.as_bytes())
+            .expect(status);
+    }
+    // A presented credential still acts as itself on either listener.
+    fixture
+        .trusted("POST", media, OUTSIDER, b"outsider")
+        .expect(403);
+}
+
 fn part_statuses(reply: &Reply) -> Vec<String> {
     String::from_utf8_lossy(&reply.body)
         .lines()

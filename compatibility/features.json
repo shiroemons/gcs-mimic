@@ -56010,7 +56010,7 @@
       ],
       "source_checked_at": "2026-11-08",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (of the identity document, identity_file or identities, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
+      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (of the identity document, identity_file or identities, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as; without it, such a request acts as the built-in trusted-app@gcs-mimic.invalid, which holds roles/storage.admin in seed_project and in the projects the buckets document names and has no token or key, unless an identity document entry with that ID replaces the implicit grants. Both require auth_mode=strict and trusted_principal requires trusted_listen; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and the effective trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
       "dependencies": [
         "DESIGN-002",
         "DESIGN-004"
@@ -56020,13 +56020,27 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-101-CONFIG",
-          "description": "Both settings require auth_mode=strict and each other; trusted_listen is a numeric IP:port, port 0 allowed, rejected with unix_socket and when it equals listen, the scheme=both HTTP listener or grpc_listen at a nonzero port; trusted_principal uses the identity id format; trusted_allowed_hosts requires trusted_listen and holds up to 32 normalized DNS names without schemes, ports or wildcards; each failure names its setting; the help digest pins the option lines.",
+          "description": "Both settings require auth_mode=strict and trusted_principal requires trusted_listen, while trusted_listen alone selects the built-in application identity; trusted_listen is a numeric IP:port, port 0 allowed, rejected with unix_socket and when it equals listen, the scheme=both HTTP listener or grpc_listen at a nonzero port; trusted_principal uses the identity id format; trusted_allowed_hosts requires trusted_listen and holds up to 32 normalized DNS names without schemes, ports or wildcards; each failure names its setting; the help digest pins the option lines.",
           "result": "PASS",
           "test_ids": [
-            "config::tests::a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address",
+            "config::tests::a_trusted_listener_needs_strict_mode_and_its_own_address",
             "config::tests::trusted_allowed_hosts_need_the_listener_and_name_dns_hosts",
             "config::unix_tests::unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback",
             "help_output_keeps_its_exact_bytes"
+          ]
+        },
+        {
+          "id": "DESIGN-101-BUILT-IN-APP",
+          "description": "Without trusted_principal, requests without credentials on the trusted listener act as the built-in trusted-app@gcs-mimic.invalid, distinct from local-user@gcs-mimic.invalid and the test signer. It holds roles/storage.admin in the effective seed_project and in every project the buckets document (buckets_file or buckets) names, its top-level project and each entry's: through the trusted listener it reads and writes private buckets there and creates buckets in those projects only, getting 403 elsewhere, while the same requests without credentials on the main listener answer 401; it has no token and no key, objects it writes record it as owner and ACL OWNER, and a presented credential still acts as itself. An explicit trusted_principal is used instead and the built-in identity does not exist; an identity document entry with its ID replaces the implicit grants with its own roles, tokens and ACL entity, and an alias naming it fails startup. Ready reports the effective trusted_principal.",
+          "result": "PASS",
+          "test_ids": [
+            "the_built_in_app_manages_the_setups_projects_only_on_the_trusted_listener",
+            "config::auth::tests::the_trusted_listener_acts_as_the_built_in_app_in_the_setups_projects",
+            "config::auth::tests::a_declared_app_entry_replaces_the_implicit_grants",
+            "auth::built_in::tests::every_implicit_role_is_in_the_pinned_snapshot",
+            "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
+            "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
+            "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity"
           ]
         },
         {
@@ -56098,7 +56112,14 @@
         }
       ],
       "test_ids": [
-        "config::tests::a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address",
+        "config::tests::a_trusted_listener_needs_strict_mode_and_its_own_address",
+        "the_built_in_app_manages_the_setups_projects_only_on_the_trusted_listener",
+        "config::auth::tests::the_trusted_listener_acts_as_the_built_in_app_in_the_setups_projects",
+        "config::auth::tests::a_declared_app_entry_replaces_the_implicit_grants",
+        "auth::built_in::tests::every_implicit_role_is_in_the_pinned_snapshot",
+        "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
+        "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
+        "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity",
         "config::unix_tests::unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback",
         "help_output_keeps_its_exact_bytes",
         "auth::tests::the_trusted_listener_changes_only_requests_without_credentials",
@@ -56135,8 +56156,23 @@
           "verified_at": "2026-11-08",
           "artifact": "docs/en/evidence/trusted-listener.md",
           "test_ids": [
-            "config::tests::a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address",
+            "config::tests::a_trusted_listener_needs_strict_mode_and_its_own_address",
             "config::unix_tests::unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib -- config:: auth:: bucket_init; cargo test --locked --test it_xml_auth",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/slices/strict-auth.md",
+          "test_ids": [
+            "the_built_in_app_manages_the_setups_projects_only_on_the_trusted_listener",
+            "config::auth::tests::the_trusted_listener_acts_as_the_built_in_app_in_the_setups_projects",
+            "config::auth::tests::a_declared_app_entry_replaces_the_implicit_grants",
+            "auth::built_in::tests::every_implicit_role_is_in_the_pinned_snapshot",
+            "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
+            "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
+            "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity"
           ]
         },
         {

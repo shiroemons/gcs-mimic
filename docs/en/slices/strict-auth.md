@@ -172,9 +172,26 @@ without credentials. The checks run once per request the listener receives, so
 batch parts inherit their envelope's admission, and every response it sends
 carries `Cross-Origin-Resource-Policy: same-origin` and
 `X-Content-Type-Options: nosniff`. Both settings require
-strict mode and each other, and startup checks the principal against the loaded
-registry as it does `admin_principal`. gRPC has no trusted listener. See the
+strict mode, `trusted_principal` requires `trusted_listen`, and startup checks a
+named principal against the loaded registry as it does `admin_principal`. gRPC
+has no trusted listener. See the
 [Compose example and warnings](../container-usage.md#keep-private-buckets-private-with-a-trusted-listener).
+
+Without `trusted_principal`, the listener's requests without credentials act as
+the built-in application identity `trusted-app@gcs-mimic.invalid`, which differs
+from the permissive creator `local-user@gcs-mimic.invalid` and from the test
+signer. It holds `roles/storage.admin` in the effective `seed_project` and in
+every project the buckets document names (its top-level `project` and each
+entry's, from `buckets_file` or `buckets`), so the application's servers can
+read and write private buckets there and create buckets only in those projects;
+a bucket in any other project gets 403. Name an explicit identity with
+`trusted_principal` to cover other projects. The identity has no token and no
+key, so no request on the main listener can act as it, and objects it writes
+record it as owner like any identity. An identity document entry with its ID
+replaces the implicit grants with its own roles, tokens and ACL entity: an
+explicit declaration always wins. Its authority is only as private as the port:
+keep the trusted listener off published ports. The ready event reports the
+effective `trusted_principal`.
 
 ### Errors
 

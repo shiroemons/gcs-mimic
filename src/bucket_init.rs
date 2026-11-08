@@ -22,6 +22,7 @@ use serde::{
 };
 use serde_json::{Value, json, value::RawValue};
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
     path::Path,
@@ -1310,6 +1311,33 @@ pub(crate) fn load(
         DocumentSource::File(path) => check(&read_file(path, bucket_limit)?),
         DocumentSource::Inline(text) => check(text.as_bytes()),
     }
+}
+
+/// The projects that the document `source` names: its top-level `project` and each entry's.
+/// The built-in identities hold their implicit roles there. Startup validates the whole document
+/// before any bucket exists and fails on any error, so one that cannot be read or parsed here
+/// names no project instead of failing twice.
+pub(crate) fn named_projects(
+    source: &DocumentSource,
+    bucket_limit: Option<NonZeroUsize>,
+) -> BTreeSet<String> {
+    let read = match source {
+        DocumentSource::File(path) => read_file(path, bucket_limit).ok().map(Cow::Owned),
+        DocumentSource::Inline(text) => Some(Cow::Borrowed(text.as_bytes())),
+    };
+    let Some(document) = read.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()) else {
+        return BTreeSet::new();
+    };
+    let entries = document
+        .get("buckets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten();
+    std::iter::once(&document)
+        .chain(entries)
+        .filter_map(|object| object.get("project").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
 }
 
 fn read_file(file: &Path, bucket_limit: Option<NonZeroUsize>) -> Result<Vec<u8>, Diagnostics> {

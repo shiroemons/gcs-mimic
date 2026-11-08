@@ -46,8 +46,9 @@ mod tests {
         Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner, TestSignerChoice,
         signature::SignedHostPort, test_signer,
     };
-    use crate::config::{AuthProfile, DocumentSource, Verification};
+    use crate::config::{AuthProfile, DocumentSource, TrustedCaller, Verification};
     use serde_json::json;
+    use std::collections::BTreeSet;
 
     const PUBLIC: &str = include_str!("../../fixtures/signing/test-only-public.pem");
 
@@ -108,7 +109,7 @@ mod tests {
                 .to_string(),
         )
         .unwrap();
-        let auth = Auth::load(&AuthProfile::Permissive).unwrap();
+        let auth = Auth::load(&AuthProfile::Permissive, &BTreeSet::new()).unwrap();
         assert!(matches!(auth.profile, Profile::Permissive));
         assert_eq!(auth.signed_urls(), SignedUrls::Ignore);
         // An explicit host-port setting wins; without one, the settled signer selects it.
@@ -128,13 +129,16 @@ mod tests {
             (TestSigner::Enabled, true, None, SignedHostPort::Lenient),
             (TestSigner::Disabled, true, None, SignedHostPort::Exact),
         ] {
-            let auth = Auth::load(&AuthProfile::VerifyingPermissive {
-                identities: identity_file.then(|| DocumentSource::File(path.clone())),
-                verification: Verification {
-                    test_signer: TestSignerChoice::Fixed(test_signer),
-                    signed_host_port: configured,
+            let auth = Auth::load(
+                &AuthProfile::VerifyingPermissive {
+                    identities: identity_file.then(|| DocumentSource::File(path.clone())),
+                    verification: Verification {
+                        test_signer: TestSignerChoice::Fixed(test_signer),
+                        signed_host_port: configured,
+                    },
                 },
-            })
+                &BTreeSet::new(),
+            )
             .unwrap();
             assert_eq!(auth.mode(), AuthMode::Permissive);
             assert_eq!(auth.signed_urls(), SignedUrls::Verify);
@@ -151,13 +155,17 @@ mod tests {
             );
         }
         // Loading reports only identity file contents; the pairing rules belong to validation.
-        let error = Auth::load(&AuthProfile::Strict {
-            identities: DocumentSource::File(path),
-            verification: Verification {
-                test_signer: TestSignerChoice::Fixed(TestSigner::Disabled),
-                signed_host_port: Some(SignedHostPort::Lenient),
+        let error = Auth::load(
+            &AuthProfile::Strict {
+                identities: DocumentSource::File(path),
+                verification: Verification {
+                    test_signer: TestSignerChoice::Fixed(TestSigner::Disabled),
+                    signed_host_port: Some(SignedHostPort::Lenient),
+                },
+                trusted: TrustedCaller::Anonymous,
             },
-        })
+            &BTreeSet::new(),
+        )
         .unwrap_err();
         assert!(error.to_string().contains("missing required field: tokens"));
     }

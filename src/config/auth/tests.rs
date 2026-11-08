@@ -1,5 +1,5 @@
 use crate::{
-    auth::{TestSigner, signature::SignedHostPort, test_signer},
+    auth::{BUCKETS_CREATE, TRUSTED_APP_ID, TestSigner, signature::SignedHostPort, test_signer},
     config::{Config, ConfigurationReport},
     diagnostics::{Diagnostic, DiagnosticSource},
     test_support::TestDir,
@@ -324,6 +324,112 @@ fn the_host_port_is_lenient_by_default_where_the_test_signer_is_enabled() {
             .fix
             .contains("has no effect while signatures are ignored")
     );
+}
+
+/// Without `trusted_principal` the trusted listener acts as the built-in application identity,
+/// which manages the projects the setup names: the buckets document's and the seed project.
+#[test]
+fn the_trusted_listener_acts_as_the_built_in_app_in_the_setups_projects() {
+    let dir = TestDir::new();
+    let buckets = json!({"version":1,"project":"project-a","buckets":[
+        {"name":"a-bucket"},{"name":"b-bucket","project":"project-b"}]})
+    .to_string();
+    let buckets_file = dir.0.join("buckets.json");
+    std::fs::write(&buckets_file, &buckets).unwrap();
+    let app = |auth: &crate::auth::Auth| {
+        auth.principals()
+            .unwrap()
+            .iter()
+            .find(|identity| identity.id() == TRUSTED_APP_ID)
+            .cloned()
+    };
+    for (flag, value, _) in sources(&dir, &registry(false)) {
+        for bucket_args in [
+            ["--buckets", buckets.as_str()],
+            ["--buckets-file", buckets_file.to_str().unwrap()],
+        ] {
+            let mut args = vec!["--auth-mode", "strict", flag, value.as_str()];
+            args.extend(["--trusted-listen", "127.0.0.1:0"]);
+            args.extend(bucket_args);
+            let mut report = report(&args);
+            let auth = report.load_auth();
+            assert!(
+                !report.diagnostics.is_err(),
+                "{args:?}: {}",
+                report.diagnostics
+            );
+            assert_eq!(auth.trusted_principal(), Some(TRUSTED_APP_ID));
+            // The built-in identity is not one the document declares.
+            assert_eq!(auth.identity_count(), Some(1));
+            let app = app(&auth).unwrap();
+            for project in ["local-project", "project-a", "project-b"] {
+                assert!(app.allows(BUCKETS_CREATE, project), "{project}");
+            }
+            assert!(!app.allows(BUCKETS_CREATE, "other-project"));
+        }
+    }
+    // Without a buckets document the seed project is all the setup names.
+    let path = dir.0.join("identities.json");
+    let path = path.to_str().unwrap();
+    let mut seeded = report(&[
+        "--auth-mode",
+        "strict",
+        "--identity-file",
+        path,
+        "--trusted-listen",
+        "127.0.0.1:0",
+        "--seed-project",
+        "seeded-project",
+    ]);
+    let auth = seeded.load_auth();
+    let seeded_app = app(&auth).unwrap();
+    assert!(seeded_app.allows(BUCKETS_CREATE, "seeded-project"));
+    assert!(!seeded_app.allows(BUCKETS_CREATE, "local-project"));
+    // A named principal is used instead, and the built-in identity does not exist.
+    let mut named = report(&[
+        "--auth-mode",
+        "strict",
+        "--identity-file",
+        path,
+        "--trusted-listen",
+        "127.0.0.1:0",
+        "--trusted-principal",
+        "admin@example.invalid",
+    ]);
+    let auth = named.load_auth();
+    assert!(!named.diagnostics.is_err(), "{}", named.diagnostics);
+    assert_eq!(auth.trusted_principal(), Some("admin@example.invalid"));
+    assert!(app(&auth).is_none());
+}
+
+/// A declared entry for the application identity replaces the implicit grants.
+#[test]
+fn a_declared_app_entry_replaces_the_implicit_grants() {
+    let dir = TestDir::new();
+    let document = json!({"identities":[admin(), {"id": TRUSTED_APP_ID, "tokens": ["app-token"],
+        "project_roles": {"local-project": ["roles/storage.objectViewer"]}}]})
+    .to_string();
+    for (flag, value, _) in sources(&dir, &document) {
+        let mut report = report(&[
+            "--auth-mode",
+            "strict",
+            flag,
+            &value,
+            "--trusted-listen",
+            "127.0.0.1:0",
+        ]);
+        let auth = report.load_auth();
+        assert_eq!(auth.trusted_principal(), Some(TRUSTED_APP_ID));
+        assert_eq!(auth.identity_count(), Some(2));
+        let app = auth
+            .principals()
+            .unwrap()
+            .iter()
+            .find(|identity| identity.id() == TRUSTED_APP_ID)
+            .unwrap();
+        assert!(app.allows(crate::auth::OBJECTS_GET, "local-project"));
+        assert!(!app.allows(BUCKETS_CREATE, "local-project"));
+    }
 }
 
 #[test]

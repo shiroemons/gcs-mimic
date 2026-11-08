@@ -10,6 +10,9 @@
 
 mod acl_identity;
 pub(crate) use acl_identity::validate_local_creator_email;
+mod built_in;
+use built_in::BuiltIn;
+pub use built_in::TRUSTED_APP_ID;
 mod jwt;
 mod policy;
 pub(crate) mod policy_input;
@@ -29,7 +32,7 @@ pub mod test_signer;
 pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Policy};
 
-use crate::config::{AuthProfile, DocumentKind, DocumentSource, Form, Setting};
+use crate::config::{AuthProfile, DocumentKind, DocumentSource, Form, Setting, TrustedCaller};
 use hyper::{HeaderMap, header::AUTHORIZATION};
 use serde_json::Value;
 use std::{
@@ -153,6 +156,19 @@ impl ProjectGrant {
     fn grant(&mut self, permission: Permission) {
         self.any_storage_permission = true;
         self.permissions.insert(permission);
+    }
+
+    /// Adds what the predefined `role` grants; `None` for a role outside the pinned snapshot.
+    fn add_role(&mut self, role: &str) -> Option<()> {
+        let expanded = roles::permissions(role)?;
+        self.any_storage_permission |= !expanded.is_empty();
+        for permission in Permission::ALL {
+            if expanded.contains(&permission.as_str()) {
+                self.grant(*permission);
+            }
+        }
+        self.explicit_storage_admin |= role == "roles/storage.admin";
+        Some(())
     }
 }
 
@@ -708,13 +724,21 @@ impl Registry {
     fn load_principals(
         source: &DocumentSource,
         signer: TestSignerChoice,
+        trusted: &TrustedCaller,
+        projects: &BTreeSet<String>,
     ) -> Result<(Self, TestSigner), IdentityError> {
         let load = || {
             let mut registry = Self::parse(&read_identities(source)?)?;
-            let signer = signer.settle(|| registry.ids.contains_key(test_signer::ID));
+            let signer = signer.settle(|| registry.declares(test_signer::ID));
             match signer {
                 TestSigner::Enabled => registry.add_test_signer()?,
                 TestSigner::Disabled => {}
+            }
+            // A named principal must be registered, which the principal checks after loading
+            // report against the settings; only the built-in one is added here.
+            match trusted {
+                TrustedCaller::BuiltIn => registry.trust_built_in_app(projects)?,
+                TrustedCaller::Anonymous | TrustedCaller::Named(_) => {}
             }
             Ok((registry, signer))
         };
@@ -898,27 +922,13 @@ impl Registry {
         Ok(())
     }
 
-    /// Adds the built-in test signer's public key. An entry the file declares with its ID keeps
-    /// its tokens, project roles and ACL entity; otherwise the signer exists without project
+    /// Adds the built-in test signer's public key. An entry the document declares with its ID
+    /// keeps its tokens, project roles and ACL entity; otherwise the signer exists without project
     /// roles, so only bucket or object grants authorize it.
     fn add_test_signer(&mut self) -> Result<(), RegistryError> {
-        let id = test_signer::ID;
-        if !self.ids.contains_key(id) {
-            self.ids.insert(id.to_owned(), self.identities.len());
-            self.identities.push(Identity {
-                id: id.to_owned(),
-                acl_entity: None,
-                projects: Arc::default(),
-            });
-            // The file's own aliases were already validated, so a collision involves this signer.
-            acl_identity::validate_aliases(&self.identities).map_err(|_| RegistryError::Invalid {
-                entry: None,
-                reason: format!(
-                    "another identity's id or acl_entity names the built-in test signer {id}; declare {id} itself or set test_signer=disabled"
-                ),
-            })?;
-        }
-        self.signing_keys.add(id, test_signer::public_key());
+        self.add_built_in(BuiltIn::TestSigner, &BTreeSet::new())?;
+        self.signing_keys
+            .add(test_signer::ID, test_signer::public_key());
         Ok(())
     }
 
@@ -1036,18 +1046,11 @@ fn parse_project_roles(
             if !names.insert(role) {
                 return Err(error(format!("project {project:?}: duplicate role {role}")));
             }
-            let expanded = roles::permissions(role).ok_or_else(|| {
+            granted.add_role(role).ok_or_else(|| {
                 error(format!(
                     "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
                 ))
             })?;
-            granted.any_storage_permission |= !expanded.is_empty();
-            for permission in Permission::ALL {
-                if expanded.contains(&permission.as_str()) {
-                    granted.grant(*permission);
-                }
-            }
-            granted.explicit_storage_admin |= role == "roles/storage.admin";
         }
     }
     Ok(permissions)
@@ -1120,7 +1123,13 @@ impl Auth {
     /// once and adding the built-in test signer when the profile's choice settles to enabled.
     /// Validation owns the pairing rules and selects that choice; only the document's contents
     /// can fail here, and only whether it declares the signer can settle the choice.
-    pub fn load(profile: &AuthProfile) -> Result<Self, IdentityError> {
+    ///
+    /// `implicit_projects` are the projects where a built-in identity that the document does not
+    /// declare holds its implicit role.
+    pub fn load(
+        profile: &AuthProfile,
+        implicit_projects: &BTreeSet<String>,
+    ) -> Result<Self, IdentityError> {
         let (profile, test_signer, verification) = match profile {
             AuthProfile::Permissive => return Ok(Self::permissive()),
             AuthProfile::VerifyingPermissive {
@@ -1134,9 +1143,14 @@ impl Auth {
             AuthProfile::Strict {
                 identities,
                 verification,
+                trusted,
             } => {
-                let (registry, signer) =
-                    Registry::load_principals(identities, verification.test_signer)?;
+                let (registry, signer) = Registry::load_principals(
+                    identities,
+                    verification.test_signer,
+                    trusted,
+                    implicit_projects,
+                )?;
                 (Profile::Strict(registry), signer, verification)
             }
         };
@@ -1153,6 +1167,13 @@ impl Auth {
     /// Whether the built-in test signer exists, as loading settled it.
     pub fn test_signer(&self) -> TestSigner {
         self.test_signer
+    }
+
+    /// The identity that requests without credentials on the trusted listener act as, named by
+    /// `trusted_principal` or built in.
+    pub fn trusted_principal(&self) -> Option<&str> {
+        let registry = self.registry()?;
+        registry.identities.get(registry.trusted?).map(Identity::id)
     }
 
     /// Whether V4 verification also accepts a canonical host without the request's port, after
@@ -2298,9 +2319,14 @@ mod tests {
                 (DocumentSource::File(path), "identity_file: "),
                 (DocumentSource::Inline(document), "identities: "),
             ] {
-                let error = Registry::load_principals(&source, TestSignerChoice::WhenDeclared)
-                    .unwrap_err()
-                    .to_string();
+                let error = Registry::load_principals(
+                    &source,
+                    TestSignerChoice::WhenDeclared,
+                    &TrustedCaller::Anonymous,
+                    &BTreeSet::new(),
+                )
+                .unwrap_err()
+                .to_string();
                 assert!(error.starts_with(setting), "{case}: {error}");
                 assert!(
                     !error.contains("\"t\""),
@@ -2393,8 +2419,13 @@ mod tests {
         let limit = usize::try_from(MAX_REGISTRY_BYTES).unwrap();
         document.push_str(&" ".repeat(limit - document.len()));
         let load = |source: &DocumentSource| {
-            Registry::load_principals(source, TestSignerChoice::WhenDeclared)
-                .map(|(registry, _)| registry)
+            Registry::load_principals(
+                source,
+                TestSignerChoice::WhenDeclared,
+                &TrustedCaller::Anonymous,
+                &BTreeSet::new(),
+            )
+            .map(|(registry, _)| registry)
         };
         std::fs::write(&path, &document).unwrap();
         let file = DocumentSource::File(path.clone());

@@ -6,10 +6,10 @@ use super::{
     Setting, Settings,
 };
 use crate::auth::{
-    Auth, AuthMode, SignedUrls, TestSigner, TestSignerChoice, TrustedPrincipalError,
-    signature::SignedHostPort, test_signer,
+    Auth, AuthMode, SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice,
+    TrustedPrincipalError, signature::SignedHostPort, test_signer,
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::BTreeSet};
 
 /// What a profile that verifies signatures needs besides its identity document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,6 +18,28 @@ pub struct Verification {
     /// The explicit `signed_host_port`; loading applies the default that the settled test signer
     /// selects, with [`SignedHostPort::resolve`].
     pub signed_host_port: Option<SignedHostPort>,
+}
+
+/// Who a request without credentials on the trusted listener acts as.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrustedCaller {
+    /// No trusted listener, so every such request is anonymous.
+    Anonymous,
+    /// The registered identity that `trusted_principal` names; the principal checks after
+    /// loading confirm that it is registered.
+    Named(String),
+    /// The built-in application identity, when `trusted_listen` names no principal.
+    BuiltIn,
+}
+
+impl TrustedCaller {
+    fn select(config: &Config) -> Self {
+        match (config.trusted_listen, &config.trusted_principal) {
+            (None, _) => Self::Anonymous,
+            (Some(_), Some(principal)) => Self::Named(principal.clone()),
+            (Some(_), None) => Self::BuiltIn,
+        }
+    }
 }
 
 /// Only valid pairings of `auth_mode`, `signed_urls` and the identity document exist as values,
@@ -35,6 +57,7 @@ pub enum AuthProfile {
     Strict {
         identities: DocumentSource,
         verification: Verification,
+        trusted: TrustedCaller,
     },
 }
 
@@ -159,6 +182,7 @@ impl AuthProfile {
                 Ok(Self::Strict {
                     identities: identities.clone(),
                     verification,
+                    trusted: TrustedCaller::select(config),
                 })
             }
             (AuthMode::Strict, None | Some(SignedUrls::Verify), None) => {
@@ -241,12 +265,26 @@ impl ConfigurationReport {
         let Some(profile) = &self.auth_profile else {
             return Auth::permissive();
         };
-        // Only a strict registry has principals for a setting to name.
-        let registry = match profile {
-            AuthProfile::Strict { identities, .. } => Some(identities.form()),
-            AuthProfile::Permissive | AuthProfile::VerifyingPermissive { .. } => None,
+        // Only a strict registry has principals for a setting to name, and built-in identities
+        // with implicit roles.
+        let (registry, implicit_projects) = match profile {
+            AuthProfile::Strict {
+                identities,
+                trusted,
+                ..
+            } => {
+                // Only implicit roles need the buckets document, so nothing else reads it here.
+                let projects = match trusted {
+                    TrustedCaller::BuiltIn => self.config.implicit_projects(),
+                    TrustedCaller::Anonymous | TrustedCaller::Named(_) => BTreeSet::new(),
+                };
+                (Some(identities.form()), projects)
+            }
+            AuthProfile::Permissive | AuthProfile::VerifyingPermissive { .. } => {
+                (None, BTreeSet::new())
+            }
         };
-        match Auth::load(profile) {
+        match Auth::load(profile, &implicit_projects) {
             Ok(mut auth) => {
                 if let Some(form) = registry {
                     let registry = DocumentKind::Identities.setting(form);
@@ -329,11 +367,26 @@ impl ConfigurationReport {
                     DiagnosticSource::Identity,
                     Setting::TrustedPrincipal.as_str(),
                     format!(
-                        "trusted_principal {principal:?} is not an id in {registry}; use one of its identities, or the built-in test signer with test_signer=enabled."
+                        "trusted_principal {principal:?} is not an id in {registry}; use one of its identities, the built-in test signer with test_signer=enabled, or omit trusted_principal to act as the built-in {TRUSTED_APP_ID}."
                     ),
                 )),
             }
         }
+    }
+}
+
+impl Config {
+    /// Where the built-in identities hold their implicit roles: the effective `seed_project`
+    /// and every project the buckets document names, so that the application can manage the
+    /// buckets its own setup declares and nothing else.
+    fn implicit_projects(&self) -> BTreeSet<String> {
+        let mut projects = self
+            .buckets
+            .as_ref()
+            .map(|source| crate::bucket_init::named_projects(source, self.max_buckets_per_batch))
+            .unwrap_or_default();
+        projects.insert(self.seed_project.clone());
+        projects
     }
 }
 
