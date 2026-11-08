@@ -62,6 +62,12 @@ gcs_emulator_strict_browser:
   public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")) %>
   cache_control: "public, max-age=3600"
 
+# A bucket whose policy grants allUsers read; Rails hands out unsigned URLs for it.
+gcs_emulator_strict_public:
+  <<: *gcs_emulator_strict
+  bucket: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_BUCKET", "local-public-bucket") %>
+  public: true
+
 # The documented recipe for the built-in test signer of a server started with test_signer=enabled.
 # The key is the one `gcs-mimic test-signer credentials` prints; strict mode registers it itself.
 gcs_emulator_test_signer: &gcs_emulator_test_signer
@@ -78,3 +84,8 @@ gcs_emulator_test_signer_browser:
   service: EmulatorGcs
   public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")) %>
   cache_control: "public, max-age=3600"
+
+gcs_emulator_test_signer_public:
+  <<: *gcs_emulator_test_signer
+  bucket: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_BUCKET", "local-public-bucket") %>
+  public: true

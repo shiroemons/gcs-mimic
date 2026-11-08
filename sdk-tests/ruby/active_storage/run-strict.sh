@@ -66,10 +66,15 @@ run_variant registered-key gcs_emulator_strict "$work/identities.json"
 
 # The built-in test signer with the documented Rails recipe: the key comes from
 # `gcs-mimic test-signer credentials`, and the identity file declares the signer with project roles
-# but no keys, because enabling the signer adds its published key. The server reads only GCS_MIMIC_
-# and FAKE_GCS_ variables, so the key path for storage.yml uses another prefix.
+# but no keys, because enabling the signer adds its published key. The signer holds only
+# roles/storage.objectUser, as in examples/strict-local, because anyone can sign with its key; that
+# role cannot create buckets, so the server's buckets file creates them, as the recipe's does. The
+# server reads only GCS_MIMIC_ and FAKE_GCS_ variables, so the settings for storage.yml and
+# strict.rb use another prefix.
 "$binary" test-signer credentials | jq -r .private_key >"$work/test-signer.pem"
-jq -n '{identities:[{id:"test-signer@gcs-mimic.invalid",tokens:[],project_roles:{"local-project":["roles/storage.admin"]}}]}' \
+jq -n '{identities:[{id:"test-signer@gcs-mimic.invalid",tokens:[],project_roles:{"local-project":["roles/storage.objectUser"]}}]}' \
   >"$work/test-signer-identities.json"
 export GCS_EMULATOR_TEST_SIGNER_KEY="$work/test-signer.pem"
-run_variant test-signer gcs_emulator_test_signer "$work/test-signer-identities.json" --test-signer enabled
+export GCS_EMULATOR_BUCKET=app-private GCS_EMULATOR_PUBLIC_BUCKET=app-public
+run_variant test-signer-object-user gcs_emulator_test_signer "$work/test-signer-identities.json" \
+  --test-signer enabled --buckets-file sdk-tests/ruby/active_storage/strict-buckets.json
