@@ -355,6 +355,107 @@ modes and grants no API permissions beyond the policy an entry writes. CORS
 applies to XML; JSON uses its fixed defaults.
 See the [schema, limits and ready counts](slices/bucket-initialization.md).
 
+## Keep private buckets private with a trusted listener
+
+In strict mode a request without credentials is anonymous, so only `allUsers`
+grants authorize it. That is what a browser should get: a page reads public
+buckets and reaches private ones only through signed URLs. The application's
+own servers usually send no credentials to an emulator either (Go storage with
+`STORAGE_EMULATOR_HOST`, or an HTTP client that starts resumable uploads), so
+they would be anonymous too. A trusted listener gives those servers a port of
+their own, and their code stays unchanged:
+
+- A request without credentials on the trusted listener acts as
+  `trusted_principal`, a registered identity. It then passes the same IAM, ACL
+  and public access prevention checks as a request presenting that identity's
+  token, and the objects it writes record that identity as owner.
+- A request that carries credentials (a bearer token, a self-signed JWT, signed
+  URL parameters, a signature `Authorization` header or a POST policy)
+  authenticates exactly as on the main listener. Invalid credentials fail and
+  never fall back to the principal. The
+  [Rails Active Storage recipe](rails-active-storage.md) always sends its own
+  token, so it still needs that token's signer registered.
+- A request with any `Origin` header, or a `Sec-Fetch-Site` other than `none`,
+  gets 403 before routing. Server-side clients send neither header.
+- It serves every route of the main listener: JSON, XML, uploads, batch requests
+  and `/_internal`. Management still requires `admin_principal`, so it works there
+  without a token only when `trusted_principal` names that identity. gRPC has no
+  trusted listener.
+- It speaks plain HTTP whatever `scheme` selects, because it is meant for a
+  private container network, and it shares `max_connections` and every timeout
+  with the other listeners. Unless `GCS_MIMIC_API_BASE_URL` fixes one address,
+  links that the API returns follow the Host of each request, so a resumable
+  session started through `gcs:4444` continues there.
+
+Set `GCS_MIMIC_TRUSTED_LISTEN` (`--trusted-listen`, JSON `trusted_listen`) and
+`GCS_MIMIC_TRUSTED_PRINCIPAL` (`--trusted-principal`, JSON `trusted_principal`)
+together. Startup fails when one appears without the other, in permissive mode
+(where every request is already allowed), with `unix_socket`, when the address
+equals another listener's, and when the principal is neither an identity of the
+identity file nor the built-in test signer with `test_signer=enabled`. The ready
+event reports the bound `trusted_listen` and the `trusted_principal`.
+
+> [!WARNING]
+> Never publish the trusted port or bind it on a network that other people or
+> machines share. Anything that reaches it acts as `trusted_principal` without
+> credentials. The browser check refuses pages, not other programs, and browsers
+> send `Sec-Fetch-Site` only to loopback and HTTPS addresses and no `Origin` for
+> a plain link or image, so it does not catch every browser request either.
+
+The server does not warn about a wildcard trusted address: inside a container
+the listener must bind `0.0.0.0` for other containers to reach it, so a warning
+would fire on every start. Keeping the port off `ports:` is the protection. In
+this example the application containers use the trusted listener, the browser
+uses the published main listener, and Compose writes the identity file inline
+(inline `content` needs Docker Compose 2.23.1 or later; see the
+[bucket file example](fake-gcs-server-migration.md#bucket-file-inside-composeyaml)):
+
+```yaml
+services:
+  gcs:
+    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    ports:
+      # The browser-facing listener only; port 4444 is never published.
+      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
+    environment:
+      GCS_MIMIC_SCHEME: http
+      GCS_MIMIC_AUTH_MODE: strict
+      GCS_MIMIC_IDENTITY_FILE: /etc/gcs-mimic/identities.json
+      GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
+      GCS_MIMIC_TRUSTED_PRINCIPAL: app@example.invalid
+    configs:
+      - source: gcs_identities
+        target: /etc/gcs-mimic/identities.json
+    volumes:
+      - gcs-data:/var/lib/gcs-mimic
+  app:
+    build: .
+    environment:
+      STORAGE_EMULATOR_HOST: gcs:4444
+    depends_on:
+      gcs:
+        condition: service_healthy
+configs:
+  gcs_identities:
+    content: |
+      {"identities": [
+        {"id": "app@example.invalid", "tokens": [],
+         "project_roles": {"local-project": ["roles/storage.admin"]}}
+      ]}
+volumes:
+  gcs-data:
+```
+
+The identity needs no token, because the application never presents one; give
+it only the roles the application needs. Pages then use
+`http://localhost:${GCS_MIMIC_PORT:-4443}`: a bucket whose policy grants `allUsers`
+`roles/storage.objectViewer` is readable there anonymously, and a private object
+answers 401 unless the page has a signed URL. The application signs such URLs
+for that browser-facing address, never for `gcs:4444`, with a key the identity
+file registers; see [signed URLs](signed-urls.md). The image healthcheck probes
+the main listener and needs no change. DESIGN-101 records this local extension
+and stays PARTIAL; see the [evidence](evidence/trusted-listener.md).
+
 ## Further setup
 
 - [HTTPS and custom certificates](local-https.md#local-https-with-an-explicit-development-ca)

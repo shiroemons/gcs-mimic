@@ -255,7 +255,11 @@ The host PC and browser use the published loopback port; a Compose peer uses
 for each final host/port and never rewrite it afterward. With a dynamically
 published port, inspect the port again after restart and create a fresh signature.
 Signing changes no IAM policy. A signer needs create for new uploads and delete
-as well for overwrites.
+as well for overwrites. An application server that reaches the emulator through a
+[trusted listener](container-usage.md#keep-private-buckets-private-with-a-trusted-listener)
+such as `gcs:4444` still signs for the browser-facing address: that port is not
+reachable from the browser, and a signed request authenticates as its signer on
+every listener.
 SHA256/Content-MD5 failures preserve the old object; sign headers to constrain
 metadata, digest declarations and conditions. SHA256 checking is incremental;
 the canonical URL payload remains UNSIGNED-PAYLOAD. CORS grants no permission.

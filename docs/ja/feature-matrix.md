@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
 | behavior | 201 | 89 | 0 | 73 | 39 | 0 | 0 |
-| project_requirement | 95 | 24 | 0 | 41 | 30 | 0 | 0 |
+| project_requirement | 96 | 24 | 0 | 42 | 30 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
 | behavior | 90 | 68 | 39 | 4 | 0 | 0 |
-| project_requirement | 24 | 0 | 0 | 0 | 1 | 70 |
+| project_requirement | 24 | 0 | 0 | 0 | 1 | 71 |
 
 ## api_operation
 
@@ -825,6 +825,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-006 | ユーザー・グループ所属のローカル定義 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-009 | カスタムロールのローカル設定 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-011 | プロジェクトをまたぐ主体・所有関係の再現 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-101 | strictモードでアプリのサーバー向けに使う信頼済みリスナー | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 
 ### CLI compatibility
 
