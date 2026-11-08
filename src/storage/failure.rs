@@ -276,6 +276,13 @@ impl fmt::Debug for IoCause {
     }
 }
 
+/// Lets the cause travel inside an `io::Error` of its kind, with its source still reachable.
+impl Error for IoCause {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        IoCause::source(self)
+    }
+}
+
 impl PartialEq for IoCause {
     fn eq(&self, other: &Self) -> bool {
         self.kind == other.kind

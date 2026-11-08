@@ -92,6 +92,18 @@ impl From<WalkError> for SeedError {
     }
 }
 
+/// Opening the fixture tree is reading it. Reporting its I/O failure as [`SeedError::Io`], as
+/// the walk and the portable open path do, lets an unreadable fixture classify alike on every
+/// platform instead of passing for a storage failure.
+#[cfg(unix)]
+fn source_failure(error: crate::storage::admin::AdminError) -> SeedError {
+    use crate::storage::admin::AdminError;
+    match error {
+        AdminError::Io(cause) => SeedError::Io(io::Error::new(cause.kind(), cause)),
+        error => SeedError::Admin(error),
+    }
+}
+
 /// One message from the walk thread. The walk ends only with [`Walked::Done`]: a thread that
 /// panicked or stopped early drops its sender without one, and a closed channel alone would
 /// otherwise look like the end of a complete walk and mark a partial seed complete. The entry is
@@ -145,7 +157,10 @@ async fn import_directory(
         .seed_batch_until(request_deadline, config.max_seed_entries)
         .await?;
     #[cfg(unix)]
-    let source_root = batch.open_root(root.to_owned(), inspected).await?;
+    let source_root = batch
+        .open_root(root.to_owned(), inspected)
+        .await
+        .map_err(source_failure)?;
     let root = tokio::fs::canonicalize(root).await?;
     if config.backend == crate::config::Backend::Disk {
         let data = tokio::fs::canonicalize(&config.data_dir).await?;
@@ -319,7 +334,8 @@ impl Seed<'_> {
         let file = tokio::fs::File::from_std(
             self.batch
                 .open_source(self.source_root.clone(), fixture.relative.to_owned())
-                .await?,
+                .await
+                .map_err(source_failure)?,
         );
         #[cfg(not(unix))]
         let file = tokio::fs::File::open(fixture.path).await?;

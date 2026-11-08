@@ -118,15 +118,26 @@ fn failure(error: &SeedError) -> JsonError {
         SeedError::MissingRoot => {
             JsonError::invalid("Configure seed_dir at startup before reseeding")
         }
-        SeedError::Io(error) if error.kind() == std::io::ErrorKind::InvalidFilename => {
-            JsonError::invalid(
-                "Reseed made no changes because a fixture path exceeds this platform's path length limit",
-            )
-        }
-        // Reading the tree can succeed once a file settles or a resource frees up, and a walk
-        // stops early only on shutdown or a panic. A path outside the root is an invariant the
-        // walker keeps, so it is a server fault, not the fixture's.
-        SeedError::Io(_) | SeedError::WalkStopped | SeedError::RelativePath(_) => retry(),
+        SeedError::Io(error) => io_failure(error.kind()),
+        // A walk stops early only on shutdown or a panic. A path outside the root is an invariant
+        // the walker keeps, so it is a server fault, not the fixture's.
+        SeedError::WalkStopped | SeedError::RelativePath(_) => retry(),
+    }
+}
+
+/// Reading the tree can succeed once a file settles or a resource frees up, but some failures
+/// follow from the fixture tree itself and repeat on every attempt.
+fn io_failure(kind: std::io::ErrorKind) -> JsonError {
+    match kind {
+        std::io::ErrorKind::InvalidFilename => JsonError::invalid(
+            "Reseed made no changes because a fixture path exceeds this platform's path length limit",
+        ),
+        // The container runs as uid 10001, so a bind-mounted fixture readable only by its owner
+        // fails here until its permissions change.
+        std::io::ErrorKind::PermissionDenied => JsonError::invalid(
+            "Reseed made no changes because the emulator cannot read a fixture file or directory; make seed_dir and its contents readable by the emulator's user",
+        ),
+        _ => retry(),
     }
 }
 
@@ -149,11 +160,17 @@ fn admin_failure(error: &AdminError) -> JsonError {
         AdminError::TooLarge => JsonError::invalid(
             "Reseed made no changes because a fixture file exceeds max_object_bytes",
         ),
+        // A retry cannot change an authorization decision.
+        AdminError::Forbidden => JsonError::new(
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            "Reseed made no changes because a fixture write was not authorized",
+        ),
         AdminError::Busy { .. } => JsonError::service_unavailable(
             "Reseed made no changes because catalog work, an unpublished body or another publication is active; retry after it completes",
         ),
-        // A source that changed while it was read, a closing catalog and storage failures are not
-        // the fixture tree's fault; another attempt can succeed once they pass.
+        // A source that changed while it was read, a racing delete, a closing catalog and storage
+        // failures are not the fixture tree's fault; another attempt can succeed once they pass.
         AdminError::SourceChanged { .. }
         | AdminError::Checksum
         | AdminError::BodyAborted(_)
@@ -162,7 +179,6 @@ fn admin_failure(error: &AdminError) -> JsonError {
         | AdminError::DiskFull(_)
         | AdminError::Io(_)
         | AdminError::Corrupt(_)
-        | AdminError::Forbidden
         | AdminError::Backend(_) => retry(),
     }
 }
@@ -217,7 +233,8 @@ mod tests {
                 (status, reason, message)
             );
         }
-        let error = failure(&SeedError::Io(std::io::ErrorKind::PermissionDenied.into()));
+        // A permission failure follows from the fixture tree and is a 400 below; others pass.
+        let error = failure(&SeedError::Io(std::io::ErrorKind::Other.into()));
         assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
     }
 
@@ -268,6 +285,14 @@ mod tests {
                 )))),
                 "path length",
             ),
+            (
+                wrapped(SeedError::Io(ErrorKind::PermissionDenied.into())),
+                "cannot read a fixture",
+            ),
+            (
+                SeedError::Io(ErrorKind::PermissionDenied.into()),
+                "cannot read a fixture",
+            ),
         ] {
             let reply = failure(&error);
             assert_eq!(
@@ -281,10 +306,29 @@ mod tests {
         }
     }
 
+    /// An authorization decision is the same on every attempt, so it is no retryable 503.
+    #[test]
+    fn a_refused_fixture_write_answers_403() {
+        let reply = failure(&SeedError::Entry {
+            label: "test-bucket/value".into(),
+            source: Box::new(SeedError::Admin(AdminError::Forbidden)),
+        });
+        assert_eq!(
+            (reply.status, reply.reason),
+            (StatusCode::FORBIDDEN, "forbidden")
+        );
+        assert!(!reply.message.contains("test-bucket"), "{}", reply.message);
+    }
+
     #[test]
     fn only_failures_a_later_attempt_can_finish_answer_503() {
         for error in [
             SeedError::Io(std::io::ErrorKind::Interrupted.into()),
+            SeedError::Io(std::io::ErrorKind::NotFound.into()),
+            SeedError::Io(std::io::ErrorKind::NotADirectory.into()),
+            SeedError::Io(std::io::ErrorKind::IsADirectory.into()),
+            SeedError::Admin(AdminError::NotFound),
+            SeedError::Admin(AdminError::Io(std::io::ErrorKind::PermissionDenied.into())),
             SeedError::WalkStopped,
             SeedError::Entry {
                 label: "test-bucket/value".into(),
