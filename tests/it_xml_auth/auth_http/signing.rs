@@ -9,6 +9,12 @@ const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-priva
 const PUBLIC: &str = include_str!("../../../fixtures/signing/test-only-public.pem");
 
 fn fixture() -> (TestDir, TestDir, Server) {
+    let (config, data, server, _) = fixture_with(&[], Stdio::inherit());
+    (config, data, server)
+}
+
+/// A strict server with signing keys, extra `options` and its ready event.
+fn fixture_with(options: &[&str], stderr: Stdio) -> (TestDir, TestDir, Server, Value) {
     let config = TestDir::new();
     let data = TestDir::new();
     let mut value = registry();
@@ -16,14 +22,23 @@ fn fixture() -> (TestDir, TestDir, Server) {
         value["identities"][index]["public_keys"] = json!([PUBLIC]);
     }
     let path = common::process::write_identities(&config.0, &value);
-    let server = Server::strict(&data, &path);
+    let mut args = vec![
+        "--auth-mode",
+        "strict",
+        "--identity-file",
+        path.to_str().unwrap(),
+    ];
+    args.extend_from_slice(options);
+    let (server, ready) = Server::start_with_stderr(&data, &args, stderr);
+    assert_eq!(ready["auth_mode"], "strict");
+    assert_eq!(ready["identities"], 6);
     server
         .create_bucket(ADMIN, "project-a", "iam-bucket")
         .success();
     server
         .upload(ADMIN, "iam-bucket", "object", b"hello world")
         .success();
-    (config, data, server)
+    (config, data, server, ready)
 }
 
 mod put;
@@ -293,6 +308,166 @@ fn signed_tampering_never_falls_back_to_public_access_and_has_xml_errors() {
     server
         .get("", &format!("/storage/v1/b/iam-bucket/o/object?{query}"))
         .invalid_credentials();
+}
+
+/// Signs `path` the way Go storage does for a host:port URL: the canonical host omits the port
+/// that the returned URL, and so the request Host, still names.
+fn sign_without_port(
+    server: &Server,
+    host: &str,
+    method: &Method,
+    path: &str,
+    signer: &str,
+) -> String {
+    let url = sign_url(SignUrlRequest {
+        url: &format!("http://{host}{path}"),
+        method,
+        signer,
+        private_key: PRIVATE,
+        expires: 60,
+        now: SystemTime::now(),
+        headers: HeaderMap::new(),
+    })
+    .unwrap();
+    url.replacen(
+        &format!("http://{host}/"),
+        &format!("http://{}/", server.address),
+        1,
+    )
+}
+
+fn message(reply: &Reply) -> String {
+    let body = String::from_utf8_lossy(&reply.body);
+    let start = body.find("<Message>").unwrap() + "<Message>".len();
+    let end = body.find("</Message>").unwrap();
+    body[start..end].to_owned()
+}
+
+const HOST_PORT_HINT: &str = "The request signature does not match. If the signer omitted the port from Host, as Go storage does, set signed_host_port=lenient.";
+
+#[test]
+fn exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting() {
+    let (_config, _data, server, ready) = fixture_with(&[], Stdio::inherit());
+    assert_eq!(ready["signed_host_port"], "exact");
+    let host = server.address.rsplit_once(':').unwrap().0.to_owned();
+    let portless = sign_without_port(
+        &server,
+        &host,
+        &Method::GET,
+        "/iam-bucket/object",
+        "viewer@example.invalid",
+    );
+    let reply = send(&server, "GET", &portless, "");
+    error(&reply, 403, "SignatureDoesNotMatch");
+    assert_eq!(message(&reply), HOST_PORT_HINT);
+    // A tampered query on a host:port request gets the same hint, since its cause is unknown.
+    let exact = sign(
+        &server,
+        &Method::GET,
+        "/iam-bucket/object",
+        "viewer@example.invalid",
+        SystemTime::now(),
+        HeaderMap::new(),
+    );
+    assert_eq!(
+        send(&server, "GET", &exact, "").success().body,
+        b"hello world"
+    );
+    let reply = send(&server, "GET", &format!("{exact}&extra=1"), "");
+    error(&reply, 403, "SignatureDoesNotMatch");
+    assert_eq!(message(&reply), HOST_PORT_HINT);
+}
+
+#[test]
+fn lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once() {
+    let (_config, _data, mut server, ready) =
+        fixture_with(&["--signed-host-port", "lenient"], Stdio::piped());
+    assert_eq!(ready["signed_host_port"], "lenient");
+    let host = server.address.rsplit_once(':').unwrap().0.to_owned();
+    let portless = sign_without_port(
+        &server,
+        &host,
+        &Method::GET,
+        "/iam-bucket/object",
+        "viewer@example.invalid",
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            send(&server, "GET", &portless, "").success().body,
+            b"hello world"
+        );
+    }
+    // Uploads share the verifier, and the signer's own permissions still apply.
+    let put = |signer| {
+        sign_without_port(
+            &server,
+            &host,
+            &Method::PUT,
+            "/iam-bucket/lenient-put",
+            signer,
+        )
+    };
+    send(&server, "PUT", &put("admin@example.invalid"), "").success();
+    error(
+        &send(&server, "PUT", &put("viewer@example.invalid"), ""),
+        403,
+        "AccessDenied",
+    );
+    let exact = sign(
+        &server,
+        &Method::GET,
+        "/iam-bucket/object",
+        "viewer@example.invalid",
+        SystemTime::now(),
+        HeaderMap::new(),
+    );
+    assert_eq!(
+        send(&server, "GET", &exact, "").success().body,
+        b"hello world"
+    );
+    let (prefix, signature) = portless.rsplit_once('=').unwrap();
+    let tampered = format!(
+        "{prefix}={}{}",
+        if signature.starts_with("00") {
+            "01"
+        } else {
+            "00"
+        },
+        &signature[2..]
+    );
+    for changed in [
+        format!("{portless}&extra=1"),
+        portless.replace("/object?", "/other?"),
+        tampered,
+        // Only the port may be missing; the host name stays bound.
+        sign_without_port(
+            &server,
+            "localhost",
+            &Method::GET,
+            "/iam-bucket/object",
+            "viewer@example.invalid",
+        ),
+    ] {
+        let reply = send(&server, "GET", &changed, "");
+        error(&reply, 403, "SignatureDoesNotMatch");
+        assert_eq!(message(&reply), "The request signature does not match.");
+    }
+    let warnings = stderr_events(&mut server)
+        .into_iter()
+        .filter(|event| event["event"] == "signature_host_port_omitted")
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0]["level"], "warn");
+    let text = warnings[0].to_string();
+    assert!(text.contains("signed_host_port=lenient"), "{text}");
+    for secret in [
+        signature,
+        "viewer@example.invalid",
+        host.as_str(),
+        "iam-bucket",
+    ] {
+        assert!(!text.contains(secret), "{text}");
+    }
 }
 
 #[test]

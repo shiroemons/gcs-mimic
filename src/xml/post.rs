@@ -72,7 +72,8 @@ fn signature_error(failure: signature::VerificationError) -> Error {
             XmlCode::InvalidAccessKeyId,
             "The policy signing key or its registered identity is unknown or inactive.",
         ),
-        Failure::Mismatch => Error::new(
+        // A policy does not sign Host, so a port never explains its mismatch.
+        Failure::Mismatch | Failure::MismatchWithHostPort => Error::new(
             XmlCode::SignatureDoesNotMatch,
             "The policy signature does not match.",
         ),

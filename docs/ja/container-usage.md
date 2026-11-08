@@ -68,6 +68,8 @@ JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書�
 呼び出し元は自分が接続したアドレスを受け取るので、ホスト側のポートが何番でも、ホストと別のコンテナが1台のサーバーを共有できます。
 そのために`GCS_MIMIC_API_BASE_URL`を指定する必要はありません。
 公開URLや署名URLは、引き続き受け取るクライアントから到達できるアドレスで作ります。
+Go storageは署名するときに既定以外のポートを落とすため、`localhost:4443`向けの署名URLは403 `SignatureDoesNotMatch`になります。
+ワークツリーごとに別のポートを公開するなど既定のポートを使えない場合は、`GCS_MIMIC_SIGNED_HOST_PORT=lenient`を設定します（[署名URL](../en/signed-urls.md)、英語）。
 
 すべての呼び出し元に同じアドレスを返したいときは、`GCS_MIMIC_API_BASE_URL`で固定します。
 `Forwarded`と`X-Forwarded-*`は無視するので、Hostを書き換えるリバースプロキシでは指定が必要です。

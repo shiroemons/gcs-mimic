@@ -103,8 +103,54 @@ pub enum Failure {
     ExpiresOutOfRange(&'static str),
     UnknownSigner,
     Mismatch,
+    /// A V4 signature does not match a request whose Host has an explicit port while
+    /// `signed_host_port` is exact. A signer that omits that port from the canonical host, as
+    /// Go storage does, fails this way, so the response suggests the lenient setting.
+    MismatchWithHostPort,
     Expired,
     NotYetValid,
+}
+
+crate::config::string_enum! {
+    /// Whether V4 verification also accepts a signature whose canonical `host` omits the
+    /// request Host's explicit port. Go storage builds the canonical host from the URL's
+    /// host name, so its URLs for a non-default port fail exact verification.
+    pub enum SignedHostPort {
+        #[default]
+        Exact => "exact",
+        Lenient => "lenient",
+    }
+    "signed_host_port must be exact or lenient"
+}
+
+/// Which `host` value a canonical request carries.
+#[derive(Clone, Copy)]
+enum CanonicalHost {
+    /// The request's Host exactly as sent.
+    AsSent,
+    /// The request's Host without its explicit port; a Host without one is unchanged.
+    WithoutPort,
+}
+
+impl CanonicalHost {
+    fn value(self, host: &str) -> &str {
+        match self {
+            Self::AsSent => host,
+            Self::WithoutPort => host_without_port(host).unwrap_or(host),
+        }
+    }
+}
+
+/// The host of a Host value that names an explicit port, or `None` when it names none. An
+/// IPv6 literal keeps its brackets, as it would in a Host without a port.
+fn host_without_port(value: &str) -> Option<&str> {
+    let (host, port) = value.rsplit_once(':')?;
+    let literal = host.starts_with('[') && host.ends_with(']');
+    (!host.is_empty()
+        && (literal || !host.contains(':'))
+        && port.bytes().all(|byte| byte.is_ascii_digit())
+        && port.parse::<u16>().is_ok())
+    .then_some(host)
 }
 
 /// A `public_keys` entry that is not a supported RSA SubjectPublicKeyInfo PEM.
@@ -307,6 +353,7 @@ fn canonical_with_payload(
     query: &BTreeMap<String, String>,
     signed: &str,
     payload: &str,
+    host: CanonicalHost,
 ) -> Result<String, Failure> {
     let names: Vec<_> = signed.split(';').collect();
     if !names.contains(&"host")
@@ -345,6 +392,7 @@ fn canonical_with_payload(
         if name == "host" && (values.len() != 1 || first.is_empty()) {
             return Err(Failure::Mismatch);
         }
+        // The authority check binds the request as sent, whichever host form is signed.
         if name == "host"
             && uri
                 .authority()
@@ -354,7 +402,11 @@ fn canonical_with_payload(
         }
         canonical_headers.push_str(name);
         canonical_headers.push(':');
-        canonical_headers.push_str(&values.join(","));
+        if name == "host" {
+            canonical_headers.push_str(host.value(first));
+        } else {
+            canonical_headers.push_str(&values.join(","));
+        }
         canonical_headers.push('\n');
     }
     let path = canonical_path(uri.path())?;
@@ -442,9 +494,9 @@ fn canonical_query(query: &BTreeMap<String, String>) -> String {
         .join("&")
 }
 
-fn string_to_sign(date: &str, scope: &str, canonical: &str) -> String {
+fn string_to_sign(algorithm: &str, date: &str, scope: &str, canonical: &str) -> String {
     format!(
-        "{ALGORITHM}\n{date}\n{scope}\n{}",
+        "{algorithm}\n{date}\n{scope}\n{}",
         encode_lower(digest::digest(&digest::SHA256, canonical.as_bytes()).as_ref())
     )
 }
@@ -602,10 +654,17 @@ pub fn sign_url(request: SignUrlRequest<'_>) -> Result<String, SigningError> {
         query.insert(k.into(), v);
     }
     payload_hash(&headers).map_err(|_| SigningError::InvalidRequest)?;
-    let canonical =
-        canonical_with_payload(method, &uri, &headers, &query, &signed, "UNSIGNED-PAYLOAD")
-            .map_err(|_| SigningError::InvalidRequest)?;
-    let message = string_to_sign(&date, &scope, &canonical);
+    let canonical = canonical_with_payload(
+        method,
+        &uri,
+        &headers,
+        &query,
+        &signed,
+        "UNSIGNED-PAYLOAD",
+        CanonicalHost::AsSent,
+    )
+    .map_err(|_| SigningError::InvalidRequest)?;
+    let message = string_to_sign(ALGORITHM, &date, &scope, &canonical);
     let bytes = rsa_sign(private_key, &message)?;
     Ok(format!(
         "{scheme}://{authority}{}?{}&X-Goog-Signature={}",

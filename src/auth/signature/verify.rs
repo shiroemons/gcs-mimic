@@ -6,7 +6,13 @@ use crate::{
     bucket::CatalogError,
     storage::{Catalog, failure::BackendCause},
 };
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tokio::sync::Semaphore;
 
 #[derive(Clone, Debug)]
@@ -58,6 +64,9 @@ pub(super) struct Prepared {
     pub algorithm: Algorithm,
     pub scope: String,
     pub message: String,
+    /// For a V4 signature over a Host that names an explicit port, the string to sign with that
+    /// port removed from the canonical host. Signatures that do not cover Host have none.
+    pub portless: Option<String>,
     pub signature: Vec<u8>,
 }
 
@@ -161,9 +170,14 @@ impl Auth {
         prepared: v4::Prepared,
     ) -> Result<Caller<'a>, VerificationError> {
         let (caller, key) = self.verification_key(catalog, &prepared).await?;
-        if !self.verifiers.run(move || verify(key, &prepared)).await? {
-            return Err(Failure::Mismatch.into());
-        }
+        let host_port = self.signed_host_port;
+        self.verifiers
+            .run(move || {
+                verify_host_forms(host_port, &prepared, |message| {
+                    verify(&key, &prepared, message)
+                })
+            })
+            .await??;
         Ok(caller)
     }
 
@@ -197,11 +211,50 @@ impl Auth {
     }
 }
 
-fn verify(key: Key, prepared: &v4::Prepared) -> bool {
+/// Process-wide, so an operator notices a lenient match without one line per request.
+static WARNED_PORTLESS_HOST: AtomicBool = AtomicBool::new(false);
+
+/// Checks a signature over the canonical request as sent and, when `signed_host_port` is
+/// lenient and the request Host names an explicit port, once more over the same request without
+/// that port. Every other part of the canonical request stays bound either way.
+pub(super) fn verify_host_forms(
+    host_port: SignedHostPort,
+    prepared: &Prepared,
+    signs: impl Fn(&str) -> bool,
+) -> Result<(), Failure> {
+    if signs(&prepared.message) {
+        return Ok(());
+    }
+    let Some(portless) = &prepared.portless else {
+        return Err(Failure::Mismatch);
+    };
+    match host_port {
+        SignedHostPort::Exact => Err(Failure::MismatchWithHostPort),
+        SignedHostPort::Lenient if signs(portless) => {
+            warn_portless_host();
+            Ok(())
+        }
+        SignedHostPort::Lenient => Err(Failure::Mismatch),
+    }
+}
+
+fn warn_portless_host() {
+    if !WARNED_PORTLESS_HOST.swap(true, Ordering::Relaxed) {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Warn,
+            "signature_host_port_omitted",
+            serde_json::json!({
+                "message": "a V4 signature matched only without the port of the request Host because signed_host_port=lenient; its signer omitted the port, as Go storage does. Sign the final host and port, for example with gcs-mimic url sign, to verify it exactly; this warning is logged once per process",
+            }),
+        );
+    }
+}
+
+fn verify(key: &Key, prepared: &v4::Prepared, message: &str) -> bool {
     match key {
         Key::Rsa(keys) => keys
             .iter()
-            .any(|key| key.verify(prepared.message.as_bytes(), &prepared.signature)),
+            .any(|key| key.verify(message.as_bytes(), &prepared.signature)),
         Key::Hmac(secret) => {
             // The legacy V2 formats use SHA-1 with the literal, underived UTF-8 secret.
             if prepared.algorithm == Algorithm::LegacyHmacSha1 {
@@ -209,8 +262,7 @@ fn verify(key: Key, prepared: &v4::Prepared) -> bool {
                     ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
                     secret.as_bytes(),
                 );
-                return ring::hmac::verify(&key, prepared.message.as_bytes(), &prepared.signature)
-                    .is_ok();
+                return ring::hmac::verify(&key, message.as_bytes(), &prepared.signature).is_ok();
             }
             let prefix = match prepared.algorithm {
                 Algorithm::GoogleHmac => "GOOG4",
@@ -226,7 +278,7 @@ fn verify(key: Key, prepared: &v4::Prepared) -> bool {
                 let tag = ring::hmac::sign(&key, component.as_bytes());
                 key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, tag.as_ref());
             }
-            ring::hmac::verify(&key, prepared.message.as_bytes(), &prepared.signature).is_ok()
+            ring::hmac::verify(&key, message.as_bytes(), &prepared.signature).is_ok()
         }
     }
 }
@@ -234,6 +286,11 @@ fn verify(key: Key, prepared: &v4::Prepared) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Verifies the string to sign over the request as sent, which the published vectors cover.
+    fn verify(key: Key, prepared: &Prepared) -> bool {
+        super::verify(&key, prepared, &prepared.message)
+    }
 
     #[tokio::test]
     async fn verifier_budgets_bound_jobs_and_do_not_share_a_global_queue() {
@@ -431,6 +488,7 @@ mod tests {
             algorithm: Algorithm::LegacyHmacSha1,
             scope: String::new(),
             message: "what do ya want for nothing?".into(),
+            portless: None,
             signature: unhex("effcdf6ae5eb2fa2d27416d5f184df9c259a7c79").unwrap(),
         };
         assert!(verify(Key::Hmac("Jefe".into()), &prepared));
@@ -438,13 +496,15 @@ mod tests {
         assert!(!verify(Key::Hmac("Jefe".into()), &prepared));
     }
 
-    #[test]
-    fn published_aws_s3_header_vector_verifies_without_a_local_signer() {
-        // Public AWS documentation example credentials, never an emulator-created secret.
-        let secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+    /// Public AWS documentation example credentials, never an emulator-created secret.
+    const AWS_EXAMPLE_SECRET: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+
+    /// The published AWS S3 GET example, whose signature covers Host without a port, sent
+    /// with the given Host.
+    fn published_aws_header_request(host: &str) -> Prepared {
         let mut headers = HeaderMap::new();
         for (name, value) in [
-            ("host", "examplebucket.s3.amazonaws.com"),
+            ("host", host),
             ("range", "bytes=0-9"),
             ("x-amz-date", "20130524T000000Z"),
             (
@@ -461,18 +521,48 @@ mod tests {
                 value.parse().unwrap(),
             );
         }
-        let prepared = v4::prepare(
+        v4::prepare(
             &Method::GET,
             &"/test.txt".parse().unwrap(),
             &headers,
             parse_timestamp("20130524T000000Z").unwrap(),
         )
-        .unwrap();
-        assert!(verify(Key::Hmac(secret.into()), &prepared));
+        .unwrap()
+    }
+
+    #[test]
+    fn published_aws_s3_header_vector_verifies_without_a_local_signer() {
+        let prepared = published_aws_header_request("examplebucket.s3.amazonaws.com");
+        assert!(verify(Key::Hmac(AWS_EXAMPLE_SECRET.into()), &prepared));
         assert!(!verify(
             Key::Hmac("incorrect public fixture".into()),
             &prepared
         ));
+    }
+
+    #[test]
+    fn lenient_host_port_retries_an_hmac_signature_only_without_the_request_port() {
+        use SignedHostPort::{Exact, Lenient};
+        let secret = Key::Hmac(AWS_EXAMPLE_SECRET.into());
+        let prepare = published_aws_header_request;
+        let check = |host_port, prepared: &Prepared| {
+            verify_host_forms(host_port, prepared, |message| {
+                super::verify(&secret, prepared, message)
+            })
+        };
+        let unported = prepare("examplebucket.s3.amazonaws.com");
+        assert!(unported.portless.is_none());
+        for host_port in [Exact, Lenient] {
+            assert_eq!(check(host_port, &unported), Ok(()));
+        }
+        let ported = prepare("examplebucket.s3.amazonaws.com:4443");
+        assert_eq!(check(Exact, &ported), Err(Failure::MismatchWithHostPort));
+        assert_eq!(check(Lenient, &ported), Ok(()));
+        let other = prepare("otherbucket.s3.amazonaws.com:4443");
+        assert_eq!(check(Lenient, &other), Err(Failure::Mismatch));
+        let mut tampered = prepare("examplebucket.s3.amazonaws.com:4443");
+        tampered.signature[0] ^= 1;
+        assert_eq!(check(Lenient, &tampered), Err(Failure::Mismatch));
     }
 
     #[tokio::test]

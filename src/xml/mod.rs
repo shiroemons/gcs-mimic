@@ -100,33 +100,34 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
             );
         }
     };
-    let (code, message) = match failure {
-        Failure::Malformed => (
+    match failure {
+        Failure::Malformed => Error::new(
             XmlCode::InvalidAuthentication,
             "Invalid V2/V4 signing parameters; use exactly one signing version (for example, GoogleAccessId, Expires=1793090000 and Signature for V2).",
         ),
         // Cloud Storage's answer to this case is not recorded, so only the message changes.
-        Failure::ExpiresOutOfRange(parameter) => {
-            return Error::new(
-                XmlCode::InvalidAuthentication,
-                format!("{parameter} must be a whole number of seconds from 1 to {MAX_EXPIRES}."),
-            );
-        }
-        Failure::UnknownSigner => (
+        Failure::ExpiresOutOfRange(parameter) => Error::new(
+            XmlCode::InvalidAuthentication,
+            format!("{parameter} must be a whole number of seconds from 1 to {MAX_EXPIRES}."),
+        ),
+        Failure::UnknownSigner => Error::new(
             XmlCode::InvalidAccessKeyId,
             "The signing key or its registered identity is unknown or inactive.",
         ),
-        Failure::Mismatch => (
+        Failure::Mismatch => Error::new(
             XmlCode::SignatureDoesNotMatch,
             "The request signature does not match.",
         ),
-        Failure::Expired => (XmlCode::ExpiredToken, "The request signature has expired."),
-        Failure::NotYetValid => (
+        Failure::MismatchWithHostPort => Error::new(
+            XmlCode::SignatureDoesNotMatch,
+            "The request signature does not match. If the signer omitted the port from Host, as Go storage does, set signed_host_port=lenient.",
+        ),
+        Failure::Expired => Error::new(XmlCode::ExpiredToken, "The request signature has expired."),
+        Failure::NotYetValid => Error::new(
             XmlCode::RequestTimeTooSkewed,
             "The request signature is not yet usable.",
         ),
-    };
-    Error::new(code, message)
+    }
 }
 
 pub(crate) async fn authenticate_upload_target<'a>(

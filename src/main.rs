@@ -108,6 +108,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
+  --signed-host-port MODE      exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
   --identity-file PATH         none (strict-mode JSON identity registry, at most 16 MiB)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
@@ -393,7 +394,9 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     if report.diagnostics.is_err() {
         return Err(report.diagnostics.into());
     }
-    auth = auth.with_verifier_budget(report.config.max_blocking_threads);
+    auth = auth
+        .with_verifier_budget(report.config.max_blocking_threads)
+        .with_signed_host_port(report.config.signed_host_port);
     report
         .diagnostics
         .warnings
@@ -927,7 +930,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "981d04936164aca6eb9e2aa83ee6e64252191bb7c10ba12d493cf0e75f2d20a3"
+            "d4bf400e19ff77f85c5ee7c4cca284247b9a6017a09267e39242346eeda1e9b0"
         );
     }
 

@@ -24,6 +24,16 @@ impl Algorithm {
         }
     }
 
+    /// The algorithm's name in a V4 string to sign; the legacy V2 algorithm has none.
+    fn name(self) -> Result<&'static str, Failure> {
+        match self {
+            Self::Rsa => Ok(ALGORITHM),
+            Self::GoogleHmac => Ok("GOOG4-HMAC-SHA256"),
+            Self::AwsHmac => Ok("AWS4-HMAC-SHA256"),
+            Self::LegacyHmacSha1 => Err(Failure::Malformed),
+        }
+    }
+
     fn expires_parameter(self) -> &'static str {
         if self == Self::AwsHmac {
             "X-Amz-Expires"
@@ -175,24 +185,22 @@ pub(super) fn prepare(
     } else {
         "UNSIGNED-PAYLOAD".into()
     };
-    let canonical = canonical_with_payload(method, uri, headers, &query, signed, &payload)?;
-    let scope = credential.scope.to_owned();
-    let algorithm_name = match algorithm {
-        Algorithm::Rsa => ALGORITHM,
-        Algorithm::GoogleHmac => "GOOG4-HMAC-SHA256",
-        Algorithm::AwsHmac => "AWS4-HMAC-SHA256",
-        Algorithm::LegacyHmacSha1 => return Err(Failure::Malformed),
-    };
-    let message = format!(
-        "{algorithm_name}\n{date}\n{scope}\n{}",
-        encode_lower(digest::digest(&digest::SHA256, canonical.as_bytes()).as_ref())
-    );
+    let name = algorithm.name()?;
+    let scope = credential.scope;
+    let canonical =
+        |host| canonical_with_payload(method, uri, headers, &query, signed, &payload, host);
+    let as_sent = canonical(CanonicalHost::AsSent)?;
+    // Go storage drops an explicit port from the canonical host. A mismatch names that cause,
+    // and a lenient verifier retries with this form.
+    let without_port = canonical(CanonicalHost::WithoutPort)?;
     Ok(Prepared {
         signer: credential.signer.into(),
         date: date.into(),
         algorithm,
-        scope,
-        message,
+        scope: scope.to_owned(),
+        message: string_to_sign(name, date, scope, &as_sent),
+        portless: (without_port != as_sent)
+            .then(|| string_to_sign(name, date, scope, &without_port)),
         signature: unhex(signature)?,
     })
 }

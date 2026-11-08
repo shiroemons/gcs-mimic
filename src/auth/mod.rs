@@ -757,6 +757,8 @@ pub(crate) fn valid_principal_id(value: &str) -> bool {
 pub struct Auth {
     registry: Option<Registry>,
     verifiers: signature::Verifiers,
+    /// Whether V4 verification also accepts a canonical host without the request's port.
+    signed_host_port: signature::SignedHostPort,
     /// Permissive mode only: the ACL entity (`user-EMAIL`) recorded as creator of new objects.
     /// It never authorizes anything.
     local_creator_entity: Option<String>,
@@ -771,8 +773,17 @@ impl Auth {
         Self {
             registry: Some(registry),
             verifiers: Default::default(),
+            signed_host_port: Default::default(),
             local_creator_entity: None,
         }
+    }
+
+    /// Selects whether V4 verification also accepts a signature whose canonical host omits the
+    /// port that the request Host names.
+    #[must_use]
+    pub fn with_signed_host_port(mut self, signed_host_port: signature::SignedHostPort) -> Self {
+        self.signed_host_port = signed_host_port;
+        self
     }
 
     /// Reserve half the runtime's blocking slots for cryptography; other work shares the pool.

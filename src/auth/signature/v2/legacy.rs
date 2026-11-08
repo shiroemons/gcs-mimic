@@ -134,6 +134,8 @@ pub(super) fn prepare(
                 resource,
             },
         )?,
+        // V2 does not sign Host.
+        portless: None,
         signature: decode_signature(signature)?,
     })
 }

@@ -2,7 +2,7 @@
 
 use crate::config_input::Fix as SettingFix;
 use crate::{
-    auth::AuthMode,
+    auth::{AuthMode, signature::SignedHostPort},
     bucket::bucket_location,
     config_input::{CliCommand, Input, InputError, InputKind, Inputs, LEGACY_PREFIX},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
@@ -243,6 +243,8 @@ pub struct Config {
     pub auth_mode: AuthMode,
     pub compat_profile: CompatProfile,
     pub cors_fallback: CorsFallback,
+    /// Whether V4 verification also accepts a canonical host without the request Host's port.
+    pub signed_host_port: SignedHostPort,
     /// Strict-mode identity registry; loaded once at startup, never in permissive mode.
     pub identity_file: Option<PathBuf>,
 }
@@ -316,6 +318,7 @@ impl Default for Config {
             auth_mode: AuthMode::Permissive,
             compat_profile: CompatProfile::Native,
             cors_fallback: CorsFallback::None,
+            signed_host_port: SignedHostPort::Exact,
             identity_file: None,
         }
     }
@@ -605,6 +608,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::AuthMode
         | Setting::CompatProfile
         | Setting::CorsFallback
+        | Setting::SignedHostPort
         | Setting::IdentityFile => apply_access_setting(config, setting, &value),
         Setting::MaxConnections
         | Setting::MaxGrpcStreams
@@ -817,6 +821,7 @@ fn apply_access_setting(
         Setting::AuthMode => config.auth_mode = value.parse()?,
         Setting::CompatProfile => config.compat_profile = value.parse()?,
         Setting::CorsFallback => config.cors_fallback = value.parse()?,
+        Setting::SignedHostPort => config.signed_host_port = value.parse()?,
         Setting::IdentityFile => {
             config.identity_file = Some(PathBuf::from(non_empty(setting.as_str(), value)?))
         }
@@ -1613,6 +1618,55 @@ mod tests {
         let errors = Config::load(&args, &BTreeMap::new()).unwrap_err().errors;
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert_eq!(errors[0].key, "--grpc-listen");
+    }
+
+    #[test]
+    fn signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes() {
+        assert_eq!(Config::default().signed_host_port, SignedHostPort::Exact);
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(&file, r#"{"signed_host_port":"lenient"}"#).unwrap();
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_SIGNED_HOST_PORT".into(), "exact".into())]);
+        assert_precedence(
+            &args,
+            &env,
+            &["--signed-host-port", "lenient"],
+            [
+                SignedHostPort::Exact,
+                SignedHostPort::Lenient,
+                SignedHostPort::Exact,
+                SignedHostPort::Lenient,
+            ],
+            Config::load,
+            |config| config.signed_host_port,
+        );
+        let identities = dir.0.join("identities.json");
+        for mode in [
+            &["--auth-mode", "permissive"][..],
+            &[
+                "--auth-mode",
+                "strict",
+                "--identity-file",
+                identities.to_str().unwrap(),
+            ],
+        ] {
+            let mut args = mode.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+            args.extend(["--signed-host-port".into(), "lenient".into()]);
+            assert_eq!(
+                Config::load(&args, &BTreeMap::new())
+                    .unwrap()
+                    .signed_host_port,
+                SignedHostPort::Lenient
+            );
+        }
+        assert_rejected(
+            "signed_host_port",
+            &["", "true", "Lenient", "EXACT", "ignore-port"],
+            "signed_host_port must be exact or lenient",
+        );
+        std::fs::write(&file, r#"{"signed_host_port":true}"#).unwrap();
+        assert!(Config::load(&args, &BTreeMap::new()).is_err());
     }
 
     #[test]

@@ -44843,7 +44843,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "GOOG4-RSA-SHA256 query verification uses bounded registered RSA SPKI public keys, startup validation, scope parsing and tamper rejection. This cryptographic gate is separate from operation permissions, canonical field families and full XML error parity. SPEC-GO-SIGNER-PORT records the pinned SDK limitation. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Every proper nonempty subset of the six signing fields fails under public grants. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Unit signing regressions now use the production XML verifier; a live strict process verifies CLI URLs. Current focused commands and integration boundaries: docs/en/evidence/authentication-foundation.md.",
+      "notes": "GOOG4-RSA-SHA256 query verification uses bounded registered RSA SPKI public keys, startup validation, scope parsing and tamper rejection. This cryptographic gate is separate from operation permissions, canonical field families and full XML error parity. SPEC-GO-SIGNER-PORT records the pinned SDK limitation; the opt-in signed_host_port=lenient retry without the request port is scoped in DESIGN-033-SIGNED-HOST-PORT. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Every proper nonempty subset of the six signing fields fails under public grants. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Unit signing regressions now use the production XML verifier; a live strict process verifies CLI URLs. Current focused commands and integration boundaries: docs/en/evidence/authentication-foundation.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -45210,7 +45210,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
+      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. That exact rule is the default; the local opt-in signed_host_port=lenient also accepts a V4 signature whose canonical host omits only the request's port, which Cloud Storage's default-port endpoint never needs, so it is an emulator setting rather than a Google behavior. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -45257,12 +45257,36 @@
             "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
             "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
           ]
+        },
+        {
+          "id": "DESIGN-033-SIGNED-HOST-PORT",
+          "description": "signed_host_port (CLI, environment, config file; exact by default, invalid values rejected with the accepted choices) is reported as ready field signed_host_port. With exact, a V4 mismatch on a Host that names an explicit port answers 403 SignatureDoesNotMatch whose message names signed_host_port=lenient; a missing signed header and a portless Host keep the plain message. With the local opt-in lenient, a V4 signature that fails over the actual Host is checked once more with only the port removed from the canonical host, for RSA, HMAC, Authorization-header AWS4-HMAC-SHA256 and the aws-chunked seed; the host name, method, path, query, signed headers, payload rule, time window and absolute-form authority stay bound, an exact host:port signature still verifies, a tampered signature fails, signer permissions still apply to GET and PUT, and the first portless match logs one signature_host_port_omitted warning without URL, signature or credential. Locally signed portless URLs stand in for the Go SDK, whose suite runs only the default; see SPEC-GO-SIGNER-PORT.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port",
+            "auth::signature::tests::only_an_explicit_port_is_removed_from_a_host",
+            "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "auth::signature::verify::tests::lenient_host_port_retries_an_hmac_signature_only_without_the_request_port",
+            "auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain",
+            "config::tests::signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes",
+            "signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting",
+            "signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once"
+          ]
         }
       ],
       "test_ids": [
         "TestV4RSASignedDownload",
         "TestV4RSASignedDownload/SignedUpload",
         "TestV4RSAVirtualHostedURLs",
+        "auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port",
+        "auth::signature::tests::only_an_explicit_port_is_removed_from_a_host",
+        "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding",
+        "auth::signature::verify::tests::lenient_host_port_retries_an_hmac_signature_only_without_the_request_port",
+        "auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain",
+        "config::tests::signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes",
+        "signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting",
+        "signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once",
         "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
         "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
         "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
@@ -45277,6 +45301,7 @@
         "virtual_host_https_requires_a_matching_supplied_certificate"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib auth::signature && cargo test --locked --lib signed_host_port && cargo test --locked --test it_xml_auth","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/slices/signed-download.md","test_ids":["auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port","auth::signature::tests::only_an_explicit_port_is_removed_from_a_host","auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding","auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound","auth::signature::verify::tests::lenient_host_port_retries_an_hmac_signature_only_without_the_request_port","auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain","config::tests::signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes","signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting","signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once"]},
         {
           "command": "cargo test --workspace --locked --offline",
           "result": "PASS",
@@ -45480,7 +45505,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "15aeea6c5bd518c464e4a1b6291c33768cd3a611",
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-11-08"
     },
     {
       "id": "DESIGN-034",

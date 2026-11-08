@@ -527,6 +527,7 @@ async fn delete_signatures_bind_method_host_raw_path_and_generation() {
             .await
             .is_ok()
     );
+    // Exact verification of a Host with an explicit port suggests the lenient setting.
     for changed in [
         url.replace("a%2Fb", "a/b"),
         url.replace("generation=123", "generation=124"),
@@ -534,12 +535,12 @@ async fn delete_signatures_bind_method_host_raw_path_and_generation() {
     ] {
         assert_eq!(
             verify(&changed, &Method::DELETE, HeaderMap::new(), now).await,
-            Err(Failure::Mismatch)
+            Err(Failure::MismatchWithHostPort)
         );
     }
     assert_eq!(
         verify(&url, &Method::GET, HeaderMap::new(), now).await,
-        Err(Failure::Mismatch)
+        Err(Failure::MismatchWithHostPort)
     );
     assert!(
         sign_url(SignUrlRequest {
@@ -597,6 +598,7 @@ async fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
             .await
             .is_ok()
     );
+    // Exact verification of a Host with an explicit port suggests the lenient setting.
     for changed in [
         url.replace("/bucket/", "/other-bucket/"),
         url.replace("/object?", "/other?"),
@@ -608,21 +610,22 @@ async fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
     ] {
         assert_eq!(
             verify(&changed, &Method::GET, headers.clone(), now).await,
-            Err(Failure::Mismatch),
+            Err(Failure::MismatchWithHostPort),
             "{changed}"
         );
     }
     for method in [Method::HEAD, Method::PUT, Method::DELETE] {
         assert_eq!(
             verify(&url, &method, headers.clone(), now).await,
-            Err(Failure::Mismatch)
+            Err(Failure::MismatchWithHostPort)
         );
     }
     headers.insert("x-required", "changed".parse().unwrap());
     assert_eq!(
         verify(&url, &Method::GET, headers.clone(), now).await,
-        Err(Failure::Mismatch)
+        Err(Failure::MismatchWithHostPort)
     );
+    // A missing signed header fails before any signature is checked.
     headers.remove("x-required");
     assert_eq!(
         verify(&url, &Method::GET, headers, now).await,
@@ -638,7 +641,7 @@ async fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
     headers.insert("x-required", "value".parse().unwrap());
     assert_eq!(
         verify(&changed, &Method::GET, headers.clone(), now).await,
-        Err(Failure::Mismatch)
+        Err(Failure::MismatchWithHostPort)
     );
     assert_eq!(
         verify(&format!("{prefix}=zz"), &Method::GET, headers.clone(), now).await,
@@ -647,6 +650,118 @@ async fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
     assert_eq!(
         verify(&format!("{prefix}=0"), &Method::GET, headers, now).await,
         Err(Failure::Malformed)
+    );
+}
+
+/// Verifies `url` as sent to its own authority, the Host a browser sends for it.
+async fn verify_host_port(
+    host_port: SignedHostPort,
+    url: &str,
+    headers: HeaderMap,
+) -> Result<String, Failure> {
+    let uri: Uri = url.parse().unwrap();
+    let mut headers = headers;
+    headers.insert("host", uri.authority().unwrap().as_str().parse().unwrap());
+    verify_with_auth(
+        &auth().with_signed_host_port(host_port),
+        &Method::GET,
+        &uri,
+        &headers,
+        parse_timestamp(DATE).unwrap(),
+    )
+    .await
+    .map(Option::unwrap)
+}
+
+#[tokio::test]
+async fn lenient_host_port_accepts_only_a_signature_that_omits_the_request_port() {
+    use SignedHostPort::{Exact, Lenient};
+    let mut required = HeaderMap::new();
+    required.insert("x-required", "value".parse().unwrap());
+    // Go storage signs host:port URLs as if Host carried no port.
+    let portless = signed(
+        "http://localhost/bucket/object",
+        &Method::GET,
+        required.clone(),
+    )
+    .replace("http://localhost/", "http://localhost:4443/");
+    assert_eq!(
+        verify_host_port(Exact, &portless, required.clone()).await,
+        Err(Failure::MismatchWithHostPort)
+    );
+    assert_eq!(
+        verify_host_port(Lenient, &portless, required.clone()).await,
+        Ok(SIGNER.to_owned())
+    );
+    // An exact signature over the port keeps verifying, and only on that port.
+    let exact = signed(
+        "http://localhost:4443/bucket/object",
+        &Method::GET,
+        required.clone(),
+    );
+    for host_port in [Exact, Lenient] {
+        assert_eq!(
+            verify_host_port(host_port, &exact, required.clone()).await,
+            Ok(SIGNER.to_owned())
+        );
+    }
+    let (prefix, signature) = portless.rsplit_once('=').unwrap();
+    let tampered = format!(
+        "{prefix}={}{}",
+        if signature.starts_with("00") {
+            "01"
+        } else {
+            "00"
+        },
+        &signature[2..]
+    );
+    for changed in [
+        // The host name stays bound; only the port may be missing from the signature.
+        portless.replace("localhost:4443", "other.invalid:4443"),
+        signed(
+            "http://other.invalid/bucket/object",
+            &Method::GET,
+            required.clone(),
+        )
+        .replace("http://other.invalid/", "http://localhost:4443/"),
+        exact.replace("localhost:4443", "localhost:4444"),
+        portless.replace("/object?", "/other?"),
+        format!("{portless}&extra=x"),
+        tampered,
+    ] {
+        assert_eq!(
+            verify_host_port(Lenient, &changed, required.clone()).await,
+            Err(Failure::Mismatch),
+            "{changed}"
+        );
+    }
+    let mut changed = required.clone();
+    changed.insert("x-required", "changed".parse().unwrap());
+    assert_eq!(
+        verify_host_port(Lenient, &portless, changed).await,
+        Err(Failure::Mismatch)
+    );
+    // A Host without a port has nothing to omit, so both settings answer alike.
+    let without_port = exact.replace("localhost:4443", "localhost");
+    for host_port in [Exact, Lenient] {
+        assert_eq!(
+            verify_host_port(host_port, &without_port, required.clone()).await,
+            Err(Failure::Mismatch)
+        );
+    }
+    // An absolute-form target must still name the Host that was actually sent.
+    let mut conflicting = required.clone();
+    conflicting.insert("host", "localhost".parse().unwrap());
+    assert_eq!(
+        verify_with_auth(
+            &auth().with_signed_host_port(Lenient),
+            &Method::GET,
+            &portless.parse().unwrap(),
+            &conflicting,
+            parse_timestamp(DATE).unwrap(),
+        )
+        .await,
+        Err(Failure::Mismatch)
     );
 }
 
@@ -855,6 +970,7 @@ fn canonical_headers_match_the_official_published_example() {
         &BTreeMap::new(),
         "content-type;host;x-goog-meta-reviewer",
         "UNSIGNED-PAYLOAD",
+        CanonicalHost::AsSent,
     )
     .unwrap();
     assert_eq!(
@@ -872,19 +988,50 @@ fn canonical_query_sorts_decoded_names_before_encoding() {
         ("+".into(), "+".into()),
         ("é".into(), "日".into()),
     ]);
-    let canonical = canonical_with_payload(
-        &Method::GET,
-        &"/bucket/o?a=a+b&%2B=%2B&%C3%A9=%E6%97%A5".parse().unwrap(),
-        &headers,
-        &query,
-        "host",
-        "UNSIGNED-PAYLOAD",
-    )
-    .unwrap();
+    let canonical = |host| {
+        canonical_with_payload(
+            &Method::GET,
+            &"/bucket/o?a=a+b&%2B=%2B&%C3%A9=%E6%97%A5".parse().unwrap(),
+            &headers,
+            &query,
+            "host",
+            "UNSIGNED-PAYLOAD",
+            host,
+        )
+        .unwrap()
+    };
     assert_eq!(
-        canonical,
+        canonical(CanonicalHost::AsSent),
         "GET\n/bucket/o\n%2B=%2B&a=a%20b&%C3%A9=%E6%97%A5\nhost:localhost:4443\n\nhost\nUNSIGNED-PAYLOAD"
     );
+    // Only the host line loses the port; everything else stays as sent.
+    assert_eq!(
+        canonical(CanonicalHost::WithoutPort),
+        "GET\n/bucket/o\n%2B=%2B&a=a%20b&%C3%A9=%E6%97%A5\nhost:localhost\n\nhost\nUNSIGNED-PAYLOAD"
+    );
+}
+
+#[test]
+fn only_an_explicit_port_is_removed_from_a_host() {
+    for (host, expected) in [
+        ("localhost:4443", Some("localhost")),
+        ("127.0.0.1:0", Some("127.0.0.1")),
+        ("localhost:80", Some("localhost")),
+        (
+            "bucket.storage.example.invalid:4443",
+            Some("bucket.storage.example.invalid"),
+        ),
+        ("[::1]:4443", Some("[::1]")),
+        ("localhost", None),
+        ("[::1]", None),
+        ("localhost:", None),
+        (":4443", None),
+        ("localhost:+1", None),
+        ("localhost:65536", None),
+        ("a:b:4443", None),
+    ] {
+        assert_eq!(host_without_port(host), expected, "{host}");
+    }
 }
 
 #[tokio::test]
@@ -942,6 +1089,7 @@ async fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_sig
             &BTreeMap::new(),
             "host;x-goog-content-sha256",
             "UNSIGNED-PAYLOAD",
+            CanonicalHost::AsSent,
         )
         .unwrap();
         assert_eq!(
