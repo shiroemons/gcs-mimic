@@ -1131,8 +1131,8 @@ enum Profile {
 pub struct Auth {
     profile: Profile,
     verifiers: signature::Verifiers,
-    /// Whether V4 verification also accepts a canonical host without the request's port.
-    signed_host_port: signature::SignedHostPort,
+    /// Whose V4 signatures may also verify over a canonical host without the request's port.
+    host_port: signature::HostPortPolicy,
     /// Whether the built-in test signer exists, as loading settled it.
     test_signer: TestSigner,
     /// Permissive mode only: the ACL entity (`user-EMAIL`) recorded as creator of new objects.
@@ -1145,7 +1145,7 @@ impl Default for Auth {
         Self {
             profile: Profile::default(),
             verifiers: signature::Verifiers::default(),
-            signed_host_port: signature::SignedHostPort::default(),
+            host_port: signature::HostPortPolicy::default(),
             test_signer: TestSigner::Disabled,
             local_creator_entity: None,
         }
@@ -1204,7 +1204,7 @@ impl Auth {
             }
         };
         Ok(Self {
-            signed_host_port: signature::SignedHostPort::resolve(
+            host_port: signature::HostPortPolicy::resolve(
                 verification.signed_host_port,
                 test_signer,
             ),
@@ -1231,10 +1231,10 @@ impl Auth {
             .is_some_and(|registry| registry.declares(id))
     }
 
-    /// Whether V4 verification also accepts a canonical host without the request's port, after
+    /// Whose V4 signatures also verify over a canonical host without the request's port, after
     /// the default that the settled test signer selects.
-    pub fn signed_host_port(&self) -> signature::SignedHostPort {
-        self.signed_host_port
+    pub fn host_port_policy(&self) -> signature::HostPortPolicy {
+        self.host_port
     }
 
     /// Permissive verification with an identity file's keys and the built-in test signer.
@@ -1265,15 +1265,16 @@ impl Auth {
         }
     }
 
-    /// Selects whether V4 verification also accepts a signature whose canonical host omits the
-    /// port that the request Host names; [`Auth::load`] sets it from the configuration.
+    /// Applies an explicit `signed_host_port` to every signer, as [`Auth::load`] does for the
+    /// configured value.
     #[cfg(test)]
     #[must_use]
     pub(crate) fn with_signed_host_port(
         mut self,
         signed_host_port: signature::SignedHostPort,
     ) -> Self {
-        self.signed_host_port = signed_host_port;
+        self.host_port =
+            signature::HostPortPolicy::resolve(Some(signed_host_port), self.test_signer);
         self
     }
 

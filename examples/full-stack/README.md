@@ -69,7 +69,7 @@ url, err := storage.SignedURL("app-private", name, &storage.SignedURLOptions{
 })
 ```
 
-`Hostname` is the address the browser uses, never `gcs:4444`. Go storage signs it without the port, which the emulator accepts because the enabled test signer makes `signed_host_port` `lenient` by default.
+`Hostname` is the address the browser uses, never `gcs:4444`. Go storage signs it without the port, which the emulator accepts because `signed_host_port` is `lenient` by default for the enabled test signer's own signatures, and the API signs with that signer's key.
 
 ### web: Rails
 

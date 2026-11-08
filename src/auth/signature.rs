@@ -162,15 +162,51 @@ crate::config::string_enum! {
     "signed_host_port must be exact or lenient"
 }
 
-impl SignedHostPort {
-    /// An explicit setting wins. Where the built-in test signer exists the setup is a local
-    /// test whose signing key is public anyway, so accepting a signer that drops the port changes
-    /// nothing that matters there; elsewhere a signature names the Host it was sent to.
-    pub fn resolve(configured: Option<Self>, test_signer: super::TestSigner) -> Self {
-        configured.unwrap_or(match test_signer {
-            super::TestSigner::Enabled => Self::Lenient,
-            super::TestSigner::Disabled => Self::Exact,
-        })
+/// Whose V4 signatures may omit the request Host's port: the `signed_host_port` setting after
+/// the default that the settled test signer selects.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HostPortPolicy {
+    /// Every signature names the Host it was sent to, port included.
+    #[default]
+    Exact,
+    /// An explicit `signed_host_port=lenient`: any signer may omit the port.
+    Lenient,
+    /// The default while the built-in test signer exists: only its signatures may omit the
+    /// port. Its key is published, so its signatures already mark a local test and tolerating a
+    /// dropped port changes nothing that matters for them; a registered key or an HMAC key
+    /// still names the Host it was sent to.
+    LenientForTestSigner,
+}
+
+impl HostPortPolicy {
+    /// An explicit setting wins, for every signer.
+    pub(crate) fn resolve(
+        configured: Option<SignedHostPort>,
+        test_signer: super::TestSigner,
+    ) -> Self {
+        match (configured, test_signer) {
+            (Some(SignedHostPort::Exact), _) | (None, super::TestSigner::Disabled) => Self::Exact,
+            (Some(SignedHostPort::Lenient), _) => Self::Lenient,
+            (None, super::TestSigner::Enabled) => Self::LenientForTestSigner,
+        }
+    }
+
+    /// The ready event's `signed_host_port`: lenient where any signature may omit the port.
+    pub fn setting(self) -> SignedHostPort {
+        match self {
+            Self::Exact => SignedHostPort::Exact,
+            Self::Lenient | Self::LenientForTestSigner => SignedHostPort::Lenient,
+        }
+    }
+
+    /// The ready event's `signed_host_port_signers`: whose signatures may omit the port, or
+    /// `None` when no signature may.
+    pub fn lenient_signers(self) -> Option<&'static str> {
+        match self {
+            Self::Exact => None,
+            Self::Lenient => Some("all"),
+            Self::LenientForTestSigner => Some("test-signer"),
+        }
     }
 }
 

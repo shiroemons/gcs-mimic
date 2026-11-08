@@ -44,7 +44,8 @@ impl SigningKeys {
 mod tests {
     use crate::auth::{
         Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner, TestSignerChoice,
-        signature::SignedHostPort, test_signer,
+        signature::{HostPortPolicy, SignedHostPort},
+        test_signer,
     };
     use crate::config::{AuthProfile, DocumentSource, TrustedCaller, Verification};
     use serde_json::json;
@@ -112,22 +113,28 @@ mod tests {
         let auth = Auth::load(&AuthProfile::Permissive, &BTreeSet::new()).unwrap();
         assert!(matches!(auth.profile, Profile::Permissive));
         assert_eq!(auth.signed_urls(), SignedUrls::Ignore);
-        // An explicit host-port setting wins; without one, the settled signer selects it.
-        for (test_signer, identity_file, configured, signed_host_port) in [
+        // An explicit host-port setting wins for every signer; without one, the settled signer
+        // selects it, and an enabled signer makes only its own signatures lenient.
+        for (test_signer, identity_file, configured, host_port) in [
             (
                 TestSigner::Enabled,
                 false,
                 Some(SignedHostPort::Exact),
-                SignedHostPort::Exact,
+                HostPortPolicy::Exact,
             ),
             (
                 TestSigner::Disabled,
                 false,
                 Some(SignedHostPort::Lenient),
-                SignedHostPort::Lenient,
+                HostPortPolicy::Lenient,
             ),
-            (TestSigner::Enabled, true, None, SignedHostPort::Lenient),
-            (TestSigner::Disabled, true, None, SignedHostPort::Exact),
+            (
+                TestSigner::Enabled,
+                true,
+                None,
+                HostPortPolicy::LenientForTestSigner,
+            ),
+            (TestSigner::Disabled, true, None, HostPortPolicy::Exact),
         ] {
             let auth = Auth::load(
                 &AuthProfile::VerifyingPermissive {
@@ -142,7 +149,7 @@ mod tests {
             .unwrap();
             assert_eq!(auth.mode(), AuthMode::Permissive);
             assert_eq!(auth.signed_urls(), SignedUrls::Verify);
-            assert_eq!(auth.signed_host_port, signed_host_port);
+            assert_eq!(auth.host_port_policy(), host_port);
             assert_eq!(auth.test_signer(), test_signer);
             assert!(auth.principals().is_none() && auth.identity_count().is_none());
             let Profile::VerifyingPermissive(keys) = &auth.profile else {

@@ -355,7 +355,7 @@ fn message(reply: &Reply) -> String {
     body[start..end].to_owned()
 }
 
-const HOST_PORT_HINT: &str = "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it, which is already the default where the built-in test signer is enabled.";
+const HOST_PORT_HINT: &str = "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it, which is already the default for signatures by the enabled built-in test signer.";
 
 const PLAIN_MISMATCH: &str = "The request signature does not match.";
 
@@ -375,37 +375,58 @@ fn exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_set
     }
 }
 
-/// Where the built-in test signer is enabled the host port is lenient without the setting, and
-/// an explicit exact still wins.
+/// Where the built-in test signer is enabled, its own signatures may omit the port without the
+/// setting, while a registered key still names it. An explicit value applies to every signer:
+/// lenient accepts both, and exact refuses the test signer's too.
 #[test]
-fn an_enabled_test_signer_makes_the_host_port_lenient_unless_exact_is_set() {
-    for (options, lenient) in [
-        (&["--test-signer", "enabled"][..], true),
-        (
-            &["--test-signer", "enabled", "--signed-host-port", "exact"],
-            false,
-        ),
+fn an_enabled_test_signer_makes_only_its_own_signatures_lenient_by_default() {
+    // The seed project holds the undeclared signer's implicit role, so it may read the object.
+    let enabled = ["--test-signer", "enabled", "--seed-project", "project-a"];
+    for (setting, signers, test_signer_passes, registered_passes) in [
+        (None, Some("test-signer"), true, false),
+        (Some("lenient"), Some("all"), true, true),
+        (Some("exact"), None, false, false),
     ] {
-        let (_config, _data, server, ready) = fixture_with(options, Stdio::null());
+        let options: Vec<&str> = enabled
+            .into_iter()
+            .chain(
+                setting
+                    .into_iter()
+                    .flat_map(|value| ["--signed-host-port", value]),
+            )
+            .collect();
+        let (_config, _data, server, ready) = fixture_with(&options, Stdio::null());
         assert_eq!(ready["test_signer"], "enabled");
         assert_eq!(
             ready["signed_host_port"],
-            if lenient { "lenient" } else { "exact" }
+            if signers.is_some() {
+                "lenient"
+            } else {
+                "exact"
+            },
+            "{options:?}"
+        );
+        assert_eq!(
+            ready
+                .get("signed_host_port_signers")
+                .and_then(Value::as_str),
+            signers,
+            "{options:?}"
         );
         let host = server.address.rsplit_once(':').unwrap().0.to_owned();
-        let portless = sign_without_port(
-            &server,
-            &host,
-            &Method::GET,
-            "/iam-bucket/object",
-            "viewer@example.invalid",
-        );
-        let reply = send(&server, "GET", &portless, "");
-        if lenient {
-            assert_eq!(reply.success().body, b"hello world");
-        } else {
-            error(&reply, 403, "SignatureDoesNotMatch");
-            assert_eq!(message(&reply), HOST_PORT_HINT);
+        for (signer, passes) in [
+            (gcs_mimic::auth::test_signer::ID, test_signer_passes),
+            ("viewer@example.invalid", registered_passes),
+        ] {
+            let portless =
+                sign_without_port(&server, &host, &Method::GET, "/iam-bucket/object", signer);
+            let reply = send(&server, "GET", &portless, "");
+            if passes {
+                assert_eq!(reply.success().body, b"hello world", "{signer} {options:?}");
+            } else {
+                error(&reply, 403, "SignatureDoesNotMatch");
+                assert_eq!(message(&reply), HOST_PORT_HINT, "{signer} {options:?}");
+            }
         }
     }
 }

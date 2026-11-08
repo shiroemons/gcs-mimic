@@ -224,7 +224,7 @@ impl Auth {
         prepared: v4::Prepared,
     ) -> Result<Option<Caller<'a>>, VerificationError> {
         let (caller, key) = self.verification_key(catalog, &prepared).await?;
-        let host_port = self.signed_host_port;
+        let host_port = self.host_port.for_signature(&prepared);
         self.verifiers
             .run(move || {
                 verify_host_forms(host_port, &prepared, |message| {
@@ -262,6 +262,24 @@ impl Auth {
             .map_err(VerificationError::Catalog)?
             .ok_or_else(|| signers.unknown(&prepared.signer))?;
         Ok((signers.caller(&signer)?, Key::Hmac(secret)))
+    }
+}
+
+impl HostPortPolicy {
+    /// The rule for one signature. Only an RSA signature names its signer before verification,
+    /// so an HMAC signature, whose access ID names a key rather than the test signer, stays
+    /// exact under the test signer's default.
+    pub(super) fn for_signature(self, prepared: &Prepared) -> SignedHostPort {
+        match self {
+            Self::Exact => SignedHostPort::Exact,
+            Self::Lenient => SignedHostPort::Lenient,
+            Self::LenientForTestSigner
+                if prepared.algorithm == Algorithm::Rsa && prepared.signer == test_signer::ID =>
+            {
+                SignedHostPort::Lenient
+            }
+            Self::LenientForTestSigner => SignedHostPort::Exact,
+        }
     }
 }
 
@@ -624,6 +642,40 @@ mod tests {
         for host_port in [Exact, Lenient] {
             assert_eq!(check(host_port, &other), Err(Failure::Mismatch));
             assert_eq!(check(host_port, &tampered), Err(Failure::Mismatch));
+        }
+    }
+
+    /// Without the setting only the built-in test signer's RSA signatures may omit the port: a
+    /// registered key and every HMAC key, even one whose access ID reads like the signer's ID,
+    /// stay exact. An explicit value applies to every signature.
+    #[test]
+    fn the_default_lenient_host_port_covers_only_the_test_signers_rsa_signatures() {
+        use HostPortPolicy::{Exact, Lenient, LenientForTestSigner};
+        let hmac = || published_aws_header_request("examplebucket.s3.amazonaws.com:4443");
+        let rsa = |signer: &str| Prepared {
+            algorithm: Algorithm::Rsa,
+            signer: signer.to_owned(),
+            ..hmac()
+        };
+        let named_like_the_signer = Prepared {
+            signer: test_signer::ID.to_owned(),
+            ..hmac()
+        };
+        let signatures = [
+            (rsa(test_signer::ID), SignedHostPort::Lenient),
+            (rsa("viewer@example.invalid"), SignedHostPort::Exact),
+            (hmac(), SignedHostPort::Exact),
+            (named_like_the_signer, SignedHostPort::Exact),
+        ];
+        for (prepared, by_default) in &signatures {
+            let signer = &prepared.signer;
+            assert_eq!(
+                LenientForTestSigner.for_signature(prepared),
+                *by_default,
+                "{signer}"
+            );
+            assert_eq!(Lenient.for_signature(prepared), SignedHostPort::Lenient);
+            assert_eq!(Exact.for_signature(prepared), SignedHostPort::Exact);
         }
     }
 
