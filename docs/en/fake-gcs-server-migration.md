@@ -216,6 +216,9 @@ warning names the fields that still differ and ready counts the bucket as
 `GCS_MIMIC_BUCKETS_FILE_MODE: reconcile` to the service environment; each start
 then writes only the fields an entry sets whose value differs, and fields it
 omits keep their API changes. Releases up to 0.13.0 do not know this setting.
+Deleting a field from `content` never resets it: removing the `iamPolicy` above
+leaves `app-images` public, with a one-time warning that `iamPolicy` is no
+longer written, until the entry writes the policy you want.
 
 ### Cross-origin upload and reading
 

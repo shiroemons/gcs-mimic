@@ -347,6 +347,13 @@ their API changes, and a bucket's location never changes. The mode also reads
 `--buckets-file-mode` or server JSON `buckets_file_mode`, defaults to `create`,
 and fails startup when no buckets file is selected.
 
+Removing a field from an entry never resets the bucket, in either mode: after you
+drop an `allUsers` `iamPolicy`, the bucket stays public, and the next startup
+warns once that `iamPolicy` is no longer written. Write the value you want
+instead, such as `"iamPolicy":{"bindings":[]}`. The first startup after an
+upgrade from 0.13.0 also warns once about each existing bucket that differs from
+its entry.
+
 Entry `project` overrides file `project`, then `GCS_MIMIC_SEED_PROJECT`
 (default `local-project`). Initializer v1 rejects ACLs, lifecycle, UBLA, `iam`,
 policy fields other than `bindings` and unknown fields, including disabled or
