@@ -139,7 +139,7 @@ SPEC-GO-SIGNER-PORT. No container, browser or real-cloud run was performed.
 | Command | Result |
 | --- | --- |
 | `env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh` | PASS: `go vet`, then 90 top-level tests passed, 1 skipped (`TestV2RSASignedTransfers`, which needs the HTTPS profile), 0 failed; `TestBuiltInSignerURLsPassUnderLenientHostPort` and its `ExactServerNamesTheSetting` subtest passed |
-| `bash sdk-tests/ruby/active_storage/run-strict.sh` | PASS: signing self-check, then 9 PASS and 0 FAIL for each of the registered-key variant and the built-in test signer variant, whose signer holds only `roles/storage.objectUser` |
+| `bash sdk-tests/ruby/active_storage/run-strict.sh` | PASS: signing self-check, then 9 PASS and 0 FAIL for the registered-key variant, and 10 PASS and 0 FAIL for each of the two built-in test signer variants, whose signer holds only `roles/storage.objectUser`: implicitly without an identity document, and declared in one |
 | `bash scripts/sdk-active-storage.sh` | Unchanged: scenario 1 PASS, 6 PASS_WITH_WORKAROUND and the known AS-DEFAULT-AUTH FAIL (exit 1, as documented); attachments 11 PASS, 0 FAIL; production check PASS |
 
 Go 1.27.3 / storage v1.70.0 / API v0.311.0. `scripts/sdk-go.sh` starts a third
@@ -162,23 +162,42 @@ and the message naming `signed_host_port=lenient`. `TestV4RSASignedDownload`
 keeps asserting that unmodified URLs for a host:port fail on that server.
 
 Ruby 4.0.9 / Bundler 4.0.24 / Rails 8.1.4.1 / google-cloud-storage 1.62.1 /
-googleauth 1.17.6. `run-strict.sh` runs `strict.rb` twice. The second server runs
-`--test-signer enabled` with an identity file that declares only
-`test-signer@gcs-mimic.invalid`, with `roles/storage.objectUser` on
-`local-project` and no keys, the role that `examples/strict-local` grants it.
-That role cannot create buckets or change their settings, so the server also runs
-`--buckets-file sdk-tests/ruby/active_storage/strict-buckets.json`. It creates
-`app-private`, with public access prevention enforced and the direct-upload CORS
-rule, and `app-public`, whose policy grants `allUsers`
-`roles/storage.objectViewer`. `strict.rb` uses both without a bucket lookup and
-deletes only their objects. The first, registered-key server creates its own
-buckets as `roles/storage.admin`. The `gcs_emulator_test_signer` storage.yml
-entry follows the documented recipe: `client_email: test-signer@gcs-mimic.invalid`
-and the private key that `gcs-mimic test-signer credentials | jq -r .private_key`
-writes. The built-in key is byte-identical to
-`fixtures/signing/test-only-private.pem`.
+googleauth 1.17.6. `run-strict.sh` runs `strict.rb` three times, each against
+its own strict server, and prints each server's ready-event summary:
 
-Both variants pass all nine cases:
+| Variant | Server | Ready event |
+| --- | --- | --- |
+| `registered-key` | `--identity-file` registering `local-admin@example.invalid` with the fixture public key and `roles/storage.admin`; the scenario creates its own buckets | `"identities":1,"test_signer":"disabled"` |
+| `test-signer-implicit` | `--test-signer enabled --buckets-file …/strict-buckets.json --trusted-listen 127.0.0.1:0`, no identity document | `"identities":0,"test_signer":"enabled"`, `trusted_listen` bound, `"trusted_principal":"trusted-app@gcs-mimic.invalid"` |
+| `test-signer-declared` | `--test-signer enabled --buckets-file …/strict-buckets.json` with an identity file declaring only `test-signer@gcs-mimic.invalid`, `roles/storage.objectUser` on `local-project` and no keys | `"identities":1,"test_signer":"enabled"` |
+
+In both test signer variants the signer holds only `roles/storage.objectUser`,
+the role that `examples/strict-local` grants it: implicitly when no identity
+document declares it, and explicitly otherwise. Rails never uses the trusted
+listener, because it always presents its own JWT. That role cannot create
+buckets or change their settings, so `strict-buckets.json` creates `app-private`,
+with public access prevention enforced and the direct-upload CORS rule, and
+`app-public`, whose policy grants `allUsers` `roles/storage.objectViewer`.
+`strict.rb` uses both without a bucket lookup and deletes only their objects. The
+`gcs_emulator_test_signer` storage.yml entry follows the documented recipe:
+`client_email: test-signer@gcs-mimic.invalid` and the private key that
+`gcs-mimic test-signer credentials | jq -r .private_key` writes. The built-in key
+is byte-identical to `fixtures/signing/test-only-private.pem`.
+
+Only the two test signer variants run `AS-STRICT-NO-BUCKET-ADMIN`. There,
+`POST /storage/v1/b` and `GET /storage/v1/b/app-public/iam` fail with 403
+`test-signer@gcs-mimic.invalid does not have storage.buckets.create access to the
+Google Cloud project` and `… storage.buckets.getIamPolicy access to the Google
+Cloud Storage bucket`; the case asserts that each message names the signer and
+the permission. A manual control that declared the signer with
+`roles/storage.admin` failed this case with `test-signer@gcs-mimic.invalid was
+allowed storage.buckets.create`, so the case would catch a broader role. The
+anonymous GET of a private object answers 401 `AuthenticationRequired` with
+`Anonymous caller does not have storage.objects.get access to the Google Cloud
+Storage object`; the cases assert status codes only, so the new denial messages
+needed no test change.
+
+All three variants pass the other nine cases:
 
 - `AS-STRICT-JWT-UPLOAD-DOWNLOAD`, `AS-STRICT-V2-DIRECT-UPLOAD-CORS` and
   `AS-STRICT-V4-DIRECT-UPLOAD-CORS`: Rails' self-signed JWT bearer, stock V2 URLs
