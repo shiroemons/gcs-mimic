@@ -103,14 +103,82 @@ impl Reply {
         );
     }
 
+    /// A registered caller refused a permission: the whole envelope, with a message in Cloud
+    /// Storage's denial form. [`Self::denied`] also names the principal and the permission.
     #[track_caller]
     pub(crate) fn forbidden(&self) {
         self.auth_error(403, "forbidden");
+        let message = self.json()["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let (principal, _, _) = parse_denial(&message);
+        assert_ne!(principal, ANONYMOUS, "{message}");
+        assert_eq!(self.json(), forbidden_body(&message));
+    }
+
+    /// `principal` refused `permission` on a `resource` of `project`, `bucket` or `object`.
+    #[track_caller]
+    pub(crate) fn denied(&self, principal: &str, permission: &str, resource: &str) {
+        self.auth_error(403, "forbidden");
+        let message = denial_message(principal, permission, resource);
+        assert_eq!(self.json(), forbidden_body(&message));
+    }
+
+    /// The anonymous caller refused `permission`: 401 `required` at the `Authorization` header,
+    /// whose message names the anonymous caller and the permission.
+    #[track_caller]
+    pub(crate) fn anonymous_denied(&self, permission: &str, resource: &str) {
+        self.auth_error(401, "required");
+        let message = denial_message(ANONYMOUS, permission, resource);
         assert_eq!(
             self.json(),
-            json!({"error":{"errors":[{"domain":"global","reason":"forbidden","message":"Forbidden"}],"code":403,"message":"Forbidden"}})
+            json!({"error":{"errors":[{"domain":"global","reason":"required","message":message,"locationType":"header","location":"Authorization"}],"code":401,"message":message}})
         );
     }
+}
+
+/// How Cloud Storage's denial messages name a caller without credentials.
+pub(crate) const ANONYMOUS: &str = "Anonymous caller";
+
+/// The denial message for `principal` refused `permission` on a `resource` of `project`,
+/// `bucket` or `object`.
+#[track_caller]
+pub(crate) fn denial_message(principal: &str, permission: &str, resource: &str) -> String {
+    let noun = match resource {
+        "project" => "Google Cloud project",
+        "bucket" => "Google Cloud Storage bucket",
+        "object" => "Google Cloud Storage object",
+        other => panic!("unknown resource kind {other}"),
+    };
+    format!(
+        "{principal} does not have {permission} access to the {noun}. Permission '{permission}' denied on resource (or it may not exist)."
+    )
+}
+
+/// The principal, permission and resource kind of a message in the denial form; any other
+/// message fails.
+#[track_caller]
+pub(crate) fn parse_denial(message: &str) -> (&str, &str, &'static str) {
+    let parsed = message
+        .split_once(" does not have ")
+        .and_then(|(principal, rest)| Some((principal, rest.split_once(' ')?.0)))
+        .and_then(|(principal, permission)| {
+            ["project", "bucket", "object"]
+                .into_iter()
+                .find(|resource| denial_message(principal, permission, resource) == message)
+                .map(|resource| (principal, permission, resource))
+        });
+    let Some(parsed @ (principal, permission, _)) = parsed else {
+        panic!("not a denial message: {message}");
+    };
+    assert!(!principal.is_empty(), "{message}");
+    assert!(permission.starts_with("storage."), "{message}");
+    parsed
+}
+
+fn forbidden_body(message: &str) -> Value {
+    json!({"error":{"errors":[{"domain":"global","reason":"forbidden","message":message}],"code":403,"message":message}})
 }
 impl super::http::TextReply {
     /// A delete or overwrite refused by a hold: a 403 `forbidden` whose message names the hold.
@@ -165,6 +233,16 @@ impl Reply {
 #[track_caller]
 pub(crate) fn xml_error(reply: &Reply, status: u16, code: &str) {
     reply.xml_error(status, code, ContentType::Skip);
+}
+/// An XML error whose `Message` is `message`; the message holds no markup to escape.
+#[track_caller]
+pub(crate) fn xml_error_message(reply: &Reply, status: u16, code: &str, message: &str) {
+    reply.xml_error(status, code, ContentType::Check);
+    let body = String::from_utf8_lossy(&reply.body);
+    assert!(
+        body.contains(&format!("<Message>{message}</Message>")),
+        "{body}"
+    );
 }
 #[track_caller]
 pub(crate) fn xml_error_with_content_type(reply: &Reply, status: u16, code: &str) {

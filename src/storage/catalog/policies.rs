@@ -163,12 +163,26 @@ pub(super) fn advance_acl_revision(
     Ok(())
 }
 
-pub(super) fn check_access(
-    connection: &Connection,
+/// The refusal of `permission` in `bucket`. A missing bucket gets the same refusal as an
+/// existing one, so it reveals nothing about existence.
+pub(super) fn denied(
+    identity: Option<&Identity>,
+    permission: crate::auth::Permission,
     bucket: &str,
+) -> CatalogError {
+    CatalogError::Denied(crate::auth::Denied::new(
+        identity,
+        permission,
+        crate::auth::denied::Resource::in_bucket(permission, bucket),
+    ))
+}
+
+pub(super) fn check_access<'a>(
+    connection: &Connection,
+    bucket: &'a str,
     project: &str,
-    access: &BucketAccess,
-) -> Result<DeletePermission, CatalogError> {
+    access: &'a BucketAccess,
+) -> Result<DeletePermission<'a>, CatalogError> {
     if let BucketAccess::Admin(grant) = access {
         grant.authorize(connection)?;
     }
@@ -178,40 +192,26 @@ pub(super) fn check_access(
         project: observed,
     } = access
     {
+        let identity = identity.as_ref();
+        // The bucket was recreated in another project after authorization.
         if observed.as_deref().is_some_and(|owner| owner != project) {
-            return Err(CatalogError::Forbidden);
+            return Err(denied(identity, *permission, bucket));
         }
         let policy = read_policy(connection, bucket)?;
         let pap = policy_public_access(connection, bucket)?;
-        if !identity
-            .as_ref()
-            .is_some_and(|identity| identity.allows(*permission, project))
-            && !policy.allows(identity.as_ref(), *permission, pap)
-            && !super::acl::bucket_granted(
-                connection,
-                bucket,
-                project,
-                identity.as_ref(),
-                *permission,
-            )?
+        if !identity.is_some_and(|identity| identity.allows(*permission, project))
+            && !policy.allows(identity, *permission, pap)
+            && !super::acl::bucket_granted(connection, bucket, project, identity, *permission)?
         {
-            return Err(CatalogError::Forbidden);
+            return Err(denied(identity, *permission, bucket));
         }
-        let delete = identity
-            .as_ref()
-            .is_some_and(|identity| identity.allows(OBJECTS_DELETE, project))
-            || policy.allows(identity.as_ref(), OBJECTS_DELETE, pap)
-            || super::acl::bucket_granted(
-                connection,
-                bucket,
-                project,
-                identity.as_ref(),
-                OBJECTS_DELETE,
-            )?;
+        let delete = identity.is_some_and(|identity| identity.allows(OBJECTS_DELETE, project))
+            || policy.allows(identity, OBJECTS_DELETE, pap)
+            || super::acl::bucket_granted(connection, bucket, project, identity, OBJECTS_DELETE)?;
         return Ok(if delete {
             DeletePermission::Granted
         } else {
-            DeletePermission::Denied
+            DeletePermission::Denied { identity, bucket }
         });
     }
     Ok(DeletePermission::Granted)
@@ -266,7 +266,7 @@ impl Catalog {
                     .as_ref()
                     .is_some_and(|identity| identity.allows_anywhere(permission))
             {
-                return Err(CatalogError::Forbidden);
+                return Err(denied(identity.as_ref(), permission, &bucket));
             }
             let access = BucketAccess::Policy {
                 identity: identity.clone(),
@@ -298,7 +298,7 @@ impl Catalog {
                     .ok_or(CatalogError::NotFound)?;
             match check_access(&transaction, &bucket, &project, &access) {
                 Ok(_) => Ok(true),
-                Err(CatalogError::Forbidden) => Ok(false),
+                Err(CatalogError::Denied(_) | CatalogError::Forbidden) => Ok(false),
                 Err(error) => Err(error),
             }
         })

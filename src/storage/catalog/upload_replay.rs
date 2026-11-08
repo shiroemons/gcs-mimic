@@ -258,7 +258,7 @@ impl UploadReplay {
             &acl_access,
         ) {
             Ok(_) => true,
-            Err(ObjectError::Forbidden) => false,
+            Err(ObjectError::Denied(_) | ObjectError::Forbidden) => false,
             Err(error) => return Err(error),
         };
         let (uniform, project): (bool, String) = sql::row(
@@ -353,9 +353,10 @@ fn copy_source_generation(
     token: &[u8],
     now: i64,
 ) -> Result<Option<i64>, ObjectError> {
-    if objects::object_acl_authority(connection, source.bucket, source.access)?.is_none() {
+    let Some(check) = objects::object_acl_authority(connection, source.bucket, source.access)?
+    else {
         return Ok(source.generation);
-    }
+    };
     let stored: Option<String> = sql::optional_scalar(
         connection,
         "SELECT completion FROM upload_replays WHERE token=?1 AND deadline>?2",
@@ -370,17 +371,15 @@ fn copy_source_generation(
                 {
                     original.generation
                 }
-                _ => return Err(ObjectError::Forbidden),
+                _ => return Err(check.refusal()),
             }
         }
         None => match source.generation {
             Some(generation) => generation,
-            None => {
-                objects::lookup(connection, source.bucket, source.name)?
-                    .ok_or(ObjectError::Forbidden)?
-                    .record
-                    .generation
-            }
+            None => match objects::lookup(connection, source.bucket, source.name)? {
+                Some(stored) => stored.record.generation,
+                None => return Err(check.refusal()),
+            },
         },
     };
     objects::authorize_generation(

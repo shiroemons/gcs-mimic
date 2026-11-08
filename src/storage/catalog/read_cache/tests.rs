@@ -282,14 +282,14 @@ async fn only_a_live_read_with_permissive_access_shares_an_answer() {
             .get_object(live("bucket", "object"), Default::default(), &denied)
             .await
             .err(),
-        Some(ObjectError::Forbidden)
+        Some(ObjectError::Denied(denied.denied("bucket")))
     );
     assert_eq!(
         catalog
             .open_object(live("bucket", "object"), Default::default(), &denied)
             .await
             .err(),
-        Some(ObjectError::Forbidden)
+        Some(ObjectError::Denied(denied.denied("bucket")))
     );
     let served = catalog.pooled_reads();
     let pinned = crate::storage::test_fixtures::version("bucket", "object", written.generation);

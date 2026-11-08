@@ -130,7 +130,9 @@ fn public_members_authorize_anonymous_and_registered_callers_without_token_fallb
             1
         );
     }
-    server.get("", "/storage/v1/b/iam-bucket").login_required();
+    server
+        .get("", "/storage/v1/b/iam-bucket")
+        .anonymous_denied("storage.buckets.get", "bucket");
     grant(&server, "allUsers", "roles/storage.admin");
     server.get("", "/storage/v1/b/iam-bucket").success();
     server
@@ -147,7 +149,9 @@ fn public_members_authorize_anonymous_and_registered_callers_without_token_fallb
     assert_eq!(server.get(NO_ROLES, OBJECT).success().body, b"hello world");
     server.get(NO_ROLES, JSON_OBJECT).success();
     xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");
-    server.get("", JSON_OBJECT).login_required();
+    server
+        .get("", JSON_OBJECT)
+        .anonymous_denied("storage.objects.get", "object");
     for member in ["allUsers", "allAuthenticatedUsers"] {
         grant(&server, member, "roles/storage.objectViewer");
         for auth in [
@@ -164,25 +168,27 @@ fn public_members_authorize_anonymous_and_registered_callers_without_token_fallb
 #[test]
 fn anonymous_object_mutations_require_each_granted_permission() {
     let (_config, _data, server) = fixture();
+    let mutation = |method: &str| {
+        let (permission, body): (_, &[u8]) = if method == "DELETE" {
+            ("storage.objects.delete", b"")
+        } else {
+            ("storage.objects.update", b"{}")
+        };
+        (server.request(method, JSON_OBJECT, "", body), permission)
+    };
     server
         .upload("", "iam-bucket", "new", b"new")
-        .login_required();
+        .anonymous_denied("storage.objects.create", "object");
     server
         .multipart("", "iam-bucket", "multipart", b"new")
-        .login_required();
+        .anonymous_denied("storage.objects.create", "object");
     for method in ["PATCH", "PUT", "DELETE"] {
-        server
-            .request(
-                method,
-                JSON_OBJECT,
-                "",
-                if method == "DELETE" { b"" } else { b"{}" },
-            )
-            .login_required();
+        let (reply, permission) = mutation(method);
+        reply.anonymous_denied(permission, "object");
     }
     server
         .get("", "/storage/v1/b/iam-bucket/o")
-        .login_required();
+        .anonymous_denied("storage.objects.list", "bucket");
 
     grant(&server, "allUsers", "roles/storage.objectCreator");
     server.upload("", "iam-bucket", "new", b"new").success();
@@ -190,21 +196,16 @@ fn anonymous_object_mutations_require_each_granted_permission() {
         .multipart("", "iam-bucket", "multipart", b"new")
         .success();
     let before = server.get(ADMIN, JSON_OBJECT).success().json();
+    // Replacing a live object also needs storage.objects.delete, which the denial names.
     server
         .upload("", "iam-bucket", "object", b"overwrite")
-        .login_required();
+        .anonymous_denied("storage.objects.delete", "object");
     server
         .multipart("", "iam-bucket", "object", b"overwrite")
-        .login_required();
+        .anonymous_denied("storage.objects.delete", "object");
     for method in ["PATCH", "PUT", "DELETE"] {
-        server
-            .request(
-                method,
-                JSON_OBJECT,
-                "",
-                if method == "DELETE" { b"" } else { b"{}" },
-            )
-            .login_required();
+        let (reply, permission) = mutation(method);
+        reply.anonymous_denied(permission, "object");
     }
     assert_eq!(server.get(ADMIN, JSON_OBJECT).success().json(), before);
     assert_eq!(server.get(ADMIN, OBJECT).success().body, b"hello world");
@@ -270,7 +271,9 @@ fn anonymous_bucket_and_policy_operations_require_granted_permissions() {
         if role == Some("roles/storage.legacyBucketReader") {
             server.get("", bucket).success();
         } else {
-            server.get("", bucket).login_required();
+            server
+                .get("", bucket)
+                .anonymous_denied("storage.buckets.get", "bucket");
         }
         if role == Some("roles/storage.objectAdmin") {
             server
@@ -279,17 +282,24 @@ fn anonymous_bucket_and_policy_operations_require_granted_permissions() {
             assert_eq!(server.get("", OBJECT).success().body, b"hello");
             server.request("DELETE", JSON_OBJECT, "", b"").success();
         }
-        server.get("", iam::IAM).login_required();
-        iam::set(&server, "", &json!({"bindings":[]})).login_required();
-        server.request("DELETE", bucket, "", b"").login_required();
+        server
+            .get("", iam::IAM)
+            .anonymous_denied("storage.buckets.getIamPolicy", "bucket");
+        iam::set(&server, "", &json!({"bindings":[]}))
+            .anonymous_denied("storage.buckets.setIamPolicy", "bucket");
+        server
+            .request("DELETE", bucket, "", b"")
+            .anonymous_denied("storage.buckets.delete", "bucket");
     }
     grant(&server, "allUsers", "roles/storage.admin");
     server.get("", bucket).success();
     let policy = server.get("", iam::IAM).success().json();
     iam::set(&server, "", &policy).success();
     iam::set(&server, "", &json!({"bindings":[]})).success();
-    iam::set(&server, "", &policy).login_required();
-    server.get("", iam::IAM).login_required();
+    iam::set(&server, "", &policy).anonymous_denied("storage.buckets.setIamPolicy", "bucket");
+    server
+        .get("", iam::IAM)
+        .anonymous_denied("storage.buckets.getIamPolicy", "bucket");
     grant(&server, "allUsers", "roles/storage.admin");
     server.request("DELETE", bucket, "", b"").success();
     server.get(ADMIN, bucket).auth_error(404, "notFound");
@@ -318,7 +328,9 @@ fn public_grants_survive_restart_and_revocation_preserves_etag_checks() {
     )
     .success();
     xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");
-    server.get("", JSON_OBJECT).login_required();
+    server
+        .get("", JSON_OBJECT)
+        .anonymous_denied("storage.objects.get", "object");
     xml_error(&server.get(NO_ROLES, OBJECT), 403, "AccessDenied");
     assert_eq!(server.get(ADMIN, OBJECT).success().body, b"hello world");
 }
@@ -344,7 +356,9 @@ fn public_revocation_racing_xml_and_json_reads_denies_subsequent_requests() {
                 read.join().unwrap();
             });
             xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");
-            server.get("", JSON_OBJECT).login_required();
+            server
+                .get("", JSON_OBJECT)
+                .anonymous_denied("storage.objects.get", "object");
         }
     }
 }
@@ -541,7 +555,7 @@ fn xml_missing_resources_follow_effective_permission_disclosure() {
     xml_error(&server.get("", "/iam-bucket/missing"), 404, "NoSuchKey");
     server
         .get("", "/storage/v1/b/missing-bucket/o/object")
-        .login_required();
+        .anonymous_denied("storage.objects.get", "object");
 }
 
 #[test]

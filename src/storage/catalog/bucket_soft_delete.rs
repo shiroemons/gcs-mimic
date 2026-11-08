@@ -204,7 +204,11 @@ fn authorize(
             {
                 Ok(())
             } else {
-                Err(CatalogError::Forbidden)
+                Err(CatalogError::Denied(crate::auth::Denied::new(
+                    identity.as_ref(),
+                    *permission,
+                    crate::auth::denied::Resource::project(Some(project)),
+                )))
             }
         }
     }

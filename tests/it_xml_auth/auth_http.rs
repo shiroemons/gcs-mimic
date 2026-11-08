@@ -1,6 +1,8 @@
 use crate::common;
 use crate::common::process::declare_server;
 
+mod denials;
+
 mod iam;
 
 mod identity_limits;
@@ -294,45 +296,53 @@ fn auth_http_strict_rejects_anonymous_and_unsupported_credentials() {
         .success();
     server.upload(ADMIN, "bucket-a", "o", b"data").success();
     // Anonymous callers need a login on every supported route, even for a missing bucket.
+    // Project-level routes keep the documented `Login Required`; bucket and object routes
+    // name the refused permission, the same for a missing bucket as for an existing one.
     server
         .create_bucket("", "project-a", "anon")
         .login_required();
     server
         .get("", "/storage/v1/b?project=project-a")
         .login_required();
-    server.get("", "/storage/v1/b/bucket-a").login_required();
+    server
+        .get("", "/storage/v1/b/bucket-a")
+        .anonymous_denied("storage.buckets.get", "bucket");
     server
         .get("", "/storage/v1/b/missing-bucket")
-        .login_required();
+        .anonymous_denied("storage.buckets.get", "bucket");
     server
         .get("", "/storage/v1/b/bucket-a/o/o")
-        .login_required();
+        .anonymous_denied("storage.objects.get", "object");
     server
         .get("", "/storage/v1/b/bucket-a/o/o?alt=media")
-        .login_required();
+        .anonymous_denied("storage.objects.get", "object");
     server
         .get("", "/download/storage/v1/b/bucket-a/o/o?alt=media")
-        .login_required();
-    server.get("", "/storage/v1/b/bucket-a/o").login_required();
+        .anonymous_denied("storage.objects.get", "object");
+    server
+        .get("", "/storage/v1/b/bucket-a/o")
+        .anonymous_denied("storage.objects.list", "bucket");
     server
         .get("", "/storage/v1/b/missing-bucket/o/o")
-        .login_required();
-    server.upload("", "bucket-a", "o", b"new").login_required();
+        .anonymous_denied("storage.objects.get", "object");
+    server
+        .upload("", "bucket-a", "o", b"new")
+        .anonymous_denied("storage.objects.create", "object");
     server
         .multipart("", "bucket-a", "o", b"new")
-        .login_required();
+        .anonymous_denied("storage.objects.create", "object");
     server
         .request("PATCH", "/storage/v1/b/bucket-a/o/o", "", b"{}")
-        .login_required();
+        .anonymous_denied("storage.objects.update", "object");
     server
         .request("PUT", "/storage/v1/b/bucket-a/o/o", "", b"{}")
-        .login_required();
+        .anonymous_denied("storage.objects.update", "object");
     server
         .request("DELETE", "/storage/v1/b/bucket-a/o/o", "", b"")
-        .login_required();
+        .anonymous_denied("storage.objects.delete", "object");
     server
         .request("DELETE", "/storage/v1/b/bucket-a", "", b"")
-        .login_required();
+        .anonymous_denied("storage.buckets.delete", "bucket");
     // Unknown, empty, malformed, duplicate or unsupported credentials never fall back.
     for auth in [
         "Authorization: Bearer unknown-token\r\n",
@@ -505,7 +515,9 @@ fn auth_http_admin_full_crud_and_restart_with_same_registry() {
             .body,
         b"two"
     );
-    server.get("", "/storage/v1/b/bucket-a").login_required();
+    server
+        .get("", "/storage/v1/b/bucket-a")
+        .anonymous_denied("storage.buckets.get", "bucket");
     for name in ["media", "multi"] {
         server
             .request(

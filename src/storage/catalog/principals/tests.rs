@@ -130,7 +130,11 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
                 crate::auth::BUCKETS_GET
             )
             .await,
-        Err(CatalogError::Forbidden)
+        Err(CatalogError::Denied(crate::auth::Denied::new(
+            Some(&current.principals().unwrap()[1]),
+            crate::auth::BUCKETS_GET,
+            crate::auth::denied::Resource::in_bucket(crate::auth::BUCKETS_GET, "first-bucket"),
+        )))
     );
     assert_eq!(
         reopened

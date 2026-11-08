@@ -1056,7 +1056,7 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
         .bucket_access(bucket.as_str(), None, crate::auth::OBJECTS_GET)
         .await
         .unwrap();
-    assert!(matches!(
+    assert_eq!(
         catalog
             .get_object(
                 version(bucket.as_str(), name.as_str(), first.generation),
@@ -1064,8 +1064,10 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
                 &anonymous
             )
             .await,
-        Err(crate::object::ObjectError::Forbidden)
-    ));
+        Err(crate::object::ObjectError::Denied(
+            anonymous.denied(bucket.as_str())
+        ))
+    );
     catalog.close().await.unwrap();
 }
 

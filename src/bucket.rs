@@ -468,7 +468,12 @@ pub enum CatalogError {
     RestoreConflict,
     PreconditionFailed,
     PublicAccessPrevention,
-    /// The bucket's current owning project is not one the caller was authorized for.
+    /// Strict authorization refused a Cloud Storage permission, including when the bucket's
+    /// current owning project is not one the caller was authorized for.
+    Denied(Box<crate::auth::Denied>),
+    /// Refused for a reason no Cloud Storage permission names: a sync control without an
+    /// explicit `roles/storage.admin` grant in a project it touches, or an access authorized
+    /// for another permission than the operation needs.
     Forbidden,
     RetentionPolicyLocked(u64),
     RetentionPolicyNotSet,
@@ -578,6 +583,7 @@ impl fmt::Display for CatalogError {
             Self::PublicAccessPrevention => {
                 formatter.write_str("public access prevention is enforced")
             }
+            Self::Denied(denied) => denied.fmt(formatter),
             Self::Forbidden => formatter.write_str("forbidden"),
             Self::RetentionPolicyLocked(period) => write!(
                 formatter,
@@ -647,4 +653,33 @@ pub(crate) enum BucketAccess {
         permission: crate::auth::Permission,
         project: Option<String>,
     },
+}
+
+#[cfg(test)]
+impl BucketAccess {
+    /// The refusal of this access's own permission in `bucket`.
+    #[track_caller]
+    pub(crate) fn denied(&self, bucket: &str) -> Box<crate::auth::Denied> {
+        let Self::Policy { permission, .. } = self else {
+            panic!("only a policy access names a refused permission: {self:?}");
+        };
+        self.denied_for(*permission, bucket)
+    }
+
+    /// The refusal of `permission` in `bucket` for this access's principal.
+    #[track_caller]
+    pub(crate) fn denied_for(
+        &self,
+        permission: crate::auth::Permission,
+        bucket: &str,
+    ) -> Box<crate::auth::Denied> {
+        let Self::Policy { identity, .. } = self else {
+            panic!("only a policy access names a refused permission: {self:?}");
+        };
+        crate::auth::Denied::new(
+            identity.as_ref(),
+            permission,
+            crate::auth::denied::Resource::in_bucket(permission, bucket),
+        )
+    }
 }
