@@ -95,6 +95,10 @@ pub(crate) struct ReadyEvent {
     public_virtual_host_enabled: bool,
     cors_fallback: &'static str,
     signed_host_port: &'static str,
+    /// Whose signatures `signed_host_port=lenient` covers: `all`, or only `test-signer` by
+    /// default, where a registered key still names the port. Absent while it is exact.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signed_host_port_signers: Option<&'static str>,
     api_base_url: String,
 }
 
@@ -161,7 +165,8 @@ impl ReadyEvent {
                 .map(|origin| origin.as_str().to_owned()),
             public_virtual_host_enabled: config.public_virtual_host_enabled(),
             cors_fallback: config.effective_cors_fallback().fallback().as_str(),
-            signed_host_port: auth.signed_host_port().as_str(),
+            signed_host_port: auth.host_port_policy().setting().as_str(),
+            signed_host_port_signers: auth.host_port_policy().lenient_signers(),
             api_base_url,
         }
     }

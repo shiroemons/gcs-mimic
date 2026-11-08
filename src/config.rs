@@ -27,7 +27,9 @@ mod storage;
 mod test_support;
 #[cfg(test)]
 mod unix_tests;
-pub use auth::{AuthProfile, TrustedCaller, Verification};
+#[cfg(test)]
+pub(crate) use auth::Verification;
+pub(crate) use auth::{AuthProfile, TrustedCaller};
 pub use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
 pub use runtime::RuntimeEndpoints;
@@ -666,11 +668,13 @@ fn rejected_setting_fix(name: &str) -> &'static str {
 
 /// Parses one setting into `config`. A rejected value may leave `config` partly updated, so the
 /// caller applies it to a candidate copy and keeps the copy only on success.
-fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
+/// `value` is borrowed: an inline document may be 1 GiB, and only the setting that stores it
+/// needs its own copy.
+fn apply_setting(config: &mut Config, key: &str, value: &str) -> Result<(), SettingFix> {
     let setting = key.parse::<Setting>().map_err(|_| unknown_setting())?;
     match setting {
         Setting::Backend | Setting::MemoryMaxBytes | Setting::MemoryCatalogMaxBytes => {
-            storage::apply(config, setting, &value)
+            storage::apply(config, setting, value)
         }
         Setting::PubsubEmulatorHost
         | Setting::EventPubsubProjectId
@@ -687,9 +691,9 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::UnixSocket
         | Setting::TlsCert
         | Setting::TlsKey
-        | Setting::TlsHandshakeTimeoutMs => apply_network_setting(config, setting, &value),
+        | Setting::TlsHandshakeTimeoutMs => apply_network_setting(config, setting, value),
         Setting::ApiBaseUrl | Setting::PublicBaseUrl | Setting::XmlVirtualHostDomains => {
-            apply_url_setting(config, setting, &value)
+            apply_url_setting(config, setting, value)
         }
         Setting::DataDir
         | Setting::SeedDir
@@ -701,11 +705,11 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::SeedContentType
         | Setting::DefaultLocation
         | Setting::DefaultSoftDeleteRetentionSeconds
-        | Setting::BucketsFileMode => apply_storage_setting(config, setting, &value),
-        Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, &value),
-        Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, &value),
-        Setting::IdentityFile => DocumentKind::Identities.apply(config, Form::File, &value),
-        Setting::Identities => DocumentKind::Identities.apply(config, Form::Inline, &value),
+        | Setting::BucketsFileMode => apply_storage_setting(config, setting, value),
+        Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, value),
+        Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, value),
+        Setting::IdentityFile => DocumentKind::Identities.apply(config, Form::File, value),
+        Setting::Identities => DocumentKind::Identities.apply(config, Form::Inline, value),
         Setting::AdminPrincipal
         | Setting::AdminAllowedHosts
         | Setting::TrustedPrincipal
@@ -717,7 +721,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::CorsFallback
         | Setting::SignedHostPort
         | Setting::TestSigner
-        | Setting::SignedUrls => apply_access_setting(config, setting, &value),
+        | Setting::SignedUrls => apply_access_setting(config, setting, value),
         Setting::MaxConnections
         | Setting::MaxGrpcStreams
         | Setting::MaxObjectBytes
@@ -729,7 +733,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::MaxSyncEntries
         | Setting::MaxSyncDepth
         | Setting::WorkerThreads
-        | Setting::MaxBlockingThreads => apply_limit_setting(config, setting, &value),
+        | Setting::MaxBlockingThreads => apply_limit_setting(config, setting, value),
         Setting::ConnectionTimeoutMs
         | Setting::HeaderReadTimeoutMs
         | Setting::BodyInactivityTimeoutMs
@@ -737,7 +741,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::KeepAliveTimeoutMs
         | Setting::ObjectRequestTimeoutMs
         | Setting::CatalogWaitTimeoutMs
-        | Setting::ShutdownTimeoutMs => apply_timeout_setting(config, setting, &value),
+        | Setting::ShutdownTimeoutMs => apply_timeout_setting(config, setting, value),
         Setting::Config => Err(unknown_setting()),
     }
 }
@@ -1088,7 +1092,7 @@ impl ConfigurationReport {
                 continue;
             }
             let mut candidate = self.config.clone();
-            match apply_setting(&mut candidate, key, input.value.clone()) {
+            match apply_setting(&mut candidate, key, &input.value) {
                 Ok(()) => self.config = candidate,
                 Err(SettingFix(fix)) => {
                     self.invalid.insert(key.clone());
@@ -1407,17 +1411,18 @@ impl ConfigurationReport {
             settings.contains_key(listen),
             settings.contains_key(principal),
         );
-        let rejected = match (self.config.auth_mode, named) {
-            (_, (false, false)) => return,
-            (AuthMode::Permissive, _) if self.valid(&["auth_mode"]) => [listen, principal]
+        let collision = self.trusted_listen_collision();
+        let rejected = match (self.config.auth_mode, named, collision) {
+            (_, (false, false), _) => return,
+            (AuthMode::Permissive, _, _) if self.valid(&["auth_mode"]) => [listen, principal]
                 .map(|name| {
                     (name, format!("{name} requires auth_mode=strict; in permissive mode every request is already allowed, so a trusted listener changes nothing. Remove it or select strict mode."))
                 })
                 .to_vec(),
-            (AuthMode::Strict, (false, true)) => vec![(principal, "trusted_principal requires trusted_listen; set --trusted-listen IP:PORT for the application's servers or remove the setting.".to_owned())],
-            (AuthMode::Strict, (true, _)) if self.trusted_listen_collides() => vec![(listen, "trusted_listen must differ from listen, listen_http and grpc_listen; choose another port, for example 0.0.0.0:4444.".to_owned())],
+            (AuthMode::Strict, (false, true), _) => vec![(principal, "trusted_principal requires trusted_listen; set --trusted-listen IP:PORT for the application's servers or remove the setting.".to_owned())],
+            (AuthMode::Strict, (true, _), Some((setting, example))) => vec![(listen, format!("trusted_listen must differ from {}, which binds the same address; choose a port that no other listener uses, for example {example}.", setting.as_str()))],
             // An invalid auth_mode was already reported, and a valid strict listener stays.
-            (AuthMode::Permissive | AuthMode::Strict, _) => return,
+            (AuthMode::Permissive | AuthMode::Strict, _, _) => return,
         };
         for (name, fix) in rejected {
             if let Some(input) = settings.get(name)
@@ -1446,26 +1451,39 @@ impl ConfigurationReport {
         }
     }
 
-    /// Port 0 picks a free port for each listener, so only a fixed port can collide.
-    fn trusted_listen_collides(&self) -> bool {
+    /// The listener setting whose address `trusted_listen` repeats, with an address on the same
+    /// IP whose port no listener uses. Port 0 picks a free port for each listener, so only a
+    /// fixed port can collide. The example starts above 4443 and 4444, the main and trusted ports
+    /// that the recipes and the README already use, the second also for gRPC.
+    fn trusted_listen_collision(&self) -> Option<(Setting, SocketAddr)> {
         let config = &self.config;
-        config.unix_socket.is_none()
-            && self.valid(&[
+        if config.unix_socket.is_some()
+            || !self.valid(&[
                 "trusted_listen",
                 "listen",
                 "listen_http",
                 "grpc_listen",
                 "scheme",
             ])
-            && config.trusted_listen.is_some_and(|address| {
-                address.port() != 0
-                    && [
-                        Some(config.listen),
-                        config.effective_listen_http(),
-                        config.grpc_listen,
-                    ]
-                    .contains(&Some(address))
-            })
+        {
+            return None;
+        }
+        let address = config
+            .trusted_listen
+            .filter(|address| address.port() != 0)?;
+        let others = [
+            (Setting::Listen, Some(config.listen)),
+            (Setting::ListenHttp, config.effective_listen_http()),
+            (Setting::GrpcListen, config.grpc_listen),
+        ];
+        let (setting, _) = others.iter().find(|(_, other)| *other == Some(address))?;
+        let taken = |port: u16| {
+            others
+                .iter()
+                .any(|(_, other)| other.is_some_and(|other| other.port() == port))
+        };
+        let port = (4445..=u16::MAX).find(|port| !taken(*port)).unwrap_or(4445);
+        Some((*setting, SocketAddr::new(address.ip(), port)))
     }
 
     fn check_admin_auth(&mut self, settings: &Settings) {
@@ -1796,7 +1814,7 @@ mod tests {
                     "0.0.0.0:4443",
                 ]),
                 "--trusted-listen",
-                "must differ from listen",
+                "must differ from listen, which binds the same address; choose a port that no other listener uses, for example 0.0.0.0:4445.",
             ),
             (
                 with(&["--trusted-listen", "gcs:4444", app[0], app[1]]),
@@ -1823,7 +1841,7 @@ mod tests {
                     app[1],
                 ]),
                 "--trusted-listen",
-                "must differ from listen",
+                "must differ from listen, which binds",
             ),
             (
                 with(&[
@@ -1835,8 +1853,9 @@ mod tests {
                     app[1],
                 ]),
                 "--trusted-listen",
-                "must differ from listen",
+                "must differ from listen_http, which binds the same address; choose a port that no other listener uses, for example 127.0.0.1:4445.",
             ),
+            // The example skips a port another listener already uses.
             (
                 with(&[
                     "--grpc-listen",
@@ -1847,7 +1866,7 @@ mod tests {
                     app[1],
                 ]),
                 "--trusted-listen",
-                "must differ from listen",
+                "must differ from grpc_listen, which binds the same address; choose a port that no other listener uses, for example 127.0.0.1:4446.",
             ),
         ] {
             let error = load(&options).unwrap_err();

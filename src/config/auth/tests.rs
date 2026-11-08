@@ -1,6 +1,6 @@
 use crate::{
-    auth::{BUCKETS_CREATE, TRUSTED_APP_ID, TestSigner, signature::SignedHostPort, test_signer},
-    config::{Config, ConfigurationReport},
+    auth::{BUCKETS_CREATE, TRUSTED_APP_ID, TestSigner, signature::HostPortPolicy, test_signer},
+    config::{Config, ConfigurationReport, DocumentSource},
     diagnostics::{Diagnostic, DiagnosticSource},
     test_support::TestDir,
 };
@@ -239,11 +239,11 @@ fn permissive_test_signer_defaults_ignore_the_identity_document() {
     }
 }
 
-/// The published key marks a local test, so the host port is lenient wherever the built-in
-/// signer is enabled; an explicit value wins, and an explicit lenient where nothing verifies
-/// still fails validation.
+/// The published key marks a local test, so the host port is lenient for the built-in signer's
+/// signatures wherever it is enabled; an explicit value wins for every signer, and an explicit
+/// lenient where nothing verifies still fails validation.
 #[test]
-fn the_host_port_is_lenient_by_default_where_the_test_signer_is_enabled() {
+fn the_host_port_is_lenient_by_default_for_the_enabled_test_signer() {
     let dir = TestDir::new();
     let [declared, undeclared] = [true, false].map(|declared| {
         let path = dir.0.join(format!("identities-{declared}.json"));
@@ -253,55 +253,61 @@ fn the_host_port_is_lenient_by_default_where_the_test_signer_is_enabled() {
     fn strict(path: &str) -> Vec<&str> {
         vec!["--auth-mode", "strict", "--identity-file", path]
     }
-    for (base, extra, test_signer, signed_host_port) in [
+    for (base, extra, test_signer, host_port) in [
         (
             strict(&declared),
             &[][..],
             TestSigner::Enabled,
-            SignedHostPort::Lenient,
+            HostPortPolicy::LenientForTestSigner,
         ),
         (
             strict(&declared),
             &["--signed-host-port", "exact"],
             TestSigner::Enabled,
-            SignedHostPort::Exact,
+            HostPortPolicy::Exact,
+        ),
+        (
+            strict(&declared),
+            &["--signed-host-port", "lenient"],
+            TestSigner::Enabled,
+            HostPortPolicy::Lenient,
         ),
         (
             strict(&undeclared),
             &["--test-signer", "enabled"],
             TestSigner::Enabled,
-            SignedHostPort::Lenient,
+            HostPortPolicy::LenientForTestSigner,
         ),
         (
             strict(&undeclared),
             &[],
             TestSigner::Disabled,
-            SignedHostPort::Exact,
+            HostPortPolicy::Exact,
         ),
         (
             strict(&undeclared),
             &["--signed-host-port", "lenient"],
             TestSigner::Disabled,
-            SignedHostPort::Lenient,
+            HostPortPolicy::Lenient,
         ),
         (
             vec!["--signed-urls", "verify"],
             &[],
             TestSigner::Enabled,
-            SignedHostPort::Lenient,
+            HostPortPolicy::LenientForTestSigner,
         ),
         (
             vec!["--signed-urls", "verify"],
             &["--test-signer", "disabled"],
             TestSigner::Disabled,
-            SignedHostPort::Exact,
+            HostPortPolicy::Exact,
         ),
-        (vec![], &[], TestSigner::Disabled, SignedHostPort::Exact),
+        (vec![], &[], TestSigner::Disabled, HostPortPolicy::Exact),
         (
             vec![],
             &["--signed-host-port", "exact"],
             TestSigner::Disabled,
-            SignedHostPort::Exact,
+            HostPortPolicy::Exact,
         ),
     ] {
         let args = [base, extra.to_vec()].concat();
@@ -313,7 +319,7 @@ fn the_host_port_is_lenient_by_default_where_the_test_signer_is_enabled() {
             report.diagnostics
         );
         assert_eq!(auth.test_signer(), test_signer, "{args:?}");
-        assert_eq!(auth.signed_host_port(), signed_host_port, "{args:?}");
+        assert_eq!(auth.host_port_policy(), host_port, "{args:?}");
     }
     let errors = Config::preflight(
         &strings(&["--signed-host-port", "lenient"]),
@@ -403,6 +409,84 @@ fn the_trusted_listener_acts_as_the_built_in_app_in_the_setups_projects() {
     assert!(!named.diagnostics.is_err(), "{}", named.diagnostics);
     assert_eq!(auth.trusted_principal(), Some("admin@example.invalid"));
     assert!(app(&auth).is_none());
+}
+
+/// The implicit projects come from one parse of the buckets document, which the configuration
+/// keeps for the initializer: a project that only the document names, while every entry names its
+/// own, holds no implicit role. Without a built-in identity nothing reads the document here.
+#[test]
+fn the_implicit_projects_come_from_the_parse_the_initializer_validates() {
+    let dir = TestDir::new();
+    let buckets = json!({"version":1,"project":"unused-project","buckets":[
+        {"name":"a-bucket","project":"project-a"}]})
+    .to_string();
+    let buckets_file = dir.0.join("buckets.json");
+    std::fs::write(&buckets_file, &buckets).unwrap();
+    let identities = dir.0.join("identities.json");
+    std::fs::write(&identities, registry(false)).unwrap();
+    let identities = identities.to_str().unwrap();
+    for bucket_args in [
+        ["--buckets", buckets.as_str()],
+        ["--buckets-file", buckets_file.to_str().unwrap()],
+    ] {
+        let strict = ["--auth-mode", "strict", "--identity-file", identities];
+        let args = [
+            &strict[..],
+            &["--trusted-listen", "127.0.0.1:0"],
+            &bucket_args,
+        ]
+        .concat();
+        let mut report = report(&args);
+        let auth = report.load_auth();
+        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        assert!(
+            matches!(report.config.buckets, Some(DocumentSource::Parsed(_))),
+            "{args:?}"
+        );
+        let app = auth
+            .principals()
+            .unwrap()
+            .iter()
+            .find(|identity| identity.id() == TRUSTED_APP_ID)
+            .unwrap();
+        for (project, granted) in [
+            ("project-a", true),
+            ("local-project", true),
+            ("unused-project", false),
+        ] {
+            assert_eq!(app.allows(BUCKETS_CREATE, project), granted, "{project}");
+        }
+        let args = [&strict[..], &["--test-signer", "disabled"], &bucket_args].concat();
+        let mut without_built_in = self::report(&args);
+        without_built_in.load_auth();
+        assert!(
+            !matches!(
+                without_built_in.config.buckets,
+                Some(DocumentSource::Parsed(_))
+            ),
+            "{args:?}"
+        );
+    }
+    // A malformed document fails here once, with the initializer's diagnostic.
+    let mut report = report(&[
+        "--auth-mode",
+        "strict",
+        "--trusted-listen",
+        "127.0.0.1:0",
+        "--buckets",
+        r#"{"version":1,"#,
+    ]);
+    report.load_auth();
+    let errors = &report.diagnostics.errors;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0].source, DiagnosticSource::Initializer);
+    assert_eq!(errors[0].key, "buckets");
+    assert!(
+        errors[0]
+            .fix
+            .starts_with("Malformed bucket initialization document"),
+        "{errors:?}"
+    );
 }
 
 /// A declared entry for the application identity replaces the implicit grants.

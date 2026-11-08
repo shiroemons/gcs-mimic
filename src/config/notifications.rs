@@ -4,24 +4,20 @@ use super::{
 use crate::notification::{self, Endpoint, GlobalConfig, NotificationConfig, Runtime};
 use std::{collections::BTreeMap, io};
 
-pub(super) fn apply(
-    config: &mut Config,
-    setting: Setting,
-    value: String,
-) -> Result<(), SettingFix> {
+pub(super) fn apply(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
     match setting {
         Setting::PubsubEmulatorHost => {
             if !value.is_empty() {
-                Endpoint::parse(&value)
+                Endpoint::parse(value)
                     .map_err(|_| SettingFix::from(notification::publisher::INVALID_ENDPOINT))?;
             }
-            config.pubsub_emulator_host = (!value.is_empty()).then_some(value);
+            config.pubsub_emulator_host = (!value.is_empty()).then(|| value.to_owned());
         }
-        Setting::EventPubsubProjectId => config.event_pubsub_project_id = value,
-        Setting::EventPubsubTopic => config.event_pubsub_topic = value,
-        Setting::EventBucket => config.event_bucket = value,
-        Setting::EventObjectPrefix => config.event_object_prefix = value,
-        Setting::EventList => config.event_list = value,
+        Setting::EventPubsubProjectId => value.clone_into(&mut config.event_pubsub_project_id),
+        Setting::EventPubsubTopic => value.clone_into(&mut config.event_pubsub_topic),
+        Setting::EventBucket => value.clone_into(&mut config.event_bucket),
+        Setting::EventObjectPrefix => value.clone_into(&mut config.event_object_prefix),
+        Setting::EventList => value.clone_into(&mut config.event_list),
         _ => return Err(super::unknown_setting()),
     }
     Ok(())

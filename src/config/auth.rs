@@ -7,26 +7,26 @@ use super::{
 };
 use crate::auth::{
     Auth, AuthMode, BuiltIn, SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice,
-    TrustedPrincipalError, signature::SignedHostPort, test_signer,
+    signature::SignedHostPort, test_signer,
 };
 use std::{borrow::Cow, collections::BTreeSet};
 
 /// What a profile that verifies signatures needs besides its identity document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Verification {
-    pub test_signer: TestSignerChoice,
+pub(crate) struct Verification {
+    pub(crate) test_signer: TestSignerChoice,
     /// The explicit `signed_host_port`; loading applies the default that the settled test signer
-    /// selects, with [`SignedHostPort::resolve`].
-    pub signed_host_port: Option<SignedHostPort>,
+    /// selects, with [`HostPortPolicy::resolve`](crate::auth::signature::HostPortPolicy::resolve).
+    pub(crate) signed_host_port: Option<SignedHostPort>,
 }
 
 /// Who a request without credentials on the trusted listener acts as.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TrustedCaller {
+pub(crate) enum TrustedCaller {
     /// No trusted listener, so every such request is anonymous.
     Anonymous,
-    /// The registered identity that `trusted_principal` names; the principal checks after
-    /// loading confirm that it is registered.
+    /// The registered identity that `trusted_principal` names. Loading resolves it where it
+    /// resolves the built-in one, and configuration reports a name it did not find.
     Named(String),
     /// The built-in application identity, when `trusted_listen` names no principal.
     BuiltIn,
@@ -43,9 +43,12 @@ impl TrustedCaller {
 }
 
 /// Only valid pairings of `auth_mode`, `signed_urls` and the identity document exist as values,
-/// so loading a profile needs no checks of its own.
+/// so loading a profile needs no checks of its own. Outside tests [`AuthProfile::select`] is the
+/// only constructor, and it is also what keeps strict mode from lacking every caller: that rule
+/// spans the identity document, `trusted` and the test signer choice, so a variant of its own
+/// would repeat those fields in a form that must agree with them.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AuthProfile {
+pub(crate) enum AuthProfile {
     /// Credentials are ignored and nothing is authorized.
     Permissive,
     /// Signed XML requests verify first, then get permissive access.
@@ -269,8 +272,10 @@ impl ConfigurationReport {
             .any(|setting| self.invalid.contains(setting.as_str()))
     }
 
-    /// The profile to load, when the authentication settings are valid.
-    pub fn auth_profile(&self) -> Option<&AuthProfile> {
+    /// The profile to load, when the authentication settings are valid; only tests read it,
+    /// because loading takes it from the report itself.
+    #[cfg(test)]
+    pub(crate) fn auth_profile(&self) -> Option<&AuthProfile> {
         self.auth_profile.as_ref()
     }
 
@@ -281,11 +286,13 @@ impl ConfigurationReport {
     /// each failure or warning is recorded with the setting it concerns. Without a valid profile
     /// this is permissive, because validation has already reported why startup cannot proceed.
     pub fn load_auth(&mut self) -> Auth {
-        let Some(profile) = &self.auth_profile else {
+        // A copy shares its documents, and it leaves the report free to keep the buckets
+        // document that the implicit projects come from.
+        let Some(profile) = self.auth_profile.clone() else {
             return Auth::permissive();
         };
         // Only strict mode has built-in identities with implicit roles.
-        let (document, implicit_projects) = match profile {
+        let (document, implicit_projects) = match &profile {
             AuthProfile::Strict {
                 identities,
                 verification,
@@ -296,7 +303,7 @@ impl ConfigurationReport {
                 let projects = match (trusted, verification.test_signer) {
                     (TrustedCaller::BuiltIn, _)
                     | (_, TestSignerChoice::Fixed(TestSigner::Enabled))
-                    | (_, TestSignerChoice::WhenDeclared) => self.config.implicit_projects(),
+                    | (_, TestSignerChoice::WhenDeclared) => self.implicit_projects(),
                     (
                         TrustedCaller::Anonymous | TrustedCaller::Named(_),
                         TestSignerChoice::Fixed(TestSigner::Disabled),
@@ -311,10 +318,10 @@ impl ConfigurationReport {
         };
         // The setting that supplied the identity document, which messages name.
         let registry = document.map(|source| DocumentKind::Identities.setting(source.form()));
-        match Auth::load(profile, &implicit_projects) {
-            Ok(mut auth) => {
+        match Auth::load(&profile, &implicit_projects) {
+            Ok(auth) => {
                 self.warn_strict_test_signer(&auth, registry, &implicit_projects);
-                self.resolve_principals(&mut auth, registry);
+                self.check_principals(&auth, registry);
                 auth
             }
             Err(error) => {
@@ -348,7 +355,7 @@ impl ConfigurationReport {
         } else {
             format!(
                 " It holds {} in {}, so it can read and write objects there.",
-                BuiltIn::TestSigner.role().unwrap_or_default(),
+                BuiltIn::TestSigner.role(),
                 projects
                     .iter()
                     .map(String::as_str)
@@ -385,9 +392,9 @@ impl ConfigurationReport {
     }
 
     /// Checks the principals that settings name against the loaded registry, whose document
-    /// `registry` supplied, and makes requests without credentials on the trusted listener act as
-    /// `trusted_principal`.
-    fn resolve_principals(&mut self, auth: &mut Auth, registry: Option<Setting>) {
+    /// `registry` supplied. Loading resolved `trusted_principal` together with the built-in
+    /// application identity, and left a name it did not find unresolved.
+    fn check_principals(&mut self, auth: &Auth, registry: Option<Setting>) {
         let unknown = match registry {
             Some(registry) => format!(
                 "is not an id in {}; use one of its identities",
@@ -408,36 +415,45 @@ impl ConfigurationReport {
                 format!("admin_principal {principal:?} {unknown}."),
             ));
         }
+        // Only strict mode loads a trusted principal; elsewhere validation rejected the setting.
         if self.valid(&[Setting::TrustedPrincipal.as_str()])
             && let Some(principal) = self.config.trusted_principal.as_deref()
+            && auth.principals().is_some()
+            && auth.trusted_principal() != Some(principal)
         {
-            match auth.trust_principal(principal) {
-                Ok(()) => {}
-                // Startup already fails then: the setting was rejected for permissive mode.
-                Err(TrustedPrincipalError::RequiresStrict) => {}
-                Err(TrustedPrincipalError::Unknown) => self.diagnostics.errors.push(Diagnostic::new(
-                    DiagnosticSource::Identity,
-                    Setting::TrustedPrincipal.as_str(),
-                    format!(
-                        "trusted_principal {principal:?} {unknown}, the built-in test signer with test_signer=enabled, or omit trusted_principal to act as the built-in {TRUSTED_APP_ID}."
-                    ),
-                )),
-            }
+            self.diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Identity,
+                Setting::TrustedPrincipal.as_str(),
+                format!(
+                    "trusted_principal {principal:?} {unknown}, the built-in test signer with test_signer=enabled, or omit trusted_principal to act as the built-in {TRUSTED_APP_ID}."
+                ),
+            ));
         }
     }
-}
 
-impl Config {
     /// Where the built-in identities hold their implicit roles: the effective `seed_project`
-    /// and every project the buckets document names, so that the application can manage the
-    /// buckets its own setup declares and nothing else.
-    fn implicit_projects(&self) -> BTreeSet<String> {
-        let mut projects = self
-            .buckets
-            .as_ref()
-            .map(|source| crate::bucket_init::named_projects(source, self.max_buckets_per_batch))
-            .unwrap_or_default();
-        projects.insert(self.seed_project.clone());
+    /// and the project of every bucket the buckets document creates, so that the application
+    /// can manage the buckets its own setup declares and nothing else.
+    ///
+    /// Authentication loads before the initializer's phase, so the document is read and parsed
+    /// here, once, and the configuration keeps that parse: the initializer then validates the
+    /// same version instead of reading the file again. A document that cannot be read or parsed
+    /// fails startup here, with the diagnostic the initializer would give.
+    fn implicit_projects(&mut self) -> BTreeSet<String> {
+        let mut projects = BTreeSet::new();
+        // Conflicting or invalid document settings were already reported, and nothing loads them.
+        if self.valid(&[Setting::BucketsFile.as_str(), Setting::Buckets.as_str()])
+            && let Some(source) = &self.config.buckets
+        {
+            match crate::bucket_init::parse_document(source, self.config.max_buckets_per_batch) {
+                Ok(document) => {
+                    projects.clone_from(document.projects());
+                    self.config.buckets = Some(DocumentSource::Parsed(document));
+                }
+                Err(diagnostics) => self.diagnostics.errors.extend(diagnostics.errors),
+            }
+        }
+        projects.insert(self.config.seed_project.clone());
         projects
     }
 }

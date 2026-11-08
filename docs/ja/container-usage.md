@@ -69,8 +69,8 @@ JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書�
 そのために`GCS_MIMIC_API_BASE_URL`を指定する必要はありません。
 公開URLや署名URLは、引き続き受け取るクライアントから到達できるアドレスで作ります。
 Go storageは署名するときに既定以外のポートを落とします。既定のpermissiveのサーバーは署名を検証しないため、`localhost:4443`向けのこうした署名URLもそのまま使えます。
-署名を検証するサーバー（strictモード、または`GCS_MIMIC_SIGNED_URLS=verify`）でも、組み込みのテスト署名者が有効なら`GCS_MIMIC_SIGNED_HOST_PORT`の既定値が`lenient`になるため、こうしたURLを受け付けます。
-それ以外では既定値が`exact`で、403 `SignatureDoesNotMatch`になります。ワークツリーごとに別のポートを公開するなど既定のポートを使えず、ほかの鍵で署名する場合は`lenient`を設定します。署名を検証しない構成で指定すると、効果がないため起動時にエラーになります（[署名URL](../en/signed-urls.md)、英語）。
+署名を検証するサーバー（strictモード、または`GCS_MIMIC_SIGNED_URLS=verify`）でも、組み込みのテスト署名者が有効なら、その署名者自身の署名に限って`GCS_MIMIC_SIGNED_HOST_PORT`の既定値が`lenient`になるため、こうしたURLを受け付けます。
+ほかの鍵による署名と、テスト署名者がないときの署名は既定値が`exact`で、403 `SignatureDoesNotMatch`になります。ワークツリーごとに別のポートを公開するなど既定のポートを使えず、ほかの鍵で署名する場合は`lenient`を設定します。明示した`lenient`はすべての署名者に適用されます。署名を検証しない構成で指定すると、効果がないため起動時にエラーになります（[署名URL](../en/signed-urls.md)、英語）。
 
 すべての呼び出し元に同じアドレスを返したいときは、`GCS_MIMIC_API_BASE_URL`で固定します。
 `Forwarded`と`X-Forwarded-*`は無視するので、Hostを書き換えるリバースプロキシでは指定が必要です。
@@ -113,7 +113,7 @@ fake-gcs-server 1.56.1との挙動の違いを、[移行手順](fake-gcs-server-
 | 認証 | なし。すべてのリクエストを許可する | なし。認証情報は無視し、すべてのリクエストを許可する | ローカルのID。bearerトークン、自己署名JWT、署名URL、HMAC署名。認証情報のないリクエストは匿名 |
 | IAMとACL | ACLのメタデータ操作はあるが強制しない。バケットIAMのルートはない | 保存して返すが、強制しない | プロジェクトのロールとバケットIAMポリシーの事前定義ロールを強制する。オブジェクトACLの`READER`と`OWNER`は読み取りを許可する |
 | 公開バケットと非公開バケット | 区別しない。どのオブジェクトも誰にでも返す | 区別しない。どのオブジェクトも誰にでも返す | 認証情報のないリクエストは`allUsers`の権限だけを使い、それ以外は401。`allAuthenticatedUsers`には登録済みのIDが必要 |
-| 署名URLの検証 | 署名も有効期限も確認しない | 既定では確認しない。`GCS_MIMIC_SIGNED_URLS=verify`で確認するが、リクエストはすべて許可する | 常に確認する。ホスト、パス、クエリー、メソッド、署名したヘッダー、有効期限。Go storageのようにポートを落としたホストは、テスト署名者が有効なら通る（`signed_host_port`が`lenient`） |
+| 署名URLの検証 | 署名も有効期限も確認しない | 既定では確認しない。`GCS_MIMIC_SIGNED_URLS=verify`で確認するが、リクエストはすべて許可する | 常に確認する。ホスト、パス、クエリー、メソッド、署名したヘッダー、有効期限。Go storageのようにポートを落としたホストは、有効なテスト署名者自身の署名なら通る。`signed_host_port`を`lenient`にすると、すべての署名者で通る |
 | CORSの既定 | すべてのルートで同じワイルドカード。`-cors-headers`で許可するリクエストヘッダーを足す | JSON APIは固定の既定。XMLと公開URLは、ルールのないバケットならどのオリジンも許可（`cors_fallback`が`allow-all`）。ルールのあるバケットはそのとおりに適用 | JSON APIは固定の既定。XMLと公開URLはバケットの`cors`ルールだけ（`cors_fallback`が`none`） |
 | バケットの用意 | 初期ファイルのディレクトリ（`-data`）。最上位のディレクトリがバケットになる | strictと同じ | fake-gcs-serverと同じ`/data`の初期ファイルに加え、バケットごとにCORS、バージョニング、IAMポリシー、soft deleteを書けるバケットの文書。編集が既存バケットにも反映される`GCS_MIMIC_BUCKETS`（インライン）か、`GCS_MIMIC_BUCKETS_FILE` |
 | soft delete | なし。削除や上書きで本文を解放する | strictと同じ | fake-gcs-serverと同じく既定では無効。バケットのポリシーか`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`で本文を残し、復元できる |
@@ -417,7 +417,8 @@ strictモードでは、認証情報のないリクエストは匿名になり�
 
 `GCS_MIMIC_TRUSTED_LISTEN`（`--trusted-listen`、JSONの`trusted_listen`）を設定すると開きます。
 `GCS_MIMIC_TRUSTED_PRINCIPAL`（`--trusted-principal`、JSONの`trusted_principal`）を省略すると、信頼済みプリンシパルは組み込みの`trusted-app@gcs-mimic.invalid`です。
-このIDは、バケットの文書（`GCS_MIMIC_BUCKETS`か`GCS_MIMIC_BUCKETS_FILE`）に出てくるすべてのprojectと、実際に使う`seed_project`で`roles/storage.admin`を持ちます。アプリのサーバーはプロジェクト所有者のサービスアカウントと同じ操作ができ、strictモードはIDの文書なしで起動できます。
+このIDは、バケットの文書（`GCS_MIMIC_BUCKETS`か`GCS_MIMIC_BUCKETS_FILE`）が作るすべてのバケットのproject（項目の`project`、なければ文書の`project`）と、実際に使う`seed_project`で`roles/storage.admin`を持ちます。アプリのサーバーはプロジェクト所有者のサービスアカウントと同じ操作ができ、strictモードはIDの文書なしで起動できます。
+このロールは暗黙の付与なので、ディレクトリ同期の制御に必要な明示的な`roles/storage.admin`にはなりません。IDの文書でそのロールを付与するまで、信頼済みリスナーからの同期の制御は403になります。
 IDの文書（`GCS_MIMIC_IDENTITIES`か`GCS_MIMIC_IDENTITY_FILE`）に`trusted-app@gcs-mimic.invalid`の項目を書くと、そのロールに置き換わります。
 ほかのIDとして扱うには、`GCS_MIMIC_TRUSTED_PRINCIPAL`にIDの文書のIDか、有効にした組み込みテスト署名者を指定します。
 待受なしでのプリンシパルの指定、permissiveモード（すべてのリクエストがすでに許可されるため）、`unix_socket`との併用、ほかのリスナーと同じアドレス、IDの文書にも有効な組み込みテスト署名者にも当たらないプリンシパルの指定のいずれかでは、起動が止まります。

@@ -45432,7 +45432,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. That exact rule is the default unless the built-in test signer is enabled; the local setting signed_host_port=lenient, the default where that published-key signer is enabled, also accepts a V4 signature whose canonical host omits only the request's port, which Cloud Storage's default-port endpoint never needs, so it is an emulator setting rather than a Google behavior. Unmodified Go SDK URLs for an explicit host:port pass on a lenient strict server in the Go suite. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
+      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. That exact rule is the default, except for the enabled built-in test signer's own signatures; the local setting signed_host_port=lenient, the default for that published-key signer's signatures and, when set explicitly, for every signer's, also accepts a V4 signature whose canonical host omits only the request's port, which Cloud Storage's default-port endpoint never needs, so it is an emulator setting rather than a Google behavior. Unmodified Go SDK URLs for an explicit host:port pass on a lenient strict server in the Go suite. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -45482,7 +45482,7 @@
         },
         {
           "id": "DESIGN-033-SIGNED-HOST-PORT",
-          "description": "signed_host_port (CLI, environment, config file; invalid values rejected with the accepted choices) defaults to lenient where the effective built-in test signer is enabled, because its published key already marks a local test, and to exact otherwise; an explicit value wins, an explicit exact is always accepted and an explicit lenient where nothing is verified fails startup. The effective value is reported as ready field signed_host_port. With exact, a V4 signature that fails over a Host naming an explicit port but matches the same request without that port answers 403 SignatureDoesNotMatch whose message says so, names signed_host_port=lenient and says that it is already the default where the built-in test signer is enabled; a tampered request on a host:port Host, a missing signed header and a portless Host keep the plain message in both modes. With the local opt-in lenient, a V4 signature that fails over the actual Host is checked once more with only the port removed from the canonical host, for RSA, HMAC, Authorization-header AWS4-HMAC-SHA256 and the aws-chunked seed; the host name, method, path, query, signed headers, payload rule, time window and absolute-form authority stay bound, an exact host:port signature still verifies, a tampered signature fails, signer permissions still apply to GET and PUT, and the first portless match logs one signature_host_port_omitted warning without URL, signature or credential. Locally signed portless URLs cover each signature form; DESIGN-033-LENIENT-SDK adds the unmodified Go SDK.",
+          "description": "signed_host_port (CLI, environment, config file; invalid values rejected with the accepted choices) defaults, where the effective built-in test signer is enabled, to lenient for that signer's own RSA signatures only, because its published key already marks a local test, while a registered key and every HMAC key stay exact; it is exact otherwise. An explicit value wins and applies to every signer: lenient accepts a registered key's portless signature too, and exact refuses the test signer's; an explicit exact is always accepted and an explicit lenient where nothing is verified fails startup. The effective value is reported as ready field signed_host_port (exact or lenient), and while it is lenient ready field signed_host_port_signers names whose signatures it covers: all for the explicit setting, test-signer for the default. With exact, a V4 signature that fails over a Host naming an explicit port but matches the same request without that port answers 403 SignatureDoesNotMatch whose message says so, names signed_host_port=lenient and says that it is already the default for signatures by the enabled built-in test signer; a tampered request on a host:port Host, a missing signed header and a portless Host keep the plain message in both modes. With the local opt-in lenient, a V4 signature that fails over the actual Host is checked once more with only the port removed from the canonical host, for RSA, HMAC, Authorization-header AWS4-HMAC-SHA256 and the aws-chunked seed; the host name, method, path, query, signed headers, payload rule, time window and absolute-form authority stay bound, an exact host:port signature still verifies, a tampered signature fails, signer permissions still apply to GET and PUT, and the first portless match logs one signature_host_port_omitted warning without URL, signature or credential. Locally signed portless URLs cover each signature form; DESIGN-033-LENIENT-SDK adds the unmodified Go SDK.",
           "result": "PASS",
           "test_ids": [
             "auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port",
@@ -45491,13 +45491,14 @@
             "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
             "auth::signature::verify::tests::lenient_host_port_retries_an_hmac_signature_only_without_the_request_port",
             "auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain",
+            "auth::signature::verify::tests::the_default_lenient_host_port_covers_only_the_test_signers_rsa_signatures",
             "config::tests::signed_host_port_follows_precedence_in_both_auth_modes",
-            "config::auth::tests::the_host_port_is_lenient_by_default_where_the_test_signer_is_enabled",
+            "config::auth::tests::the_host_port_is_lenient_by_default_for_the_enabled_test_signer",
             "auth::signing_keys::tests::load_selects_the_profile_and_its_signers",
             "signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting",
             "signing::exact_signed_host_port_keeps_the_plain_message_for_a_tampered_ported_request",
             "signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once",
-            "signing::an_enabled_test_signer_makes_the_host_port_lenient_unless_exact_is_set"
+            "signing::an_enabled_test_signer_makes_only_its_own_signatures_lenient_by_default"
           ]
         },
         {
@@ -45521,13 +45522,14 @@
         "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding",
         "auth::signature::verify::tests::lenient_host_port_retries_an_hmac_signature_only_without_the_request_port",
         "auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain",
+        "auth::signature::verify::tests::the_default_lenient_host_port_covers_only_the_test_signers_rsa_signatures",
         "config::tests::signed_host_port_follows_precedence_in_both_auth_modes",
-        "config::auth::tests::the_host_port_is_lenient_by_default_where_the_test_signer_is_enabled",
+        "config::auth::tests::the_host_port_is_lenient_by_default_for_the_enabled_test_signer",
         "auth::signing_keys::tests::load_selects_the_profile_and_its_signers",
         "signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting",
         "signing::exact_signed_host_port_keeps_the_plain_message_for_a_tampered_ported_request",
         "signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once",
-        "signing::an_enabled_test_signer_makes_the_host_port_lenient_unless_exact_is_set",
+        "signing::an_enabled_test_signer_makes_only_its_own_signatures_lenient_by_default",
         "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
         "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
         "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
@@ -45559,11 +45561,12 @@
           "verified_at": "2026-11-08",
           "artifact": "docs/en/signed-urls.md",
           "test_ids": [
+            "auth::signature::verify::tests::the_default_lenient_host_port_covers_only_the_test_signers_rsa_signatures",
             "config::tests::signed_host_port_follows_precedence_in_both_auth_modes",
-            "config::auth::tests::the_host_port_is_lenient_by_default_where_the_test_signer_is_enabled",
+            "config::auth::tests::the_host_port_is_lenient_by_default_for_the_enabled_test_signer",
             "auth::signing_keys::tests::load_selects_the_profile_and_its_signers",
             "signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting",
-            "signing::an_enabled_test_signer_makes_the_host_port_lenient_unless_exact_is_set"
+            "signing::an_enabled_test_signer_makes_only_its_own_signatures_lenient_by_default"
           ]
         },
         {
@@ -47318,14 +47321,14 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. The built-in test signer test-signer@gcs-mimic.invalid embeds the published fixture key pair. test_signer defaults to enabled in permissive mode with signed_urls=verify, because it does nothing where signatures are ignored, and in strict mode only when the identity document declares test-signer@gcs-mimic.invalid, because otherwise its published key would let anyone authenticate and reach allAuthenticatedUsers grants without the setup asking for it; an explicit value wins, and an explicit enabled while signatures are ignored fails startup; a strict signer that is enabled warns at startup at the input that enabled it, then knows the signer without an identity entry, holding roles/storage.objectUser in seed_project and in the projects the buckets document names (the least predefined role for signed GET and PUT, overwrites, delete, list and metadata updates, with no IAM or ACL administration), and a declared entry keeps its own grants instead and gains the built-in key. url sign uses it when both --signer and --private-key are omitted, and gcs-mimic test-signer credentials prints its service account key file for binary and image users. Contract: docs/en/signed-urls.md#built-in-test-signer; evidence: docs/en/evidence/signed-request-verification.md.",
+      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. The built-in test signer test-signer@gcs-mimic.invalid embeds the published fixture key pair. test_signer defaults to enabled in permissive mode with signed_urls=verify, because it does nothing where signatures are ignored, and in strict mode only when the identity document declares test-signer@gcs-mimic.invalid, because otherwise its published key would let anyone authenticate and reach allAuthenticatedUsers grants without the setup asking for it; an explicit value wins, and an explicit enabled while signatures are ignored fails startup; a strict signer that is enabled warns at startup at the input that enabled it, then knows the signer without an identity entry, holding roles/storage.objectUser in seed_project and in the projects of the buckets the buckets document creates (the least predefined role for signed GET and PUT, overwrites, delete, list and metadata updates, with no IAM or ACL administration), and a declared entry keeps its own grants instead and gains the built-in key. url sign uses it when both --signer and --private-key are omitted, and gcs-mimic test-signer credentials prints its service account key file for binary and image users. Contract: docs/en/signed-urls.md#built-in-test-signer; evidence: docs/en/evidence/signed-request-verification.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-045-TEST-SIGNER",
-          "description": "test_signer defaults to enabled in permissive mode with signed_urls=verify and in strict mode when the identity document (identity_file or identities) declares test-signer@gcs-mimic.invalid, and to disabled otherwise; an explicit value wins, except that an explicit enabled while signatures are ignored fails startup, and the ready event reports the effective value. Validation selects the rule (an explicit or profile value, or strict mode's declaration rule) and loading settles the declaration rule against the document. An explicit test_signer=enabled also lets strict mode start without an identity document, with identities 0. Strict mode without such an entry, or with test_signer=disabled, has no built-in signer: signatures with the published key get 403 InvalidAccessKeyId and its JWT 401, and under test_signer=disabled an entry with its ID stays an ordinary identity without the key. A strict signer that is enabled emits one startup warning naming the published key, allAuthenticatedUsers grants and local-test-only use, keyed to the test_signer input when that enabled it and otherwise to the identity setting's input, whose message names the declaration and test_signer=disabled; then V4 and V2 RSA signed URLs and self-signed JWTs from test-signer@gcs-mimic.invalid verify with the embedded key. Without an identity entry it holds roles/storage.objectUser in seed_project and in every project the buckets document names, which the warning states: signed GET and PUT there succeed while a bucket IAM policy change and an ACL change on another identity's object or the bucket get 403, and in other projects its signatures get 403 AccessDenied until a bucket grant names it; a declared entry keeps its tokens, project roles and ACL entity instead and gains the built-in key; an alias naming it fails startup; identities counts only document entries.",
+          "description": "test_signer defaults to enabled in permissive mode with signed_urls=verify and in strict mode when the identity document (identity_file or identities) declares test-signer@gcs-mimic.invalid, and to disabled otherwise; an explicit value wins, except that an explicit enabled while signatures are ignored fails startup, and the ready event reports the effective value. Validation selects the rule (an explicit or profile value, or strict mode's declaration rule) and loading settles the declaration rule against the document. An explicit test_signer=enabled also lets strict mode start without an identity document, with identities 0. Strict mode without such an entry, or with test_signer=disabled, has no built-in signer: signatures with the published key get 403 InvalidAccessKeyId and its JWT 401, and under test_signer=disabled an entry with its ID stays an ordinary identity without the key. A strict signer that is enabled emits one startup warning naming the published key, allAuthenticatedUsers grants and local-test-only use, keyed to the test_signer input when that enabled it and otherwise to the identity setting's input, whose message names the declaration and test_signer=disabled; then V4 and V2 RSA signed URLs and self-signed JWTs from test-signer@gcs-mimic.invalid verify with the embedded key. Without an identity entry it holds roles/storage.objectUser in seed_project and in the project of every bucket the buckets document creates, which the warning states: signed GET and PUT there succeed while a bucket IAM policy change and an ACL change on another identity's object or the bucket get 403, and in other projects its signatures get 403 AccessDenied until a bucket grant names it; a declared entry keeps its tokens, project roles and ACL entity instead and gains the built-in key; an alias naming it fails startup; identities counts only document entries.",
           "result": "PASS",
           "test_ids": [
             "an_enabled_undeclared_signer_verifies_v4_and_v2_needs_a_grant_and_warns",
@@ -47364,6 +47367,15 @@
             "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
             "unknown_test_signer_arguments_are_rejected",
             "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
+          ]
+        },
+        {
+          "id": "DESIGN-045-DISABLED-SIGNER-JWT",
+          "description": "A self-signed JWT from test-signer@gcs-mimic.invalid, as Rails sends with the key that test-signer credentials prints, gets the unchanged 401 Invalid Credentials in strict mode while the test signer is disabled; the auth_self_signed_jwt_rejected warning, once per process for this cause and separately from the general self-signed JWT advice, says that the built-in test signer is disabled and that GCS_MIMIC_TEST_SIGNER=enabled turns it on, without any part of the token. Another issuer without keys and a token outside the supported claims keep the general advice, and the enabled signer's JWT authenticates. The 401 body itself carries no hint.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::jwt::tests::a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt",
+            "signing::jwt::a_test_signer_jwt_names_the_disabled_signer_in_its_warning"
           ]
         },
         {
@@ -47444,9 +47456,21 @@
         "credentials_print_a_service_account_key_file_for_the_built_in_signer",
         "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
         "unknown_test_signer_arguments_are_rejected",
-        "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
+        "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies",
+        "auth::jwt::tests::a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt",
+        "signing::jwt::a_test_signer_jwt_names_the_disabled_signer_in_its_warning"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib auth::; cargo test --locked --test it_xml_auth",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/rails-active-storage.md",
+          "test_ids": [
+            "auth::jwt::tests::a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt",
+            "signing::jwt::a_test_signer_jwt_names_the_disabled_signer_in_its_warning"
+          ]
+        },
         {
           "command": "cargo test --locked --test it_xml_auth signing::",
           "result": "PASS",
@@ -55999,7 +56023,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "--cors-fallback / GCS_MIMIC_CORS_FALLBACK / JSON cors_fallback chooses none or allow-all in both profiles; the default is allow-all in permissive mode, as fake-gcs-server allows every origin and a permissive user wants browser access without configuration, and none in strict mode, as Cloud Storage has no fallback, and an explicit value wins. allow-all gives XML/public object routes of buckets without stored CORS rules, and missing buckets, an any-origin policy: Allow-Origin *, methods HEAD/GET/POST/PUT/DELETE, every valid requested header, exposed Location, no credentials or max age. Stored bucket rules stay exact; JSON and gRPC are unchanged; CORS never authorizes. Server-wide rules and header lists are deliberately not configurable because production buckets need their own cors; FAKE_GCS_CORS_HEADERS stays rejected with advice to remove it first and to set allow-all only for XML/public browser reads. A bare --cors-fallback names --cors-fallback allow-all. With none, the first Origin-bearing XML request to each existing bucket without rules logs one cors_unconfigured warning (at most 64 remembered buckets); where the permissive default allow-all is what allowed such a request, one info cors_fallback_default note says that Cloud Storage would refuse it, sharing that bounded memory, and an explicit allow-all logs nothing. The ready event reports the effective cors_fallback. This is an emulator migration aid, not Cloud Storage behavior. Contract: docs/en/slices/cors-fallback.md; evidence: docs/en/evidence/cors-fallback.md.",
+      "notes": "--cors-fallback / GCS_MIMIC_CORS_FALLBACK / JSON cors_fallback chooses none or allow-all in both profiles; the default is allow-all in permissive mode, as fake-gcs-server allows every origin and a permissive user wants browser access without configuration, and none in strict mode, as Cloud Storage has no fallback, and an explicit value wins. allow-all gives XML/public object routes of buckets without stored CORS rules, and missing buckets, an any-origin policy: Allow-Origin *, methods HEAD/GET/POST/PUT/DELETE, every valid requested header, exposed Location, no credentials or max age. Stored bucket rules stay exact; JSON and gRPC are unchanged; CORS never authorizes. Server-wide rules and header lists are deliberately not configurable because production buckets need their own cors; FAKE_GCS_CORS_HEADERS stays rejected with advice to remove it, naming no replacement, because permissive mode already allows every origin and strict mode follows bucket cors rules. A bare --cors-fallback names --cors-fallback allow-all. With none, the first Origin-bearing XML request to each existing bucket without rules logs one cors_unconfigured warning (at most 64 remembered buckets); where the permissive default allow-all is what allowed such a request, one info cors_fallback_default note says that Cloud Storage would refuse it, sharing that bounded memory, and an explicit allow-all logs nothing. The ready event reports the effective cors_fallback. This is an emulator migration aid, not Cloud Storage behavior. Contract: docs/en/slices/cors-fallback.md; evidence: docs/en/evidence/cors-fallback.md.",
       "dependencies": [
         "DESIGN-051",
         "DESIGN-052"
@@ -56009,7 +56033,7 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-100-CONFIG",
-          "description": "Default allow-all in permissive mode and none in strict mode, an explicit value winning in both; CLI > environment > JSON precedence; exact none/allow-all validation rejecting booleans and other spellings; both profiles; bare-flag example; ready field; legacy -cors-headers advice starts with removal and names allow-all only for XML/public browser reads, without echoing the list.",
+          "description": "Default allow-all in permissive mode and none in strict mode, an explicit value winning in both; CLI > environment > JSON precedence; exact none/allow-all validation rejecting booleans and other spellings; both profiles; bare-flag example; ready field; legacy -cors-headers advice says to remove it, because permissive mode already allows every origin and strict mode follows bucket cors rules, names no cors_fallback value and does not echo the list, while the alias still selects allow-all.",
           "result": "PASS",
           "test_ids": [
             "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
@@ -56130,7 +56154,7 @@
       ],
       "source_checked_at": "2026-11-08",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (of the identity document, identity_file or identities, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as; without it, such a request acts as the built-in trusted-app@gcs-mimic.invalid, which holds roles/storage.admin in seed_project and in the projects the buckets document names and has no token or key, unless an identity document entry with that ID replaces the implicit grants. Both require auth_mode=strict and trusted_principal requires trusted_listen; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and the effective trusted_principal. The pinned Go storage client with STORAGE_EMULATOR_HOST on the trusted listener and no credentials passes in the Go suite. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md, the complete Compose recipe examples/strict-local and the full application example examples/full-stack, which scripts/smoke-containers.sh runs with the built image.",
+      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (of the identity document, identity_file or identities, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as; without it, such a request acts as the built-in trusted-app@gcs-mimic.invalid, which holds roles/storage.admin in seed_project and in the projects of the buckets the buckets document creates and has no token or key, unless an identity document entry with that ID replaces the implicit grants. Both require auth_mode=strict and trusted_principal requires trusted_listen; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and the effective trusted_principal. The pinned Go storage client with STORAGE_EMULATOR_HOST on the trusted listener and no credentials passes in the Go suite. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md, the complete Compose recipe examples/strict-local and the full application example examples/full-stack, which scripts/smoke-containers.sh runs with the built image.",
       "dependencies": [
         "DESIGN-002",
         "DESIGN-004"
@@ -56151,7 +56175,7 @@
         },
         {
           "id": "DESIGN-101-BUILT-IN-APP",
-          "description": "Without trusted_principal, requests without credentials on the trusted listener act as the built-in trusted-app@gcs-mimic.invalid, distinct from local-user@gcs-mimic.invalid and the test signer. It holds roles/storage.admin in the effective seed_project and in every project the buckets document (buckets_file or buckets) names, its top-level project and each entry's: through the trusted listener it reads and writes private buckets there and creates buckets in those projects only, getting 403 elsewhere, while the same requests without credentials on the main listener answer 401; it has no token and no key, objects it writes record it as owner and ACL OWNER, and a presented credential still acts as itself. An explicit trusted_principal is used instead and the built-in identity does not exist; an identity document entry with its ID replaces the implicit grants with its own roles, tokens and ACL entity, and an alias naming it fails startup. Ready reports the effective trusted_principal.",
+          "description": "Without trusted_principal, requests without credentials on the trusted listener act as the built-in trusted-app@gcs-mimic.invalid, distinct from local-user@gcs-mimic.invalid and the test signer. It holds roles/storage.admin in the effective seed_project and in the project of every bucket the buckets document (buckets_file or buckets) creates, each entry's project or else the document's top-level one, which configuration takes from one read and parse of the document that the initializer then validates instead of reading the file again (a document that cannot be read or parsed fails startup there once, with the initializer's diagnostic): through the trusted listener it reads and writes private buckets there and creates buckets in those projects only, getting 403 elsewhere, while the same requests without credentials on the main listener answer 401; it has no token and no key, objects it writes record it as owner and ACL OWNER, and a presented credential still acts as itself. An explicit trusted_principal is used instead and the built-in identity does not exist; an identity document entry with its ID replaces the implicit grants with its own roles, tokens and ACL entity, and an alias naming it fails startup. Ready reports the effective trusted_principal. The implicit role, like the test signer's, is never the explicit roles/storage.admin that directory synchronization controls require: without credentials on the trusted listener they answer 403, as for any caller without that grant, until an identity document entry for trusted-app@gcs-mimic.invalid writes the role.",
           "result": "PASS",
           "test_ids": [
             "the_built_in_app_manages_the_setups_projects_only_on_the_trusted_listener",
@@ -56160,7 +56184,14 @@
             "auth::built_in::tests::every_implicit_role_is_in_the_pinned_snapshot",
             "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
             "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
-            "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity"
+            "auth::built_in::tests::only_a_declared_storage_admin_is_explicit",
+            "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity",
+            "the_trusted_listener_reaches_sync_controls_only_with_a_declared_storage_admin",
+            "config::auth::tests::the_implicit_projects_come_from_the_parse_the_initializer_validates",
+            "bucket_init::tests::a_parsed_document_names_the_projects_of_the_buckets_it_creates",
+            "bucket_init::tests::a_parsed_document_is_validated_without_reading_the_file_again",
+            "bucket_init::tests::an_unparsable_document_fails_like_the_initializer",
+            "a_document_the_built_in_identities_read_first_fails_startup_once"
           ]
         },
         {
@@ -56268,6 +56299,13 @@
         "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
         "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
         "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity",
+        "auth::built_in::tests::only_a_declared_storage_admin_is_explicit",
+        "the_trusted_listener_reaches_sync_controls_only_with_a_declared_storage_admin",
+        "config::auth::tests::the_implicit_projects_come_from_the_parse_the_initializer_validates",
+        "bucket_init::tests::a_parsed_document_names_the_projects_of_the_buckets_it_creates",
+        "bucket_init::tests::a_parsed_document_is_validated_without_reading_the_file_again",
+        "bucket_init::tests::an_unparsable_document_fails_like_the_initializer",
+        "a_document_the_built_in_identities_read_first_fails_startup_once",
         "strict_mode_starts_without_identities_for_the_built_in_app",
         "strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer",
         "config::auth::tests::strict_mode_starts_without_identities_only_for_a_requested_built_in",
@@ -56326,6 +56364,29 @@
             "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
             "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
             "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib auth::; cargo test --locked --test it_sync",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "auth::built_in::tests::only_a_declared_storage_admin_is_explicit",
+            "the_trusted_listener_reaches_sync_controls_only_with_a_declared_storage_admin"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib -- config:: bucket_init; cargo test --locked --test it_import_seed",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": [
+            "config::auth::tests::the_implicit_projects_come_from_the_parse_the_initializer_validates",
+            "bucket_init::tests::a_parsed_document_names_the_projects_of_the_buckets_it_creates",
+            "bucket_init::tests::a_parsed_document_is_validated_without_reading_the_file_again",
+            "bucket_init::tests::an_unparsable_document_fails_like_the_initializer",
+            "a_document_the_built_in_identities_read_first_fails_startup_once"
           ]
         },
         {

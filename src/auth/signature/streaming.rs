@@ -125,9 +125,11 @@ impl Auth {
         let state = Streaming::new(&secret, &prepared);
         // The seed signs the canonical request; the chunk chain starts from the seed signature
         // alone, so a lenient host form does not change how chunks verify.
-        verify::verify_host_forms(self.signed_host_port, &prepared, |message| {
-            hmac::verify(&state.key, message.as_bytes(), &prepared.signature).is_ok()
-        })?;
+        verify::verify_host_forms(
+            self.host_port.for_signature(&prepared),
+            &prepared,
+            |message| hmac::verify(&state.key, message.as_bytes(), &prepared.signature).is_ok(),
+        )?;
         Ok((caller, state))
     }
 }

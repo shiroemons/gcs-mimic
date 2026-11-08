@@ -67,11 +67,13 @@ Public and signed URLs must still use the address reachable by their recipient.
 Go storage drops a non-default port when it signs a URL. The default permissive
 server does not check signatures, so such URLs for `localhost:4443` work there.
 A server that verifies signatures (strict mode, or `GCS_MIMIC_SIGNED_URLS=verify`)
-accepts them while the built-in test signer is enabled, because
-`GCS_MIMIC_SIGNED_HOST_PORT` then defaults to `lenient`. Otherwise it defaults to
-`exact` and rejects them with 403 `SignatureDoesNotMatch`; set `lenient` when
-another key signs such URLs, for example because each worktree publishes its own
-port and a default port is not an option; see [signed URLs](signed-urls.md).
+accepts them from the built-in test signer while it is enabled, because
+`GCS_MIMIC_SIGNED_HOST_PORT` then defaults to `lenient` for that signer's own
+signatures. Every other key, and every signer without the test signer, gets
+`exact`, which rejects such URLs with 403 `SignatureDoesNotMatch`; set `lenient`,
+which covers every signer, when another key signs such URLs, for example because
+each worktree publishes its own port and a default port is not an option; see
+[signed URLs](signed-urls.md).
 
 Set `GCS_MIMIC_API_BASE_URL` to fix one address for every caller. A reverse proxy
 that rewrites Host needs it, because `Forwarded` and `X-Forwarded-*` are ignored.
@@ -116,7 +118,7 @@ notes. "Same as strict" marks behavior that the profile does not change.
 | Authentication | None; every request is allowed | None; credentials are ignored and every request is allowed | Local identities: bearer tokens, self-signed JWTs, signed URLs and HMAC signatures. A request without credentials is anonymous |
 | IAM and ACLs | ACL metadata operations without enforcement; no bucket IAM routes | Stored and returned, never enforced | Predefined roles in project roles and bucket IAM policies are enforced; object ACL `READER` and `OWNER` grants authorize reads |
 | Public and private buckets | No split: every object is served to anyone | No split: every object is served to anyone | Requests without credentials get only `allUsers` grants and otherwise 401; `allAuthenticatedUsers` needs a registered identity |
-| Signed URL verification | Signatures and expiry are not checked | Not checked by default; `GCS_MIMIC_SIGNED_URLS=verify` checks them and still allows every request | Always checked: host, path, query, method, signed headers and expiry. A host without its port, as Go storage signs, passes when the test signer is enabled (`signed_host_port` `lenient`) |
+| Signed URL verification | Signatures and expiry are not checked | Not checked by default; `GCS_MIMIC_SIGNED_URLS=verify` checks them and still allows every request | Always checked: host, path, query, method, signed headers and expiry. A host without its port, as Go storage signs, passes in the enabled test signer's signatures, or in every signer's with `signed_host_port` `lenient` |
 | CORS defaults | One wildcard policy on every route; `-cors-headers` adds allowed request headers | JSON API: fixed defaults. XML and public routes: every origin for buckets without rules (`cors_fallback` `allow-all`); bucket rules apply exactly | JSON API: fixed defaults. XML and public routes: only bucket `cors` rules (`cors_fallback` `none`) |
 | Bucket setup | A seed directory, `-data`, whose top-level directories become buckets | Same as strict | A seed directory at `/data`, as in fake-gcs-server, and a bucket document with CORS, versioning, IAM policy and soft delete per bucket: `GCS_MIMIC_BUCKETS` inline, whose edits reach existing buckets, or `GCS_MIMIC_BUCKETS_FILE` |
 | Soft delete | None: a delete or overwrite frees the bytes | Same as strict | Off by default, as in fake-gcs-server; a bucket policy or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` keeps the bytes for restore |
@@ -493,10 +495,13 @@ their own, and their code stays unchanged:
 Set `GCS_MIMIC_TRUSTED_LISTEN` (`--trusted-listen`, JSON `trusted_listen`) to
 open it. Without `GCS_MIMIC_TRUSTED_PRINCIPAL` (`--trusted-principal`, JSON
 `trusted_principal`), the principal is the built-in `trusted-app@gcs-mimic.invalid`.
-It holds `roles/storage.admin` on every project the bucket document
-(`GCS_MIMIC_BUCKETS` or `GCS_MIMIC_BUCKETS_FILE`) names and on the effective
+It holds `roles/storage.admin` on the project of every bucket the bucket document
+(`GCS_MIMIC_BUCKETS` or `GCS_MIMIC_BUCKETS_FILE`) creates and on the effective
 `seed_project`, so the application's servers can do what a project owner's
 service account does, and strict mode then starts without an identity document.
+These roles are implicit, so they are not the explicit `roles/storage.admin`
+grant that directory synchronization controls require: those answer 403 on the
+trusted listener until the identity document grants it.
 An entry for `trusted-app@gcs-mimic.invalid` in the identity document
 (`GCS_MIMIC_IDENTITIES` or `GCS_MIMIC_IDENTITY_FILE`) replaces those roles. Set
 `GCS_MIMIC_TRUSTED_PRINCIPAL` to act as another identity of the identity document,

@@ -4,7 +4,10 @@
 //! An identity document entry with a built-in's ID replaces it, so an explicit declaration
 //! always wins over the implicit grants.
 
-use super::{Identity, ProjectGrant, Registry, RegistryError, acl_identity, test_signer};
+use super::{
+    GrantSource, Identity, ProjectGrant, Registry, RegistryError, acl_identity, test_signer,
+};
+use crate::config::TrustedCaller;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -13,7 +16,7 @@ use std::{
 /// The trusted listener's application identity. The reserved `.invalid` domain can never name a
 /// real Google account, and the ID differs from the test signer and from the permissive creator
 /// `local-user@gcs-mimic.invalid`.
-pub const TRUSTED_APP_ID: &str = "trusted-app@gcs-mimic.invalid";
+pub(crate) const TRUSTED_APP_ID: &str = "trusted-app@gcs-mimic.invalid";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BuiltIn {
@@ -36,10 +39,10 @@ impl BuiltIn {
     /// public, so it gets the least role that covers signed GET and PUT, overwrites and what
     /// Rails also does (delete, list and metadata updates): `objectUser` administers no IAM
     /// policy or ACL.
-    pub(crate) fn role(self) -> Option<&'static str> {
+    pub(crate) fn role(self) -> &'static str {
         match self {
-            Self::TestSigner => Some("roles/storage.objectUser"),
-            Self::TrustedApp => Some("roles/storage.admin"),
+            Self::TestSigner => "roles/storage.objectUser",
+            Self::TrustedApp => "roles/storage.admin",
         }
     }
 
@@ -55,18 +58,19 @@ impl BuiltIn {
         )
     }
 
-    /// The implicit grants: the role in every project, or none without a role.
+    /// The implicit grants: the role in every project. They carry the role's permissions but no
+    /// explicit `roles/storage.admin`, so they never open sync controls, which the identity
+    /// document alone can grant.
     fn grants(self, projects: &BTreeSet<String>) -> BTreeMap<String, ProjectGrant> {
-        let Some(role) = self.role() else {
-            return BTreeMap::new();
-        };
         // The roles above are in the pinned snapshot, which a unit test proves; a role missing
         // from it would grant nothing rather than something else.
         projects
             .iter()
             .filter_map(|project| {
                 let mut grant = ProjectGrant::default();
-                grant.add_role(role).map(|()| (project.clone(), grant))
+                grant
+                    .add_role(self.role(), GrantSource::Implicit)
+                    .map(|()| (project.clone(), grant))
             })
             .collect()
     }
@@ -100,13 +104,22 @@ impl Registry {
         Ok(index)
     }
 
-    /// Makes requests without credentials on the trusted listener act as the built-in
-    /// application identity, with `roles/storage.admin` in `projects` unless it is declared.
-    pub(super) fn trust_built_in_app(
+    /// Makes requests without credentials on the trusted listener act as `caller`: the identity
+    /// that `trusted_principal` names, or the built-in application identity, with
+    /// `roles/storage.admin` in `projects` unless it is declared. Both are resolved here, after
+    /// the built-in test signer exists, so a name may also be that signer. An unknown name stays
+    /// unresolved, which leaves such requests anonymous; configuration reports it against
+    /// `trusted_principal`, and startup fails.
+    pub(super) fn trust(
         &mut self,
+        caller: &TrustedCaller,
         projects: &BTreeSet<String>,
     ) -> Result<(), RegistryError> {
-        self.trusted = Some(self.add_built_in(BuiltIn::TrustedApp, projects)?);
+        self.trusted = match caller {
+            TrustedCaller::Anonymous => None,
+            TrustedCaller::Named(id) => self.ids.get(id).copied(),
+            TrustedCaller::BuiltIn => Some(self.add_built_in(BuiltIn::TrustedApp, projects)?),
+        };
         Ok(())
     }
 

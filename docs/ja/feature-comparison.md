@@ -68,7 +68,7 @@ soft delete・復元は[SDKスコアカード](../../sdk-scorecard/results/2026-
 | 既定ロールのバケットIAMを強制 | ✅ strict | ❌ | ❌ |
 | `allUsers`と`allAuthenticatedUsers`の読取権限を区別 | ✅ strict | ❌ | ❌ |
 | V4 RSA署名形式のGET・PUTで本体転送 | ✅ | ✅ 検証なし | ✅ 検証なし |
-| V4 RSA署名と期限を検証 | ✅ 0.13.0より新しいリリースでは、permissiveでも`signed_urls=verify`で検証する。組み込みのテスト署名者が有効なときの既定の`signed_host_port=lenient`は、Go storageが署名するポートなしのhostを受け付ける | ❌ | ❌ |
+| V4 RSA署名と期限を検証 | ✅ 0.13.0より新しいリリースでは、permissiveでも`signed_urls=verify`で検証する。`signed_host_port=lenient`は、Go storageが署名するポートなしのhostを受け付ける。既定では、有効にした組み込みのテスト署名者自身の署名だけが対象 | ❌ | ❌ |
 | 鍵の生成・登録なしで使え、エミュレーターが署名を検証する組み込みの署名者 | ✅ 鍵を公開済みの`test-signer@gcs-mimic.invalid`。`gcs-mimic test-signer credentials`がサービスアカウントの鍵ファイルを出力し、`url sign`は既定でこの署名者を使う。strictでは`test_signer=enabled`か、IDに宣言したときに有効。0.13.0より新しいリリースが必要 | ❌ 署名を検証しないため署名者も不要 | ❌ 署名を検証しないため署名者も不要 |
 | ブラウザーは匿名のまま、アプリのサーバーは認証情報なしで使う | 🚧 strictの信頼済みリスナー。公開しないポートで、認証情報のないリクエストを`trusted_principal`（既定は`roles/storage.admin`を持つ組み込みの`trusted-app@gcs-mimic.invalid`）として同じIAM・ACL・公開アクセス防止の判定にかける。ブラウザーからのリクエストと想定外のHostは拒否。構成をブラウザーで動かす確認は未実施（DESIGN-101は`PARTIAL`）。0.13.0より新しいリリースが必要 | ❌ アクセス制御なし。すべて受け付ける | ❌ アクセス制御なし。すべて受け付ける |
 | TLSで待ち受ける | ✅ | ✅ | ❌ |

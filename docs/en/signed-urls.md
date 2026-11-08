@@ -270,19 +270,24 @@ Go storage v1.70.0 omits non-default ports from canonical Host. A server that
 verifies signatures, like the strict journey above, therefore rejects its URLs
 for a host:port endpoint with 403 `SignatureDoesNotMatch`; when a signature
 matches the request only without its port, the message says so and suggests
-`signed_host_port=lenient`, which is already the default wherever the
-[built-in test signer](#built-in-test-signer) is enabled: its published key
-marks a local test, so tolerating a signer that drops the port changes nothing
-that matters there. The default permissive server does not check
+`signed_host_port=lenient`. Without the setting, the enabled
+[built-in test signer](#built-in-test-signer) gets that tolerance for its own
+signatures: its published key already marks a local test, so tolerating a
+signer that drops the port changes nothing that matters there. A registered key
+or an HMAC key still has to sign the port under that default. The default
+permissive server does not check
 signatures, so those URLs work there. Prefer the helper
 for local ports or expose a default-port endpoint. Where that is impractical,
 for example when every worktree publishes a different port, start a server that
 verifies signatures (strict mode, or permissive mode with `signed_urls=verify`;
 elsewhere an explicit `lenient` is a startup error because it would change
 nothing) with `--signed-host-port lenient` (`GCS_MIMIC_SIGNED_HOST_PORT=lenient`,
-JSON `signed_host_port`), or enable the test signer. An explicit `exact` wins
-over that default and is accepted everywhere, and the ready event reports the
-effective value. A V4 signature that does not match the actual Host is then
+JSON `signed_host_port`), which covers every signer, or sign with the test
+signer. An explicit `exact` wins over that default, for the test signer too, and
+is accepted everywhere. The ready event reports the effective value as
+`signed_host_port` (`exact` or `lenient`) and, while it is lenient, whose
+signatures it covers as `signed_host_port_signers`: `all` for the explicit
+setting, `test-signer` for the default. A V4 signature that does not match the actual Host is then
 checked once more with the port removed from the canonical host and accepted
 only if that matches. The host name, method, path, query, signed headers,
 payload rule and time window stay bound, and an IPv6 literal keeps its brackets.
@@ -369,8 +374,8 @@ would promise a verification that never happens. The identity document is
   supplies its tokens, project roles and ACL entity, and the built-in key is
   added to its `public_keys`: an explicit declaration replaces every implicit
   grant. Otherwise it holds `roles/storage.objectUser` in the effective
-  `seed_project` and in every project the buckets document (`buckets_file` or
-  `buckets`) names, and the warning says so. That is the least predefined role
+  `seed_project` and in the project of every bucket the buckets document
+  (`buckets_file` or `buckets`) creates, and the warning says so. That is the least predefined role
   that covers signed GET and PUT, overwrites and what Rails also does (delete,
   list and metadata updates), and it administers no IAM policy or ACL, which
   matters because anyone can sign with the published key. An object it writes
@@ -449,10 +454,10 @@ url, err := storage.SignedURL("my-bucket", "my-object", &storage.SignedURLOption
 Go storage drops a non-default port from the Host it signs, so a URL for
 `localhost:4443` does not match the request's `Host: localhost:4443`. Exact
 verification rejects it with 403 `SignatureDoesNotMatch`, but a server with the
-built-in signer enabled defaults to `signed_host_port=lenient`, which tolerates
-the missing port, so the URL above verifies there unless `signed_host_port=exact`
-is set. Elsewhere, use a default-port endpoint, sign with `gcs-mimic url sign`,
-or set `signed_host_port=lenient`. The Go SDK suite signs this way with the
+built-in signer enabled tolerates the missing port in that signer's signatures
+by default, so the URL above verifies there unless `signed_host_port=exact` is
+set. Elsewhere, and for any other key, use a default-port endpoint, sign with
+`gcs-mimic url sign`, or set `signed_host_port=lenient`. The Go SDK suite signs this way with the
 printed key for a `127.0.0.1` host:port and passes against a strict server with
 the test signer enabled and `signed_host_port=lenient`.
 

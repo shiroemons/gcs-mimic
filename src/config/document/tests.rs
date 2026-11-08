@@ -15,7 +15,7 @@ fn strings(args: &[&str]) -> Vec<String> {
 }
 
 fn inline(text: &str) -> Option<DocumentSource> {
-    Some(DocumentSource::Inline(text.to_owned()))
+    Some(DocumentSource::Inline(text.into()))
 }
 
 #[test]
@@ -323,9 +323,39 @@ fn the_buckets_mode_defaults_by_where_the_document_comes_from() {
     }
 }
 
+/// Validation applies each setting to a copy of the configuration, so a copy must share the
+/// document text instead of copying a buckets document of up to 1 GiB once per setting.
+#[test]
+fn a_configuration_copy_shares_its_inline_documents() {
+    let config = Config::load(
+        &strings(&[
+            "--auth-mode",
+            "strict",
+            "--identities",
+            IDENTITIES,
+            "--buckets",
+            BUCKETS,
+        ]),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let copy = config.clone();
+    for (original, copy) in [
+        (&config.identities, &copy.identities),
+        (&config.buckets, &copy.buckets),
+    ] {
+        let (Some(DocumentSource::Inline(original)), Some(DocumentSource::Inline(copy))) =
+            (original, copy)
+        else {
+            panic!("both documents are inline: {original:?} {copy:?}");
+        };
+        assert!(Arc::ptr_eq(original, copy));
+    }
+}
+
 #[test]
 fn debug_output_never_shows_inline_text() {
-    let source = DocumentSource::Inline(IDENTITIES.to_owned());
+    let source = DocumentSource::Inline(IDENTITIES.into());
     let debug = format!("{source:?}");
     assert!(!debug.contains("secret-token"), "{debug}");
     assert!(debug.contains(&IDENTITIES.len().to_string()), "{debug}");

@@ -251,7 +251,7 @@ Railsには、gcs-mimicに同梱している組み込みのテスト署名者`te
 ```
 
 この場合、strictでもID文書はいりません。
-署名者には、バケット文書のプロジェクトと`GCS_MIMIC_SEED_PROJECT`（既定は`local-project`）に対する`roles/storage.objectUser`が付きます。
+署名者には、バケット文書が作るバケットのプロジェクトと`GCS_MIMIC_SEED_PROJECT`（既定は`local-project`）に対する`roles/storage.objectUser`が付きます。
 このロールで下に挙げたRailsの操作はすべて動きますが、バケットは作れません。そのため、アプリのバケットは手順1のバケット文書で作ります。
 起動時に、署名者の秘密鍵が公開されていることを警告します。
 別のロールを付けるには、`GCS_MIMIC_IDENTITIES`または`GCS_MIMIC_IDENTITY_FILE`に`test-signer@gcs-mimic.invalid`を`project_roles`付きで宣言します。宣言すると、`GCS_MIMIC_TEST_SIGNER`なしでも署名者が有効になります。
@@ -334,7 +334,7 @@ Pumaで動かしたRailsアプリでも、Chromeで確認しました。Railsを
 固定したローカル署名鍵を使い、対応する公開鍵・ID・権限を登録します。
 起動ごとに生成した未登録の鍵ではstrict認証できません。
 鍵を登録する代わりに、[組み込みのテスト署名者（英語）](../en/signed-urls.md#built-in-test-signer)も使えます。
-エミュレーターを`GCS_MIMIC_TEST_SIGNER=enabled`で起動すると、バケット文書が挙げたprojectと`seed_project`では、権限を付けなくてもオブジェクトを読み書きできます。
+エミュレーターを`GCS_MIMIC_TEST_SIGNER=enabled`で起動すると、バケット文書が作るバケットのprojectと`seed_project`では、権限を付けなくてもオブジェクトを読み書きできます。
 ID文書に`test-signer@gcs-mimic.invalid`をプロジェクトロール付きで宣言しても有効になり、その場合はロールを自分で選べます
 （strictではそれ以外は無効で、有効にすると起動時に警告が出ます）。ほかのprojectのバケットには、そのIDにバケットのIAMで権限を付けます。
 `client_email`を`test-signer@gcs-mimic.invalid`に、`private_key`を公開済みの鍵にします。
@@ -363,6 +363,7 @@ GoogleのOAuth発行・検証を再現する機能ではありません。
   0.8.0以降のstrictは、明示した登録済みJWTの範囲だけを受け付けます。
   組み込みのテスト署名者がこの範囲に含まれるのは、ID文書がそれを宣言しているときか、`GCS_MIMIC_TEST_SIGNER=enabled`のときだけです。
   このとき、エミュレーターのログに`auth_self_signed_jwt_rejected`の警告が1回出ます。
+  テスト署名者が無効なまま`test-signer credentials`の鍵で署名したJWTも401になります。このときの警告は、テスト署名者が無効であることと、`GCS_MIMIC_TEST_SIGNER=enabled`で有効にできることを伝えます。
 - googleauthが`googleapis.com`以外で自分でトークンに署名する動作に依存しています。googleauth 1.17.6と1.17.7で確認しました。版を固定し、更新後に確認し直してください。より簡単なエミュレーター設定を追加する[google-cloud-ruby#34023](https://github.com/googleapis/google-cloud-ruby/pull/34023)は、2026-10-30時点で未マージです。
 
 多くのRailsアプリは、開発・テストでDiskサービスを使っています。そのほうが簡単ですが、署名付きURLやCORSなど、Google Cloud Storageの動きは確認できません。

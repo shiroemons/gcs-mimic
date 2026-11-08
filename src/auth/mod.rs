@@ -12,7 +12,7 @@ mod acl_identity;
 pub(crate) use acl_identity::validate_local_creator_email;
 mod built_in;
 pub(crate) use built_in::BuiltIn;
-pub use built_in::TRUSTED_APP_ID;
+pub(crate) use built_in::TRUSTED_APP_ID;
 pub(crate) mod denied;
 pub use denied::Denied;
 mod jwt;
@@ -49,6 +49,8 @@ use std::{
 
 /// The documented 401 body cannot explain JWT setup failures, so log guidance once.
 static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);
+/// A disabled test signer has its own advice, which an earlier general warning must not hide.
+static WARNED_DISABLED_TEST_SIGNER_JWT: AtomicBool = AtomicBool::new(false);
 
 // `untestable` excludes a permission from bucket testIamPermissions, not authorization.
 macro_rules! permissions {
@@ -147,6 +149,17 @@ impl PermissionSet {
     }
 }
 
+/// Who wrote a project role. Local administration such as sync controls requires a
+/// `roles/storage.admin` that an operator wrote in the identity document; a role gcs-mimic gives
+/// a built-in identity on its own grants the same permissions but never that authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GrantSource {
+    /// An identity document entry's `project_roles`.
+    Declared,
+    /// A built-in identity's role in the projects the setup names, absent a declared entry.
+    Implicit,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ProjectGrant {
     permissions: PermissionSet,
@@ -161,7 +174,7 @@ impl ProjectGrant {
     }
 
     /// Adds what the predefined `role` grants; `None` for a role outside the pinned snapshot.
-    fn add_role(&mut self, role: &str) -> Option<()> {
+    fn add_role(&mut self, role: &str, source: GrantSource) -> Option<()> {
         let expanded = roles::permissions(role)?;
         self.any_storage_permission |= !expanded.is_empty();
         for permission in Permission::ALL {
@@ -169,7 +182,10 @@ impl ProjectGrant {
                 self.grant(*permission);
             }
         }
-        self.explicit_storage_admin |= role == "roles/storage.admin";
+        self.explicit_storage_admin |= match source {
+            GrantSource::Declared => role == "roles/storage.admin",
+            GrantSource::Implicit => false,
+        };
         Some(())
     }
 }
@@ -240,7 +256,7 @@ crate::config::string_enum! {
 /// How a profile settles the built-in test signer. Validation selects the rule; only strict
 /// mode's default needs the identity document, so loading settles that one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TestSignerChoice {
+pub(crate) enum TestSignerChoice {
     /// An explicit `test_signer`, or a default that the profile alone decides.
     Fixed(TestSigner),
     /// Strict mode's default: enabled exactly when the identity document declares
@@ -254,7 +270,11 @@ impl TestSignerChoice {
     /// do nothing. Strict mode leaves it to the identity document: anyone can sign with the
     /// published key, so it would turn `allAuthenticatedUsers` grants into public access, and
     /// an entry for its ID says that this local setup asked for it.
-    pub fn select(configured: Option<TestSigner>, mode: AuthMode, signed_urls: SignedUrls) -> Self {
+    pub(crate) fn select(
+        configured: Option<TestSigner>,
+        mode: AuthMode,
+        signed_urls: SignedUrls,
+    ) -> Self {
         match (configured, mode, signed_urls) {
             (Some(signer), _, _) => Self::Fixed(signer),
             (None, AuthMode::Permissive, SignedUrls::Verify) => Self::Fixed(TestSigner::Enabled),
@@ -466,6 +486,8 @@ impl Identity {
         &self.id
     }
 
+    /// Whether the identity document grants `roles/storage.admin` in `project`. A built-in
+    /// identity's implicit role never counts, so only an operator's grant opens sync controls.
     pub(crate) fn has_explicit_storage_admin(&self, project: &str) -> bool {
         self.projects
             .get(project)
@@ -516,26 +538,6 @@ pub(crate) enum ListenerRole {
     /// acts as `trusted_principal`.
     Trusted,
 }
-
-/// Why `trusted_principal` cannot name the identity it was given.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TrustedPrincipalError {
-    /// Only strict mode has registered identities to act as.
-    RequiresStrict,
-    /// No identity has that id: neither the identity file nor the built-in test signer.
-    Unknown,
-}
-
-impl fmt::Display for TrustedPrincipalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::RequiresStrict => "trusted_principal requires auth_mode=strict",
-            Self::Unknown => "trusted_principal is not a registered identity",
-        })
-    }
-}
-
-impl std::error::Error for TrustedPrincipalError {}
 
 /// The resolved strict-mode caller.
 #[derive(Clone, Copy, Debug)]
@@ -662,7 +664,7 @@ impl std::error::Error for RegistryError {
 /// Why the identity document could not be loaded, with the setting that supplied it:
 /// `identity_file` for a file and `identities` for the inline document.
 #[derive(Debug)]
-pub struct IdentityError {
+pub(crate) struct IdentityError {
     /// `None` when strict mode started without a document, with built-in identities only.
     form: Option<Form>,
     source: RegistryError,
@@ -727,6 +729,8 @@ fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryErr
                 crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
             })?,
         DocumentSource::Inline(text) => Cow::Borrowed(text.as_bytes()),
+        // Only a buckets document is parsed ahead, but its text is the document either way.
+        DocumentSource::Parsed(document) => Cow::Borrowed(document.bytes()),
     };
     if u64::try_from(bytes.len()).map_or(true, |length| length > MAX_REGISTRY_BYTES) {
         return Err(RegistryError::TooLarge);
@@ -752,12 +756,7 @@ impl Registry {
                 TestSigner::Enabled => registry.add_test_signer(projects)?,
                 TestSigner::Disabled => {}
             }
-            // A named principal must be registered, which the principal checks after loading
-            // report against the settings; only the built-in one is added here.
-            match trusted {
-                TrustedCaller::BuiltIn => registry.trust_built_in_app(projects)?,
-                TrustedCaller::Anonymous | TrustedCaller::Named(_) => {}
-            }
+            registry.trust(trusted, projects)?;
             Ok((registry, signer))
         };
         load().map_err(|error| IdentityError::new(source, error))
@@ -1079,7 +1078,7 @@ fn parse_project_roles(
             if !names.insert(role) {
                 return Err(error(format!("project {project:?}: duplicate role {role}")));
             }
-            granted.add_role(role).ok_or_else(|| {
+            granted.add_role(role, GrantSource::Declared).ok_or_else(|| {
                 error(format!(
                     "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
                 ))
@@ -1115,8 +1114,8 @@ enum Profile {
 pub struct Auth {
     profile: Profile,
     verifiers: signature::Verifiers,
-    /// Whether V4 verification also accepts a canonical host without the request's port.
-    signed_host_port: signature::SignedHostPort,
+    /// Whose V4 signatures may also verify over a canonical host without the request's port.
+    host_port: signature::HostPortPolicy,
     /// Whether the built-in test signer exists, as loading settled it.
     test_signer: TestSigner,
     /// Permissive mode only: the ACL entity (`user-EMAIL`) recorded as creator of new objects.
@@ -1129,7 +1128,7 @@ impl Default for Auth {
         Self {
             profile: Profile::default(),
             verifiers: signature::Verifiers::default(),
-            signed_host_port: signature::SignedHostPort::default(),
+            host_port: signature::HostPortPolicy::default(),
             test_signer: TestSigner::Disabled,
             local_creator_entity: None,
         }
@@ -1159,7 +1158,7 @@ impl Auth {
     ///
     /// `implicit_projects` are the projects where a built-in identity that the document does not
     /// declare holds its implicit role.
-    pub fn load(
+    pub(crate) fn load(
         profile: &AuthProfile,
         implicit_projects: &BTreeSet<String>,
     ) -> Result<Self, IdentityError> {
@@ -1188,7 +1187,7 @@ impl Auth {
             }
         };
         Ok(Self {
-            signed_host_port: signature::SignedHostPort::resolve(
+            host_port: signature::HostPortPolicy::resolve(
                 verification.signed_host_port,
                 test_signer,
             ),
@@ -1215,10 +1214,10 @@ impl Auth {
             .is_some_and(|registry| registry.declares(id))
     }
 
-    /// Whether V4 verification also accepts a canonical host without the request's port, after
+    /// Whose V4 signatures also verify over a canonical host without the request's port, after
     /// the default that the settled test signer selects.
-    pub fn signed_host_port(&self) -> signature::SignedHostPort {
-        self.signed_host_port
+    pub fn host_port_policy(&self) -> signature::HostPortPolicy {
+        self.host_port
     }
 
     /// Permissive verification with an identity file's keys and the built-in test signer.
@@ -1249,15 +1248,16 @@ impl Auth {
         }
     }
 
-    /// Selects whether V4 verification also accepts a signature whose canonical host omits the
-    /// port that the request Host names; [`Auth::load`] sets it from the configuration.
+    /// Applies an explicit `signed_host_port` to every signer, as [`Auth::load`] does for the
+    /// configured value.
     #[cfg(test)]
     #[must_use]
     pub(crate) fn with_signed_host_port(
         mut self,
         signed_host_port: signature::SignedHostPort,
     ) -> Self {
-        self.signed_host_port = signed_host_port;
+        self.host_port =
+            signature::HostPortPolicy::resolve(Some(signed_host_port), self.test_signer);
         self
     }
 
@@ -1278,19 +1278,13 @@ impl Auth {
         self.local_creator_entity.as_deref()
     }
 
-    /// Makes requests without credentials on the trusted listener act as the registered identity
-    /// `id`, which may be the built-in test signer when it is enabled.
-    pub fn trust_principal(&mut self, id: &str) -> Result<(), TrustedPrincipalError> {
+    /// Points the trusted listener at `caller`, as loading a strict profile does.
+    #[cfg(test)]
+    pub(crate) fn trust(&mut self, caller: &TrustedCaller) {
         let Profile::Strict(registry) = &mut self.profile else {
-            return Err(TrustedPrincipalError::RequiresStrict);
+            panic!("only strict mode has a trusted listener");
         };
-        let index = registry
-            .ids
-            .get(id)
-            .copied()
-            .ok_or(TrustedPrincipalError::Unknown)?;
-        registry.trusted = Some(index);
-        Ok(())
+        registry.trust(caller, &BTreeSet::new()).unwrap();
     }
 
     pub fn mode(&self) -> AuthMode {
@@ -1365,7 +1359,7 @@ impl Auth {
             Presented::Jwt { candidate, warn } => {
                 let identity = candidate.verify(&self.verifiers).await?;
                 if identity.is_none() && warn {
-                    warn_self_signed_jwt();
+                    warn_self_signed_jwt(jwt::Rejection::Unsupported);
                 }
                 identity
             }
@@ -1405,9 +1399,9 @@ impl Auth {
             let warn = looks_like_jwt(token);
             jwt::Candidate::parse(registry, token, clock)
                 .map(|candidate| Presented::Jwt { candidate, warn })
-                .ok_or_else(|| {
+                .map_err(|rejection| {
                     if warn {
-                        warn_self_signed_jwt();
+                        warn_self_signed_jwt(rejection);
                     }
                     AuthFailure::InvalidCredentials
                 })
@@ -1423,14 +1417,28 @@ impl Auth {
     }
 }
 
-fn warn_self_signed_jwt() {
-    if !WARNED_SELF_SIGNED_JWT.swap(true, Ordering::Relaxed) {
+/// Logs the advice for `rejection` once per cause, so an earlier unrelated rejection cannot hide
+/// the disabled test signer. The message never includes the token.
+fn warn_self_signed_jwt(rejection: jwt::Rejection) {
+    let (warned, message): (_, Cow<'static, str>) = match rejection {
+        jwt::Rejection::Unsupported => (
+            &WARNED_SELF_SIGNED_JWT,
+            "strict authentication rejected a self-signed JWT; register its issuer and RSA public_keys in the identity file, use RS256 with matching issuer/subject, devstorage.full_control scope, no audience and a valid lifetime of at most one hour; the permissive profile remains available for unauthenticated local clients".into(),
+        ),
+        jwt::Rejection::DisabledTestSigner => (
+            &WARNED_DISABLED_TEST_SIGNER_JWT,
+            format!(
+                "strict authentication rejected a self-signed JWT from the built-in test signer {} because the test signer is disabled; set GCS_MIMIC_TEST_SIGNER=enabled (--test-signer enabled) to accept the key that gcs-mimic test-signer credentials prints",
+                test_signer::ID
+            )
+            .into(),
+        ),
+    };
+    if !warned.swap(true, Ordering::Relaxed) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
             "auth_self_signed_jwt_rejected",
-            serde_json::json!({
-                "message": "strict authentication rejected a self-signed JWT; register its issuer and RSA public_keys in the identity file, use RS256 with matching issuer/subject, devstorage.full_control scope, no audience and a valid lifetime of at most one hour; the permissive profile remains available for unauthenticated local clients",
-            }),
+            serde_json::json!({ "message": message }),
         );
     }
 }
@@ -2218,11 +2226,14 @@ mod tests {
             id(auth.authenticate_on(trusted, &headers(&[]), None).await),
             Ok(None)
         );
+        // An unknown name stays unresolved, so requests stay anonymous; configuration reports it.
+        auth.trust(&TrustedCaller::Named("missing@example.invalid".into()));
+        assert_eq!(auth.trusted_principal(), None);
         assert_eq!(
-            auth.trust_principal("missing@example.invalid"),
-            Err(TrustedPrincipalError::Unknown)
+            id(auth.authenticate_on(trusted, &headers(&[]), None).await),
+            Ok(None)
         );
-        auth.trust_principal("app@example.invalid").unwrap();
+        auth.trust(&TrustedCaller::Named("app@example.invalid".into()));
         assert_eq!(
             id(auth.authenticate_on(trusted, &headers(&[]), None).await),
             Ok(Some("app@example.invalid".into()))
@@ -2252,14 +2263,10 @@ mod tests {
                 "{values:?} {query:?}"
             );
         }
-        auth.trust_principal(test_signer::ID).unwrap();
+        auth.trust(&TrustedCaller::Named(test_signer::ID.into()));
         assert_eq!(
             id(auth.authenticate_on(trusted, &headers(&[]), None).await),
             Ok(Some(test_signer::ID.into()))
-        );
-        assert_eq!(
-            Auth::permissive().trust_principal("app@example.invalid"),
-            Err(TrustedPrincipalError::RequiresStrict)
         );
     }
 
@@ -2376,7 +2383,7 @@ mod tests {
             std::fs::write(&path, &document).unwrap();
             for (source, setting) in [
                 (DocumentSource::File(path), "identity_file: "),
-                (DocumentSource::Inline(document), "identities: "),
+                (DocumentSource::Inline(document.into()), "identities: "),
             ] {
                 let error = Registry::load_principals(
                     Some(&source),
@@ -2490,7 +2497,7 @@ mod tests {
         let file = DocumentSource::File(path.clone());
         assert_eq!(load(&file).unwrap().len(), 1);
         assert_eq!(
-            load(&DocumentSource::Inline(document.clone()))
+            load(&DocumentSource::Inline(document.as_str().into()))
                 .unwrap()
                 .len(),
             1
@@ -2502,7 +2509,7 @@ mod tests {
             "identity_file exceeds 16 MiB"
         );
         assert_eq!(
-            load(&DocumentSource::Inline(document))
+            load(&DocumentSource::Inline(document.into()))
                 .unwrap_err()
                 .to_string(),
             "identities exceeds 16 MiB"

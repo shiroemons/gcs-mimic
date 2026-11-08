@@ -151,7 +151,8 @@ trusted_endpoint=
 # or host port setting. The built-in trusted-app@gcs-mimic.invalid then acts for requests without
 # credentials on the trusted listener with roles/storage.admin, and the test signer holds
 # roles/storage.objectUser, both on the default seed project local-project, which the Go suite
-# uses; and signed_host_port defaults to lenient. Unlike start_server it fixes no API base URL,
+# uses; and signed_host_port defaults to lenient for the test signer's own signatures, which ready
+# reports as signed_host_port_signers test-signer. Unlike start_server it fixes no API base URL,
 # because links must follow each request's Host for a resumable session started on the trusted
 # listener to continue there, and it opens no gRPC listener. The trusted listener binds port 0, so
 # only its ready event reports the address.
@@ -172,9 +173,9 @@ start_local_strict_server() {
   # A server that ignored a setting or that did not apply the recipe's defaults must not pass as
   # the local-development server.
   trusted=$(jq -Rr \
-    'fromjson? | select(.event == "ready" and .identities == 0 and .trusted_principal == "trusted-app@gcs-mimic.invalid" and .test_signer == "enabled" and .signed_host_port == "lenient") | .trusted_listen // empty' \
+    'fromjson? | select(.event == "ready" and .identities == 0 and .trusted_principal == "trusted-app@gcs-mimic.invalid" and .test_signer == "enabled" and .signed_host_port == "lenient" and .signed_host_port_signers == "test-signer") | .trusted_listen // empty' \
     "$work/local-strict-server.log")
-  if [[ ! $trusted =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Ready event lacks the trusted listener, the built-in trusted principal, the test signer or the lenient host port, or names identities' >&2; exit 1; fi
+  if [[ ! $trusted =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo "Ready event lacks the trusted listener, the built-in trusted principal, the test signer or the test signer's lenient host port, or names identities" >&2; exit 1; fi
   # The trusted listener speaks plain HTTP whatever the scheme.
   trusted_endpoint="http://$trusted"
   if ! "$server" healthcheck --url "$trusted_endpoint/_internal/ready" >/dev/null 2>&1; then

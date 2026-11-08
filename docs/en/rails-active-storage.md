@@ -286,8 +286,8 @@ Add two settings to the `gcs` service of step 1 or step 4:
 ```
 
 Strict mode needs no identity document here. The signer gets
-`roles/storage.objectUser` on the projects of the bucket document and on
-`GCS_MIMIC_SEED_PROJECT` (`local-project` by default). That role covers every
+`roles/storage.objectUser` on the projects of the bucket document's buckets and
+on `GCS_MIMIC_SEED_PROJECT` (`local-project` by default). That role covers every
 Rails operation below, but it cannot create buckets, so the app's buckets come
 from the bucket document of step 1. Startup warns that the signer's private key
 is published. For other roles, declare `test-signer@gcs-mimic.invalid` with its
@@ -395,8 +395,9 @@ generated at each boot cannot authenticate to that strict registry. Instead of
 registering a key, you can use the
 [built-in test signer](signed-urls.md#built-in-test-signer): start the emulator
 with `GCS_MIMIC_TEST_SIGNER=enabled`, and the signer reads and writes objects in
-the buckets document's projects and `seed_project` without a grant, or declare
-`test-signer@gcs-mimic.invalid` with project roles in the identity document,
+the projects of the buckets document's buckets and `seed_project` without a
+grant, or declare `test-signer@gcs-mimic.invalid` with project roles in the
+identity document,
 which also enables it (strict mode leaves it disabled otherwise and warns at
 startup when it is enabled). A bucket in another project needs bucket IAM for
 it. Set
@@ -437,7 +438,10 @@ Limits of the recipe:
   the emulator log shows one `auth_self_signed_jwt_rejected` warning. Strict
   mode accepts only the documented registered JWT subset described above, which
   includes the built-in test signer only when the identity document declares it
-  or `GCS_MIMIC_TEST_SIGNER=enabled`.
+  or `GCS_MIMIC_TEST_SIGNER=enabled`. A JWT signed with the
+  `test-signer credentials` key while the signer is disabled also gets the 401,
+  and the warning then says that the test signer is disabled and that
+  `GCS_MIMIC_TEST_SIGNER=enabled` turns it on.
 - The recipe relies on googleauth signing its own token outside
   `googleapis.com`. Checked with googleauth 1.17.6 and 1.17.7; pin your
   versions and recheck after upgrades.

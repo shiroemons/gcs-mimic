@@ -58,10 +58,10 @@ placement. A header-list setting is also absent: `allow-all` already allows
 every syntactically valid requested header, a superset of the source list.
 
 `FAKE_GCS_CORS_HEADERS` and `-cors-headers` stay rejected at startup. The
-advice starts with removal, because JSON-only callers need nothing else and
-`allow-all` departs from Cloud Storage; only callers whose browsers read
-XML/public URLs of buckets without stored rules are told to also set
-`GCS_MIMIC_CORS_FALLBACK=allow-all`. The supplied header names are not echoed.
+advice is to remove them and names no replacement: permissive mode already
+falls back to `allow-all`, strict mode follows each bucket's `cors` rules as
+Cloud Storage does, and JSON preflight already allows every valid requested
+header. The supplied header names are not echoed.
 
 ## Allow-all behavior
 
